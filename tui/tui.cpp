@@ -45,9 +45,15 @@ public:
                "Enter send  PgUp/PgDn scroll  Ctrl-C quit");
         draw_input("");
 
+        // Wake once a second even without input so the status-bar clock ticks.
+        // This is a blocking poll with a 1s timeout, not a busy loop: idle CPU
+        // is one wakeup per second (negligible).
+        timeout(1000);
+
         std::string input;
         while (true) {
             int ch = getch();
+            if (ch == ERR) { tick_clock(); draw_input(input); continue; }
             if (ch == KEY_F(1)) { help_screen(); redraw(input); continue; }
             if (ch == KEY_F(2)) { config_screen(); redraw(input); continue; }
             if (ch == KEY_F(10)) { settings_screen(); redraw(input); continue; }
@@ -272,12 +278,43 @@ private:
             attroff(COLOR_PAIR(color) | (dim ? A_DIM : 0));
         }
 
-        attron(COLOR_PAIR(P_BANNER));
-        mvhline(height() - 2, 0, ' ', width());
         std::string st = " lines:" + std::to_string(total) +
                          " top:" + std::to_string(start + 1);
-        mvaddnstr(height() - 2, 0, st.c_str(), width());
+        draw_status_bar(st);
+        refresh();
+    }
+
+    // Render the blue status bar with left-aligned info and an IRC-style clock
+    // pinned to the right. Cheap enough to call once a second for a live tick.
+    void draw_status_bar(const std::string& left) {
+        int w = width();
+        int y = height() - 2;
+        std::time_t t = std::time(nullptr);
+        std::tm tm{};
+        localtime_r(&t, &tm);
+        char clk[16];
+        std::strftime(clk, sizeof(clk), "[%H:%M:%S]", &tm);
+        std::string clock = clk;
+
+        attron(COLOR_PAIR(P_BANNER));
+        mvhline(y, 0, ' ', w);
+        mvaddnstr(y, 0, left.c_str(),
+                  std::max(0, w - static_cast<int>(clock.size()) - 1));
+        if (static_cast<int>(clock.size()) < w)
+            mvaddnstr(y, w - static_cast<int>(clock.size()), clock.c_str(),
+                      static_cast<int>(clock.size()));
         attroff(COLOR_PAIR(P_BANNER));
+    }
+
+    // Update only the status bar (for the once-per-second clock tick) without
+    // rebuilding the whole scrollback view.
+    void tick_clock() {
+        int total = static_cast<int>(lines_.size());
+        if (!stream_buf_.empty()) total += stream_lines();
+        int start = std::min(scroll_top_,
+                             std::max(0, total - (height() - 2)));
+        draw_status_bar(" lines:" + std::to_string(total) +
+                        " top:" + std::to_string(start + 1));
         refresh();
     }
 
