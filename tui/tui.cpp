@@ -3,6 +3,7 @@
 #include "widgets.h"
 
 #include <algorithm>
+#include <ctime>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -152,9 +153,33 @@ private:
         return out;
     }
 
+    // IRC (BitchX/ircII) style local timestamp, e.g. "[23:04] ".
+    static std::string timestamp() {
+        std::time_t t = std::time(nullptr);
+        std::tm tm{};
+        localtime_r(&t, &tm);
+        char buf[16];
+        std::strftime(buf, sizeof(buf), "[%H:%M] ", &tm);
+        return buf;
+    }
+
+    // Commit a chat message prefixed with an IRC-style timestamp. The stamp is
+    // shown once on the first line; wrapped continuation lines are indented to
+    // align under the text, matching ircII/BitchX behaviour.
     void append_line(int color, const std::string& text) {
-        for (auto& l : wrap_text(text, width()))
-            lines_.push_back({color, l});
+        append_line_ts(color, text, timestamp());
+    }
+
+    // As append_line, but with a caller-supplied timestamp so a streamed reply
+    // commits under the same stamp it was shown with while streaming.
+    void append_line_ts(int color, const std::string& text,
+                        const std::string& ts) {
+        const std::string pad(ts.size(), ' ');
+        int avail = std::max(1, width() - static_cast<int>(ts.size()));
+        auto wrapped = wrap_text(text, avail);
+        if (wrapped.empty()) wrapped.push_back("");
+        for (size_t i = 0; i < wrapped.size(); ++i)
+            lines_.push_back({color, (i == 0 ? ts : pad) + wrapped[i]});
         if (lines_.size() > 10000)
             lines_.erase(lines_.begin(), lines_.begin() + 5000);
         scroll_top_ = max_scroll();
@@ -173,14 +198,21 @@ private:
         // streaming buffer wrapped to the current width. The stream buffer is
         // rendered in place and only committed once complete.
         std::vector<std::pair<int, std::string>> pending;
+        const std::string ts = stream_ts_.empty() ? timestamp() : stream_ts_;
+        const std::string pad(ts.size(), ' ');
+        int avail = std::max(1, width() - static_cast<int>(ts.size()));
+        auto push_wrapped = [&](int color, const std::string& body) {
+            auto ls = wrap_text(body, avail);
+            for (size_t i = 0; i < ls.size(); ++i)
+                pending.push_back({color, (i == 0 ? ts : pad) + ls[i]});
+        };
         if (show_reasoning_ && !reason_folded_ && !reason_buf_.empty()) {
-            pending.push_back({P_REASONING, "thinking..."});
-            for (auto& l : wrap_text(reason_buf_, width()))
-                pending.push_back({P_REASONING, l});
+            pending.push_back({P_REASONING, ts + "thinking..."});
+            for (auto& l : wrap_text(reason_buf_, avail))
+                pending.push_back({P_REASONING, pad + l});
         }
         if (!stream_buf_.empty())
-            for (auto& l : wrap_text(stream_buf_, width()))
-                pending.push_back({stream_color_, l});
+            push_wrapped(stream_color_, stream_buf_);
 
         int total = static_cast<int>(lines_.size() + pending.size());
         int max_top = std::max(0, total - view_h);
@@ -224,6 +256,7 @@ private:
         reason_buf_.clear();
         reason_folded_ = false;
         show_reasoning_ = cfg_.show_reasoning;
+        stream_ts_ = timestamp();   // stamp the reply the moment it starts
         hooks.on_reasoning = [this](const std::string& d) {
             // Live thinking: accumulate and render dim, above the answer.
             reason_buf_ += d;
@@ -274,8 +307,9 @@ private:
         if (reason_buf_.empty()) return;
         size_t words = 1;
         for (char ch : reason_buf_) if (ch == ' ') ++words;
-        append_line(P_REASONING,
-                    "[thought for " + std::to_string(words) + " words]");
+        append_line_ts(P_REASONING,
+                       "[thought for " + std::to_string(words) + " words]",
+                       stream_ts_.empty() ? timestamp() : stream_ts_);
         reason_buf_.clear();
     }
 
@@ -283,8 +317,10 @@ private:
         // If we finished on pure thinking (no answer streamed), still fold it.
         if (!reason_folded_ && !reason_buf_.empty()) fold_reasoning();
         if (stream_buf_.empty()) return;
-        append_line(stream_color_, stream_buf_);
+        append_line_ts(stream_color_, stream_buf_,
+                       stream_ts_.empty() ? timestamp() : stream_ts_);
         stream_buf_.clear();
+        stream_ts_.clear();
         draw();
     }
 
@@ -360,6 +396,7 @@ private:
     int scroll_top_ = 0;
     std::string stream_buf_;
     int stream_color_ = P_ASSISTANT;
+    std::string stream_ts_;         // timestamp captured when a reply begins
     std::string reason_buf_;        // live thinking text, before folding
     bool reason_folded_ = false;    // collapsed to a summary line yet?
     bool show_reasoning_ = true;    // toggle live thinking display
