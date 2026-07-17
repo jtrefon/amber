@@ -390,6 +390,7 @@ void Tui::run() {
                 continue;
             }
             if (agent_busy_.load()) continue;
+            ensure_chat_window();
             input.clear();
             draw();
             send_async(prompt);
