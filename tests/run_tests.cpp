@@ -218,6 +218,91 @@ TEST(config_missing_file_is_noop) {
     ASSERT_EQ(c.model, "keep");
 }
 
+// Regression: a saved config with a blank model / zero context must NOT mark
+// those values explicit, otherwise startup auto-detection is permanently
+// disabled and the server's real model/provider gets overwritten by defaults.
+TEST(config_blank_model_and_zero_context_stay_auto) {
+    std::string path = "/tmp/amber_auto_test.conf";
+    {
+        std::ofstream f(path);
+        f << "api_base=http://localhost:8080/v1\n";
+        f << "model=\n";            // blank => auto-detect
+        f << "context_size=0\n";    // zero  => auto-detect
+    }
+    agent::Config c;
+    c.load(path);
+    ASSERT_TRUE(c.model.empty());
+    ASSERT_FALSE(c.model_explicit);
+    ASSERT_EQ(c.context_size, 0);
+    ASSERT_FALSE(c.context_explicit);
+    std::remove(path.c_str());
+}
+
+// An explicit (non-blank / positive) config still wins over auto-detection.
+TEST(config_explicit_model_and_context_are_flagged) {
+    std::string path = "/tmp/amber_explicit_test.conf";
+    {
+        std::ofstream f(path);
+        f << "model=my-model\n";
+        f << "context_size=16384\n";
+    }
+    agent::Config c;
+    c.load(path);
+    ASSERT_EQ(c.model, "my-model");
+    ASSERT_TRUE(c.model_explicit);
+    ASSERT_EQ(c.context_size, 16384);
+    ASSERT_TRUE(c.context_explicit);
+    std::remove(path.c_str());
+}
+
+// Regression guard for the actual save path (Config::save, used by the TUI F10
+// "save settings"). Auto-detected model/context must be written as sentinels so
+// a reload re-enables auto-detection instead of pinning the probed value. This
+// exercises the real serializer, not a hand-written file.
+TEST(config_save_preserves_autodetect_intent) {
+    std::string path = "/tmp/amber_save_auto.conf";
+    agent::Config src;
+    src.api_base = "http://localhost:8081/v1";
+    src.api_key = "";
+    // Simulate a probe having filled these, WITHOUT the user setting them.
+    src.model = "qwen-probed";  src.model_explicit = false;
+    src.context_size = 8192;    src.context_explicit = false;
+    ASSERT_TRUE(src.save(path));
+
+    agent::Config back;
+    back.load(path);
+    ASSERT_EQ(back.api_base, "http://localhost:8081/v1");
+    ASSERT_TRUE(back.model.empty());       // sentinel, not the probed value
+    ASSERT_FALSE(back.model_explicit);     // auto-detect stays enabled
+    ASSERT_EQ(back.context_size, 0);       // sentinel, not 8192
+    ASSERT_FALSE(back.context_explicit);
+    std::remove(path.c_str());
+}
+
+// The mirror case: user-set model/context must survive save->load as explicit.
+TEST(config_save_preserves_explicit_values) {
+    std::string path = "/tmp/amber_save_explicit.conf";
+    agent::Config src;
+    src.model = "my-model";   src.model_explicit = true;
+    src.context_size = 32768; src.context_explicit = true;
+    ASSERT_TRUE(src.save(path));
+
+    agent::Config back;
+    back.load(path);
+    ASSERT_EQ(back.model, "my-model");
+    ASSERT_TRUE(back.model_explicit);
+    ASSERT_EQ(back.context_size, 32768);
+    ASSERT_TRUE(back.context_explicit);
+    std::remove(path.c_str());
+}
+
+// Context size defaults to 0 (auto) so the gauge hides and probing is allowed.
+TEST(config_context_default_is_auto) {
+    agent::Config c;
+    ASSERT_EQ(c.context_size, 0);
+    ASSERT_FALSE(c.context_explicit);
+}
+
 // ---------------------------------------------------------------------------
 // Tool registry
 // ---------------------------------------------------------------------------
@@ -510,6 +595,49 @@ TEST(probe_parse_models_malformed_is_not_ok) {
     ASSERT_FALSE(agent::LLMClient::parse_models("not json").ok);
     ASSERT_FALSE(agent::LLMClient::parse_models("{}").ok);
     ASSERT_FALSE(agent::LLMClient::parse_models(R"({"data":[]})").ok);
+}
+
+// The auto-detect merge policy: probe results fill only fields the user left on
+// auto; explicit values are never overwritten. Network-free (merge_server_info).
+TEST(autodetect_fills_only_auto_fields) {
+    agent::ServerInfo info;
+    info.ok = true;
+    info.model = "server-model";
+    info.context_size = 262144;
+
+    // Both auto -> both filled.
+    agent::Config a;  // defaults: model_explicit=false, context_explicit=false
+    agent::merge_server_info(a, info);
+    ASSERT_EQ(a.model, "server-model");
+    ASSERT_EQ(a.context_size, 262144);
+
+    // Both explicit -> untouched.
+    agent::Config b;
+    b.model = "user-model";   b.model_explicit = true;
+    b.context_size = 4096;    b.context_explicit = true;
+    agent::merge_server_info(b, info);
+    ASSERT_EQ(b.model, "user-model");
+    ASSERT_EQ(b.context_size, 4096);
+
+    // Mixed -> only the auto one changes.
+    agent::Config c;
+    c.model = "user-model";   c.model_explicit = true;   // pinned
+    c.context_size = 0;       c.context_explicit = false; // auto
+    agent::merge_server_info(c, info);
+    ASSERT_EQ(c.model, "user-model");
+    ASSERT_EQ(c.context_size, 262144);
+}
+
+// An unreachable / not-ok probe must never mutate the config.
+TEST(autodetect_noop_when_server_down) {
+    agent::ServerInfo down;  // ok defaults to false
+    down.model = "ghost";
+    down.context_size = 999;
+    agent::Config c;
+    c.model = "keep";  // auto, but server is down
+    agent::merge_server_info(c, down);
+    ASSERT_EQ(c.model, "keep");
+    ASSERT_EQ(c.context_size, 0);
 }
 
 // ---------------------------------------------------------------------------

@@ -92,10 +92,16 @@ private:
     static size_t write_cb(void* ptr, size_t size, size_t nmemb, void* user);
 };
 
+// Merge probed server info into a Config, filling ONLY values the user did not
+// set explicitly (model_explicit / context_explicit). Pure and network-free so
+// the auto-detect policy can be unit-tested. A non-ok / empty info is a no-op.
+void merge_server_info(Config& cfg, const ServerInfo& info);
+
 // Probe the configured server and fill in any auto-detectable Config values
 // (model, context_size) that were NOT set explicitly by the user. Returns the
 // ServerInfo probed (ok == false if the server was unreachable). Safe to call
-// once at startup; never throws.
+// once at startup; never throws. Delegates the merge policy to
+// merge_server_info().
 ServerInfo apply_server_autodetect(Config& cfg);
 
 } // namespace agent

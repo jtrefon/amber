@@ -38,10 +38,10 @@ struct Config {
     bool show_reasoning = true;          // render thinking live in the UI
 
     // Model context window (n_ctx) in tokens. Used by UIs to render a
-    // context-usage gauge (prompt_tokens vs this). May be auto-detected from the
-    // server's /v1/models endpoint on startup. <=0 hides the gauge.
-    // Env: AMBER_CONTEXT.
-    int context_size = 8192;
+    // context-usage gauge (prompt_tokens vs this). Auto-detected from the
+    // server's /v1/models endpoint on startup unless set explicitly. <=0 means
+    // "unknown / auto" and hides the gauge. Env: AMBER_CONTEXT.
+    int context_size = 0;
 
     // Set true when model / context_size were provided explicitly (config file,
     // env, or CLI flag). Startup auto-detection only fills values that were NOT
@@ -68,6 +68,14 @@ struct Config {
     // (AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL, ...).
     void load(const std::string& path);
     void apply_environment();
+
+    // Persist the user-facing settings to a KEY=VALUE file (round-trips with
+    // load()). Crucially it writes *intent*, not resolved values: when a value
+    // was auto-detected rather than set by the user (model_explicit /
+    // context_explicit are false) it emits the auto sentinels (blank model,
+    // context_size=0) so a later load() re-enables auto-detection instead of
+    // pinning the last probed value. Returns false if the file can't be written.
+    bool save(const std::string& path) const;
 
     // Validate the resolved configuration. Returns a list of human-readable
     // problems; an empty vector means the config is usable. UIs decide how to

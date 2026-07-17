@@ -491,16 +491,20 @@ Message LLMClient::chat_stream(
     return out;
 }
 
-ServerInfo apply_server_autodetect(Config& cfg) {
-    LLMClient client(cfg);
-    ServerInfo info = client.probe_server();
-    if (!info.ok) return info;
+void merge_server_info(Config& cfg, const ServerInfo& info) {
+    if (!info.ok) return;
     if (!cfg.model_explicit && !info.model.empty()) {
         cfg.model = info.model;
     }
     if (!cfg.context_explicit && info.context_size > 0) {
         cfg.context_size = info.context_size;
     }
+}
+
+ServerInfo apply_server_autodetect(Config& cfg) {
+    LLMClient client(cfg);
+    ServerInfo info = client.probe_server();
+    merge_server_info(cfg, info);
     return info;
 }
 

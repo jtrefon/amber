@@ -22,7 +22,12 @@ void Config::load(const std::string& path) {
             val = val.substr(1, val.size() - 2);
         if (key == "api_base") api_base = val;
         else if (key == "api_key") api_key = val;
-        else if (key == "model") { model = val; model_explicit = true; }
+        else if (key == "model") {
+            // An empty model in the config means "auto-detect from the server";
+            // do not treat it as an explicit choice (that would disable probing).
+            model = val;
+            model_explicit = !val.empty();
+        }
         else if (key == "system_prompt") system_prompt_path = val;
         else if (key == "tools_prompt") tools_prompt_path = val;
         else if (key == "max_tool_iterations") max_tool_iterations = std::stoi(val);
@@ -32,8 +37,10 @@ void Config::load(const std::string& path) {
         else if (key == "thinking") thinking = val;
         else if (key == "thinking_budget") thinking_budget = std::stoi(val);
         else if (key == "context_size") {
+            // 0 (or negative) means "auto-detect"; only a positive value counts
+            // as an explicit override that suppresses server probing.
             context_size = std::stoi(val);
-            context_explicit = true;
+            context_explicit = context_size > 0;
         }
         else if (key == "log_path") log_path = val;
         else if (key == "debug_log") debug_log = val;
@@ -41,6 +48,22 @@ void Config::load(const std::string& path) {
         else if (key == "show_reasoning")
             show_reasoning = (val == "1" || val == "true" || val == "yes");
     }
+}
+
+bool Config::save(const std::string& path) const {
+    std::ofstream f(path, std::ios::trunc);
+    if (!f) return false;
+    f << "# amber settings\n";
+    f << "api_base=" << api_base << "\n";
+    f << "api_key=" << api_key << "\n";
+    // Persist intent, not the auto-detected value: only write a concrete model /
+    // context_size when the user set one explicitly. Otherwise write the
+    // sentinels (empty / 0) so the next load() auto-detects again.
+    f << "model=" << (model_explicit ? model : "") << "\n";
+    f << "context_size=" << (context_explicit ? context_size : 0) << "\n";
+    f << "system_prompt=" << system_prompt_path << "\n";
+    f << "tools_prompt=" << tools_prompt_path << "\n";
+    return static_cast<bool>(f);
 }
 
 void Config::apply_environment() {

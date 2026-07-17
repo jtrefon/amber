@@ -53,19 +53,20 @@ int main(int argc, char** argv) {
     if (!config_file.empty()) cfg.load(config_file);
     cfg.apply_environment();
 
-    if (auto errs = cfg.validate(); !errs.empty()) {
-        std::cerr << "error: invalid configuration:\n";
-        for (const auto& e : errs) std::cerr << "  - " << e << "\n";
-        return 2;
-    }
-
-    // Auto-detect model / context window from the server, filling only values
-    // the user did not set explicitly.
+    // Auto-detect model / context window from the server first, filling only
+    // values the user did not set explicitly. Done before validation so a blank
+    // (auto) model can be resolved from the server rather than failing.
     {
         agent::ServerInfo info = agent::apply_server_autodetect(cfg);
         if (info.ok)
             std::cerr << "[server] model=" << cfg.model
                       << " n_ctx=" << cfg.context_size << "\n";
+    }
+
+    if (auto errs = cfg.validate(); !errs.empty()) {
+        std::cerr << "error: invalid configuration:\n";
+        for (const auto& e : errs) std::cerr << "  - " << e << "\n";
+        return 2;
     }
 
     if (prompt.empty()) {
