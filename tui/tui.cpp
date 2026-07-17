@@ -161,6 +161,13 @@ bool Tui::drain_events() {
 
 void Tui::send_async(const std::string& prompt) {
     if (agent_busy_.load()) return;
+
+    // If the previous agent thread has finished but wasn't joined (because
+    // agent_busy_ went false before the thread handle was cleaned up), join
+    // it now so the next std::thread assignment doesn't call terminate().
+    if (agent_thread_.joinable())
+        agent_thread_.join();
+
     agent_busy_.store(true);
     agent_cancel_.store(false);
 
