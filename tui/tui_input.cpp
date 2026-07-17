@@ -110,17 +110,29 @@ void Tui::toggle_thinking() {
     draw();
 }
 
-void Tui::cmd_mode(const std::string& arg) {
-    if (arg == "read") cfg_.mode = agent::AgentMode::Read;
-    else if (arg == "write") cfg_.mode = agent::AgentMode::Write;
-    else if (arg == "yolo") cfg_.mode = agent::AgentMode::Yolo;
-    else {
-        append_line(P_STATUS, "usage: /mode read|write|yolo");
+void Tui::cmd_policy(const std::string& arg) {
+    auto set_mode = [&](agent::AgentMode m) {
+        cfg_.mode = m;
+        std::vector<const char*> labels = {"read", "write", "yolo"};
+        const char* l = labels[static_cast<int>(m)];
+        append_line(P_STATUS, std::string("policy set to ") + l);
+        draw();
+    };
+
+    if (arg.empty()) {
+        std::vector<std::string> choices = {"read  (observation only, safe)",
+                                            "write (all tools, approval gated)",
+                                            "yolo  (all tools, auto-approve)"};
+        int sel = menu_select("Select policy", choices);
+        if (sel >= 0 && sel <= 2)
+            set_mode(static_cast<agent::AgentMode>(sel));
         return;
     }
-    std::string label = (arg == "read" ? "read" : arg == "write" ? "write" : "yolo");
-    append_line(P_STATUS, "mode: " + label);
-    draw();
+
+    if (arg == "read")      set_mode(agent::AgentMode::Read);
+    else if (arg == "write") set_mode(agent::AgentMode::Write);
+    else if (arg == "yolo")  set_mode(agent::AgentMode::Yolo);
+    else append_line(P_STATUS, "usage: /policy read|write|yolo");
 }
 
 const std::vector<Command>& Tui::commands() {
@@ -142,9 +154,9 @@ void Tui::build_commands() {
         {"think", {"reasoning"}, "",
          "toggle live thinking/reasoning display",
          [this](const std::string&) { toggle_thinking(); }},
-        {"mode", {}, "read|write|yolo",
-         "set agent mode: read (safe), write (normal), yolo (trusted)",
-         [this](const std::string& a) { cmd_mode(a); }},
+        {"policy", {"mode"}, "read|write|yolo",
+         "set agent policy: read (safe), write (normal), yolo (trusted)",
+         [this](const std::string& a) { cmd_policy(a); }},
         {"new", {}, "",
          "open a new chat window",
          [this](const std::string&) { new_window("chat"); draw(); }},

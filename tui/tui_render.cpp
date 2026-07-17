@@ -85,13 +85,22 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     segs.push_back({wtag, P_BANNER, 3});
     segs.push_back({" [" + cfg_.model + "]", P_BANNER, 5});
 
-    // Agent mode tag: [R], [W], [Y]
+    // Agent mode label with full words and colour coding.
     std::string mode_txt;
     int mode_pair = P_BAR_DIM;
     switch (cfg_.mode) {
-        case agent::AgentMode::Read:  mode_txt = " [R]"; mode_pair = P_GAUGE_OK; break;
-        case agent::AgentMode::Write: mode_txt = " [W]"; mode_pair = P_BANNER; break;
-        case agent::AgentMode::Yolo:  mode_txt = " [Y]"; mode_pair = P_GAUGE_CRIT; break;
+        case agent::AgentMode::Read:
+            mode_txt = " read ";
+            mode_pair = P_GAUGE_OK;      // green on blue — safe
+            break;
+        case agent::AgentMode::Write:
+            mode_txt = " write ";
+            mode_pair = P_GAUGE_WARN;    // yellow on blue — cautious
+            break;
+        case agent::AgentMode::Yolo:
+            mode_txt = " yolo ";
+            mode_pair = P_BUTTON_ACT;    // white on yellow — most prominent
+            break;
     }
     segs.push_back({mode_txt, mode_pair, 2});
 
