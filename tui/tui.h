@@ -79,6 +79,7 @@ private:
     void tick_clock();
     void draw_input(const std::string& s);
     void draw_drawer(const std::string& input);
+    int draw_gradient(int y, int x);
     int drawer_menu(const std::string& title,
                     const std::vector<std::string>& items);
 
@@ -146,6 +147,7 @@ private:
     agent::Stats stats_;
     long ctx_used_ = -1;
     agent::ServerInfo last_detected_;
+    int anim_phase_ = 0;            // traveling-gradient animation phase
 };
 
 } // namespace tui

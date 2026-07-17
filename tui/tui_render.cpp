@@ -5,6 +5,7 @@
 #include "welcome.h"
 
 #include <algorithm>
+#include <cmath>
 #include <ctime>
 
 namespace tui {
@@ -183,6 +184,42 @@ void Tui::draw() {
     refresh();
 }
 
+// ---- animated traveling gradient -----------------------------------------
+namespace {
+constexpr int kGradLen = 14;
+bool grad_init = false;
+
+void init_grad() {
+    if (grad_init) return;
+    grad_init = true;
+    for (int i = 0; i < 8; ++i) {
+        int v = 400 + i * 80;
+        if (v > 1000) v = 1000;
+        init_color(200 + i, 0, v, v);
+        init_pair(P_GRAD + i, 200 + i, 200 + i);
+    }
+}
+} // namespace
+
+// Draw a traveling-brightness wave on the status bar. Returns the next col.
+int Tui::draw_gradient(int y, int x) {
+    if (state_ == agent::RunState::Idle || state_ == agent::RunState::Error) {
+        anim_phase_ = 0;
+        return x;
+    }
+    init_grad();
+    ++anim_phase_;
+    for (int i = 0; i < kGradLen; ++i) {
+        int idx = (anim_phase_ + i) % (kGradLen * 2 - 2);
+        int shade = idx < kGradLen ? idx : (kGradLen * 2 - 2 - idx);
+        if (shade >= 8) shade = 7;
+        wattron(stdscr, COLOR_PAIR(P_GRAD + shade));
+        mvaddch(y, x + i, ' ');
+        wattroff(stdscr, COLOR_PAIR(P_GRAD + shade));
+    }
+    return x + kGradLen;
+}
+
 void Tui::draw_status_bar(const std::string& tail) {
     int w = width();
     int y = height() - 2;
@@ -265,6 +302,9 @@ void Tui::draw_status_bar(const std::string& tail) {
         mvaddnwstr(y, w - clock_w, wc.c_str(), static_cast<int>(wc.size()));
         attroff(COLOR_PAIR(P_BAR_DIM));
     }
+
+    // Traveling gradient indicator (visible when agent is active)
+    draw_gradient(y, 12);
 }
 
 void Tui::tick_clock() {
