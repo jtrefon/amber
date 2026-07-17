@@ -3,6 +3,7 @@
 
 #include "agent/agent.h"
 #include "agent/prompt.h"
+#include <future>
 #include <stdexcept>
 #include <chrono>
 #include <string>
@@ -89,49 +90,77 @@ bool Agent::approve_call(const Tool& tool, const json& args) {
 
 // Execute every requested tool call, recording results back into the
 // conversation history so the model can consume them on the next iteration.
+// Independent tools run in parallel via std::async; approval checks are
+// synchronous to avoid race conditions on session_approved_.
 void Agent::dispatch_tool_calls(const json& calls, std::vector<Tool*>&) {
-    for (const auto& call : calls) {
+    // Phase 1: parse + approval (sequential, no side effects yet).
+    struct Call {
         std::string id, fn;
         json args;
-        parse_tool_call(call, id, fn, args);
-        if (hooks_.on_tool_call) hooks_.on_tool_call(fn, args);
-        log_.event("tool_call", {{"name", fn}, {"id", id}, {"args", args}});
+        Tool* tool = nullptr;
+        bool approved = false;
+        std::string denied_reason;
+    };
+    std::vector<Call> todo;
 
-        Tool* tool = registry_.find(fn);
-        ToolResult res;
-        if (!tool) {
-            res.ok = false;
-            res.error = "unknown tool: " + fn;
-        } else if (cfg_.mode == agent::AgentMode::Read && !tool->is_read_only()) {
-            res.ok = false;
-            res.error = "tool \"" + fn + "\" is not available in read mode "
-                        "(switch to /write or /yolo)";
-            log_.event("tool_denied", {{"name", fn}, {"id", id},
+    for (const auto& call : calls) {
+        Call c;
+        parse_tool_call(call, c.id, c.fn, c.args);
+        if (hooks_.on_tool_call) hooks_.on_tool_call(c.fn, c.args);
+        log_.event("tool_call", {{"name", c.fn}, {"id", c.id}, {"args", c.args}});
+
+        c.tool = registry_.find(c.fn);
+        if (!c.tool) {
+            c.denied_reason = "unknown tool: " + c.fn;
+        } else if (cfg_.mode == agent::AgentMode::Read && !c.tool->is_read_only()) {
+            c.denied_reason = "tool \"" + c.fn + "\" is not available in read mode";
+            log_.event("tool_denied", {{"name", c.fn}, {"id", c.id},
                                        {"reason", "read_mode"}});
-        } else if (tool->requires_approval() && !session_approved_.count(fn) &&
+        } else if (c.tool->requires_approval() &&
+                   !session_approved_.count(c.fn) &&
                    cfg_.mode != agent::AgentMode::Yolo &&
-                   !approve_call(*tool, args)) {
-            // Denied (or no approval handler installed). Report back so the
-            // model can adapt instead of silently failing.
-            res.ok = false;
-            res.error = "denied by user: the " + fn + " tool was not approved";
-            log_.event("tool_denied", {{"name", fn}, {"id", id}, {"args", args}});
+                   !approve_call(*c.tool, c.args)) {
+            c.denied_reason = "denied by user: " + c.fn + " was not approved";
+            log_.event("tool_denied", {{"name", c.fn}, {"id", c.id},
+                                       {"args", c.args}});
         } else {
-            try { res = tool->execute(args); }
-            catch (const std::exception& e) {
-                res.ok = false;
-                res.error = std::string("tool threw: ") + e.what();
-            }
+            c.approved = true;
         }
-        if (hooks_.on_tool_result) hooks_.on_tool_result(fn, res);
-        log_.event("tool_result", {{"name", fn}, {"id", id},
+        todo.push_back(std::move(c));
+    }
+
+    // Phase 2: execute approved tools in parallel.
+    std::vector<std::future<ToolResult>> futures(todo.size());
+    for (size_t i = 0; i < todo.size(); ++i) {
+        if (!todo[i].approved) continue;
+        futures[i] = std::async(std::launch::async, [&todo, i]() -> ToolResult {
+            try { return todo[i].tool->execute(todo[i].args); }
+            catch (const std::exception& e) {
+                return ToolResult{false, "", std::string("tool threw: ") + e.what()};
+            }
+        });
+    }
+
+    // Phase 3: collect results in order.
+    for (size_t i = 0; i < todo.size(); ++i) {
+        auto& c = todo[i];
+        ToolResult res;
+        if (!c.approved) {
+            res.ok = false;
+            res.error = c.denied_reason;
+        } else {
+            res = futures[i].get();
+        }
+
+        if (hooks_.on_tool_result) hooks_.on_tool_result(c.fn, res);
+        log_.event("tool_result", {{"name", c.fn}, {"id", c.id},
                                     {"ok", res.ok},
                                     {"output", res.ok ? res.output : res.error}});
 
         Message tool_msg;
         tool_msg.role = "tool";
-        tool_msg.tool_call_id = id;
-        tool_msg.name = fn;
+        tool_msg.tool_call_id = c.id;
+        tool_msg.name = c.fn;
         tool_msg.content = res.ok ? res.output : ("ERROR: " + res.error);
         history_.push_back(tool_msg);
     }
@@ -186,7 +215,6 @@ std::string Agent::run(const std::string& user_prompt) {
 
     for (int iter = 0; iter < cfg_.max_tool_iterations; ++iter) {
         Message reply = chat_once(tools);
-        // Persist the assistant turn (including any tool_calls).
         history_.push_back(reply);
         if (!reply.reasoning.empty())
             log_.event("reasoning", {{"content", reply.reasoning}});
@@ -195,11 +223,39 @@ std::string Agent::run(const std::string& user_prompt) {
             set_state(RunState::Tooling);
             if (hooks_.on_status) hooks_.on_status("assistant requested tools");
             dispatch_tool_calls(reply.tool_calls, tools);
-            continue;  // loop back to let the model consume results
+            continue;
         }
 
-        // Plain-text reply: we are done.
+        // Plain-text reply: done with the tool loop.
         final_reply = reply.content;
+
+        // Evaluator-optimizer: in write mode, run one self-review pass.
+        if (cfg_.mode == agent::AgentMode::Write && iter > 0) {
+            if (hooks_.on_status) hooks_.on_status("self-review");
+            Message review_msg;
+            review_msg.role = "user";
+            review_msg.content = "Review your work above. Check that all tool "
+                "results are correct and the answer is complete. If anything "
+                "needs fixing, use tools to fix it now. Otherwise reply with "
+                "\"looks good.\"";
+            history_.push_back(review_msg);
+
+            Message review = chat_once(tools);
+            history_.push_back(review);
+
+            if (!review.content.empty() && review.content != "looks good" &&
+                !review.tool_calls.is_null()) {
+                // Model chose to do more work — continue the main loop.
+                if (hooks_.on_status) hooks_.on_status("self-review: revising");
+                dispatch_tool_calls(review.tool_calls, tools);
+                final_reply.clear();
+                continue;
+            }
+            // Review passed or had no tool calls — accept the original answer.
+            if (!review.content.empty() && review.content != "looks good")
+                final_reply = review.content;
+        }
+
         if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
         log_.event("assistant", {{"content", final_reply}});
         break;
