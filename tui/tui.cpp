@@ -21,6 +21,7 @@ using tui::form_edit;
 using tui::info_dialog;
 using tui::menu_select;
 using tui::P_ASSISTANT;
+using tui::P_BUTTON_ACT;
 using tui::P_BANNER;
 using tui::P_STATUS;
 using tui::P_REASONING;
@@ -124,12 +125,32 @@ public:
                 close_window();
                 draw(); draw_input(input); continue;
             }
-            if (ch == 27) {   // ESC prefix: Alt+<digit> jumps to window N
+            if (ch == 27) {   // ESC: close the drawer, else Alt+<digit> window jump
+                if (drawer_open_) {
+                    drawer_open_ = false;
+                    draw(); draw_input(input);
+                    continue;
+                }
                 int n = getch();
                 if (n >= '1' && n <= '9') {
                     switch_to(static_cast<size_t>(n - '1'));
                     draw_input(input);
                 }
+                continue;
+            }
+            if (ch == '\t' && drawer_open_) {   // Tab: complete the command name
+                input = drawer_complete(input);
+                drawer_sel_ = 0;
+                draw(); draw_input(input);
+                continue;
+            }
+            if (drawer_open_ && (ch == KEY_UP || ch == KEY_DOWN)) {
+                int n = static_cast<int>(filter_commands(drawer_token(input)).size());
+                if (n > 0) {
+                    if (ch == KEY_DOWN) drawer_sel_ = (drawer_sel_ + 1) % n;
+                    else drawer_sel_ = (drawer_sel_ + n - 1) % n;
+                }
+                draw_input(input);
                 continue;
             }
             if (ch == KEY_NPAGE) {
@@ -142,8 +163,27 @@ public:
                 draw(); draw_input(input); continue;
             }
             if (ch == 7 || ch == 10 || ch == 13 || ch == KEY_ENTER) {
+                // Drawer open on a bare command name: Enter picks the highlighted
+                // command. If it takes arguments, fill the line and keep editing;
+                // otherwise run it immediately.
+                if (drawer_open_ && !drawer_has_arg(input)) {
+                    auto matches = filter_commands(drawer_token(input));
+                    if (!matches.empty() &&
+                        drawer_sel_ < static_cast<int>(matches.size())) {
+                        // Enter runs the highlighted command immediately (with an
+                        // empty argument). To pass an argument, type a space after
+                        // the name first (or Tab to complete, then type it).
+                        const Command* c = matches[drawer_sel_];
+                        drawer_open_ = false;
+                        input.clear();
+                        handle_slash("/" + c->name);
+                        draw(); draw_input("");
+                        continue;
+                    }
+                }
                 if (input.empty()) continue;
                 std::string prompt = input;
+                drawer_open_ = false;
                 if (handle_slash(prompt)) {
                     input.clear();
                     draw(); draw_input("");
@@ -158,10 +198,12 @@ public:
             }
             if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
                 if (!input.empty()) input.pop_back();
-                draw_input(input);
+                update_drawer(input);
+                draw(); draw_input(input);
             } else if (ch >= 32 && ch <= 126) {
                 input += static_cast<char>(ch);
-                draw_input(input);
+                update_drawer(input);
+                draw(); draw_input(input);
             }
         }
     }
@@ -600,7 +642,18 @@ private:
         refresh();
     }
 
+    // A slash command. See build_commands() for the table; adding one entry
+    // there makes it dispatchable, tab-completable, and listed in /help.
+    struct Command {
+        std::string name;                 // primary name, without the leading /
+        std::vector<std::string> aliases; // alternate names (no leading /)
+        std::string args;                 // usage hint, e.g. "new|close <name>"
+        std::string help;                 // one-line description
+        std::function<void(const std::string& arg)> run;
+    };
+
     void draw_input(const std::string& s) {
+        draw_drawer(s);   // render/erase the command drawer above the input
         int y = height() - 1;
         move(y, 0);
         clrtoeol();
@@ -609,6 +662,196 @@ private:
         mvaddnstr(y, 0, shown.c_str(), width());
         attroff(COLOR_PAIR(P_USER));
         refresh();
+    }
+
+    // ---- command drawer -------------------------------------------------
+
+    // Open the drawer iff the input begins with '/'; reset selection when it
+    // first opens. Closing it when the leading slash is gone.
+    void update_drawer(const std::string& input) {
+        bool want = drawer_wants_open(input);
+        if (want && !drawer_open_) drawer_sel_ = 0;
+        drawer_open_ = want;
+    }
+
+    // The command-name token currently typed: text after '/' up to the first
+    // space. Empty string means "just a slash" (show everything).
+    static std::string drawer_token(const std::string& input) {
+        if (input.empty() || input[0] != '/') return "";
+        std::string rest = input.substr(1);
+        size_t sp = rest.find(' ');
+        return sp == std::string::npos ? rest : rest.substr(0, sp);
+    }
+
+    // Whether the input has advanced past the command name (a space is present),
+    // in which case the drawer stops filtering and just shows the matched usage.
+    static bool drawer_has_arg(const std::string& input) {
+        return input.find(' ') != std::string::npos;
+    }
+
+    // Commands whose name or an alias starts with `token` (case-sensitive, as
+    // commands are lowercase). Empty token matches all.
+    std::vector<const Command*> filter_commands(const std::string& token) {
+        std::vector<const Command*> out;
+        for (const auto& c : commands()) {
+            bool hit = token.empty() || c.name.rfind(token, 0) == 0;
+            if (!hit)
+                for (const auto& a : c.aliases)
+                    if (a.rfind(token, 0) == 0) { hit = true; break; }
+            if (hit) out.push_back(&c);
+        }
+        return out;
+    }
+
+    // Should the drawer be visible for this input? Only when '/' leads and we
+    // are still on the command name (no space yet). Once an argument is being
+    // typed the drawer collapses to a single usage hint line.
+    bool drawer_wants_open(const std::string& input) const {
+        return !input.empty() && input[0] == '/';
+    }
+
+    void draw_drawer(const std::string& input) {
+        if (!drawer_open_) return;
+
+        int bar_row = height() - 2;   // status bar sits here; drawer grows above
+        std::string token = drawer_token(input);
+
+        // When typing an argument, show one usage line for the matched command.
+        std::vector<std::string> rows;
+        std::vector<int> row_is_sel;   // parallel: 1 if this is the selectable cmd row
+        bool arg_mode = drawer_has_arg(input);
+
+        std::vector<const Command*> matches = filter_commands(token);
+        if (arg_mode) {
+            const Command* c = matches.empty() ? nullptr : matches.front();
+            if (c) rows.push_back("  " + usage(*c) + "   " + c->help);
+            else rows.push_back("  (no such command)");
+        } else {
+            for (auto* c : matches) {
+                std::string u = usage(*c);
+                if (u.size() < 34) u.append(34 - u.size(), ' ');
+                rows.push_back("  " + u + "  " + c->help);
+            }
+            if (rows.empty()) rows.push_back("  (no matching command  -  Esc to cancel)");
+        }
+
+        // Clamp selection to the visible match count.
+        int nsel = arg_mode ? 0 : static_cast<int>(matches.size());
+        if (drawer_sel_ >= nsel) drawer_sel_ = std::max(0, nsel - 1);
+        if (drawer_sel_ < 0) drawer_sel_ = 0;
+
+        // Grow upward from just above the status bar, capped to available space.
+        int max_rows = std::max(1, bar_row - chat_top());
+        int header = 1;
+        int shown = std::min<int>(rows.size(), max_rows - header);
+        int top = bar_row - header - shown;
+
+        // Header line.
+        std::string hdr = arg_mode
+            ? " command usage "
+            : " commands  (Tab complete  Up/Down select  Enter run  Esc cancel) ";
+        move(top, 0);
+        attron(COLOR_PAIR(P_STATUS) | A_BOLD);
+        for (int i = 0; i < width(); ++i) addch(' ');
+        mvaddnstr(top, 0, hdr.c_str(), width());
+        attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
+
+        for (int i = 0; i < shown; ++i) {
+            int y = top + header + i;
+            move(y, 0);
+            clrtoeol();
+            bool sel = (!arg_mode && i == drawer_sel_);
+            if (sel) attron(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
+            else attron(COLOR_PAIR(P_ASSISTANT));
+            mvaddnstr(y, 0, rows[i].c_str(), width());
+            if (sel) attroff(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
+            else attroff(COLOR_PAIR(P_ASSISTANT));
+        }
+    }
+
+    // Longest common prefix of the given command names.
+    static std::string common_prefix(const std::vector<std::string>& names) {
+        if (names.empty()) return "";
+        std::string p = names.front();
+        for (const auto& n : names) {
+            size_t i = 0;
+            while (i < p.size() && i < n.size() && p[i] == n[i]) ++i;
+            p.resize(i);
+        }
+        return p;
+    }
+
+    // Tab pressed with the drawer open: complete the command name. Returns the
+    // (possibly rewritten) input line.
+    std::string drawer_complete(const std::string& input) {
+        std::string token = drawer_token(input);
+        auto matches = filter_commands(token);
+        if (matches.empty()) return input;
+
+        // If a row is selected, complete straight to it. Otherwise complete to
+        // the longest common prefix of the matches' primary names.
+        if (drawer_sel_ >= 0 && drawer_sel_ < static_cast<int>(matches.size()))
+            return "/" + matches[drawer_sel_]->name + " ";
+
+        std::vector<std::string> names;
+        for (auto* c : matches) names.push_back(c->name);
+        std::string cp = common_prefix(names);
+        if (cp.size() > token.size())
+            return "/" + cp;                 // extend to shared prefix
+        if (matches.size() == 1)
+            return "/" + matches.front()->name + " ";
+        return input;                        // ambiguous, nothing to add
+    }
+
+    // A modal, PuTTY-safe selectable list that grows upward from the input line
+    // (same visual language as the command drawer, no box chars). Blocks until
+    // the user picks (Enter -> index) or cancels (Esc -> -1). Supports Up/Down
+    // and PgUp/PgDn with a scrolling window over long lists.
+    int drawer_menu(const std::string& title,
+                    const std::vector<std::string>& items) {
+        if (items.empty()) return -1;
+        int sel = 0, off = 0;
+        for (;;) {
+            int bar_row = height() - 2;
+            int max_rows = std::max(1, bar_row - chat_top());
+            int header = 1;
+            int visible = std::min<int>(items.size(), max_rows - header);
+            if (sel < off) off = sel;
+            if (sel >= off + visible) off = sel - visible + 1;
+            int top = bar_row - header - visible;
+
+            // Repaint chat underneath so stale rows don't linger, then overlay.
+            draw();
+            std::string hdr = " " + title +
+                "  (Up/Down select  Enter open  Esc cancel) ";
+            move(top, 0);
+            attron(COLOR_PAIR(P_STATUS) | A_BOLD);
+            for (int i = 0; i < width(); ++i) addch(' ');
+            mvaddnstr(top, 0, hdr.c_str(), width());
+            attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
+            for (int i = 0; i < visible; ++i) {
+                int idx = off + i;
+                int y = top + header + i;
+                move(y, 0); clrtoeol();
+                bool cur = (idx == sel);
+                std::string row = (cur ? "> " : "  ") + items[idx];
+                if (cur) attron(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
+                else attron(COLOR_PAIR(P_ASSISTANT));
+                mvaddnstr(y, 0, row.c_str(), width());
+                if (cur) attroff(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
+                else attroff(COLOR_PAIR(P_ASSISTANT));
+            }
+            refresh();
+
+            int c = getch();
+            int n = static_cast<int>(items.size());
+            if (c == KEY_DOWN) sel = (sel + 1) % n;
+            else if (c == KEY_UP) sel = (sel + n - 1) % n;
+            else if (c == KEY_NPAGE) sel = std::min(n - 1, sel + visible);
+            else if (c == KEY_PPAGE) sel = std::max(0, sel - visible);
+            else if (c == 10 || c == 13 || c == KEY_ENTER) return sel;
+            else if (c == 27 || c == 'q') return -1;
+        }
     }
 
     void send(const std::string& prompt) {
@@ -770,7 +1013,7 @@ private:
         for (const auto& m : metas)
             labels.push_back(m.title + "  (" + std::to_string(m.message_count) +
                              " msgs)");
-        int sel = menu_select("Load session", labels);
+        int sel = drawer_menu("Load session", labels);
         if (sel >= 0 && sel < static_cast<int>(metas.size()))
             load_session(metas[sel].id);
     }
@@ -799,14 +1042,6 @@ private:
     // Adding a command: append one Command entry to build_commands(). The table
     // is the single source of truth for dispatch, `/help`, and tab-less usage
     // hints, so a new command automatically appears in the help listing.
-
-    struct Command {
-        std::string name;                 // primary name, without the leading /
-        std::vector<std::string> aliases; // alternate names (no leading /)
-        std::string args;                 // usage hint, e.g. "new|close|rename <name>"
-        std::string help;                 // one-line description
-        std::function<void(const std::string& arg)> run;
-    };
 
     // Built lazily so handlers can capture `this`. Order here is the order shown
     // in /help.
@@ -873,33 +1108,32 @@ private:
     }
 
     // /help with no arg lists every command; with an arg shows detail + aliases.
+    // Output goes to the scrollback (PuTTY-safe, scrollable, no box decor).
     void cmd_help(const std::string& arg) {
         if (arg.empty()) {
-            std::vector<std::string> lines;
-            lines.push_back("Slash commands (type /help <command> for detail):");
-            lines.push_back("");
+            banner("Slash commands (type /help <command> for detail):");
             size_t w = 0;
             for (const auto& c : commands()) w = std::max(w, usage(c).size());
             for (const auto& c : commands()) {
                 std::string u = usage(c);
                 u.append(w - u.size() + 2, ' ');
-                lines.push_back("  " + u + c.help);
+                append_line(P_STATUS, "  " + u + c.help);
             }
-            info_dialog("Commands", lines);
+            draw();
             return;
         }
         std::string name = arg;
         if (!name.empty() && name[0] == '/') name = name.substr(1);
         const Command* c = find_command(name);
         if (!c) { append_line(P_STATUS, "no such command: /" + name); return; }
-        std::vector<std::string> lines = {usage(*c), "", c->help};
+        banner(usage(*c));
+        append_line(P_STATUS, "  " + c->help);
         if (!c->aliases.empty()) {
-            std::string al = "aliases:";
+            std::string al = "  aliases:";
             for (const auto& a : c->aliases) al += " /" + a;
-            lines.push_back("");
-            lines.push_back(al);
+            append_line(P_STATUS, al);
         }
-        info_dialog("/" + c->name, lines);
+        draw();
     }
 
     void cmd_window(const std::string& arg) {
@@ -935,7 +1169,9 @@ private:
             "Alt+1..9  switch to window N",
             "Ctrl-C    quit",
             "",
-            "Type /help to list all slash commands, /help <cmd> for detail.",
+            "Type '/' to open the command drawer: filter as you type,",
+            "Tab completes, Up/Down select, Enter runs, Esc closes.",
+            "Type /help for the full command list, /help <cmd> for detail.",
             "",
             "Tools: read (paginated), write (patch), search (grep/semantic).",
         });
@@ -1061,6 +1297,13 @@ private:
 
     std::vector<Command> commands_;  // built lazily by build_commands()
     bool quit_ = false;              // set by /quit; breaks the input loop
+
+    // ---- command drawer (grows upward from the input line) --------------
+    // A PuTTY-safe list panel drawn directly on stdscr (no ACS box chars). It
+    // opens when '/' is the first character of the input line and offers live
+    // filtering + Tab completion of slash commands.
+    bool drawer_open_ = false;
+    int drawer_sel_ = 0;             // selected row within the filtered list
 
     bool show_reasoning_ = true;    // toggle live thinking display
 

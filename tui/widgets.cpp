@@ -42,7 +42,10 @@ Dialog::Dialog(int h, int w, const std::string& title) {
     win_ = newwin(h, w, y, x);
     keypad(win_, TRUE);
     wbkgd(win_, COLOR_PAIR(P_DIALOG));
-    box(win_, 0, 0);
+    // Use ASCII borders rather than ACS line-drawing chars: some terminals
+    // (PuTTY with certain translations, minimal TERMs) render ACS as garbage.
+    // '+' corners, '-' top/bottom, '|' sides are universally safe.
+    wborder(win_, '|', '|', '-', '-', '+', '+', '+', '+');
     if (!title.empty()) {
         std::string t = " " + title + " ";
         wattron(win_, A_BOLD);
