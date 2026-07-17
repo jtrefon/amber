@@ -42,16 +42,23 @@ Dialog::Dialog(int h, int w, const std::string& title) {
     win_ = newwin(h, w, y, x);
     keypad(win_, TRUE);
     wbkgd(win_, COLOR_PAIR(P_DIALOG));
-    // ncursesw ACS line-drawing for native box borders. Uses VT100-compatible
-    // ACS constants (mapped to Unicode by ncursesw in UTF-8 locales). Falls
-    // back to ASCII on terminals without ACS support.
+
+    // Draw border with dialog color pair so it inherits the correct
+    // foreground/background. Without this, box() uses A_NORMAL (terminal
+    // defaults) and the border may be invisible on some terminals.
+    wattr_set(win_, A_NORMAL, P_DIALOG, nullptr);
     box(win_, ACS_VLINE, ACS_HLINE);
+
+    // Title embedded in top border: "┌─ Title ───┐"
     if (!title.empty()) {
         std::string t = " " + title + " ";
-        wattron(win_, A_BOLD);
-        mvwaddnstr(win_, 0, 2, t.c_str(), w - 4);
-        wattroff(win_, A_BOLD);
+        // Replace ACS_HLINE chars in the title area with spaces, then draw
+        // the title text. The side borders remain as ACS chars.
+        mvwaddstr(win_, 0, 1, std::string(w_ - 2, ' ').c_str());
+        wattr_set(win_, A_BOLD, P_DIALOG, nullptr);
+        mvwaddnstr(win_, 0, 2, t.c_str(), w_ - 4);
     }
+
     panel_ = new_panel(win_);
     update_panels();
     doupdate();
