@@ -226,29 +226,18 @@ std::string Agent::run(const std::string& user_prompt) {
             log_.event("reasoning", {{"content", reply.reasoning}});
 
         // If the model replied with text but no tool calls on the first
-        // iteration and the text suggests it intended to do something
-        // ("let me explore", "I'll read", etc.), nudge it to use tools.
+        // iteration, it likely described intent without acting. Nudge it
+        // to actually use tools instead of just talking about them.
         if (iter == 0 && !reply.content.empty() && reply.tool_calls.is_null()) {
-            std::string lc;
-            for (char c : reply.content)
-                lc += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            // Phrases that indicate intent without action.
-            const char* intent[] = {"let me", "i'll", "i need to", "i should",
-                                    "going to", "i will", "i can", nullptr};
-            bool has_intent = false;
-            for (const char** p = intent; *p; ++p)
-                if (lc.find(*p) != std::string::npos) { has_intent = true; break; }
-            if (has_intent) {
-                Message nudge;
-                nudge.role = "user";
-                nudge.content = "Please proceed with executing tools now. "
-                    "Use cat/ls/grep to explore the codebase or bash for "
-                    "commands. Do not just describe what you will do — "
-                    "actually call the tool.";
-                if (hooks_.on_status) hooks_.on_status("re-prompt: use tools");
-                history_.push_back(nudge);
-                continue;
-            }
+            if (hooks_.on_status) hooks_.on_status("re-prompt: use tools");
+            Message nudge;
+            nudge.role = "user";
+            nudge.content = "Please proceed with executing tools now. "
+                "Use cat/ls/grep/bash to explore the codebase. "
+                "Do not just describe what you plan to do — "
+                "actually call the tool right now.";
+            history_.push_back(nudge);
+            continue;
         }
 
         if (reply.content.empty() && !reply.tool_calls.is_null()) {
