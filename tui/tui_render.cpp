@@ -215,32 +215,6 @@ void Tui::draw_status_bar(const std::string& tail) {
 
     for (auto& s : segs) put(s.text, s.pair);
 
-    // Framed activity indicator on the status bar: [ idle ] when idle,
-    // traveling brightness wave when the agent is running.
-    if (x + 14 < budget) {
-        put("[", P_BAR_DIM);
-        if (agent_busy_.load()) {
-            ++anim_phase_;
-            for (int i = 0; i < 10; ++i) {
-                if (x >= budget) break;
-                int c = anim_phase_ % 18;
-                if (c >= 10) c = 18 - c;
-                int d = std::abs(i - c);
-                chtype a = COLOR_PAIR(P_BAR_DIM);
-                if (d == 0)      a |= A_BOLD;
-                else if (d > 2)  a |= A_DIM;
-                wattron(stdscr, a);
-                mvaddch(y, x, '|');
-                wattroff(stdscr, a);
-                ++x;
-            }
-        } else {
-            anim_phase_ = 0;
-            put("  idle   ", P_BAR_DIM);
-        }
-        put("]", P_BAR_DIM);
-    }
-
     if (have_ctx && x < budget) {
         put("  ctx ", P_BAR_DIM);
         int cells = std::min(24, std::max(6, (budget - x) - 14));
@@ -259,6 +233,30 @@ void Tui::draw_status_bar(const std::string& tail) {
 
     if (!tail.empty() && x + display_cols(tail) + 1 < budget)
         put("  " + tail, P_BAR_DIM);
+
+    // Framed activity indicator, right-justified before the clock.
+    // Brackets stay at a fixed column so the UI never shakes.
+    constexpr int kIW = 12;          // [          ]
+    int ix = w - clock_w - kIW - 1;  // one space left of the clock
+    if (ix > x + 4) {
+        mvaddch(y, ix, '[' | COLOR_PAIR(P_BAR_DIM));
+        if (agent_busy_.load()) {
+            ++anim_phase_;
+            for (int i = 0; i < kIW - 2; ++i) {
+                int c = anim_phase_ % 16;
+                if (c >= 8) c = 16 - c;
+                int d = std::abs(i - c);
+                chtype a = COLOR_PAIR(P_BAR_DIM);
+                if (d == 0)      a |= A_BOLD;
+                else if (d > 2)  a |= A_DIM;
+                mvaddch(y, ix + 1 + i, '|' | a);
+            }
+        } else {
+            anim_phase_ = 0;
+            mvaddstr(y, ix + 1, "   idle   ");  // 10 chars, centered
+        }
+        mvaddch(y, ix + kIW - 1, ']' | COLOR_PAIR(P_BAR_DIM));
+    }
 
     if (clock_w < w) {
         std::wstring wc = to_wide(clock);
