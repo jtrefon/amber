@@ -5,6 +5,7 @@
 #include "agent/tools.h"
 #include "agent/search_backend.h"
 #include "tui/textutil.h"
+#include "tui/palette.h"
 #include "tests/test_util.h"
 
 #include <cstdio>
@@ -94,6 +95,68 @@ TEST(textutil_to_wide_decodes_codepoints) {
     ASSERT_EQ(w.size(), (size_t)2);
     ASSERT_EQ((long)w[0], (long)'a');
     ASSERT_EQ((long)w[1], (long)0x1F600);
+}
+
+// ---------------------------------------------------------------------------
+// TUI command palette (slash-command filtering / completion — no ncurses)
+// ---------------------------------------------------------------------------
+
+static std::vector<tui::palette::Command> palette_fixture() {
+    return {
+        {"help", {"?", "h"}, "[command]", "list commands", nullptr},
+        {"window", {"win", "w"}, "new|close", "manage windows", nullptr},
+        {"save", {}, "", "persist conversation", nullptr},
+        {"quit", {"exit", "q"}, "", "exit", nullptr},
+    };
+}
+
+TEST(palette_token_and_arg_detection) {
+    ASSERT_EQ(tui::palette::token("/wi"), "wi");
+    ASSERT_EQ(tui::palette::token("/window new"), "window");
+    ASSERT_EQ(tui::palette::token(""), "");
+    ASSERT_EQ(tui::palette::token("plain"), "");
+    ASSERT_TRUE(tui::palette::wants_open("/x"));
+    ASSERT_FALSE(tui::palette::wants_open("x"));
+    ASSERT_TRUE(tui::palette::has_arg("/window new"));
+    ASSERT_FALSE(tui::palette::has_arg("/window"));
+}
+
+TEST(palette_filter_matches_name_and_alias) {
+    auto cmds = palette_fixture();
+    ASSERT_EQ(tui::palette::filter(cmds, "").size(), (size_t)4);   // all
+    ASSERT_EQ(tui::palette::filter(cmds, "w").size(), (size_t)1);  // window
+    ASSERT_EQ(tui::palette::filter(cmds, "win").front()->name, "window");
+    ASSERT_EQ(tui::palette::filter(cmds, "q").front()->name, "quit");  // alias
+    ASSERT_TRUE(tui::palette::filter(cmds, "zzz").empty());
+}
+
+TEST(palette_find_by_name_or_alias) {
+    auto cmds = palette_fixture();
+    ASSERT_TRUE(tui::palette::find(cmds, "help") != nullptr);
+    ASSERT_EQ(tui::palette::find(cmds, "exit")->name, "quit");
+    ASSERT_TRUE(tui::palette::find(cmds, "nope") == nullptr);
+}
+
+TEST(palette_complete_prefix_and_selection) {
+    auto cmds = palette_fixture();
+    // No selection: extend to the longest common prefix of the matches'
+    // names (here just "window", no trailing space until it is exact).
+    ASSERT_EQ(tui::palette::complete(cmds, "/wi", -1), "/window");
+    // Exact unique name: append a space, ready for args.
+    ASSERT_EQ(tui::palette::complete(cmds, "/window", -1), "/window ");
+    // Selection index picks that match directly.
+    ASSERT_EQ(tui::palette::complete(cmds, "/", 3), "/quit ");
+    // No match: input unchanged.
+    ASSERT_EQ(tui::palette::complete(cmds, "/zzz", -1), "/zzz");
+}
+
+TEST(palette_usage_and_common_prefix) {
+    tui::palette::Command c{"window", {}, "new|close", "manage", nullptr};
+    ASSERT_EQ(tui::palette::usage(c), "/window new|close");
+    tui::palette::Command bare{"save", {}, "", "persist", nullptr};
+    ASSERT_EQ(tui::palette::usage(bare), "/save");
+    ASSERT_EQ(tui::palette::common_prefix({"send", "set", "sever"}), "se");
+    ASSERT_EQ(tui::palette::common_prefix({}), "");
 }
 
 TEST(config_load_key_value) {

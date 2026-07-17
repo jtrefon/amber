@@ -5,6 +5,8 @@
 
 #include "widgets.h"
 #include "textutil.h"
+#include "window.h"
+#include "palette.h"
 
 #include <algorithm>
 #include <clocale>
@@ -35,25 +37,8 @@ using tui::P_GAUGE_WARN;
 using tui::P_GAUGE_CRIT;
 using tui::P_BAR_DIM;
 
-// One chat window: an independent conversation with its own scrollback, live
-// streaming state, persistent (stateful) Agent, and session identity. Windows
-// are switchable IRC-style; the active one is drawn.
-struct Window {
-    std::string title = "chat";
-    std::string session_id;          // set once persisted / loaded
-    bool dirty = false;              // has unsaved changes since last save
-
-    std::unique_ptr<agent::Agent> agent;  // retains conversation across turns
-
-    std::vector<std::pair<int, std::string>> lines;
-    int scroll_top = 0;
-
-    std::string stream_buf;
-    int stream_color = P_ASSISTANT;
-    std::string stream_ts;
-    std::string reason_buf;
-    bool reason_folded = false;
-};
+using tui::Window;
+using Command = tui::palette::Command;
 
 class Tui {
 public:
@@ -549,16 +534,6 @@ private:
         refresh();
     }
 
-    // A slash command. See build_commands() for the table; adding one entry
-    // there makes it dispatchable, tab-completable, and listed in /help.
-    struct Command {
-        std::string name;                 // primary name, without the leading /
-        std::vector<std::string> aliases; // alternate names (no leading /)
-        std::string args;                 // usage hint, e.g. "new|close <name>"
-        std::string help;                 // one-line description
-        std::function<void(const std::string& arg)> run;
-    };
-
     void draw_input(const std::string& s) {
         draw_drawer(s);   // render/erase the command drawer above the input
         int y = height() - 1;
@@ -581,40 +556,20 @@ private:
         drawer_open_ = want;
     }
 
-    // The command-name token currently typed: text after '/' up to the first
-    // space. Empty string means "just a slash" (show everything).
     static std::string drawer_token(const std::string& input) {
-        if (input.empty() || input[0] != '/') return "";
-        std::string rest = input.substr(1);
-        size_t sp = rest.find(' ');
-        return sp == std::string::npos ? rest : rest.substr(0, sp);
+        return tui::palette::token(input);
     }
 
-    // Whether the input has advanced past the command name (a space is present),
-    // in which case the drawer stops filtering and just shows the matched usage.
     static bool drawer_has_arg(const std::string& input) {
-        return input.find(' ') != std::string::npos;
+        return tui::palette::has_arg(input);
     }
 
-    // Commands whose name or an alias starts with `token` (case-sensitive, as
-    // commands are lowercase). Empty token matches all.
     std::vector<const Command*> filter_commands(const std::string& token) {
-        std::vector<const Command*> out;
-        for (const auto& c : commands()) {
-            bool hit = token.empty() || c.name.rfind(token, 0) == 0;
-            if (!hit)
-                for (const auto& a : c.aliases)
-                    if (a.rfind(token, 0) == 0) { hit = true; break; }
-            if (hit) out.push_back(&c);
-        }
-        return out;
+        return tui::palette::filter(commands(), token);
     }
 
-    // Should the drawer be visible for this input? Only when '/' leads and we
-    // are still on the command name (no space yet). Once an argument is being
-    // typed the drawer collapses to a single usage hint line.
     bool drawer_wants_open(const std::string& input) const {
-        return !input.empty() && input[0] == '/';
+        return tui::palette::wants_open(input);
     }
 
     void draw_drawer(const std::string& input) {
@@ -676,38 +631,10 @@ private:
         }
     }
 
-    // Longest common prefix of the given command names.
-    static std::string common_prefix(const std::vector<std::string>& names) {
-        if (names.empty()) return "";
-        std::string p = names.front();
-        for (const auto& n : names) {
-            size_t i = 0;
-            while (i < p.size() && i < n.size() && p[i] == n[i]) ++i;
-            p.resize(i);
-        }
-        return p;
-    }
-
     // Tab pressed with the drawer open: complete the command name. Returns the
     // (possibly rewritten) input line.
     std::string drawer_complete(const std::string& input) {
-        std::string token = drawer_token(input);
-        auto matches = filter_commands(token);
-        if (matches.empty()) return input;
-
-        // If a row is selected, complete straight to it. Otherwise complete to
-        // the longest common prefix of the matches' primary names.
-        if (drawer_sel_ >= 0 && drawer_sel_ < static_cast<int>(matches.size()))
-            return "/" + matches[drawer_sel_]->name + " ";
-
-        std::vector<std::string> names;
-        for (auto* c : matches) names.push_back(c->name);
-        std::string cp = common_prefix(names);
-        if (cp.size() > token.size())
-            return "/" + cp;                 // extend to shared prefix
-        if (matches.size() == 1)
-            return "/" + matches.front()->name + " ";
-        return input;                        // ambiguous, nothing to add
+        return tui::palette::complete(commands(), input, drawer_sel_);
     }
 
     // A modal, PuTTY-safe selectable list that grows upward from the input line
@@ -979,12 +906,7 @@ private:
 
     // Find a command by name or alias (both given without the leading slash).
     const Command* find_command(const std::string& name) {
-        for (const auto& c : commands()) {
-            if (c.name == name) return &c;
-            for (const auto& a : c.aliases)
-                if (a == name) return &c;
-        }
-        return nullptr;
+        return tui::palette::find(commands(), name);
     }
 
     // Parse a slash command from the input line. Returns true if handled (so the
@@ -1009,9 +931,7 @@ private:
 
     // Canonical "/name  <args>" spelling for help/usage lines.
     std::string usage(const Command& c) const {
-        std::string u = "/" + c.name;
-        if (!c.args.empty()) u += " " + c.args;
-        return u;
+        return tui::palette::usage(c);
     }
 
     // /help with no arg lists every command; with an arg shows detail + aliases.

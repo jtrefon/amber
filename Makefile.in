@@ -40,7 +40,8 @@ LIB_OBJS  = $(BUILD_DIR)/lib/config.o \
 CLI_OBJ   = $(BUILD_DIR)/src/main.o
 TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/widgets.o \
-            $(BUILD_DIR)/tui/textutil.o
+            $(BUILD_DIR)/tui/textutil.o \
+            $(BUILD_DIR)/tui/palette.o
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o
 
@@ -62,8 +63,8 @@ check: $(BUILD_DIR)/smoketest
 test: $(BUILD_DIR)/run_tests
 	$(BUILD_DIR)/run_tests
 
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/$(LIBNAME)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/$(LIBNAME)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(LIBNAME)
 	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
