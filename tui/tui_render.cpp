@@ -76,30 +76,6 @@ int Tui::gauge_pair(double f) {
     }
 }
 
-std::string Tui::state_glyph(agent::RunState s) {
-    using S = agent::RunState;
-    switch (s) {
-        case S::Idle:      return "\u25cb idle";
-        case S::Waiting:   return "\u25cc wait";
-        case S::Thinking:  return "\u25d0 think";
-        case S::Streaming: return "\u25cf strm";
-        case S::Tooling:   return "\u25c9 tool";
-        case S::Error:     return "\u25c9 err";
-    }
-    return "\u25cb";
-}
-
-int Tui::state_pair(agent::RunState s) {
-    using S = agent::RunState;
-    switch (s) {
-        case S::Thinking:  return P_GAUGE_WARN;
-        case S::Streaming: return P_BAR_DIM;
-        case S::Tooling:   return P_GAUGE_OK;
-        case S::Error:     return P_GAUGE_CRIT;
-        default:           return P_BANNER;
-    }
-}
-
 std::vector<Tui::Seg> Tui::bar_segments() const {
     std::vector<Seg> segs;
     std::string wtag = "[" + std::to_string(active_ + 1) + ":" +
@@ -108,7 +84,6 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
                        std::to_string(windows_.size()) + "]";
     segs.push_back({wtag, P_BANNER, 3});
     segs.push_back({" [" + cfg_.model + "]", P_BANNER, 5});
-    segs.push_back({" " + state_glyph(state_), state_pair(state_), 1});
 
     if (stats_.latency_ms >= 0) {
         char b[32];

@@ -114,8 +114,6 @@ private:
     static std::wstring to_wide(const std::string& s);
     static std::string kfmt(long n);
     static int gauge_pair(double f);
-    static std::string state_glyph(agent::RunState s);
-    static int state_pair(agent::RunState s);
     std::vector<Seg> bar_segments() const;
     void draw();
     void draw_status_bar(const std::string& tail);
