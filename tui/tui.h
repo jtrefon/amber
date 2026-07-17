@@ -11,8 +11,13 @@
 #include "window.h"
 #include "palette.h"
 
+#include <atomic>
+#include <future>
 #include <memory>
+#include <mutex>
+#include <queue>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace agent {
@@ -21,12 +26,39 @@ class ToolRegistry;
 
 namespace tui {
 using palette::Command;
-} // namespace tui
 
-namespace tui {
+// Inter-thread event emitted by the agent worker and consumed on the UI
+// thread during the main event loop.
+struct AgentEvent {
+    enum Type {
+        Token,
+        Reasoning,
+        StateChange,
+        ToolCall,
+        ToolResult,
+        Status,
+        Stats,
+        Assistant,
+        Approval,
+        Error,
+        Done,
+    };
+    Type type;
+    std::string text;
+    agent::RunState state = agent::RunState::Idle;
+    agent::Stats stats{};
+    std::string tool_name;
+    agent::ToolResult tool_result{};
+    agent::json tool_args;
+    std::string error_msg;
+
+    // Worker thread blocks on this promise until the UI thread
+    // shows the approval dialog and resolves it.
+    std::shared_ptr<std::promise<agent::Approval>> approval_promise;
+};
 
 // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
-// interface on the top of the agent core. One instance per process; the main
+// interface on top of the agent core. One instance per process; the main
 // function creates it and calls run().
 class Tui {
 public:
@@ -42,6 +74,17 @@ public:
     void run();
 
 private:
+    // ---- thread / event machinery ---------------------------------------
+    void drain_events();       // pop and process all pending events
+    void send_async(const std::string& prompt);
+    void agent_worker(const std::string& prompt);
+
+    std::queue<AgentEvent> event_queue_;
+    std::mutex event_mtx_;
+    std::thread agent_thread_;
+    std::atomic<bool> agent_busy_{false};
+    std::atomic<bool> agent_cancel_{false};
+
     // ---- geometry / layout ----------------------------------------------
     int height() const;
     int width() const;
@@ -147,7 +190,7 @@ private:
     agent::Stats stats_;
     long ctx_used_ = -1;
     agent::ServerInfo last_detected_;
-    int anim_phase_ = 0;            // traveling-gradient animation phase
+    int anim_phase_ = 0;
 };
 
 } // namespace tui
