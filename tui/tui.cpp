@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -92,8 +93,8 @@ public:
 
     void run() {
         draw();
-        banner("cpp-agent - F1 help  Ctrl-N new win  Alt+1..9 switch  "
-               "/save /load  Enter send  Ctrl-C quit");
+        banner("cpp-agent - F1 help  /help commands  Ctrl-N new win  "
+               "Alt+1..9 switch  Enter send  Ctrl-C quit");
         draw_input("");
         detect_server(false);   // auto-fill model/context from the server
 
@@ -103,7 +104,7 @@ public:
         timeout(1000);
 
         std::string input;
-        while (true) {
+        while (!quit_) {
             int ch = getch();
             if (ch == ERR) { tick_clock(); draw_input(input); continue; }
             if (ch == KEY_F(1)) { help_screen(); redraw(input); continue; }
@@ -793,38 +794,133 @@ private:
         draw();
     }
 
+    // ---- slash command framework ---------------------------------------
+    //
+    // Adding a command: append one Command entry to build_commands(). The table
+    // is the single source of truth for dispatch, `/help`, and tab-less usage
+    // hints, so a new command automatically appears in the help listing.
+
+    struct Command {
+        std::string name;                 // primary name, without the leading /
+        std::vector<std::string> aliases; // alternate names (no leading /)
+        std::string args;                 // usage hint, e.g. "new|close|rename <name>"
+        std::string help;                 // one-line description
+        std::function<void(const std::string& arg)> run;
+    };
+
+    // Built lazily so handlers can capture `this`. Order here is the order shown
+    // in /help.
+    const std::vector<Command>& commands() {
+        if (commands_.empty()) build_commands();
+        return commands_;
+    }
+
+    void build_commands() {
+        commands_ = {
+            {"help", {"?", "h"}, "[command]",
+             "list commands, or show detail for one",
+             [this](const std::string& a) { cmd_help(a); }},
+            {"window", {"win", "w"}, "new|close|list|rename <name>",
+             "manage chat windows",
+             [this](const std::string& a) { cmd_window(a); }},
+            {"save", {}, "",
+             "persist the current conversation",
+             [this](const std::string&) { save_session(); }},
+            {"load", {"sessions", "open"}, "",
+             "pick a saved session to reopen",
+             [this](const std::string&) { pick_session(); }},
+            {"quit", {"exit", "q"}, "",
+             "save all windows and exit",
+             [this](const std::string&) { request_quit(); }},
+        };
+    }
+
+    // Find a command by name or alias (both given without the leading slash).
+    const Command* find_command(const std::string& name) {
+        for (const auto& c : commands()) {
+            if (c.name == name) return &c;
+            for (const auto& a : c.aliases)
+                if (a == name) return &c;
+        }
+        return nullptr;
+    }
+
     // Parse a slash command from the input line. Returns true if handled (so the
     // caller should not treat it as a prompt).
     bool handle_slash(const std::string& line) {
         if (line.empty() || line[0] != '/') return false;
-        std::string cmd, arg;
-        size_t sp = line.find(' ');
-        if (sp == std::string::npos) cmd = line;
-        else { cmd = line.substr(0, sp); arg = line.substr(sp + 1); }
+        std::string rest = line.substr(1);
+        std::string name, arg;
+        size_t sp = rest.find(' ');
+        if (sp == std::string::npos) name = rest;
+        else { name = rest.substr(0, sp); arg = rest.substr(sp + 1); }
 
-        if (cmd == "/save") { save_session(); }
-        else if (cmd == "/load" || cmd == "/sessions") { pick_session(); }
-        else if (cmd == "/window" || cmd == "/win") {
-            if (arg == "new") { new_window("chat"); draw(); }
-            else if (arg == "close") { close_window(); }
-            else if (arg == "list") {
-                std::string s = "windows:";
-                for (size_t i = 0; i < windows_.size(); ++i)
-                    s += " " + std::to_string(i + 1) + ":" + windows_[i]->title +
-                         (i == active_ ? "*" : "");
-                append_line(P_STATUS, s);
-            } else if (arg.rfind("rename ", 0) == 0) {
-                win().title = arg.substr(7);
-                append_line(P_STATUS, "renamed window to " + win().title);
-                draw();
-            } else {
-                append_line(P_STATUS, "/window new|close|list|rename <name>");
-            }
-        } else {
-            append_line(P_STATUS, "unknown command: " + cmd);
+        const Command* c = find_command(name);
+        if (!c) {
+            append_line(P_STATUS,
+                        "unknown command: /" + name + "  (try /help)");
+            return true;
         }
+        c->run(arg);
         return true;
     }
+
+    // Canonical "/name  <args>" spelling for help/usage lines.
+    std::string usage(const Command& c) const {
+        std::string u = "/" + c.name;
+        if (!c.args.empty()) u += " " + c.args;
+        return u;
+    }
+
+    // /help with no arg lists every command; with an arg shows detail + aliases.
+    void cmd_help(const std::string& arg) {
+        if (arg.empty()) {
+            std::vector<std::string> lines;
+            lines.push_back("Slash commands (type /help <command> for detail):");
+            lines.push_back("");
+            size_t w = 0;
+            for (const auto& c : commands()) w = std::max(w, usage(c).size());
+            for (const auto& c : commands()) {
+                std::string u = usage(c);
+                u.append(w - u.size() + 2, ' ');
+                lines.push_back("  " + u + c.help);
+            }
+            info_dialog("Commands", lines);
+            return;
+        }
+        std::string name = arg;
+        if (!name.empty() && name[0] == '/') name = name.substr(1);
+        const Command* c = find_command(name);
+        if (!c) { append_line(P_STATUS, "no such command: /" + name); return; }
+        std::vector<std::string> lines = {usage(*c), "", c->help};
+        if (!c->aliases.empty()) {
+            std::string al = "aliases:";
+            for (const auto& a : c->aliases) al += " /" + a;
+            lines.push_back("");
+            lines.push_back(al);
+        }
+        info_dialog("/" + c->name, lines);
+    }
+
+    void cmd_window(const std::string& arg) {
+        if (arg == "new") { new_window("chat"); draw(); }
+        else if (arg == "close") { close_window(); }
+        else if (arg == "list") {
+            std::string s = "windows:";
+            for (size_t i = 0; i < windows_.size(); ++i)
+                s += " " + std::to_string(i + 1) + ":" + windows_[i]->title +
+                     (i == active_ ? "*" : "");
+            append_line(P_STATUS, s);
+        } else if (arg.rfind("rename ", 0) == 0) {
+            win().title = arg.substr(7);
+            append_line(P_STATUS, "renamed window to " + win().title);
+            draw();
+        } else {
+            append_line(P_STATUS, "usage: /window new|close|list|rename <name>");
+        }
+    }
+
+    void request_quit() { quit_ = true; }
 
     void help_screen() {
         info_dialog("Help", {
@@ -839,10 +935,7 @@ private:
             "Alt+1..9  switch to window N",
             "Ctrl-C    quit",
             "",
-            "Slash commands:",
-            "  /window new|close|list|rename <name>",
-            "  /save            persist this conversation",
-            "  /load, /sessions pick a saved session to reopen",
+            "Type /help to list all slash commands, /help <cmd> for detail.",
             "",
             "Tools: read (paginated), write (patch), search (grep/semantic).",
         });
@@ -965,6 +1058,9 @@ private:
     // now live on Window).
     Window& win() { return *windows_[active_]; }
     const Window& win() const { return *windows_[active_]; }
+
+    std::vector<Command> commands_;  // built lazily by build_commands()
+    bool quit_ = false;              // set by /quit; breaks the input loop
 
     bool show_reasoning_ = true;    // toggle live thinking display
 
