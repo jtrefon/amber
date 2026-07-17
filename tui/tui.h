@@ -99,6 +99,7 @@ private:
     void autosave();
     void save_session();
     void load_session(const std::string& id);
+    void session_browser();
     void pick_session();
 
     // ---- window management ----------------------------------------------

@@ -26,6 +26,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg)
     curs_set(1);
     start_color();
     use_default_colors();
+    use_legacy_coding(1);   // Unicode line drawing on macOS Terminal
     init_pairs();
     open_welcome_window();
 }
