@@ -235,27 +235,39 @@ void Tui::draw_status_bar(const std::string& tail) {
         put("  " + tail, P_BAR_DIM);
 
     // Framed activity indicator, right-justified before the clock.
-    // Brackets stay at a fixed column so the UI never shakes.
+    // wattron/wattroff used throughout (not chtype |) for reliable colour
+    // pair rendering in ncursesw.
     constexpr int kIW = 12;          // [          ]
     int ix = w - clock_w - kIW - 1;  // one space left of the clock
     if (ix > x + 4) {
-        mvaddch(y, ix, '[' | COLOR_PAIR(P_BAR_DIM));
+        wattron(stdscr, COLOR_PAIR(P_BAR_DIM));
+        mvaddch(y, ix, '[');
         if (agent_busy_.load()) {
-            ++anim_phase_;
+            // Advance phase at ~150ms intervals (~6 fps) so the wave
+            // travels at a pleasant, observable pace.
+            static auto last_phase = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_phase > std::chrono::milliseconds(150)) {
+                ++anim_phase_;
+                last_phase = now;
+            }
             for (int i = 0; i < kIW - 2; ++i) {
                 int c = anim_phase_ % 16;
                 if (c >= 8) c = 16 - c;
                 int d = std::abs(i - c);
-                chtype a = COLOR_PAIR(P_BAR_DIM);
-                if (d == 0)      a |= A_BOLD;
-                else if (d > 2)  a |= A_DIM;
-                mvaddch(y, ix + 1 + i, '|' | a);
+                chtype a = A_NORMAL;
+                if (d == 0)      a = A_BOLD;
+                else if (d > 2)  a = A_DIM;
+                attron(a);
+                mvaddch(y, ix + 1 + i, '|');
+                attroff(a);
             }
         } else {
             anim_phase_ = 0;
             mvaddstr(y, ix + 1, "   idle   ");  // 10 chars, centered
         }
-        mvaddch(y, ix + kIW - 1, ']' | COLOR_PAIR(P_BAR_DIM));
+        mvaddch(y, ix + kIW - 1, ']');
+        wattroff(stdscr, COLOR_PAIR(P_BAR_DIM));
     }
 
     if (clock_w < w) {
