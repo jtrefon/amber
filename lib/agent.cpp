@@ -256,48 +256,53 @@ std::string Agent::run(const std::string& user_prompt) {
             continue;
         }
 
-        // Plain-text reply: done with the tool loop.
-        final_reply = reply.content;
+        // Plain-text reply: candidate answer. Before accepting it, ask the
+        // model to validate — it may realise it needs more tools or want to
+        // produce a better final summary. This replaces the old mode-gated
+        // evaluator-optimizer with a universal loop-termination check.
+        //   • model calls tools → main loop continues
+        //   • model confirms    → candidate is accepted
+        //   • model improves    → improved text becomes final
+        std::string candidate = reply.content;
 
-        // Evaluator-optimizer: in write mode, run one self-review pass.
-        if (cfg_.mode == agent::AgentMode::Write && iter > 0) {
-            if (hooks_.on_status) hooks_.on_status("self-review");
-            Message review_msg;
-            review_msg.role = "user";
-            review_msg.content = "Review your work above. Check that all tool "
-                "results are correct and the answer is complete. If anything "
-                "needs fixing, use tools to fix it now. Otherwise reply with "
-                "\"looks good.\"";
-            history_.push_back(review_msg);
+        Message done_msg;
+        done_msg.role = "user";
+        done_msg.content =
+            "Are you finished? If you need more information or analysis, "
+            "use tools now. Otherwise reply with \"done.\"";
+        history_.push_back(done_msg);
 
-            Message review = chat_once(tools);
-            history_.push_back(review);
+        Message check = chat_once(tools);
+        history_.push_back(check);
 
-            // Normalise the review text: strip punctuation, lowercase.
-            auto looks_good = [](const std::string& s) -> bool {
-                for (char c : s) {
-                    char lc = static_cast<char>(std::tolower(
-                        static_cast<unsigned char>(c)));
-                    if (lc != 'l' && lc != 'o' && lc != 'k' && lc != 's' &&
-                        lc != 'g' && lc != 'd' && lc != ' ' && lc != '.' &&
-                        lc != '!' && lc != '\n' && lc != '\r')
-                        return false;
-                }
-                return s.find("looks good") != std::string::npos ||
-                       s.find("looksgood") != std::string::npos;
-            };
+        if (!check.tool_calls.is_null() && !check.tool_calls.empty()) {
+            // Model chose to do more work — continue the main loop.
+            if (hooks_.on_status) hooks_.on_status("continuing investigation");
+            dispatch_tool_calls(check.tool_calls, tools);
+            continue;
+        }
 
-            if (!review.content.empty() && !looks_good(review.content) &&
-                !review.tool_calls.is_null()) {
-                // Model chose to do more work — continue the main loop.
-                if (hooks_.on_status) hooks_.on_status("self-review: revising");
-                dispatch_tool_calls(review.tool_calls, tools);
-                final_reply.clear();
-                continue;
+        // Model confirmed or improved the answer.
+        // Normalise and check for a simple confirmation.
+        auto is_confirmation = [](const std::string& s) -> bool {
+            std::string flat;
+            for (char c : s) {
+                char lc = static_cast<char>(std::tolower(
+                    static_cast<unsigned char>(c)));
+                if (lc != ' ' && lc != '.' && lc != '!' && lc != '\n' && lc != '\r')
+                    flat += lc;
             }
-            // Review passed or had no tool calls — accept the original answer.
-            if (!review.content.empty() && !looks_good(review.content))
-                final_reply = review.content;
+            return flat == "done" || flat == "yes" || flat == "ok" ||
+                   flat == "finished" || flat == "looksgood" ||
+                   flat == "complete" || flat == "alldone";
+        };
+
+        if (is_confirmation(check.content) || check.content.empty()) {
+            // Accept the candidate.
+            final_reply = candidate;
+        } else {
+            // Model provided an improved answer — use it.
+            final_reply = check.content;
         }
 
         if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
