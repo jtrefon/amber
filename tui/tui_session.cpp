@@ -150,27 +150,39 @@ void Tui::session_browser() {
     curs_set(1);                   // visible cursor for the search bar
 
     auto rebuild = [&]() -> std::vector<std::pair<int, int>> {
-        // Returns flat display list: (type, meta_index)
-        // type 0 = date header (meta_index unused), type 1 = session row
         std::vector<std::pair<int, int>> out;
         std::string last_date;
         for (int i = 0; i < static_cast<int>(all.size()); ++i) {
             if (!matches_filter(all[i].title, filter)) continue;
             std::string d = date_label(all[i].updated_ms);
             if (d != last_date) {
-                out.push_back({0, i});  // header
+                out.push_back({0, i});
                 last_date = d;
             }
-            out.push_back({1, i});       // session row
+            out.push_back({1, i});
         }
         return out;
+    };
+
+    // Snap sel to the nearest session row, or -1 if none exist.
+    auto snap_sel = [&](auto& disp, int& s) {
+        int n = static_cast<int>(disp.size());
+        if (n == 0) { s = -1; return; }
+        if (s < 0) s = 0;
+        if (s >= n) s = n - 1;
+        // Walk forward/backward to the nearest session row.
+        for (int step = 0; step < n; ++step) {
+            if (s + step < n && disp[s + step].first == 1) { s += step; return; }
+            if (s - step >= 0 && disp[s - step].first == 1) { s -= step; return; }
+        }
+        s = -1;
     };
 
     bool done = false;
     while (!done) {
         auto disp = rebuild();
         int nd = static_cast<int>(disp.size());
-        if (sel >= nd) sel = std::max(0, nd - 1);
+        snap_sel(disp, sel);
         if (sel < scroll_off) scroll_off = sel;
         if (sel >= scroll_off + list_h) scroll_off = sel - list_h + 1;
 
@@ -244,27 +256,19 @@ void Tui::session_browser() {
             filter.pop_back();
             sel = 0;
             scroll_off = 0;
-        } else {
+        } else if (nd > 0) {
             switch (c) {
                 case KEY_DOWN: ++sel; break;
                 case KEY_UP: --sel; break;
                 case KEY_NPAGE: sel += list_h; break;
                 case KEY_PPAGE: sel -= list_h; break;
                 case '\n': case '\r': case KEY_ENTER:
-                    // Find which session is under the cursor
-                    for (int i = sel; i >= 0; --i)
-                        if (disp[i].first == 1) {
-                            load_session(all[disp[i].second].id);
-                            done = true;
-                            break;
-                        }
+                    if (sel >= 0)
+                        { load_session(all[disp[sel].second].id); done = true; }
                     break;
                 case KEY_DC: case 'd': {
-                    // Find which session is under the cursor for deletion
-                    int del_idx = -1;
-                    for (int i = sel; i >= 0; --i)
-                        if (disp[i].first == 1) { del_idx = disp[i].second; break; }
-                    if (del_idx >= 0) {
+                    if (sel >= 0) {
+                        int del_idx = disp[sel].second;
                         std::string prompt = "Delete \"" + all[del_idx].title + "\"?";
                         int ch = menu_select(prompt, {"Cancel", "Delete"});
                         if (ch == 1) {
@@ -281,6 +285,8 @@ void Tui::session_browser() {
                 }
                 case 27: case 'q': done = true; break;
             }
+        } else if (c == 27 || c == 'q') {
+            done = true;
         }
     }
 
