@@ -42,7 +42,12 @@ void Agent::ensure_system_prompt() {
     std::string system = load_prompt(cfg_.system_prompt_path);
     if (system.empty())
         system = "You are amber, a helpful coding assistant running on a "
-                 "Linux server. Use the provided tools when they help.";
+                 "Linux server. Use the bash tool for ALL file operations. "
+                 "Read files with: cat, head, tail, grep, ls. "
+                 "Edit files with: sed, redirect (>), or use the write tool. "
+                 "Run builds with: g++, make, cmake. "
+                 "Read-only commands (cat, ls, grep, find) need no approval. "
+                 "Write commands (sed -i, rm, mv, >) may be gated by policy.";
     if (!cfg_.tools_prompt_path.empty())
         system += "\n\n" + load_prompt(cfg_.tools_prompt_path);
     else if (!registry_.empty())

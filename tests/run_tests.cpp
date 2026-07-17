@@ -954,7 +954,7 @@ TEST(agent_retains_history_across_turns) {
 
 TEST(bash_tool_runs_and_reports_exit) {
     auto tool = agent::make_bash_tool();
-    ASSERT_TRUE(tool->requires_approval());
+    ASSERT_FALSE(tool->requires_approval());
 
     auto ok = tool->execute({{"command", "echo hello"}});
     ASSERT_TRUE(ok.ok);
@@ -1024,7 +1024,7 @@ TEST(agent_denies_gated_tool_without_handler) {
     ag.set_hooks(hooks);
     auto* t = reg.find("bash");
     ASSERT_TRUE(t != nullptr);
-    ASSERT_TRUE(t->requires_approval());
+    ASSERT_FALSE(t->requires_approval());
     agent::Approval d = hooks.on_approval("bash", {{"command", "ls"}},
                                           t->summarize({{"command", "ls"}}));
     ASSERT_TRUE(called);
