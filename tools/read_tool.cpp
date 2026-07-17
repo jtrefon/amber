@@ -3,6 +3,7 @@
 
 #include "agent/tool.h"
 #include "agent/tools.h"
+#include "agent/workspace.h"
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -44,7 +45,11 @@ public:
         if (!a.contains("path") || !a["path"].is_string()) {
             r.ok = false; r.error = "missing 'path'"; return r;
         }
-        std::string path = a["path"].get<std::string>();
+        std::string requested = a["path"].get<std::string>();
+        std::string path, cerr;
+        if (!Workspace::confine(requested, path, cerr)) {
+            r.ok = false; r.error = cerr; return r;
+        }
         long offset = a.value("offset", 1L);
         long limit = a.value("limit", 200L);
         if (offset < 1) offset = 1;

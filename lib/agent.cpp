@@ -94,9 +94,8 @@ std::string Agent::run(const std::string& user_prompt) {
         Stats stats;
         set_state(RunState::Waiting);
         if (cfg_.stream) {
-            bool seen = false;
             reply = client_.chat_stream(history_, tools,
-                [this, &set_state, &seen](const StreamChunk& ch) {
+                [this, &set_state](const StreamChunk& ch) {
                     if (ch.done) return;
                     if (!ch.reasoning.empty()) {
                         set_state(RunState::Thinking);
@@ -104,11 +103,9 @@ std::string Agent::run(const std::string& user_prompt) {
                     }
                     if (!ch.delta.empty()) {
                         set_state(RunState::Streaming);
-                        seen = true;
                         if (hooks_.on_token) hooks_.on_token(ch.delta);
                     }
                 }, &stats);
-            (void)seen;
         } else {
             reply = client_.chat(history_, tools, &stats);
         }

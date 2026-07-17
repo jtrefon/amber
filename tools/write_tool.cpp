@@ -3,6 +3,7 @@
 
 #include "agent/tool.h"
 #include "agent/tools.h"
+#include "agent/workspace.h"
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -57,7 +58,11 @@ public:
         if (!a.contains("edits") || !a["edits"].is_array() || a["edits"].empty()) {
             r.ok = false; r.error = "missing non-empty 'edits'"; return r;
         }
-        std::string path = a["path"].get<std::string>();
+        std::string requested = a["path"].get<std::string>();
+        std::string path, cerr;
+        if (!Workspace::confine(requested, path, cerr)) {
+            r.ok = false; r.error = cerr; return r;
+        }
 
         std::ifstream fin(path);
         std::string content = fin ? std::string((std::istreambuf_iterator<char>(fin)),

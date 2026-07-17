@@ -44,6 +44,20 @@ Search backends:
   index (hashing-trick vectors + IDF-weighted cosine ranking) over the tree.
   The `embed()` step is the single point to swap for a real embedding model.
 
+Security model:
+  The agent executes tools on behalf of an LLM, so treat model output as
+  untrusted input.
+  - Filesystem confinement: the read and write tools resolve every path and
+    refuse anything outside the workspace root. The root defaults to the
+    process working directory and can be overridden with CPP_AGENT_WORKSPACE.
+    Absolute paths and "../" traversal that escape the root are rejected.
+  - Search: the grep backend passes the query and root as single-quoted
+    arguments (shell metacharacters are neutralized), so a crafted query
+    cannot inject shell commands.
+  - Run the agent as an unprivileged user, ideally in a container or
+    dedicated working directory, and review write operations for anything
+    you would not run yourself.
+
 License:
   Apache License 2.0. See LICENSE and NOTICE. Bundled third-party
   components are listed in THIRD_PARTY_LICENSES (nlohmann/json is MIT).

@@ -153,6 +153,7 @@ TEST(prompt_render_tools_markdown_lists_all) {
 // ---------------------------------------------------------------------------
 
 TEST(read_tool_basic_and_pagination) {
+    agent::Workspace::set_root("/tmp");
     std::string path = "/tmp/cpp_agent_read_test.txt";
     {
         std::ofstream f(path);
@@ -190,6 +191,7 @@ TEST(read_tool_missing_path_errors) {
 // ---------------------------------------------------------------------------
 
 TEST(write_tool_create_then_patch) {
+    agent::Workspace::set_root("/tmp");
     std::string path = "/tmp/cpp_agent_write_test.txt";
     std::remove(path.c_str());
     auto tool = agent::make_write_tool();
@@ -213,6 +215,7 @@ TEST(write_tool_create_then_patch) {
 }
 
 TEST(write_tool_missing_old_fails) {
+    agent::Workspace::set_root("/tmp");
     std::string path = "/tmp/cpp_agent_write_test2.txt";
     std::remove(path.c_str());
     auto tool = agent::make_write_tool();
@@ -221,6 +224,46 @@ TEST(write_tool_missing_old_fails) {
     ASSERT_FALSE(r.ok);
     ASSERT(r.error.find("not found") != std::string::npos);
     std::remove(path.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// workspace path confinement
+// ---------------------------------------------------------------------------
+
+TEST(workspace_confines_relative_and_rejects_escape) {
+    agent::Workspace::set_root("/tmp/cpp_agent_ws");
+    std::string resolved, err;
+
+    ASSERT_TRUE(agent::Workspace::confine("a/b.txt", resolved, err));
+    ASSERT_EQ(resolved, "/tmp/cpp_agent_ws/a/b.txt");
+
+    ASSERT_TRUE(agent::Workspace::confine("./x/../y.txt", resolved, err));
+    ASSERT_EQ(resolved, "/tmp/cpp_agent_ws/y.txt");
+
+    ASSERT_FALSE(agent::Workspace::confine("../../etc/passwd", resolved, err));
+    ASSERT_FALSE(err.empty());
+
+    ASSERT_FALSE(agent::Workspace::confine("/etc/passwd", resolved, err));
+    ASSERT_FALSE(err.empty());
+
+    // sibling directory sharing a prefix must not be treated as inside
+    ASSERT_FALSE(agent::Workspace::confine("/tmp/cpp_agent_ws2/x", resolved, err));
+}
+
+TEST(read_write_tools_reject_paths_outside_workspace) {
+    agent::Workspace::set_root("/tmp/cpp_agent_ws_tools");
+    run_cmd("mkdir -p /tmp/cpp_agent_ws_tools");
+
+    auto rtool = agent::make_read_tool();
+    auto rr = rtool->execute({{"path", "/etc/passwd"}});
+    ASSERT_FALSE(rr.ok);
+    ASSERT(rr.error.find("workspace") != std::string::npos);
+
+    auto wtool = agent::make_write_tool();
+    auto wr = wtool->execute({{"path", "../escape.txt"},
+                              {"edits", {{{"old", ""}, {"new", "x"}}}}});
+    ASSERT_FALSE(wr.ok);
+    ASSERT(wr.error.find("workspace") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +305,19 @@ TEST(search_grep_backend) {
     }
     ASSERT(saw_a && saw_b);
     run_cmd("rm -rf " + dir);
+}
+
+TEST(search_grep_backend_resists_shell_injection) {
+    std::string dir = make_search_tree();
+    std::string sentinel = "/tmp/cpp_agent_pwned";
+    run_cmd("rm -f " + sentinel);
+    auto be = agent::make_grep_backend();
+    // A query crafted to break out of the command if quoting were absent.
+    auto hits = be->search("x'; touch " + sentinel + "; echo '", dir, "", 100);
+    // The injected command must not have run.
+    ASSERT_FALSE(access(sentinel.c_str(), F_OK) == 0);
+    (void)hits;
+    run_cmd("rm -rf " + dir + " " + sentinel);
 }
 
 TEST(search_semantic_backend_ranks_relevant) {
