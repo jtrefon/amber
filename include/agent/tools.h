@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Jacek Trefon (www.trefon.com)
+
 #ifndef AGENT_TOOLS_H
 #define AGENT_TOOLS_H
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Jacek Trefon (www.trefon.com)
+
 #include "agent/tool.h"
 #include "agent/tools.h"
 #include "agent/search_backend.h"

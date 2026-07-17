@@ -45,4 +45,5 @@ Search backends:
   The `embed()` step is the single point to swap for a real embedding model.
 
 License:
-  GPL-3.0-or-later. See LICENSE / COPYING.
+  Apache License 2.0. See LICENSE and NOTICE. Bundled third-party
+  components are listed in THIRD_PARTY_LICENSES (nlohmann/json is MIT).
