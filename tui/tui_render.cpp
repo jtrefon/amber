@@ -198,7 +198,10 @@ int Tui::draw_gradient(int y, int x) {
         int center = anim_phase_ % (W * 2 - 2);
         if (center >= W) center = W * 2 - 2 - center;
         int dist = std::abs(i - center);
-        chtype attr = COLOR_PAIR(P_BAR_DIM);
+        // A_REVERSE swaps fg/bg so the background becomes cyan — visible
+        // against the blue status bar. A space with a non-default background
+        // renders as a solid colour block.
+        chtype attr = COLOR_PAIR(P_BAR_DIM) | A_REVERSE;
         if (dist == 0)       attr |= A_BOLD;
         else if (dist > 2)   attr |= A_DIM;
         wattron(stdscr, attr);
