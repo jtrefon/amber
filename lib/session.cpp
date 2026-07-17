@@ -59,7 +59,7 @@ std::string default_dir() {
         const char* home = std::getenv("HOME");
         base = std::string(home ? home : ".") + "/.local/share";
     }
-    return base + "/cpp-agent/sessions";
+    return base + "/amber/sessions";
 }
 
 // mkdir -p for a path.

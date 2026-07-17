@@ -28,7 +28,7 @@ What actually happened. Include error output or a screenshot if relevant.
 - OS / distro:
 - Terminal (and multiplexer, e.g. tmux/PuTTY):
 - Compiler and version (`g++ --version` / `clang++ --version`):
-- cpp-agent commit (`git rev-parse --short HEAD`):
+- amber commit (`git rev-parse --short HEAD`):
 - LLM server / model:
 
 ## Additional context

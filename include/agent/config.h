@@ -40,7 +40,7 @@ struct Config {
     // Model context window (n_ctx) in tokens. Used by UIs to render a
     // context-usage gauge (prompt_tokens vs this). May be auto-detected from the
     // server's /v1/models endpoint on startup. <=0 hides the gauge.
-    // Env: CPP_AGENT_CONTEXT.
+    // Env: AMBER_CONTEXT.
     int context_size = 8192;
 
     // Set true when model / context_size were provided explicitly (config file,
@@ -61,11 +61,11 @@ struct Config {
     // Debug log. When non-empty, LLMClient dumps raw HTTP request bodies, raw
     // SSE bytes, HTTP status, and any transport/parse errors here. Verbose;
     // intended for diagnosing streaming/crash issues. Supports "{ts}". Off when
-    // empty. Env: CPP_AGENT_DEBUG.
+    // empty. Env: AMBER_DEBUG.
     std::string debug_log;
 
     // Load from a simple KEY=VALUE config file, then overlay env vars
-    // (CPP_AGENT_API_BASE, CPP_AGENT_API_KEY, CPP_AGENT_MODEL, ...).
+    // (AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL, ...).
     void load(const std::string& path);
     void apply_environment();
 

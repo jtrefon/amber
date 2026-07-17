@@ -24,7 +24,7 @@ int main() {
         agent::Tool* wr = reg.find("write");
         assert(wr);
         auto r = wr->execute({
-            {"path", "/tmp/cpp-agent-smoke.txt"},
+            {"path", "/tmp/amber-smoke.txt"},
             {"edits", {{{"old", ""}, {"new", "line one\nline two\n"}}}}
         });
         assert(r.ok);
@@ -32,7 +32,7 @@ int main() {
 
         // patch it
         auto r2 = wr->execute({
-            {"path", "/tmp/cpp-agent-smoke.txt"},
+            {"path", "/tmp/amber-smoke.txt"},
             {"edits", {{{"old", "line two"}, {"new", "line 2"}}}}
         });
         assert(r2.ok);

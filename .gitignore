@@ -12,8 +12,8 @@ configure~
 autom4te.cache/
 
 # Generated binaries
-cpp-agent
-cpp-agent-tui
+amber
+amber-tui
 run_tests
 smoketest
 
@@ -22,7 +22,7 @@ stage/
 dist/
 
 # Local runtime config, telemetry, and debug logs
-cpp-agent.conf
+amber.conf
 logs/
 *.jsonl
 

@@ -17,7 +17,7 @@ bindir    = @bindir@
 libdir    = @libdir@
 includedir = @includedir@
 datarootdir = @datarootdir@
-docdir    = $(datarootdir)/doc/cpp-agent
+docdir    = $(datarootdir)/doc/amber
 
 SRC_DIR   = @srcdir@
 BUILD_DIR = @builddir@
@@ -46,8 +46,8 @@ TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o
 
 LIBNAME   = libagent.a
-CLI_BIN   = cpp-agent
-TUI_BIN   = cpp-agent-tui
+CLI_BIN   = amber
+TUI_BIN   = amber-tui
 
 # ncurses (+ form/menu/panel) for the TUI client (detected at configure time).
 NCURSES_LIBS = @NCURSES_LIBS@

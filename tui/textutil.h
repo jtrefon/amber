@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
-#ifndef CPP_AGENT_TUI_TEXTUTIL_H
-#define CPP_AGENT_TUI_TEXTUTIL_H
+#ifndef AMBER_TUI_TEXTUTIL_H
+#define AMBER_TUI_TEXTUTIL_H
 
 #include <cstddef>
 #include <string>
@@ -33,4 +33,4 @@ std::wstring to_wide(const std::string& s);
 } // namespace text
 } // namespace tui
 
-#endif // CPP_AGENT_TUI_TEXTUTIL_H
+#endif // AMBER_TUI_TEXTUTIL_H

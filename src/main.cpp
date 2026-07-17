@@ -10,9 +10,9 @@ namespace {
 
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " [options] [prompt]\n\n"
-              << "  --api-base URL     OpenAI-compatible base URL (env CPP_AGENT_API_BASE)\n"
-              << "  --api-key KEY      API key (env CPP_AGENT_API_KEY)\n"
-              << "  --model NAME       Model name (env CPP_AGENT_MODEL)\n"
+              << "  --api-base URL     OpenAI-compatible base URL (env AMBER_API_BASE)\n"
+              << "  --api-key KEY      API key (env AMBER_API_KEY)\n"
+              << "  --model NAME       Model name (env AMBER_MODEL)\n"
               << "  --system FILE      System prompt markdown file\n"
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"

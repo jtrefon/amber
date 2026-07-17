@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
-#ifndef CPP_AGENT_TUI_WIDGETS_H
-#define CPP_AGENT_TUI_WIDGETS_H
+#ifndef AMBER_TUI_WIDGETS_H
+#define AMBER_TUI_WIDGETS_H
 
 // Reusable native-ncurses widget layer for the TUI. All modal subcomponents
 // (settings form, menus, info popups) are built on top of these so that new
@@ -84,4 +84,4 @@ int menu_select(const std::string& title, const std::vector<std::string>& choice
 
 } // namespace tui
 
-#endif // CPP_AGENT_TUI_WIDGETS_H
+#endif // AMBER_TUI_WIDGETS_H

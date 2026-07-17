@@ -1,6 +1,6 @@
-# Contributing to cpp-agent
+# Contributing to amber
 
-Thanks for your interest in improving cpp-agent! This document explains how to
+Thanks for your interest in improving amber! This document explains how to
 build, test, and submit changes.
 
 ## Ground rules
@@ -28,7 +28,7 @@ sudo apt-get install -y build-essential libcurl4-openssl-dev \
 
 ```sh
 ./configure          # detects compiler, libcurl, ncursesw
-make                 # builds libagent.a, cpp-agent, cpp-agent-tui
+make                 # builds libagent.a, amber, amber-tui
 make test            # runs the unit test suite
 ```
 
@@ -74,8 +74,8 @@ git push origin v0.1.0
 The workflow builds and tests, stages `make install`, then publishes a GitHub
 Release with:
 
-- `cpp-agent-<version>-linux-x86_64.tar.gz` (+ `.sha256`)
-- `cpp-agent_<version>_amd64.deb` (+ `.sha256`)
+- `amber-<version>-linux-x86_64.tar.gz` (+ `.sha256`)
+- `amber_<version>_amd64.deb` (+ `.sha256`)
 - auto-generated release notes
 
 Tags containing a hyphen (e.g. `v0.1.0-rc.1`) are marked as pre-releases.

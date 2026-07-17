@@ -38,8 +38,8 @@ struct SessionMeta {
 };
 
 // File-backed session store. Persists one JSON file per session under a
-// directory (default: $XDG_DATA_HOME/cpp-agent/sessions, else
-// ~/.local/share/cpp-agent/sessions). All methods are best-effort and never
+// directory (default: $XDG_DATA_HOME/amber/sessions, else
+// ~/.local/share/amber/sessions). All methods are best-effort and never
 // throw; failures return false / empty.
 class SessionStore {
 public:

@@ -160,7 +160,7 @@ TEST(palette_usage_and_common_prefix) {
 }
 
 TEST(config_load_key_value) {
-    std::string path = "/tmp/cpp_agent_cfg_test.txt";
+    std::string path = "/tmp/amber_cfg_test.txt";
     {
         std::ofstream f(path);
         f << "# comment\n";
@@ -184,10 +184,10 @@ TEST(config_load_key_value) {
 // that an optional (possibly empty) token survives a load round-trip. This
 // guards the settings-persistence contract used by the TUI.
 TEST(config_save_settings_roundtrip) {
-    std::string path = "/tmp/cpp_agent_settings_test.conf";
+    std::string path = "/tmp/amber_settings_test.conf";
     {
         std::ofstream f(path);
-        f << "# cpp-agent settings\n";
+        f << "# amber settings\n";
         f << "api_base=http://localhost:8080/v1\n";
         f << "api_key=sk-test-token\n";
         f << "model=llama-3.2-3b-instruct\n";
@@ -257,7 +257,7 @@ TEST(prompt_missing_file_empty) {
 }
 
 TEST(prompt_loads_existing) {
-    std::string path = "/tmp/cpp_agent_prompt_test.md";
+    std::string path = "/tmp/amber_prompt_test.md";
     {
         std::ofstream f(path);
         f << "# Title\nbody text\n";
@@ -283,7 +283,7 @@ TEST(prompt_render_tools_markdown_lists_all) {
 
 TEST(read_tool_basic_and_pagination) {
     agent::Workspace::set_root("/tmp");
-    std::string path = "/tmp/cpp_agent_read_test.txt";
+    std::string path = "/tmp/amber_read_test.txt";
     {
         std::ofstream f(path);
         for (int i = 1; i <= 10; ++i) f << "line " << i << "\n";
@@ -321,7 +321,7 @@ TEST(read_tool_missing_path_errors) {
 
 TEST(write_tool_create_then_patch) {
     agent::Workspace::set_root("/tmp");
-    std::string path = "/tmp/cpp_agent_write_test.txt";
+    std::string path = "/tmp/amber_write_test.txt";
     std::remove(path.c_str());
     auto tool = agent::make_write_tool();
 
@@ -345,7 +345,7 @@ TEST(write_tool_create_then_patch) {
 
 TEST(write_tool_missing_old_fails) {
     agent::Workspace::set_root("/tmp");
-    std::string path = "/tmp/cpp_agent_write_test2.txt";
+    std::string path = "/tmp/amber_write_test2.txt";
     std::remove(path.c_str());
     auto tool = agent::make_write_tool();
     auto r = tool->execute({{"path", path},
@@ -360,14 +360,14 @@ TEST(write_tool_missing_old_fails) {
 // ---------------------------------------------------------------------------
 
 TEST(workspace_confines_relative_and_rejects_escape) {
-    agent::Workspace::set_root("/tmp/cpp_agent_ws");
+    agent::Workspace::set_root("/tmp/amber_ws");
     std::string resolved, err;
 
     ASSERT_TRUE(agent::Workspace::confine("a/b.txt", resolved, err));
-    ASSERT_EQ(resolved, "/tmp/cpp_agent_ws/a/b.txt");
+    ASSERT_EQ(resolved, "/tmp/amber_ws/a/b.txt");
 
     ASSERT_TRUE(agent::Workspace::confine("./x/../y.txt", resolved, err));
-    ASSERT_EQ(resolved, "/tmp/cpp_agent_ws/y.txt");
+    ASSERT_EQ(resolved, "/tmp/amber_ws/y.txt");
 
     ASSERT_FALSE(agent::Workspace::confine("../../etc/passwd", resolved, err));
     ASSERT_FALSE(err.empty());
@@ -376,12 +376,12 @@ TEST(workspace_confines_relative_and_rejects_escape) {
     ASSERT_FALSE(err.empty());
 
     // sibling directory sharing a prefix must not be treated as inside
-    ASSERT_FALSE(agent::Workspace::confine("/tmp/cpp_agent_ws2/x", resolved, err));
+    ASSERT_FALSE(agent::Workspace::confine("/tmp/amber_ws2/x", resolved, err));
 }
 
 TEST(read_write_tools_reject_paths_outside_workspace) {
-    agent::Workspace::set_root("/tmp/cpp_agent_ws_tools");
-    run_cmd("mkdir -p /tmp/cpp_agent_ws_tools");
+    agent::Workspace::set_root("/tmp/amber_ws_tools");
+    run_cmd("mkdir -p /tmp/amber_ws_tools");
 
     auto rtool = agent::make_read_tool();
     auto rr = rtool->execute({{"path", "/etc/passwd"}});
@@ -401,7 +401,7 @@ TEST(read_write_tools_reject_paths_outside_workspace) {
 
 namespace {
 std::string make_search_tree() {
-    std::string dir = "/tmp/cpp_agent_srch";
+    std::string dir = "/tmp/amber_srch";
     std::string cmd = "rm -rf " + dir + " && mkdir -p " + dir + "/sub";
     run_cmd(cmd);
     {
@@ -438,7 +438,7 @@ TEST(search_grep_backend) {
 
 TEST(search_grep_backend_resists_shell_injection) {
     std::string dir = make_search_tree();
-    std::string sentinel = "/tmp/cpp_agent_pwned";
+    std::string sentinel = "/tmp/amber_pwned";
     run_cmd("rm -f " + sentinel);
     auto be = agent::make_grep_backend();
     // A query crafted to break out of the command if quoting were absent.
@@ -760,7 +760,7 @@ TEST(session_json_roundtrip_preserves_messages) {
 }
 
 TEST(session_store_save_load_list_delete) {
-    std::string dir = "/tmp/cpp_agent_sessions_test";
+    std::string dir = "/tmp/amber_sessions_test";
     run_cmd("rm -rf " + dir);
     agent::SessionStore store(dir);
 

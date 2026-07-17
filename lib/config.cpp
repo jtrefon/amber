@@ -48,23 +48,23 @@ void Config::apply_environment() {
         const char* v = std::getenv(n);
         if (v) out = v;
     };
-    get("CPP_AGENT_API_BASE", api_base);
-    get("CPP_AGENT_API_KEY", api_key);
-    { std::string prev = model; get("CPP_AGENT_MODEL", model);
+    get("AMBER_API_BASE", api_base);
+    get("AMBER_API_KEY", api_key);
+    { std::string prev = model; get("AMBER_MODEL", model);
       if (model != prev) model_explicit = true; }
-    get("CPP_AGENT_SYSTEM_PROMPT", system_prompt_path);
-    get("CPP_AGENT_TOOLS_PROMPT", tools_prompt_path);
-    const char* s = std::getenv("CPP_AGENT_STREAM");
+    get("AMBER_SYSTEM_PROMPT", system_prompt_path);
+    get("AMBER_TOOLS_PROMPT", tools_prompt_path);
+    const char* s = std::getenv("AMBER_STREAM");
     if (s) stream = (std::string(s) == "1" || std::string(s) == "true");
-    get("CPP_AGENT_THINKING", thinking);
-    const char* tb = std::getenv("CPP_AGENT_THINKING_BUDGET");
+    get("AMBER_THINKING", thinking);
+    const char* tb = std::getenv("AMBER_THINKING_BUDGET");
     if (tb) thinking_budget = std::atoi(tb);
-    const char* cs = std::getenv("CPP_AGENT_CONTEXT");
+    const char* cs = std::getenv("AMBER_CONTEXT");
     if (cs) { context_size = std::atoi(cs); context_explicit = true; }
-    get("CPP_AGENT_LOG", log_path);
-    get("CPP_AGENT_DEBUG", debug_log);
-    get("CPP_AGENT_REASONING", reasoning_effort);
-    const char* sr = std::getenv("CPP_AGENT_SHOW_REASONING");
+    get("AMBER_LOG", log_path);
+    get("AMBER_DEBUG", debug_log);
+    get("AMBER_REASONING", reasoning_effort);
+    const char* sr = std::getenv("AMBER_SHOW_REASONING");
     if (sr) show_reasoning = (std::string(sr) == "1" || std::string(sr) == "true");
 }
 

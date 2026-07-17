@@ -83,7 +83,7 @@ public:
 
     void run() {
         draw();
-        banner("cpp-agent - F1 help  /help commands  Ctrl-N new win  "
+        banner("amber - F1 help  /help commands  Ctrl-N new win  "
                "Alt+1..9 switch  Enter send  Ctrl-C quit");
         draw_input("");
         detect_server(false);   // auto-fill model/context from the server
@@ -1099,7 +1099,7 @@ private:
     void save_settings() {
         std::ofstream f(settings_path_, std::ios::trunc);
         if (!f) return;
-        f << "# cpp-agent settings\n";
+        f << "# amber settings\n";
         f << "api_base=" << cfg_.api_base << "\n";
         f << "api_key=" << cfg_.api_key << "\n";
         f << "model=" << cfg_.model << "\n";
@@ -1111,7 +1111,7 @@ private:
     agent::Config cfg_;
     agent::ToolRegistry& reg_;
     agent::SessionStore store_;
-    std::string settings_path_ = "cpp-agent.conf";
+    std::string settings_path_ = "amber.conf";
 
     // ---- windows (IRC-style switchable conversations) -------------------
     std::vector<std::unique_ptr<Window>> windows_;
@@ -1158,8 +1158,8 @@ int main(int argc, char** argv) {
     }
     if (!config_file.empty()) cfg.load(config_file);
     {
-        std::ifstream sf("cpp-agent.conf");
-        if (sf) cfg.load("cpp-agent.conf");
+        std::ifstream sf("amber.conf");
+        if (sf) cfg.load("amber.conf");
     }
     cfg.apply_environment();
 

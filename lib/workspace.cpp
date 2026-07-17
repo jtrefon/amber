@@ -26,7 +26,7 @@ std::string normalize(const fs::path& p) {
 std::string ensure_root() {
     std::string& r = root_storage();
     if (!r.empty()) return r;
-    if (const char* env = std::getenv("CPP_AGENT_WORKSPACE"); env && *env) {
+    if (const char* env = std::getenv("AMBER_WORKSPACE"); env && *env) {
         r = normalize(fs::absolute(fs::path(env)));
     } else {
         std::error_code ec;

@@ -58,7 +58,7 @@ jobs:
         id: tar
         run: |
           version="${{ steps.ver.outputs.version }}"
-          name="cpp-agent-${version}-linux-x86_64"
+          name="amber-${version}-linux-x86_64"
           mkdir -p dist
           tar -C stage -czf "dist/${name}.tar.gz" .
           ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
@@ -69,19 +69,19 @@ jobs:
         run: |
           version="${{ steps.ver.outputs.version }}"
           fpm -s dir -t deb \
-            -n cpp-agent \
+            -n amber \
             -v "${version}" \
             --license "Apache-2.0" \
             --maintainer "Jacek Trefon <hello@trefon.com>" \
-            --url "https://github.com/jtrefon/ai-agent-tui" \
+            --url "https://github.com/jtrefon/amber" \
             --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
             --depends "libcurl4" \
             --depends "libncursesw6" \
             --deb-no-default-config-files \
             -C stage \
-            -p "dist/cpp-agent_${version}_amd64.deb" \
+            -p "dist/amber_${version}_amd64.deb" \
             usr
-          ( cd dist && sha256sum "cpp-agent_${version}_amd64.deb" > "cpp-agent_${version}_amd64.deb.sha256" )
+          ( cd dist && sha256sum "amber_${version}_amd64.deb" > "amber_${version}_amd64.deb.sha256" )
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

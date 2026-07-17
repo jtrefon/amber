@@ -1,5 +1,5 @@
 #!/bin/sh
-# configure - minimal autotools-style configuration script for cpp-agent
+# configure - minimal autotools-style configuration script for amber
 # Generates Makefile from Makefile.in.
 # This is free software released under the GPL-3.0-or-later.
 

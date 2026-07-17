@@ -12,7 +12,7 @@ namespace agent {
 //
 // Tools may only read or write inside a "workspace root". By default the root
 // is the process working directory at first use, but it can be overridden with
-// the CPP_AGENT_WORKSPACE environment variable or set explicitly for tests.
+// the AMBER_WORKSPACE environment variable or set explicitly for tests.
 //
 // This is a defense-in-depth measure: the model driving the agent should not be
 // able to escape the workspace via absolute paths (e.g. "/etc/passwd") or

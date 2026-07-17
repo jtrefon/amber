@@ -50,7 +50,7 @@ void Agent::ensure_system_prompt() {
 
     std::string system = load_prompt(cfg_.system_prompt_path);
     if (system.empty())
-        system = "You are cpp-agent, a helpful coding assistant running on a "
+        system = "You are amber, a helpful coding assistant running on a "
                  "Linux server. Use the provided tools when they help.";
     if (!cfg_.tools_prompt_path.empty())
         system += "\n\n" + load_prompt(cfg_.tools_prompt_path);
