@@ -35,8 +35,9 @@ LIB_OBJS  = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/agent.o \
             $(BUILD_DIR)/lib/statusbar.o \
             $(BUILD_DIR)/lib/session.o \
-            $(BUILD_DIR)/lib/workspace.o \
-            $(BUILD_DIR)/lib/tools_default.o \
+             $(BUILD_DIR)/lib/workspace.o \
+             $(BUILD_DIR)/lib/tools_default.o \
+             $(BUILD_DIR)/lib/tool_call_parser.o \
             $(BUILD_DIR)/tools/read_tool.o \
             $(BUILD_DIR)/tools/write_tool.o \
             $(BUILD_DIR)/tools/search_tool.o \

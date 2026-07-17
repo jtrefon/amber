@@ -3,6 +3,7 @@
 
 #include "agent/agent.h"
 #include "agent/prompt.h"
+#include "agent/tool_call_parser.h"
 #include <future>
 #include <stdexcept>
 #include <cctype>
@@ -224,6 +225,25 @@ std::string Agent::run(const std::string& user_prompt) {
         history_.push_back(reply);
         if (!reply.reasoning.empty())
             log_.event("reasoning", {{"content", reply.reasoning}});
+
+        // If the response has no JSON tool_calls but contains XML-embedded
+        // tool calls (common with Jinja chat templates), extract them.
+        bool has_json_tc = !reply.tool_calls.is_null() &&
+                           !reply.tool_calls.empty();
+        if (!has_json_tc && !reply.content.empty()) {
+            auto extracted = extract_tool_calls_from_text(reply.content);
+            if (!extracted.is_null()) {
+                reply.tool_calls = std::move(extracted);
+                // Remove the XML block from the stored content so it
+                // doesn't leak into the visible conversation.
+                reply.content.clear();
+                history_.back().content.clear();
+                history_.back().tool_calls = reply.tool_calls;
+                has_json_tc = true;
+                if (hooks_.on_status)
+                    hooks_.on_status("parsed tool calls from text");
+            }
+        }
 
         // If the model replied with text but no tool calls on the first
         // iteration, it likely described intent without acting. Nudge it
