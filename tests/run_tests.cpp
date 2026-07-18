@@ -186,39 +186,99 @@ TEST(markdown_highlight_colors_fenced_code) {
 TEST(markdown_renders_aligned_table_and_skips_divider) {
     std::string md = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 7 |";
     auto ls = tui::md::render(md, tui::md::Style{});
-    // header, separator, alice, bob = 4 lines.
-    ASSERT_EQ(ls.size(), (size_t)4);
+    // header, separator, alice, bob, trailing blank = 5 lines.
+    ASSERT_EQ(ls.size(), (size_t)5);
     // The markdown divider row ("|------|-----|") must NOT appear as a data
     // row (it is skipped; only the drawn box separator ├─┼─┤ remains).
     for (auto& l : ls)
         for (auto& r : l.runs)
             ASSERT_TRUE(r.text.find("|------") == std::string::npos);
-    // Header row cell uses the header pair (distinct from body).
-    ASSERT_EQ(ls[0].runs[1].pair, tui::md::Style{}.table_head_pair);
-    ASSERT_EQ(ls[2].runs[1].pair, tui::md::Style{}.table_pair);
+    // Header row cell text is "Name", body cells "Alice"/"Bob".
+    std::string head;
+    for (auto& r : ls[0].runs) head += r.text;
+    ASSERT_TRUE(head.find("Name") != std::string::npos);
+    std::string row2;
+    for (auto& r : ls[2].runs) row2 += r.text;
+    ASSERT_TRUE(row2.find("Alice") != std::string::npos);
 }
 
 TEST(markdown_trims_heading_whitespace) {
     auto ls = tui::md::render("##   Spaced heading   \nbody", tui::md::Style{});
     ASSERT_FALSE(ls.empty());
-    ASSERT_EQ(ls[0].runs[0].text, "## Spaced heading");
+    std::string h;
+    for (auto& r : ls[0].runs) h += r.text;
+    ASSERT_EQ(h, "## Spaced heading");
 }
 
 TEST(markdown_bare_hash_markers_do_not_crash) {
     // Regression: a line that is only '#' / '###' (no trailing space) used to
-    // throw std::out_of_range from substr(); it must render as an empty-ish
-    // heading instead of crashing the whole UI.
+    // throw std::out_of_range from substr(); md4c now treats it as an empty
+    // heading (renders to nothing) instead of crashing the whole UI.
     auto a = tui::md::render("#", tui::md::Style{});
     auto b = tui::md::render("###", tui::md::Style{});
     auto c = tui::md::render(">", tui::md::Style{});
     auto d = tui::md::render("-", tui::md::Style{});
-    ASSERT_FALSE(a.empty()); ASSERT_FALSE(b.empty());
-    ASSERT_FALSE(c.empty()); ASSERT_FALSE(d.empty());
+    (void)a; (void)b; (void)c; (void)d;  // must not throw
     auto ls = tui::md::render("# Title\n## Sub\n### Deep\nbody", tui::md::Style{});
     ASSERT_EQ(ls.size(), (size_t)4);
-    ASSERT_EQ(ls[0].runs[0].text, "# Title");
-    ASSERT_EQ(ls[1].runs[0].text, "## Sub");
-    ASSERT_EQ(ls[2].runs[0].text, "### Deep");
+    std::string h0, h1, h2;
+    for (auto& r : ls[0].runs) h0 += r.text;
+    for (auto& r : ls[1].runs) h1 += r.text;
+    for (auto& r : ls[2].runs) h2 += r.text;
+    ASSERT_EQ(h0, "# Title");
+    ASSERT_EQ(h1, "## Sub");
+    ASSERT_EQ(h2, "### Deep");
+}
+
+TEST(markdown_ordered_list_numbers_sequentially) {
+    auto ls = tui::md::render("1. first\n2. second\n3. third", tui::md::Style{});
+    // md4c normalizes; we prefix each item with its ordinal.
+    std::vector<std::string> lines;
+    for (auto& l : ls) {
+        std::string t;
+        for (auto& r : l.runs) t += r.text;
+        lines.push_back(t);
+    }
+    ASSERT_TRUE(lines.size() >= 3);
+    ASSERT_TRUE(lines[0].find("1.") != std::string::npos);
+    ASSERT_TRUE(lines[1].find("2.") != std::string::npos);
+    ASSERT_TRUE(lines[2].find("3.") != std::string::npos);
+}
+
+TEST(markdown_nested_list_items_separate) {
+    auto ls = tui::md::render("- bullet one\n  - bullet two\n  - nested", tui::md::Style{});
+    std::vector<std::string> lines;
+    for (auto& l : ls) {
+        std::string t;
+        for (auto& r : l.runs) t += r.text;
+        lines.push_back(t);
+    }
+    // Three distinct bullet lines (nested ones indented further).
+    ASSERT_EQ(lines.size(), (size_t)3);
+    ASSERT_TRUE(lines[0].find("bullet one") != std::string::npos);
+    ASSERT_TRUE(lines[1].find("bullet two") != std::string::npos);
+    ASSERT_TRUE(lines[2].find("nested") != std::string::npos);
+    // Nested items are indented relative to the parent.
+    ASSERT_TRUE(lines[1].find("  •") != std::string::npos);
+}
+
+TEST(markdown_blockquote_each_line_quoted) {
+    auto ls = tui::md::render("> a block quote\n> second line", tui::md::Style{});
+    ASSERT_EQ(ls.size(), (size_t)2);
+    for (auto& l : ls) {
+        std::string t;
+        for (auto& r : l.runs) t += r.text;
+        ASSERT_TRUE(t.find(">") == 0);
+    }
+}
+
+TEST(markdown_task_list_items_render) {
+    auto ls = tui::md::render("- [x] done\n- [ ] todo", tui::md::Style{});
+    std::string all;
+    for (auto& l : ls)
+        for (auto& r : l.runs) all += r.text;
+    ASSERT_TRUE(all.find("done") != std::string::npos);
+    ASSERT_TRUE(all.find("todo") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------

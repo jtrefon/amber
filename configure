@@ -65,6 +65,20 @@ echo "  using $CXX"
 CXXFLAGS=${CXXFLAGS:-"-O2 -Wall -Wextra -std=c++17"}
 CPPFLAGS=${CPPFLAGS:-""}
 
+echo "checking for C compiler..."
+if command -v gcc >/dev/null 2>&1; then
+    CC=${CC:-gcc}
+elif command -v clang >/dev/null 2>&1; then
+    CC=${CC:-clang}
+elif [ -n "$CC" ]; then
+    :
+else
+    echo "configure: error: no C compiler found (need gcc or clang)" >&2
+    exit 1
+fi
+echo "  using $CC"
+CFLAGS=${CFLAGS:-"-O2 -Wall -Wextra -std=c99"}
+
 # locate libcurl
 echo "checking for libcurl..."
 if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists libcurl; then
@@ -146,7 +160,9 @@ sed -e "s|@srcdir@|$srcdir|g" \
     -e "s|@includedir@|$includedir|g" \
     -e "s|@datarootdir@|$datarootdir|g" \
     -e "s|@CXX@|$CXX|g" \
+    -e "s|@CC@|$CC|g" \
     -e "s|@CXXFLAGS@|$CXXFLAGS|g" \
+    -e "s|@CFLAGS@|$CFLAGS|g" \
     -e "s|@CPPFLAGS@|$CPPFLAGS $PROJECT_CPPFLAGS|g" \
     -e "s|@CURL_CFLAGS@|$CURL_CFLAGS|g" \
     -e "s|@CURL_LIBS@|$CURL_LIBS|g" \

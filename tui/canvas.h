@@ -39,6 +39,8 @@ public:
     int rows() const { return rows_; }
     int cols() const { return cols_; }
     int max_top() const { return std::max(0, wrapped_count() - rows_); }
+    // Visible wrapped lines (for tests/debug capture without a live terminal).
+    const std::vector<rich::Line>& wrapped() const { return wrapped_; }
 
     // Paint the current viewport into the window and refresh it.
     void render();

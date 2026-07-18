@@ -3,6 +3,7 @@
 # Copyright 2026 Jacek Trefon (www.trefon.com)
 
 CXX       = @CXX@
+CC        = @CC@
 CXXFLAGS  = @CXXFLAGS@
 CPPFLAGS  = @CPPFLAGS@
 # Auto-generate header dependency files (.d) so editing a header rebuilds every
@@ -61,7 +62,9 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/welcome.o \
             $(BUILD_DIR)/tui/rich.o \
             $(BUILD_DIR)/tui/markdown.o \
-            $(BUILD_DIR)/tui/canvas.o
+            $(BUILD_DIR)/tui/markdown_md4c.o \
+            $(BUILD_DIR)/tui/canvas.o \
+            $(BUILD_DIR)/third_party/md4c/md4c.o
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o
 
@@ -83,8 +86,8 @@ check: $(BUILD_DIR)/smoketest
 test: $(BUILD_DIR)/run_tests
 	$(BUILD_DIR)/run_tests
 
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/$(LIBNAME)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(LIBNAME)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(LIBNAME)
 	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
@@ -119,6 +122,10 @@ $(BUILD_DIR)/src/%.o: $(SRC_DIR)/src/%.cpp
 $(BUILD_DIR)/tui/%.o: $(SRC_DIR)/tui/%.cpp
 	@mkdir -p $(BUILD_DIR)/tui
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/third_party/md4c/%.o: $(SRC_DIR)/third_party/md4c/%.c
+	@mkdir -p $(BUILD_DIR)/third_party/md4c
+	$(CC) $(CFLAGS) -DMD4C_USE_UTF8 -I$(SRC_DIR)/third_party/md4c -c $< -o $@
 
 $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 	@mkdir -p $(BUILD_DIR)/tools/search
