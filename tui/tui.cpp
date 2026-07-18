@@ -110,14 +110,51 @@ bool Tui::drain_events() {
             break;
         case AgentEvent::ToolCall:
             flush_stream();
-            append_line(P_STATUS, "tool: " + ev.tool_name + " " + ev.tool_args.dump());
+            if (win().tool_fold != ToolFold::Never) {
+                std::string args = ev.tool_args.dump();
+                if (args.size() > 60) args = args.substr(0, 57) + "...";
+                if (win().tool_fold == ToolFold::Auto) {
+                    append_line(P_STATUS, "\u2728 " + ev.tool_name + " " + args);
+                } else {
+                    append_line(P_STATUS, "tool: " + ev.tool_name + " " + args);
+                }
+            }
             break;
-        case AgentEvent::ToolResult:
-            append_line(P_STATUS,
-                        "result:" + ev.tool_name + " " +
-                        (ev.tool_result.ok ? ev.tool_result.output
-                                           : ev.tool_result.error));
+        case AgentEvent::ToolResult: {
+            if (win().tool_fold == ToolFold::Never) break;
+            // Build a compact summary line.
+            auto summarize = [](const std::string& name,
+                                const agent::ToolResult& r) -> std::string {
+                if (!r.ok) return "\u2728 " + name + "  \u2192 error: " + r.error;
+                // Count lines in output.
+                int lines = 1;
+                for (char c : r.output) if (c == '\n') ++lines;
+                std::string preview = r.output;
+                size_t nl = preview.find('\n');
+                if (nl != std::string::npos) preview = preview.substr(0, nl);
+                if (preview.size() > 60) preview = preview.substr(0, 57) + "...";
+                return "\u2728 " + name + "  \u2192 exit 0  (" +
+                       std::to_string(lines) + " lines)  " + preview;
+            };
+            std::string line = summarize(ev.tool_name, ev.tool_result);
+            if (win().tool_fold == ToolFold::Auto) {
+                // Replace the last "running" tool line with the summary.
+                auto& lines = win().lines;
+                bool replaced = false;
+                for (int i = static_cast<int>(lines.size()) - 1; i >= 0; --i) {
+                    if (lines[i].first == P_STATUS &&
+                        lines[i].second.rfind("\u2728", 0) == 0) {
+                        lines[i].second = line;
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced) append_line(P_STATUS, line);
+            } else {
+                append_line(P_STATUS, line);
+            }
             break;
+        }
         case AgentEvent::Assistant:
             if (win().stream_buf.empty())
                 append_line(P_ASSISTANT, ev.text);

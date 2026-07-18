@@ -118,7 +118,6 @@ void Tui::cmd_policy(const std::string& arg) {
         append_line(P_STATUS, std::string("policy set to ") + l);
         draw();
     };
-
     if (arg.empty()) {
         std::vector<std::string> choices = {"read  (observation only, safe)",
                                             "write (all tools, approval gated)",
@@ -128,11 +127,24 @@ void Tui::cmd_policy(const std::string& arg) {
             set_mode(static_cast<agent::AgentMode>(sel));
         return;
     }
-
     if (arg == "read")      set_mode(agent::AgentMode::Read);
     else if (arg == "write") set_mode(agent::AgentMode::Write);
     else if (arg == "yolo")  set_mode(agent::AgentMode::Yolo);
     else append_line(P_STATUS, "usage: /policy read|write|yolo");
+}
+
+void Tui::cmd_toolfold(const std::string& arg) {
+    ToolFold f;
+    if (arg == "always")      f = ToolFold::Always;
+    else if (arg == "auto")   f = ToolFold::Auto;
+    else if (arg == "never")  f = ToolFold::Never;
+    else {
+        append_line(P_STATUS, "usage: /toolfold always|auto|never");
+        return;
+    }
+    win().tool_fold = f;
+    append_line(P_STATUS, std::string("tool fold set to ") + arg);
+    draw();
 }
 
 const std::vector<Command>& Tui::commands() {
@@ -154,6 +166,9 @@ void Tui::build_commands() {
         {"think", {"reasoning"}, "",
          "toggle live thinking/reasoning display",
          [this](const std::string&) { toggle_thinking(); }},
+        {"toolfold", {}, "always|auto|never",
+         "how to show tool calls in scrollback",
+         [this](const std::string& a) { cmd_toolfold(a); }},
         {"policy", {"mode"}, "read|write|yolo",
          "set agent policy: read (safe), write (normal), yolo (trusted)",
          [this](const std::string& a) { cmd_policy(a); }},

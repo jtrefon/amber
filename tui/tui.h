@@ -161,6 +161,7 @@ private:
     void redraw_after_modal();
     void toggle_thinking();
     void cmd_policy(const std::string& arg);
+    void cmd_toolfold(const std::string& arg);
     void config_screen();
     void detect_server(bool force);
     bool test_connection(bool announce);
