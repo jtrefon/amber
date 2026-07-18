@@ -248,26 +248,21 @@ std::string Tui::usage(const Command& c) const {
 }
 
 void Tui::show_command_frame(const Command& c) {
-    // Render the help non-blocking as scrollback lines (never a modal dialog),
-    // so opening it can never stall the agent worker thread or the event pump.
-    banner("/" + c.name);
-    append_line(P_STATUS, "  " + c.help);
-    append_line(P_STATUS, "");
-    if (c.current_value) {
-        std::string cur = c.current_value();
-        if (!cur.empty()) {
-            append_line(P_STATUS, "  current: " + cur);
-            append_line(P_STATUS, "");
-        }
-    }
+    // Invoked with no argument: report the current setting neutrally (never a
+    // modal dialog, so it can't stall the agent worker). Providing a value is a
+    // separate path that confirms the change; this is just a status read-out.
+    std::string cur = c.current_value ? c.current_value() : "";
+    if (!cur.empty())
+        append_line(P_STATUS,
+                    "/" + c.name + " is currently: " + cur);
+    else
+        append_line(P_STATUS, "/" + c.name + ": " + c.help);
     if (c.complete_arg) {
         auto opts = c.complete_arg("");
         if (!opts.empty()) {
-            std::string line = "  options:";
+            std::string line = "  choices:";
             for (auto& o : opts) line += "  " + o;
             append_line(P_STATUS, line);
-            append_line(P_STATUS, "");
-            append_line(P_STATUS, "  usage:  /" + c.name + " " + c.args);
         }
     }
     draw();

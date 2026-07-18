@@ -11,15 +11,17 @@ namespace text {
 
 namespace {
 bool detect_utf8() {
-    // Default to ASCII. Many remote sessions (PuTTY with a Latin-1 translation
-    // table, or a non-UTF-8 locale) render raw UTF-8 bytes as garbage, and the
-    // terminal's actual capability cannot be detected reliably in-band. ASCII
-    // decoration works everywhere. Opt into Unicode glyphs with AMBER_UNICODE=1
-    // on a terminal that is known to handle UTF-8.
-    const char* ov = std::getenv("AMBER_UNICODE");
-    if (!ov) return false;
-    return ov[0] == '1' || ov[0] == 'y' || ov[0] == 'Y' || ov[0] == 't' ||
-           ov[0] == 'T';
+    // Unicode (sparkle, arrows, block gauges, em dash, ellipsis) is the default
+    // and what a correctly-configured terminal wants. We only fall back to ASCII
+    // when the locale is genuinely non-UTF-8, or the user opts out for a
+    // terminal that mis-renders UTF-8 (e.g. PuTTY with a Latin-1 translation
+    // table) via AMBER_ASCII=1.
+    const char* off = std::getenv("AMBER_ASCII");
+    if (off && (off[0] == '1' || off[0] == 'y' || off[0] == 'Y' ||
+                off[0] == 't' || off[0] == 'T'))
+        return false;
+    const char* cs = nl_langinfo(CODESET);
+    return cs && (std::strcmp(cs, "UTF-8") == 0 || std::strcmp(cs, "utf8") == 0);
 }
 } // namespace
 

@@ -413,24 +413,49 @@ void Tui::run() {
         }
         if (ch == '\t') {
             // Argument context (/cmd partial): complete against the command's
-            // own candidate list (zsh-style). A second Tab on an ambiguous
-            // prefix pops up a selection list.
+            // own candidate list (zsh-style). A single Tab extends the input to
+            // the shared prefix inline; only a second Tab on an already-complete
+            // (ambiguous) prefix opens the ncurses selection popup.
             if (input.find(' ') != std::string::npos) {
-                std::vector<std::string> choices;
-                std::string rewritten =
-                    palette::complete_arg(commands(), input, choices);
-                if (!choices.empty()) {
-                    int sel = menu_select("complete: " + input, choices);
-                    if (sel >= 0 && sel < static_cast<int>(choices.size())) {
-                        size_t sp = input.find(' ');
-                        input = input.substr(0, sp + 1) + choices[sel] + " ";
+                size_t sp = input.find(' ');
+                std::string name = input.substr(1, sp - 1);
+                const Command* c = find_command(name);
+                if (c && c->complete_arg) {
+                    std::string partial = input.substr(sp + 1);
+                    auto choices = c->complete_arg(partial);
+                    if (!choices.empty()) {
+                        if (choices.size() == 1) {
+                            input = "/" + name + " " + choices[0] + " ";
+                            arg_tab_prefix_.clear();
+                        } else {
+                            std::string cp = palette::common_prefix(choices);
+                            if (cp.size() > partial.size()) {
+                                // Single Tab: extend inline to the shared
+                                // prefix. A following Tab (when already there)
+                                // opens the selection popup.
+                                input = "/" + name + " " + cp;
+                                arg_tab_prefix_ = input;
+                            } else if (input == arg_tab_prefix_) {
+                                // Second Tab on an already-complete prefix:
+                                // show the zsh-style selection list.
+                                int sel = menu_select("complete: " + input,
+                                                      choices);
+                                if (sel >= 0 &&
+                                    sel < static_cast<int>(choices.size()))
+                                    input = "/" + name + " " + choices[sel] +
+                                            " ";
+                                arg_tab_prefix_.clear();
+                            } else {
+                                // First Tab at the prefix: nothing more to
+                                // extend inline; arm for a second Tab.
+                                arg_tab_prefix_ = input;
+                            }
+                        }
+                        if (drawer_open_) { drawer_open_ = false; draw(); }
+                        draw_input(input);
+                        continue;
                     }
-                } else if (rewritten != input) {
-                    input = rewritten;
                 }
-                if (drawer_open_) { drawer_open_ = false; draw(); }
-                draw_input(input);
-                continue;
             }
             // Command-name completion via the drawer.
             if (drawer_open_) {
@@ -490,10 +515,12 @@ void Tui::run() {
         }
         if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
             if (!input.empty()) input.pop_back();
+            arg_tab_prefix_.clear();
             update_drawer(input);
             draw(); draw_input(input);
         } else if (ch >= 32 && ch <= 126) {
             input += static_cast<char>(ch);
+            arg_tab_prefix_.clear();
             update_drawer(input);
             ensure_chat_window();
             draw(); draw_input(input);

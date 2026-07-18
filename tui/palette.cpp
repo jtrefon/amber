@@ -81,33 +81,4 @@ std::string complete(const std::vector<Command>& commands,
     return input;                        // ambiguous, nothing to add
 }
 
-// Tab pressed in argument context: complete the partially-typed argument
-// against the command's candidate list. Returns the (possibly rewritten) full
-// input line. When the result is ambiguous (multiple candidates sharing the
-// resulting prefix), `out_choices` is filled with the candidates so the caller
-// can pop up a selection list (zsh-style).
-std::string complete_arg(const std::vector<Command>& commands,
-                         const std::string& input,
-                         std::vector<std::string>& out_choices) {
-    out_choices.clear();
-    if (input.empty() || input[0] != '/') return input;
-    std::string rest = input.substr(1);
-    size_t sp = rest.find(' ');
-    if (sp == std::string::npos) return input;        // still typing command
-    std::string name = rest.substr(0, sp);
-    const Command* c = find(commands, name);
-    if (!c || !c->complete_arg) return input;
-    std::string partial = rest.substr(sp + 1);
-    auto cand = c->complete_arg(partial);
-    if (cand.empty()) return input;
-
-    std::string cp = common_prefix(cand);
-    if (cp.size() > partial.size())
-        return "/" + name + " " + cp;                // extend to shared prefix
-    if (cand.size() == 1)
-        return "/" + name + " " + cand.front() + " ";
-    out_choices = std::move(cand);                    // let caller show a list
-    return input;                                     // leave line unchanged
-}
-
 }  // namespace tui::palette

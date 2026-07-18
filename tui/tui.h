@@ -94,6 +94,7 @@ private:
     // the worker on its promise.
     bool modal_open_ = false;
     std::queue<AgentEvent> pending_approvals_;
+    std::string arg_tab_prefix_;   // last inline-extended /cmd prefix (double-tab)
 
     // ---- geometry / layout ----------------------------------------------
     int height() const;

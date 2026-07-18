@@ -59,12 +59,4 @@ std::string usage(const Command& c);
 std::string complete(const std::vector<Command>& commands,
                      const std::string& input, int sel);
 
-// Tab pressed after the command name + space: complete the argument against
-// the command's own candidate list. Returns the (possibly rewritten) input
-// line; if the result is ambiguous, `out_choices` is filled so the caller can
-// show a zsh-style selection popup.
-std::string complete_arg(const std::vector<Command>& commands,
-                         const std::string& input,
-                         std::vector<std::string>& out_choices);
-
 }  // namespace tui::palette
