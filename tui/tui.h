@@ -10,6 +10,9 @@
 #include "textutil.h"
 #include "window.h"
 #include "palette.h"
+#include "rich.h"
+#include "canvas.h"
+#include "markdown.h"
 
 #include <atomic>
 #include <future>
@@ -113,7 +116,14 @@ private:
     void append_line(int color, const std::string& text);
     void append_line_ts(int color, const std::string& text,
                         const std::string& ts);
+    void append_rich(const rich::Line& l);
+    void append_markdown(const std::string& md);
+    // Append a plain color run as a wrapped RichLine into an existing view
+    // vector (used for the live stream preview inside draw()).
+    static void append_rich_to(std::vector<rich::Line>& view,
+                               const std::string& text, int color, int w);
     void banner(const std::string& text);
+    void trim_lines();
 
     // ---- rendering ------------------------------------------------------
     struct Seg {
@@ -175,6 +185,7 @@ private:
     void toggle_thinking();
     void cmd_policy(const std::string& arg);
     void cmd_toolfold(const std::string& arg);
+    void cmd_display(const std::string& arg);
     void config_screen();
     void detect_server(bool force);
     bool test_connection(bool announce);
@@ -190,6 +201,9 @@ private:
 
     std::vector<std::unique_ptr<Window>> windows_;
     size_t active_ = 0;
+
+    Canvas chat_canvas_;                 // dedicated chat scrollback window
+    md::Style md_style_;                 // markdown color mapping
 
     std::vector<tui::Command> commands_;
     bool quit_ = false;

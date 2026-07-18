@@ -49,19 +49,50 @@ void Tui::append_line(int color, const std::string& text) {
 }
 void Tui::append_line_ts(int color, const std::string& text,
                          const std::string& ts) {
-    const std::string pad(ts.size(), ' ');
-    int avail = std::max(1, width() - static_cast<int>(ts.size()));
-    auto wrapped = wrap_text(text, avail);
-    if (wrapped.empty()) wrapped.push_back("");
-    for (size_t i = 0; i < wrapped.size(); ++i)
-        win().lines.push_back({color, (i == 0 ? ts : pad) + wrapped[i]});
-    if (win().lines.size() > 10000)
-        win().lines.erase(win().lines.begin(), win().lines.begin() + 5000);
+    // Build one RichLine with a dim timestamp run followed by the body run,
+    // then wrap it to the current width so wrapped continuations align.
+    rich::Line head;
+    if (!ts.empty())
+        head.runs.push_back({ts, P_BAR_DIM, false, true});  // dim timestamp
+    rich::Run body; body.pair = color; body.text = text;
+    head.runs.push_back(body);
+    auto wrapped = rich::wrap(head, width());
+    for (auto& l : wrapped) win().lines.push_back(std::move(l));
+    trim_lines();
+    win().scroll_top = max_scroll();
+}
+void Tui::append_rich(const rich::Line& l) {
+    win().lines.push_back(l);
+    trim_lines();
+    win().scroll_top = max_scroll();
+}
+void Tui::append_markdown(const std::string& md) {
+    if (win().markdown_on) {
+        for (auto& l : md::render(md, md_style_)) win().lines.push_back(l);
+    } else {
+        append_line(P_ASSISTANT, md);
+    }
+    trim_lines();
     win().scroll_top = max_scroll();
 }
 void Tui::banner(const std::string& text) {
-    win().lines.push_back({P_BANNER, text});
+    rich::Line l;
+    rich::Run r; r.pair = P_BANNER; r.bold = true; r.text = text;
+    l.runs.push_back(r);
+    win().lines.push_back(std::move(l));
     win().scroll_top = max_scroll();
+}
+void Tui::append_rich_to(std::vector<rich::Line>& view, const std::string& text,
+                         int color, int w) {
+    rich::Line l;
+    rich::Run r; r.pair = color; r.text = text;
+    l.runs.push_back(r);
+    for (auto& x : rich::wrap(l, w)) view.push_back(std::move(x));
+}
+void Tui::trim_lines() {
+    if (win().lines.size() > 10000)
+        win().lines.erase(win().lines.begin(),
+                          win().lines.begin() + 5000);
 }
 
 int Tui::display_cols(const std::string& s) { return text::display_cols(s); }
@@ -136,45 +167,40 @@ void Tui::draw() {
         return;
     }
 
-    erase();
-    int view_h = chat_height();
+    // Assemble the full scrollback (committed lines + live reasoning/stream)
+    // as RichLines, then render through the dedicated chat canvas. The canvas
+    // owns width-aware wrapping and viewport scrolling.
+    std::vector<rich::Line> view = win().lines;
 
-    std::vector<std::pair<int, std::string>> pending;
-    const std::string ts = win().stream_ts.empty() ? timestamp() : win().stream_ts;
-    const std::string pad(ts.size(), ' ');
-    int avail = std::max(1, width() - static_cast<int>(ts.size()));
-    auto push_wrapped = [&](int color, const std::string& body) {
-        auto ls = wrap_text(body, avail);
-        for (size_t i = 0; i < ls.size(); ++i)
-            pending.push_back({color, (i == 0 ? ts : pad) + ls[i]});
-    };
     if (show_reasoning_ && !win().reason_folded && !win().reason_buf.empty()) {
-        pending.push_back({P_REASONING, ts + "thinking..."});
-        for (auto& l : wrap_text(win().reason_buf, avail))
-            pending.push_back({P_REASONING, pad + l});
+        rich::Line label;
+        rich::Run r0; r0.pair = P_REASONING; r0.dim = true;
+        r0.text = "thinking...";
+        label.runs.push_back(r0);
+        view.push_back(label);
+        rich::Line body;
+        rich::Run r1; r1.pair = P_REASONING; r1.dim = true; r1.text = win().reason_buf;
+        body.runs.push_back(r1);
+        for (auto& l : rich::wrap(body, width())) view.push_back(std::move(l));
     }
-    if (!win().stream_buf.empty())
-        push_wrapped(win().stream_color, win().stream_buf);
-
-    int total = static_cast<int>(win().lines.size() + pending.size());
-    int max_top = std::max(0, total - view_h);
-    int start = std::min(win().scroll_top, max_top);
-
-    for (int row = 0; row < view_h; ++row) {
-        int idx = start + row;
-        if (idx < 0 || idx >= total) continue;
-        const auto& [color, text] =
-            (idx < static_cast<int>(win().lines.size()))
-                ? win().lines[idx]
-                : pending[idx - win().lines.size()];
-        bool dim = (color == P_REASONING);
-        attron(COLOR_PAIR(color) | (dim ? A_DIM : 0));
-        mvaddnstr(chat_top() + row, 0, text.c_str(), width());
-        attroff(COLOR_PAIR(color) | (dim ? A_DIM : 0));
+    if (!win().stream_buf.empty()) {
+        if (win().markdown_on)
+            for (auto& l : md::render(win().stream_buf, md_style_))
+                view.push_back(l);
+        else
+            append_rich_to(view, win().stream_buf, win().stream_color, width());
     }
 
-    draw_status_bar("ln " + std::to_string(start + 1) + "/" +
-                    std::to_string(total));
+    chat_canvas_.resize(chat_top(), chat_height(), width());
+    chat_canvas_.set_lines(view);
+    if (static_cast<size_t>(win().scroll_top) >
+        static_cast<size_t>(chat_canvas_.max_top()))
+        win().scroll_top = chat_canvas_.max_top();
+    chat_canvas_.set_top(win().scroll_top);
+    chat_canvas_.render();
+
+    draw_status_bar("ln " + std::to_string(win().scroll_top + 1) + "/" +
+                    std::to_string(chat_canvas_.wrapped_count()));
     refresh();
 }
 

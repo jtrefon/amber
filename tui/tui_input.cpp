@@ -96,8 +96,10 @@ void Tui::fold_reasoning() {
 void Tui::flush_stream() {
     if (!win().reason_folded && !win().reason_buf.empty()) fold_reasoning();
     if (win().stream_buf.empty()) return;
-    append_line_ts(win().stream_color, win().stream_buf,
-                   win().stream_ts.empty() ? timestamp() : win().stream_ts);
+    // Commit the streamed reply through the Markdown renderer so headings,
+    // code fences, lists, etc. survive into the scrollback (the live preview
+    // in draw() already renders it as Markdown).
+    append_markdown(win().stream_buf);
     win().stream_buf.clear();
     win().stream_ts.clear();
     draw();
@@ -147,6 +149,24 @@ void Tui::cmd_toolfold(const std::string& arg) {
     draw();
 }
 
+void Tui::cmd_display(const std::string& arg) {
+    if (arg == "markdown" || arg.rfind("markdown ", 0) == 0) {
+        std::string v = arg == "markdown" ? "" : arg.substr(9);
+        if (v == "on" || v.empty()) {
+            win().markdown_on = true;
+            append_line(P_STATUS, "markdown rendering: on");
+        } else if (v == "off") {
+            win().markdown_on = false;
+            append_line(P_STATUS, "markdown rendering: off");
+        } else {
+            append_line(P_STATUS, "usage: /display markdown on|off");
+        }
+    } else {
+        append_line(P_STATUS, "usage: /display markdown on|off");
+    }
+    draw();
+}
+
 const std::vector<Command>& Tui::commands() {
     if (commands_.empty()) build_commands();
     return commands_;
@@ -181,19 +201,29 @@ void Tui::build_commands() {
              return "auto";
          }},
         {"policy", {"mode"}, "read|write|yolo",
-         "set agent policy: read (safe), write (normal), yolo (trusted)",
-         [this](const std::string& a) { cmd_policy(a); },
-         [](const std::string&) {
-             return std::vector<std::string>{"read", "write", "yolo"};
-         },
-         [this]() -> std::string {
-             switch (cfg_.mode) {
-                 case agent::AgentMode::Read:  return "read";
-                 case agent::AgentMode::Write: return "write";
-                 case agent::AgentMode::Yolo:  return "yolo";
-             }
-             return "write";
-         }},
+          "set agent policy: read (safe), write (normal), yolo (trusted)",
+          [this](const std::string& a) { cmd_policy(a); },
+          [](const std::string&) {
+              return std::vector<std::string>{"read", "write", "yolo"};
+          },
+          [this]() -> std::string {
+              switch (cfg_.mode) {
+                  case agent::AgentMode::Read:  return "read";
+                  case agent::AgentMode::Write: return "write";
+                  case agent::AgentMode::Yolo:  return "yolo";
+              }
+              return "write";
+          }},
+        {"display", {}, "markdown on|off",
+          "toggle Markdown rendering of assistant replies",
+          [this](const std::string& a) { cmd_display(a); },
+          [](const std::string&) {
+              return std::vector<std::string>{"markdown on", "markdown off"};
+          },
+          [this]() -> std::string {
+              return std::string("markdown ") +
+                     (win().markdown_on ? "on" : "off");
+          }},
         {"new", {}, "",
          "open a new chat window",
          [this](const std::string&) { new_window("chat"); draw(); }},

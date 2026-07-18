@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "rich.h"
 #include "widgets.h"
 
 namespace tui {
@@ -29,10 +30,14 @@ struct Window {
 
     std::unique_ptr<agent::Agent> agent;  // retains conversation across turns
 
-    std::vector<std::pair<int, std::string>> lines;
+    // Scrollback as rich (multi-run) lines. Markdown assistant messages and
+    // styled tool/status lines both live here; the canvas wraps and renders
+    // them. Replaces the old vector<pair<int,string>> of plain lines.
+    std::vector<rich::Line> lines;
     int scroll_top = 0;
 
-    std::string stream_buf;
+    bool markdown_on = true;          // render assistant text as Markdown
+    std::string stream_buf;           // raw streamed assistant markdown (live)
     int stream_color = P_ASSISTANT;
     std::string stream_ts;
     std::string reason_buf;

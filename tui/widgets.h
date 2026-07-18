@@ -36,6 +36,17 @@ enum Pair {
     P_GAUGE_WARN,   // context gauge, mid pressure    (yellow on blue)
     P_GAUGE_CRIT,   // context gauge, high pressure   (red on blue)
     P_BAR_DIM,      // dim gauge track / faint labels (cyan on blue)
+    // Markdown rendering pairs (chat canvas).
+    P_MD_HEAD,      // headings
+    P_MD_QUOTE,     // block quote
+    P_MD_CODE,      // inline code / fenced block
+    P_MD_CODEKEY,   // code highlight: keyword
+    P_MD_CODESTR,   // code highlight: string
+    P_MD_CODENUM,   // code highlight: number
+    P_MD_CODECMT,   // code highlight: comment
+    P_MD_LINK,      // link text
+    P_MD_TABLE,     // table rows
+    P_MD_HR,        // horizontal rule
     // Grayscale art pairs (24 levels, 0=black .. 23=near-white).
     P_GRAY = 100,     // grayscale art base (0 + 24 levels)
 };

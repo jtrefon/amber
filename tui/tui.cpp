@@ -149,9 +149,12 @@ bool Tui::drain_events() {
                 auto& lines = win().lines;
                 bool replaced = false;
                 for (int i = static_cast<int>(lines.size()) - 1; i >= 0; --i) {
-                    if (lines[i].first == P_STATUS &&
-                        lines[i].second.rfind(text::glyph::tool(), 0) == 0) {
-                        lines[i].second = line;
+                    if (!lines[i].runs.empty() &&
+                        lines[i].runs[0].pair == P_STATUS &&
+                        lines[i].runs[0].text.rfind(text::glyph::tool(), 0) == 0) {
+                        lines[i].runs.clear();
+                        rich::Run r; r.pair = P_STATUS; r.text = line;
+                        lines[i].runs.push_back(r);
                         replaced = true;
                         break;
                     }
@@ -164,7 +167,7 @@ bool Tui::drain_events() {
         }
         case AgentEvent::Assistant:
             if (win().stream_buf.empty())
-                append_line(P_ASSISTANT, ev.text);
+                append_markdown(ev.text);
             break;
         case AgentEvent::Stats:
             stats_ = ev.stats;

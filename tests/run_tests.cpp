@@ -6,6 +6,8 @@
 #include "agent/search_backend.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
+#include "tui/rich.h"
+#include "tui/markdown.h"
 #include "tests/test_util.h"
 
 #include <cstdio>
@@ -95,6 +97,128 @@ TEST(textutil_to_wide_decodes_codepoints) {
     ASSERT_EQ(w.size(), (size_t)2);
     ASSERT_EQ((long)w[0], (long)'a');
     ASSERT_EQ((long)w[1], (long)0x1F600);
+}
+
+// ---------------------------------------------------------------------------
+// Rich line model + width-aware wrapping
+// ---------------------------------------------------------------------------
+
+TEST(rich_wrap_splits_long_line_and_keeps_runs) {
+    tui::rich::Line l;
+    tui::rich::Run r; r.pair = 3; r.bold = true; r.text = "the quick brown fox";
+    l.runs.push_back(r);
+    auto w = tui::rich::wrap(l, 9);
+    // Greedy wrap: "the quick" (9) and "brown fox" (9) each fill the width.
+    ASSERT_EQ(w.size(), (size_t)2);
+    for (auto& x : w) ASSERT_EQ(x.runs.size(), (size_t)1);
+    ASSERT_EQ(w[0].runs[0].pair, 3);
+    ASSERT_TRUE(w[0].runs[0].bold);
+    ASSERT_EQ(w[0].runs[0].text, "the quick");
+}
+
+TEST(rich_wrap_preserves_multibyte_width) {
+    // Two emoji, each display-width 2, fit exactly in a width-4 line.
+    tui::rich::Line l;
+    tui::rich::Run r; r.text = "\xF0\x9F\x98\x80\xF0\x9F\x98\x80";
+    l.runs.push_back(r);
+    auto w = tui::rich::wrap(l, 4);
+    ASSERT_EQ(w.size(), (size_t)1);
+    ASSERT_EQ(w[0].runs[0].text, "\xF0\x9F\x98\x80\xF0\x9F\x98\x80");
+}
+
+TEST(rich_wrap_forces_break_on_overlong_word) {
+    // A single word wider than the column must be broken across lines.
+    tui::rich::Line l;
+    tui::rich::Run r; r.text = "abcdefghij";  // 10 cols
+    l.runs.push_back(r);
+    auto w = tui::rich::wrap(l, 4);
+    ASSERT_EQ(w.size(), (size_t)3);
+    ASSERT_EQ(w[0].runs[0].text, "abcd");
+    ASSERT_EQ(w[1].runs[0].text, "efgh");
+}
+
+// ---------------------------------------------------------------------------
+// Markdown -> RichLines
+// ---------------------------------------------------------------------------
+
+TEST(markdown_renders_heading_bold_and_inline_code) {
+    auto ls = tui::md::render("# Title\nSome **bold** and `code`.", tui::md::Style{});
+    ASSERT_FALSE(ls.empty());
+    // First line is the heading, bold.
+    ASSERT_TRUE(ls[0].runs[0].bold);
+    // A later line carries the bold run and the code run on distinct pairs.
+    bool saw_bold = false, saw_code = false;
+    for (auto& l : ls)
+        for (auto& r : l.runs) {
+            if (r.bold) saw_bold = true;
+            if (r.pair == tui::md::Style{}.code_pair) saw_code = true;
+        }
+    ASSERT_TRUE(saw_bold);
+    ASSERT_TRUE(saw_code);
+}
+
+TEST(markdown_maps_inline_ansi_sgr_to_runs) {
+    // ESC[32m = green, mapped to the code pair by the renderer.
+    std::string s = "\x1b[32mgreen\x1b[0m normal";
+    auto ls = tui::md::render(s, tui::md::Style{});
+    bool saw_green = false;
+    for (auto& l : ls)
+        for (auto& r : l.runs)
+            if (r.text == "green" && r.pair == tui::md::Style{}.code_pair)
+                saw_green = true;
+    ASSERT_TRUE(saw_green);
+}
+
+TEST(markdown_highlight_colors_fenced_code) {
+    std::string code = "int x = 1; // c\n";
+    auto ls = tui::md::highlight(code, "cpp", tui::md::Style{}.code_pair);
+    ASSERT_EQ(ls.size(), (size_t)1);
+    // keyword "int", number "1", comment "// c" on distinct pairs.
+    int saw_num = 0, saw_cmt = 0;
+    for (auto& r : ls[0].runs) {
+        if (r.text == "1") ++saw_num;
+        if (r.text.find("//") != std::string::npos) ++saw_cmt;
+    }
+    ASSERT_EQ(saw_num, 1);
+    ASSERT_EQ(saw_cmt, 1);
+}
+
+TEST(markdown_renders_aligned_table_and_skips_divider) {
+    std::string md = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 7 |";
+    auto ls = tui::md::render(md, tui::md::Style{});
+    // header, separator, alice, bob = 4 lines.
+    ASSERT_EQ(ls.size(), (size_t)4);
+    // The markdown divider row ("|------|-----|") must NOT appear as a data
+    // row (it is skipped; only the drawn box separator ├─┼─┤ remains).
+    for (auto& l : ls)
+        for (auto& r : l.runs)
+            ASSERT_TRUE(r.text.find("|------") == std::string::npos);
+    // Header row cell uses the header pair (distinct from body).
+    ASSERT_EQ(ls[0].runs[1].pair, tui::md::Style{}.table_head_pair);
+    ASSERT_EQ(ls[2].runs[1].pair, tui::md::Style{}.table_pair);
+}
+
+TEST(markdown_trims_heading_whitespace) {
+    auto ls = tui::md::render("##   Spaced heading   \nbody", tui::md::Style{});
+    ASSERT_FALSE(ls.empty());
+    ASSERT_EQ(ls[0].runs[0].text, "## Spaced heading");
+}
+
+TEST(markdown_bare_hash_markers_do_not_crash) {
+    // Regression: a line that is only '#' / '###' (no trailing space) used to
+    // throw std::out_of_range from substr(); it must render as an empty-ish
+    // heading instead of crashing the whole UI.
+    auto a = tui::md::render("#", tui::md::Style{});
+    auto b = tui::md::render("###", tui::md::Style{});
+    auto c = tui::md::render(">", tui::md::Style{});
+    auto d = tui::md::render("-", tui::md::Style{});
+    ASSERT_FALSE(a.empty()); ASSERT_FALSE(b.empty());
+    ASSERT_FALSE(c.empty()); ASSERT_FALSE(d.empty());
+    auto ls = tui::md::render("# Title\n## Sub\n### Deep\nbody", tui::md::Style{});
+    ASSERT_EQ(ls.size(), (size_t)4);
+    ASSERT_EQ(ls[0].runs[0].text, "# Title");
+    ASSERT_EQ(ls[1].runs[0].text, "## Sub");
+    ASSERT_EQ(ls[2].runs[0].text, "### Deep");
 }
 
 // ---------------------------------------------------------------------------

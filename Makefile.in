@@ -58,7 +58,10 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/menu_select.o \
             $(BUILD_DIR)/tui/textutil.o \
             $(BUILD_DIR)/tui/palette.o \
-            $(BUILD_DIR)/tui/welcome.o
+            $(BUILD_DIR)/tui/welcome.o \
+            $(BUILD_DIR)/tui/rich.o \
+            $(BUILD_DIR)/tui/markdown.o \
+            $(BUILD_DIR)/tui/canvas.o
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o
 
@@ -80,8 +83,8 @@ check: $(BUILD_DIR)/smoketest
 test: $(BUILD_DIR)/run_tests
 	$(BUILD_DIR)/run_tests
 
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/$(LIBNAME)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/$(LIBNAME)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(LIBNAME)
 	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
