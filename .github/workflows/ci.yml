@@ -12,6 +12,9 @@ jobs:
       fail-fast: false
       matrix:
         cxx: [g++, clang++]
+        include:
+          - cxx: clang++
+            lint: true
     env:
       CXX: ${{ matrix.cxx }}
     steps:
@@ -22,7 +25,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential clang libcurl4-openssl-dev \
-            libncursesw5-dev pkg-config
+            libncursesw5-dev pkg-config \
+            clang-tidy cppcheck
 
       - name: Configure
         run: ./configure
@@ -32,3 +36,12 @@ jobs:
 
       - name: Test
         run: make test
+
+      # Static analysis. clang-tidy needs the clang toolchain, so it runs only
+      # on the clang++ matrix leg; cppcheck is compiler-agnostic.
+      - name: Static analysis (cppcheck)
+        run: make analyze
+
+      - name: Lint (clang-tidy)
+        if: matrix.lint
+        run: make lint
