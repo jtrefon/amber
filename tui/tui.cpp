@@ -114,7 +114,7 @@ bool Tui::drain_events() {
             ToolFold fold = tool_fold_;
             if (fold != ToolFold::Never) {
                 std::string args = ev.tool_args.dump();
-                if (args.size() > 60) args = args.substr(0, 57) + "...";
+                if (args.size() > 60) { args.resize(57); args += "..."; }
                 if (fold == ToolFold::Auto)
                     append_line(P_STATUS, std::string(text::glyph::tool()) + " " +
                                 ev.tool_name + " " + args);
@@ -138,8 +138,8 @@ bool Tui::drain_events() {
                 for (char c : r.output) if (c == '\n') ++lines;
                 std::string preview = r.output;
                 size_t nl = preview.find('\n');
-                if (nl != std::string::npos) preview = preview.substr(0, nl);
-                if (preview.size() > 60) preview = preview.substr(0, 57) + "...";
+                if (nl != std::string::npos) preview.resize(nl);
+                if (preview.size() > 60) { preview.resize(57); preview += "..."; }
                 return std::string(sp) + " " + name + "  " + ar + " exit 0  (" +
                        std::to_string(lines) + " lines)  " + preview;
             };

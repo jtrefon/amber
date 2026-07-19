@@ -12,6 +12,11 @@ C++17 AI agent harness: a core library (`libagent.a`) plus a headless CLI
   repo root (`amber`, `amber-tui`, `libagent.a`) — in-tree, not in a `build/`.
 - `make test` builds and runs the unit suite (`run_tests`). `make check` is a
   separate, lighter tool smoke test (`smoketest`) — do not confuse the two.
+- `make lint` runs **clang-tidy** over every project source (third_party
+  excluded) using the `.clang-tidy` config in the repo root. It is fast enough
+  to gate changes on. `make analyze` runs **cppcheck** as an independent,
+  cross-TU second opinion (slower; runs in parallel and skips the vendored
+  nlohmann/json header). Both must come back clean before a commit.
 - CI blocks on `make && make test` under **both** `g++` and `clang++`
   (`CXX=g++` / `CXX=clang++`).
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops

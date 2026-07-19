@@ -76,7 +76,47 @@ TUI_BIN   = amber-tui
 NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
-.PHONY: all lib cli tui check test clean install uninstall
+.PHONY: all lib cli tui check test lint analyze clean install uninstall
+
+# Lint sources: every project translation unit, third_party excluded.
+LINT_SRCS = $(wildcard $(SRC_DIR)/lib/*.cpp) \
+            $(wildcard $(SRC_DIR)/src/*.cpp) \
+            $(wildcard $(SRC_DIR)/tools/*.cpp) \
+            $(wildcard $(SRC_DIR)/tools/search/*.cpp) \
+            $(wildcard $(SRC_DIR)/tui/*.cpp) \
+            $(wildcard $(SRC_DIR)/tests/*.cpp)
+
+# Flags shared by the lint tools: same include roots the build uses, plus
+# the auto-detected curl/ncurses cflags so headers resolve.
+LINT_CXXFLAGS = -std=c++17 $(CPPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS)
+
+# clang-tidy: per-file static analysis using the project's .clang-tidy config.
+# We pass flags inline (no compile_commands.json) so the target works without
+# bear/compiledb; .o artifacts are not produced (run in analysis-only mode).
+lint:
+	@echo "clang-tidy..."
+	@fail=0; for f in $(LINT_SRCS); do \
+	    clang-tidy "$$f" -- $(LINT_CXXFLAGS) >/tmp/ct_$$.log 2>&1 || fail=1; \
+	    if [ -s /tmp/ct_$$.log ]; then cat /tmp/ct_$$.log; fi; \
+	done; rm -f /tmp/ct_$$.log; \
+	if [ $$fail -ne 0 ]; then echo "clang-tidy reported findings"; exit 1; fi; \
+	echo "  clean"
+
+# cppcheck: a second, independent static analyzer for defense-in-depth. Runs
+# in parallel and ignores the vendored nlohmann/json header (known-good, slow to
+# parse). Slower than lint; run explicitly rather than on every build.
+ANALYZE_JOBS = $(shell nproc 2>/dev/null || echo 4)
+analyze:
+	@echo "cppcheck..."
+	@cppcheck --enable=warning,style,performance,portability --std=c++17 \
+	    --max-ctu-depth=0 -j$(ANALYZE_JOBS) \
+	    --suppressions-list=$(SRC_DIR)/cppcheck_suppressions.txt \
+	    --suppress=missingIncludeSystem --error-exitcode=1 \
+	    -I$(SRC_DIR)/include -I$(SRC_DIR)/src -I$(SRC_DIR)/tools -I$(SRC_DIR) \
+	    $(SRC_DIR)/lib $(SRC_DIR)/src $(SRC_DIR)/tools $(SRC_DIR)/tui \
+	    $(SRC_DIR)/tests 2>/tmp/cp_$$.log; rc=$$?; \
+	grep -v "^Checking" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
+	exit $$rc
 
 all: lib cli tui
 

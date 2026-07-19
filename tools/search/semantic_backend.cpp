@@ -88,7 +88,7 @@ private:
             long no = 0;
             while (std::getline(in, text)) {
                 ++no;
-                if (text.size() > 4096) text = text.substr(0, 4096);  // skip huge lines
+                if (text.size() > 4096) text.resize(4096);  // skip huge lines
                 auto toks = tokenize(text);
                 std::unordered_set<std::string> uniq(toks.begin(), toks.end());
                 for (const auto& t : uniq) df[t] += 1.0;

@@ -217,11 +217,11 @@ void Tui::session_browser() {
                 auto& m = all[idx];
                 std::string title = m.title;
                 if (static_cast<int>(title.size()) > title_w)
-                    title = title.substr(0, title_w - 1) + text::glyph::ellipsis();
+                    title.resize(title_w - 1); title += text::glyph::ellipsis();
                 mvwaddnstr(w, row, x, title.c_str(), title_w);
                 x += title_w + 1;
                 std::string mod = m.model;
-                if (mod.size() > 10) mod = mod.substr(0, 9) + text::glyph::ellipsis();
+                if (mod.size() > 10) { mod.resize(9); mod += text::glyph::ellipsis(); }
                 mvwaddstr(w, row, x, mod.c_str());
                 x += static_cast<int>(mod.size()) + 1;
                 char cnt[16];

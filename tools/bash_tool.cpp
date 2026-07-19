@@ -197,7 +197,7 @@ public:
     std::string summarize(const json& a) const override {
         std::string cmd = (a.contains("command") && a["command"].is_string())
                               ? a["command"].get<std::string>() : "";
-        if (cmd.size() > 200) cmd = cmd.substr(0, 197) + "...";
+        if (cmd.size() > 200) { cmd.resize(197); cmd += "..."; }
         return "run: " + cmd;
     }
 

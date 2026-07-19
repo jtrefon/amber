@@ -36,7 +36,6 @@ struct RunStyle {
 struct ListFrame {
     bool ordered;
     unsigned index;
-    char mark;
 };
 
 struct Ctx {
@@ -239,13 +238,12 @@ int enter_block(MD_BLOCKTYPE type, void* detail, void* ud) {
             break;
         }
         case MD_BLOCK_UL: {
-            auto* d = static_cast<MD_BLOCK_UL_DETAIL*>(detail);
-            c.lists.push_back({false, 0, d ? d->mark : '-'});
+            c.lists.push_back({false, 0});
             break;
         }
         case MD_BLOCK_OL: {
             auto* d = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
-            c.lists.push_back({true, d ? d->start : 1, 0});
+            c.lists.push_back({true, d ? d->start : 1});
             break;
         }
         case MD_BLOCK_LI: {

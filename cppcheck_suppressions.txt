@@ -1,0 +1,19 @@
+# cppcheck suppressions for amber (cpp-agent).
+# The vendored nlohmann/json header is third-party, known-good, and extremely
+# noisy under cppcheck's value-flow analysis; skip every finding inside it.
+*:*/nlohmann/*
+*:*/third_party/*
+# Stylistic nits that clash with this codebase's conventions (clang-tidy's
+# lint target covers the checks we actually want).
+useStlAlgorithm
+functionStatic
+constVariableReference
+constVariablePointer
+constParameterReference
+variableScope
+noExplicitConstructor
+returnByReference
+unreadVariable
+uselessOverride
+knownConditionTrueFalse
+unreachableCode

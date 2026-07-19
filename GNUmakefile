@@ -9,13 +9,13 @@
 
 # Any goal the user asks for is forwarded to the generated Makefile after
 # ensuring configure has run. `ensure` regenerates the Makefile if missing.
-.PHONY: all build lib cli tui check test install uninstall clean distclean ensure
+.PHONY: all build lib cli tui check test lint analyze install uninstall clean distclean ensure
 
 # Default goal.
 all build: ensure
 	@$(MAKE) --no-print-directory -f Makefile all
 
-lib cli tui check test install uninstall: ensure
+lib cli tui check test lint analyze install uninstall: ensure
 	@$(MAKE) --no-print-directory -f Makefile $@
 
 ensure:

@@ -115,8 +115,8 @@ void Session::derive_title(size_t max_len) {
         std::string t = m.content;
         // First line only, collapse whitespace edges.
         size_t nl = t.find('\n');
-        if (nl != std::string::npos) t = t.substr(0, nl);
-        if (t.size() > max_len) t = t.substr(0, max_len - 1) + "\u2026";
+        if (nl != std::string::npos) t.resize(nl);
+        if (t.size() > max_len) { t.resize(max_len - 1); t += "\u2026"; }
         title = t;
         return;
     }
