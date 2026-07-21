@@ -554,16 +554,14 @@ void Tui::run() {
                     draw(); draw_input(input); continue;
                 }
                 if (ev.bstate & BUTTON5_PRESSED) {
-                    win().scroll_top = std::min(max_scroll(),
-                                                win().scroll_top + 3);
+                    win().scroll_top += 3;
                     draw(); draw_input(input); continue;
                 }
             }
         }
         if (ch == KEY_NPAGE) {
             if (win().read_only) continue;
-            win().scroll_top = std::min(max_scroll(),
-                                   win().scroll_top + lines_per_page());
+            win().scroll_top += lines_per_page();
             draw(); draw_input(input); continue;
         }
         if (ch == KEY_PPAGE) {

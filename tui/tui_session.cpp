@@ -57,9 +57,28 @@ void Tui::load_session(const std::string& id) {
     w.session_id = s.id;
     w.agent->set_history(s.messages);
     for (const auto& m : s.messages) {
-        if (m.role == "user") append_line(P_USER, "> " + m.content);
-        else if (m.role == "assistant" && !m.content.empty())
-            append_line(P_ASSISTANT, m.content);
+        if (m.role == "user") {
+            append_line(P_USER, "> " + m.content);
+        } else if (m.role == "assistant") {
+            if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
+                for (const auto& tc : m.tool_calls) {
+                    std::string fn = tc.value("function", json::object())
+                                       .value("name", "?");
+                    append_line(P_STATUS,
+                                std::string(text::glyph::tool()) + " " + fn);
+                }
+            }
+            if (!m.content.empty()) {
+                append_markdown(m.content);
+            }
+        } else if (m.role == "tool") {
+            std::string preview = m.content;
+            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
+            append_line(P_STATUS, "  \u2514 " + m.name + ": " + preview);
+        }
+    }
+    if (!s.messages.empty()) {
+        win().scroll_top = max_scroll();
     }
     append_line(P_STATUS, "loaded session " + s.id);
     draw();

@@ -141,6 +141,7 @@ bool SessionStore::save(Session& s) const {
     if (!f) return false;
     // Replace invalid UTF-8 rather than throw (model output can be dirty).
     f << s.to_json().dump(2, ' ', false, json::error_handler_t::replace);
+    cache_valid_ = false;
     return static_cast<bool>(f);
 }
 
@@ -157,10 +158,12 @@ bool SessionStore::load(const std::string& id, Session& out) const {
 }
 
 bool SessionStore::remove(const std::string& id) const {
+    cache_valid_ = false;
     return ::remove(path_for(id).c_str()) == 0;
 }
 
 std::vector<SessionMeta> SessionStore::list() const {
+    if (cache_valid_) return list_cache_;
     std::vector<SessionMeta> out;
     DIR* d = ::opendir(dir_.c_str());
     if (!d) return out;
@@ -185,7 +188,9 @@ std::vector<SessionMeta> SessionStore::list() const {
               [](const SessionMeta& a, const SessionMeta& b) {
                   return a.updated_ms > b.updated_ms;
               });
-    return out;
+    list_cache_ = out;
+    cache_valid_ = true;
+    return list_cache_;
 }
 
 } // namespace agent

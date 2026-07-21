@@ -64,10 +64,14 @@ public:
     bool remove(const std::string& id) const;
 
     // List saved sessions, newest-updated first.
+    // Results are cached; invalidate via clear_cache() when a session changes.
     std::vector<SessionMeta> list() const;
+    void clear_cache() const { cache_valid_ = false; }
 
 private:
     std::string dir_;
+    mutable std::vector<SessionMeta> list_cache_;
+    mutable bool cache_valid_ = false;
     std::string path_for(const std::string& id) const;
 };
 
