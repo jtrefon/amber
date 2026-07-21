@@ -424,11 +424,8 @@ void Tui::cmd_compress(const std::string&) {
         return;
     }
 
-    // Recalculate context gauge from compressed history
-    size_t total_chars = 0;
-    for (const auto& msg : w.agent->history())
-        total_chars += msg.content.size() + msg.reasoning.size();
-    ctx_used_ = static_cast<long>(total_chars / 4);
+    // Recalculate context gauge from compressed size
+    ctx_used_ = static_cast<long>(r.tokens_after);
 
     if (r.messages_after >= r.messages_before) {
         append_line(P_STATUS, "compress: nothing to prune ("

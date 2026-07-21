@@ -179,15 +179,16 @@ CompressionResult Agent::compress_now() {
     if (!compression_) return r;
 
     auto cc = load_compression_config(cfg_);
-    auto compressed = compression_->compress(history_, cc);
 
-    // Count tokens before (chars/4)
+    // Count tokens before — from the full history
     for (const auto& msg : history_)
         r.tokens_before += (msg.content.size() + msg.reasoning.size()) / 4;
     r.messages_before = history_.size();
 
+    // Compute what compression would do, without mutating history_.
+    // history_ stays full so autosave / session persistence never loses data.
+    auto compressed = compression_->compress(history_, cc);
     if (!compressed.empty() && compressed.size() < history_.size()) {
-        // Run a quick TreeShaker to get classification counts
         TreeShaker shaker;
         auto tags = shaker.classify(history_);
         for (auto t : tags) {
@@ -195,12 +196,13 @@ CompressionResult Agent::compress_now() {
             else if (t == Classification::context) ++r.context_count;
             else if (t == Classification::prune) ++r.prune_count;
         }
-        history_ = std::move(compressed);
+        for (const auto& msg : compressed)
+            r.tokens_after += (msg.content.size() + msg.reasoning.size()) / 4;
+        r.messages_after = compressed.size();
+    } else {
+        r.messages_after = history_.size();
+        r.tokens_after = r.tokens_before;
     }
-
-    for (const auto& msg : history_)
-        r.tokens_after += (msg.content.size() + msg.reasoning.size()) / 4;
-    r.messages_after = history_.size();
 
     last_compression_ = r;
     return r;
