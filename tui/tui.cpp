@@ -38,12 +38,39 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     use_default_colors();
     use_legacy_coding(1);
     init_pairs();
-    open_welcome_window();
+
+    // Restore previous workspace: open saved sessions in their windows.
+    auto ws = store_.load_workspace();
+    if (!ws.windows.empty()) {
+        for (const auto& we : ws.windows) {
+            if (!we.session_id.empty() && store_.list_contains(we.session_id)) {
+                load_session(we.session_id);
+            } else {
+                new_window(we.title.empty() ? "chat" : we.title);
+            }
+        }
+        if (ws.active < windows_.size())
+            active_ = ws.active;
+    } else {
+        open_welcome_window();
+    }
 }
 
 Tui::~Tui() {
     std::fputs("\033[?1007l", stdout);
     std::fflush(stdout);
+
+    // Persist workspace state so the next launch restores the same layout.
+    agent::WorkspaceState ws;
+    for (const auto& w : windows_) {
+        agent::WorkspaceState::WindowEntry we;
+        we.session_id = w->session_id;
+        we.title = w->title;
+        ws.windows.push_back(we);
+    }
+    ws.active = active_;
+    store_.save_workspace(ws);
+
     agent_cancel_ = true;
     if (agent_thread_.joinable()) agent_thread_.join();
 

@@ -245,9 +245,22 @@ void Tui::session_browser() {
                 if (mod.size() > 10) { mod.resize(9); mod += text::glyph::ellipsis(); }
                 mvwaddstr(w, row, x, mod.c_str());
                 x += static_cast<int>(mod.size()) + 1;
-                char cnt[16];
+                char cnt[24];
                 std::snprintf(cnt, sizeof(cnt), "%d msgs", m.message_count);
                 mvwaddstr(w, row, x, cnt);
+                x += static_cast<int>(std::strlen(cnt)) + 1;
+                if (m.file_size > 0) {
+                    char sz[16];
+                    if (m.file_size > 1024 * 1024)
+                        std::snprintf(sz, sizeof(sz), "%.1fMB",
+                                      m.file_size / (1024.0 * 1024.0));
+                    else if (m.file_size > 1024)
+                        std::snprintf(sz, sizeof(sz), "%.0fKB",
+                                      m.file_size / 1024.0);
+                    else
+                        std::snprintf(sz, sizeof(sz), "%zuB", m.file_size);
+                    mvwaddstr(w, row, x, sz);
+                }
                 std::string ts = fmt_time(m.updated_ms);
                 mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
                 if (cur) wattroff(w, COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);

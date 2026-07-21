@@ -35,6 +35,19 @@ struct SessionMeta {
     std::string model;
     long long updated_ms = 0;
     int message_count = 0;
+    size_t file_size = 0;      // JSON file size in bytes
+};
+
+// Serializable workspace state: which sessions are open and which is active.
+struct WorkspaceState {
+    struct WindowEntry {
+        std::string session_id;
+        std::string title;
+    };
+    std::vector<WindowEntry> windows;
+    size_t active = 0;
+    json to_json() const;
+    static WorkspaceState from_json(const json& j);
 };
 
 // File-backed session store. Persists one JSON file per session under a
@@ -64,15 +77,23 @@ public:
     bool remove(const std::string& id) const;
 
     // List saved sessions, newest-updated first.
-    // Results are cached; invalidate via clear_cache() when a session changes.
+    // Uses a persistent index file for fast listing without reading every file.
+    // Call rebuild_index() after any session save/remove to keep it fresh.
     std::vector<SessionMeta> list() const;
-    void clear_cache() const { cache_valid_ = false; }
+    void rebuild_index() const;
+    bool list_contains(const std::string& id) const;
+
+    // Workspace state: persist / restore open windows and their sessions.
+    bool save_workspace(const WorkspaceState& ws) const;
+    WorkspaceState load_workspace() const;
 
 private:
     std::string dir_;
     mutable std::vector<SessionMeta> list_cache_;
     mutable bool cache_valid_ = false;
     std::string path_for(const std::string& id) const;
+    std::string index_path() const;
+    std::string workspace_path() const;
 };
 
 } // namespace agent

@@ -131,6 +131,12 @@ std::string SessionStore::new_id() {
 std::string SessionStore::path_for(const std::string& id) const {
     return dir_ + "/" + id + ".json";
 }
+std::string SessionStore::index_path() const {
+    return dir_ + "/index.json";
+}
+std::string SessionStore::workspace_path() const {
+    return dir_ + "/workspace.json";
+}
 
 bool SessionStore::save(Session& s) const {
     if (!ensure_dir()) return false;
@@ -170,17 +176,21 @@ std::vector<SessionMeta> SessionStore::list() const {
     struct dirent* ent;
     while ((ent = ::readdir(d)) != nullptr) {
         std::string name = ent->d_name;
+        if (name == "index.json" || name == "workspace.json") continue;
         if (name.size() < 6 || name.substr(name.size() - 5) != ".json")
             continue;
         std::string id = name.substr(0, name.size() - 5);
         Session s;
         if (!load(id, s)) continue;
+        struct stat st;
         SessionMeta m;
         m.id = s.id;
         m.title = s.title;
         m.model = s.model;
         m.updated_ms = s.updated_ms;
         m.message_count = static_cast<int>(s.messages.size());
+        if (::stat(path_for(id).c_str(), &st) == 0)
+            m.file_size = static_cast<size_t>(st.st_size);
         out.push_back(m);
     }
     ::closedir(d);
@@ -190,7 +200,79 @@ std::vector<SessionMeta> SessionStore::list() const {
               });
     list_cache_ = out;
     cache_valid_ = true;
+    // Write index for next startup.
+    if (!out.empty()) rebuild_index();
     return list_cache_;
+}
+
+bool SessionStore::list_contains(const std::string& id) const {
+    for (const auto& m : list())
+        if (m.id == id) return true;
+    return false;
+}
+
+void SessionStore::rebuild_index() const {
+    auto entries = list();  // uses cache
+    json j;
+    j["version"] = 1;
+    json arr = json::array();
+    for (const auto& e : entries) {
+        arr.push_back({
+            {"id", e.id},
+            {"title", e.title},
+            {"model", e.model},
+            {"updated_ms", e.updated_ms},
+            {"message_count", e.message_count},
+            {"file_size", e.file_size}
+        });
+    }
+    j["sessions"] = arr;
+    std::ofstream f(index_path(), std::ios::trunc);
+    if (f) f << j.dump(2);
+}
+
+bool SessionStore::save_workspace(const WorkspaceState& ws) const {
+    if (!ensure_dir()) return false;
+    std::ofstream f(workspace_path(), std::ios::trunc);
+    if (!f) return false;
+    f << ws.to_json().dump(2);
+    return static_cast<bool>(f);
+}
+
+WorkspaceState SessionStore::load_workspace() const {
+    std::ifstream f(workspace_path());
+    if (!f) return {};
+    try {
+        json j;
+        f >> j;
+        return WorkspaceState::from_json(j);
+    } catch (...) {
+        return {};
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WorkspaceState serialization
+// ---------------------------------------------------------------------------
+
+json WorkspaceState::to_json() const {
+    json arr = json::array();
+    for (const auto& w : windows) {
+        arr.push_back({{"session_id", w.session_id}, {"title", w.title}});
+    }
+    return {{"version", 1}, {"windows", arr}, {"active", active}};
+}
+
+WorkspaceState WorkspaceState::from_json(const json& j) {
+    WorkspaceState ws;
+    ws.active = j.value("active", 0);
+    for (const auto& e : j.value("windows", json::array())) {
+        WindowEntry we;
+        we.session_id = e.value("session_id", "");
+        we.title = e.value("title", "");
+        ws.windows.push_back(we);
+    }
+    return ws;
 }
 
 } // namespace agent
