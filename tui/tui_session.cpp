@@ -153,9 +153,8 @@ void Tui::session_browser() {
     }
 
     int sh = height(), sw = width();
-    int dw = std::min(sw - 4, 70);
-    int dh = std::min(sh - 4, 18);
-    if (dh < 10) dh = 10;
+    int dw = std::min(sw - 4, 120);
+    int dh = std::min(sh - 6, sh - 2);
 
     Dialog dlg(dh, dw, "Sessions");
     WINDOW* w = dlg.win();
@@ -287,15 +286,11 @@ void Tui::session_browser() {
         doupdate();
 
         int c = wgetch(w);
-        if (c >= 32 && c <= 126) {
-            filter += static_cast<char>(c);
-            sel = 0;
-            scroll_off = 0;
-        } else if ((c == KEY_BACKSPACE || c == 127 || c == 8) && !filter.empty()) {
-            filter.pop_back();
-            sel = 0;
-            scroll_off = 0;
-        } else if (nd > 0) {
+        // Handle navigation and action keys BEFORE filter input so they
+        // don't get swallowed by printable-character matching.
+        if (nd > 0 && (c == KEY_DOWN || c == KEY_UP || c == KEY_NPAGE ||
+                       c == KEY_PPAGE || c == '\n' || c == '\r' ||
+                       c == KEY_ENTER || c == KEY_DC || c == 4)) {
             switch (c) {
                 case KEY_DOWN: ++sel; break;
                 case KEY_UP: --sel; break;
@@ -305,7 +300,7 @@ void Tui::session_browser() {
                     if (sel >= 0)
                         { load_session(all[disp[sel].second].id); done = true; }
                     break;
-                case KEY_DC: case 'd': {
+                case KEY_DC: case 4: {  // Delete or Ctrl+D
                     if (sel >= 0) {
                         int del_idx = disp[sel].second;
                         std::string prompt = "Delete \"" + all[del_idx].title + "\"?";
@@ -322,9 +317,15 @@ void Tui::session_browser() {
                     }
                     break;
                 }
-                case 27: case 'q': done = true; break;
-                default: break;
             }
+        } else if (c >= 32 && c <= 126) {
+            filter += static_cast<char>(c);
+            sel = 0;
+            scroll_off = 0;
+        } else if ((c == KEY_BACKSPACE || c == 127 || c == 8) && !filter.empty()) {
+            filter.pop_back();
+            sel = 0;
+            scroll_off = 0;
         } else if (c == 27 || c == 'q') {
             done = true;
         }
@@ -337,6 +338,40 @@ void Tui::session_browser() {
 void Tui::switch_to(size_t idx) {
     if (idx >= windows_.size() || idx == active_) return;
     active_ = idx;
+    // Lazy-load session data if the window references a session but has no
+    // history yet (workspace restoration opens windows without loading data).
+    auto& w = win();
+    if (w.agent && w.agent->history().empty() && !w.session_id.empty()) {
+        agent::Session s;
+        if (store_.load(w.session_id, s)) {
+            w.agent->set_history(s.messages);
+            w.lines.clear();
+            for (const auto& m : s.messages) {
+                if (m.role == "user")
+                    append_line(P_USER, "> " + m.content);
+                else if (m.role == "assistant") {
+                    if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
+                        for (const auto& tc : m.tool_calls) {
+                            std::string fn = tc.value("function", json::object())
+                                               .value("name", "?");
+                            append_line(P_STATUS, std::string(text::glyph::tool())
+                                        + " " + fn);
+                        }
+                    }
+                    if (!m.content.empty())
+                        append_markdown(m.content);
+                } else if (m.role == "tool") {
+                    std::string preview = m.content;
+                    if (preview.size() > 80) { preview.resize(77); preview += "..."; }
+                    append_line(P_STATUS, "  \\u2514 " + m.name + ": " + preview);
+                }
+            }
+            if (!s.messages.empty())
+                win().scroll_top = max_scroll();
+        } else {
+            w.session_id.clear();
+        }
+    }
     draw();
 }
 

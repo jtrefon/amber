@@ -148,6 +148,7 @@ bool SessionStore::save(Session& s) const {
     // Replace invalid UTF-8 rather than throw (model output can be dirty).
     f << s.to_json().dump(2, ' ', false, json::error_handler_t::replace);
     cache_valid_ = false;
+    ::remove(index_path().c_str());
     return static_cast<bool>(f);
 }
 
@@ -165,11 +166,37 @@ bool SessionStore::load(const std::string& id, Session& out) const {
 
 bool SessionStore::remove(const std::string& id) const {
     cache_valid_ = false;
+    ::remove(index_path().c_str());
     return ::remove(path_for(id).c_str()) == 0;
 }
 
 std::vector<SessionMeta> SessionStore::list() const {
     if (cache_valid_) return list_cache_;
+
+    // Try the index file first — much faster than opening every session file.
+    std::ifstream idx(index_path());
+    if (idx.is_open()) {
+        try {
+            json j;
+            idx >> j;
+            std::vector<SessionMeta> out;
+            for (const auto& e : j.value("sessions", json::array())) {
+                SessionMeta m;
+                m.id = e.value("id", "");
+                m.title = e.value("title", "");
+                m.model = e.value("model", "");
+                m.updated_ms = static_cast<long long>(e.value("updated_ms", 0ll));
+                m.message_count = e.value("message_count", 0);
+                m.file_size = static_cast<size_t>(e.value("file_size", 0));
+                out.push_back(m);
+            }
+            list_cache_ = out;
+            cache_valid_ = true;
+            return list_cache_;
+        } catch (...) {
+            // Corrupt index — fall through to directory scan.
+        }
+    }
     std::vector<SessionMeta> out;
     DIR* d = ::opendir(dir_.c_str());
     if (!d) return out;

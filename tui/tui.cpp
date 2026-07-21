@@ -39,15 +39,13 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     use_legacy_coding(1);
     init_pairs();
 
-    // Restore previous workspace: open saved sessions in their windows.
+    // Restore previous workspace: open windows with session references,
+    // but defer actual session data loading until the window is activated.
     auto ws = store_.load_workspace();
     if (!ws.windows.empty()) {
         for (const auto& we : ws.windows) {
-            if (!we.session_id.empty() && store_.list_contains(we.session_id)) {
-                load_session(we.session_id);
-            } else {
-                new_window(we.title.empty() ? "chat" : we.title);
-            }
+            Window& w = new_window(we.title.empty() ? "chat" : we.title);
+            w.session_id = we.session_id;
         }
         if (ws.active < windows_.size())
             active_ = ws.active;
