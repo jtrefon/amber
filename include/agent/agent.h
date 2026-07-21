@@ -95,6 +95,10 @@ public:
     // Forget everything and start a fresh conversation on the next run.
     void reset();
 
+    // Force an immediate compression of the conversation history, bypassing
+    // the gate.  Has no effect if no compressor is configured.
+    void compress_now();
+
     // Replace the UI callbacks. Lets a long-lived agent receive fresh closures
     // each turn (e.g. a TUI window rebinding lambdas that capture live state).
     void set_hooks(AgentHooks hooks) { hooks_ = std::move(hooks); }

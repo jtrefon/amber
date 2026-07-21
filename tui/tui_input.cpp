@@ -233,6 +233,9 @@ void Tui::build_commands() {
         {"window", {"win", "w"}, "new|close|list|rename <name>",
          "manage chat windows",
          [this](const std::string& a) { cmd_window(a); }},
+        {"compress", {"compact"}, "",
+         "compress conversation history to free context space",
+          [this](const std::string&) { cmd_compress(""); }},
         {"job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
          "manage background processes (servers, builds) started by the agent",
           [this](const std::string& a) { cmd_job(a); },
@@ -408,6 +411,20 @@ std::string job_list_line(const agent::JobInfo& j) {
            "  " + j.command;
 }
 } // namespace
+
+void Tui::cmd_compress(const std::string&) {
+    auto& w = win();
+    if (!w.agent) {
+        append_line(P_STATUS, "no active session to compress");
+        return;
+    }
+    size_t before = w.agent->history().size();
+    w.agent->compress_now();
+    size_t after = w.agent->history().size();
+    append_line(P_STATUS,
+                "compressed: " + std::to_string(before) + " → "
+                + std::to_string(after) + " messages");
+}
 
 void Tui::cmd_job(const std::string& arg) {
     std::string cmd, rest;

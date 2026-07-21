@@ -173,6 +173,15 @@ const AgentHooks& Agent::silent_hooks() const {
     return silent;
 }
 
+void Agent::compress_now() {
+    if (!compression_) return;
+    auto cc = load_compression_config(cfg_);
+    auto compressed = compression_->compress(history_, cc);
+    if (!compressed.empty() && compressed.size() < history_.size()) {
+        history_ = std::move(compressed);
+    }
+}
+
 void Agent::reset() {
     history_.clear();
     session_approved_.clear();
