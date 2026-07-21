@@ -55,22 +55,21 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    // Always open the welcome mural first.  If a previous workspace was saved,
-    // restore its windows after the welcome window so the user sees the mural
-    // as the default landing page and can switch to saved sessions.
-    open_welcome_window();
-
+    // Restore workspace: open saved sessions in their own windows.
+    // On first launch (no workspace) show the welcome mural instead.
     auto ws = store_.load_workspace();
-    for (const auto& we : ws.windows) {
-        Window& w = new_window(we.title.empty() ? "chat" : we.title);
-        w.session_id = we.session_id;
-        w.prompt_history = we.prompt_history;
-        w.history_pos = w.prompt_history.size();
-    }
     if (!ws.windows.empty()) {
+        for (const auto& we : ws.windows) {
+            Window& w = new_window(we.title.empty() ? "chat" : we.title);
+            w.session_id = we.session_id;
+            w.prompt_history = we.prompt_history;
+            w.history_pos = w.prompt_history.size();
+        }
         if (ws.active < windows_.size())
             active_ = ws.active;
         lazy_load_active();
+    } else {
+        open_welcome_window();
     }
 }
 
@@ -591,14 +590,15 @@ void Tui::run() {
             quit_ = true;
             break;
         }
-        if (ch == KEY_UP && !drawer_open_ && !win().prompt_history.empty()) {
-            if (win().history_pos > 0) {
-                --win().history_pos;
-                input = win().prompt_history[win().history_pos];
-            }
+        // Ctrl+P / Ctrl+N: prompt history recall (Emacs standard).
+        // KEY_UP/KEY_DOWN stay bound to viewport scrolling (shared with
+        // mouse wheel via alternate scroll mode).
+        if (ch == 16 && !drawer_open_ && !win().prompt_history.empty()) {
+            if (win().history_pos > 0) --win().history_pos;
+            input = win().prompt_history[win().history_pos];
             draw(); draw_input(input); continue;
         }
-        if (ch == KEY_DOWN && !drawer_open_ && !win().prompt_history.empty()) {
+        if (ch == 14 && !drawer_open_ && !win().prompt_history.empty()) {
             if (win().history_pos < win().prompt_history.size() - 1) {
                 ++win().history_pos;
                 input = win().prompt_history[win().history_pos];

@@ -343,7 +343,7 @@ void Tui::cmd_help(const std::string& arg) {
             append_line(P_STATUS, "  " + u + c.help);
         }
         append_line(P_STATUS, "");
-        append_line(P_STATUS, "Keys:  Enter/Ctrl-G send   PgUp/PgDn scroll");
+        append_line(P_STATUS, "Keys:  Enter/Ctrl-G send   PgUp/PgDn scroll   Ctrl+P/N history");
         append_line(P_STATUS,
                     "       Ctrl-N new window   Ctrl-W close   Alt+1..9 switch");
         append_line(P_STATUS, "       Ctrl-C quit");
