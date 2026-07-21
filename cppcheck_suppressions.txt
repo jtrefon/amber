@@ -7,13 +7,16 @@
 # lint target covers the checks we actually want).
 useStlAlgorithm
 functionStatic
-shadowVariable
+shadowFunction
 constVariableReference
 constVariablePointer
 constParameterReference
 variableScope
 noExplicitConstructor
 returnByReference
+passedByValue
+virtualCallInConstructor
+duplicateConditionalAssign
 unreadVariable
 uselessOverride
 knownConditionTrueFalse
