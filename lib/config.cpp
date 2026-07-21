@@ -47,6 +47,18 @@ void Config::load(const std::string& path) {
         else if (key == "reasoning_effort") reasoning_effort = val;
         else if (key == "show_reasoning")
             show_reasoning = (val == "1" || val == "true" || val == "yes");
+        else if (key == "compression_threshold")
+            compression_threshold = std::stod(val);
+        else if (key == "compression_min_turns")
+            compression_min_turns = std::stoi(val);
+        else if (key == "compression_cooldown_turns")
+            compression_cooldown_turns = std::stoi(val);
+        else if (key == "experience_enabled")
+            experience_enabled = (val == "1" || val == "true" || val == "yes");
+        else if (key == "experience_max_memories")
+            experience_max_memories = std::stoi(val);
+        else if (key == "experience_max_skills")
+            experience_max_skills = std::stoi(val);
     }
 }
 

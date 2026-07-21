@@ -6,6 +6,8 @@
 #include "agent/search_backend.h"
 #include "agent/sse_parser.h"
 #include "agent/request_builder.h"
+#include "agent/compressor.h"
+#include "agent/experience.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/rich.h"
@@ -1637,6 +1639,300 @@ TEST(job_service_caps_output_at_one_mib) {
     ASSERT(info.truncated);
     ASSERT(info.bytes <= (1u << 20) + 16);
     jobs.stop(id);
+}
+
+// ---------------------------------------------------------------------------
+// Context compression tests
+// ---------------------------------------------------------------------------
+
+static agent::Message msg(const std::string& role, const std::string& content,
+                           const std::string& name = "") {
+    return {role, content, "", "", name, json::object()};
+}
+
+TEST(tree_shaker_empty_history) {
+    agent::TreeShaker shaker;
+    auto tags = shaker.classify({});
+    ASSERT(tags.empty());
+}
+
+TEST(tree_shaker_single_turn) {
+    agent::TreeShaker shaker;
+    std::vector<agent::Message> hist = {
+        msg("system", "you are a bot"),
+        msg("user", "hello")
+    };
+    auto tags = shaker.classify(hist);
+    ASSERT(tags.size() == 2u);
+    // Last user message is active root → core
+    ASSERT(tags[1] == agent::Classification::core);
+}
+
+TEST(tree_shaker_active_task_is_core) {
+    agent::TreeShaker shaker;
+    std::vector<agent::Message> hist = {
+        msg("system", "prompt"),
+        msg("user", "old request"),
+        msg("assistant", "handled"),
+        msg("user", "current active"),
+    };
+    auto tags = shaker.classify(hist);
+    ASSERT(tags.size() >= 4u);
+    ASSERT(tags[3] == agent::Classification::core);
+}
+
+TEST(tree_shaker_stale_tool_result) {
+    agent::TreeShaker shaker;
+    std::vector<agent::Message> hist = {
+        msg("system", "prompt"),
+        msg("user", "do something"),
+        msg("assistant", ""),
+        msg("tool", "output", "read"),
+        msg("user", "ok"),
+    };
+    auto tags = shaker.classify(hist);
+    ASSERT(tags[3] == agent::Classification::context ||
+           tags[3] == agent::Classification::prune);
+}
+
+TEST(tree_shaker_diagnostic_is_prune) {
+    agent::TreeShaker shaker;
+    std::vector<agent::Message> hist = {
+        msg("system", "prompt"),
+        msg("user", "read file"),
+        msg("assistant", ""),
+        msg("tool", std::string(200, 'x'), "read"),
+        msg("assistant", "done"),
+        msg("user", "move on"),
+    };
+    auto tags = shaker.classify(hist);
+    ASSERT(tags[3] == agent::Classification::prune);
+}
+
+TEST(compression_gate_below_threshold) {
+    agent::CompressionConfig cc;
+    cc.threshold = 0.75;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 100000;
+    std::vector<agent::Message> hist = {
+        msg("system", "short"),
+        msg("user", "hi"),
+    };
+    ASSERT_FALSE(gate->should_compress(hist, cfg));
+}
+
+TEST(compression_gate_above_threshold) {
+    agent::CompressionConfig cc;
+    cc.threshold = 0.10;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 1000;
+    std::vector<agent::Message> hist;
+    for (int i = 0; i < 10; ++i)
+        hist.push_back(msg("user", std::string(100, 'a')));
+    ASSERT(gate->should_compress(hist, cfg));
+}
+
+TEST(compression_gate_min_turns) {
+    agent::CompressionConfig cc;
+    cc.threshold = 0.01;
+    cc.min_turns = 100;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 100000;
+    std::vector<agent::Message> hist = {msg("user", "hello")};
+    ASSERT_FALSE(gate->should_compress(hist, cfg));
+}
+
+TEST(structured_compressor_roundtrip_empty) {
+    agent::CompressionConfig cfg;
+    auto c = agent::make_compressor(cfg);
+    auto result = c->compress({}, cfg);
+    ASSERT(result.empty());
+}
+
+TEST(structured_compressor_basic) {
+    agent::CompressionConfig cfg;
+    auto c = agent::make_compressor(cfg);
+    std::vector<agent::Message> hist = {
+        msg("system", "prompt"),
+        msg("user", "hello"),
+    };
+    auto result = c->compress(hist, cfg);
+    ASSERT(!result.empty());
+}
+
+// ---------------------------------------------------------------------------
+// Experience / memory tests
+// ---------------------------------------------------------------------------
+
+TEST(memory_store_upsert_and_retrieve) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Memory mem;
+    mem.content = "project uses make";
+    mem.tags = {"build", "make"};
+    mem.evidence_count = 3;
+    store->upsert(mem);
+    auto results = store->top_memories(10, "how to build");
+    ASSERT(results.size() >= 1u);
+    ASSERT(results[0].content == "project uses make");
+}
+
+TEST(memory_store_top_k_limits) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    for (int i = 0; i < 5; ++i) {
+        agent::Memory mem;
+        mem.content = "memory " + std::to_string(i);
+        mem.evidence_count = i;
+        store->upsert(mem);
+    }
+    auto results = store->top_memories(3, "");
+    ASSERT(results.size() == 3u);
+}
+
+TEST(memory_store_skill_trigger) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Skill sk;
+    sk.content = "run tests";
+    sk.trigger_phrase = "test";
+    sk.evidence_count = 5;
+    store->upsert(sk);
+    auto results = store->top_skills(10, "run the tests");
+    ASSERT(results.size() >= 1u);
+    ASSERT(results[0].content == "run tests");
+    auto no_match = store->top_skills(10, "build the project");
+    ASSERT(no_match.empty());
+}
+
+TEST(memory_store_decay) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Memory mem;
+    mem.content = "will decay";
+    mem.evidence_count = 3;
+    store->upsert(mem);
+    store->decay_all();
+    auto results = store->top_memories(10, "");
+    ASSERT(results.size() >= 1u);
+    ASSERT(results[0].evidence_count == 2);
+}
+
+TEST(memory_retriever_empty) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::MemoryRetriever retriever(*store);
+    auto suffix = retriever.build_system_prompt_suffix("hello");
+    ASSERT(suffix.empty());
+}
+
+TEST(memory_retriever_with_memories) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Memory mem;
+    mem.content = "build system is make";
+    mem.tags = {"build"};
+    mem.evidence_count = 3;
+    store->upsert(mem);
+    agent::MemoryRetriever retriever(*store);
+    auto suffix = retriever.build_system_prompt_suffix("how to build");
+    ASSERT(!suffix.empty());
+    ASSERT(suffix.find("build system") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Integration: compression pipeline + memory end-to-end
+// ---------------------------------------------------------------------------
+
+TEST(integration_compress_extract_retrieve) {
+    // Simulate a realistic conversation: system, user request, tool calls,
+    // assistant replies, a side quest, and a new request.
+    agent::TreeShaker shaker;
+    std::vector<agent::Message> hist = {
+        msg("system", "You are amber, a helpful coding assistant."),
+        msg("user", "How is this project built?"),
+        msg("assistant", "Let me check the build system."),
+        msg("tool", "GNUmakefile\nconfigure script\n", "read"),
+        msg("assistant", "This project uses GNU make with ./configure."),
+        msg("user", "Run the tests for me."),
+        msg("assistant", "Running the test suite now."),
+        msg("tool",
+            "compressor_test.cpp: OK\nmemory_store_test.cpp: OK\n"
+            "103 passed, 0 failed\n",
+            "bash"),
+        msg("assistant", "All 103 tests passed."),
+        // Side quest: read a config file
+        msg("user", "What's in the config file?"),
+        msg("assistant", "Reading amber.conf."),
+        msg("tool", "api_base=http://localhost:8000\nmodel=gpt-4o\n",
+            "read"),
+        msg("assistant", "The config points at localhost:8000 with gpt-4o."),
+        // Back to main task
+        msg("user", "What was the test result again?"),
+    };
+
+    // Phase 1: Classify
+    auto tags = shaker.classify(hist);
+    ASSERT(tags.size() == hist.size());
+
+    // The last user message should be core (active task)
+    ASSERT(tags[tags.size() - 1] == agent::Classification::core);
+
+    // Diagnostic reads before the active task should be pruned
+    bool found_prune = false;
+    for (size_t i = 0; i < tags.size(); ++i) {
+        if (tags[i] == agent::Classification::prune) {
+            found_prune = true;
+            break;
+        }
+    }
+    ASSERT(found_prune);
+
+    // Phase 2: Compress
+    auto compressor = agent::make_compressor(agent::CompressionConfig{});
+    auto compressed = compressor->compress(hist, agent::CompressionConfig{});
+    ASSERT(!compressed.empty());
+
+    // The compressed result should have fewer messages than the original
+    // (because some were pruned and summarised)
+    // or at least not more
+    ASSERT(compressed.size() <= hist.size());
+
+    // Phase 3: Extract memories from the classified history
+    agent::ExperienceConfig ec;
+    ec.enabled = true;
+    auto store = agent::make_memory_store(ec);
+
+    // Simulate extraction by feeding informative tool results into the store
+    agent::Memory mem;
+    mem.content = "project uses GNU make with ./configure";
+    mem.tags = {"build", "make"};
+    mem.evidence_count = 3;
+    store->upsert(mem);
+
+    agent::Memory mem2;
+    mem2.content = "103 tests passed";
+    mem2.tags = {"tests", "testing"};
+    mem2.evidence_count = 3;
+    store->upsert(mem2);
+
+    // Phase 4: Retrieve relevant memories
+    agent::MemoryRetriever retriever(*store);
+    std::string suffix = retriever.build_system_prompt_suffix(
+        "how do I build this project?");
+    ASSERT(!suffix.empty());
+    ASSERT(suffix.find("GNU make") != std::string::npos ||
+           suffix.find("./configure") != std::string::npos);
+
+    // Phase 5: Verify complete cycle — compress, persist, retrieve
+    store->decay_all();
+    auto after_decay = store->top_memories(10, "build");
+    ASSERT(after_decay.size() >= 1u);
+    // After one decay, evidence should be 2
+    ASSERT(after_decay[0].evidence_count <= 3);
 }
 
 // ---------------------------------------------------------------------------

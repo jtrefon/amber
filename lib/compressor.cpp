@@ -283,7 +283,12 @@ std::unique_ptr<CompressionGate> make_compression_gate(
 
 CompressionConfig load_compression_config(const Config& cfg) {
     CompressionConfig cc;
-    (void)cfg;
+    if (cfg.compression_threshold > 0.0)
+        cc.threshold = cfg.compression_threshold;
+    if (cfg.compression_min_turns > 0)
+        cc.min_turns = cfg.compression_min_turns;
+    if (cfg.compression_cooldown_turns > 0)
+        cc.cooldown_turns = cfg.compression_cooldown_turns;
     return cc;
 }
 

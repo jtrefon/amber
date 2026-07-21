@@ -215,8 +215,12 @@ std::unique_ptr<MemoryStore> make_memory_store(const ExperienceConfig& cfg) {
 
 ExperienceConfig load_experience_config(const Config& cfg) {
     ExperienceConfig ec;
-    // TODO: read from amber.conf [experience] section.
-    (void)cfg;
+    if (!cfg.experience_enabled)
+        ec.enabled = false;
+    if (cfg.experience_max_memories > 0)
+        ec.max_memories = static_cast<size_t>(cfg.experience_max_memories);
+    if (cfg.experience_max_skills > 0)
+        ec.max_skills = static_cast<size_t>(cfg.experience_max_skills);
     if (ec.store_path.empty()) {
         const char* home = std::getenv("HOME");
         if (home) ec.store_path = std::string(home) + "/.amber/memories.json";
