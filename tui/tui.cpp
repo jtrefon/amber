@@ -590,9 +590,16 @@ void Tui::run() {
             quit_ = true;
             break;
         }
-        // Ctrl+P / Ctrl+N: prompt history recall (Emacs standard).
-        // KEY_UP/KEY_DOWN stay bound to viewport scrolling (shared with
-        // mouse wheel via alternate scroll mode).
+        // KEY_UP/KEY_DOWN:  viewport scrolling (mouse wheel via alternate
+        // scroll mode sends the same codes).  Ctrl+P/Ctrl+N for history.
+        if (ch == KEY_UP && !drawer_open_) {
+            win().scroll_top = std::max(0, win().scroll_top - 1);
+            draw(); draw_input(input); continue;
+        }
+        if (ch == KEY_DOWN && !drawer_open_) {
+            win().scroll_top += 1;
+            draw(); draw_input(input); continue;
+        }
         if (ch == 16 && !drawer_open_ && !win().prompt_history.empty()) {
             if (win().history_pos > 0) --win().history_pos;
             input = win().prompt_history[win().history_pos];
