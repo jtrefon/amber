@@ -55,23 +55,22 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    // Welcome mural is the permanent first window — always present, never
-    // closable.  Saved sessions from a previous workspace are restored as
-    // additional windows after it.
-    open_welcome_window();
-
+    // Restore previous workspace: open saved sessions in their own windows.
+    // On first launch (no saved workspace) show the welcome mural instead.
     auto ws = store_.load_workspace();
-    for (const auto& we : ws.windows) {
-        Window& w = new_window(we.title.empty() ? "chat" : we.title);
-        w.session_id = we.session_id;
-        w.prompt_history = we.prompt_history;
-        w.history_pos = w.prompt_history.size();
+    if (!ws.windows.empty()) {
+        for (const auto& we : ws.windows) {
+            Window& w = new_window(we.title.empty() ? "chat" : we.title);
+            w.session_id = we.session_id;
+            w.prompt_history = we.prompt_history;
+            w.history_pos = w.prompt_history.size();
+        }
+        if (ws.active < windows_.size())
+            active_ = ws.active;
+        lazy_load_active();
+    } else {
+        open_welcome_window();
     }
-    if (!ws.windows.empty())
-        active_ = ws.active + 1;  // +1 for the welcome window at index 0
-    else
-        active_ = 0;              // welcome window is active
-    lazy_load_active();
 }
 
 Tui::~Tui() {
