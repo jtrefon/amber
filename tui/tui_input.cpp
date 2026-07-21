@@ -581,6 +581,9 @@ void Tui::settings_screen() {
     if (!form_edit("Server settings", fields)) return;
 
     cfg_.api_base = fields[0].value;
+    // Strip trailing slash so api_url() doesn't produce "//chat/completions"
+    while (!cfg_.api_base.empty() && cfg_.api_base.back() == '/')
+        cfg_.api_base.pop_back();
     cfg_.api_key = fields[1].value;
     if (fields[2].value.empty()) {
         cfg_.model_explicit = false;
