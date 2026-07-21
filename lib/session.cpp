@@ -285,7 +285,13 @@ WorkspaceState SessionStore::load_workspace() const {
 json WorkspaceState::to_json() const {
     json arr = json::array();
     for (const auto& w : windows) {
-        arr.push_back({{"session_id", w.session_id}, {"title", w.title}});
+        json ph = json::array();
+        for (const auto& h : w.prompt_history) ph.push_back(h);
+        arr.push_back({
+            {"session_id", w.session_id},
+            {"title", w.title},
+            {"prompt_history", ph}
+        });
     }
     return {{"version", 1}, {"windows", arr}, {"active", active}};
 }
@@ -297,6 +303,8 @@ WorkspaceState WorkspaceState::from_json(const json& j) {
         WindowEntry we;
         we.session_id = e.value("session_id", "");
         we.title = e.value("title", "");
+        for (const auto& h : e.value("prompt_history", json::array()))
+            we.prompt_history.push_back(h.get<std::string>());
         ws.windows.push_back(we);
     }
     return ws;

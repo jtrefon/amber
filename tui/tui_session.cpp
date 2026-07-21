@@ -395,6 +395,7 @@ void Tui::save_workspace_now() {
         agent::WorkspaceState::WindowEntry we;
         we.session_id = w->session_id;
         we.title = w->title;
+        we.prompt_history = w->prompt_history;
         ws.windows.push_back(we);
     }
     ws.active = active_;

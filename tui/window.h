@@ -35,6 +35,8 @@ struct Window {
     // them. Replaces the old vector<pair<int,string>> of plain lines.
     std::vector<rich::Line> lines;
     int scroll_top = 0;
+    std::vector<std::string> prompt_history;
+    size_t history_pos = 0;         // 0 = end (no recall), > 0 = recalling older entries
 
     bool markdown_on = true;          // render assistant text as Markdown
     std::string stream_buf;           // raw streamed assistant markdown (live)

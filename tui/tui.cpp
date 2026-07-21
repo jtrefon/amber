@@ -55,21 +55,22 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    // Restore previous workspace: open windows with session references,
-    // but defer actual session data loading until the window is activated.
+    // Always open the welcome mural first.  If a previous workspace was saved,
+    // restore its windows after the welcome window so the user sees the mural
+    // as the default landing page and can switch to saved sessions.
+    open_welcome_window();
+
     auto ws = store_.load_workspace();
+    for (const auto& we : ws.windows) {
+        Window& w = new_window(we.title.empty() ? "chat" : we.title);
+        w.session_id = we.session_id;
+        w.prompt_history = we.prompt_history;
+        w.history_pos = w.prompt_history.size();
+    }
     if (!ws.windows.empty()) {
-        for (const auto& we : ws.windows) {
-            Window& w = new_window(we.title.empty() ? "chat" : we.title);
-            w.session_id = we.session_id;
-        }
         if (ws.active < windows_.size())
             active_ = ws.active;
-        // Load the active window's session data now so the user sees their
-        // conversation immediately instead of a blank page.
         lazy_load_active();
-    } else {
-        open_welcome_window();
     }
 }
 
@@ -590,12 +591,21 @@ void Tui::run() {
             quit_ = true;
             break;
         }
-        if (ch == KEY_UP && !drawer_open_) {
-            win().scroll_top = std::max(0, win().scroll_top - 1);
+        if (ch == KEY_UP && !drawer_open_ && !win().prompt_history.empty()) {
+            if (win().history_pos > 0) {
+                --win().history_pos;
+                input = win().prompt_history[win().history_pos];
+            }
             draw(); draw_input(input); continue;
         }
-        if (ch == KEY_DOWN && !drawer_open_) {
-            win().scroll_top += 1;
+        if (ch == KEY_DOWN && !drawer_open_ && !win().prompt_history.empty()) {
+            if (win().history_pos < win().prompt_history.size() - 1) {
+                ++win().history_pos;
+                input = win().prompt_history[win().history_pos];
+            } else {
+                win().history_pos = win().prompt_history.size();
+                input.clear();
+            }
             draw(); draw_input(input); continue;
         }
         if (ch == KEY_NPAGE) {
@@ -623,6 +633,15 @@ void Tui::run() {
             }
             if (input.empty()) continue;
             std::string prompt = input;
+            // Push to prompt history (per-window) before sending.
+            if (!prompt.empty()) {
+                auto& ph = win().prompt_history;
+                if (ph.empty() || ph.back() != prompt) {
+                    ph.push_back(prompt);
+                    if (ph.size() > 100) ph.erase(ph.begin());
+                }
+                win().history_pos = ph.size();
+            }
             drawer_open_ = false;
             if (handle_slash(prompt)) {
                 input.clear();

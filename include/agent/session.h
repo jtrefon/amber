@@ -43,6 +43,7 @@ struct WorkspaceState {
     struct WindowEntry {
         std::string session_id;
         std::string title;
+        std::vector<std::string> prompt_history;
     };
     std::vector<WindowEntry> windows;
     size_t active = 0;
