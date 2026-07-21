@@ -126,9 +126,7 @@ int Tui::gauge_pair(double f) {
 
 std::vector<Tui::Seg> Tui::bar_segments() const {
     std::vector<Seg> segs;
-    std::string wtag = "[" + std::to_string(active_ + 1) + ":" +
-                       windows_[active_]->title + " " +
-                       std::to_string(active_ + 1) + "/" +
+    std::string wtag = "[" + std::to_string(active_ + 1) + "/" +
                        std::to_string(windows_.size()) + "]";
     segs.push_back({wtag, P_BANNER, 3});
     segs.push_back({" [" + cfg_.model + "]", P_BANNER, 5});
