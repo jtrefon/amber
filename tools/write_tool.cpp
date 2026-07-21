@@ -25,10 +25,8 @@ public:
     std::string description() const override {
         return "Apply a patch-style edit to a file. Provide a list of edits, "
                "each with an 'old' substring to find and a 'new' replacement. "
-               "To create or fully overwrite a SMALL file (under ~2KB), use "
-               "old=\"\" with the entire content in 'new'. For larger files, "
-               "use bash `cat > path <<'EOF'` instead — writing multi-kilobyte "
-               "content inline here will overflow your output token limit.";
+               "To create or fully overwrite a file, use old=\"\" and put the "
+               "entire contents in 'new'. Edits are applied sequentially.";
     }
 
     json parameters_schema() const override {

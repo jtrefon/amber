@@ -26,7 +26,7 @@ struct Config {
     std::string tools_prompt_path;       // markdown file advertising tools
     int max_tool_iterations = 32;
     double temperature = 0.2;
-    size_t max_tokens = 4096;
+    size_t max_tokens = 16384;
     bool stream = true;                  // use SSE streaming when supported
 
     // Agent mode: controls tool availability and approval policy.
