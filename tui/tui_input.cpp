@@ -236,9 +236,6 @@ void Tui::build_commands() {
         {"compress", {"compact"}, "",
          "compress conversation history to free context space",
           [this](const std::string&) { cmd_compress(""); }},
-        {"decompress", {"restore", "expand"}, "",
-         "restore full conversation from archive after compression",
-          [this](const std::string&) { cmd_decompress(""); }},
         {"job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
          "manage background processes (servers, builds) started by the agent",
           [this](const std::string& a) { cmd_job(a); },
@@ -453,42 +450,6 @@ void Tui::cmd_compress(const std::string&) {
                     + " memories, " + std::to_string(ext.new_skills)
                     + " skills");
     }
-    dirty_ = true;
-}
-
-void Tui::cmd_decompress(const std::string&) {
-    auto& w = win();
-    if (!w.agent || !w.agent->has_archive()) {
-        append_line(P_STATUS, "decompress: no archive found (session was never compressed)");
-        return;
-    }
-    size_t before = w.agent->history().size();
-    w.agent->decompress();
-    size_t after = w.agent->history().size();
-    // Re-render the full conversation in the scrollback
-    w.lines.clear();
-    for (const auto& m : w.agent->history()) {
-        if (m.role == "user")
-            append_line(P_USER, "> " + m.content);
-        else if (m.role == "assistant") {
-            if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
-                for (const auto& tc : m.tool_calls) {
-                    std::string fn = tc.value("function", json::object())
-                                       .value("name", "?");
-                    append_line(P_STATUS, std::string(text::glyph::tool()) + " " + fn);
-                }
-            }
-            if (!m.content.empty())
-                append_markdown(m.content);
-        } else if (m.role == "tool") {
-            std::string preview = m.content;
-            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-            append_line(P_STATUS, "  \\u2514 " + m.name + ": " + preview);
-        }
-    }
-    win().scroll_top = max_scroll();
-    append_line(P_STATUS, "decompress: restored " + std::to_string(before)
-                + " → " + std::to_string(after) + " messages");
     dirty_ = true;
 }
 
