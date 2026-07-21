@@ -335,43 +335,44 @@ void Tui::session_browser() {
     draw();
 }
 
+void Tui::lazy_load_active() {
+    auto& w = win();
+    if (!w.agent || !w.agent->history().empty() || w.session_id.empty()) return;
+    agent::Session s;
+    if (!store_.load(w.session_id, s)) {
+        w.session_id.clear();
+        return;
+    }
+    w.agent->set_history(s.messages);
+    w.lines.clear();
+    for (const auto& m : s.messages) {
+        if (m.role == "user")
+            append_line(P_USER, "> " + m.content);
+        else if (m.role == "assistant") {
+            if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
+                for (const auto& tc : m.tool_calls) {
+                    std::string fn = tc.value("function", json::object())
+                                       .value("name", "?");
+                    append_line(P_STATUS, std::string(text::glyph::tool())
+                                + " " + fn);
+                }
+            }
+            if (!m.content.empty())
+                append_markdown(m.content);
+        } else if (m.role == "tool") {
+            std::string preview = m.content;
+            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
+            append_line(P_STATUS, "  \\u2514 " + m.name + ": " + preview);
+        }
+    }
+    if (!s.messages.empty())
+        win().scroll_top = max_scroll();
+}
+
 void Tui::switch_to(size_t idx) {
     if (idx >= windows_.size() || idx == active_) return;
     active_ = idx;
-    // Lazy-load session data if the window references a session but has no
-    // history yet (workspace restoration opens windows without loading data).
-    auto& w = win();
-    if (w.agent && w.agent->history().empty() && !w.session_id.empty()) {
-        agent::Session s;
-        if (store_.load(w.session_id, s)) {
-            w.agent->set_history(s.messages);
-            w.lines.clear();
-            for (const auto& m : s.messages) {
-                if (m.role == "user")
-                    append_line(P_USER, "> " + m.content);
-                else if (m.role == "assistant") {
-                    if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
-                        for (const auto& tc : m.tool_calls) {
-                            std::string fn = tc.value("function", json::object())
-                                               .value("name", "?");
-                            append_line(P_STATUS, std::string(text::glyph::tool())
-                                        + " " + fn);
-                        }
-                    }
-                    if (!m.content.empty())
-                        append_markdown(m.content);
-                } else if (m.role == "tool") {
-                    std::string preview = m.content;
-                    if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-                    append_line(P_STATUS, "  \\u2514 " + m.name + ": " + preview);
-                }
-            }
-            if (!s.messages.empty())
-                win().scroll_top = max_scroll();
-        } else {
-            w.session_id.clear();
-        }
-    }
+    lazy_load_active();
     draw();
 }
 

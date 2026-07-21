@@ -65,6 +65,9 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
         }
         if (ws.active < windows_.size())
             active_ = ws.active;
+        // Load the active window's session data now so the user sees their
+        // conversation immediately instead of a blank page.
+        lazy_load_active();
     } else {
         open_welcome_window();
     }

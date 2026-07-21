@@ -182,6 +182,7 @@ private:
 
     // ---- window management ----------------------------------------------
     void switch_to(size_t idx);
+    void lazy_load_active();
     void close_window();
     Window& win();
     const Window& win() const;
