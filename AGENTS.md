@@ -142,9 +142,12 @@ claim 0-debt conformance:
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `request_builder`, `sse_parser`,
   `http_transport`, `model_probe`, `debug_log` (+ `llm.cpp` keeps the class).
-- `lib/agent.cpp` (209 → 193): `run` decomposed into `chat_once`,
-  `dispatch_tool_calls`, and a free `parse_tool_call`; `ConversationLog` moved to
-  its own `conversation_log.{h,cpp}` unit.
+- `lib/agent.cpp` (473 → 200): after a regression that re-inlined the
+  confirmation loop and tool-recovery logic, `run` is again a thin orchestrator.
+  The confirmation step is `confirm_turn`; tool dispatch is the free
+  `dispatch_tool_calls` (`dispatch.{h,cpp}`); parsing/sanitize/extract helpers are
+  in `agent_helpers.{h,cpp}`; failure-streak + recovery steering in
+  `tool_recovery.{h,cpp}`.
 - `tui/tui.cpp` (1245 → 171): god-class `Tui` split into `tui.h` (declaration,
   152 lines) + `tui_render.cpp`, `tui_input.cpp`, `tui_session.cpp`,
   `tui_main.cpp`. No file defines a class >200 lines.

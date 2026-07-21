@@ -10,7 +10,7 @@
 
 namespace tui {
 
-agent::Session Tui::snapshot(Window& w) {
+agent::Session Tui::snapshot(Window& w) const {
     agent::Session s;
     s.id = w.session_id;
     s.model = cfg_.model;
@@ -156,10 +156,10 @@ void Tui::session_browser() {
             if (!matches_filter(all[i].title, filter)) continue;
             std::string d = date_label(all[i].updated_ms);
             if (d != last_date) {
-                out.push_back({0, i});
+                out.emplace_back(0, i);
                 last_date = d;
             }
-            out.push_back({1, i});
+            out.emplace_back(1, i);
         }
         return out;
     };
@@ -216,8 +216,10 @@ void Tui::session_browser() {
                 int x = 3;
                 auto& m = all[idx];
                 std::string title = m.title;
-                if (static_cast<int>(title.size()) > title_w)
-                    title.resize(title_w - 1); title += text::glyph::ellipsis();
+                if (static_cast<int>(title.size()) > title_w) {
+                    title.resize(title_w - 1);
+                    title += text::glyph::ellipsis();
+                }
                 mvwaddnstr(w, row, x, title.c_str(), title_w);
                 x += title_w + 1;
                 std::string mod = m.model;
@@ -289,6 +291,7 @@ void Tui::session_browser() {
                     break;
                 }
                 case 27: case 'q': done = true; break;
+                default: break;
             }
         } else if (c == 27 || c == 'q') {
             done = true;

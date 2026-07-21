@@ -54,9 +54,11 @@ void info_dialog(const std::string& title, const std::vector<std::string>& rows)
             case KEY_NPAGE: menu_driver(menu, REQ_SCR_DPAGE); break;
             case KEY_PPAGE: menu_driver(menu, REQ_SCR_UPAGE); break;
             case '\n': case '\r': case KEY_ENTER:
-            case 27: case 'q': case 'Q':
-                done = true; break;
-        }
+                case 27: case 'q': case 'Q':
+                    done = true; break;
+                default:
+                    break;
+            }
         update_panels();
         doupdate();
     }

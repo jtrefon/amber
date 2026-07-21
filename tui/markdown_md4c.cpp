@@ -9,6 +9,7 @@
 
 #include "markdown.h"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -16,8 +17,8 @@
 #include "textutil.h"
 #include "third_party/md4c/md4c.h"
 
-namespace tui {
-namespace md {
+
+namespace tui::md {
 
 namespace {
 
@@ -71,6 +72,10 @@ RunStyle base_style(const Style& st) {
 }
 
 void emit_line(Ctx& c, Line l) { c.out->push_back(std::move(l)); }
+
+// Forward declarations (defined below flush_block).
+bool is_separator_line(const Line& l);
+void emit_hr(Ctx& c);
 
 // Build the indentation/marker prefix for the block currently being flushed.
 std::string block_prefix(Ctx& c, bool& use_quote_pair) {
@@ -130,6 +135,63 @@ void flush_block(Ctx& c) {
         pre.text = prefix;
         l.runs.insert(l.runs.begin(), pre);
     }
+
+    // A paragraph consisting of a single run of separator glyphs (e.g. a
+    // model-emitted "─::::::" or "=====" rule) is a thematic break, not text.
+    // Render it as a clean horizontal rule instead of literal artifacts.
+    if (is_separator_line(l))
+        emit_hr(c);
+    else
+        emit_line(c, std::move(l));
+}
+
+// True when a rendered line is a thematic/rule line rather than prose. Two
+// cases the model emits:
+//   (a) every glyph is a rule character (ASCII - = _ * : | . # + ~, or any
+//       non-ASCII glyph like box-drawing ─━═ or bullets ·•);
+//   (b) the line is dominated by a single repeated glyph (>=80% of its code
+//       points are the same one, length >= 4) — covers decorative "7777…",
+//       "....", "||||", "────" separators LLMs like to draw.
+bool is_separator_line(const Line& l) {
+    if (l.runs.empty()) return false;
+    std::string t;
+    for (const auto& r : l.runs) t += r.text;
+    if (t.empty()) return false;
+    // Count codepoints and the most frequent one.
+    std::vector<std::string> cps;
+    for (size_t i = 0; i < t.size(); i += text::utf8_len(t, i))
+        cps.push_back(t.substr(i, text::utf8_len(t, i)));
+    if (cps.size() < 4) return false;
+    bool all_rule = true;
+    for (const auto& cp : cps) {
+        if (cp.size() == 1) {
+            auto c = static_cast<unsigned char>(cp[0]);
+            bool ascii_sep = (c == '-' || c == '=' || c == '_' || c == '*' ||
+                              c == ':' || c == '|' || c == '.' || c == '#' ||
+                              c == '+' || c == '~');
+            if (!ascii_sep) { all_rule = false; break; }
+        } else {
+            all_rule = false; break;  // multi-byte glyph: not pure-ASCII rule
+        }
+    }
+    if (all_rule) return true;
+    // Dominant repeated glyph?
+    std::string dom; int best = 0;
+    for (const auto& a : cps) {
+        int n = 0;
+        for (const auto& b : cps) if (a == b) ++n;
+        if (n > best) { best = n; dom = a; }
+    }
+    return best * 5 >= static_cast<int>(cps.size()) * 4 && !dom.empty();
+}
+
+void emit_hr(Ctx& c) {
+    Line l;
+    l.is_hr = true;
+    Run r;
+    r.pair = c.st->hr_pair;
+    r.text = " ";
+    l.runs.push_back(r);
     emit_line(c, std::move(l));
 }
 
@@ -196,8 +258,7 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
                     case 34: cur.pair = P_MD_CODECMT; break;
                     case 35: cur.pair = P_MD_CODEKEY; break;
                     case 36: cur.pair = c.st->quote_pair; break;
-                    case 37: cur.pair = c.st->text_pair; break;
-                    case 90: cur.pair = c.st->text_pair; break;
+                    case 37: case 90: cur.pair = c.st->text_pair; break;
                     case 91: cur.pair = P_GAUGE_CRIT; break;
                     case 92: cur.pair = c.st->code_pair; break;
                     case 93: cur.pair = P_MD_CODESTR; break;
@@ -211,8 +272,9 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
             i = j;
             continue;
         }
-        buf += s[i];
-        i += text::utf8_len(s, i);
+        std::size_t cl = text::utf8_len(s, i);
+        buf.append(s, i, cl);
+        i += cl;
     }
     flush();
 }
@@ -472,6 +534,161 @@ int text_cb(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* ud) {
     return 0;
 }
 
+// Heuristically repair the kind of near-markdown LLMs emit: GFM tables that
+// have no blank line before them (md4c requires one) and stray separator runs
+// (model-emitted "─------─" rules) glued onto a paragraph. Returns markdown
+// that md4c can parse into proper tables / horizontal rules.
+std::string normalize_markdown(const std::string& md) {
+    std::vector<std::string> in, out;
+    std::string line;
+    for (char i : md) {
+        if (i == '\n') { in.push_back(line); line.clear(); }
+        else line += i;
+    }
+    if (!line.empty()) in.push_back(line);
+
+    auto is_blank = [](const std::string& s) {
+        return std::all_of(s.begin(), s.end(),
+                           [](unsigned char c) { return std::isspace(c); });
+    };
+    auto is_heading = [](const std::string& s) {
+        size_t i = 0;
+        while (i < s.size() && (s[i] == ' ' || s[i] == '#')) ++i;
+        return i > 0 && i < s.size() && s[i] != '#';
+    };
+    // A table row: starts (modulo indent) with '|' and has a second '|'.
+    auto is_table_row = [](const std::string& s) {
+        size_t i = 0;
+        while (i < s.size() && s[i] == ' ') ++i;
+        if (i >= s.size() || s[i] != '|') return false;
+        return s.find('|', i + 1) != std::string::npos;
+    };
+    // A long run of rule glyphs (- ─ ━ ═) glued onto a paragraph (a model that
+    // emits ");─------─" instead of a blank line + rule). Splits it onto its own
+    // line so is_separator_line() turns it into a clean horizontal rule. Other
+    // decorative runs (7777, ...., ||||) are handled standalone by
+    // is_separator_line(); only genuine rule-glyph runs are split here.
+    auto split_sep_runs = [](const std::string& s) -> std::vector<std::string> {
+        std::vector<std::string> parts;
+        std::string text, run;
+        auto is_sep = [](char c) {
+            auto u = static_cast<unsigned char>(c);
+            if (u >= 0x80) return true;  // box-drawing / bullets
+            return c == '-' || c == '=';
+        };
+        bool broke = false;
+        for (char c : s) {
+            if (is_sep(c)) {
+                run += c;
+            } else {
+                if (run.size() >= 12) {
+                    if (!text.empty()) parts.push_back(text);
+                    parts.push_back(run);
+                    text.clear(); broke = true;
+                } else if (!run.empty()) {
+                    text += run;
+                }
+                run.clear();
+                text += c;
+            }
+        }
+        if (run.size() >= 12) {
+            if (!text.empty()) { parts.push_back(text); text.clear(); }
+            parts.push_back(run);
+            broke = true;
+        } else if (!run.empty()) {
+            text += run;
+        }
+        if (!broke) return {s};
+        if (!text.empty()) parts.push_back(text);
+        return parts;
+    };
+
+    for (size_t i = 0; i < in.size(); ++i) {
+        std::string l = in[i];
+        // Break a long embedded separator run onto its own line so the existing
+        // is_separator_line() turns it into a clean horizontal rule.
+        auto parts = split_sep_runs(l);
+        if (parts.size() > 1) {
+            auto all_rule = [](const std::string& s) {
+                if (s.empty()) return false;
+                return std::all_of(
+                    s.begin(), s.end(), [](unsigned char c) {
+                        if (c >= 0x80) return true;  // box-drawing / bullets
+                        return c == '-' || c == '=';
+                    });
+            };
+            for (auto& p : parts) {
+                if (all_rule(p)) {
+                    out.emplace_back("");  // blank line so it renders as a rule
+                    out.push_back(p);
+                } else {
+                    out.push_back(p);
+                }
+            }
+            continue;
+        }
+        // Insert a blank line before a table row that directly follows prose,
+        // a heading, or another table row (md4c needs the break to detect it).
+        if (is_table_row(l) && i > 0) {
+            const std::string& prev = in[i - 1];
+            if (!is_blank(prev) && !is_heading(prev) && !is_table_row(prev))
+                out.emplace_back("");
+        }
+        // Repair tables the model emits without a delimiter row (|---|).
+        // md4c requires the separator to recognize a table; without it the
+        // rows collapse into one garbage line. Synthesize a matching
+        // delimiter row immediately after this (header) row when the next
+        // non-blank row is a data table row and no delimiter sits between
+        // them. We only do this at the start of a table block (the previous
+        // emitted line is not itself a table/delimiter row) so we don't emit
+        // a delimiter before every body row.
+        auto is_delimiter = [](const std::string& s) {
+            size_t i = 0;
+            while (i < s.size() && (s[i] == ' ' || s[i] == '|')) ++i;
+            if (i == 0) return false;
+            bool ok = true, saw = false;
+            for (size_t j = i; j < s.size(); ++j) {
+                char c = s[j];
+                if (c == '|' || c == ' ' || c == ':' || c == '-') {
+                    saw = true; continue;
+                }
+                ok = false; break;
+            }
+            return ok && saw;
+        };
+        if (is_table_row(l) && i + 1 < in.size()) {
+            size_t n = i + 1;
+            while (n < in.size() && is_blank(in[n])) ++n;
+            if (n < in.size() && is_table_row(in[n]) && !is_delimiter(in[n])) {
+                bool prev_is_table = !out.empty() &&
+                    (is_table_row(out.back()) || is_delimiter(out.back()));
+                if (!prev_is_table) {
+                    int cols = 0;
+                    for (char p : l)
+                        if (p == '|') ++cols;
+                    if (l.front() == '|') --cols;
+                    if (cols < 1) cols = 1;
+                    std::string sep;
+                    for (int c = 0; c < cols; ++c) sep += "|---";
+                    sep += "|";
+                    out.push_back(l);
+                    out.push_back(sep);
+                    continue;
+                }
+            }
+        }
+        out.push_back(l);
+    }
+
+    std::string res;
+    for (size_t i = 0; i < out.size(); ++i) {
+        res += out[i];
+        if (i + 1 < out.size()) res += '\n';
+    }
+    return res;
+}
+
 } // namespace
 
 std::vector<Line> render(const std::string& md, const Style& st) {
@@ -491,9 +708,10 @@ std::vector<Line> render(const std::string& md, const Style& st) {
     parser.leave_span = leave_span;
     parser.text = text_cb;
 
-    md_parse(md.c_str(), static_cast<MD_SIZE>(md.size()), &parser, &c);
+    const std::string norm = normalize_markdown(md);
+    md_parse(norm.c_str(), static_cast<MD_SIZE>(norm.size()), &parser, &c);
     return out;
 }
 
-} // namespace md
-} // namespace tui
+} // namespace tui::md
+

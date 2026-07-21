@@ -88,7 +88,9 @@ void walk(const std::string& dir, const std::string& glob,
     // deps; use a simple popen to `find` which is universally available on the
     // target Linux servers.
     std::string cmd = "find " + shell_quote(dir) +
-                      " -type f -readable 2>/dev/null";
+                      " -type f -readable"
+                      " -not -path '*/.amber/*' -not -path '*/.git/*'"
+                      " -not -path '*/third_party/*' 2>/dev/null";
     std::array<char, 512> buf{};
     FILE* p = popen(cmd.c_str(), "r");
     if (!p) return;

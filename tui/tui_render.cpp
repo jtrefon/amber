@@ -5,6 +5,7 @@
 #include "welcome.h"
 
 #include <algorithm>
+#include <cmath>
 #include <ctime>
 
 namespace tui {
@@ -70,7 +71,21 @@ void Tui::append_rich(const rich::Line& l) {
 }
 void Tui::append_markdown(const std::string& md) {
     if (win().markdown_on) {
-        for (auto& l : md::render(md, md_style_)) win().lines.push_back(l);
+        // Render the assistant reply as Markdown, then prepend a faint
+        // timestamp run to the first rendered line so it stays on the same
+        // line as the reply (matching user/tool/status lines) instead of
+        // floating on its own row above a blank gap.
+        auto lines = md::render(md, md_style_);
+        if (!lines.empty()) {
+            rich::Run ts;
+            ts.text = (win().stream_ts.empty() ? timestamp()
+                                               : win().stream_ts) + " ";
+            ts.pair = P_REASONING;
+            ts.dim = true;
+            lines.front().runs.insert(lines.front().runs.begin(),
+                                      std::move(ts));
+            for (auto& l : lines) win().lines.push_back(std::move(l));
+        }
     } else {
         append_line(P_ASSISTANT, md);
     }
@@ -157,6 +172,22 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
                          ? kfmt(stats_.completion_tokens) : text::glyph::emdash();
     segs.push_back({"  " + std::string(text::glyph::up()) + up + " " +
                     text::glyph::down() + dn, P_BAR_DIM, 7});
+
+    // Background jobs: count plus a live countdown to the nearest idle/hard
+    // deadline so the user can see a server will be auto-reaped soon.
+    int njobs = jobs_.running_count();
+    if (njobs > 0) {
+        std::string s = "  " + std::to_string(njobs) + " job" +
+                        (njobs > 1 ? "s" : "");
+        int rem = jobs_.min_timeout_remaining();
+        if (rem >= 0) s += " " + std::to_string(rem) + "s";
+        segs.push_back({s, P_GAUGE_WARN, 1});
+    } else if (!running_tool_.empty()) {
+        // A synchronous tool (e.g. bash) is executing on the agent worker; it
+        // is not a JobService background job but the user should still see it
+        // running here rather than the bar looking idle.
+        segs.push_back({"  " + running_tool_ + "…", P_GAUGE_WARN, 1});
+    }
     return segs;
 }
 
@@ -187,11 +218,21 @@ void Tui::draw() {
         for (auto& l : rich::wrap(body, width())) view.push_back(std::move(l));
     }
     if (!win().stream_buf.empty()) {
-        if (win().markdown_on)
-            for (auto& l : md::render(win().stream_buf, md_style_))
-                view.push_back(l);
-        else
+        if (win().markdown_on) {
+            auto preview = md::render(win().stream_buf, md_style_);
+            if (!preview.empty()) {
+                rich::Run ts;
+                ts.text = (win().stream_ts.empty() ? timestamp()
+                                                   : win().stream_ts) + " ";
+                ts.pair = P_REASONING;
+                ts.dim = true;
+                preview.front().runs.insert(preview.front().runs.begin(),
+                                            std::move(ts));
+                for (auto& l : preview) view.push_back(std::move(l));
+            }
+        } else {
             append_rich_to(view, win().stream_buf, win().stream_color, width());
+        }
     }
 
     chat_canvas_.resize(chat_top(), chat_height(), width());
@@ -219,6 +260,12 @@ void Tui::draw_status_bar(const std::string& tail) {
     std::string clock = clk;
     int clock_w = display_cols(clock);
 
+    // Width of the framed activity indicator ([ |...| ]) that is right-justified
+    // just left of the clock. Segments must stop before it so they are never
+    // overwritten by it.
+    constexpr int kIW = 12;
+    int activity_w = kIW + 1;  // indicator + a leading gap
+
     attron(COLOR_PAIR(P_BANNER));
     mvhline(y, 0, ' ', w);
     attroff(COLOR_PAIR(P_BANNER));
@@ -231,7 +278,9 @@ void Tui::draw_status_bar(const std::string& tail) {
                       ? static_cast<double>(ctx_used) / cfg_.context_size
                       : 0.0;
 
-    int right_w = clock_w + 1;
+    // Reserve the clock and the activity indicator so the jobs segment (added
+    // last, hence rightmost) is never drawn under the indicator.
+    int right_w = clock_w + 1 + activity_w;
     int budget = w - right_w;
     if (budget < 0) budget = 0;
 
@@ -276,7 +325,7 @@ void Tui::draw_status_bar(const std::string& tail) {
             put(text::glyph::block_r(), P_BAR_DIM);
             char b[48];
             std::snprintf(b, sizeof(b), " %d%% %s/%s",
-                          static_cast<int>(frac * 100 + 0.5),
+                          static_cast<int>(std::lround(frac * 100)),
                           kfmt(ctx_used).c_str(),
                           kfmt(cfg_.context_size).c_str());
             put(b, gauge_pair(frac));
@@ -289,7 +338,6 @@ void Tui::draw_status_bar(const std::string& tail) {
     // Framed activity indicator, right-justified before the clock.
     // wattron/wattroff used throughout (not chtype |) for reliable colour
     // pair rendering in ncursesw.
-    constexpr int kIW = 12;          // [          ]
     int ix = w - clock_w - kIW - 1;  // one space left of the clock
     if (ix > x + 4) {
         wattron(stdscr, COLOR_PAIR(P_BAR_DIM));
@@ -391,14 +439,14 @@ void Tui::draw_drawer(const std::string& input) {
     if (arg_mode) {
         const Command* c = matches.empty() ? nullptr : matches.front();
         if (c) rows.push_back("  " + usage(*c) + "   " + c->help);
-        else rows.push_back("  (no such command)");
+        else rows.emplace_back("  (no such command)");
     } else {
         for (auto* c : matches) {
             std::string u = usage(*c);
             if (u.size() < 34) u.append(34 - u.size(), ' ');
             rows.push_back("  " + u + "  " + c->help);
         }
-        if (rows.empty()) rows.push_back("  (no matching command  -  Esc to cancel)");
+        if (rows.empty()) rows.emplace_back("  (no matching command  -  Esc to cancel)");
     }
 
     int nsel = arg_mode ? 0 : static_cast<int>(matches.size());

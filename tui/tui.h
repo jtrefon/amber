@@ -15,6 +15,7 @@
 #include "markdown.h"
 
 #include <atomic>
+#include <chrono>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -65,7 +66,7 @@ struct AgentEvent {
 // function creates it and calls run().
 class Tui {
 public:
-    Tui(agent::Config cfg, agent::ToolRegistry& reg);
+    Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs);
     ~Tui();
 
     Tui(const Tui&) = delete;
@@ -89,6 +90,15 @@ private:
     std::thread agent_thread_;
     std::atomic<bool> agent_busy_{false};
     std::atomic<bool> agent_cancel_{false};
+
+    // Name of the tool currently executing on the agent worker (foreground,
+    // e.g. bash), surfaced on the status bar so a synchronous command that is
+    // not a JobService background job is still visible while it runs.
+    std::string running_tool_;
+    // A prompt the user typed (and submitted with Enter) while the agent was
+    // busy; auto-sent once the agent returns to idle so typing never feels
+    // blocked.
+    std::string pending_prompt_;
 
     // A modal dialog (info_dialog / menu_select / config / session browser)
     // blocks the main thread in wgetch, so drain_events() cannot run. If the
@@ -163,7 +173,7 @@ private:
     void flush_stream();
 
     // ---- session persistence --------------------------------------------
-    agent::Session snapshot(Window& w);
+    agent::Session snapshot(Window& w) const;
     void autosave();
     void save_session();
     void load_session(const std::string& id);
@@ -186,13 +196,18 @@ private:
     void show_command_frame(const tui::Command& c);
     void cmd_help(const std::string& arg);
     void cmd_window(const std::string& arg);
+    void cmd_job(const std::string& arg);
+    void job_ls();
+    void job_kill(const std::string& id);
+    void job_read(const std::string& id);
+    void job_start(const std::string& cmd);
     void request_quit();
     void redraw_after_modal();
     void toggle_thinking();
     void cmd_policy(const std::string& arg);
     void cmd_toolfold(const std::string& arg);
     void cmd_display(const std::string& arg);
-    void config_screen();
+    void config_screen() const;
     void detect_server(bool force);
     bool test_connection(bool announce);
     void settings_screen();
@@ -202,6 +217,7 @@ private:
     // ---- member variables -----------------------------------------------
     agent::Config cfg_;
     agent::ToolRegistry& reg_;
+    agent::JobService& jobs_;       // host-owned; shared with process_* tools
     agent::SessionStore store_;
     std::string settings_path_ = "amber.conf";
 
@@ -225,7 +241,10 @@ private:
     int anim_phase_ = 0;
     bool dirty_ = true;          // coalesce redraws into one flush per tick
     std::string last_input_;     // for change detection on idle ticks
-    int last_status_phase_ = -1; // throttles the animated status indicator
+    // Wall-clock timestamp of the last status-bar repaint, so the clock and
+    // progress wave keep ticking while the agent is blocked on a call that
+    // emits no streaming tokens.
+    std::chrono::steady_clock::time_point last_status_tick_{};
 };
 
 } // namespace tui

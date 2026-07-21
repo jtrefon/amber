@@ -47,6 +47,58 @@ void segment_think_impl(SseState& st, const std::string& text,
     }
 }
 
+// Accumulate a tool-call `arguments` fragment onto the running value. Servers
+// differ in how they stream arguments: most send a JSON *string* in pieces
+// (concatenate), while some send a complete JSON *object* in one delta (assign
+// and re-serialize). We always keep `arguments` as a JSON *string* so the
+// resulting tool_calls match the OpenAI wire contract; an object fragment is
+// merged into an in-memory object view and re-serialized rather than stored as
+// a raw JSON object (object-typed arguments sent back to the API on the next
+// turn corrupt the conversation and arrive at the tool as `{}`).
+void accumulate_arguments(json& fn, const json& frag) {
+    auto view = [&]() -> json {
+        if (fn.contains("arguments") && fn["arguments"].is_string()) {
+            json v = json::parse(fn["arguments"].get<std::string>(), nullptr,
+                                  false);
+            if (!v.is_discarded() && v.is_object()) return v;
+        }
+        return json::object();
+    };
+    if (frag.is_string()) {
+        std::string piece = frag.get<std::string>();
+        if (!fn.contains("arguments")) {
+            fn["arguments"] = piece;
+            return;
+        }
+        if (fn["arguments"].is_string()) {
+            std::string cur = fn["arguments"].get<std::string>();
+            json cur_obj = json::parse(cur, nullptr, false);
+            json piece_obj = json::parse(piece, nullptr, false);
+            if (!cur_obj.is_discarded() && cur_obj.is_object() &&
+                !piece_obj.is_discarded() && piece_obj.is_object()) {
+                for (auto it = piece_obj.begin(); it != piece_obj.end(); ++it)
+                    cur_obj[it.key()] = it.value();
+                fn["arguments"] = cur_obj.dump();
+            } else if (!cur_obj.is_discarded() && cur_obj.is_object()) {
+                return;
+            } else {
+                fn["arguments"] = cur + piece;
+            }
+            return;
+        }
+        fn["arguments"] = piece;
+        return;
+    }
+    if (frag.is_object()) {
+        json base = view();
+        for (auto it = frag.begin(); it != frag.end(); ++it)
+            base[it.key()] = it.value();
+        fn["arguments"] = base.dump();
+        return;
+    }
+    fn["arguments"] = frag.dump();
+}
+
 void finalize_impl(SseState& st, Message& out,
                    const StreamParser::ChunkSink& on_chunk) {
     if (st.finished) return;
@@ -123,9 +175,8 @@ void dispatch_event_impl(SseState& st, Message& out,
             const json& ffn = frag.value("function", json::object());
             if (ffn.contains("name") && ffn["name"].is_string())
                 fn["name"] = ffn["name"];
-            if (ffn.contains("arguments") && ffn["arguments"].is_string())
-                fn["arguments"] = fn.value("arguments", std::string("")) +
-                                  ffn["arguments"].get<std::string>();
+            if (ffn.contains("arguments"))
+                accumulate_arguments(fn, ffn["arguments"]);
         }
     }
     if (on_chunk && (!chunk.delta.empty() || !chunk.reasoning.empty() ||

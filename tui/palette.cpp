@@ -72,7 +72,8 @@ std::string complete(const std::vector<Command>& commands,
         return "/" + matches[sel]->name + " ";
 
     std::vector<std::string> names;
-    for (auto* c : matches) names.push_back(c->name);
+    names.reserve(matches.size());
+for (auto* c : matches) names.push_back(c->name);
     std::string cp = common_prefix(names);
     if (cp.size() > tok.size())
         return "/" + cp;                 // extend to shared prefix

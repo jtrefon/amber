@@ -24,7 +24,8 @@ int menu_select(const std::string& title, const std::vector<std::string>& choice
     int aw = dlg.cols();
 
     std::vector<ITEM*> items;
-    for (auto& c : choices) items.push_back(new_item(c.c_str(), ""));
+    items.reserve(choices.size());
+for (auto& c : choices) items.push_back(new_item(c.c_str(), ""));
     items.push_back(nullptr);
 
     MENU* menu = new_menu(items.data());
@@ -53,6 +54,8 @@ int menu_select(const std::string& title, const std::vector<std::string>& choice
                 break;
             case 27: case 'q':
                 result = -1; done = true; break;
+            default:
+                break;
         }
         update_panels();
         doupdate();

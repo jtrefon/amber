@@ -7,8 +7,8 @@
 
 #include "textutil.h"
 
-namespace tui {
-namespace rich {
+
+namespace tui::rich {
 
 int cols(const std::string& s) { return text::display_cols(s); }
 
@@ -114,5 +114,5 @@ std::vector<Line> wrap(const Line& in, int width) {
     return out;
 }
 
-} // namespace rich
-} // namespace tui
+} // namespace tui::rich
+

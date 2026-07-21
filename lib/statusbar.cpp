@@ -3,10 +3,11 @@
 
 #include "agent/statusbar.h"
 
+#include <cmath>
 #include <cstdio>
 
-namespace agent {
-namespace bar {
+
+namespace agent::bar {
 
 Pressure pressure(double frac) {
     if (frac > 0.85) return Pressure::Crit;
@@ -44,7 +45,7 @@ std::string gauge_bar(double frac, int cells) {
 
     double total = frac * cells;                 // fractional filled cells
     int full = static_cast<int>(total);
-    int rem = static_cast<int>((total - full) * 8.0 + 0.5);
+    int rem = static_cast<int>(lround((total - full) * 8.0));
     if (rem == 8) { ++full; rem = 0; }
     if (full > cells) { full = cells; rem = 0; }
 
@@ -63,7 +64,7 @@ std::string gauge_bar_ascii(double frac, int cells) {
     if (cells <= 0) return "";
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
-    int full = static_cast<int>(frac * cells + 0.5);
+    int full = static_cast<int>(lround(frac * cells));
     if (full > cells) full = cells;
     std::string s;
     s.append(static_cast<size_t>(full), '#');
@@ -71,5 +72,5 @@ std::string gauge_bar_ascii(double frac, int cells) {
     return s;
 }
 
-} // namespace bar
-} // namespace agent
+} // namespace agent::bar
+

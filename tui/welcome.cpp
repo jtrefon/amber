@@ -11,8 +11,8 @@
 #include <cstdlib>
 #include <string>
 
-namespace tui {
-namespace welcome {
+
+namespace tui::welcome {
 
 namespace {
 
@@ -93,5 +93,5 @@ void render(WINDOW* win, int start_y, int width) {
     wattroff(win, COLOR_PAIR(P_BANNER));
 }
 
-} // namespace welcome
-} // namespace tui
+} // namespace tui::welcome
+

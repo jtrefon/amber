@@ -46,10 +46,19 @@ json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
 
     for (const auto& m : messages) {
         json jm = {{"role", m.role}};
-        if (m.role == "assistant" && !m.tool_calls.is_null())
+        if (m.role == "assistant" && !m.tool_calls.is_null()) {
             jm["tool_calls"] = m.tool_calls;
-        else if (!m.content.empty())
+            // Some servers reject an assistant message that has tool_calls but
+            // no content field at all; emit an explicit empty string.
+            if (m.content.empty()) jm["content"] = "";
+            else jm["content"] = m.content;
+        } else {
+            // Every other role MUST carry a content field; an omitted content
+            // yields HTTP 400 ("Assistant message must contain either
+            // 'content' or 'tool_calls'"). Always emit it, even when empty, so
+            // a stripped/empty assistant reply never breaks the next request.
             jm["content"] = m.content;
+        }
         if (m.role == "tool") {
             jm["tool_call_id"] = m.tool_call_id;
             jm["name"] = m.name;

@@ -15,11 +15,14 @@
 #include "agent/statusbar.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
+#include "agent/job.h"
 
 namespace agent {
-// Register the built-in tools (read, write, search) into the given registry.
+// Register the built-in tools into the given registry. `jobs` is the shared
+// JobService the model-driven process_* tools operate on; the host owns the
+// instance so it stays visible (and killable) from the UI.
 // Defined in lib/tools_default.cpp, linked into libagent.
-void register_default_tools(ToolRegistry& reg);
+void register_default_tools(ToolRegistry& reg, JobService& jobs);
 }
 
 #endif // AGENT_AGENT_H_ALL

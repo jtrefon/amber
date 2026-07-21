@@ -95,7 +95,7 @@ private:
                 raw.push_back({f, no, text, std::move(toks)});
             }
         }
-        double N = static_cast<double>(raw.empty() ? 1 : raw.size());
+        auto N = static_cast<double>(raw.empty() ? 1 : raw.size());
         for (auto& kv : df) kv.second = std::log(N / kv.second) + 1.0;
 
         lines_.reserve(raw.size());

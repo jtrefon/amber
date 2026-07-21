@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/session.h"
+#include "agent/workspace.h"
 
 #include <algorithm>
 #include <chrono>
@@ -51,15 +52,9 @@ Message msg_from_json(const json& j) {
 }
 
 std::string default_dir() {
-    const char* xdg = std::getenv("XDG_DATA_HOME");
-    std::string base;
-    if (xdg && *xdg) {
-        base = xdg;
-    } else {
-        const char* home = std::getenv("HOME");
-        base = std::string(home ? home : ".") + "/.local/share";
-    }
-    return base + "/amber/sessions";
+    // Project-local sessions live under "<workspace>/.amber/sessions" so all
+    // amber data stays next to the project instead of scattering into $XDG.
+    return agent::Workspace::local_dir() + "/sessions";
 }
 
 // mkdir -p for a path.

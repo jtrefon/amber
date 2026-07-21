@@ -38,7 +38,7 @@ std::string read_until(const std::string& s, size_t& i,
 //   or just the inner content of a <tool_call> block.
 json parse_json_tool_call(const std::string& block) {
     auto j = json::parse(block, nullptr, false);
-    if (j.is_discarded()) return json();
+    if (j.is_discarded()) return {};
     json tc;
     tc["type"] = "function";
     auto& fn = tc["function"];
@@ -50,7 +50,7 @@ json parse_json_tool_call(const std::string& block) {
         else if (j["arguments"].is_object())
             fn["arguments"] = j["arguments"].dump();
     }
-    if (!fn.contains("name")) return json();
+    if (!fn.contains("name")) return {};
     return tc;
 }
 

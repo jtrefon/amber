@@ -66,6 +66,25 @@ bool Config::save(const std::string& path) const {
     return static_cast<bool>(f);
 }
 
+bool Config::save_settings(const std::string& path) const {
+    std::ofstream f(path, std::ios::trunc);
+    if (!f) return false;
+    f << "# amber project settings (local)\n";
+    f << "max_tool_iterations=" << max_tool_iterations << "\n";
+    f << "temperature=" << temperature << "\n";
+    f << "max_tokens=" << max_tokens << "\n";
+    f << "stream=" << (stream ? 1 : 0) << "\n";
+    f << "thinking=" << thinking << "\n";
+    f << "thinking_budget=" << thinking_budget << "\n";
+    f << "reasoning_effort=" << reasoning_effort << "\n";
+    f << "show_reasoning=" << (show_reasoning ? 1 : 0) << "\n";
+    f << "system_prompt=" << system_prompt_path << "\n";
+    f << "tools_prompt=" << tools_prompt_path << "\n";
+    f << "log_path=" << log_path << "\n";
+    f << "debug_log=" << debug_log << "\n";
+    return static_cast<bool>(f);
+}
+
 void Config::apply_environment() {
     auto get = [](const char* n, std::string& out) {
         const char* v = std::getenv(n);
@@ -95,7 +114,7 @@ std::vector<std::string> Config::validate() const {
     std::vector<std::string> errs;
 
     if (api_base.empty()) {
-        errs.push_back("api_base is empty");
+        errs.emplace_back("api_base is empty");
     } else if (api_base.rfind("http://", 0) != 0 &&
                api_base.rfind("https://", 0) != 0) {
         errs.push_back("api_base must start with http:// or https:// (got: " +
@@ -106,7 +125,7 @@ std::vector<std::string> Config::validate() const {
     }
 
     if (model.empty())
-        errs.push_back("model is empty");
+        errs.emplace_back("model is empty");
 
     if (max_tool_iterations < 1)
         errs.push_back("max_tool_iterations must be >= 1 (got: " +
@@ -117,7 +136,7 @@ std::vector<std::string> Config::validate() const {
                        std::to_string(temperature) + ")");
 
     if (max_tokens == 0)
-        errs.push_back("max_tokens must be > 0");
+        errs.emplace_back("max_tokens must be > 0");
 
     if (thinking != "on" && thinking != "off" && thinking != "auto")
         errs.push_back("thinking must be one of on|off|auto (got: " +

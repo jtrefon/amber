@@ -4,6 +4,7 @@
 #ifndef AGENT_CONFIG_H
 #define AGENT_CONFIG_H
 
+#include <cstdint>
 #include <string>
 #include <map>
 #include <vector>
@@ -12,7 +13,7 @@ namespace agent {
 
 // Operational mode: controls tool availability, approval policy, and
 // orchestration depth. Switchable at runtime via /mode.
-enum class AgentMode { Read, Write, Yolo };
+enum class AgentMode : std::uint8_t { Read, Write, Yolo };
 
 // Runtime configuration for the harness. Sourced from command-line flags,
 // environment variables, and an optional config file. The library layer is
@@ -86,6 +87,12 @@ struct Config {
     // context_size=0) so a later load() re-enables auto-detection instead of
     // pinning the last probed value. Returns false if the file can't be written.
     bool save(const std::string& path) const;
+
+    // Persist only the project-local (non-LLM-provider) settings to a KEY=VALUE
+    // file. LLM provider settings (api_base, api_key, model, context_size) are
+    // intentionally omitted so they stay in the global config and are not
+    // duplicated into a project-local file. Returns false if unwritable.
+    bool save_settings(const std::string& path) const;
 
     // Validate the resolved configuration. Returns a list of human-readable
     // problems; an empty vector means the config is usable. UIs decide how to

@@ -49,11 +49,11 @@ void Tui::send(const std::string& prompt) {
         agent::Approval d = agent::Approval::Deny;
         if (pick == 1) d = agent::Approval::AllowOnce;
         else if (pick == 2) d = agent::Approval::AllowSession;
+        const char* verdict = "allowed for session";
+        if (d == agent::Approval::Deny) verdict = "denied";
+        else if (d == agent::Approval::AllowOnce) verdict = "allowed once";
         append_line(P_STATUS,
-                    std::string("approval: ") +
-                    (d == agent::Approval::Deny ? "denied" :
-                     d == agent::Approval::AllowOnce ? "allowed once" :
-                     "allowed for session") + "  (" + summary + ")");
+                    std::string("approval: ") + verdict + "  (" + summary + ")");
         draw();
         return d;
     };
@@ -93,9 +93,9 @@ void Tui::fold_reasoning() {
     win().reason_buf.clear();
 }
 
-void Tui::flush_stream() {
-    if (!win().reason_folded && !win().reason_buf.empty()) fold_reasoning();
-    if (win().stream_buf.empty()) return;
+ void Tui::flush_stream() {
+      if (!win().reason_folded && !win().reason_buf.empty()) fold_reasoning();
+      if (win().stream_buf.empty()) return;
     // Commit the streamed reply through the Markdown renderer so headings,
     // code fences, lists, etc. survive into the scrollback (the live preview
     // in draw() already renders it as Markdown).
@@ -233,6 +233,37 @@ void Tui::build_commands() {
         {"window", {"win", "w"}, "new|close|list|rename <name>",
          "manage chat windows",
          [this](const std::string& a) { cmd_window(a); }},
+        {"job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
+         "manage background processes (servers, builds) started by the agent",
+          [this](const std::string& a) { cmd_job(a); },
+          [this](const std::string& partial) {
+              std::string sub, rest;
+              size_t sp = partial.find(' ');
+              if (sp == std::string::npos) { sub = partial; rest.clear(); }
+              else { sub = partial.substr(0, sp); rest = partial.substr(sp + 1); }
+              if (sub.empty())
+                  return std::vector<std::string>{"ls", "kill", "read", "start"};
+              if (sub == "kill") {
+                  std::vector<std::string> out;
+                  for (const auto& j : jobs_.list())
+                      if ((j.state == agent::JobState::Running ||
+                           j.state == agent::JobState::Starting) &&
+                          (rest.empty() || j.id.rfind(rest, 0) == 0))
+                          out.push_back("kill " + j.id);
+                  return out;
+              }
+              if (sub == "read") {
+                  std::vector<std::string> out;
+                  for (const auto& j : jobs_.list())
+                      if (rest.empty() || j.id.rfind(rest, 0) == 0)
+                          out.push_back("read " + j.id);
+                  return out;
+              }
+              return std::vector<std::string>{};
+          },
+         [this]() -> std::string {
+             return std::to_string(jobs_.running_count()) + " running";
+         }},
         {"save", {}, "",
          "persist the current conversation",
          [this](const std::string&) { save_session(); }},
@@ -350,7 +381,81 @@ void Tui::cmd_window(const std::string& arg) {
     }
 }
 
-void Tui::config_screen() {
+namespace {
+const char* job_state_name(agent::JobState s) {
+    switch (s) {
+        case agent::JobState::Starting: return "starting";
+        case agent::JobState::Running:  return "running";
+        case agent::JobState::Done:     return "done";
+        case agent::JobState::Killed:   return "killed";
+        case agent::JobState::Failed:   return "failed";
+    }
+    return "?";
+}
+std::string job_countdown(const agent::JobInfo& i) {
+    long rem = i.remaining_hard_s;
+    if (i.remaining_idle_s >= 0 &&
+        (rem < 0 || i.remaining_idle_s < rem))
+        rem = i.remaining_idle_s;
+    if (rem < 0) return "";
+    return " ~" + std::to_string(rem) + "s";
+}
+std::string job_list_line(const agent::JobInfo& j) {
+    return "id " + j.id + "  " + job_state_name(j.state) + "  pid " +
+           std::to_string(j.pid) + "  age " +
+           std::to_string(j.seconds_since_start) + "s  idle " +
+           std::to_string(j.seconds_since_output) + "s" + job_countdown(j) +
+           "  " + j.command;
+}
+} // namespace
+
+void Tui::cmd_job(const std::string& arg) {
+    std::string cmd, rest;
+    size_t sp = arg.find(' ');
+    if (sp == std::string::npos) cmd = arg;
+    else { cmd = arg.substr(0, sp); rest = arg.substr(sp + 1); }
+    if (cmd.empty() || cmd == "ls") job_ls();
+    else if (cmd == "kill") job_kill(rest);
+    else if (cmd == "read") job_read(rest);
+    else if (cmd == "start") job_start(rest);
+    else append_line(P_STATUS,
+                     "usage: /job [ls|kill <id>|read <id>|start <cmd>]");
+}
+
+void Tui::job_ls() {
+    auto jobs = jobs_.list();
+    if (jobs.empty()) { append_line(P_STATUS, "no background jobs"); return; }
+    for (const auto& j : jobs) append_line(P_STATUS, job_list_line(j));
+}
+
+void Tui::job_kill(const std::string& id) {
+    if (id.empty()) { append_line(P_STATUS, "usage: /job kill <id>"); return; }
+    bool ok = jobs_.stop(id);
+    append_line(P_STATUS, ok ? ("killed " + id) : ("no such job: " + id));
+    draw();
+}
+
+void Tui::job_read(const std::string& id) {
+    if (id.empty()) { append_line(P_STATUS, "usage: /job read <id>"); return; }
+    std::string out = jobs_.output(id);
+    if (out.empty()) { append_line(P_STATUS, "no output for " + id); return; }
+    rich::Line body;
+    rich::Run run;
+    run.text = out;
+    run.pair = P_STATUS;
+    body.runs.push_back(run);
+    for (auto& l : rich::wrap(body, width())) append_rich(l);
+}
+
+void Tui::job_start(const std::string& cmd) {
+    if (cmd.empty()) { append_line(P_STATUS, "usage: /job start <command>"); return; }
+    std::string id = jobs_.start(cmd, agent::Workspace::root());
+    if (id.empty()) { append_line(P_STATUS, "failed to start: " + cmd); return; }
+    append_line(P_STATUS, "started " + id + ": " + cmd);
+    draw();
+}
+
+void Tui::config_screen() const {
     auto mask = [](const std::string& s) {
         return s.empty() ? std::string("(unset)") : std::string(s.size(), '*');
     };

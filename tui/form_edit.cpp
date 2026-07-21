@@ -16,7 +16,7 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     const int field_w = 44;
     const int label_w = 16;
 
-    int inner_rows = n * 2 + 2;
+    int inner_rows = (n * 2) + 2;
     int dh = inner_rows + 5;
     int dw = label_w + field_w + 8;
 
@@ -26,7 +26,7 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
 
     std::vector<FIELD*> fs;
     for (int i = 0; i < n; ++i) {
-        FIELD* f = new_field(1, field_w, i * 2 + 2, label_w + 2, 0, 0);
+        FIELD* f = new_field(1, field_w, (i * 2) + 2, label_w + 2, 0, 0);
         set_field_back(f, COLOR_PAIR(P_FIELD));
         set_field_fore(f, COLOR_PAIR(P_FIELD));
         field_opts_off(f, O_AUTOSKIP);
@@ -48,14 +48,14 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     post_form(form);
 
     for (int i = 0; i < n; ++i)
-        mvwaddnstr(w, i * 2 + 4, 2, fields[i].label.c_str(), label_w);
+        mvwaddnstr(w, (i * 2) + 4, 2, fields[i].label.c_str(), label_w);
 
-    int btn_row = n * 2 + 5;
+    int btn_row = (n * 2) + 5;
     auto draw_buttons = [&](int focus /* 0=fields,1=OK,2=Cancel */) {
         const char* ok = "[  OK  ]";
         const char* cancel = "[ Cancel ]";
-        int okx = aw / 2 - 12;
-        int cx = aw / 2 + 2;
+        int okx = (aw / 2) - 12;
+        int cx = (aw / 2) + 2;
         wattron(w, COLOR_PAIR(focus == 1 ? P_BUTTON_ACT : P_BUTTON) | A_BOLD);
         mvwaddstr(w, btn_row, okx, ok);
         wattroff(w, COLOR_PAIR(focus == 1 ? P_BUTTON_ACT : P_BUTTON) | A_BOLD);
@@ -140,6 +140,8 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
                 case 27:
                     result = false;
                     done = true;
+                    break;
+                default:
                     break;
             }
         }

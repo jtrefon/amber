@@ -4,10 +4,13 @@
 #include "agent/tool.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
+#include "agent/process.h"
+#include "agent/job.h"
 
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstring>
 #include <sstream>
@@ -21,7 +24,7 @@ namespace agent {
 
 namespace {
 constexpr int kMaxTimeout = 3600;          // 1 hour ceiling
-constexpr size_t kMaxOutput = 64 * 1024;   // 64 KiB cap
+constexpr std::size_t kMaxOutput = std::size_t{64} * 1024;   // 64 KiB cap
 
 // Drain buffered output from the read end of a pipe, up to kMaxOutput bytes.
 void drain_output(int fd, std::string& out) {
@@ -32,12 +35,14 @@ void drain_output(int fd, std::string& out) {
     }
 }
 
-// Parent-side read loop: copy pipe output until EOF or the wall-clock deadline,
-// killing the child's process group on timeout. Returns true if the deadline hit.
+// Parent-side read loop: copy pipe output until EOF or the IDLE deadline,
+// killing the child's process group on timeout. The budget counts time with no
+// new output, so a long-running command that keeps emitting (e.g. a build)
+// survives indefinitely; only silence past `timeout_s` triggers a kill.
 bool run_with_timeout(int fd, pid_t pid, int timeout_s, std::string& out,
-                     bool& child_done) {
+                      bool& child_done) {
     const long deadline_ms = timeout_s * 1000L;
-    long elapsed_ms = 0;
+    long idle_ms = 0;
     const int poll_ms = 50;
     int flags = fcntl(fd, F_GETFL, 0);
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
@@ -48,6 +53,7 @@ bool run_with_timeout(int fd, pid_t pid, int timeout_s, std::string& out,
         if (n > 0) {
             if (out.size() < kMaxOutput)
                 out.append(buf.data(), static_cast<size_t>(n));
+            idle_ms = 0;  // output arrived: reset the idle budget
             continue;
         }
         if (n == 0) break;  // EOF: child closed the pipe
@@ -55,12 +61,12 @@ bool run_with_timeout(int fd, pid_t pid, int timeout_s, std::string& out,
 
         int status = 0;
         if (waitpid(pid, &status, WNOHANG) == pid) { child_done = true; break; }
-        if (elapsed_ms >= deadline_ms) {
-            kill(-pid, SIGKILL);
+        if (idle_ms >= deadline_ms) {
+            kill_process_group(pid);
             return true;
         }
         usleep(poll_ms * 1000);
-        elapsed_ms += poll_ms;
+        idle_ms += poll_ms;
     }
     return false;
 }
@@ -81,49 +87,22 @@ bool parse_bash_args(const json& a, std::string& command, int& timeout,
     return true;
 }
 
-// Child side of the fork: new process group, stdout+stderr to the pipe, chdir
-// into the workspace, then exec the shell. Never returns.
-[[noreturn]] void run_child(int write_fd, const std::string& cwd,
-                            const std::string& command) {
-    setpgid(0, 0);
-    dup2(write_fd, STDOUT_FILENO);
-    dup2(write_fd, STDERR_FILENO);
-    close(write_fd);
-    if (!cwd.empty() && chdir(cwd.c_str()) != 0) _exit(127);
-    execl("/bin/sh", "sh", "-c", command.c_str(), (char*)nullptr);
-    _exit(127);
-}
-
 // Fork the shell command; on success return its pid and hand back the read end
-// of the pipe via `read_fd`. Returns -1 (with r.error set) on pipe/fork failure.
+// of the pipe via `read_fd`. Returns -1 (with r.error set) on spawn failure.
 pid_t spawn_command(const std::string& command, const std::string& cwd,
-                    int& read_fd, ToolResult& r) {
-    int pipefd[2];
-    if (pipe(pipefd) != 0) {
-        r.ok = false;
-        r.error = "pipe failed";
-        return -1;
-    }
-    pid_t pid = fork();
+                     int& read_fd, ToolResult& r) {
+    std::string err;
+    pid_t pid = spawn_shell(command, cwd, read_fd, err);
     if (pid < 0) {
-        close(pipefd[0]);
-        close(pipefd[1]);
         r.ok = false;
-        r.error = "fork failed";
-        return -1;
+        r.error = err;
     }
-    if (pid == 0) {
-        close(pipefd[0]);
-        run_child(pipefd[1], cwd, command);
-    }
-    close(pipefd[1]);
-    read_fd = pipefd[0];
     return pid;
 }
 
 // Assemble the combined output (with truncation notice), then either report the
 // timeout or the child's exit code into `r`.
-void format_result(std::string output, bool timed_out, int status, int timeout,
+void format_result(std::string output, bool timed_out, int code, int timeout,
                    ToolResult& r) {
     bool truncated = output.size() >= kMaxOutput;
     if (truncated) output.resize(kMaxOutput);
@@ -141,9 +120,6 @@ void format_result(std::string output, bool timed_out, int status, int timeout,
         return;
     }
 
-    int code = WIFEXITED(status)    ? WEXITSTATUS(status)
-               : WIFSIGNALED(status) ? 128 + WTERMSIG(status)
-                                     : -1;
     out << "[exit " << code << "]";
     r.output = out.str();
     r.ok = (code == 0);
@@ -154,7 +130,9 @@ void format_result(std::string output, bool timed_out, int status, int timeout,
 // bash: run a shell command inside the workspace root and return its combined
 // stdout+stderr and exit status. Args:
 //   command  (string, required) the command line, run via `sh -c`
-//   timeout  (int, optional)    seconds before the command is killed (default 60)
+//   timeout  (int, optional)    seconds of NO output before the command is
+//                              killed (default 60); output resets the budget, so
+//                              a long-running task that keeps emitting is never cut off
 //
 // Safety: this tool executes arbitrary commands, so it declares
 // requires_approval() == true. The agent loop will not run it unless the host
@@ -163,7 +141,14 @@ void format_result(std::string output, bool timed_out, int status, int timeout,
 // group so a timeout can reliably kill the whole subtree.
 class BashTool : public Tool {
 public:
+    explicit BashTool(JobService* jobs = nullptr) : jobs_(jobs) {}
+
     std::string name() const override { return "bash"; }
+
+private:
+    JobService* jobs_ = nullptr;   // when set, the command is tracked as a
+                                    // JobService job (visible in /job, killable)
+
 
     std::string description() const override {
         return "Run a shell command in the workspace directory and return "
@@ -182,15 +167,16 @@ public:
                               "tasks (no approval needed). Use sed/rm/mv for "
                               "writes (requires approval). Always prefer a "
                               "single bash call over multiple separate ones."}}},
-                {"timeout", {{"type", "integer"},
-                             {"description",
-                              "Seconds before the command is killed (default 60)"}}}
+                 {"timeout", {{"type", "integer"},
+                              {"description",
+                               "Seconds of no output before the command is "
+                               "killed (default 60); output resets the budget"}}}
             }},
             {"required", {"command"}}
         };
     }
 
-    bool requires_approval() const override { return false; }
+    bool requires_approval() const override { return true; }
 
     bool is_read_only() const override { return false; }
 
@@ -206,6 +192,48 @@ public:
         std::string command;
         int timeout = 60;
         if (!parse_bash_args(a, command, timeout, r)) return r;
+
+        // When wired to a host JobService, run the command through it so the
+        // process is visible in /job and on the status bar while it runs, and
+        // can be killed. The result is still returned synchronously to the
+        // model exactly as the direct path below does.
+        if (jobs_) {
+            // Idle-timeout semantics: the command is killed only after
+            // `timeout` seconds with NO output. A long-running task that keeps
+            // emitting output (e.g. a build) is never cut off. Enforcing it here
+            // (rather than relying on the TUI's per-tick check_timeouts) keeps
+            // the result identical headless and in tests.
+            std::string id = jobs_->start(command, Workspace::root(),
+                                          /*hard_timeout_s=*/0,
+                                          /*idle_timeout_s=*/timeout);
+            if (id.empty()) {
+                r.ok = false;
+                r.error = "spawn failed";
+                return r;
+            }
+            bool timed_out = false;
+            while (true) {
+                Job* j = jobs_->get(id);
+                if (!j) break;
+                JobInfo i = j->info();
+                if (j->is_done()) break;
+                if (i.seconds_since_output >= timeout) {
+                    timed_out = true;
+                    break;
+                }
+                usleep(50000);
+            }
+            // Read before erasing so a timed-out command still returns whatever
+            // output it produced.
+            std::string output = jobs_->output(id);
+            int code = jobs_->exit_code(id);
+            Job* j = jobs_->get(id);
+            bool killed = j && j->info().state == JobState::Killed;
+            timed_out = timed_out || killed;
+            jobs_->stop(id);  // erase: bash returns output inline, not via /job
+            format_result(std::move(output), timed_out, code, timeout, r);
+            return r;
+        }
 
         int read_fd = -1;
         pid_t pid = spawn_command(command, Workspace::root(), read_fd, r);
@@ -224,13 +252,16 @@ public:
         }
         close(read_fd);
 
-        format_result(std::move(output), timed_out, status, timeout, r);
+        int code = WIFEXITED(status)    ? WEXITSTATUS(status)
+                   : WIFSIGNALED(status) ? 128 + WTERMSIG(status)
+                                          : -1;
+        format_result(std::move(output), timed_out, code, timeout, r);
         return r;
     }
 };
 
-std::unique_ptr<Tool> make_bash_tool() {
-    return std::make_unique<BashTool>();
+std::unique_ptr<Tool> make_bash_tool(JobService* jobs) {
+    return std::make_unique<BashTool>(jobs);
 }
 
 } // namespace agent

@@ -25,6 +25,8 @@ dist/
 amber.conf
 logs/
 *.jsonl
+# Project-local runtime dir (sessions, settings, debug log)
+.amber/
 
 .DS_Store
 include/agent/version.h

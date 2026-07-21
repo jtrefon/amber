@@ -15,8 +15,8 @@
 
 namespace tui {
 
-Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg)
-    : cfg_(std::move(cfg)), reg_(reg), store_() {
+Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
+    : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs) {
     std::setlocale(LC_ALL, "");
     initscr();
     cbreak();
@@ -36,8 +36,8 @@ Tui::~Tui() {
     agent_cancel_ = true;
     if (agent_thread_.joinable()) agent_thread_.join();
 
-    for (size_t i = 0; i < windows_.size(); ++i) {
-        Window& w = *windows_[i];
+    for (const auto & window : windows_) {
+        Window& w = *window;
         if (!w.dirty || !w.agent || w.agent->history().empty()) continue;
         agent::Session s = snapshot(w);
         if (store_.save(s)) w.session_id = s.id;
@@ -80,7 +80,7 @@ const Window& Tui::win() const { return *windows_[active_]; }
 bool Tui::drain_events() {
     std::vector<AgentEvent> batch;
     {
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         while (!event_queue_.empty()) {
             batch.push_back(std::move(event_queue_.front()));
             event_queue_.pop();
@@ -93,6 +93,9 @@ bool Tui::drain_events() {
         switch (ev.type) {
         case AgentEvent::StateChange:
             state_ = ev.state;
+            if (ev.state == agent::RunState::Idle ||
+                ev.state == agent::RunState::Error)
+                running_tool_.clear();
             break;
         case AgentEvent::Reasoning:
             win().reason_buf += ev.text;
@@ -110,6 +113,7 @@ bool Tui::drain_events() {
             append_line(P_STATUS, ev.text);
             break;
         case AgentEvent::ToolCall: {
+            running_tool_ = ev.tool_name;
             flush_stream();
             ToolFold fold = tool_fold_;
             if (fold != ToolFold::Never) {
@@ -124,6 +128,7 @@ bool Tui::drain_events() {
             break;
         }
         case AgentEvent::ToolResult: {
+            running_tool_.clear();
             ToolFold fold = tool_fold_;
             if (fold == ToolFold::Never) break;
             // Build a compact summary line.
@@ -140,8 +145,12 @@ bool Tui::drain_events() {
                 size_t nl = preview.find('\n');
                 if (nl != std::string::npos) preview.resize(nl);
                 if (preview.size() > 60) { preview.resize(57); preview += "..."; }
-                return std::string(sp) + " " + name + "  " + ar + " exit 0  (" +
-                       std::to_string(lines) + " lines)  " + preview;
+                return std::string(sp).append(" ").append(name).append("  ")
+                       .append(ar)
+                       .append(" exit 0  (")
+                       .append(std::to_string(lines))
+                       .append(" lines)  ")
+                       .append(preview);
             };
             std::string line = summarize(ev.tool_name, ev.tool_result);
             if (fold == ToolFold::Auto) {
@@ -182,6 +191,7 @@ bool Tui::drain_events() {
         case AgentEvent::Done:
             if (state_ != agent::RunState::Error)
                 state_ = agent::RunState::Idle;
+            running_tool_.clear();
             flush_stream();
             autosave();
             win().dirty = true;
@@ -218,11 +228,11 @@ void Tui::resolve_approval(const AgentEvent& ev) {
     agent::Approval d = agent::Approval::Deny;
     if (pick == 1) d = agent::Approval::AllowOnce;
     else if (pick == 2) d = agent::Approval::AllowSession;
+    const char* verdict = "allowed for session";
+    if (d == agent::Approval::Deny) verdict = "denied";
+    else if (d == agent::Approval::AllowOnce) verdict = "allowed once";
     append_line(P_STATUS,
-                std::string("approval: ") +
-                (d == agent::Approval::Deny ? "denied" :
-                 d == agent::Approval::AllowOnce ? "allowed once" :
-                 "allowed for session") + "  (" + ev.text + ")");
+                std::string("approval: ") + verdict + "  (" + ev.text + ")");
     if (ev.approval_promise)
         ev.approval_promise->set_value(d);
 }
@@ -266,7 +276,7 @@ void Tui::agent_worker(const std::string& prompt) {
         AgentEvent ev;
         ev.type = AgentEvent::Reasoning;
         ev.text = d;
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
     hooks.on_token = [this](const std::string& d) {
@@ -274,7 +284,7 @@ void Tui::agent_worker(const std::string& prompt) {
         AgentEvent ev;
         ev.type = AgentEvent::Token;
         ev.text = d;
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
     hooks.on_state = [this](agent::RunState s) {
@@ -282,7 +292,7 @@ void Tui::agent_worker(const std::string& prompt) {
         AgentEvent ev;
         ev.type = AgentEvent::StateChange;
         ev.state = s;
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
     hooks.on_stats = [this](const agent::Stats& s) {
@@ -290,7 +300,7 @@ void Tui::agent_worker(const std::string& prompt) {
         AgentEvent ev;
         ev.type = AgentEvent::Stats;
         ev.stats = s;
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
     hooks.on_status = [this](const std::string& s) {
@@ -298,7 +308,7 @@ void Tui::agent_worker(const std::string& prompt) {
         AgentEvent ev;
         ev.type = AgentEvent::Status;
         ev.text = s;
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
     hooks.on_tool_call = [this](const std::string& n, const agent::json& a) {
@@ -307,7 +317,7 @@ void Tui::agent_worker(const std::string& prompt) {
         ev.type = AgentEvent::ToolCall;
         ev.tool_name = n;
         ev.tool_args = a;
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
     hooks.on_tool_result = [this](const std::string& n, const agent::ToolResult& r) {
@@ -316,7 +326,7 @@ void Tui::agent_worker(const std::string& prompt) {
         ev.type = AgentEvent::ToolResult;
         ev.tool_name = n;
         ev.tool_result = r;
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
     hooks.on_assistant = [this](const std::string& s) {
@@ -324,7 +334,7 @@ void Tui::agent_worker(const std::string& prompt) {
         AgentEvent ev;
         ev.type = AgentEvent::Assistant;
         ev.text = s;
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
     hooks.on_approval = [this](const std::string& name,
@@ -338,7 +348,7 @@ void Tui::agent_worker(const std::string& prompt) {
             ev.type = AgentEvent::Approval;
             ev.text = summary;
             ev.approval_promise = p;
-            std::lock_guard<std::mutex> lk(event_mtx_);
+            std::scoped_lock lk(event_mtx_);
             event_queue_.push(std::move(ev));
         }
         (void)name;
@@ -356,14 +366,14 @@ void Tui::agent_worker(const std::string& prompt) {
         AgentEvent ev;
         ev.type = AgentEvent::Error;
         ev.error_msg = e.what();
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     }
 
     AgentEvent done;
     done.type = AgentEvent::Done;
     {
-        std::lock_guard<std::mutex> lk(event_mtx_);
+        std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(done));
     }
     agent_busy_.store(false);
@@ -381,24 +391,54 @@ void Tui::run() {
     while (!quit_) {
         bool had_events = drain_events();
 
+        // Reap background jobs that hit their idle/hard deadline. Runs every
+        // tick so long-running processes are auto-killed even while the user is
+        // idle and no agent event is flowing.
+        jobs_.check_timeouts();
+
         int ch = getch();
         if (ch == ERR) {
+            bool repainted = had_events;
             if (had_events) {
                 draw();
-            } else if (anim_phase_ != last_status_phase_) {
-                // Repaint only when the animated status indicator actually
-                // advanced its phase, so we don't force a full-screen refresh
-                // at 20Hz while idle (the main source of the flicker).
-                tick_clock();
-                last_status_phase_ = anim_phase_;
+            } else if (agent_busy_.load() || jobs_.running_count() > 0) {
+                // Either the agent is blocked on a call that emits no streaming
+                // tokens (silent confirmation exchange, a non-streaming tool
+                // result, or the model simply thinking), or a background job is
+                // running. In both cases no AgentEvent flows every frame, so this
+                // branch is what keeps the clock, the progress wave, and the
+                // background-job countdown alive. Repaint the status bar on a
+                // fixed wall-clock cadence instead of gating on anim_phase_
+                // (which would lock at one phase and freeze the whole bar).
+                auto now = std::chrono::steady_clock::now();
+                if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
+                    last_status_tick_ = now;
+                    tick_clock();
+                    repainted = true;
+                }
             }
-            if (input != last_input_) {
+            // Any background repaint (streamed tokens or the status tick) moves
+            // the virtual cursor off the input line; park it back so the caret
+            // stays put instead of jumping to the status bar while the agent runs.
+            if (repainted || input != last_input_) {
                 draw_input(input);
                 last_input_ = input;
+            }
+            if (!agent_busy_.load() && !pending_prompt_.empty()) {
+                std::string p = std::move(pending_prompt_);
+                send_async(p);
             }
             if (dirty_) flush();
             continue;
         }
+        // Alt+1..9 window switch, sent as a single meta-encoded key by some
+        // terminals (0x80 | digit). Works even while the agent is busy.
+        if (ch >= 0xB1 && ch <= 0xB9) {
+            switch_to(static_cast<size_t>(ch - 0xB1));
+            draw_input(input);
+            continue;
+        }
+
         if (ch == 14) {
             if (agent_busy_.load()) continue;
             new_window("chat");
@@ -415,14 +455,18 @@ void Tui::run() {
                 draw(); draw_input(input);
                 continue;
             }
-            if (agent_busy_.load()) {
-                agent_cancel_.store(true);
-                continue;
-            }
+            // Alt+number arrives as ESC followed by a digit. Read the next key
+            // first so the chord switches windows even while the agent is busy;
+            // a lone ESC is the fallback that cancels a running agent.
             int n = getch();
             if (n >= '1' && n <= '9') {
                 switch_to(static_cast<size_t>(n - '1'));
                 draw_input(input);
+                continue;
+            }
+            if (agent_busy_.load()) {
+                agent_cancel_.store(true);
+                continue;
             }
             continue;
         }
@@ -448,7 +492,7 @@ void Tui::run() {
                                 // Single Tab: extend inline to the shared
                                 // prefix. A following Tab (when already there)
                                 // opens the selection popup.
-                                input = "/" + name + " " + cp;
+                                input = std::string{"/"}.append(name).append(" ").append(cp);
                                 arg_tab_prefix_ = input;
                             } else if (input == arg_tab_prefix_) {
                                 // Second Tab on an already-complete prefix:
@@ -521,7 +565,16 @@ void Tui::run() {
                 draw(); draw_input("");
                 continue;
             }
-            if (agent_busy_.load()) continue;
+            if (agent_busy_.load()) {
+                // Agent is mid-turn: keep the prompt and send it automatically
+                // once the agent returns to idle, so typing never feels blocked.
+                pending_prompt_ = prompt;
+                input.clear();
+                append_line(P_STATUS,
+                            "queued: will send when the agent is idle");
+                draw(); draw_input(input);
+                continue;
+            }
             ensure_chat_window();
             input.clear();
             draw();

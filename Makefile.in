@@ -34,15 +34,21 @@ LIB_OBJS  = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/prompt.o \
              $(BUILD_DIR)/lib/conversation_log.o \
              $(BUILD_DIR)/lib/agent.o \
-            $(BUILD_DIR)/lib/statusbar.o \
+             $(BUILD_DIR)/lib/agent_helpers.o \
+             $(BUILD_DIR)/lib/tool_recovery.o \
+             $(BUILD_DIR)/lib/dispatch.o \
+             $(BUILD_DIR)/lib/statusbar.o \
             $(BUILD_DIR)/lib/session.o \
              $(BUILD_DIR)/lib/workspace.o \
+             $(BUILD_DIR)/lib/process.o \
+             $(BUILD_DIR)/lib/job.o \
              $(BUILD_DIR)/lib/tools_default.o \
              $(BUILD_DIR)/lib/tool_call_parser.o \
             $(BUILD_DIR)/tools/read_tool.o \
             $(BUILD_DIR)/tools/write_tool.o \
             $(BUILD_DIR)/tools/search_tool.o \
-            $(BUILD_DIR)/tools/bash_tool.o \
+             $(BUILD_DIR)/tools/bash_tool.o \
+             $(BUILD_DIR)/tools/process_tool.o \
              $(BUILD_DIR)/tools/search/grep_backend.o \
              $(BUILD_DIR)/tools/search/semantic_backend.o \
              $(BUILD_DIR)/tools/search/semantic_index.o

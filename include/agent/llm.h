@@ -56,7 +56,11 @@ struct Stats {
 // (chat_stream) modes.
 class LLMClient {
 public:
-    explicit LLMClient(const Config& cfg);
+    explicit LLMClient(Config  cfg);
+
+    // Update the debug-log path at runtime (used by the TUI /debug toggle so
+    // raw HTTP tracing can be enabled without reconstructing the client).
+    void set_debug_log(const std::string& path) { cfg_.debug_log = path; }
 
     // Query the server's GET /v1/models endpoint and report the first model's
     // id and context window (n_ctx). Never throws: on any transport/parse

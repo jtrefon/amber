@@ -7,6 +7,7 @@
 #include "agent/llm.h"
 #include <functional>
 #include <string>
+#include <utility>
 
 namespace agent {
 
@@ -30,8 +31,8 @@ public:
     using ChunkSink = std::function<void(const StreamChunk&)>;
 
     StreamParser(Message& out, const ChunkSink& on_chunk,
-                 const std::string& debug_path)
-        : out_(out), on_chunk_(on_chunk), debug_path_(debug_path) {}
+                 std::string  debug_path)
+        : out_(out), on_chunk_(on_chunk), debug_path_(std::move(debug_path)) {}
 
     // libcurl write callback entry point: feed raw SSE bytes, parse whole lines.
     size_t on_write(const char* data, size_t size, size_t nmemb);

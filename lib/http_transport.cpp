@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "http_transport.h"
+#include "agent/agent_helpers.h"
 #include "agent/debug_log.h"
 
 #include <curl/curl.h>
@@ -41,21 +42,35 @@ void apply_auth(HeaderList& h, const Config& cfg) {
         h.add("Authorization: Bearer " + cfg.api_key);
 }
 
-// Parse a buffered /chat/completions JSON body into a Message, throwing on a
-// malformed or error response so transport errors surface uniformly.
+// Extract a string field defensively: returns d if missing, null, or not a
+// string (so a malformed model response never throws and aborts the turn).
+std::string str_or_raw(const json& j, const char* key, const std::string& d) {
+    auto it = j.find(key);
+    if (it == j.end() || it->is_null()) return d;
+    if (it->is_string()) return it->get<std::string>();
+    // Non-string content: keep it as JSON text rather than throwing, so the
+    // pipeline can feed it back to the model instead of crashing.
+    return it->dump();
+}
+
+// Parse a buffered /chat/completions JSON body into a Message. Degrades
+// gracefully on malformed/error responses: a parse failure or missing choices
+// yields an assistant message carrying the raw body as text, which the agent
+// loop feeds back to the model so it can recover instead of aborting the turn.
 Message message_from_completion(const std::string& response) {
     json resp = json::parse(response, nullptr, false);
-    if (resp.is_discarded() || !resp.contains("choices"))
-        throw std::runtime_error("malformed LLM response: " + response);
-    const json& msg = resp["choices"][0]["message"];
     Message out;
     out.role = "assistant";
-    if (msg.contains("content") && !msg["content"].is_null())
-        out.content = msg["content"].get<std::string>();
-    for (const char* key : {"reasoning_content", "reasoning"}) {
-        if (msg.contains(key) && msg[key].is_string())
-            out.reasoning += msg[key].get<std::string>();
+    if (resp.is_discarded() || !resp.contains("choices") ||
+        !resp["choices"].is_array() || resp["choices"].empty()) {
+        out.content =
+            "[error: malformed LLM response, raw body follows]\n" + response;
+        return out;
     }
+    const json& msg = resp["choices"][0].value("message", json::object());
+    out.content = strip_think(str_or_raw(msg, "content", ""));
+    for (const char* key : {"reasoning_content", "reasoning"})
+        out.reasoning += str_or_raw(msg, key, "");
     if (msg.contains("tool_calls") && !msg["tool_calls"].is_null())
         out.tool_calls = msg["tool_calls"];
     return out;
@@ -94,9 +109,11 @@ std::string post_completion(const Config& cfg, const std::string& payload,
     std::string response;
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, LLMClient::write_cb);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, accept_sse ? 300L : 120L);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, accept_sse ? 900L : 300L);
 
     CURLcode rc = curl_easy_perform(c);
+    long http_code = 0;
+    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http_code);
     if (ttfb) {
         double v = 0;
         curl_easy_getinfo(c, CURLINFO_STARTTRANSFER_TIME, &v);
@@ -112,6 +129,11 @@ std::string post_completion(const Config& cfg, const std::string& payload,
         debug_log(cfg.debug_log, "error", std::string(curl_easy_strerror(rc)));
         throw std::runtime_error(std::string("curl error: ") +
                                  curl_easy_strerror(rc));
+    }
+    if (http_code < 200 || http_code >= 300) {
+        std::string snippet = response.substr(0, 200);
+        throw std::runtime_error("HTTP " + std::to_string(http_code) +
+                                 " from LLM server: " + snippet);
     }
     return response;
 }
@@ -133,7 +155,7 @@ void stream_completion(const Config& cfg, const std::string& payload,
     curl_easy_setopt(c, CURLOPT_POSTFIELDS, payload.c_str());
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, stream_write_cb);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &parser);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 300L);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, 900L);
     curl_easy_setopt(c, CURLOPT_BUFFERSIZE, 1024L);  // surface deltas promptly
 
     CURLcode rc = curl_easy_perform(c);
@@ -147,6 +169,10 @@ void stream_completion(const Config& cfg, const std::string& payload,
                   std::string(curl_easy_strerror(rc)));
         throw std::runtime_error(std::string("curl error: ") +
                                  curl_easy_strerror(rc));
+    }
+    if (status_out < 200 || status_out >= 300) {
+        throw std::runtime_error("HTTP " + std::to_string(status_out) +
+                                 " from LLM server");
     }
     parser.finalize();
     if (stats) {

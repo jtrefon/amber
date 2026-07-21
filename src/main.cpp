@@ -32,6 +32,13 @@ int main(int argc, char** argv) {
     std::string config_file;
     bool auto_approve = false;
 
+    // Load the project config by default so `amber` works without --config.
+    // Explicit flags and --config override these; the file is only a base.
+    {
+        std::ifstream def("amber.conf");
+        if (def) cfg.load("amber.conf");
+    }
+
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&](const char* def) -> std::string {
@@ -89,13 +96,21 @@ int main(int argc, char** argv) {
         cfg.tools_prompt_path = "prompts/tools.md";
 
     agent::ToolRegistry registry;
-    agent::register_default_tools(registry);
+    agent::JobService jobs;
+    agent::register_default_tools(registry, jobs);
 
     agent::AgentHooks hooks;
     hooks.on_status = [](const std::string& s) {
         std::cerr << "[status] " << s << "\n";
     };
+    // Live streaming: surface tokens as they arrive so a long generation shows
+    // progress instead of appearing to hang.
+    hooks.on_token = [](const std::string& t) { std::cout << t << std::flush; };
+    hooks.on_reasoning = [](const std::string& t) {
+        std::cerr << "[think] " << t;
+    };
     hooks.on_tool_call = [](const std::string& n, const agent::json& args) {
+        std::cout.flush();
         std::cerr << "[tool] " << n << " " << args.dump() << "\n";
     };
     hooks.on_tool_result = [](const std::string& n, const agent::ToolResult& r) {

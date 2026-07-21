@@ -9,10 +9,11 @@
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
+#include <utility>
 
 namespace agent {
 
-LLMClient::LLMClient(const Config& cfg) : cfg_(cfg) {
+LLMClient::LLMClient(Config  cfg) : cfg_(std::move(cfg)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 
@@ -33,7 +34,9 @@ ServerInfo LLMClient::probe_server() const {
 Message LLMClient::chat(const std::vector<Message>& messages,
                         const std::vector<Tool*>& tools, Stats* stats) {
     json body = build_chat_body(cfg_, messages, tools, false);
-    std::string payload = body.dump();
+    // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
+    // nlohmann throws type_error.316 on dump() unless we replace bad bytes.
+    std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
     debug_log(cfg_.debug_log, "request", payload);
 
     double ttfb = 0, total = 0;
@@ -50,7 +53,7 @@ Message LLMClient::chat_stream(const std::vector<Message>& messages,
                                const std::function<void(const StreamChunk&)>& on_chunk,
                                Stats* stats) {
     json body = build_chat_body(cfg_, messages, tools, true);
-    std::string payload = body.dump();
+    std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
     debug_log(cfg_.debug_log, "request-stream", payload);
 
     Message out;

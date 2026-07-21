@@ -4,6 +4,8 @@
 #include "agent.h"
 #include "agent/tools.h"
 #include "agent/search_backend.h"
+#include "agent/sse_parser.h"
+#include "agent/request_builder.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/rich.h"
@@ -14,7 +16,10 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 static inline void run_cmd(const std::string& cmd) {
     int rc = std::system(cmd.c_str());
@@ -202,6 +207,74 @@ TEST(markdown_renders_aligned_table_and_skips_divider) {
     ASSERT_TRUE(row2.find("Alice") != std::string::npos);
 }
 
+TEST(markdown_renders_table_without_leading_blank_line) {
+    // Regression: LLMs routinely emit a GFM table with no blank line between the
+    // preceding prose and the header row. md4c needs that blank line to detect
+    // a table; the renderer must insert it so the table does not collapse into a
+    // single literal paragraph of pipe characters.
+    std::string md =
+        "Summary of Priority\n"
+        "| Priority | # | Issue |\n"
+        "|----------|---|-------|\n"
+        "| High | 1 | foo |\n";
+    auto ls = tui::md::render(md, tui::md::Style{});
+    std::string all;
+    for (auto& l : ls)
+        for (auto& r : l.runs) all += r.text;
+    // The collapsed artifact would contain the raw pipe sequence verbatim.
+    ASSERT_TRUE(all.find("| Priority | # | Issue | |---") == std::string::npos);
+    // A proper table exposes the header cell text and the box-drawn divider.
+    ASSERT_TRUE(all.find("Priority") != std::string::npos);
+    ASSERT_TRUE(all.find("├") != std::string::npos);
+}
+
+TEST(markdown_repairs_table_missing_delimiter_row) {
+    // Regression: LLMs often emit a GFM table with no "|----|" delimiter row.
+    // Without it md4c sees no table and the rows collapse into one garbage
+    // line of pipe characters. The renderer must synthesize the delimiter so
+    // the table renders with a header separator and all body rows.
+    std::string md =
+        "| A | B |\n"
+        "| 1 | 2 |\n"
+        "| 3 | 4 |\n";
+    auto ls = tui::md::render(md, tui::md::Style{});
+    std::string all;
+    for (auto& l : ls)
+        for (auto& r : l.runs) all += r.text;
+    // The collapsed artifact would keep the raw rows glued together.
+    ASSERT_TRUE(all.find("| A | B | | 1 | 2 |") == std::string::npos);
+    // Header + box separator + both body rows must be present.
+    ASSERT_TRUE(all.find('A') != std::string::npos);
+    ASSERT_TRUE(all.find("├") != std::string::npos);
+    ASSERT_TRUE(all.find('1') != std::string::npos);
+    ASSERT_TRUE(all.find('3') != std::string::npos);
+}
+
+TEST(markdown_splits_embedded_separator_rule) {
+    // Regression: a model sometimes glues a fake rule (long run of box-drawing
+    // dashes) onto the end of a code line. It must be split onto its own line
+    // and rendered as a clean horizontal rule, not literal garbage.
+    std::string md =
+        "Fix: use mvwaddnstr(w, 1, s.c_str(), aw);"
+        "──────────────────────────────────────────────────────────────"
+        "\n\nNext section.";
+    auto ls = tui::md::render(md, tui::md::Style{});
+    bool saw_hr = false, saw_dup = false;
+    std::string body;
+    for (auto& l : ls) {
+        if (l.is_hr) saw_hr = true;
+        for (auto& r : l.runs) body += r.text;
+    }
+    ASSERT_TRUE(saw_hr);
+    // The code text must appear exactly once (no duplication from the split).
+    int count = 0;
+    size_t pos = 0;
+    while ((pos = body.find("mvwaddnstr", pos)) != std::string::npos) {
+        ++count; pos += 10;
+    }
+    ASSERT_EQ(count, 1);
+}
+
 TEST(markdown_trims_heading_whitespace) {
     auto ls = tui::md::render("##   Spaced heading   \nbody", tui::md::Style{});
     ASSERT_FALSE(ls.empty());
@@ -268,7 +341,7 @@ TEST(markdown_blockquote_each_line_quoted) {
     for (auto& l : ls) {
         std::string t;
         for (auto& r : l.runs) t += r.text;
-        ASSERT_TRUE(t.find(">") == 0);
+        ASSERT_TRUE(t.find('>') == 0);
     }
 }
 
@@ -395,6 +468,46 @@ TEST(config_save_settings_roundtrip) {
     std::remove(path.c_str());
 }
 
+TEST(config_save_settings_keeps_llm_global) {
+    // The project-local settings file must NOT duplicate LLM provider config
+    // (api_base / api_key / model / context_size); those stay in the global
+    // config. save_settings() omits them by design.
+    agent::Config c;
+    c.api_base = "http://localhost:8080/v1";
+    c.api_key = "sk-secret";
+    c.model = "llama-3.2-3b";
+    c.model_explicit = true;
+    c.context_size = 8192;
+    c.context_explicit = true;
+    c.temperature = 0.7;
+    c.stream = false;
+    c.debug_log = "/tmp/amber_debug.log";
+
+    std::string path = "/tmp/amber_settings_local.conf";
+    ASSERT_TRUE(c.save_settings(path));
+
+    agent::Config d;
+    d.load(path);
+    // LLM provider settings are intentionally omitted from the local file, so
+    // loading it must NOT pick up the provider values we set above.
+    ASSERT(d.api_base != "http://localhost:8080/v1");
+    ASSERT(d.api_key != "sk-secret");
+    ASSERT(d.model != "llama-3.2-3b");
+    ASSERT(d.context_size != 8192);
+    // Non-LLM settings round-trip.
+    ASSERT_EQ(d.temperature, 0.7);
+    ASSERT_EQ(d.stream, false);
+    ASSERT_EQ(d.debug_log, "/tmp/amber_debug.log");
+    // And the raw file must not contain the LLM keys.
+    std::ifstream f(path);
+    std::string body((std::istreambuf_iterator<char>(f)),
+                     std::istreambuf_iterator<char>());
+    ASSERT(body.find("api_base=") == std::string::npos);
+    ASSERT(body.find("api_key=") == std::string::npos);
+    ASSERT(body.find("model=") == std::string::npos);
+    std::remove(path.c_str());
+}
+
 TEST(config_missing_file_is_noop) {
     agent::Config c;
     c.model = "keep";
@@ -488,27 +601,91 @@ TEST(config_context_default_is_auto) {
 }
 
 // ---------------------------------------------------------------------------
+// UTF-8 safety: tool/model text may carry invalid bytes (e.g. binary from
+// grep). Serializing it for the API request used to throw
+// [json.exception.type_error.316] and abort the turn. It must not.
+// ---------------------------------------------------------------------------
+
+TEST(request_body_survives_invalid_utf8) {
+    agent::Config c;
+    std::vector<agent::Message> msgs;
+    agent::Message tool;
+    tool.role = "tool";
+    tool.name = "search";
+    tool.tool_call_id = "x";
+    // 0x66 ('f') followed by a lone continuation byte 0x80 — invalid UTF-8.
+    std::string bad = "hits:\nfoo";
+    bad.push_back(static_cast<char>(0x80));  // lone continuation byte: invalid UTF-8
+    bad += "bar";
+    tool.content = bad;
+    msgs.push_back(tool);
+
+    std::vector<agent::Tool*> no_tools;
+    json body = build_chat_body(c, msgs, no_tools, false);
+    std::string payload;
+    bool threw = false;
+    try {
+        payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
+    } catch (...) {
+        threw = true;
+    }
+    ASSERT_FALSE(threw);
+    ASSERT(payload.find("\xEF\xBF\xBD") != std::string::npos);  // U+FFFD present
+}
+
+TEST(request_builder_assistant_message_always_has_content) {
+    // Regression: a reasoning model can answer with content "" and the whole
+    // reply in reasoning_content. Serializing that as {"role":"assistant"}
+    // (no content field) makes the server reject the request with HTTP 400
+    // ("Assistant message must contain either 'content' or 'tool_calls'").
+    // build_chat_body must always emit a content field (even empty) so a
+    // stripped/empty reply never produces a malformed request.
+    agent::Config c;
+    std::vector<agent::Message> msgs;
+    agent::Message u; u.role = "user"; u.content = "think hard"; msgs.push_back(u);
+    agent::Message a; a.role = "assistant"; a.content = "";  // empty, no tool_calls
+    msgs.push_back(a);
+    agent::Message t; t.role = "tool"; t.name = "read"; t.tool_call_id = "c1";
+    t.content = "";  // empty tool result
+    msgs.push_back(t);
+
+    std::vector<agent::Tool*> no_tools;
+    json body = build_chat_body(c, msgs, no_tools, false);
+    ASSERT(body.contains("messages"));
+    for (auto& m : body["messages"]) {
+        // every message must carry a content field (regression: empty
+        // assistant/tool content previously dropped the field -> HTTP 400).
+        ASSERT(m.contains("content"));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tool registry
 // ---------------------------------------------------------------------------
 
 TEST(registry_register_and_find) {
     agent::ToolRegistry r;
-    agent::register_default_tools(r);
+    agent::JobService jobs;
+    agent::register_default_tools(r, jobs);
     ASSERT_FALSE(r.empty());
-    ASSERT_EQ(r.tools().size(), 4u);
+    ASSERT_EQ(r.tools().size(), 7u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
     ASSERT(r.find("bash") != nullptr);
+    ASSERT(r.find("process_start") != nullptr);
+    ASSERT(r.find("process_read") != nullptr);
+    ASSERT(r.find("process_stop") != nullptr);
     ASSERT(r.find("nonexistent") == nullptr);
 }
 
 TEST(registry_schema_shape) {
     agent::ToolRegistry r;
-    agent::register_default_tools(r);
+    agent::JobService jobs;
+    agent::register_default_tools(r, jobs);
     agent::json s = r.schema();
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 4u);
+    ASSERT_EQ(s.size(), 7u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");
@@ -538,7 +715,8 @@ TEST(prompt_loads_existing) {
 
 TEST(prompt_render_tools_markdown_lists_all) {
     agent::ToolRegistry r;
-    agent::register_default_tools(r);
+    agent::JobService jobs;
+    agent::register_default_tools(r, jobs);
     std::string md = agent::render_tools_markdown(r);
     ASSERT(md.find("## Available Tools") != std::string::npos);
     ASSERT(md.find("`read`") != std::string::npos);
@@ -877,12 +1055,8 @@ TEST(statusbar_gauge_bar_glyphs) {
 // LLM streaming SSE parse (integration via a tiny in-process HTTP server)
 // ---------------------------------------------------------------------------
 
-#if defined(__linux__)
-#include <arpa/inet.h>
+#ifdef __linux__
 #include <netinet/in.h>
-#include <sys/socket.h>
-#include <thread>
-#include <unistd.h>
 
 namespace {
 // Serve one canned SSE response (a streamed tool call in two fragments), then
@@ -933,11 +1107,57 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
 }
 } // namespace
 
-TEST(llm_streaming_merges_tool_call_fragments) {
+ TEST(llm_streaming_tool_call_object_arguments_preserved) {
+    // Some OpenAI-compatible servers stream tool-call `arguments` as a JSON
+    // object in one delta instead of a string fragment. The parser must
+    // preserve it, otherwise a valid call (e.g. search with a pattern) arrives
+    // at the tool as `{}` and errors ("missing 'pattern'").
+    agent::Message m;
+    auto sink = [](const agent::StreamChunk&) {};
+    agent::StreamParser p(m, sink, "");
+
+    auto ev = [](const agent::json& tc) -> std::string {
+        agent::json delta = {{"tool_calls", tc}};
+        agent::json choice = {{"delta", delta}};
+        return "data: " +
+               agent::json{{"choices", agent::json::array({choice})}}.dump() +
+               "\n\n";
+    };
+
+    // Fragment 1: arguments as a JSON object (not a string).
+    agent::json fn1 = {{"name", "search"},
+                       {"arguments", agent::json::object({{"pattern", "ncurses"}})}};
+    agent::json call1 = {{"index", 0}, {"id", "c1"}, {"type", "function"},
+                         {"function", fn1}};
+    std::string s1 = ev(agent::json::array({call1}));
+
+    // Fragment 2: a trailing string fragment appended to the object.
+    agent::json fn2 = {{"arguments", "|curses"}};
+    agent::json call2 = {{"index", 0}, {"function", fn2}};
+    std::string s2 = ev(agent::json::array({call2}));
+
+    p.on_write(s1.c_str(), s1.size(), 1);
+    p.on_write(s2.c_str(), s2.size(), 1);
+    p.finalize();
+
+    ASSERT(m.tool_calls.is_array());
+    ASSERT_EQ(m.tool_calls.size(), 1u);
+    // The OpenAI wire contract requires `arguments` to be a JSON *string*; an
+    // object fragment must be merged and re-serialized, never stored as a raw
+    // object (object-typed arguments sent back to the API corrupt the turn).
+    agent::json args = m.tool_calls[0]["function"]["arguments"];
+    ASSERT_TRUE(args.is_string());
+    agent::json parsed = agent::json::parse(args.get<std::string>(), nullptr, false);
+    ASSERT_FALSE(parsed.is_discarded());
+    ASSERT_EQ(parsed["pattern"], "ncurses");
+}
+
+ TEST(llm_streaming_merges_tool_call_fragments) {
     std::string dummy;
     int srv = spawn_mock_sse(8911, dummy);
     ASSERT(srv >= 0);
     usleep(100000);  // let the listener bind
+
 
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8911/v1";
@@ -1138,7 +1358,7 @@ TEST(agent_retains_history_across_turns) {
 
 TEST(bash_tool_runs_and_reports_exit) {
     auto tool = agent::make_bash_tool();
-    ASSERT_FALSE(tool->requires_approval());
+    ASSERT_TRUE(tool->requires_approval());
 
     auto ok = tool->execute({{"command", "echo hello"}});
     ASSERT_TRUE(ok.ok);
@@ -1175,13 +1395,52 @@ TEST(bash_tool_times_out) {
     ASSERT(r.output.find("timed out") != std::string::npos);
 }
 
+// Idle timeout (not a fixed wall-clock budget): a command that keeps emitting
+// output must survive well past its timeout, while a silent one is killed.
+TEST(bash_tool_idle_timeout_keeps_progressing) {
+    auto tool = agent::make_bash_tool();
+    // ~3s of runtime, output every 0.3s, timeout 1s: never idle long enough.
+    auto r = tool->execute(
+        {{"command",
+          "for i in 1 2 3 4 5 6 7 8 9 10; do echo tick; sleep 0.3; done"},
+         {"timeout", 1}});
+    ASSERT(r.ok);
+    ASSERT(r.output.find("[exit 0]") != std::string::npos);
+    ASSERT(r.output.find("timed out") == std::string::npos);
+}
+
 TEST(bash_tool_truncates_large_output) {
     auto tool = agent::make_bash_tool();
     // yes emits far more than the 64 KiB cap; head bounds the runtime.
     auto r = tool->execute(
         {{"command", "yes AAAAAAAAAA | head -c 200000"}, {"timeout", 30}});
     ASSERT(r.output.find("[output truncated") != std::string::npos);
-    ASSERT(r.output.size() < 70u * 1024u);
+    ASSERT(r.output.size() < static_cast<std::size_t>(70) * 1024u);
+}
+
+// When the host wires a JobService, bash spawns through it so the process is
+// visible in /job (and on the status bar) while it runs and is killable. The
+// synchronous result returned to the model must be identical to the direct
+// path, and the job must be cleaned up (erased) once the command finishes.
+TEST(bash_tool_tracked_by_job_service) {
+    agent::JobService jobs;
+    auto tool = agent::make_bash_tool(&jobs);
+
+    auto ok = tool->execute({{"command", "echo tracked"}});
+    ASSERT_TRUE(ok.ok);
+    ASSERT(ok.output.find("tracked") != std::string::npos);
+    ASSERT(ok.output.find("[exit 0]") != std::string::npos);
+    ASSERT(jobs.list().empty());  // finished job erased, not leaked
+
+    auto bad = tool->execute({{"command", "exit 7"}});
+    ASSERT_FALSE(bad.ok);
+    ASSERT(bad.output.find("[exit 7]") != std::string::npos);
+    ASSERT(jobs.list().empty());
+
+    auto to = tool->execute({{"command", "sleep 5"}, {"timeout", 1}});
+    ASSERT_FALSE(to.ok);
+    ASSERT(to.error.find("timed out") != std::string::npos);
+    ASSERT(jobs.list().empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -1208,11 +1467,176 @@ TEST(agent_denies_gated_tool_without_handler) {
     ag.set_hooks(hooks);
     auto* t = reg.find("bash");
     ASSERT_TRUE(t != nullptr);
-    ASSERT_FALSE(t->requires_approval());
+    ASSERT_TRUE(t->requires_approval());
     agent::Approval d = hooks.on_approval("bash", {{"command", "ls"}},
                                           t->summarize({{"command", "ls"}}));
     ASSERT_TRUE(called);
     ASSERT(d == agent::Approval::AllowSession);
+}
+
+// A model that keeps emitting a tool call with EMPTY arguments (e.g. search {})
+// triggers a deterministic, non-transient failure. The agent must not loop
+// through all max_tool_iterations (which stalls the UI for minutes on a
+// single-GPU endpoint) — it should stop after a few identical failures.
+TEST(agent_stops_on_repeated_empty_arg_tool_call) {
+    // A mock SSE server that re-serves the same "search {}" tool call on every
+    // connection (unlike spawn_mock_sse, which accepts only once).
+    std::string sse =
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
+        "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
+        "\"arguments\":\"{}\"}}]}}]}\n\n"
+        "data: [DONE]\n\n";
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(8920);
+    ASSERT(bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);  // NOLINT
+    ASSERT(listen(fd, 8) == 0);
+    std::thread srv([fd, sse]() {
+        while (true) {
+            int c = accept(fd, nullptr, nullptr);
+            if (c < 0) break;
+            char buf[4096]; std::string req;
+            while (true) {
+                int n = recv(c, buf, sizeof(buf) - 1, 0);
+                if (n <= 0) break;
+                req.append(buf, n);
+                if (req.find("\r\n\r\n") != std::string::npos) break;
+            }
+            std::string http =
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                "Content-Length: " + std::to_string(sse.size()) +
+                "\r\n\r\n" + sse;
+            send(c, http.c_str(), http.size(), 0);
+            usleep(100000);
+            close(c);
+        }
+    });
+    srv.detach();
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8920/v1";
+    cfg.stream = true;
+    cfg.mode = agent::AgentMode::Yolo;
+    cfg.max_tool_iterations = 32;   // default; the loop must NOT reach this
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::register_default_tools(reg, jobs);
+    agent::Agent ag(cfg, reg);
+
+    // Count tool-call dispatches by watching the on_tool_result hook.
+    int tool_results = 0;
+    agent::AgentHooks hooks;
+    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult&) {
+        ++tool_results;
+    };
+    ag.set_hooks(hooks);
+
+    std::string out = ag.run("review ncurses usage");
+    // Must terminate well before max_tool_iterations (bounded by fail_streak).
+    ASSERT(tool_results < 10);
+    ASSERT(out.find("kept failing") != std::string::npos);
+    close(fd);
+}
+
+// ---------------------------------------------------------------------------
+// Background jobs (JobService + process_* tools)
+// ---------------------------------------------------------------------------
+
+TEST(job_service_start_read_stop) {
+    agent::JobService jobs;
+    std::string id = jobs.start("printf 'hello\\nworld\\n'", "/tmp");
+    ASSERT_FALSE(id.empty());
+    ASSERT_EQ(jobs.running_count(), 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // First delta returns the captured output; a second read returns nothing.
+    std::string delta = jobs.read_delta(id);
+    ASSERT(delta.find("hello") != std::string::npos);
+    ASSERT(jobs.read_delta(id).empty());
+    // Full output is also retrievable.
+    ASSERT(jobs.output(id).find("world") != std::string::npos);
+    ASSERT(jobs.stop(id));
+    ASSERT_EQ(jobs.running_count(), 0);
+    ASSERT_FALSE(jobs.stop(id));  // already gone
+}
+
+TEST(job_service_idle_timeout_kills) {
+    agent::JobService jobs;
+    // No output for 1s -> auto-killed by check_timeouts.
+    std::string id = jobs.start("sleep 5", "/tmp", 600, 1);
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    jobs.check_timeouts();
+    ASSERT_EQ(jobs.running_count(), 0);
+}
+
+TEST(job_service_hard_timeout_kills) {
+    agent::JobService jobs;
+    std::string id = jobs.start("sleep 5", "/tmp", 1, 600);
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    jobs.check_timeouts();
+    ASSERT_EQ(jobs.running_count(), 0);
+}
+
+TEST(process_tools_share_service) {
+    agent::JobService jobs;
+    auto tools = agent::make_process_tools(jobs);
+    ASSERT_EQ(tools.size(), 3u);
+    // Drive the tools through one background cycle.
+    auto* st = tools[0].get();
+    auto r = st->execute({{"command", "printf 'bg\\n'"}});
+    ASSERT(r.ok);
+    std::string id = r.output;
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto* rd = tools[1].get();
+    auto out = rd->execute({{"id", id}, {"all", true}});
+    ASSERT(out.ok);
+    ASSERT(out.output.find("bg") != std::string::npos);
+    auto* stop = tools[2].get();
+    auto killed = stop->execute({{"id", id}});
+    ASSERT(killed.ok);
+    ASSERT_EQ(jobs.running_count(), 0);
+}
+
+TEST(process_stop_returns_captured_output) {
+    agent::JobService jobs;
+    auto tools = agent::make_process_tools(jobs);
+    std::string id = tools[0]->execute({{"command", "printf 'held\\n'"}}).output;
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto stopped = tools[2]->execute({{"id", id}});
+    ASSERT(stopped.ok);
+    ASSERT(stopped.output.find("held") != std::string::npos);
+    ASSERT_EQ(jobs.running_count(), 0);
+}
+
+TEST(job_service_stop_finished_returns_true) {
+    agent::JobService jobs;
+    std::string id = jobs.start("true", "/tmp");
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    ASSERT(jobs.stop(id));      // still in the map -> true
+    ASSERT_FALSE(jobs.stop(id)); // already removed -> false
+}
+
+TEST(job_service_caps_output_at_one_mib) {
+    agent::JobService jobs;
+    // Emit ~2 MiB of 'A's; the reader must cap at 1 MiB and flag truncation.
+    std::string id = jobs.start(
+        "head -c 2000000 /dev/zero | tr '\\0' 'A'", "/tmp");
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    agent::Job* j = jobs.get(id);
+    ASSERT(j != nullptr);
+    agent::JobInfo info = j->info();
+    ASSERT(info.truncated);
+    ASSERT(info.bytes <= (1u << 20) + 16);
+    jobs.stop(id);
 }
 
 // ---------------------------------------------------------------------------

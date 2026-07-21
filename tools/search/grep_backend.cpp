@@ -21,7 +21,12 @@ public:
                                   const std::string& glob,
                                   long max) const override {
         std::vector<SearchHit> hits;
-        std::string cmd = "grep -rnI --line-number --max-count=10000 ";
+        // Exclude our own data dir and vendored code — searching them returns
+        // escaped JSON blobs that inflate the conversation past any server's
+        // max payload (~440MB in practice), triggering HTTP 413.
+        std::string cmd =
+            "grep -rnIE --line-number --max-count=10000 "
+            "--exclude-dir=.amber --exclude-dir=.git --exclude-dir=third_party ";
         if (!glob.empty()) {
             cmd += "--include=";
             cmd += shell_quote(glob);

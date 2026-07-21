@@ -53,6 +53,13 @@ void Workspace::set_root(const std::string& path) {
     root_storage() = normalize(fs::absolute(fs::path(path)));
 }
 
+std::string Workspace::local_dir() {
+    std::string dir = ensure_root() + "/.amber";
+    std::error_code ec;
+    fs::create_directories(fs::path(dir), ec);
+    return dir;
+}
+
 bool Workspace::confine(const std::string& path, std::string& resolved,
                         std::string& error) {
     if (path.empty()) {

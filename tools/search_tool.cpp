@@ -4,6 +4,7 @@
 #include "agent/tool.h"
 #include "agent/tools.h"
 #include "agent/search_backend.h"
+#include "agent/workspace.h"
 #include <memory>
 #include <sstream>
 #include <string>
@@ -30,9 +31,11 @@ public:
 
     std::string description() const override {
         return "Search the codebase. The default mode runs a regex search "
-               "(grep). Set mode=\"semantic\" for meaning-based ranking over an "
-               "indexed view of the tree (useful for paraphrased queries). "
-               "Prefer search over reading whole trees to locate symbols.";
+                "(grep). Set mode=\"semantic\" for meaning-based ranking over an "
+                "indexed view of the tree (useful for paraphrased queries). "
+                "Prefer search over reading whole trees to locate symbols. "
+                "Keep `pattern` short and specific (a word or simple regex); do "
+                "not enumerate every symbol in one giant alternation.";
     }
 
     json parameters_schema() const override {
@@ -40,7 +43,8 @@ public:
             {"type", "object"},
             {"properties", {
                 {"pattern", {{"type", "string"},
-                             {"description", "Regular expression or query to search for"}}},
+                             {"description", "Short regular expression or query to search for (keep it concise)"},
+                             {"maxLength", 256}}},
                 {"path", {{"type", "string"},
                           {"description", "Directory or file (default '.')"}}},
                 {"glob", {{"type", "string"},
@@ -60,7 +64,26 @@ public:
             r.ok = false; r.error = "missing 'pattern'"; return r;
         }
         std::string pattern = a["pattern"].get<std::string>();
-        std::string path = a.value("path", std::string("."));
+        if (pattern.size() > 256) {
+            r.ok = false;
+            r.error = "pattern too long (" + std::to_string(pattern.size()) +
+                      " chars); keep it under 256 and use a specific token, not "
+                      "a giant alternation of every symbol";
+            return r;
+        }
+        // Default the search root to the workspace root so a bare search always
+        // covers the project regardless of the process cwd (the other
+        // filesystem tools already confine to the workspace). An explicit
+        // relative path is confined under the workspace; an absolute or
+        // out-of-workspace path is honoured as given (search is read-only).
+        std::string req_path = a.value("path", std::string(""));
+        std::string path = agent::Workspace::root();
+        if (!req_path.empty()) {
+            std::string confined, err;
+            path = (agent::Workspace::confine(req_path, confined, err))
+                       ? confined
+                       : req_path;
+        }
         std::string glob = a.value("glob", std::string(""));
         std::string mode = a.value("mode", std::string("grep"));
         long max = a.value("max", 200L);

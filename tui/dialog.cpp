@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "widgets.h"
+#include "textutil.h"
 
 #include <panel.h>
 
@@ -24,6 +25,7 @@ void init_pairs() {
     init_pair(P_USER,       COLOR_GREEN,  -1);
     init_pair(P_ASSISTANT,  COLOR_CYAN,   -1);
     init_pair(P_STATUS,     COLOR_YELLOW, -1);
+    init_pair(P_DEBUG,      COLOR_MAGENTA, -1);
     init_pair(P_REASONING,  COLOR_WHITE,  -1);
     init_pair(P_BANNER,     COLOR_WHITE,  COLOR_BLUE);
     init_pair(P_FIELD,      COLOR_WHITE,  COLOR_BLACK);
@@ -70,16 +72,20 @@ Dialog::Dialog(int h, int w, const std::string& title) {
     // foreground/background. Without this, box() uses A_NORMAL (terminal
     // defaults) and the border may be invisible on some terminals.
     wattr_set(win_, A_NORMAL, P_DIALOG, nullptr);
-    box(win_, ACS_VLINE, ACS_HLINE);
+    // Draw border with Unicode box-drawing characters (avoids ACS fallback
+    // to 'q'/'x' on terminals without alternate character set support).
+    wborder(win_, L'\u2502', L'\u2502',
+                  L'\u2500', L'\u2500',
+                  L'\u250c', L'\u2510',
+                  L'\u2514', L'\u2518');
 
     // Title embedded in top border: "┌─ Title ───┐"
     if (!title.empty()) {
-        std::string t = " " + title + " ";
-        // Replace ACS_HLINE chars in the title area with spaces, then draw
-        // the title text. The side borders remain as ACS chars.
-        mvwaddstr(win_, 0, 1, std::string(w_ - 2, ' ').c_str());
+        std::wstring t = L" " + text::to_wide(title) + L" ";
+        // Erase the top border line where the title goes, then draw it.
+        mvwhline(win_, 0, 1, L' ', w_ - 2);
         wattr_set(win_, A_BOLD, P_DIALOG, nullptr);
-        mvwaddnstr(win_, 0, 2, t.c_str(), w_ - 4);
+        mvwaddnwstr(win_, 0, 2, t.c_str(), w_ - 4);
     }
 
     panel_ = new_panel(win_);

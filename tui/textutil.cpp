@@ -4,24 +4,29 @@
 #include "textutil.h"
 
 #include <cstring>
+#include <cwchar>
 #include <langinfo.h>
 
-namespace tui {
-namespace text {
+
+namespace tui::text {
 
 namespace {
 bool detect_utf8() {
-    // Unicode (sparkle, arrows, block gauges, em dash, ellipsis) is the default
-    // and what a correctly-configured terminal wants. We only fall back to ASCII
-    // when the locale is genuinely non-UTF-8, or the user opts out for a
-    // terminal that mis-renders UTF-8 (e.g. PuTTY with a Latin-1 translation
-    // table) via AMBER_ASCII=1.
+    // UTF-8 is the default: virtually every modern terminal (and the model's
+    // output) uses it, so we render Unicode (sparkle, arrows, box gauges, em
+    // dash, CJK, emoji) by default. We only fall back to ASCII when the user
+    // explicitly opts out for a terminal that mis-renders UTF-8 (e.g. PuTTY with
+    // a Latin-1 translation table) via AMBER_ASCII=1.
+    //
+    // NOTE: We deliberately do NOT gate this on nl_langinfo(CODESET): a failed
+    // or partial setlocale() (common when LC_CTYPE is malformed or the C locale
+    // is in effect) would otherwise silently drop UTF-8 and smear every
+    // non-ASCII glyph into garbage. The opt-out is the only thing that disables
+    // Unicode; everything else gets UTF-8.
     const char* off = std::getenv("AMBER_ASCII");
-    if (off && (off[0] == '1' || off[0] == 'y' || off[0] == 'Y' ||
-                off[0] == 't' || off[0] == 'T'))
-        return false;
-    const char* cs = nl_langinfo(CODESET);
-    return cs && (std::strcmp(cs, "UTF-8") == 0 || std::strcmp(cs, "utf8") == 0);
+    if (!off) return true;
+    char c = off[0];
+    return c != '1' && c != 'y' && c != 'Y' && c != 't' && c != 'T';
 }
 } // namespace
 
@@ -41,9 +46,13 @@ const char* glyph::block_r()  { return utf8() ? "\u258c" : "|"; }
 const char* glyph::ellipsis() { return utf8() ? "\u2026" : "..."; }
 
 std::size_t utf8_len(const std::string& s, std::size_t i) {
-    unsigned char c = static_cast<unsigned char>(s[i]);
-    std::size_t n = (c < 0x80) ? 1 : (c >> 5) == 0x6 ? 2
-                  : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 1;
+    auto c = static_cast<unsigned char>(s[i]);
+    std::size_t n = 1;
+    if (c >= 0x80) {
+        if ((c >> 5) == 0x6) n = 2;
+        else if ((c >> 4) == 0xE) n = 3;
+        else if ((c >> 3) == 0x1E) n = 4;
+    }
     // Validate continuation bytes; treat a truncated sequence as 1 byte.
     for (std::size_t k = 1; k < n; ++k)
         if (i + k >= s.size() ||
@@ -54,7 +63,12 @@ std::size_t utf8_len(const std::string& s, std::size_t i) {
 
 int display_cols(const std::string& s) {
     int cols = 0;
-    for (std::size_t i = 0; i < s.size(); i += utf8_len(s, i)) ++cols;
+    std::wstring ws = to_wide(s);
+    for (wchar_t wc : ws) {
+        int w = wcwidth(wc);
+        if (w < 0) w = 1;          // undetermined: assume one column
+        cols += w;
+    }
     return cols;
 }
 
@@ -67,7 +81,7 @@ std::vector<std::string> wrap(const std::string& text, int w) {
     std::string src;
     src.reserve(text.size());
     for (std::size_t i = 0; i < text.size();) {
-        unsigned char c = static_cast<unsigned char>(text[i]);
+        auto c = static_cast<unsigned char>(text[i]);
         if (c == '\t') { src += "    "; ++i; continue; }
         if (c == '\n') { src += '\n'; ++i; continue; }
         if (c == 0x1b) {                       // ESC: skip a CSI/simple seq
@@ -75,7 +89,7 @@ std::vector<std::string> wrap(const std::string& text, int w) {
             if (i < text.size() && text[i] == '[') {
                 ++i;
                 while (i < text.size() &&
-                       !(text[i] >= '@' && text[i] <= '~')) ++i;
+                       (text[i] < '@' || text[i] > '~')) ++i;
                 if (i < text.size()) ++i;      // final byte
             } else if (i < text.size()) {
                 ++i;
@@ -96,7 +110,7 @@ std::vector<std::string> wrap(const std::string& text, int w) {
                                : src.substr(start, nl - start);
         // word-wrap this paragraph
         if (para.empty()) {
-            out.push_back("");
+            out.emplace_back("");
         } else {
             std::size_t p = 0;
             while (p < para.size()) {
@@ -135,7 +149,7 @@ std::wstring to_wide(const std::string& s) {
     for (std::size_t i = 0; i < s.size();) {
         std::size_t n = utf8_len(s, i);
         wchar_t cp = 0;
-        unsigned char c = static_cast<unsigned char>(s[i]);
+        auto c = static_cast<unsigned char>(s[i]);
         if (n == 1) {
             cp = c;
         } else if (n == 2) {
@@ -153,5 +167,5 @@ std::wstring to_wide(const std::string& s) {
     return w;
 }
 
-} // namespace text
-} // namespace tui
+} // namespace tui::text
+

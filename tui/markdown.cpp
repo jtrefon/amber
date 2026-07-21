@@ -8,8 +8,8 @@
 
 #include "textutil.h"
 
-namespace tui {
-namespace md {
+
+namespace tui::md {
 
 // Lightweight heuristic source highlighter for fenced code. Returns RichLines
 // (one per source line) with comment/string/number/keyword runs colored.
@@ -113,5 +113,5 @@ std::vector<rich::Line> highlight(const std::string& code,
     return out;
 }
 
-} // namespace md
-} // namespace tui
+} // namespace tui::md
+

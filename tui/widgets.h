@@ -23,7 +23,8 @@ enum Pair {
     P_USER = 1,     // user text
     P_ASSISTANT,    // assistant text
     P_STATUS,       // tool / status
-    P_REASONING,    // model thinking / reasoning (dim)
+    P_DEBUG,         // debug trace (magenta)
+    P_REASONING,     // model thinking / reasoning (dim)
     P_BANNER,       // banner / status bar
     P_FIELD,        // editable form field (black background)
     P_FIELD_ACT,    // active/focused form field

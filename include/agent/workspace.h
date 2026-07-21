@@ -25,6 +25,11 @@ public:
     // Override the root (used by tests and by the harness at startup).
     static void set_root(const std::string& path);
 
+    // The project-local data directory: "<root>/.amber". Used to localize
+    // session logs, debug logs, and app settings next to the project instead of
+    // scattering them in $XDG/Home. Created on first access.
+    static std::string local_dir();
+
     // Resolve `path` (absolute or relative to the root) and verify it stays
     // within the root. On success `resolved` is the absolute normalized path
     // and the function returns true. On violation it returns false and fills
