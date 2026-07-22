@@ -271,7 +271,7 @@ std::string Agent::run(const std::string& user_prompt) {
     // LOOP_REPEAT times without producing a text answer, break the loop.
     // This catches genuine loops (e.g. repeatedly reading the same file)
     // without penalizing thorough multi-step work.
-    static constexpr int kLoopRepeat = 5;
+    static constexpr int kLoopRepeat = 3;
     int loop_count = 0;
     std::string last_loop_key;
 

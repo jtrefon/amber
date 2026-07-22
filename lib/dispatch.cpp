@@ -8,6 +8,31 @@
 
 namespace agent {
 
+namespace {
+
+// Check if a tool call (name + arguments) already exists in history.
+// Returns a descriptive message string if duplicate, empty string if not.
+std::string find_duplicate_call(const std::string& fn, const json& args,
+                                 const std::vector<Message>& history) {
+    std::string args_str = args.dump();
+    for (const auto& m : history) {
+        if (m.role == "assistant" && !m.tool_calls.is_null()) {
+            for (const auto& tc : m.tool_calls) {
+                auto func = tc.value("function", json::object());
+                if (func.value("name", "") == fn &&
+                    func.value("arguments", "") == args_str) {
+                    return "tool '" + fn + "' was already called with these "
+                           "exact arguments. Use the result from the "
+                           "conversation history above instead of repeating it.";
+                }
+            }
+        }
+    }
+    return {};
+}
+
+} // namespace
+
 // Fail-safe approval: with no handler, deny gated tools outright. A session
 // grant is recorded so the same tool is auto-approved for the rest of the turn.
 bool approve_tool(const Tool& tool, const json& args, const AgentHooks& hooks,
@@ -49,6 +74,10 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
             c.denied_reason = "unknown tool: " + c.fn;
         } else if (cfg.mode == agent::AgentMode::Read && !c.tool->is_read_only()) {
             c.denied_reason = "tool \"" + c.fn + "\" is not available in read mode";
+        } else if (c.args_ok) {
+            std::string dup = find_duplicate_call(c.fn, c.args, history);
+            if (!dup.empty())
+                c.denied_reason = dup;
             log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
                                       {"reason", "read_mode"}});
         } else if (c.tool->requires_approval() &&
