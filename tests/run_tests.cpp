@@ -36,7 +36,7 @@ TEST(config_defaults) {
     agent::Config c;
     ASSERT_EQ(c.api_base, "http://localhost:8000/v1");
     ASSERT_EQ(c.model, "gpt-4o-mini");
-    ASSERT_EQ(c.max_tool_iterations, 32);
+    ASSERT_EQ(c.max_tool_iterations, 256);
     ASSERT_TRUE(c.stream);
     ASSERT_EQ(c.api_url(), "http://localhost:8000/v1/chat/completions");
 }

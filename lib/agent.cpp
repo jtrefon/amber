@@ -267,6 +267,14 @@ std::string Agent::run(const std::string& user_prompt) {
     auto chat = [this, &tools]() -> Message { return chat_once(tools); };
 
     FailStreak fail_streak;
+    // Loop detection: if the model makes the same tool calls more than
+    // LOOP_REPEAT times without producing a text answer, break the loop.
+    // This catches genuine loops (e.g. repeatedly reading the same file)
+    // without penalizing thorough multi-step work.
+    static constexpr int kLoopRepeat = 5;
+    int loop_count = 0;
+    json last_tool_calls;
+
     for (int iter = 0; iter < cfg_.max_tool_iterations; ++iter) {
         dbg("iteration " + std::to_string(iter + 1) + "/" +
             std::to_string(cfg_.max_tool_iterations));
@@ -288,6 +296,21 @@ std::string Agent::run(const std::string& user_prompt) {
             bool ok = dispatch_tool_calls(reply.tool_calls, cfg_, registry_,
                                           hooks_, log_, session_approved_,
                                           history_);
+
+            // Loop detection: identical tool call sets without progress
+            if (ok && last_tool_calls == reply.tool_calls) {
+                ++loop_count;
+            } else {
+                loop_count = 0;
+                last_tool_calls = reply.tool_calls;
+            }
+            if (loop_count >= kLoopRepeat) {
+                if (hooks_.on_status)
+                    hooks_.on_status("loop detected: breaking tool loop");
+                log_.event("error", {{"reason", "tool_loop_detected"}});
+                break;
+            }
+
             int worst = fail_streak.update(reply.tool_calls, ok);
             if (worst >= 3 &&
                 inject_tool_recovery_steer(history_, hooks_, log_, final_reply))

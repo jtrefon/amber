@@ -24,7 +24,7 @@ struct Config {
     std::string model = "gpt-4o-mini";
     std::string system_prompt_path;      // markdown file
     std::string tools_prompt_path;       // markdown file advertising tools
-    int max_tool_iterations = 32;
+    int max_tool_iterations = 256;
     double temperature = 0.2;
     size_t max_tokens = 16384;
     bool stream = true;                  // use SSE streaming when supported
