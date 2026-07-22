@@ -274,6 +274,8 @@ std::string Agent::run(const std::string& user_prompt) {
     static constexpr int kLoopRepeat = 3;
     int loop_count = 0;
     std::string last_loop_key;
+    int text_loop_count = 0;
+    std::string last_text;
 
     for (int iter = 0; iter < cfg_.max_tool_iterations; ++iter) {
         dbg("iteration " + std::to_string(iter + 1) + "/" +
@@ -328,6 +330,39 @@ std::string Agent::run(const std::string& user_prompt) {
                 inject_tool_recovery_steer(history_, hooks_, log_, final_reply))
                 break;
             continue;
+        }
+
+        // Text loop detection.
+        // Phase 1 (count=2): inject a recovery steer asking the model to
+        //   move on or use a tool.  Does not break the loop.
+        // Phase 2 (count=5): hard break — model looped beyond recovery.
+        if (reply.content == last_text && !reply.content.empty()) {
+            ++text_loop_count;
+            if (text_loop_count == 2) {
+                // Phase 1: soft recovery
+                Message steer;
+                steer.role = "user";
+                steer.content = "You are repeating the same response. "
+                    "If you are done, say \"done.\" If you need more "
+                    "information, use a tool. Do not repeat yourself.";
+                history_.push_back(steer);
+                if (hooks_.on_status)
+                    hooks_.on_status("text loop: injected recovery steer");
+                last_text.clear();
+            }
+            if (text_loop_count >= 5) {
+                // Phase 2: hard break
+                if (hooks_.on_status)
+                    hooks_.on_status("agent looped beyond recovery, stopping");
+                log_.event("error", {{"reason", "text_loop_unrecoverable"}});
+                final_reply = "[loop detected: the model repeated itself "
+                             "and did not recover. Please rephrase your request.]";
+                if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
+                break;
+            }
+        } else {
+            text_loop_count = 0;
+            last_text = reply.content;
         }
 
         std::string candidate = reply.content;
