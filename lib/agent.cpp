@@ -178,6 +178,7 @@ const AgentHooks& Agent::silent_hooks() const {
 CompressionResult Agent::compress_now() {
     CompressionResult r;
     if (!compression_) return r;
+    if (history_.size() < 2) return r;    // nothing meaningful to compress
 
     auto t0 = std::chrono::steady_clock::now();
     auto elapsed_ms = [&] {
@@ -243,10 +244,12 @@ CompressionResult Agent::compress_now() {
 
     // Build per-turn tags for statistics (based on pre-collapse indexing).
     std::vector<Classification> per_turn_tags(before.size(), Classification::core);
-    for (const auto& seg : cr.segments) {
-        size_t end = std::min(seg.turn_end, before.size() - 1);
-        for (size_t i = seg.turn_start; i <= end; ++i)
-            per_turn_tags[i] = seg.tag;
+    if (before.size() > 0) {
+        for (const auto& seg : cr.segments) {
+            size_t end = std::min(seg.turn_end, before.size() - 1);
+            for (size_t i = seg.turn_start; i <= end && i < before.size(); ++i)
+                per_turn_tags[i] = seg.tag;
+        }
     }
 
     // Step 5: apply classification to produce compressed history.
