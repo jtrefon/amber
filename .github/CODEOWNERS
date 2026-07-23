@@ -1,0 +1,4 @@
+# Every file requires approval from jtrefon before merge.
+# Combined with branch protection "Require code owner review",
+# this ensures no PR merges without explicit sign-off.
+* @jtrefon
