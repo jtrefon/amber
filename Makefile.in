@@ -82,6 +82,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/third_party/md4c/md4c.o
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o
+TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 
 CORE_LIB  = libagent_core.a
 TOOLS_LIB = libagent_tools.a
@@ -142,8 +143,8 @@ check: $(BUILD_DIR)/smoketest
 test: $(BUILD_DIR)/run_tests
 	$(BUILD_DIR)/run_tests
 
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
@@ -192,9 +193,13 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 	@mkdir -p $(BUILD_DIR)/tools/search
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
+$(BUILD_DIR)/tests/run_tests.o: $(SRC_DIR)/tests/run_tests.cpp
 	@mkdir -p $(BUILD_DIR)/tests
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/tui_tests.o: $(SRC_DIR)/tests/tui_tests.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS) -c $< -o $@
 
 # Pull in auto-generated header dependencies (ignored if absent, e.g. first run).
 -include $(CORE_OBJS:.o=.d)
