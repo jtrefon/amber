@@ -15,6 +15,7 @@
 #include "agent/statusbar.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
+#include "agent/agent_helpers.h"
 #include "agent/job.h"
 #include "agent/tools.h"
 

@@ -4,6 +4,7 @@
 #include "agent/agent_helpers.h"
 #include "agent/tool_call_parser.h"
 #include "agent/llm.h"
+#include "agent/experience.h"
 
 #include <cctype>
 #include <functional>
@@ -106,6 +107,31 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
                       "] Please retry or adjust your approach.";
         return err;
     }
+}
+
+void extract_tool_results_as_memories(const std::vector<Message>& history,
+                                      MemoryStore& store,
+                                      const std::string& save_path,
+                                      size_t& new_memories_out) {
+    size_t n = 0;
+    for (const auto& msg : history) {
+        if (msg.role == "tool" && msg.content.size() > 50 &&
+            msg.content.size() < 5000) {
+            Memory mem;
+            auto nl = msg.content.find('\n');
+            mem.content = (nl == std::string::npos)
+                ? msg.content.substr(0, 200)
+                : msg.content.substr(0, nl);
+            mem.tags = {msg.name};
+            mem.evidence_count = 1;
+            store.upsert(mem);
+            ++n;
+        }
+    }
+    store.decay_all();
+    if (!save_path.empty())
+        store.save(save_path);
+    new_memories_out += n;
 }
 
 std::string empty_turn_reply(const std::vector<Message>& history) {

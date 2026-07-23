@@ -9,7 +9,6 @@
 #include "agent/dispatch.h"
 
 #include <chrono>
-#include <future>
 #include <stdexcept>
 #include <string>
 #include <unistd.h>
@@ -133,31 +132,14 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
     }
     if (stats.valid && hooks_.on_stats) hooks_.on_stats(stats);
 
-    // If compression ran, fire async experience extraction.
-    // Uses simple heuristics on tool results from the full (uncompressed)
-    // history.  Full LLM-based extraction happens in compress_now().
+    // If compression ran, run the lightweight experience extraction inline.
+    // This runs synchronously — the heuristic is fast (iterates history with
+    // simple string checks) and avoids the use-after-free risk of a detached
+    // thread accessing memory_store_ and history_ during Agent shutdown.
     if (did_compress && memory_store_ && experience_cfg_.enabled) {
-        std::thread([this]() {
-            size_t n = 0;
-            for (const auto& msg : history_) {
-                if (msg.role == "tool" && msg.content.size() > 50 &&
-                    msg.content.size() < 5000) {
-                    Memory mem;
-                    auto nl = msg.content.find('\n');
-                    mem.content = (nl == std::string::npos)
-                        ? msg.content.substr(0, 200)
-                        : msg.content.substr(0, nl);
-                    mem.tags = {msg.name};
-                    mem.evidence_count = 1;
-                    memory_store_->upsert(mem);
-                    ++n;
-                }
-            }
-            memory_store_->decay_all();
-            if (!experience_cfg_.store_path.empty())
-                memory_store_->save(experience_cfg_.store_path);
-            last_extraction_.new_memories += n;
-        }).detach();
+        extract_tool_results_as_memories(
+            history_, *memory_store_, experience_cfg_.store_path,
+            last_extraction_.new_memories);
     }
 
     ++turn_counter_;
