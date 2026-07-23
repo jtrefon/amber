@@ -15,8 +15,10 @@
 #include "tui/markdown.h"
 #include "tests/test_util.h"
 
+#include <array>
 #include <cstdio>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -2586,6 +2588,45 @@ TEST(compression_observer_interface) {
     Obs o;
     o.on_compress_start(0, 0);
     ASSERT(o.called);
+}
+
+// ---------------------------------------------------------------------------
+// Build system — separate core and tool archives (FIX-010)
+// ---------------------------------------------------------------------------
+
+TEST(build_system_separates_core_and_tools) {
+    // After FIX-010, `make lib` produces separate archives:
+    //   libagent_core.a  — lib/*.o (domain core only)
+    //   libagent_tools.a — tools/*.o (tool adapters)
+    // This test verifies both exist with the expected contents.
+    // Currently (pre-fix) only libagent.a exists — the test fails.
+    std::string core_archive = "libagent_core.a";
+    std::string tools_archive = "libagent_tools.a";
+    std::ifstream core_f(core_archive);
+    std::ifstream tools_f(tools_archive);
+    if (!core_f.is_open()) {
+        std::fprintf(stderr, "%s not found - build system not split yet\n", core_archive.c_str());
+        ASSERT(false);
+    }
+    if (!tools_f.is_open()) {
+        std::fprintf(stderr, "%s not found - build system not split yet\n", tools_archive.c_str());
+        ASSERT(false);
+    }
+    core_f.close();
+    tools_f.close();
+
+    // Verify core archive has no tool objects
+    std::string core_contents;
+    {
+        std::array<char, 128> buf;
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(
+            popen(("ar t " + core_archive).c_str(), "r"), pclose);
+        if (pipe) while (fgets(buf.data(), buf.size(), pipe.get())) core_contents += buf.data();
+    }
+    if (core_contents.find("tools/") != std::string::npos) {
+        std::fprintf(stderr, "core archive contains tool objects\n");
+        ASSERT(false);
+    }
 }
 
 // ---------------------------------------------------------------------------
