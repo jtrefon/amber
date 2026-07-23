@@ -87,9 +87,12 @@ Tui::~Tui() {
     for (const auto & window : windows_) {
         Window& w = *window;
         if (!w.dirty || !w.agent || w.agent->history().empty()) continue;
+        std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
+        std::fflush(stderr);
         agent::Session s = snapshot(w);
         if (store_.save(s)) w.session_id = s.id;
     }
+    std::fprintf(stderr, "\rsession save complete\n");
     endwin();
 }
 
@@ -164,6 +167,7 @@ bool Tui::drain_events() {
                 fold_reasoning();
             win().stream_color = P_ASSISTANT;
             win().stream_buf += ev.text;
+            live_ctx_offset_ += static_cast<long>(ev.text.size()) / 4 + 1;
             win().scroll_top = max_scroll();
             break;
         case AgentEvent::Status:
@@ -237,8 +241,10 @@ bool Tui::drain_events() {
             break;
         case AgentEvent::Stats:
             stats_ = ev.stats;
-            if (ev.stats.prompt_tokens >= 0)
+            if (ev.stats.prompt_tokens >= 0) {
                 ctx_used_ = ev.stats.prompt_tokens;
+                live_ctx_offset_ = 0;
+            }
             break;
         case AgentEvent::Error:
             state_ = agent::RunState::Error;
@@ -518,7 +524,7 @@ void Tui::run() {
                 continue;
             }
             if (agent_busy_.load()) {
-                agent::request_tool_cancel();
+                cfg_.cancel_token.request();
                 agent_cancel_.store(true);
                 append_line(P_STATUS, "cancelling…");
                 draw(); draw_input(input);
@@ -527,58 +533,23 @@ void Tui::run() {
             continue;
         }
         if (ch == '\t') {
-            // Argument context (/cmd partial): complete against the command's
-            // own candidate list (zsh-style). A single Tab extends the input to
-            // the shared prefix inline; only a second Tab on an already-complete
-            // (ambiguous) prefix opens the ncurses selection popup.
-            if (input.find(' ') != std::string::npos) {
-                size_t sp = input.find(' ');
-                std::string name = input.substr(1, sp - 1);
-                const Command* c = find_command(name);
-                if (c && c->complete_arg) {
-                    std::string partial = input.substr(sp + 1);
-                    auto choices = c->complete_arg(partial);
-                    if (!choices.empty()) {
-                        if (choices.size() == 1) {
-                            input = "/" + name + " " + choices[0] + " ";
-                            arg_tab_prefix_.clear();
-                        } else {
-                            std::string cp = palette::common_prefix(choices);
-                            if (cp.size() > partial.size()) {
-                                // Single Tab: extend inline to the shared
-                                // prefix. A following Tab (when already there)
-                                // opens the selection popup.
-                                input = std::string{"/"}.append(name).append(" ").append(cp);
-                                arg_tab_prefix_ = input;
-                            } else if (input == arg_tab_prefix_) {
-                                // Second Tab on an already-complete prefix:
-                                // show the zsh-style selection list.
-                                int sel = menu_select("complete: " + input,
-                                                      choices);
-                                if (sel >= 0 &&
-                                    sel < static_cast<int>(choices.size()))
-                                    input = "/" + name + " " + choices[sel] +
-                                            " ";
-                                arg_tab_prefix_.clear();
-                            } else {
-                                // First Tab at the prefix: nothing more to
-                                // extend inline; arm for a second Tab.
-                                arg_tab_prefix_ = input;
-                            }
-                        }
-                        if (drawer_open_) { drawer_open_ = false; draw(); }
-                        draw_input(input);
-                        continue;
-                    }
-                }
-            }
-            // Command-name completion via the drawer.
-            if (drawer_open_) {
-                input = drawer_complete(input);
-                drawer_sel_ = 0;
-                draw(); draw_input(input);
+            auto tr = completer_.handle_tab(commands(), input, drawer_sel_);
+            if (tr.show_popup) {
+                int sel = menu_select("complete: " + tr.input, tr.popup_items);
+                if (sel >= 0 && sel < static_cast<int>(tr.popup_items.size()))
+                    input = tr.popup_items[sel] + " ";
+                else
+                    input = tr.input;
+                if (drawer_open_) { drawer_open_ = false; draw(); }
+                draw_input(input);
                 continue;
             }
+            input = tr.input;
+            if (tr.close_drawer && drawer_open_) {
+                drawer_open_ = false; draw();
+            }
+            draw_input(input);
+            continue;
         }
         if (drawer_open_ && (ch == KEY_UP || ch == KEY_DOWN)) {
             int n = static_cast<int>(filter_commands(drawer_token(input)).size());
@@ -677,13 +648,13 @@ void Tui::run() {
         }
         if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
             if (!input.empty()) input.pop_back();
-            arg_tab_prefix_.clear();
+            completer_.reset();
             update_drawer(input);
             draw(); draw_input(input); continue;
         }
         if (ch >= 32 && ch <= 126 && input.size() < 65536) {
             input += static_cast<char>(ch);
-            arg_tab_prefix_.clear();
+            completer_.reset();
             update_drawer(input);
             ensure_chat_window();
             draw(); draw_input(input); continue;

@@ -7,14 +7,9 @@
 #include <memory>
 #include <vector>
 #include "agent/tool.h"
+#include "agent/process.h"
 
 namespace agent {
-
-// Request cancellation of any running tool.  Thread-safe atomic flag;
-// the TUI sets it, the tool's execution loop polls it.
-void request_tool_cancel();
-bool is_tool_cancel_requested();
-void clear_tool_cancel();
 
 class JobService;  // process_* tools bind to the host-owned job service
 
@@ -23,7 +18,8 @@ class JobService;  // process_* tools bind to the host-owned job service
 std::unique_ptr<Tool> make_read_tool();
 std::unique_ptr<Tool> make_write_tool();
 std::unique_ptr<Tool> make_search_tool();
-std::unique_ptr<Tool> make_bash_tool(JobService* jobs = nullptr);
+std::unique_ptr<Tool> make_bash_tool(JobService* jobs = nullptr,
+                                     const CancellationToken& cancel_token = {});
 
 // Process (background job) tool factories. They all share the caller-owned
 // JobService so model-started jobs are visible and killable from the host.

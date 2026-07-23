@@ -130,6 +130,10 @@ public:
         client_.set_debug_log(path);
     }
 
+    // Enable or disable detection subsystems at runtime (/set detection namespace).
+    void set_detection_loop(bool on) { cfg_.detection_loop = on; }
+    void set_detection_duplicate(bool on) { cfg_.detection_duplicate = on; }
+
 private:
     // Build and push the system message if the conversation is empty. Idempotent.
     void ensure_system_prompt();

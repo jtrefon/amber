@@ -14,37 +14,46 @@ namespace {
 // Returns a descriptive message string if duplicate, empty string if not.
 std::string find_duplicate_call(const std::string& fn, const json& args,
                                  const std::vector<Message>& history) {
-    std::string args_str = args.dump();
     for (const auto& m : history) {
         if (m.role == "assistant" && !m.tool_calls.is_null()) {
             for (const auto& tc : m.tool_calls) {
                 auto func = tc.value("function", json::object());
-                if (func.value("name", "") == fn &&
-                    func.value("arguments", "") == args_str) {
-                    // Build a short summary of the arguments (first 120 chars)
-                    std::string preview;
-                    if (args.is_object()) {
-                        for (auto it = args.begin(); it != args.end(); ++it) {
-                            if (it.value().is_string())
-                                preview += it.value().get<std::string>() + " ";
-                            else
-                                preview += it.key() + " ";
-                        }
-                    }
-                    if (preview.size() > 120)
-                        preview.resize(120);
-                    return "You already ran \"" + fn + "\" with these "
-                           "exact parameters (" + preview + "...). "
-                           "Repeating the same tool call will produce the "
-                           "same result. Use the output already in the "
-                           "conversation, or if you hit a loop, say \"done\" "
-                           "or \"stop\" to end this task.";
+                if (func.value("name", "") != fn) continue;
+                // Stored arguments is a JSON-encoded string (from the LLM);
+                // compare by parsing both to eliminate whitespace differences.
+                json stored_args;
+                try {
+                    stored_args = json::parse(func.value("arguments", ""));
+                } catch (...) {
+                    continue;
                 }
+                // Compare parsed JSON objects (eliminates whitespace differences
+                // between the LLM's raw arguments string and our re-serialization).
+                if (!(stored_args == args)) continue;
+                // Build a short summary of the arguments (first 120 chars)
+                std::string preview;
+                if (args.is_object()) {
+                    for (auto it = args.begin(); it != args.end(); ++it) {
+                        if (it.value().is_string())
+                            preview += it.value().get<std::string>() + " ";
+                        else
+                            preview += it.key() + " ";
+                    }
+                }
+                if (preview.size() > 120)
+                    preview.resize(120);
+                return "You already ran \"" + fn + "\" with these "
+                       "exact parameters (" + preview + "...). "
+                       "Repeating the same tool call will produce the "
+                       "same result. Use the output already in the "
+                       "conversation, or if you hit a loop, say \"done\" "
+                        "or \"stop\" to end this task.";
             }
         }
     }
     return {};
 }
+
 
 } // namespace
 
@@ -89,22 +98,26 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
             c.denied_reason = "unknown tool: " + c.fn;
         } else if (cfg.mode == agent::AgentMode::Read && !c.tool->is_read_only()) {
             c.denied_reason = "tool \"" + c.fn + "\" is not available in read mode";
-        } else if (c.args_ok) {
-            std::string dup = find_duplicate_call(c.fn, c.args, history);
-            if (!dup.empty())
-                c.denied_reason = dup;
             log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
                                       {"reason", "read_mode"}});
-        } else if (c.tool->requires_approval() &&
-                   !session_approved.count(c.fn) &&
-                   cfg.mode != agent::AgentMode::Yolo &&
-                   !(hooks.on_approval &&
-                     approve_tool(*c.tool, c.args, hooks, session_approved))) {
-            c.denied_reason = "denied by user: " + c.fn + " was not approved";
-            log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
-                                       {"args", c.args}});
-        } else {
-            c.approved = true;
+        } else if (c.args_ok) {
+            // Duplicate detection: skip when disabled (/set detection duplicate off).
+            std::string dup;
+            if (cfg.detection_duplicate)
+                dup = find_duplicate_call(c.fn, c.args, history);
+            if (!dup.empty()) {
+                c.denied_reason = dup;
+            } else if (c.tool->requires_approval() &&
+                       !session_approved.count(c.fn) &&
+                       cfg.mode != agent::AgentMode::Yolo &&
+                       !(hooks.on_approval &&
+                         approve_tool(*c.tool, c.args, hooks, session_approved))) {
+                c.denied_reason = "denied by user: " + c.fn + " was not approved";
+                log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
+                                          {"args", c.args}});
+            } else {
+                c.approved = true;
+            }
         }
         todo.push_back(std::move(c));
     }

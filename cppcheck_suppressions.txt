@@ -21,3 +21,4 @@ unreadVariable
 uselessOverride
 knownConditionTrueFalse
 unreachableCode
+constParameterPointer

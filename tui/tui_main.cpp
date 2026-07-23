@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 
     agent::ToolRegistry registry;
     agent::JobService jobs;
-    agent::register_default_tools(registry, jobs);
+    agent::register_default_tools(registry, jobs, cfg.cancel_token);
 
     tui::Tui tui(cfg, registry, jobs);
     tui.run();

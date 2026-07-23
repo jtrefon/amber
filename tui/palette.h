@@ -12,51 +12,81 @@ namespace tui::palette {
 // A slash command. The command table is the single source of truth for
 // dispatch, tab-completion, the command drawer, and /help.
 struct Command {
-    std::string name;                 // primary name, without the leading /
-    std::vector<std::string> aliases; // alternate names (no leading /)
-    std::string args;                 // usage hint, e.g. "new|close <name>"
-    std::string help;                 // one-line description
+    std::string name;
+    std::vector<std::string> aliases;
+    std::string args;
+    std::string help;
     std::function<void(const std::string& arg)> run;
-    // Argument tab-completion: given the partially-typed argument, return the
-    // list of valid completions (e.g. {"always","auto","never"}). The command
-    // itself owns its option list. Return empty for free-form / no completion.
     std::function<std::vector<std::string>(const std::string&)> complete_arg;
-    // Current value of the command's setting, for the no-argument help frame.
-    // Return empty if the command takes no persistent setting.
     std::function<std::string()> current_value;
 };
 
-// The command-name token currently typed: text after '/' up to the first
-// space. Empty string means "just a slash" (show everything).
+// ---------------------------------------------------------------------------
+// Free helpers (stateless, used by drawer rendering and others)
+// ---------------------------------------------------------------------------
+
+// Text before the first space (command name without '/').
 std::string token(const std::string& input);
 
-// Whether the input has advanced past the command name (a space is present),
-// in which case the drawer stops filtering and just shows the matched usage.
+// Whether input has a space (argument mode).
 bool has_arg(const std::string& input);
 
-// Should the drawer be visible for this input? Only when '/' leads.
+// Whether the drawer should be open (line starts with '/').
 bool wants_open(const std::string& input);
 
-// Commands whose name or an alias starts with `tok` (case-sensitive, as
-// commands are lowercase). Empty token matches all. The returned pointers
-// alias into `commands` and are valid for its lifetime.
+// Commands whose name or alias starts with `tok`. Primary-name matches
+// are listed before alias matches.
 std::vector<const Command*> filter(const std::vector<Command>& commands,
                                    const std::string& tok);
 
-// Find a command by name or alias (both given without the leading slash).
+// Find by name or alias.
 const Command* find(const std::vector<Command>& commands,
                     const std::string& name);
 
-// Longest common prefix of the given names.
+// Longest common prefix of a set of strings.
 std::string common_prefix(const std::vector<std::string>& names);
 
-// Canonical "/name <args>" spelling for help/usage lines.
+// "/name <args>" usage line.
 std::string usage(const Command& c);
 
-// Tab pressed with the drawer open: complete the command name. `sel` is the
-// currently highlighted match index (or <0 for none). Returns the (possibly
-// rewritten) input line.
-std::string complete(const std::vector<Command>& commands,
-                     const std::string& input, int sel);
+// ---------------------------------------------------------------------------
+// Completer  —  Tab-press state machine
+// ---------------------------------------------------------------------------
+
+// Result of one Tab press.
+struct TabResult {
+    std::string input;                   // new input line (or unchanged)
+    bool close_drawer = false;           // drawer should be hidden
+    bool show_popup = false;             // show ncurses selection popup
+    std::vector<std::string> popup_items; // items for the popup
+};
+
+class Completer {
+public:
+    // Process one Tab press.  Delegates to command-name completion (drawer)
+    // or argument completion (inline / popup) depending on input shape.
+    // `drawer_open` / `drawer_sel` are updated by the caller and fed back in.
+    TabResult handle_tab(const std::vector<Command>& commands,
+                         const std::string& input,
+                         int drawer_sel);
+
+    // Drawer items for the current input (for rendering).
+    std::vector<const Command*> drawer_matches(
+        const std::vector<Command>& commands,
+        const std::string& input) const;
+
+    // Called after any non-Tab key so the internal state resets.
+    void reset() { consecutive_tabs_ = 0; }
+
+private:
+    int consecutive_tabs_ = 0;
+    std::string last_tab_input_;  // what handle_tab returned last time
+
+    TabResult complete_cmd_name(const std::vector<Command>& commands,
+                                const std::string& input,
+                                int drawer_sel);
+    TabResult complete_arg(const Command& cmd,
+                           const std::string& partial);
+};
 
 }  // namespace tui::palette
