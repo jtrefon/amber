@@ -31,17 +31,19 @@ jobs:
       - name: Configure
         run: ./configure
 
+      # Run static analysis before tests so lint/analyze failures fail fast
+      # without burning CI minutes on test execution. clang-tidy needs the
+      # clang toolchain so it runs only on the clang++ matrix leg; cppcheck
+      # is compiler-agnostic.
+      - name: Lint (clang-tidy)
+        if: matrix.lint
+        run: make lint
+
+      - name: Static analysis (cppcheck)
+        run: make analyze
+
       - name: Build
         run: make
 
       - name: Test
         run: make test
-
-      # Static analysis. clang-tidy needs the clang toolchain, so it runs only
-      # on the clang++ matrix leg; cppcheck is compiler-agnostic.
-      - name: Static analysis (cppcheck)
-        run: make analyze
-
-      - name: Lint (clang-tidy)
-        if: matrix.lint
-        run: make lint
