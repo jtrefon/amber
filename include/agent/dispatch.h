@@ -4,15 +4,21 @@
 #ifndef AGENT_DISPATCH_H
 #define AGENT_DISPATCH_H
 
+#include <set>
 #include <string>
 #include <vector>
 
-#include "agent/agent.h"  // Agent, Tool, ToolResult, json, AgentHooks
-#include "agent/conversation_log.h"
-#include "agent/registry.h"
-#include "agent/llm.h"
+#include <nlohmann/json.hpp>
 
 namespace agent {
+
+class ToolRegistry;
+struct Config;
+struct AgentHooks;
+class ConversationLog;
+struct Message;
+
+using json = nlohmann::json;
 
 // Execute every requested tool call, recording results into `history`. Tools
 // run in parallel via std::async; approval is checked synchronously. Returns
