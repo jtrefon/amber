@@ -6,15 +6,62 @@ on:
   pull_request:
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Static analysis — clang-tidy (per-file). Runs only on the clang toolchain
+  # since clang-tidy uses clang's AST; reports every finding against the
+  # project's .clang-tidy config.
+  # ---------------------------------------------------------------------------
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang libcurl4-openssl-dev \
+            libncursesw5-dev pkg-config clang-tidy
+
+      - name: Configure (generates config for include paths)
+        run: CXX=clang++ ./configure
+
+      - name: Lint (clang-tidy)
+        run: make lint
+
+  # ---------------------------------------------------------------------------
+  # Static analysis — cppcheck (cross-TU, compiler-agnostic). Independent of
+  # the compiler matrix; runs once.
+  # ---------------------------------------------------------------------------
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libcurl4-openssl-dev \
+            libncursesw5-dev pkg-config cppcheck
+
+      - name: Configure
+        run: ./configure
+
+      - name: Static analysis (cppcheck)
+        run: make analyze
+
+  # ---------------------------------------------------------------------------
+  # Build + unit test — runs under both g++ and clang++ so ABI/syntax
+  # differences are caught at PR time.
+  # ---------------------------------------------------------------------------
   build-and-test:
+    needs: [lint, analyze]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         cxx: [g++, clang++]
-        include:
-          - cxx: clang++
-            lint: true
     env:
       CXX: ${{ matrix.cxx }}
     steps:
@@ -25,25 +72,83 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential clang libcurl4-openssl-dev \
-            libncursesw5-dev pkg-config \
-            clang-tidy cppcheck
+            libncursesw5-dev pkg-config
 
       - name: Configure
         run: ./configure
-
-      # Run static analysis before tests so lint/analyze failures fail fast
-      # without burning CI minutes on test execution. clang-tidy needs the
-      # clang toolchain so it runs only on the clang++ matrix leg; cppcheck
-      # is compiler-agnostic.
-      - name: Lint (clang-tidy)
-        if: matrix.lint
-        run: make lint
-
-      - name: Static analysis (cppcheck)
-        run: make analyze
 
       - name: Build
         run: make
 
       - name: Test
         run: make test
+
+  # ---------------------------------------------------------------------------
+  # CD — build release artifacts on every push to main (not just tags), so the
+  # latest main is always shippable. Artifacts are stored for 7 days.
+  # ---------------------------------------------------------------------------
+  cd:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    needs: [build-and-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libcurl4-openssl-dev libncursesw5-dev \
+            pkg-config ruby ruby-dev
+          sudo gem install --no-document fpm
+
+      - name: Configure
+        run: ./configure --prefix=/usr
+
+      - name: Build
+        run: make
+
+      - name: Stage install tree
+        run: |
+          rm -rf stage
+          make install DESTDIR="$PWD/stage"
+
+      - name: Build tarball + checksum
+        run: |
+          version="$(cat VERSION)-main"
+          name="amber-${version}-linux-x86_64"
+          mkdir -p dist
+          tar -C stage -czf "dist/${name}.tar.gz" .
+          ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+
+      - name: Build .deb (fpm)
+        run: |
+          version="$(cat VERSION)-main"
+          fpm -s dir -t deb \
+            -n amber \
+            -v "${version}" \
+            --license "Apache-2.0" \
+            --maintainer "Jacek Trefon <hello@trefon.com>" \
+            --url "https://github.com/jtrefon/amber" \
+            --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
+            --depends "libcurl4" \
+            --depends "libncursesw6" \
+            --deb-no-default-config-files \
+            -C stage \
+            -p "dist/amber_${version}_amd64.deb" \
+            usr
+          ( cd dist && sha256sum "amber_${version}_amd64.deb" > "amber_${version}_amd64.deb.sha256" )
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: amber-linux-tarball
+          path: dist/*.tar.gz*
+          retention-days: 7
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: amber-linux-deb
+          path: dist/*.deb*
+          retention-days: 7
