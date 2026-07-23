@@ -524,7 +524,7 @@ void Tui::run() {
                 continue;
             }
             if (agent_busy_.load()) {
-                agent::request_tool_cancel();
+                cfg_.cancel_token.request();
                 agent_cancel_.store(true);
                 append_line(P_STATUS, "cancelling…");
                 draw(); draw_input(input);

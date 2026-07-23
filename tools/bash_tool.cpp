@@ -23,16 +23,6 @@
 namespace agent {
 
 namespace {
-
-std::atomic<bool> g_tool_cancel{false};
-
-} // namespace
-
-void request_tool_cancel() { g_tool_cancel.store(true); }
-bool is_tool_cancel_requested() { return g_tool_cancel.load(); }
-void clear_tool_cancel() { g_tool_cancel.store(false); }
-
-namespace {
 constexpr int kMaxTimeout = 3600;          // 1 hour ceiling
 constexpr std::size_t kMaxOutput = std::size_t{64} * 1024;   // 64 KiB cap
 
@@ -151,13 +141,15 @@ void format_result(std::string output, bool timed_out, int code, int timeout,
 // group so a timeout can reliably kill the whole subtree.
 class BashTool : public Tool {
 public:
-    explicit BashTool(JobService* jobs = nullptr) : jobs_(jobs) {}
+    explicit BashTool(JobService* jobs = nullptr,
+                      const CancellationToken& cancel_token = {})
+        : jobs_(jobs), cancel_token_(cancel_token) {}
 
     std::string name() const override { return "bash"; }
 
 private:
-    JobService* jobs_ = nullptr;   // when set, the command is tracked as a
-                                    // JobService job (visible in /job, killable)
+    JobService* jobs_ = nullptr;
+    CancellationToken cancel_token_;
 
 
     std::string description() const override {
@@ -223,9 +215,9 @@ private:
             }
             bool timed_out = false;
             while (true) {
-                if (is_tool_cancel_requested()) {
+                if (cancel_token_.is_requested()) {
                     timed_out = true;
-                    clear_tool_cancel();
+                    cancel_token_.clear();
                     break;
                 }
                 Job* j = jobs_->get(id);
@@ -275,8 +267,9 @@ private:
     }
 };
 
-std::unique_ptr<Tool> make_bash_tool(JobService* jobs) {
-    return std::make_unique<BashTool>(jobs);
+std::unique_ptr<Tool> make_bash_tool(JobService* jobs,
+                                     const CancellationToken& cancel_token) {
+    return std::make_unique<BashTool>(jobs, cancel_token);
 }
 
 } // namespace agent

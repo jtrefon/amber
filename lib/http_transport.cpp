@@ -4,7 +4,7 @@
 #include "http_transport.h"
 #include "agent/agent_helpers.h"
 #include "agent/debug_log.h"
-#include "agent/tools.h"
+#include "agent/process.h"
 
 #include <curl/curl.h>
 #include <stdexcept>
@@ -16,8 +16,12 @@ namespace {
 
 // libcurl progress callback — aborts the transfer when the tool-cancel
 // flag is set, so Esc / /stop interrupts a blocking LLM call promptly.
-int cancel_check_cb(void*, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-    return is_tool_cancel_requested() ? 1 : 0;
+// The `clientp` argument is a `const CancellationToken*` set via
+// CURLOPT_XFERINFODATA. A null or uncontested token is a no-op.
+int cancel_check_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    if (!clientp) return 0;
+    const auto* token = static_cast<const CancellationToken*>(clientp);
+    return token->is_requested() ? 1 : 0;
 }
 
 // libcurl write callback shim: variadic_setopt cannot convert a lambda to a
@@ -119,6 +123,7 @@ std::string post_completion(const Config& cfg, const std::string& payload,
     curl_easy_setopt(c, CURLOPT_TIMEOUT, accept_sse ? 900L : 300L);
     curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
+    curl_easy_setopt(c, CURLOPT_XFERINFODATA, &cfg.cancel_token);
 
     CURLcode rc = curl_easy_perform(c);
     long http_code = 0;
@@ -168,6 +173,7 @@ void stream_completion(const Config& cfg, const std::string& payload,
     curl_easy_setopt(c, CURLOPT_BUFFERSIZE, 1024L);  // surface deltas promptly
     curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
+    curl_easy_setopt(c, CURLOPT_XFERINFODATA, &cfg.cancel_token);
 
     CURLcode rc = curl_easy_perform(c);
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status_out);

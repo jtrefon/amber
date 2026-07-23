@@ -104,9 +104,116 @@ known mess, even in adjacent code.
   - Keep the dependency arrows pointing at the core. If `lib/` `#include`s
     anything from `tui/`, `src/`, or `tools/` (except the tool interface
     headers), that is an isolation violation.
-- **Tests** — behavior changes get tests in `tests/run_tests.cpp`. Keep them
-  fast and hermetic; mock the LLM by calling `LLMClient::parse_models` /
-  `merge_server_info` directly rather than hitting the network.
+
+## Development workflow
+
+### Branching strategy
+
+- **`main`** is the stable, release-ready branch. Always green. No direct pushes.
+- Every fix or feature lives on a **feature branch** named `<type>/<short-description>`:
+  - `fix/detached-thread-use-after-free`
+  - `refactor/cancel-token-to-core`
+  - `docs/add-tdd-policy`
+- Branches are short-lived (days, not weeks). Open a **draft PR** early for
+  visibility, mark it ready for review when all checks pass.
+- Merge via **squash-merge** to keep `main` history clean. The squashed commit
+  message must follow the imperative, scoped convention
+  (e.g. `fix: cancel token now lives in core, not bash_tool globals`).
+
+### Fix workflow — Red → Proposal → Sign-off → Green → PR
+
+Every bug fix and every feature MUST follow this strict sequence:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  1. RED — Write a failing test that reproduces the bug or    │
+│     specifies the desired behaviour. Commit it on the branch │
+│     so CI shows the failure.                                 │
+│                                                              │
+│  2. PROPOSAL — Draft the architecture refactor in the PR     │
+│     description or a linked doc (see docs/fix-tracker.md).   │
+│     Describe target state, not the diff.                     │
+│                                                              │
+│  3. SIGN-OFF — Reviewer approves the architecture proposal   │
+│     before any production code is written.                   │
+│                                                              │
+│  4. GREEN — Implement the fix. Make the test pass. Refactor  │
+│     to meet all Engineering Principles above.                │
+│                                                              │
+│  5. PR — Open/update the pull request. All checks must pass  │
+│     (make, make test, make lint, make analyze). Reviewer     │
+│     verifies the diff matches the proposal.                  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- Do NOT write production code before the failing test (step 1) exists.
+- Do NOT implement without an approved proposal (step 3).
+- A fix that "can't be tested" is a sign the architecture needs refactoring,
+  not an excuse to skip the test.
+
+### Code review checklist
+
+Every PR reviewer MUST verify:
+
+- [ ] SOLID conformance: no new SRP violations, dependency direction is correct.
+- [ ] Hexagonal boundaries intact: `lib/` never `#include`s from `tui/`, `src/`,
+      or `tools/` (except tool interface headers).
+- [ ] Size limits: classes ≤200 lines, methods ≤10 lines with minimal branching.
+- [ ] Test sequence: the PR includes a red (failing) commit followed by a green
+      fix commit (or a clear explanation if not possible).
+- [ ] All CI checks pass: `make`, `make test`, `make lint`, `make analyze`.
+- [ ] Zero dead code: no commented-out code, no stubs, no speculative branches.
+- [ ] SPDX/Apache-2.0 header on every new file.
+- [ ] No new clang-tidy or cppcheck warnings.
+
+## Coding standards
+
+- **RAII** — ownership follows resource acquisition. Use `unique_ptr` for
+  exclusive ownership, scoped objects on the stack, and `shared_ptr` only when
+  ownership is genuinely shared. Never use raw `new`/`delete`.
+- **Rule of Five / Zero** — prefer Rule of Zero (implicit special members are
+  correct). When a destructor, copy constructor, copy assignment, move constructor,
+  or move assignment is user-defined, explicitly declare all five or `= delete`.
+- **`noexcept`** — mark pure accessors, trivial getters, and functions that
+  never throw as `noexcept`. Only omit `noexcept` when the function legitimately
+  throws. Every `Tool::name()`, `is_read_only()`, `requires_approval()`,
+  `SearchBackend::name()`, `Config::api_url()` should be `noexcept`.
+- **Const-correctness** — mark member functions and parameters `const` wherever
+  possible. Use `const&` for read-only parameters of non-trivial types.
+
+## Error handling conventions
+
+- **Tools** — always return errors via `ToolResult{false, "", error_msg}`.
+  Never throw from `Tool::execute()`. Catch unexpected exceptions and convert
+  to `ToolResult`.
+- **Library functions** — may throw `std::runtime_error` for truly exceptional
+  conditions (transport failure, corrupt config). Do not throw for expected
+  states (empty results, missing files) — return an error code, empty optional,
+  or `ToolResult`.
+- **Recoverable errors** — model errors (malformed JSON, HTTP 4xx/5xx) should
+  be returned as assistant messages or error-flagged `ToolResult` so the LLM
+  can self-recover.
+- **Unrecoverable errors** — configuration corruption, libcurl init failure.
+  Throw at construction; the host (CLI/TUI) catches and reports.
+- **Assertions** — use `assert()` only for invariants that should never fire
+  in a correct program. Never use asserts for input validation.
+
+## TDD / Red-Green-Refactor (mandatory)
+
+- **Bug fixes** must start with a failing test that reproduces the bug. Only
+  then is the production code changed (Red → Green). After the fix passes,
+  the test is committed alongside the fix.
+- **New features** must follow the same cycle: write a failing test that
+  specifies the desired behaviour, implement until green, then refactor.
+- **Coverage threshold**: new code paths must have ≥80% line coverage. The CI
+  gate (`make test`) must pass before merge.
+- **Hermetic tests**: mock the LLM by testing `LLMClient::parse_models` /
+  `merge_server_info` directly; do not hit a live server in the unit suite.
+- **Test granularity**: prefer many small `TEST(name)` blocks over a single
+  large test function. Each test exercises one behaviour.
+- **Test location**: behaviour changes go in `tests/run_tests.cpp`. New test
+  files may be added for major modules (`tests/compressor_test.cpp`,
+  `tests/agent_test.cpp`) — add them to `UNITTEST_OBJ` in `Makefile`.
 
 ## Design patterns in use
 
@@ -117,8 +224,18 @@ known mess, even in adjacent code.
   wires the standard set for every host.
 - **Registry / Service Locator** — `ToolRegistry` owns and looks up tools by
   name for the agent loop and the LLM `tools[]` schema.
-- **Template Method / Hook** — `AgentHooks` (callbacks) let UIs observe the loop
-  without the core knowing about them.
+- **Observer** — `AgentHooks` (via `std::function` callbacks) lets UIs observe
+  the agent loop without the core knowing about them. More precise than "Template
+  Method" since the hooks are set, not subclassed.
+- **Command** — `ProcessStartTool` / `ProcessReadTool` / `ProcessStopTool` each
+  encapsulate a background-process request as an object with a uniform `execute()`.
+- **Protection Proxy** — `Workspace::confine()` guards filesystem access behind
+  path-confinement checks, proxying the real filesystem.
+- **Null Object** — `Agent::silent_hooks()` returns a no-op `AgentHooks` so
+  internal confirmation exchanges never reach the scrollback, without null-checking
+  at every call site.
+- **Memento** — `compress_now()` snapshots `history_` before mutation and
+  restores it on failure, capturing and rolling back state.
 - **Adapter** — `LLMClient` adapts libcurl + the OpenAI JSON contract behind a
   small C++ interface; `Workspace` adapts filesystem confinement behind a simple
   `confine()` port.
@@ -158,9 +275,23 @@ claim 0-debt conformance:
 - `tools/bash_tool.cpp` (191 → 196): `execute()` decomposed into free helpers
   `run_with_timeout` + `drain_output` in the anonymous namespace.
 
-Method-size and branching: most methods are short, but the long `chat_stream`
-and `bash_tool::execute` bodies violate the <10-line / low-branch rule and should
-be decomposed first (highest leverage, lowest risk).
+### Current outstanding issues
+See `docs/issues.md` for the full register and `docs/fix-tracker.md` for detailed
+fix plans. Key items:
+
+| Issue | Severity | Area |
+|-------|----------|------|
+| Detached thread use-after-free in `chat_once` | Critical | `lib/agent.cpp` |
+| HTTP transport depends on tool-cancel globals (boundary violation) | Critical | `lib/http_transport.cpp` |
+| `Agent::run()` violates SRP and 10-line rule | High | `lib/agent.cpp` |
+| `Agent::compress_now()` violates SRP and dupes pipeline | High | `lib/agent.cpp` |
+| Tool cancel as module-level globals | High | `tools/bash_tool.cpp` |
+| Tools compiled into `libagent.a` (build-layer blur) | High | `Makefile.in` |
+| Tests include TUI headers (boundary violation) | Medium | `tests/run_tests.cpp` |
+
+Method-size and branching: most methods are short, but the long `run`,
+`compress_now`, and `bash_tool::execute` bodies violate the <10-line / low-branch
+rule and should be decomposed first (highest leverage, lowest risk).
 
 When refactoring to fix these, preserve behavior and keep `make test` green. Run
 `make clean && make` after touching headers (see Compilation gotchas).

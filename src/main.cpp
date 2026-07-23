@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 
     agent::ToolRegistry registry;
     agent::JobService jobs;
-    agent::register_default_tools(registry, jobs);
+    agent::register_default_tools(registry, jobs, cfg.cancel_token);
 
     agent::AgentHooks hooks;
     hooks.on_status = [](const std::string& s) {

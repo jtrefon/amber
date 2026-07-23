@@ -109,11 +109,13 @@ void apply_memory_ops(MemoryStore& store,
                 }
             }
         } else {
-            // Upsert
+            // Upsert — LLM explicitly confirmed this knowledge; promote
+            // immediately so it appears in the system prompt on the next turn.
             Memory mem;
             mem.content = op.content;
             mem.tags = op.tags;
-            mem.evidence_count = 1;
+            mem.evidence_count = 3;
+            mem.promoted = true;
             store.upsert(mem);
         }
     }
@@ -142,7 +144,8 @@ void apply_skill_ops(MemoryStore& store,
             sk.content = op.content;
             sk.tags = op.tags;
             sk.trigger_phrase = op.trigger_phrase;
-            sk.evidence_count = 1;
+            sk.evidence_count = 3;
+            sk.promoted = true;
             store.upsert(sk);
         }
     }

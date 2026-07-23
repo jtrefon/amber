@@ -281,7 +281,7 @@ void Tui::build_commands() {
         {"stop", {"cancel", "kill"}, "",
          "terminate the current tool and agent loop",
           [this](const std::string&) {
-              agent::request_tool_cancel();
+              cfg_.cancel_token.request();
               agent_cancel_.store(true);
               append_line(P_STATUS, "stop requested");
           }},
