@@ -100,6 +100,21 @@ struct CompressionResponse {
 // Ports
 // ---------------------------------------------------------------------------
 
+// Observer notified of compression pipeline progress. All methods have
+// default no-op implementations so consumers only override what they need.
+struct CompressionObserver {
+    virtual ~CompressionObserver() = default;
+    virtual void on_compress_start(size_t /*msgs_before*/, size_t /*tokens_before*/) {}
+    virtual void on_loop_collapse(size_t /*removed*/) {}
+    virtual void on_llm_request_sent() {}
+    virtual void on_llm_reply_received(long /*elapsed_ms*/) {}
+    virtual void on_parse_result(const CompressionResponse& /*cr*/) {}
+    virtual void on_apply_result(const CompressionResult& /*r*/) {}
+    virtual void on_memory_ops_applied(size_t /*upsert*/, size_t /*deprecate*/) {}
+    virtual void on_error(const std::string& /*msg*/) {}
+    virtual void on_compress_done(const CompressionResult& /*r*/) {}
+};
+
 class CompressionGate {
 public:
     virtual ~CompressionGate() = default;
@@ -114,10 +129,16 @@ public:
 class CompressionStrategy {
 public:
     virtual ~CompressionStrategy() = default;
+    // Compress `history` and return the compressed message list.
+    // When `response_out` is non-null it receives the parsed CompressionResponse
+    // containing memory/skill ops identified by the LLM. This lets callers apply
+    // knowledge operations after compression without re-parsing.
     virtual std::vector<Message> compress(
         const std::vector<Message>& history,
         const CompressionConfig& cfg,
-        LLMClient& client) = 0;
+        LLMClient& client,
+        CompressionObserver* observer = nullptr,
+        CompressionResponse* response_out = nullptr) = 0;
 };
 
 // ---------------------------------------------------------------------------

@@ -2571,6 +2571,24 @@ TEST(agent_loop_behavioral_spec) {
 }
 
 // ---------------------------------------------------------------------------
+// Compression observer (FIX-004)
+// ---------------------------------------------------------------------------
+
+TEST(compression_observer_interface) {
+    // CompressionObserver must exist and be usable as a virtual base.
+    // This test fails to COMPILE until the interface is declared in
+    // compressor.h.  Once it exists, a simple implementation is created
+    // to verify it's not abstract.
+    struct Obs : agent::CompressionObserver {
+        bool called = false;
+        void on_compress_start(size_t, size_t) override { called = true; }
+    };
+    Obs o;
+    o.on_compress_start(0, 0);
+    ASSERT(o.called);
+}
+
+// ---------------------------------------------------------------------------
 // CancellationToken (FIX-001)
 // ---------------------------------------------------------------------------
 

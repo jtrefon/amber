@@ -159,160 +159,101 @@ const AgentHooks& Agent::silent_hooks() const {
 
 CompressionResult Agent::compress_now() {
     CompressionResult r;
-    if (!compression_) return r;
-    if (history_.size() < 2) return r;    // nothing meaningful to compress
+    if (!compression_ || history_.size() < 2) return r;
 
-    auto t0 = std::chrono::steady_clock::now();
-    auto elapsed_ms = [&] {
-        auto now = std::chrono::steady_clock::now();
-        return std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
-    };
-    auto status = [&](const std::string& msg) {
-        std::string line = "[+" + std::to_string(elapsed_ms() / 1000) + "s] " + msg + "\n";
-        if (hooks_.on_status) hooks_.on_status(line);
-        // Unbuffered write — stderr is visible even when the TUI event loop
-        // is blocked by this synchronous call.
-        write(STDERR_FILENO, line.c_str(), line.size());
-    };
-
-    // Snapshot state before any mutation.
     auto before = history_;
-    for (const auto& msg : before)
-        r.tokens_before += (msg.content.size() + msg.reasoning.size()) / 4;
-    r.messages_before = before.size();
 
-    status("compress started  (" + std::to_string(r.messages_before) +
-           " msgs, ~" + std::to_string(r.tokens_before) + " tokens)");
-
-    // Step 1: collapse detected loops (modifies history_ in place).
-    size_t pre_loop = history_.size();
-    collapse_loops(history_);
-    size_t loops_found = pre_loop - history_.size();
-    if (loops_found > 0)
-        status("loop collapse: removed " + std::to_string(loops_found) +
-               " repeated messages");
-
-    // Step 2: build and append the compression request.
-    Message req = build_compression_request(history_);
-    history_.push_back(req);
-
-    status("LLM request sent — waiting for classification...");
-
-    // Step 3: one LLM call — same system prompt, no tools.
-    Message reply;
-    try {
-        reply = client_.chat(history_, {});
-    } catch (const std::exception& e) {
-        history_ = before;
-        status("FAILED — " + std::string(e.what()));
-        return r;
-    }
-    history_.pop_back();
-
-    status("LLM replied (" + std::to_string(elapsed_ms() / 1000) + "s)"
-           "  — parsing response...");
-
-    // Step 4: parse the LLM response.
-    auto cr = parse_compression_response(reply.content);
-    if (cr.segments.empty()) {
-        history_ = before;
-        status("FAILED — unparseable LLM response, compression aborted");
-        return r;
-    }
-
-    status("parsed " + std::to_string(cr.segments.size()) + " classification spans, "
-           + std::to_string(cr.memory_ops.size()) + " memory ops, "
-           + std::to_string(cr.skill_ops.size()) + " skill ops");
-
-    // Build per-turn tags for statistics (based on pre-collapse indexing).
-    std::vector<Classification> per_turn_tags(before.size(), Classification::core);
-    if (before.size() > 0) {
-        for (const auto& seg : cr.segments) {
-            size_t end = std::min(seg.turn_end, before.size() - 1);
-            for (size_t i = seg.turn_start; i <= end && i < before.size(); ++i)
-                per_turn_tags[i] = seg.tag;
+    // Status reporter: bridges CompressionObserver to hooks_.on_status
+    // and writes progress lines to stderr for the TUI.
+    class Reporter : public CompressionObserver {
+    public:
+        Reporter(const AgentHooks& h, CompressionResult& res)
+            : hooks_(h), r_(res), t0_(std::chrono::steady_clock::now()),
+              before_msgs_(0) {}
+        void set_before(size_t msgs, size_t tokens) {
+            before_msgs_ = msgs; r_.messages_before = msgs; r_.tokens_before = tokens;
         }
-    }
+        void on_compress_start(size_t msgs, size_t) override {
+            log("compress started (" + std::to_string(msgs) + " msgs)");
+        }
+        void on_loop_collapse(size_t removed) override {
+            log("loop collapse: removed " + std::to_string(removed) + " messages");
+        }
+        void on_llm_request_sent() override { log("LLM request sent..."); }
+        void on_llm_reply_received(long sec) override {
+            log("LLM replied (" + std::to_string(sec) + "s)");
+        }
+        void on_parse_result(const CompressionResponse& cr) override {
+            log("parsed " + std::to_string(cr.segments.size()) + " spans, "
+                + std::to_string(cr.memory_ops.size()) + " memory ops, "
+                + std::to_string(cr.skill_ops.size()) + " skill ops");
+        }
+        void on_apply_result(const CompressionResult&) override {
+            log("apply complete");
+        }
+        void on_memory_ops_applied(size_t up, size_t dep) override {
+            log("store: " + std::to_string(up) + " upserts, "
+                + std::to_string(dep) + " deprecations");
+        }
+        void on_error(const std::string& msg) override {
+            log("FAILED — " + msg);
+        }
+        void on_compress_done(const CompressionResult& final) override {
+            r_.messages_after = final.messages_after;
+            r_.tokens_after = final.tokens_after;
+            auto now = std::chrono::steady_clock::now();
+            long total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - t0_).count();
+            log("finished in " + std::to_string(total_ms / 1000) + "s "
+                + std::to_string(r_.messages_before) + " -> "
+                + std::to_string(r_.messages_after) + " msgs");
+        }
+    private:
+        const AgentHooks& hooks_;
+        CompressionResult& r_;
+        std::chrono::steady_clock::time_point t0_;
+        size_t before_msgs_;
+        void log(const std::string& msg) {
+            auto now = std::chrono::steady_clock::now();
+            long sec = std::chrono::duration_cast<std::chrono::seconds>(
+                now - t0_).count();
+            std::string line = "[+" + std::to_string(sec) + "s] " + msg + "\n";
+            if (hooks_.on_status) hooks_.on_status(line);
+            write(STDERR_FILENO, line.c_str(), line.size());
+        }
+    };
 
-    // Step 5: apply classification to produce compressed history.
-    history_ = apply_classification(history_, cr);
+    // Compute before-stats and run pipeline through the observer
+    size_t tokens_before = 0;
+    for (const auto& m : before)
+        tokens_before += (m.content.size() + m.reasoning.size()) / 4;
 
-    for (const auto& msg : history_)
-        r.tokens_after += (msg.content.size() + msg.reasoning.size()) / 4;
+    Reporter reporter(hooks_, r);
+    reporter.set_before(before.size(), tokens_before);
+
+    CompressionConfig cc = load_compression_config(cfg_);
+    CompressionResponse pipeline_cr;
+    history_ = compression_->compress(before, cc, client_, &reporter, &pipeline_cr);
+
+    // Compute after-stats
+    for (const auto& m : history_)
+        r.tokens_after += (m.content.size() + m.reasoning.size()) / 4;
     r.messages_after = history_.size();
-    for (auto t : per_turn_tags) {
-        if (t == Classification::core) ++r.core_count;
-        else if (t == Classification::context) ++r.context_count;
-        else if (t == Classification::prune) ++r.prune_count;
-    }
+    r.core_count = r.messages_after > 0 ? r.messages_after : 0;
 
-    status("apply: " + std::to_string(r.core_count) + " core kept, "
-           + std::to_string(r.context_count) + " archived, "
-           + std::to_string(r.prune_count) + " pruned"
-           "  (" + std::to_string(r.messages_before) + " → "
-           + std::to_string(r.messages_after) + " msgs, "
-           + std::to_string(r.tokens_before) + " → "
-           + std::to_string(r.tokens_after) + " tokens)");
-
-    // Step 6: apply memory/skill upsert/deprecate ops from the LLM.
+    // Apply memory/skill upsert/deprecate ops identified by the LLM.
     size_t mem_upsert = 0, mem_deprecate = 0;
-    size_t sk_upsert = 0, sk_deprecate = 0;
-    for (const auto& op : cr.memory_ops) {
-        if (op.action == "deprecate") ++mem_deprecate;
-        else ++mem_upsert;
+    for (const auto& op : pipeline_cr.memory_ops) {
+        if (op.action == "deprecate") ++mem_deprecate; else ++mem_upsert;
     }
-    for (const auto& op : cr.skill_ops) {
-        if (op.action == "deprecate") ++sk_deprecate;
-        else ++sk_upsert;
-    }
-
-    if (memory_store_ && (!cr.memory_ops.empty() || !cr.skill_ops.empty())) {
+    if (memory_store_ && !pipeline_cr.memory_ops.empty()) {
         memory_store_->set_current_turn(turn_counter_);
-
-        status("store: " + std::to_string(mem_upsert) + " memory upserts, "
-               + std::to_string(mem_deprecate) + " deprecations, "
-               + std::to_string(sk_upsert) + " skill upserts, "
-               + std::to_string(sk_deprecate) + " deprecations");
-
-        // List each memory op with preview
-        for (const auto& op : cr.memory_ops) {
-            std::string preview = op.content;
-            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-            status("  memory " + op.action + ": " + preview);
-        }
-        for (const auto& op : cr.skill_ops) {
-            std::string preview = op.content;
-            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-            status("  skill " + op.action + ": " + preview);
-        }
-
-        apply_memory_ops(*memory_store_, cr.memory_ops, "");
-        apply_skill_ops(*memory_store_, cr.skill_ops, "");
-
-        status("store: applying decay...");
-        size_t mem_before = memory_store_->top_memories(1000, "").size();
+        apply_memory_ops(*memory_store_, pipeline_cr.memory_ops, "");
         memory_store_->decay_all();
-        size_t mem_after = memory_store_->top_memories(1000, "").size();
-        size_t decayed = (mem_before > mem_after) ? (mem_before - mem_after) : 0;
-        if (decayed > 0 || mem_before > 0)
-            status("store: decay removed " + std::to_string(decayed) + " items"
-                   "  (was " + std::to_string(mem_before)
-                   + ", now " + std::to_string(mem_after) + ")");
-
-        if (!experience_cfg_.store_path.empty()) {
-            status("store: saving to " + experience_cfg_.store_path + "...");
+        if (!experience_cfg_.store_path.empty())
             memory_store_->save(experience_cfg_.store_path);
-        }
-        status("store: done");
+        reporter.on_memory_ops_applied(mem_upsert, mem_deprecate);
     }
-
-    long long total_ms = elapsed_ms();
-    status("finished in " + std::to_string(total_ms / 1000) + "s ("
-           + std::to_string(total_ms) + "ms)"
-           "  " + std::to_string(r.messages_before) + " → "
-           + std::to_string(r.messages_after) + " msgs, ~"
-           + std::to_string(r.tokens_before) + " → ~"
-           + std::to_string(r.tokens_after) + " tokens");
 
     last_compression_ = r;
     return r;

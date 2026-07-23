@@ -64,41 +64,48 @@ public:
     std::vector<Message> compress(
         const std::vector<Message>& history,
         const CompressionConfig& cfg,
-        LLMClient& client) override {
+        LLMClient& client,
+        CompressionObserver* observer,
+        CompressionResponse* response_out) override {
         (void)cfg;
 
-        // Step 1: mutable copy
+        if (observer) observer->on_compress_start(history.size(), 0);
+
         auto copy = history;
-
-        // Step 2: collapse detected loops
+        size_t pre_loop = copy.size();
         collapse_loops(copy);
+        if (observer) {
+            size_t removed = pre_loop - copy.size();
+            if (removed > 0) observer->on_loop_collapse(removed);
+        }
 
-        // Step 3: build and append compression request
         Message request = build_compression_request(copy);
         copy.push_back(request);
 
-        // Step 4: call LLM (same system prompt, no tools)
+        if (observer) observer->on_llm_request_sent();
         Message reply;
         try {
             reply = client.chat(copy, {});
         } catch (const std::exception&) {
-            // LLM call failed — return original history
+            if (observer) observer->on_error("LLM call failed");
             return history;
         }
-
-        // Step 5: remove the request from history (keep it from the LLM's
-        // perspective but don't store it permanently)
         copy.pop_back();
 
-        // Step 6: parse the LLM response
+        if (observer) observer->on_llm_reply_received(0);
         CompressionResponse cr = parse_compression_response(reply.content);
         if (cr.segments.empty()) {
-            // Parse failed or empty response — return copy unchanged
+            if (observer) observer->on_error("unparseable compression response");
             return copy;
         }
 
-        // Step 7: apply classification to produce compressed history
-        return apply_classification(copy, cr);
+        if (observer) observer->on_parse_result(cr);
+        auto result = apply_classification(copy, cr);
+        if (observer) observer->on_apply_result({});
+
+        if (response_out) *response_out = std::move(cr);
+        if (observer) observer->on_compress_done({});
+        return result;
     }
 };
 
