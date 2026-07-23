@@ -2480,6 +2480,42 @@ TEST(integration_apply_and_retrieve) {
 }
 
 // ---------------------------------------------------------------------------
+// Agent memory extraction (FIX-002)
+// ---------------------------------------------------------------------------
+
+TEST(agent_extract_memories_from_tool_results) {
+    agent::ExperienceConfig ec;
+    ec.enabled = true;
+    auto store = agent::make_memory_store(ec);
+
+    std::vector<agent::Message> history;
+    agent::Message m1; m1.role = "tool"; m1.name = "bash";
+    m1.content = "compiler_test.cpp: OK\n103 passed, 0 failed\n";
+    history.push_back(m1);
+
+    agent::Message m2; m2.role = "tool"; m2.name = "read";
+    m2.content = "This is a very long line of actual knowledge that should be "
+                 "captured as a memory because it contains useful information.";
+    history.push_back(m2);
+
+    agent::Message m3; m3.role = "tool"; m3.name = "bash";
+    m3.content = "x";  // too short — should be skipped
+    history.push_back(m3);
+
+    size_t extracted = 0;
+    agent::extract_tool_results_as_memories(
+        history, *store, "", extracted);
+
+    // Two tool messages met the heuristic (short one skipped)
+    ASSERT_EQ(extracted, 2u);
+
+    // Verify the first memory (bash result, truncated at newline)
+    auto top = store->top_memories(10, "");
+    ASSERT(!top.empty());
+    ASSERT(top[0].content.find("compiler_test.cpp") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
 // CancellationToken (FIX-001)
 // ---------------------------------------------------------------------------
 
