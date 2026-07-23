@@ -362,149 +362,146 @@ std::string Agent::confirm_turn(const std::string& candidate,
     return check.content;
 }
 
+void Agent::log_and_push_user_prompt(const std::string& prompt) {
+    if (!log_.enabled()) log_.open(cfg_.log_path);
+    log_.event("user", {{"content", prompt}, {"model", cfg_.model}});
+    Message msg;
+    msg.role = "user";
+    msg.content = prompt;
+    history_.push_back(msg);
+}
+
+bool Agent::dispatch_with_loop_detection(
+    const Message& reply, FailStreak& fail_streak,
+    int& loop_count, std::string& last_loop_key,
+    int& tool_recovery_attempts, std::string& final_reply) {
+    if (reply.tool_calls.is_null() || reply.tool_calls.empty())
+        return false;
+
+    if (hooks_.on_assistant && !reply.content.empty())
+        hooks_.on_assistant(reply.content);
+    if (hooks_.on_state) hooks_.on_state(RunState::Tooling);
+    if (hooks_.on_status) hooks_.on_status("assistant requested tools");
+    if (hooks_.on_debug)
+        hooks_.on_debug("dispatching " + std::to_string(reply.tool_calls.size()) +
+                        " tool call(s)");
+
+    bool ok = dispatch_tool_calls(reply.tool_calls, cfg_, registry_,
+                                  hooks_, log_, session_approved_, history_);
+
+    if (cfg_.detection_loop) {
+        auto loop_key = [](const json& calls) -> std::string {
+            std::string key;
+            for (const auto& tc : calls) {
+                auto fn = tc.value("function", json::object());
+                key += fn.value("name", "") + ":" + fn.value("arguments", "") + "|";
+            }
+            return key;
+        };
+        if (ok) {
+            std::string cur = loop_key(reply.tool_calls);
+            if (cur == last_loop_key) ++loop_count;
+            else { loop_count = 0; last_loop_key = cur; }
+        }
+        if (loop_count >= 3) {
+            if (hooks_.on_status)
+                hooks_.on_status("loop detected: breaking tool loop");
+            log_.event("error", {{"reason", "tool_loop_detected"}});
+            return true;
+        }
+        int worst = fail_streak.update(reply.tool_calls, ok);
+        if (worst >= 3) {
+            if (tool_recovery_attempts >= 1) {
+                if (hooks_.on_status)
+                    hooks_.on_status("tool recovery failed, stopping");
+                log_.event("tool_recovery", {{"action", "hard_stop"}});
+                final_reply = "[stopped: tool calls kept failing after recovery "
+                              "steer; rephrase your request or run a simpler command]";
+                return true;
+            }
+            inject_tool_recovery_steer(history_, hooks_, log_);
+            ++tool_recovery_attempts;
+        }
+    }
+    return true;
+}
+
+bool Agent::detect_text_loop(const Message& reply, int& text_loop_count,
+                              std::string& last_text, std::string& final_reply) {
+    if (!cfg_.detection_loop) return false;
+    if (reply.content == last_text && !reply.content.empty()) {
+        ++text_loop_count;
+        if (text_loop_count == 2) {
+            Message steer;
+            steer.role = "user";
+            steer.content = "You are repeating the same response. "
+                "If you are done, say \"done.\" If you need more "
+                "information, use a tool. Do not repeat yourself.";
+            history_.push_back(steer);
+            if (hooks_.on_status)
+                hooks_.on_status("text loop: injected recovery steer");
+            last_text.clear();
+        }
+        if (text_loop_count >= 5) {
+            if (hooks_.on_status)
+                hooks_.on_status("agent looped beyond recovery, stopping");
+            log_.event("error", {{"reason", "text_loop_unrecoverable"}});
+            final_reply = "[loop detected: the model repeated itself "
+                         "and did not recover. Please rephrase your request.]";
+            if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
+            return true;
+        }
+    } else {
+        text_loop_count = 0;
+        last_text = reply.content;
+    }
+    return false;
+}
+
+std::string Agent::try_confirm(const std::string& candidate,
+                                const std::vector<Tool*>& tools) {
+    std::string accepted = confirm_turn(candidate, tools);
+    if (accepted.empty()) return {};
+    if (hooks_.on_assistant) hooks_.on_assistant(accepted);
+    log_.event("assistant", {{"content", accepted}});
+    return accepted;
+}
+
 std::string Agent::run(const std::string& user_prompt) {
     ensure_system_prompt();
-    if (!log_.enabled()) log_.open(cfg_.log_path);
-    log_.event("user", {{"content", user_prompt}, {"model", cfg_.model}});
+    log_and_push_user_prompt(user_prompt);
 
-    Message user_msg;
-    user_msg.role = "user";
-    user_msg.content = user_prompt;
-    history_.push_back(user_msg);
-    std::string final_reply;
-    auto dbg = [this](const std::string& msg) {
-        if (hooks_.on_debug) hooks_.on_debug(msg);
-    };
-    auto set_state = [this](RunState s) { if (hooks_.on_state) hooks_.on_state(s); };
     std::vector<Tool*> tools;
     for (const auto& t : registry_.tools()) tools.push_back(t.get());
-    auto chat = [this, &tools]() -> Message { return chat_once(tools); };
+    auto chat = [this, &tools]() { return chat_once(tools); };
 
     FailStreak fail_streak;
-    int tool_recovery_attempts = 0;
-    // Loop detection: if the model makes the same tool calls more than
-    // LOOP_REPEAT times without producing a text answer, break the loop.
-    // This catches genuine loops (e.g. repeatedly reading the same file)
-    // without penalizing thorough multi-step work.  Can be disabled at
-    // runtime via cfg_.detection_loop (/set loop detection off).
-    static constexpr int kLoopRepeat = 3;
-    int loop_count = 0;
-    std::string last_loop_key;
-    int text_loop_count = 0;
-    std::string last_text;
+    int loop_count = 0, text_loop_count = 0, tool_recovery_attempts = 0;
+    std::string last_loop_key, last_text, final_reply;
 
     for (int iter = 0; iter < cfg_.max_tool_iterations; ++iter) {
-        dbg("iteration " + std::to_string(iter + 1) + "/" +
-            std::to_string(cfg_.max_tool_iterations));
+        if (hooks_.on_debug)
+            hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
+                            std::to_string(cfg_.max_tool_iterations));
         Message reply = safe_chat_once(hooks_, log_, chat, "generation");
         history_.push_back(reply);
         if (!reply.reasoning.empty())
             log_.event("reasoning", {{"content", reply.reasoning}});
-
         maybe_extract_text_tool_calls(reply.tool_calls, reply.content,
                                       history_.back(), hooks_);
 
-        if (!reply.tool_calls.is_null() && !reply.tool_calls.empty()) {
-            if (hooks_.on_assistant && !reply.content.empty())
-                hooks_.on_assistant(reply.content);
-            set_state(RunState::Tooling);
-            if (hooks_.on_status) hooks_.on_status("assistant requested tools");
-            dbg("dispatching " + std::to_string(reply.tool_calls.size()) +
-                " tool call(s)");
-            bool ok = dispatch_tool_calls(reply.tool_calls, cfg_, registry_,
-                                          hooks_, log_, session_approved_,
-                                          history_);
-
-            // Loop detection: same tool names + same arguments repeated.
-            // Disabled when cfg_.detection_loop is false (/set loop detection off).
-            if (cfg_.detection_loop) {
-                auto loop_key = [](const json& calls) -> std::string {
-                    std::string key;
-                    for (const auto& tc : calls) {
-                        auto fn = tc.value("function", json::object());
-                        key += fn.value("name", "") + ":";
-                        key += fn.value("arguments", "") + "|";
-                    }
-                    return key;
-                };
-                if (ok) {
-                    std::string cur = loop_key(reply.tool_calls);
-                    if (cur == last_loop_key) {
-                        ++loop_count;
-                    } else {
-                        loop_count = 0;
-                        last_loop_key = cur;
-                    }
-                }
-                if (loop_count >= kLoopRepeat) {
-                    if (hooks_.on_status)
-                        hooks_.on_status("loop detected: breaking tool loop");
-                    log_.event("error", {{"reason", "tool_loop_detected"}});
-                    break;
-                }
-
-                int worst = fail_streak.update(reply.tool_calls, ok);
-                if (worst >= 3) {
-                    if (tool_recovery_attempts >= 1) {
-                        // Second recovery cycle with no improvement — hard stop
-                        if (hooks_.on_status)
-                            hooks_.on_status("tool recovery failed, stopping");
-                        log_.event("tool_recovery", {{"action", "hard_stop"}});
-                        final_reply =
-                            "[stopped: tool calls kept failing after recovery "
-                            "steer; rephrase your request or run a simpler command]";
-                        break;
-                    }
-                    inject_tool_recovery_steer(history_, hooks_, log_);
-                    ++tool_recovery_attempts;
-                    continue;
-                }
-            }
+        if (dispatch_with_loop_detection(reply, fail_streak, loop_count,
+                                          last_loop_key, tool_recovery_attempts,
+                                          final_reply)) {
+            if (!final_reply.empty()) break;
             continue;
         }
+        if (detect_text_loop(reply, text_loop_count, last_text, final_reply))
+            break;
 
-        // Text loop detection.
-        // Disabled when cfg_.detection_loop is false (/set loop detection off).
-        if (cfg_.detection_loop) {
-            // Phase 1 (count=2): inject a recovery steer asking the model to
-            //   move on or use a tool.  Does not break the loop.
-            // Phase 2 (count=5): hard break — model looped beyond recovery.
-            if (reply.content == last_text && !reply.content.empty()) {
-                ++text_loop_count;
-                if (text_loop_count == 2) {
-                    // Phase 1: soft recovery
-                    Message steer;
-                    steer.role = "user";
-                    steer.content = "You are repeating the same response. "
-                        "If you are done, say \"done.\" If you need more "
-                        "information, use a tool. Do not repeat yourself.";
-                    history_.push_back(steer);
-                    if (hooks_.on_status)
-                        hooks_.on_status("text loop: injected recovery steer");
-                    last_text.clear();
-                }
-                if (text_loop_count >= 5) {
-                    // Phase 2: hard break
-                    if (hooks_.on_status)
-                        hooks_.on_status("agent looped beyond recovery, stopping");
-                    log_.event("error", {{"reason", "text_loop_unrecoverable"}});
-                    final_reply = "[loop detected: the model repeated itself "
-                                 "and did not recover. Please rephrase your request.]";
-                    if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
-                    break;
-                }
-            } else {
-                text_loop_count = 0;
-                last_text = reply.content;
-            }
-        }
-
-        std::string candidate = reply.content;
-        std::string accepted = confirm_turn(candidate, tools);
+        std::string accepted = try_confirm(reply.content, tools);
         if (!accepted.empty()) {
             final_reply = accepted;
-            if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
-            log_.event("assistant", {{"content", final_reply}});
             break;
         }
     }
@@ -515,7 +512,7 @@ std::string Agent::run(const std::string& user_prompt) {
                                           ? "empty_after_tools" : "empty_reply"}});
     }
     log_.event("turn_end", {{"content", final_reply}});
-    set_state(RunState::Idle);
+    if (hooks_.on_state) hooks_.on_state(RunState::Idle);
     return final_reply;
 }
 

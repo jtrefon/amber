@@ -7,9 +7,10 @@
 #include <map>
 #include <string>
 
-#include "agent/agent.h"  // AgentHooks, Message
 #include "agent/conversation_log.h"
-#include "agent/llm.h"  // json
+#include "agent/llm.h"  // Message, json
+
+namespace agent { struct AgentHooks; }
 
 namespace agent {
 

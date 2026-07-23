@@ -17,6 +17,7 @@
 #include "agent/conversation_log.h"
 #include "agent/compressor.h"
 #include "agent/experience.h"
+#include "agent/tool_recovery.h"
 
 namespace agent {
 
@@ -151,6 +152,28 @@ private:
     // iterating the main loop".
     std::string confirm_turn(const std::string& candidate,
                              const std::vector<Tool*>& tools);
+
+    // Log the user event and push the user message to history.
+    void log_and_push_user_prompt(const std::string& prompt);
+
+    // Dispatch tool calls with loop detection. Returns true if the loop
+    // should continue (tool calls were present and handled). Sets final_reply
+    // on hard stop.
+    bool dispatch_with_loop_detection(const Message& reply,
+                                      FailStreak& fail_streak,
+                                      int& loop_count,
+                                      std::string& last_loop_key,
+                                      int& tool_recovery_attempts,
+                                      std::string& final_reply);
+
+    // Detect repeated text replies. Returns true if a hard text loop was
+    // detected and final_reply was set.
+    bool detect_text_loop(const Message& reply, int& text_loop_count,
+                          std::string& last_text, std::string& final_reply);
+
+    // Run confirm_turn and either break with the final reply or continue.
+    std::string try_confirm(const std::string& candidate,
+                            const std::vector<Tool*>& tools);
 
     Config cfg_;
     ToolRegistry& registry_;
