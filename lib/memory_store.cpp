@@ -16,7 +16,6 @@ namespace agent {
 namespace {
 
 std::string hash_content(const std::string& content) {
-    // Simple content hash for dedup (not cryptographic).
     std::hash<std::string> hasher;
     return std::to_string(hasher(content));
 }
@@ -26,11 +25,29 @@ double compute_relevance(const std::string& user_message,
     if (user_message.empty() || tags.empty()) return 0.0;
     double score = 0.0;
     for (const auto& tag : tags) {
-        if (user_message.find(tag) != std::string::npos) {
+        if (user_message.find(tag) != std::string::npos)
             score += 1.0;
-        }
     }
     return score / static_cast<double>(tags.size());
+}
+
+double compute_freshness(int last_confirm_turn, int current_turn) {
+    if (last_confirm_turn <= 0 || current_turn <= 0) return 0.0;
+    int age = current_turn - last_confirm_turn;
+    if (age < 0) return 0.0;
+    if (age > 20) return 0.0;
+    return 1.0 - (static_cast<double>(age) / 20.0);
+}
+
+double compute_score(const Memory& mem, const std::string& user_msg,
+                     int current_turn) {
+    double evidence_w = 0.5;
+    double relevance_w = 0.3;
+    double freshness_w = 0.2;
+    double rel = compute_relevance(user_msg, mem.tags);
+    double fresh = compute_freshness(mem.last_confirm_turn, current_turn);
+    return (mem.evidence_count * evidence_w) + (rel * relevance_w) +
+           (fresh * freshness_w);
 }
 
 json memory_to_json(const Memory& mem) {
@@ -39,7 +56,9 @@ json memory_to_json(const Memory& mem) {
         {"content", mem.content},
         {"tags", mem.tags},
         {"evidence", mem.evidence_count},
-        {"score", mem.score}
+        {"last_confirm_turn", mem.last_confirm_turn},
+        {"score", mem.score},
+        {"promoted", mem.promoted}
     };
 }
 
@@ -50,7 +69,9 @@ Memory json_to_memory(const json& j) {
     for (const auto& t : j.value("tags", json::array()))
         mem.tags.push_back(t.get<std::string>());
     mem.evidence_count = j.value("evidence", 0);
+    mem.last_confirm_turn = j.value("last_confirm_turn", 0);
     mem.score = j.value("score", 0.0);
+    mem.promoted = j.value("promoted", false);
     return mem;
 }
 
@@ -63,7 +84,9 @@ json skill_to_json(const Skill& sk) {
         {"expected_outcome", sk.expected_outcome},
         {"tags", sk.tags},
         {"evidence", sk.evidence_count},
-        {"score", sk.score}
+        {"last_confirm_turn", sk.last_confirm_turn},
+        {"score", sk.score},
+        {"promoted", sk.promoted}
     };
 }
 
@@ -78,14 +101,16 @@ Skill json_to_skill(const json& j) {
     for (const auto& t : j.value("tags", json::array()))
         sk.tags.push_back(t.get<std::string>());
     sk.evidence_count = j.value("evidence", 0);
+    sk.last_confirm_turn = j.value("last_confirm_turn", 0);
     sk.score = j.value("score", 0.0);
+    sk.promoted = j.value("promoted", false);
     return sk;
 }
 
 } // namespace
 
 // =========================================================================
-// JsonMemoryStore  —  file-backed persistence
+// JsonMemoryStore  —  file-backed persistence with evidence staging
 // =========================================================================
 
 class JsonMemoryStore : public MemoryStore {
@@ -93,33 +118,75 @@ public:
     explicit JsonMemoryStore(ExperienceConfig cfg)
         : cfg_(std::move(cfg)) {
         if (!cfg_.store_path.empty())
-            load(cfg_.store_path);  // NOLINT: safe, no subclasses override
+            load(cfg_.store_path);
+    }
+
+    void set_current_turn(size_t turn) override {
+        current_turn_ = static_cast<int>(turn);
     }
 
     void upsert(const Memory& memory) override {
         std::string key = memory.id.empty() ? hash_content(memory.content) : memory.id;
-        Memory m = memory;
-        m.id = key;
-        memories_[key] = m;
+
+        auto it = memories_.find(key);
+        if (it != memories_.end()) {
+            // Re-confirmation: increment evidence, update turn
+            Memory& existing = it->second;
+            existing.evidence_count = std::min(
+                cfg_.memory_promote_threshold * 3,
+                existing.evidence_count + 1);
+            existing.last_confirm_turn = current_turn_;
+            existing.tags = memory.tags;
+            // Promote if threshold reached
+            if (!existing.promoted &&
+                existing.evidence_count >= cfg_.memory_promote_threshold) {
+                existing.promoted = true;
+            }
+        } else {
+            Memory m = memory;
+            m.id = key;
+            if (m.evidence_count <= 0) m.evidence_count = 1;
+            m.last_confirm_turn = current_turn_;
+            memories_[key] = m;
+        }
     }
 
     void upsert(const Skill& skill) override {
         std::string key = skill.id.empty() ? hash_content(skill.content) : skill.id;
-        Skill sk = skill;
-        sk.id = key;
-        skills_[key] = sk;
+
+        auto it = skills_.find(key);
+        if (it != skills_.end()) {
+            Skill& existing = it->second;
+            existing.evidence_count = std::min(
+                cfg_.skill_promote_threshold * 3,
+                existing.evidence_count + 1);
+            existing.last_confirm_turn = current_turn_;
+            existing.tags = skill.tags;
+            if (!skill.trigger_phrase.empty())
+                existing.trigger_phrase = skill.trigger_phrase;
+            if (!existing.promoted &&
+                existing.evidence_count >= cfg_.skill_promote_threshold) {
+                existing.promoted = true;
+            }
+        } else {
+            Skill sk = skill;
+            sk.id = key;
+            if (sk.evidence_count <= 0) sk.evidence_count = 1;
+            sk.last_confirm_turn = current_turn_;
+            skills_[key] = sk;
+        }
     }
 
     std::vector<Memory> top_memories(
         size_t k, const std::string& user_message) const override {
-        // Score + sort + take top K
         std::vector<std::pair<double, Memory>> scored;
         scored.reserve(memories_.size());
         for (const auto& [id, mem] : memories_) {
-            double rel = compute_relevance(user_message, mem.tags);
-            double score = (mem.evidence_count * 0.5) + (rel * 0.3)
-                           + 0.2;  // freshness placeholder
-            scored.emplace_back(score, mem);
+            if (!mem.promoted) continue;
+            double s = compute_score(mem, user_message, current_turn_);
+            Memory copy = mem;
+            copy.score = s;
+            scored.emplace_back(s, std::move(copy));
         }
         std::sort(scored.begin(), scored.end(),
                   [](const auto& a, const auto& b) {
@@ -127,7 +194,7 @@ public:
                   });
         std::vector<Memory> result;
         for (size_t i = 0; i < std::min(k, scored.size()); ++i)
-            result.push_back(scored[i].second);
+            result.push_back(std::move(scored[i].second));
         return result;
     }
 
@@ -135,6 +202,7 @@ public:
         size_t k, const std::string& user_message) const override {
         std::vector<Skill> filtered;
         for (const auto& [id, sk] : skills_) {
+            if (!sk.promoted) continue;
             if (sk.trigger_phrase.empty() ||
                 user_message.find(sk.trigger_phrase) != std::string::npos) {
                 filtered.push_back(sk);
@@ -151,10 +219,16 @@ public:
 
     void decay_all() override {
         for (auto& [id, mem] : memories_) {
-            mem.evidence_count = std::max(0, mem.evidence_count - 1);
+            if (mem.evidence_count > 0)
+                mem.evidence_count -= 1;
+            if (mem.evidence_count <= 0)
+                mem.promoted = false;
         }
         for (auto& [id, sk] : skills_) {
-            sk.evidence_count = std::max(0, sk.evidence_count - 1);
+            if (sk.evidence_count > 0)
+                sk.evidence_count -= 1;
+            if (sk.evidence_count <= 0)
+                sk.promoted = false;
         }
     }
 
@@ -203,6 +277,7 @@ private:
     ExperienceConfig cfg_;
     std::unordered_map<std::string, Memory> memories_;
     std::unordered_map<std::string, Skill> skills_;
+    int current_turn_ = 0;
 };
 
 // =========================================================================

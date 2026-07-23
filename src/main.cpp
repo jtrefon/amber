@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 
     agent::ToolRegistry registry;
     agent::JobService jobs;
-    agent::register_default_tools(registry, jobs);
+    agent::register_default_tools(registry, jobs, cfg.cancel_token);
 
     agent::AgentHooks hooks;
     hooks.on_status = [](const std::string& s) {
@@ -142,7 +142,9 @@ int main(int argc, char** argv) {
         return agent::Approval::Deny;
     };
 
-    // Build compression + experience pipeline
+    // Build compression + experience pipeline.
+    // The compressor receives the LLM client at call time (per compress()),
+    // not at construction — no client reference needed here.
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
     auto compressor = agent::make_compressor(comp_cfg);

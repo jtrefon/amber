@@ -26,6 +26,8 @@ agent::Session Tui::snapshot(Window& w) const {
 void Tui::autosave() {
     Window& w = win();
     if (!w.dirty || !w.agent || w.agent->history().empty()) return;
+    append_line(P_STATUS, "saving session...");
+    draw();
     agent::Session s = snapshot(w);
     if (store_.save(s)) {
         w.session_id = s.id;
@@ -395,6 +397,8 @@ void Tui::close_window() {
 void Tui::request_quit() { quit_ = true; }
 
 void Tui::save_workspace_now() {
+    std::fprintf(stderr, "\rsaving workspace...");
+    std::fflush(stderr);
     agent::WorkspaceState ws;
     for (const auto& w : windows_) {
         agent::WorkspaceState::WindowEntry we;
@@ -405,6 +409,7 @@ void Tui::save_workspace_now() {
     }
     ws.active = active_;
     store_.save_workspace(ws);
+    std::fprintf(stderr, "\rworkspace saved\n");
 }
 void Tui::redraw_after_modal() {
     modal_open_ = false;

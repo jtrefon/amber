@@ -8,9 +8,11 @@
 #include "agent/tool_recovery.h"
 #include "agent/dispatch.h"
 
+#include <chrono>
 #include <future>
 #include <stdexcept>
 #include <string>
+#include <unistd.h>
 
 namespace agent {
 
@@ -99,10 +101,10 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
 
     // Check compression gate.  If triggered, compress non-system messages.
     bool did_compress = false;
-    if (gate_) {
+    if (gate_ && compression_) {
         if (gate_->should_compress(history_, cfg_)) {
             auto cc = load_compression_config(cfg_);
-            prompt_msgs = compression_->compress(prompt_msgs, cc);
+            prompt_msgs = compression_->compress(prompt_msgs, cc, client_);
             gate_->set_last_compress_turn(turn_counter_);
             did_compress = true;
         }
@@ -132,21 +134,20 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
     if (stats.valid && hooks_.on_stats) hooks_.on_stats(stats);
 
     // If compression ran, fire async experience extraction.
+    // Uses simple heuristics on tool results from the full (uncompressed)
+    // history.  Full LLM-based extraction happens in compress_now().
     if (did_compress && memory_store_ && experience_cfg_.enabled) {
         std::thread([this]() {
-            TreeShaker shaker;
-            auto tags = shaker.classify(history_);
             size_t n = 0;
-            for (size_t i = 0; i < history_.size() && i < tags.size(); ++i) {
-                if (tags[i] != Classification::prune &&
-                    history_[i].role == "tool" &&
-                    history_[i].content.size() > 50) {
+            for (const auto& msg : history_) {
+                if (msg.role == "tool" && msg.content.size() > 50 &&
+                    msg.content.size() < 5000) {
                     Memory mem;
-                    auto nl = history_[i].content.find('\n');
+                    auto nl = msg.content.find('\n');
                     mem.content = (nl == std::string::npos)
-                        ? history_[i].content.substr(0, 200)
-                        : history_[i].content.substr(0, nl);
-                    mem.tags = {history_[i].name};
+                        ? msg.content.substr(0, 200)
+                        : msg.content.substr(0, nl);
+                    mem.tags = {msg.name};
                     mem.evidence_count = 1;
                     memory_store_->upsert(mem);
                     ++n;
@@ -177,28 +178,159 @@ const AgentHooks& Agent::silent_hooks() const {
 CompressionResult Agent::compress_now() {
     CompressionResult r;
     if (!compression_) return r;
+    if (history_.size() < 2) return r;    // nothing meaningful to compress
 
-    auto cc = load_compression_config(cfg_);
+    auto t0 = std::chrono::steady_clock::now();
+    auto elapsed_ms = [&] {
+        auto now = std::chrono::steady_clock::now();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
+    };
+    auto status = [&](const std::string& msg) {
+        std::string line = "[+" + std::to_string(elapsed_ms() / 1000) + "s] " + msg + "\n";
+        if (hooks_.on_status) hooks_.on_status(line);
+        // Unbuffered write — stderr is visible even when the TUI event loop
+        // is blocked by this synchronous call.
+        write(STDERR_FILENO, line.c_str(), line.size());
+    };
 
-    for (const auto& msg : history_)
+    // Snapshot state before any mutation.
+    auto before = history_;
+    for (const auto& msg : before)
         r.tokens_before += (msg.content.size() + msg.reasoning.size()) / 4;
-    r.messages_before = history_.size();
+    r.messages_before = before.size();
 
-    auto compressed = compression_->compress(history_, cc);
-    if (!compressed.empty() && compressed.size() < history_.size()) {
-        TreeShaker shaker;
-        auto tags = shaker.classify(history_);
-        for (auto t : tags) {
-            if (t == Classification::core) ++r.core_count;
-            else if (t == Classification::context) ++r.context_count;
-            else if (t == Classification::prune) ++r.prune_count;
-        }
-        history_ = std::move(compressed);
+    status("compress started  (" + std::to_string(r.messages_before) +
+           " msgs, ~" + std::to_string(r.tokens_before) + " tokens)");
+
+    // Step 1: collapse detected loops (modifies history_ in place).
+    size_t pre_loop = history_.size();
+    collapse_loops(history_);
+    size_t loops_found = pre_loop - history_.size();
+    if (loops_found > 0)
+        status("loop collapse: removed " + std::to_string(loops_found) +
+               " repeated messages");
+
+    // Step 2: build and append the compression request.
+    Message req = build_compression_request(history_);
+    history_.push_back(req);
+
+    status("LLM request sent — waiting for classification...");
+
+    // Step 3: one LLM call — same system prompt, no tools.
+    Message reply;
+    try {
+        reply = client_.chat(history_, {});
+    } catch (const std::exception& e) {
+        history_ = before;
+        status("FAILED — " + std::string(e.what()));
+        return r;
     }
+    history_.pop_back();
+
+    status("LLM replied (" + std::to_string(elapsed_ms() / 1000) + "s)"
+           "  — parsing response...");
+
+    // Step 4: parse the LLM response.
+    auto cr = parse_compression_response(reply.content);
+    if (cr.segments.empty()) {
+        history_ = before;
+        status("FAILED — unparseable LLM response, compression aborted");
+        return r;
+    }
+
+    status("parsed " + std::to_string(cr.segments.size()) + " classification spans, "
+           + std::to_string(cr.memory_ops.size()) + " memory ops, "
+           + std::to_string(cr.skill_ops.size()) + " skill ops");
+
+    // Build per-turn tags for statistics (based on pre-collapse indexing).
+    std::vector<Classification> per_turn_tags(before.size(), Classification::core);
+    if (before.size() > 0) {
+        for (const auto& seg : cr.segments) {
+            size_t end = std::min(seg.turn_end, before.size() - 1);
+            for (size_t i = seg.turn_start; i <= end && i < before.size(); ++i)
+                per_turn_tags[i] = seg.tag;
+        }
+    }
+
+    // Step 5: apply classification to produce compressed history.
+    history_ = apply_classification(history_, cr);
 
     for (const auto& msg : history_)
         r.tokens_after += (msg.content.size() + msg.reasoning.size()) / 4;
     r.messages_after = history_.size();
+    for (auto t : per_turn_tags) {
+        if (t == Classification::core) ++r.core_count;
+        else if (t == Classification::context) ++r.context_count;
+        else if (t == Classification::prune) ++r.prune_count;
+    }
+
+    status("apply: " + std::to_string(r.core_count) + " core kept, "
+           + std::to_string(r.context_count) + " archived, "
+           + std::to_string(r.prune_count) + " pruned"
+           "  (" + std::to_string(r.messages_before) + " → "
+           + std::to_string(r.messages_after) + " msgs, "
+           + std::to_string(r.tokens_before) + " → "
+           + std::to_string(r.tokens_after) + " tokens)");
+
+    // Step 6: apply memory/skill upsert/deprecate ops from the LLM.
+    size_t mem_upsert = 0, mem_deprecate = 0;
+    size_t sk_upsert = 0, sk_deprecate = 0;
+    for (const auto& op : cr.memory_ops) {
+        if (op.action == "deprecate") ++mem_deprecate;
+        else ++mem_upsert;
+    }
+    for (const auto& op : cr.skill_ops) {
+        if (op.action == "deprecate") ++sk_deprecate;
+        else ++sk_upsert;
+    }
+
+    if (memory_store_ && (!cr.memory_ops.empty() || !cr.skill_ops.empty())) {
+        memory_store_->set_current_turn(turn_counter_);
+
+        status("store: " + std::to_string(mem_upsert) + " memory upserts, "
+               + std::to_string(mem_deprecate) + " deprecations, "
+               + std::to_string(sk_upsert) + " skill upserts, "
+               + std::to_string(sk_deprecate) + " deprecations");
+
+        // List each memory op with preview
+        for (const auto& op : cr.memory_ops) {
+            std::string preview = op.content;
+            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
+            status("  memory " + op.action + ": " + preview);
+        }
+        for (const auto& op : cr.skill_ops) {
+            std::string preview = op.content;
+            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
+            status("  skill " + op.action + ": " + preview);
+        }
+
+        apply_memory_ops(*memory_store_, cr.memory_ops, "");
+        apply_skill_ops(*memory_store_, cr.skill_ops, "");
+
+        status("store: applying decay...");
+        size_t mem_before = memory_store_->top_memories(1000, "").size();
+        memory_store_->decay_all();
+        size_t mem_after = memory_store_->top_memories(1000, "").size();
+        size_t decayed = (mem_before > mem_after) ? (mem_before - mem_after) : 0;
+        if (decayed > 0 || mem_before > 0)
+            status("store: decay removed " + std::to_string(decayed) + " items"
+                   "  (was " + std::to_string(mem_before)
+                   + ", now " + std::to_string(mem_after) + ")");
+
+        if (!experience_cfg_.store_path.empty()) {
+            status("store: saving to " + experience_cfg_.store_path + "...");
+            memory_store_->save(experience_cfg_.store_path);
+        }
+        status("store: done");
+    }
+
+    long long total_ms = elapsed_ms();
+    status("finished in " + std::to_string(total_ms / 1000) + "s ("
+           + std::to_string(total_ms) + "ms)"
+           "  " + std::to_string(r.messages_before) + " → "
+           + std::to_string(r.messages_after) + " msgs, ~"
+           + std::to_string(r.tokens_before) + " → ~"
+           + std::to_string(r.tokens_after) + " tokens");
 
     last_compression_ = r;
     return r;
@@ -267,10 +399,12 @@ std::string Agent::run(const std::string& user_prompt) {
     auto chat = [this, &tools]() -> Message { return chat_once(tools); };
 
     FailStreak fail_streak;
+    int tool_recovery_attempts = 0;
     // Loop detection: if the model makes the same tool calls more than
     // LOOP_REPEAT times without producing a text answer, break the loop.
     // This catches genuine loops (e.g. repeatedly reading the same file)
-    // without penalizing thorough multi-step work.
+    // without penalizing thorough multi-step work.  Can be disabled at
+    // runtime via cfg_.detection_loop (/set loop detection off).
     static constexpr int kLoopRepeat = 3;
     int loop_count = 0;
     std::string last_loop_key;
@@ -300,69 +434,87 @@ std::string Agent::run(const std::string& user_prompt) {
                                           history_);
 
             // Loop detection: same tool names + same arguments repeated.
-            auto loop_key = [](const json& calls) -> std::string {
-                std::string key;
-                for (const auto& tc : calls) {
-                    auto fn = tc.value("function", json::object());
-                    key += fn.value("name", "") + ":";
-                    key += fn.value("arguments", "") + "|";
+            // Disabled when cfg_.detection_loop is false (/set loop detection off).
+            if (cfg_.detection_loop) {
+                auto loop_key = [](const json& calls) -> std::string {
+                    std::string key;
+                    for (const auto& tc : calls) {
+                        auto fn = tc.value("function", json::object());
+                        key += fn.value("name", "") + ":";
+                        key += fn.value("arguments", "") + "|";
+                    }
+                    return key;
+                };
+                if (ok) {
+                    std::string cur = loop_key(reply.tool_calls);
+                    if (cur == last_loop_key) {
+                        ++loop_count;
+                    } else {
+                        loop_count = 0;
+                        last_loop_key = cur;
+                    }
                 }
-                return key;
-            };
-            if (ok) {
-                std::string cur = loop_key(reply.tool_calls);
-                if (cur == last_loop_key) {
-                    ++loop_count;
-                } else {
-                    loop_count = 0;
-                    last_loop_key = cur;
+                if (loop_count >= kLoopRepeat) {
+                    if (hooks_.on_status)
+                        hooks_.on_status("loop detected: breaking tool loop");
+                    log_.event("error", {{"reason", "tool_loop_detected"}});
+                    break;
                 }
-            }
-            if (loop_count >= kLoopRepeat) {
-                if (hooks_.on_status)
-                    hooks_.on_status("loop detected: breaking tool loop");
-                log_.event("error", {{"reason", "tool_loop_detected"}});
-                break;
-            }
 
-            int worst = fail_streak.update(reply.tool_calls, ok);
-            if (worst >= 3 &&
-                inject_tool_recovery_steer(history_, hooks_, log_, final_reply))
-                break;
+                int worst = fail_streak.update(reply.tool_calls, ok);
+                if (worst >= 3) {
+                    if (tool_recovery_attempts >= 1) {
+                        // Second recovery cycle with no improvement — hard stop
+                        if (hooks_.on_status)
+                            hooks_.on_status("tool recovery failed, stopping");
+                        log_.event("tool_recovery", {{"action", "hard_stop"}});
+                        final_reply =
+                            "[stopped: tool calls kept failing after recovery "
+                            "steer; rephrase your request or run a simpler command]";
+                        break;
+                    }
+                    inject_tool_recovery_steer(history_, hooks_, log_);
+                    ++tool_recovery_attempts;
+                    continue;
+                }
+            }
             continue;
         }
 
         // Text loop detection.
-        // Phase 1 (count=2): inject a recovery steer asking the model to
-        //   move on or use a tool.  Does not break the loop.
-        // Phase 2 (count=5): hard break — model looped beyond recovery.
-        if (reply.content == last_text && !reply.content.empty()) {
-            ++text_loop_count;
-            if (text_loop_count == 2) {
-                // Phase 1: soft recovery
-                Message steer;
-                steer.role = "user";
-                steer.content = "You are repeating the same response. "
-                    "If you are done, say \"done.\" If you need more "
-                    "information, use a tool. Do not repeat yourself.";
-                history_.push_back(steer);
-                if (hooks_.on_status)
-                    hooks_.on_status("text loop: injected recovery steer");
-                last_text.clear();
+        // Disabled when cfg_.detection_loop is false (/set loop detection off).
+        if (cfg_.detection_loop) {
+            // Phase 1 (count=2): inject a recovery steer asking the model to
+            //   move on or use a tool.  Does not break the loop.
+            // Phase 2 (count=5): hard break — model looped beyond recovery.
+            if (reply.content == last_text && !reply.content.empty()) {
+                ++text_loop_count;
+                if (text_loop_count == 2) {
+                    // Phase 1: soft recovery
+                    Message steer;
+                    steer.role = "user";
+                    steer.content = "You are repeating the same response. "
+                        "If you are done, say \"done.\" If you need more "
+                        "information, use a tool. Do not repeat yourself.";
+                    history_.push_back(steer);
+                    if (hooks_.on_status)
+                        hooks_.on_status("text loop: injected recovery steer");
+                    last_text.clear();
+                }
+                if (text_loop_count >= 5) {
+                    // Phase 2: hard break
+                    if (hooks_.on_status)
+                        hooks_.on_status("agent looped beyond recovery, stopping");
+                    log_.event("error", {{"reason", "text_loop_unrecoverable"}});
+                    final_reply = "[loop detected: the model repeated itself "
+                                 "and did not recover. Please rephrase your request.]";
+                    if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
+                    break;
+                }
+            } else {
+                text_loop_count = 0;
+                last_text = reply.content;
             }
-            if (text_loop_count >= 5) {
-                // Phase 2: hard break
-                if (hooks_.on_status)
-                    hooks_.on_status("agent looped beyond recovery, stopping");
-                log_.event("error", {{"reason", "text_loop_unrecoverable"}});
-                final_reply = "[loop detected: the model repeated itself "
-                             "and did not recover. Please rephrase your request.]";
-                if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
-                break;
-            }
-        } else {
-            text_loop_count = 0;
-            last_text = reply.content;
         }
 
         std::string candidate = reply.content;

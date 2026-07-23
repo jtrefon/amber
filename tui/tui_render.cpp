@@ -21,7 +21,13 @@ int Tui::stream_lines() const {
                : static_cast<int>(wrap_text(win().stream_buf, width()).size());
 }
 int Tui::max_scroll() const {
-    int m = static_cast<int>(win().lines.size()) + stream_lines() - chat_height();
+    // Count wrapped screen lines from committed rich lines.
+    // Each rich::Line may wrap to multiple screen rows.
+    int total = 0;
+    for (const auto& line : win().lines)
+        total += static_cast<int>(rich::wrap(line, width()).size());
+    total += stream_lines();
+    int m = total - chat_height();
     return m < 0 ? 0 : m;
 }
 
@@ -287,7 +293,7 @@ void Tui::draw_status_bar(const std::string& tail) {
     std::vector<Seg> segs = bar_segments();
 
     bool have_ctx = (cfg_.context_size > 0);
-    long ctx_used = ctx_used_ >= 0 ? ctx_used_ : 0;
+    long ctx_used = ctx_used_ >= 0 ? ctx_used_ + live_ctx_offset_ : live_ctx_offset_;
     double frac = have_ctx
                       ? static_cast<double>(ctx_used) / cfg_.context_size
                       : 0.0;
@@ -508,10 +514,6 @@ void Tui::draw_drawer(const std::string& input) {
         if (sel) attroff(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
         else attroff(COLOR_PAIR(P_ASSISTANT));
     }
-}
-
-std::string Tui::drawer_complete(const std::string& input) {
-    return palette::complete(commands(), input, drawer_sel_);
 }
 
 int Tui::drawer_menu(const std::string& title,

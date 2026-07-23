@@ -3,6 +3,7 @@
 
 #include "agent/registry.h"
 #include "agent/tools.h"
+#include "agent/process.h"
 #include "agent/job.h"
 
 namespace agent {
@@ -11,11 +12,12 @@ namespace agent {
 // share the exact same tool set without duplicating construction. The tool
 // translation units (read_tool.cpp, write_tool.cpp, search_tool.cpp, and the
 // search backends) are compiled separately and linked into libagent.
-void register_default_tools(ToolRegistry& reg, JobService& jobs) {
+void register_default_tools(ToolRegistry& reg, JobService& jobs,
+                            const CancellationToken& cancel_token) {
     reg.register_tool(make_read_tool());
     reg.register_tool(make_write_tool());
     reg.register_tool(make_search_tool());
-    reg.register_tool(make_bash_tool(&jobs));
+    reg.register_tool(make_bash_tool(&jobs, cancel_token));
     for (auto& t : make_process_tools(jobs))
         reg.register_tool(std::move(t));
 }

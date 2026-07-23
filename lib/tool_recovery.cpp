@@ -21,9 +21,8 @@ int FailStreak::update(const json& calls, bool all_ok) {
     return worst;
 }
 
-bool inject_tool_recovery_steer(std::vector<Message>& history,
-                                const AgentHooks& hooks, ConversationLog& log,
-                                std::string& final_reply) {
+void inject_tool_recovery_steer(std::vector<Message>& history,
+                                const AgentHooks& hooks, ConversationLog& log) {
     Message steer;
     steer.role = "user";
     steer.content =
@@ -32,12 +31,8 @@ bool inject_tool_recovery_steer(std::vector<Message>& history,
         "arguments. Either provide corrected arguments, switch to a "
         "different tool, or stop and give your best answer now.";
     history.push_back(std::move(steer));
-    if (hooks.on_status) hooks.on_status("tool recovery: stopping retry loop");
-    log.event("tool_recovery", {{"worst_streak", 3}});
-    final_reply =
-        "[stopped: tool calls kept failing; see the ERROR messages "
-        "above for what to fix]";
-    return true;
+    if (hooks.on_status) hooks.on_status("tool recovery: injected steer");
+    log.event("tool_recovery", {{"action", "steer"}});
 }
 
 } // namespace agent

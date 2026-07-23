@@ -30,10 +30,9 @@ private:
 };
 
 // The model is stuck retrying a tool that keeps failing. Inject steering
-// guidance, record it, and set `final_reply`. Returns true (caller breaks).
-bool inject_tool_recovery_steer(std::vector<Message>& history,
-                                const AgentHooks& hooks, ConversationLog& log,
-                                std::string& final_reply);
+// guidance into history so the model sees it on the next chat call.
+void inject_tool_recovery_steer(std::vector<Message>& history,
+                                const AgentHooks& hooks, ConversationLog& log);
 
 } // namespace agent
 

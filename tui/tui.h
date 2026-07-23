@@ -107,7 +107,7 @@ private:
     // the worker on its promise.
     bool modal_open_ = false;
     std::queue<AgentEvent> pending_approvals_;
-    std::string arg_tab_prefix_;   // last inline-extended /cmd prefix (double-tab)
+    palette::Completer completer_;  // Tab-press state machine
 
     // ---- geometry / layout ----------------------------------------------
     int height() const;
@@ -166,7 +166,6 @@ private:
     static bool drawer_has_arg(const std::string& input);
     std::vector<const tui::Command*> filter_commands(const std::string& token);
     bool drawer_wants_open(const std::string& input) const;
-    std::string drawer_complete(const std::string& input);
 
     // ---- streaming helpers ----------------------------------------------
     void fold_reasoning();
@@ -199,6 +198,7 @@ private:
     void cmd_window(const std::string& arg);
     void cmd_job(const std::string& arg);
     void cmd_compress(const std::string& arg);
+    void cmd_set(const std::string& arg);
     void job_ls();
     void job_kill(const std::string& id);
     void job_read(const std::string& id);
@@ -241,6 +241,7 @@ public:
     agent::RunState state_ = agent::RunState::Idle;
     agent::Stats stats_;
     long ctx_used_ = -1;
+    long live_ctx_offset_ = 0;   // running token count during streaming
     agent::ServerInfo last_detected_;
     int anim_phase_ = 0;
     bool dirty_ = true;          // coalesce redraws into one flush per tick

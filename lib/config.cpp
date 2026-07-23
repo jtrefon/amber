@@ -59,6 +59,10 @@ void Config::load(const std::string& path) {
             experience_max_memories = std::stoi(val);
         else if (key == "experience_max_skills")
             experience_max_skills = std::stoi(val);
+        else if (key == "detection_loop")
+            detection_loop = (val == "1" || val == "true" || val == "yes");
+        else if (key == "detection_duplicate")
+            detection_duplicate = (val == "1" || val == "true" || val == "yes");
     }
 }
 
@@ -94,6 +98,8 @@ bool Config::save_settings(const std::string& path) const {
     f << "tools_prompt=" << tools_prompt_path << "\n";
     f << "log_path=" << log_path << "\n";
     f << "debug_log=" << debug_log << "\n";
+    f << "detection_loop=" << (detection_loop ? 1 : 0) << "\n";
+    f << "detection_duplicate=" << (detection_duplicate ? 1 : 0) << "\n";
     return static_cast<bool>(f);
 }
 

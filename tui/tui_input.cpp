@@ -7,6 +7,7 @@
 #include <ctime>
 #include <fstream>
 #include <stdexcept>
+#include <unistd.h>
 
 namespace tui {
 
@@ -27,6 +28,7 @@ void Tui::send(const std::string& prompt) {
         }
         win().stream_color = P_ASSISTANT;
         win().stream_buf += d;
+        live_ctx_offset_ += static_cast<long>(d.size()) / 4 + 1;
         win().scroll_top = max_scroll();
         draw();
     };
@@ -63,7 +65,10 @@ void Tui::send(const std::string& prompt) {
     };
     hooks.on_stats = [this](const agent::Stats& s) {
         stats_ = s;
-        if (s.prompt_tokens >= 0) ctx_used_ = s.prompt_tokens;
+        if (s.prompt_tokens >= 0) {
+            ctx_used_ = s.prompt_tokens;
+            live_ctx_offset_ = 0;
+        }
         draw();
     };
     try {
@@ -167,6 +172,46 @@ void Tui::cmd_display(const std::string& arg) {
     draw();
 }
 
+void Tui::cmd_set(const std::string& arg) {
+    auto show_usage = [&]() {
+        append_line(P_STATUS, "usage: /set detection loop|duplicate off|on|toggle");
+    };
+
+    if (arg.rfind("detection ", 0) != 0) { show_usage(); return; }
+
+    std::string rest = arg.substr(10);
+    size_t sp = rest.rfind(' ');
+    if (sp == std::string::npos) { show_usage(); return; }
+
+    std::string key = rest.substr(0, sp);
+    std::string val = rest.substr(sp + 1);
+    if (key != "loop" && key != "duplicate") { show_usage(); return; }
+    if (val != "off" && val != "on" && val != "toggle") { show_usage(); return; }
+
+    bool* field = (key == "loop") ? &cfg_.detection_loop : &cfg_.detection_duplicate;
+    bool new_val = (val == "on") ? true : (val == "off") ? false : !*field;
+    *field = new_val;
+
+    // Propagate to all window agents
+    for (auto& w : windows_) {
+        if (!w->agent) continue;
+        if (key == "loop")
+            w->agent->set_detection_loop(new_val);
+        else
+            w->agent->set_detection_duplicate(new_val);
+    }
+
+    std::string hint;
+    if (key == "loop")
+        hint = new_val ? "will break on repeated tool/text" : "model runs until natural stop";
+    else
+        hint = new_val ? "rejects repeated tool calls across turns" : "model may repeat the same call";
+    append_line(P_STATUS, "detection " + key + ": " + (new_val ? "on" : "off") +
+                          "  —  " + hint + "  (/set detection " + key + " toggle)");
+    cfg_.save_settings(settings_path_);
+    draw();
+}
+
 const std::vector<Command>& Tui::commands() {
     if (commands_.empty()) build_commands();
     return commands_;
@@ -236,9 +281,42 @@ void Tui::build_commands() {
         {"stop", {"cancel", "kill"}, "",
          "terminate the current tool and agent loop",
           [this](const std::string&) {
-              agent::request_tool_cancel();
+              cfg_.cancel_token.request();
               agent_cancel_.store(true);
               append_line(P_STATUS, "stop requested");
+          }},
+        {"set", {}, "detection loop|duplicate off|on|toggle",
+         "set runtime options: detection loop, detection duplicate",
+          [this](const std::string& a) { cmd_set(a); },
+          [](const std::string& partial) {
+              std::vector<std::string> all = {
+                  "detection loop off", "detection loop on", "detection loop toggle",
+                  "detection duplicate off", "detection duplicate on",
+                  "detection duplicate toggle"};
+              if (partial.empty())
+                  return std::vector<std::string>{"detection loop",
+                                                   "detection duplicate"};
+              std::vector<std::string> out;
+              for (const auto& a : all) {
+                  // Match whole string (existing flow) or any word inside it.
+                  if (a.rfind(partial, 0) == 0) { out.push_back(a); continue; }
+                  size_t pos = 0;
+                  while (pos < a.size()) {
+                      pos = a.find_first_not_of(' ', pos);
+                      if (pos == std::string::npos) break;
+                      if (a.rfind(partial, pos) == pos) { out.push_back(a); break; }
+                      pos = a.find(' ', pos);
+                      if (pos == std::string::npos) break;
+                      ++pos;
+                  }
+              }
+              return out;
+          },
+          [this]() -> std::string {
+              return std::string("detection loop ") +
+                     (cfg_.detection_loop ? "on" : "off") +
+                     "  detection duplicate " +
+                     (cfg_.detection_duplicate ? "on" : "off");
           }},
         {"compress", {"compact"}, "",
          "compress conversation history to free context space",
@@ -425,7 +503,11 @@ void Tui::cmd_compress(const std::string&) {
         append_line(P_STATUS, "no active session to compress");
         return;
     }
+    append_line(P_STATUS, "compressing... (see terminal for progress)");
+    draw();
+    write(STDERR_FILENO, "--- /compress ---\n", 18);
     auto r = w.agent->compress_now();
+    write(STDERR_FILENO, "--- /compress done ---\n", 23);
     if (r.messages_before == 0) {
         append_line(P_STATUS, "compress: no compressor configured");
         return;
