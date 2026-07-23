@@ -10,6 +10,8 @@
 #include "agent/llm.h"  // Message, ToolResult, json
 #include "agent/agent.h"  // AgentHooks
 
+namespace agent { class MemoryStore; }
+
 namespace agent {
 
 // Replace invalid UTF-8 sequences with U+FFFD so model/tool text can never
@@ -45,6 +47,15 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
 
 // Build the final-reply fallback when the loop ended without a usable answer.
 std::string empty_turn_reply(const std::vector<Message>& history);
+
+// Extract tool results from history as lightweight memories using simple
+// heuristics (content length, name tags). Called synchronously after
+// compression so the data is available before Agent destruction. Extracted
+// count is written to `new_memories_out`.
+void extract_tool_results_as_memories(const std::vector<Message>& history,
+                                      MemoryStore& store,
+                                      const std::string& save_path,
+                                      size_t& new_memories_out);
 
 } // namespace agent
 
