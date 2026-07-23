@@ -163,7 +163,11 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         tool_msg.role = "tool";
         tool_msg.tool_call_id = c.id;
         tool_msg.name = c.fn;
-        tool_msg.content = utf8_sanitize(res.ok ? res.output : ("ERROR: " + res.error));
+        // Set args_used so the envelope can echo them back to the model
+        json call_args = c.args;
+        // Ensure denied/error tools still get args echoed
+        tool_msg.content = utf8_sanitize(
+            format_tool_envelope(c.fn, call_args, res));
         history.push_back(tool_msg);
     }
     return all_ok;

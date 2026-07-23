@@ -95,8 +95,7 @@ public:
             return r;
         }
         r.ok = true;
-        // Output is the bare job id so the model can pass it straight to
-        // process_read / process_stop. Full status travels in the description.
+        r.meta = {{"job_id", id}};
         r.output = id;
         return r;
     }
@@ -162,6 +161,8 @@ public:
             out << "(no new output)\n";
         else
             out << body;
+        r.meta = {{"job_id", id}, {"state", static_cast<int>(info.state)},
+                   {"delta", !body.empty()}};
         r.ok = true;
         r.output = out.str();
         return r;
@@ -216,6 +217,7 @@ public:
         std::ostringstream out;
         out << "[job " << id << " stopped]\n";
         out << (tail.empty() ? "(no output captured)\n" : tail);
+        r.meta = {{"job_id", id}};
         r.ok = true;
         r.output = out.str();
         return r;

@@ -17,6 +17,7 @@ struct ToolResult {
     bool ok = true;
     std::string output;   // human/model readable payload
     std::string error;    // populated when ok == false
+    json meta;            // structured metadata (lines, exit, duration, etc.)
 };
 
 // A tool advertised to the LLM. The schema field is the JSON object placed

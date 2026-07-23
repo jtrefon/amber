@@ -1,82 +1,146 @@
 # Tools
 
-Invoke tools by name with a JSON object of arguments matching the
-schema. Results are returned as text and fed back into the conversation.
+## Result envelope
 
-| Tool | When to use |
-|------|-------------|
-| `search` | Find symbols, definitions, usages, patterns. Read-only, cheap, broad. |
-| `read` | Inspect file contents. Use `offset` to page through long files. |
-| `write` | Edit existing files with targeted `old`/`new` blocks. Use `old=""` for new files. |
-| `bash` | Build, test, run git, execute shell commands. Requires approval. |
-| `process_start` | Launch long-running commands (servers, watchers, builds) in the background. |
-| `process_read` | Check progress of a background job. Returns output delta since last read. |
-| `process_stop` | Terminate a background job and return its captured output. |
+Every tool result — regardless of which tool, regardless of success or
+failure — uses the exact same form:
+
+```
+[tool=<name> args=<json> status=<status> meta=<json>]
+<content>
+[end]
+```
+
+The envelope is **immutable**. Only the values inside change. The shape
+is always identical. This lets you parse any result the same way.
+
+### Header fields
+
+| Field | Always? | Meaning |
+|-------|---------|---------|
+| `name` | always | The tool that was called — matches your invocation |
+| `args` | always | Your original arguments echoed back as compact JSON. Lets you confirm the tool received what you sent. |
+| `status` | always | Outcome — one of the four values below |
+| `meta` | always | Tool-specific metadata as JSON object (lines, exit code, hits, etc.). Empty `{}` if nothing to report. |
+
+### Status values
+
+| Status | Meaning | What to do |
+|--------|---------|------------|
+| `ok` | The tool completed successfully | Read the content for the result |
+| `error` | The tool failed | Read the content for the error message. Do not retry with the same arguments — adjust your approach |
+| `denied` | The tool was not approved (e.g. bash requires interactive approval) | The content explains why. Do not retry — report to the user or use an alternative tool |
+| `timeout` | The tool exceeded its time limit | The content may contain partial output. Adjust your parameters (timeout, scope) and retry if needed |
+
+### Content section
+
+- For **successful** calls: the result data (file contents, search hits,
+  command output, status message)
+- For **failed** calls: the error message (prefixed with "ERROR:")
+- For **denied** calls: the denial reason
+
+The content is always followed by `[end]` on its own line.
+
+---
+
+## Tool categories
+
+| Category | Tools | Behaviour |
+|----------|-------|-----------|
+| **Query** | `search`, `read` | Read-only. Return data in content. Safe, no side effects. |
+| **Command** | `write`, `bash`, `process_*` | Side effects. Return status summary in content. May require approval. |
+
+---
 
 ## search
 
-Search the codebase for a pattern. Default mode is regex (grep); set
-`mode="semantic"` for meaning-based ranking over an indexed view.
+Query the filesystem. Use first to locate anything before reading.
 
-Parameters:
-- `pattern` (string, required) — Short regex or query (max 256 chars).
-- `path` (string) — Directory or file to search (default: workspace root).
-- `glob` (string) — Optional filter, e.g. "*.cpp".
-- `mode` (string) — "grep" (default) or "semantic".
-- `max` (integer) — Max matches to return (default 200).
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `pattern` | string | yes | — | Short regex or query (max 256 chars) |
+| `path` | string | no | workspace root | Directory to search |
+| `glob` | string | no | — | File filter, e.g. `"*.cpp"` or `"*.md"` |
+| `mode` | string | no | `"grep"` | `"grep"` for regex, `"semantic"` for meaning-based ranking |
+| `max` | integer | no | 200 | Maximum matches to return |
+
+**Content**: matching lines with file paths and line numbers.
+**Meta**: `{"hits": <count>, "mode": "<grep|semantic>"}`
 
 ## read
 
-Read a file with pagination. The workspace root confines access.
+Read a file with pagination.
 
-Parameters:
-- `file_path` (string, required) — Path relative to workspace or absolute.
-- `offset` (integer) — Starting line number (1-indexed, default 1).
-- `limit` (integer) — Max lines to return (default 2000).
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `path` | string | yes | — | File to read (confined to workspace) |
+| `offset` | integer | no | 1 | Starting line number (1-based) |
+| `limit` | integer | no | 2000 | Maximum lines to return |
+
+**Content**: lines prefixed with line number. Footer indicates more lines.
+**Meta**: `{"lines": <returned>, "total": <file total>, "more": <true|false>}`
 
 ## write
 
-Make targeted edits to a file. Create a file by setting `old=""`.
-Edits are confined to the workspace root.
+Edit a file using targeted replace blocks. Create new files by passing
+an empty string as `old`.
 
-Parameters:
-- `file_path` (string, required) — Path relative to workspace or absolute.
-- `old` (string, required) — Exact text to replace (empty for new files).
-- `new` (string, required) — Replacement text.
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `path` | string | yes | — | File to edit (confined to workspace) |
+| `edits` | array | yes | — | List of `{"old": "...", "new": "..."}` blocks applied in order |
+
+**Content**: count of edits applied.
+**Meta**: `{"applied": <count>, "path": "<path>"}`
 
 ## bash
 
-Run a shell command inside the workspace root. Returns combined
-stdout+stderr and exit code. Approved interactively (TTY prompt or
-TUI dialog). Fail-safe: denied when stdin is not a TTY and `--yes`
+Execute a shell command. Requires user approval (TTY prompt or TUI
+dialog). Denied automatically when input is not interactive and `--yes`
 was not passed.
 
-Parameters:
-- `command` (string, required) — Shell command (run via `/bin/sh -c`).
-- `timeout` (integer) — Seconds of no output before kill (default 60).
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `command` | string | yes | — | Shell command (run via `/bin/sh -c`) |
+| `timeout` | integer | no | 60 | Seconds without new output before the process is killed |
+
+**Content**: combined stdout+stderr, exit code, truncation notice.
+**Meta**: `{"exit": <code>, "truncated": <true|false>}`
 
 ## process_start
 
-Start a command in the background and return a `job_id` immediately.
+Launch a command in the background. Returns immediately with a `job_id`.
 Use this instead of `bash` for long-running or streaming commands.
 
-Parameters:
-- `command` (string, required) — Shell command to run.
-- `timeout` (integer) — Hard lifetime in seconds (default 600).
-- `idle_timeout` (integer) — Seconds of no output before auto-kill (default 30).
-- `cwd` (string) — Working directory (default: workspace root).
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `command` | string | yes | — | Shell command to run |
+| `timeout` | integer | no | 600 | Hard lifetime in seconds (0 = no limit) |
+| `idle_timeout` | integer | no | 30 | Seconds idle before auto-kill |
+| `cwd` | string | no | workspace root | Working directory |
+
+**Content**: bare `job_id` string — pass this to `process_read` / `process_stop`.
+**Meta**: `{"job_id": "<id>"}`
 
 ## process_read
 
-Fetch new output for a background job since the last read.
+Fetch new output from a background job since the last read.
 
-Parameters:
-- `id` (string, required) — Job id from process_start.
-- `all` (boolean) — Return full output instead of delta (default false).
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `id` | string | yes | — | Job id from `process_start` |
+| `all` | boolean | no | false | Return full captured output instead of delta |
+
+**Content**: status line + delta output.
+**Meta**: `{"job_id": "<id>", "state": <int>, "delta": <true|false>}`
 
 ## process_stop
 
 Terminate a background job and return its captured output.
 
-Parameters:
-- `id` (string, required) — Job id from process_start.
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `id` | string | yes | — | Job id from `process_start` |
+
+**Content**: "stopped" notice + captured output.
+**Meta**: `{"job_id": "<id>"}`

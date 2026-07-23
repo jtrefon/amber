@@ -11,7 +11,6 @@
 #include <chrono>
 #include <stdexcept>
 #include <string>
-#include <unistd.h>
 
 namespace agent {
 
@@ -207,7 +206,6 @@ CompressionResult Agent::compress_now() {
                 now - t0_).count();
             std::string line = "[+" + std::to_string(sec) + "s] " + msg + "\n";
             if (hooks_.on_status) hooks_.on_status(line);
-            write(STDERR_FILENO, line.c_str(), line.size());
         }
     };
 

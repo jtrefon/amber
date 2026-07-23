@@ -91,6 +91,7 @@ public:
         std::ofstream fout(path, std::ios::trunc);
         if (!fout) { r.ok = false; r.error = "cannot write: " + path; return r; }
         fout << content;
+        r.meta = {{"applied", applied}, {"path", path}};
         r.output = "applied " + std::to_string(applied) + " edit(s) to " + path;
         return r;
      }

@@ -4,12 +4,35 @@
 #include "agent/agent_helpers.h"
 #include "agent/tool_call_parser.h"
 #include "agent/llm.h"
+#include "agent/tool.h"
 
 #include <cctype>
 #include <functional>
 #include <stdexcept>
 
 namespace agent {
+
+std::string format_tool_envelope(const std::string& name, const json& args,
+                                  const ToolResult& result) {
+    std::string status = result.ok ? "ok" : "error";
+
+    // Ensure meta is always an object, never null (tools that return early
+    // on error may leave meta uninitialized).
+    json meta = result.meta.is_null() ? json::object() : result.meta;
+
+    std::string header = "[tool=" + name +
+        " args=" + args.dump() +
+        " status=" + status +
+        " meta=" + meta.dump() + "]\n";
+
+    std::string content = result.ok
+        ? result.output
+        : ("ERROR: " + result.error);
+    if (!content.empty() && content.back() != '\n')
+        content += '\n';
+
+    return header + content + "[end]";
+}
 
 std::string strip_think(std::string s) {
     std::string out;

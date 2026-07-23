@@ -73,6 +73,7 @@ public:
             ++lineno; ++printed;
         }
         r.output = out.str();
+        r.meta = {{"lines", printed}, {"total", total}, {"more", printed >= limit && lineno < total}};
         if (printed >= limit && lineno < total)
             r.output += "\n[more lines available: " + std::to_string(total - lineno)
                       + " remaining; pass offset=" + std::to_string(lineno + 1)

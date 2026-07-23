@@ -48,6 +48,20 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
 // Build the final-reply fallback when the loop ended without a usable answer.
 std::string empty_turn_reply(const std::vector<Message>& history);
 
+// Format a tool result into the standard immutable envelope. Every tool output
+// follows the exact same form regardless of status:
+//
+//   [tool=<name> args=<json> status=<status> meta=<json>]
+//   <content>
+//   [end]
+//
+// `name` is the tool name, `args` is the compact JSON of call arguments,
+// `status` is one of "ok"|"error"|"denied"|"timeout", and `meta` holds
+// tool-specific metadata (lines, exit code, duration, etc.). The envelope
+// is token 0 — the model sees it before any content.
+std::string format_tool_envelope(const std::string& name, const json& args,
+                                 const ToolResult& result);
+
 
 
 } // namespace agent

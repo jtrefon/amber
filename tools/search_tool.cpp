@@ -110,6 +110,7 @@ public:
         }
         r.output = out.str();
         if (!r.output.empty() && r.output.back() == '\n') r.output.pop_back();
+        r.meta = {{"hits", static_cast<long>(hits.size())}, {"mode", mode}};
         return r;
     }
 };

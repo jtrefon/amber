@@ -107,6 +107,8 @@ void format_result(std::string output, bool timed_out, int code, int timeout,
     bool truncated = output.size() >= kMaxOutput;
     if (truncated) output.resize(kMaxOutput);
 
+    r.meta = {{"exit", code}, {"truncated", truncated}};
+
     std::ostringstream out;
     out << output;
     if (!output.empty() && output.back() != '\n') out << '\n';
@@ -115,8 +117,9 @@ void format_result(std::string output, bool timed_out, int code, int timeout,
     if (timed_out) {
         out << "[command timed out after " << timeout << "s and was killed]";
         r.ok = false;
-        r.output = out.str();
         r.error = "timed out after " + std::to_string(timeout) + "s";
+        r.output = out.str();
+        r.meta["timeout"] = timeout;
         return;
     }
 
