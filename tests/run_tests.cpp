@@ -2459,11 +2459,10 @@ TEST(integration_apply_and_retrieve) {
     cr.memory_ops.push_back(
         {"103 tests passed", {"tests", "testing"}, "upsert", ""});
 
-    // Three compression cycles confirming the same memories
-    for (int cycle = 0; cycle < 3; ++cycle) {
-        store->set_current_turn(static_cast<size_t>(cycle + 1));
-        agent::apply_memory_ops(*store, cr.memory_ops, "");
-    }
+    // Single compression cycle — memories are now promoted immediately
+    // (evidence=3, promoted=true) since the LLM confirmed them.
+    store->set_current_turn(1);
+    agent::apply_memory_ops(*store, cr.memory_ops, "");
 
     // Phase 3: Retrieve relevant memories
     agent::MemoryRetriever retriever(*store);
@@ -2478,6 +2477,51 @@ TEST(integration_apply_and_retrieve) {
     auto after_decay = store->top_memories(10, "build");
     ASSERT(after_decay.size() >= 1u);
     ASSERT(after_decay[0].evidence_count == 2);
+}
+
+// ---------------------------------------------------------------------------
+// CancellationToken (FIX-001)
+// ---------------------------------------------------------------------------
+
+TEST(cancel_token_default_is_not_requested) {
+    agent::CancellationToken t;
+    ASSERT_FALSE(t.is_requested());
+}
+
+TEST(cancel_token_request_sets_flag) {
+    agent::CancellationToken t;
+    t.request();
+    ASSERT_TRUE(t.is_requested());
+}
+
+TEST(cancel_token_clear_resets_flag) {
+    agent::CancellationToken t;
+    t.request();
+    ASSERT_TRUE(t.is_requested());
+    t.clear();
+    ASSERT_FALSE(t.is_requested());
+}
+
+TEST(cancel_token_tokens_are_independent) {
+    agent::CancellationToken t1, t2;
+    t1.request();
+    ASSERT_TRUE(t1.is_requested());
+    ASSERT_FALSE(t2.is_requested());
+    t2.request();
+    ASSERT_TRUE(t1.is_requested());
+    ASSERT_TRUE(t2.is_requested());
+    t1.clear();
+    ASSERT_FALSE(t1.is_requested());
+    ASSERT_TRUE(t2.is_requested());
+}
+
+TEST(cancel_token_copies_share_state) {
+    agent::CancellationToken t1;
+    t1.request();
+    agent::CancellationToken t2 = t1;  // copy — same underlying state
+    ASSERT_TRUE(t2.is_requested());
+    t2.clear();
+    ASSERT_FALSE(t1.is_requested());  // shared: clearing t2 clears t1
 }
 
 // ---------------------------------------------------------------------------
