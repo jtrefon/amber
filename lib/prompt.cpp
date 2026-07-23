@@ -19,13 +19,22 @@ std::string load_prompt(const std::string& path) {
 
 std::string render_tools_markdown(const ToolRegistry& registry) {
     std::stringstream out;
-    out << "# Tools\n\nInvoke tools by name with a JSON object of arguments "
-           "matching the schema. Results are returned as text and fed back "
-           "into the conversation automatically.\n\n";
+    out << "# Tools\n\n"
 
-    // Decision table
-    out << "| Tool | When to use |\n"
-           "|------|-------------|\n";
+        // Envelope — described once, applies to every tool
+        << "## Result envelope\n\n"
+        << "Every tool result uses the exact same form:\n\n"
+        << "```\n"
+        << "[tool=<name> args=<json> status=<status> meta=<json>]\n"
+        << "<content>\n"
+        << "[end]\n"
+        << "```\n\n"
+        << "The envelope is immutable. Only values change. "
+        << "`status` is one of: `ok`, `error`, `denied`, `timeout`.\n\n"
+
+        // Decision table
+        << "| Tool | Use when |\n"
+           "|------|----------|\n";
     for (const auto& t : registry.tools())
         out << "| `" << t->name() << "` | "
             << t->description().substr(0, t->description().find('\n'))
