@@ -363,7 +363,7 @@ TEST(prompt_render_tools_markdown_lists_all) {
     agent::JobService jobs;
     agent::register_default_tools(r, jobs);
     std::string md = agent::render_tools_markdown(r);
-    ASSERT(md.find("## Available Tools") != std::string::npos);
+    ASSERT(md.find("# Tools") != std::string::npos);
     ASSERT(md.find("`read`") != std::string::npos);
     ASSERT(md.find("`write`") != std::string::npos);
     ASSERT(md.find("`search`") != std::string::npos);
