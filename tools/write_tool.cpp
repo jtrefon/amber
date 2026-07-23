@@ -20,16 +20,16 @@ namespace agent {
 // This avoids sending full-file contents back and forth.
 class WriteTool : public Tool {
 public:
-    std::string name() const override { return "write"; }
+    std::string name() const noexcept override { return "write"; }
 
-    std::string description() const override {
+    std::string description() const noexcept override {
         return "Apply a patch-style edit to a file. Provide a list of edits, "
                "each with an 'old' substring to find and a 'new' replacement. "
                "To create or fully overwrite a file, use old=\"\" and put the "
                "entire contents in 'new'. Edits are applied sequentially.";
     }
 
-    json parameters_schema() const override {
+    json parameters_schema() const noexcept override {
         return {
             {"type", "object"},
             {"properties", {

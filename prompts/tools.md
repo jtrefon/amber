@@ -1,40 +1,82 @@
 # Tools
 
-The following tools are available to you. Invoke them by name with a JSON
-object of arguments matching each schema. Results are returned as text and
-fed back into the conversation automatically.
+Invoke tools by name with a JSON object of arguments matching the
+schema. Results are returned as text and fed back into the conversation.
 
-When deciding which tool to use, consider:
+| Tool | When to use |
+|------|-------------|
+| `search` | Find symbols, definitions, usages, patterns. Read-only, cheap, broad. |
+| `read` | Inspect file contents. Use `offset` to page through long files. |
+| `write` | Edit existing files with targeted `old`/`new` blocks. Use `old=""` for new files. |
+| `bash` | Build, test, run git, execute shell commands. Requires approval. |
+| `process_start` | Launch long-running commands (servers, watchers, builds) in the background. |
+| `process_read` | Check progress of a background job. Returns output delta since last read. |
+| `process_stop` | Terminate a background job and return its captured output. |
 
-- `search` — find things first (cheap, broad).
-- `read` — look at specific content (paginated).
-- `write` — change files with minimal, targeted edits.
-- `bash` — run shell commands (build, test, inspect) in the workspace.
+## search
 
-`bash` executes real commands and therefore requires explicit user approval
-before each run (unless the user has granted approval for the session). Prefer
-the dedicated file tools over shelling out; reach for `bash` when you need to
-build, run tests, or inspect the environment. Keep commands focused and expect
-that they run with the working directory set to the workspace root.
+Search the codebase for a pattern. Default mode is regex (grep); set
+`mode="semantic"` for meaning-based ranking over an indexed view.
 
-## Background processes
+Parameters:
+- `pattern` (string, required) — Short regex or query (max 256 chars).
+- `path` (string) — Directory or file to search (default: workspace root).
+- `glob` (string) — Optional filter, e.g. "*.cpp".
+- `mode` (string) — "grep" (default) or "semantic".
+- `max` (integer) — Max matches to return (default 200).
 
-For commands that are **long-running or servers** (a dev server, a watcher, a
-build that streams for minutes), do not use `bash`, which blocks until the
-process exits. Instead use the `process_*` tools so the command runs in the
-background and you can keep working:
+## read
 
-- `process_start` — launch `command` in the background. Returns a `job_id`.
-  Optional `timeout` (hard lifetime in seconds, default 600) and `idle_timeout`
-  (seconds of no output before auto-kill, default 30). The job is auto-reaped
-  when it exits, hits its hard timeout, or goes idle past `idle_timeout`.
-- `process_read` — fetch new output for `id` (a delta since the last read). Pass
-  `all: true` to get the full captured output instead.
-- `process_stop` — terminate a job by `id` (kills its whole process group) and
-  return whatever output was captured.
+Read a file with pagination. The workspace root confines access.
 
-Workflow: call `process_start` once, then return control to the user with a
-short note (do not poll in a tight loop). Later — on a following turn or when
-you actually need the result — call `process_read` to check progress, and
-`process_stop` when you are done. The user can also manage jobs from the UI with
-`/job ls`, `/job read <id>`, `/job kill <id>`, and `/job start <cmd>`.
+Parameters:
+- `file_path` (string, required) — Path relative to workspace or absolute.
+- `offset` (integer) — Starting line number (1-indexed, default 1).
+- `limit` (integer) — Max lines to return (default 2000).
+
+## write
+
+Make targeted edits to a file. Create a file by setting `old=""`.
+Edits are confined to the workspace root.
+
+Parameters:
+- `file_path` (string, required) — Path relative to workspace or absolute.
+- `old` (string, required) — Exact text to replace (empty for new files).
+- `new` (string, required) — Replacement text.
+
+## bash
+
+Run a shell command inside the workspace root. Returns combined
+stdout+stderr and exit code. Approved interactively (TTY prompt or
+TUI dialog). Fail-safe: denied when stdin is not a TTY and `--yes`
+was not passed.
+
+Parameters:
+- `command` (string, required) — Shell command (run via `/bin/sh -c`).
+- `timeout` (integer) — Seconds of no output before kill (default 60).
+
+## process_start
+
+Start a command in the background and return a `job_id` immediately.
+Use this instead of `bash` for long-running or streaming commands.
+
+Parameters:
+- `command` (string, required) — Shell command to run.
+- `timeout` (integer) — Hard lifetime in seconds (default 600).
+- `idle_timeout` (integer) — Seconds of no output before auto-kill (default 30).
+- `cwd` (string) — Working directory (default: workspace root).
+
+## process_read
+
+Fetch new output for a background job since the last read.
+
+Parameters:
+- `id` (string, required) — Job id from process_start.
+- `all` (boolean) — Return full output instead of delta (default false).
+
+## process_stop
+
+Terminate a background job and return its captured output.
+
+Parameters:
+- `id` (string, required) — Job id from process_start.

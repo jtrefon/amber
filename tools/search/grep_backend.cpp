@@ -14,7 +14,7 @@ namespace agent {
 // backend abstraction was introduced.
 class GrepBackend : public SearchBackend {
 public:
-    std::string name() const override { return "grep"; }
+    std::string name() const noexcept override { return "grep"; }
 
     std::vector<SearchHit> search(const std::string& query,
                                   const std::string& root,

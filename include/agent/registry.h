@@ -18,7 +18,7 @@ class ToolRegistry {
 public:
     void register_tool(std::unique_ptr<Tool> tool);
     Tool* find(const std::string& name) const;
-    bool empty() const { return tools_.empty(); }
+    bool empty() const noexcept { return tools_.empty(); }
 
     // Build the tools[] payload for the chat/completions request.
     json schema() const;

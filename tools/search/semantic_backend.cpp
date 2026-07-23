@@ -28,7 +28,7 @@ namespace agent {
 // changes, so repeated queries over a stable tree are cheap.
 class SemanticBackend : public SearchBackend {
 public:
-    std::string name() const override { return "semantic"; }
+    std::string name() const noexcept override { return "semantic"; }
 
     std::vector<SearchHit> search(const std::string& query,
                                   const std::string& root,

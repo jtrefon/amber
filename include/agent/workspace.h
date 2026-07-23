@@ -36,6 +36,11 @@ public:
     // `error` with a message suitable for returning to the model.
     static bool confine(const std::string& path, std::string& resolved,
                         std::string& error);
+
+    // Clear the cached root so the next call to root() re-initializes from
+    // the environment or cwd. Used by tests to avoid interference across
+    // test cases. Not thread-safe — call only between tests, not concurrently.
+    static void reset_root();
 };
 
 } // namespace agent

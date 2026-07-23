@@ -33,7 +33,7 @@ public:
                                           const std::string& glob,
                                           long max) const = 0;
 
-    virtual std::string name() const = 0;
+    virtual std::string name() const noexcept = 0;
 };
 
 // Backend factories (defined in tools/search/{grep,semantic}_backend.cpp).

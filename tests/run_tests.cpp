@@ -363,7 +363,7 @@ TEST(prompt_render_tools_markdown_lists_all) {
     agent::JobService jobs;
     agent::register_default_tools(r, jobs);
     std::string md = agent::render_tools_markdown(r);
-    ASSERT(md.find("## Available Tools") != std::string::npos);
+    ASSERT(md.find("# Tools") != std::string::npos);
     ASSERT(md.find("`read`") != std::string::npos);
     ASSERT(md.find("`write`") != std::string::npos);
     ASSERT(md.find("`search`") != std::string::npos);
@@ -1861,46 +1861,25 @@ TEST(integration_apply_and_retrieve) {
 // ---------------------------------------------------------------------------
 
 TEST(agent_extract_memories_from_tool_results) {
+    // Verify MemoryStore round-trip (the core store behavior, not the
+    // removed heuristic extraction). The LLM-based extraction in
+    // compress_now() is the correct knowledge extraction path.
     agent::ExperienceConfig ec;
     ec.enabled = true;
     auto store = agent::make_memory_store(ec);
 
-    std::vector<agent::Message> history;
-    agent::Message m1; m1.role = "tool"; m1.name = "bash";
-    m1.content = "compilation succeeded\n103 tests passed, 0 failed, all green\n";
-    history.push_back(m1);
+    store->set_current_turn(1);
+    agent::Memory mem;
+    mem.content = "project uses GNU make with ./configure";
+    mem.tags = {"build"};
+    mem.evidence_count = 3;
+    store->upsert(mem);
 
-    agent::Message m2; m2.role = "tool"; m2.name = "read";
-    m2.content = "This project uses GNU make with ./configure -- the standard "
-                 "autotools flow. Run make to build everything.";
-    history.push_back(m2);
+    // Second upsert promotes (evidence 3→4, threshold is 3)
+    store->upsert(mem);
 
-    agent::Message m3; m3.role = "tool"; m3.name = "bash";
-    m3.content = "x";  // too short — should be skipped
-    history.push_back(m3);
-
-    size_t extracted = 0;
-    agent::extract_tool_results_as_memories(
-        history, *store, "", extracted);
-
-    ASSERT_EQ(extracted, 2u);
-
-    // Re-run: finds same memories, reports them cumulatively
-    agent::extract_tool_results_as_memories(history, *store, "", extracted);
-    ASSERT_EQ(extracted, 4u);
-
-    // Empty history extracts nothing
-    size_t empty_count = 0;
-    agent::extract_tool_results_as_memories({}, *store, "", empty_count);
-    ASSERT_EQ(empty_count, 0u);
-
-    // No tool messages in history extracts nothing
-    std::vector<agent::Message> no_tools;
-    agent::Message um; um.role = "user"; um.content = "hello";
-    no_tools.push_back(um);
-    size_t no_count = 0;
-    agent::extract_tool_results_as_memories(no_tools, *store, "", no_count);
-    ASSERT_EQ(no_count, 0u);
+    auto top = store->top_memories(10, "build");
+    ASSERT(!top.empty());
 }
 
 // ---------------------------------------------------------------------------

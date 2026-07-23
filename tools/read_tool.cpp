@@ -17,17 +17,17 @@ namespace agent {
 // Returns the slice plus a note when more lines remain.
 class ReadTool : public Tool {
 public:
-    std::string name() const override { return "read"; }
+    std::string name() const noexcept override { return "read"; }
 
-    bool is_read_only() const override { return true; }
+    bool is_read_only() const noexcept override { return true; }
 
-    std::string description() const override {
+    std::string description() const noexcept override {
         return "Read a text file with pagination. Returns lines [offset, "
                "offset+limit) and reports whether more lines follow so the "
                "model can page through large files.";
     }
 
-    json parameters_schema() const override {
+    json parameters_schema() const noexcept override {
         return {
             {"type", "object"},
             {"properties", {

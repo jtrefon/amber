@@ -145,21 +145,21 @@ public:
                       const CancellationToken& cancel_token = {})
         : jobs_(jobs), cancel_token_(cancel_token) {}
 
-    std::string name() const override { return "bash"; }
+    std::string name() const noexcept override { return "bash"; }
 
 private:
     JobService* jobs_ = nullptr;
     CancellationToken cancel_token_;
 
 
-    std::string description() const override {
+    std::string description() const noexcept override {
         return "Run a shell command in the workspace directory and return "
                "combined stdout/stderr and exit code. Use this for ALL file "
                "operations: cat, ls, grep, find, git, g++ builds, and tests. "
                "Write operations (rm, mv, sed -i, >) require user approval.";
     }
 
-    json parameters_schema() const override {
+    json parameters_schema() const noexcept override {
         return {
             {"type", "object"},
             {"properties", {
@@ -178,11 +178,11 @@ private:
         };
     }
 
-    bool requires_approval() const override { return true; }
+    bool requires_approval() const noexcept override { return true; }
 
-    bool is_read_only() const override { return false; }
+    bool is_read_only() const noexcept override { return false; }
 
-    std::string summarize(const json& a) const override {
+    std::string summarize(const json& a) const noexcept override {
         std::string cmd = (a.contains("command") && a["command"].is_string())
                               ? a["command"].get<std::string>() : "";
         if (cmd.size() > 200) { cmd.resize(197); cmd += "..."; }

@@ -49,6 +49,8 @@ bool is_within(const std::string& base, const std::string& child) {
 
 std::string Workspace::root() { return ensure_root(); }
 
+void Workspace::reset_root() { root_storage().clear(); }
+
 void Workspace::set_root(const std::string& path) {
     root_storage() = normalize(fs::absolute(fs::path(path)));
 }

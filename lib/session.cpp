@@ -7,10 +7,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <dirent.h>
 
 namespace agent {
 
@@ -55,22 +53,6 @@ std::string default_dir() {
     // Project-local sessions live under "<workspace>/.amber/sessions" so all
     // amber data stays next to the project instead of scattering into $XDG.
     return agent::Workspace::local_dir() + "/sessions";
-}
-
-// mkdir -p for a path.
-bool mkdirs(const std::string& path) {
-    std::string cur;
-    for (size_t i = 0; i < path.size(); ++i) {
-        cur += path[i];
-        if (path[i] == '/' || i + 1 == path.size()) {
-            if (cur == "/" || cur.empty()) continue;
-            std::string d = cur;
-            if (d.back() == '/') d.pop_back();
-            if (::mkdir(d.c_str(), 0700) != 0 && errno != EEXIST)
-                return false;
-        }
-    }
-    return true;
 }
 
 } // namespace
@@ -126,7 +108,10 @@ void Session::derive_title(size_t max_len) {
 SessionStore::SessionStore(const std::string& dir)
     : dir_(dir.empty() ? default_dir() : dir) {}
 
-bool SessionStore::ensure_dir() const { return mkdirs(dir_); }
+bool SessionStore::ensure_dir() const {
+    std::error_code ec;
+    return std::filesystem::create_directories(dir_, ec) || !ec;
+}
 
 std::string SessionStore::new_id() {
     static long long counter = 0;
@@ -203,29 +188,24 @@ std::vector<SessionMeta> SessionStore::list() const {
         }
     }
     std::vector<SessionMeta> out;
-    DIR* d = ::opendir(dir_.c_str());
-    if (!d) return out;
-    struct dirent* ent;
-    while ((ent = ::readdir(d)) != nullptr) {
-        std::string name = ent->d_name;
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir_, ec)) {
+        std::string name = entry.path().filename().string();
         if (name == "index.json" || name == "workspace.json") continue;
         if (name.size() < 6 || name.substr(name.size() - 5) != ".json")
             continue;
         std::string id = name.substr(0, name.size() - 5);
         Session s;
         if (!load(id, s)) continue;
-        struct stat st;
         SessionMeta m;
         m.id = s.id;
         m.title = s.title;
         m.model = s.model;
         m.updated_ms = s.updated_ms;
         m.message_count = static_cast<int>(s.messages.size());
-        if (::stat(path_for(id).c_str(), &st) == 0)
-            m.file_size = static_cast<size_t>(st.st_size);
+        m.file_size = static_cast<size_t>(entry.file_size());
         out.push_back(m);
     }
-    ::closedir(d);
     std::sort(out.begin(), out.end(),
               [](const SessionMeta& a, const SessionMeta& b) {
                   return a.updated_ms > b.updated_ms;

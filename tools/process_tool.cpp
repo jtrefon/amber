@@ -35,8 +35,8 @@ class ProcessStartTool : public Tool {
 public:
     explicit ProcessStartTool(JobService& jobs) : jobs_(jobs) {}
 
-    std::string name() const override { return "process_start"; }
-    std::string description() const override {
+    std::string name() const noexcept override { return "process_start"; }
+    std::string description() const noexcept override {
         return "Start a shell command in the BACKGROUND and return a job id "
                "immediately (non-blocking). Use this for long-running commands "
                "such as servers, watchers, or builds (e.g. 'npm run dev'). The "
@@ -46,7 +46,7 @@ public:
                "idle_timeout (seconds of no output before auto-kill, default "
                "30), cwd (optional, defaults to workspace root).";
     }
-    json parameters_schema() const override {
+    json parameters_schema() const noexcept override {
         json p = json::object();
         p["type"] = "object";
         json props = json::object();
@@ -67,9 +67,9 @@ public:
         p["required"] = json::array({"command"});
         return p;
     }
-    bool requires_approval() const override { return true; }
-    bool is_read_only() const override { return false; }
-    std::string summarize(const json& a) const override {
+    bool requires_approval() const noexcept override { return true; }
+    bool is_read_only() const noexcept override { return false; }
+    std::string summarize(const json& a) const noexcept override {
         std::string c = a.contains("command") && a["command"].is_string()
                             ? a["command"].get<std::string>()
                             : "";
@@ -109,15 +109,15 @@ class ProcessReadTool : public Tool {
 public:
     explicit ProcessReadTool(JobService& jobs) : jobs_(jobs) {}
 
-    std::string name() const override { return "process_read"; }
-    std::string description() const override {
+    std::string name() const noexcept override { return "process_read"; }
+    std::string description() const noexcept override {
         return "Read new output from a background job started with "
                "process_start. Returns only the output produced since the "
                "previous call (delta), plus a status line. Poll this in a loop "
                "to follow a running process. Arguments: id (required), all "
                "(optional bool: return the full output instead of the delta).";
     }
-    json parameters_schema() const override {
+    json parameters_schema() const noexcept override {
         json p = json::object();
         p["type"] = "object";
         json props = json::object();
@@ -131,9 +131,9 @@ public:
         p["required"] = json::array({"id"});
         return p;
     }
-    bool requires_approval() const override { return false; }
-    bool is_read_only() const override { return true; }
-    std::string summarize(const json& a) const override {
+    bool requires_approval() const noexcept override { return false; }
+    bool is_read_only() const noexcept override { return true; }
+    std::string summarize(const json& a) const noexcept override {
         std::string id = a.contains("id") && a["id"].is_string()
                              ? a["id"].get<std::string>()
                              : "";
@@ -175,13 +175,13 @@ class ProcessStopTool : public Tool {
 public:
     explicit ProcessStopTool(JobService& jobs) : jobs_(jobs) {}
 
-    std::string name() const override { return "process_stop"; }
-    std::string description() const override {
+    std::string name() const noexcept override { return "process_stop"; }
+    std::string description() const noexcept override {
         return "Stop a background job started with process_start, killing its "
                "whole process group, and return the output captured so far. "
                "Arguments: id (required).";
     }
-    json parameters_schema() const override {
+    json parameters_schema() const noexcept override {
         json p = json::object();
         p["type"] = "object";
         json props = json::object();
@@ -191,9 +191,9 @@ public:
         p["required"] = json::array({"id"});
         return p;
     }
-    bool requires_approval() const override { return true; }
-    bool is_read_only() const override { return false; }
-    std::string summarize(const json& a) const override {
+    bool requires_approval() const noexcept override { return true; }
+    bool is_read_only() const noexcept override { return false; }
+    std::string summarize(const json& a) const noexcept override {
         std::string id = a.contains("id") && a["id"].is_string()
                              ? a["id"].get<std::string>()
                              : "";

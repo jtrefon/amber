@@ -123,8 +123,8 @@ struct Config {
     // surface these (abort with a message, warn, etc.). Kept UI-free here.
     std::vector<std::string> validate() const;
 
-    std::string api_url() const { return api_base + "/chat/completions"; }
-    std::string models_url() const { return api_base + "/models"; }
+    std::string api_url() const noexcept { return api_base + "/chat/completions"; }
+    std::string models_url() const noexcept { return api_base + "/models"; }
 };
 
 } // namespace agent

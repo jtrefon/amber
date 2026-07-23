@@ -25,11 +25,11 @@ namespace agent {
 //   max     (int, optional)     max matches to return (default 200)
 class SearchTool : public Tool {
 public:
-    std::string name() const override { return "search"; }
+    std::string name() const noexcept override { return "search"; }
 
-    bool is_read_only() const override { return true; }
+    bool is_read_only() const noexcept override { return true; }
 
-    std::string description() const override {
+    std::string description() const noexcept override {
         return "Search the codebase. The default mode runs a regex search "
                 "(grep). Set mode=\"semantic\" for meaning-based ranking over an "
                 "indexed view of the tree (useful for paraphrased queries). "
@@ -38,7 +38,7 @@ public:
                 "not enumerate every symbol in one giant alternation.";
     }
 
-    json parameters_schema() const override {
+    json parameters_schema() const noexcept override {
         return {
             {"type", "object"},
             {"properties", {

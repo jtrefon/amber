@@ -99,13 +99,11 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
     }
 
     // Check compression gate.  If triggered, compress non-system messages.
-    bool did_compress = false;
     if (gate_ && compression_) {
         if (gate_->should_compress(history_, cfg_)) {
             auto cc = load_compression_config(cfg_);
             prompt_msgs = compression_->compress(prompt_msgs, cc, client_);
             gate_->set_last_compress_turn(turn_counter_);
-            did_compress = true;
         }
     }
 
@@ -131,16 +129,6 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
         reply = client_.chat(prompt_msgs, tools, &stats);
     }
     if (stats.valid && hooks_.on_stats) hooks_.on_stats(stats);
-
-    // If compression ran, run the lightweight experience extraction inline.
-    // This runs synchronously — the heuristic is fast (iterates history with
-    // simple string checks) and avoids the use-after-free risk of a detached
-    // thread accessing memory_store_ and history_ during Agent shutdown.
-    if (did_compress && memory_store_ && experience_cfg_.enabled) {
-        extract_tool_results_as_memories(
-            history_, *memory_store_, experience_cfg_.store_path,
-            last_extraction_.new_memories);
-    }
 
     ++turn_counter_;
     return reply;
