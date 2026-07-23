@@ -23,38 +23,39 @@ docdir    = $(datarootdir)/doc/amber
 SRC_DIR   = @srcdir@
 BUILD_DIR = @builddir@
 
-LIB_OBJS  = $(BUILD_DIR)/lib/config.o \
-             $(BUILD_DIR)/lib/llm.o \
-             $(BUILD_DIR)/lib/debug_log.o \
-             $(BUILD_DIR)/lib/request_builder.o \
-             $(BUILD_DIR)/lib/sse_parser.o \
-             $(BUILD_DIR)/lib/http_transport.o \
-             $(BUILD_DIR)/lib/model_probe.o \
-             $(BUILD_DIR)/lib/registry.o \
-             $(BUILD_DIR)/lib/prompt.o \
-             $(BUILD_DIR)/lib/conversation_log.o \
-             $(BUILD_DIR)/lib/agent.o \
-             $(BUILD_DIR)/lib/agent_helpers.o \
-             $(BUILD_DIR)/lib/tool_recovery.o \
-             $(BUILD_DIR)/lib/dispatch.o \
-             $(BUILD_DIR)/lib/statusbar.o \
+CORE_OBJS = $(BUILD_DIR)/lib/config.o \
+            $(BUILD_DIR)/lib/llm.o \
+            $(BUILD_DIR)/lib/debug_log.o \
+            $(BUILD_DIR)/lib/request_builder.o \
+            $(BUILD_DIR)/lib/sse_parser.o \
+            $(BUILD_DIR)/lib/http_transport.o \
+            $(BUILD_DIR)/lib/model_probe.o \
+            $(BUILD_DIR)/lib/registry.o \
+            $(BUILD_DIR)/lib/prompt.o \
+            $(BUILD_DIR)/lib/conversation_log.o \
+            $(BUILD_DIR)/lib/agent.o \
+            $(BUILD_DIR)/lib/agent_helpers.o \
+            $(BUILD_DIR)/lib/tool_recovery.o \
+            $(BUILD_DIR)/lib/dispatch.o \
+            $(BUILD_DIR)/lib/statusbar.o \
             $(BUILD_DIR)/lib/session.o \
-             $(BUILD_DIR)/lib/workspace.o \
-             $(BUILD_DIR)/lib/process.o \
-             $(BUILD_DIR)/lib/job.o \
-             $(BUILD_DIR)/lib/compressor.o \
-             $(BUILD_DIR)/lib/compressor_scanner.o \
-             $(BUILD_DIR)/lib/compressor_request.o \
-             $(BUILD_DIR)/lib/compressor_parser.o \
-             $(BUILD_DIR)/lib/compressor_apply.o \
-             $(BUILD_DIR)/lib/experience.o \
-             $(BUILD_DIR)/lib/memory_store.o \
-             $(BUILD_DIR)/lib/memory_retriever.o \
-             $(BUILD_DIR)/lib/tools_default.o \
-             $(BUILD_DIR)/lib/tool_call_parser.o \
-            $(BUILD_DIR)/tools/read_tool.o \
-            $(BUILD_DIR)/tools/write_tool.o \
-            $(BUILD_DIR)/tools/search_tool.o \
+            $(BUILD_DIR)/lib/workspace.o \
+            $(BUILD_DIR)/lib/process.o \
+            $(BUILD_DIR)/lib/job.o \
+            $(BUILD_DIR)/lib/compressor.o \
+            $(BUILD_DIR)/lib/compressor_scanner.o \
+            $(BUILD_DIR)/lib/compressor_request.o \
+            $(BUILD_DIR)/lib/compressor_parser.o \
+            $(BUILD_DIR)/lib/compressor_apply.o \
+            $(BUILD_DIR)/lib/experience.o \
+            $(BUILD_DIR)/lib/memory_store.o \
+            $(BUILD_DIR)/lib/memory_retriever.o \
+            $(BUILD_DIR)/lib/tools_default.o \
+            $(BUILD_DIR)/lib/tool_call_parser.o
+
+TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
+             $(BUILD_DIR)/tools/write_tool.o \
+             $(BUILD_DIR)/tools/search_tool.o \
              $(BUILD_DIR)/tools/bash_tool.o \
              $(BUILD_DIR)/tools/process_tool.o \
              $(BUILD_DIR)/tools/search/grep_backend.o \
@@ -82,7 +83,8 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o
 
-LIBNAME   = libagent.a
+CORE_LIB  = libagent_core.a
+TOOLS_LIB = libagent_tools.a
 CLI_BIN   = amber
 TUI_BIN   = amber-tui
 
@@ -140,27 +142,32 @@ check: $(BUILD_DIR)/smoketest
 test: $(BUILD_DIR)/run_tests
 	$(BUILD_DIR)/run_tests
 
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(LIBNAME)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
-$(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(LIBNAME)
-	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(LIBNAME) $(CURL_LIBS)
+$(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
-lib: $(BUILD_DIR)/$(LIBNAME)
+lib: $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 
-$(BUILD_DIR)/$(LIBNAME): $(LIB_OBJS)
-	$(AR) rcs $@ $(LIB_OBJS)
+$(BUILD_DIR)/$(CORE_LIB): $(CORE_OBJS)
+	$(AR) rcs $@ $(CORE_OBJS)
+
+$(BUILD_DIR)/$(TOOLS_LIB): $(TOOLS_OBJS)
+	$(AR) rcs $@ $(TOOLS_OBJS)
 
 cli: $(BUILD_DIR)/$(CLI_BIN)
 
-$(BUILD_DIR)/$(CLI_BIN): $(CLI_OBJ) $(BUILD_DIR)/$(LIBNAME)
-	$(CXX) $(CXXFLAGS) -o $@ $(CLI_OBJ) $(BUILD_DIR)/$(LIBNAME) \
+$(BUILD_DIR)/$(CLI_BIN): $(CLI_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(CLI_OBJ) \
+	    $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
 	    $(CURL_LIBS)
 
 tui: $(BUILD_DIR)/$(TUI_BIN)
 
-$(BUILD_DIR)/$(TUI_BIN): $(TUI_OBJS) $(BUILD_DIR)/$(LIBNAME)
-	$(CXX) $(CXXFLAGS) -o $@ $(TUI_OBJS) $(BUILD_DIR)/$(LIBNAME) \
+$(BUILD_DIR)/$(TUI_BIN): $(TUI_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(TUI_OBJS) \
+	    $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
 	    $(CURL_LIBS) $(NCURSES_LIBS)
 
 # Object compilation rules. The library and tools are compiled once into the
@@ -190,7 +197,8 @@ $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
 # Pull in auto-generated header dependencies (ignored if absent, e.g. first run).
--include $(LIB_OBJS:.o=.d)
+-include $(CORE_OBJS:.o=.d)
+-include $(TOOLS_OBJS:.o=.d)
 -include $(CLI_OBJ:.o=.d)
 -include $(TUI_OBJS:.o=.d)
 -include $(UNITTEST_OBJ:.o=.d)
@@ -201,7 +209,8 @@ install: all
 	install -m 755 $(BUILD_DIR)/$(CLI_BIN) $(DESTDIR)$(bindir)/
 	install -m 755 $(BUILD_DIR)/$(TUI_BIN) $(DESTDIR)$(bindir)/
 	install -d $(DESTDIR)$(libdir)
-	install -m 644 $(BUILD_DIR)/$(LIBNAME) $(DESTDIR)$(libdir)/
+	install -m 644 $(BUILD_DIR)/$(CORE_LIB) $(DESTDIR)$(libdir)/
+	install -m 644 $(BUILD_DIR)/$(TOOLS_LIB) $(DESTDIR)$(libdir)/
 	install -d $(DESTDIR)$(includedir)/agent
 	install -d $(DESTDIR)$(includedir)/nlohmann
 	install -m 644 $(SRC_DIR)/include/agent/*.h $(DESTDIR)$(includedir)/agent/
@@ -215,7 +224,8 @@ install: all
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(CLI_BIN)
 	rm -f $(DESTDIR)$(bindir)/$(TUI_BIN)
-	rm -f $(DESTDIR)$(libdir)/$(LIBNAME)
+	rm -f $(DESTDIR)$(libdir)/$(CORE_LIB)
+	rm -f $(DESTDIR)$(libdir)/$(TOOLS_LIB)
 	rm -rf $(DESTDIR)$(includedir)/agent
 	rm -rf $(DESTDIR)$(docdir)
 
@@ -224,5 +234,5 @@ clean:
 	rm -f $(BUILD_DIR)/tools/*.o $(BUILD_DIR)/tools/search/*.o
 	rm -f $(BUILD_DIR)/lib/*.d $(BUILD_DIR)/src/*.d $(BUILD_DIR)/tui/*.d \
 	      $(BUILD_DIR)/tests/*.d $(BUILD_DIR)/tools/*.d $(BUILD_DIR)/tools/search/*.d
-	rm -f $(BUILD_DIR)/$(LIBNAME) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(TUI_BIN)
+	rm -f $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/libagent.a
 	rm -f $(BUILD_DIR)/smoketest $(BUILD_DIR)/run_tests
