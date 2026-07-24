@@ -164,6 +164,27 @@ struct Config {
 // and TUI to load/store LLM provider settings across all projects.
 std::string global_config_path();
 
+// ---------------------------------------------------------------------------
+// Provider storage — each provider is a key=value file under
+// ~/.config/amber/providers/<name>.conf with fields:
+//   name, api_base, api_key, default_model, requires_key
+// ---------------------------------------------------------------------------
+
+// Directory containing all saved provider configs.
+std::string providers_dir();
+
+// List all saved provider names (filenames without .conf extension).
+std::vector<std::string> list_saved_providers();
+
+// Load a saved provider config into a Config object. Returns false if not found.
+bool load_provider(const std::string& name, Config& out);
+
+// Save a provider config. Creates/overwrites the file.
+bool save_provider(const Config& cfg);
+
+// Delete a saved provider config. Returns false if not found.
+bool delete_provider(const std::string& name);
+
 } // namespace agent
 
 #endif // AGENT_CONFIG_H

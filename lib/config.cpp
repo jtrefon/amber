@@ -97,6 +97,55 @@ std::string global_config_path() {
     return global_config_dir() + "/config";
 }
 
+std::string providers_dir() {
+    std::string dir = global_config_dir() + "/providers";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
+
+std::vector<std::string> list_saved_providers() {
+    std::vector<std::string> out;
+    std::string dir = providers_dir();
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        std::string name = entry.path().filename().string();
+        if (name.size() < 5 || name.substr(name.size() - 5) != ".conf")
+            continue;
+        out.push_back(name.substr(0, name.size() - 5));
+    }
+    return out;
+}
+
+bool load_provider(const std::string& name, Config& out) {
+    std::string path = providers_dir() + "/" + name + ".conf";
+    std::ifstream f(path);
+    if (!f) return false;
+    out.load(path);
+    return !out.api_base.empty();
+}
+
+bool save_provider(const Config& cfg) {
+    std::string dir = providers_dir();
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::string path = dir + "/" + cfg.provider_name + ".conf";
+    std::ofstream f(path, std::ios::trunc);
+    if (!f) return false;
+    f << "# amber provider: " << cfg.provider_name << "\n";
+    f << "provider=" << cfg.provider_name << "\n";
+    f << "api_base=" << cfg.api_base << "\n";
+    f << "api_key=" << cfg.api_key << "\n";
+    f << "default_model=" << cfg.model << "\n";
+    f << "requires_key=" << (cfg.api_key.empty() ? "0" : "1") << "\n";
+    return static_cast<bool>(f);
+}
+
+bool delete_provider(const std::string& name) {
+    std::string path = providers_dir() + "/" + name + ".conf";
+    return std::filesystem::remove(path);
+}
+
 void Config::apply_provider(const std::string& name) {
     auto* p = provider::find(name);
     if (!p || p->name == "custom") return;

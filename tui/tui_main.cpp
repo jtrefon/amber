@@ -50,8 +50,14 @@ int main(int argc, char** argv) {
             cfg.api_key = tmp.api_key;
             if (!tmp.model.empty()) { cfg.model = tmp.model; cfg.model_explicit = true; }
             if (tmp.context_size > 0) { cfg.context_size = tmp.context_size; cfg.context_explicit = true; }
-        } else {
-            // Fallback: load provider fields directly from legacy amber.conf
+        }
+        // Always load api_key from global config, even for custom providers
+        if (!tmp.api_key.empty()) cfg.api_key = tmp.api_key;
+        if (!tmp.model.empty() && !cfg.model_explicit) { cfg.model = tmp.model; }
+        if (tmp.context_size > 0 && !cfg.context_explicit) { cfg.context_size = tmp.context_size; }
+
+        // Fallback: load provider fields directly from legacy amber.conf
+        if (tmp.provider_name.empty() || tmp.provider_name == "custom") {
             std::ifstream sf2("amber.conf");
             if (sf2) cfg.load("amber.conf");
         }

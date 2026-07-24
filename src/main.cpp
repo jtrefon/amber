@@ -47,6 +47,8 @@ int main(int argc, char** argv) {
                 if (!tmp.model.empty()) { cfg.model = tmp.model; cfg.model_explicit = true; }
                 if (tmp.context_size > 0) { cfg.context_size = tmp.context_size; cfg.context_explicit = true; }
             }
+            // Always load api_key from global config, even for custom providers
+            if (!tmp.api_key.empty()) cfg.api_key = tmp.api_key;
         }
     }
 
