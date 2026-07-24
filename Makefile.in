@@ -5,13 +5,14 @@
 CXX       = @CXX@
 CC        = @CC@
 CXXFLAGS  = @CXXFLAGS@
-CPPFLAGS  = @CPPFLAGS@
+CPPFLAGS  = @CPPFLAGS@ -I$(SRC_DIR)/completion/include
 # Auto-generate header dependency files (.d) so editing a header rebuilds every
 # translation unit that includes it. Without this, struct-layout changes in
 # headers leave stale .o files -> ABI mismatch -> heap corruption at runtime.
 DEPFLAGS  = -MMD -MP
 CURL_CFLAGS = @CURL_CFLAGS@
 CURL_LIBS   = @CURL_LIBS@
+COMPLETION_CFLAGS = -I$(SRC_DIR)/completion/include
 
 prefix    = @prefix@
 bindir    = @bindir@
