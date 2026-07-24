@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui.h"
+#include "tui/list_panel.h"
 #include "agent/model_probe.h"
 
 #include <algorithm>
@@ -174,44 +175,151 @@ void Tui::cmd_display(const std::string& arg) {
 }
 
 void Tui::cmd_set(const std::string& arg) {
-    auto show_usage = [&]() {
-        append_line(P_STATUS, "usage: /set detection loop|duplicate off|on|toggle");
-    };
+    if (arg.empty()) { append_line(P_STATUS, "usage: /set <option> <value>"); return; }
 
-    if (arg.rfind("detection ", 0) != 0) { show_usage(); return; }
+    // Parse: /set detection loop off
+    size_t sp = arg.find(' ');
+    std::string ns = (sp == std::string::npos) ? arg : arg.substr(0, sp);
+    std::string rest = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
 
-    std::string rest = arg.substr(10);
-    size_t sp = rest.rfind(' ');
-    if (sp == std::string::npos) { show_usage(); return; }
-
-    std::string key = rest.substr(0, sp);
-    std::string val = rest.substr(sp + 1);
-    if (key != "loop" && key != "duplicate") { show_usage(); return; }
-    if (val != "off" && val != "on" && val != "toggle") { show_usage(); return; }
-
-    bool* field = (key == "loop") ? &cfg_.detection_loop : &cfg_.detection_duplicate;
-    bool new_val = (val == "on") ? true : (val == "off") ? false : !*field;
-    *field = new_val;
-
-    // Propagate to all window agents
-    for (auto& w : windows_) {
-        if (!w->agent) continue;
-        if (key == "loop")
-            w->agent->set_detection_loop(new_val);
-        else
-            w->agent->set_detection_duplicate(new_val);
+    // detection loop|duplicate off|on|toggle
+    if (ns == "detection") {
+        size_t sp2 = rest.find(' ');
+        std::string key = (sp2 == std::string::npos) ? "" : rest.substr(0, sp2);
+        std::string val = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
+        if (key != "loop" && key != "duplicate") {
+            append_line(P_STATUS, "usage: /set detection loop|duplicate off|on|toggle");
+            return;
+        }
+        if (val != "off" && val != "on" && val != "toggle") {
+            append_line(P_STATUS, "usage: /set detection " + key + " off|on|toggle (got: " + val + ")");
+            return;
+        }
+        bool* field = (key == "loop") ? &cfg_.detection_loop : &cfg_.detection_duplicate;
+        bool new_val = (val == "on") ? true : (val == "off") ? false : !*field;
+        *field = new_val;
+        for (auto& w : windows_) {
+            if (!w->agent) continue;
+            if (key == "loop") w->agent->set_detection_loop(new_val);
+            else w->agent->set_detection_duplicate(new_val);
+        }
+        std::string hint = (key == "loop")
+            ? (new_val ? "breaks on repeat" : "runs until stop")
+            : (new_val ? "rejects duplicates" : "may repeat calls");
+        append_line(P_STATUS, "detection " + key + ": " + (new_val ? "on" : "off") + " — " + hint);
+        if (!cfg_.save_settings(settings_path_))
+            append_line(P_STATUS, "warning: could not save to " + settings_path_);
+        draw();
+        return;
     }
 
-    std::string hint;
-    if (key == "loop")
-        hint = new_val ? "will break on repeated tool/text" : "model runs until natural stop";
-    else
-        hint = new_val ? "rejects repeated tool calls across turns" : "model may repeat the same call";
-    append_line(P_STATUS, "detection " + key + ": " + (new_val ? "on" : "off") +
-                          "  —  " + hint + "  (/set detection " + key + " toggle)");
-    if (!cfg_.save_settings(settings_path_))
-        append_line(P_STATUS, "warning: could not save settings to " + settings_path_);
-    draw();
+    // display markdown on|off
+    if (ns == "display") {
+        if (rest != "markdown on" && rest != "markdown off") {
+            append_line(P_STATUS, "usage: /set display markdown on|off");
+            return;
+        }
+        win().markdown_on = (rest == "markdown on");
+        append_line(P_STATUS, "markdown rendering: " + std::string(rest.substr(9)));
+        draw();
+        return;
+    }
+
+    // toolfold always|auto|never
+    if (ns == "toolfold") {
+        if (rest == "always") tool_fold_ = ToolFold::Always;
+        else if (rest == "auto") tool_fold_ = ToolFold::Auto;
+        else if (rest == "never") tool_fold_ = ToolFold::Never;
+        else { append_line(P_STATUS, "usage: /set toolfold always|auto|never"); return; }
+        append_line(P_STATUS, "tool fold: " + rest);
+        draw();
+        return;
+    }
+
+    // policy read|write|yolo
+    if (ns == "policy") {
+        if (rest == "read") cfg_.mode = agent::AgentMode::Read;
+        else if (rest == "write") cfg_.mode = agent::AgentMode::Write;
+        else if (rest == "yolo") cfg_.mode = agent::AgentMode::Yolo;
+        else { append_line(P_STATUS, "usage: /set policy read|write|yolo"); return; }
+        append_line(P_STATUS, "policy: " + rest);
+        draw();
+        return;
+    }
+
+    // provider openrouter|kilocode|custom
+    if (ns == "provider") {
+        cmd_provider(rest);
+        return;
+    }
+
+    // model <name>
+    if (ns == "model") {
+        cmd_model(rest);
+        return;
+    }
+
+    // think on|off|auto
+    if (ns == "think") {
+        if (rest != "on" && rest != "off" && rest != "auto") {
+            append_line(P_STATUS, "usage: /set think on|off|auto");
+            return;
+        }
+        cfg_.thinking = rest;
+        append_line(P_STATUS, "thinking: " + rest);
+        return;
+    }
+
+    append_line(P_STATUS, "unknown option: " + ns + " (try: detection, display, toolfold, policy, provider, model, think)");
+}
+
+void Tui::cmd_get(const std::string& arg) {
+    if (arg == "config" || arg.empty()) {
+        config_screen();
+        redraw_after_modal();
+        return;
+    }
+    if (arg == "model") {
+        append_line(P_STATUS, "model: " + cfg_.model + " (provider: " + cfg_.provider_name + ")");
+        return;
+    }
+    if (arg == "provider") {
+        append_line(P_STATUS, "provider: " + cfg_.provider_name + " (" + cfg_.api_base + ")");
+        return;
+    }
+    if (arg == "toolfold") {
+        std::string v = (tool_fold_ == ToolFold::Always) ? "always" :
+                        (tool_fold_ == ToolFold::Never) ? "never" : "auto";
+        append_line(P_STATUS, "toolfold: " + v);
+        return;
+    }
+    if (arg == "policy") {
+        std::string v = (cfg_.mode == agent::AgentMode::Read) ? "read" :
+                        (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
+        append_line(P_STATUS, "policy: " + v);
+        return;
+    }
+    if (arg == "display") {
+        append_line(P_STATUS, "markdown: " + std::string(win().markdown_on ? "on" : "off"));
+        return;
+    }
+    if (arg == "think") {
+        append_line(P_STATUS, "thinking: " + cfg_.thinking);
+        return;
+    }
+    if (arg.rfind("detection", 0) == 0) {
+        std::string sub = (arg.size() > 10) ? arg.substr(10) : "";
+        if (sub.empty() || sub == " loop") {
+            append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
+        }
+        if (sub.empty() || sub == " duplicate") {
+            append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
+        }
+        return;
+    }
+    // Default: show all settings via config screen
+    config_screen();
+    redraw_after_modal();
 }
 
 const std::vector<Command>& Tui::commands() {
@@ -225,52 +333,8 @@ void Tui::build_commands() {
          "list commands, or show detail for one",
          [this](const std::string& a) { cmd_help(a); }},
         {"settings", {"server", "endpoint"}, "",
-         "configure provider URL, API key, model, and connection test",
+         "configure provider, model, API key, and connection test",
          [this](const std::string&) { settings_screen(); redraw_after_modal(); }},
-        {"config", {"cfg"}, "",
-         "show the current configuration",
-         [this](const std::string&) { config_screen(); redraw_after_modal(); }},
-        {"think", {"reasoning"}, "",
-         "toggle live thinking/reasoning display",
-         [this](const std::string&) { toggle_thinking(); }},
-        {"toolfold", {}, "always|auto|never",
-         "how to show tool calls in scrollback",
-         [this](const std::string& a) { cmd_toolfold(a); },
-         [](const std::string&) {
-             return std::vector<std::string>{"always", "auto", "never"};
-         },
-         [this]() -> std::string {
-             switch (tool_fold_) {
-                 case ToolFold::Always: return "always";
-                 case ToolFold::Auto:   return "auto";
-                 case ToolFold::Never:  return "never";
-             }
-             return "auto";
-         }},
-        {"policy", {"mode"}, "read|write|yolo",
-          "set agent policy: read (safe), write (normal), yolo (trusted)",
-          [this](const std::string& a) { cmd_policy(a); },
-          [](const std::string&) {
-              return std::vector<std::string>{"read", "write", "yolo"};
-          },
-          [this]() -> std::string {
-              switch (cfg_.mode) {
-                  case agent::AgentMode::Read:  return "read";
-                  case agent::AgentMode::Write: return "write";
-                  case agent::AgentMode::Yolo:  return "yolo";
-              }
-              return "write";
-          }},
-        {"display", {}, "markdown on|off",
-          "toggle Markdown rendering of assistant replies",
-          [this](const std::string& a) { cmd_display(a); },
-          [](const std::string&) {
-              return std::vector<std::string>{"markdown on", "markdown off"};
-          },
-          [this]() -> std::string {
-              return std::string("markdown ") +
-                     (win().markdown_on ? "on" : "off");
-          }},
         {"new", {}, "",
          "open a new chat window",
          [this](const std::string&) { new_window("chat"); draw(); }},
@@ -287,38 +351,40 @@ void Tui::build_commands() {
               agent_cancel_.store(true);
               append_line(P_STATUS, "stop requested");
           }},
-        {"set", {}, "detection loop|duplicate off|on|toggle",
-         "set runtime options: detection loop, detection duplicate",
+        {"set", {}, "<option> <value>",
+         "set runtime options: detection, display, toolfold, policy, provider, model, think",
           [this](const std::string& a) { cmd_set(a); },
           [](const std::string& partial) {
-              std::vector<std::string> all = {
-                  "detection loop off", "detection loop on", "detection loop toggle",
-                  "detection duplicate off", "detection duplicate on",
-                  "detection duplicate toggle"};
-              if (partial.empty())
-                  return std::vector<std::string>{"detection loop",
-                                                   "detection duplicate"};
+              std::vector<std::string> categories = {"detection", "display",
+                  "toolfold", "policy", "provider", "model", "think"};
+              if (partial.empty()) return categories;
               std::vector<std::string> out;
-              for (const auto& a : all) {
-                  // Match whole string (existing flow) or any word inside it.
-                  if (a.rfind(partial, 0) == 0) { out.push_back(a); continue; }
-                  size_t pos = 0;
-                  while (pos < a.size()) {
-                      pos = a.find_first_not_of(' ', pos);
-                      if (pos == std::string::npos) break;
-                      if (a.rfind(partial, pos) == pos) { out.push_back(a); break; }
-                      pos = a.find(' ', pos);
-                      if (pos == std::string::npos) break;
-                      ++pos;
-                  }
-              }
+              for (auto& c : categories)
+                  if (c.rfind(partial, 0) == 0) out.push_back(c);
               return out;
           },
           [this]() -> std::string {
-              return std::string("detection loop ") +
-                     (cfg_.detection_loop ? "on" : "off") +
-                     "  detection duplicate " +
-                     (cfg_.detection_duplicate ? "on" : "off");
+              return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
+                     "  display " + (win().markdown_on ? "on" : "off") +
+                     "  toolfold " + (tool_fold_ == ToolFold::Always ? "always" :
+                                      tool_fold_ == ToolFold::Never ? "never" : "auto") +
+                     "  policy " + (cfg_.mode == agent::AgentMode::Read ? "read" :
+                                    cfg_.mode == agent::AgentMode::Yolo ? "yolo" : "write") +
+                     "  provider " + cfg_.provider_name +
+                     "  model " + cfg_.model +
+                     "  think " + cfg_.thinking;
+          }},
+        {"get", {}, "<option>",
+         "show current setting: config, model, provider, toolfold, policy, display, detection",
+          [this](const std::string& a) { cmd_get(a); },
+          [](const std::string& partial) {
+              std::vector<std::string> keys = {"config", "model", "provider",
+                  "toolfold", "policy", "display", "detection loop", "detection duplicate", "think"};
+              if (partial.empty()) return keys;
+              std::vector<std::string> out;
+              for (auto& k : keys)
+                  if (k.rfind(partial, 0) == 0) out.push_back(k);
+              return out;
           }},
         {"compress", {"compact"}, "",
          "compress conversation history to free context space",
@@ -360,19 +426,9 @@ void Tui::build_commands() {
         {"sessions", {"load", "open"}, "",
          "browse and load a saved session",
          [this](const std::string&) { session_browser(); }},
-         {"model", {}, "<name>",
-          "list or switch the LLM model (queries provider's /v1/models)",
-          [this](const std::string& a) { cmd_model(a); }},
-         {"provider", {}, "openrouter|kilocode|custom",
-          "switch LLM provider (sets api_base, presets models)",
-          [this](const std::string& a) { cmd_provider(a); },
-          [](const std::string&) {
-              return std::vector<std::string>{"openrouter", "kilocode", "custom"};
-          },
-          [this]() -> std::string { return cfg_.provider_name; }},
-         {"quit", {"exit", "q"}, "",
-          "save all windows and exit",
-          [this](const std::string&) { request_quit(); }},
+        {"quit", {"exit", "q"}, "",
+         "save all windows and exit",
+         [this](const std::string&) { request_quit(); }},
     };
 }
 
@@ -729,30 +785,50 @@ bool Tui::test_connection(bool announce) {
 }
 
 void Tui::settings_screen() {
-    std::string det = last_detected_.ok
-        ? ("detected: " + last_detected_.model + " / n_ctx " +
-           std::to_string(last_detected_.context_size))
-        : std::string("detected: (none - press Detect below)");
+    // Step 1: Select provider via visual list
+    std::vector<std::string> prov_choices = {
+        "OpenRouter  (openrouter.ai)",
+        "Kilo Code   (api.kilocode.ai)",
+        "Custom      (user-defined endpoint)"
+    };
+    int prov_idx = 0;
+    if (cfg_.provider_name == "openrouter") prov_idx = 0;
+    else if (cfg_.provider_name == "kilocode") prov_idx = 1;
+    else prov_idx = 2;
 
-    std::vector<std::string> pre = {"Edit settings",
-                                    "Test connection & fill model/context"};
-    int pick = menu_select(det, pre);
-    if (pick == 1) { test_connection(true); return; }
-    if (pick != 0) return;
+    ModalScope scope;
+    curs_set(0);
+    {
+        ListPanel lp("Select Provider", prov_choices);
+        int r = lp.run();
+        if (r < 0) return;
+        prov_idx = r;
+    }
 
+    // Apply provider preset
+    std::string new_provider;
+    if (prov_idx == 0) new_provider = "openrouter";
+    else if (prov_idx == 1) new_provider = "kilocode";
+    else new_provider = "custom";
+
+    if (new_provider != "custom") {
+        cfg_.apply_provider(new_provider);
+        cfg_.provider_name = new_provider;
+    }
+
+    // Step 2: Edit provider fields
     std::string model_field = cfg_.model_explicit ? cfg_.model : "";
     std::string ctx_field =
         cfg_.context_explicit ? std::to_string(cfg_.context_size) : "0";
     std::vector<FieldSpec> fields = {
         {"Server URL", cfg_.api_base, false},
-        {"Token", cfg_.api_key, true},
+        {"API Key", cfg_.api_key, true},
         {"Model (blank = auto)", model_field, false},
         {"Context n_ctx (0 = auto)", ctx_field, false},
     };
-    if (!form_edit("Server settings", fields)) return;
+    if (!form_edit("Provider Settings", fields)) return;
 
     cfg_.api_base = fields[0].value;
-    // Strip trailing slash so api_url() doesn't produce "//chat/completions"
     while (!cfg_.api_base.empty() && cfg_.api_base.back() == '/')
         cfg_.api_base.pop_back();
     cfg_.api_key = fields[1].value;
@@ -768,17 +844,20 @@ void Tui::settings_screen() {
         else       { cfg_.context_explicit = false; }
     } catch (...) { cfg_.context_explicit = false; }
 
-    if (!cfg_.model_explicit || !cfg_.context_explicit)
-        test_connection(false);
-
-    std::vector<std::string> post = {"Save to " + settings_path_,
-                                     "Apply only (don't save)"};
-    int choice = menu_select("Apply settings?", post);
-    if (choice == 0) {
-        save_settings();
-        append_line(P_STATUS, "settings saved to " + settings_path_);
-    } else if (choice == 1) {
-        append_line(P_STATUS, "settings applied (not saved)");
+    // Step 3: Test connection or skip
+    std::string det = last_detected_.ok
+        ? ("detected: " + last_detected_.model + " / n_ctx " +
+           std::to_string(last_detected_.context_size))
+        : "detected: (none)";
+    int post = menu_select(det, {"Test connection & auto-fill", "Save settings", "Cancel"});
+    if (post == 0) {
+        test_connection(true);
+        // Save after detection fills values
+        cfg_.save_global(agent::global_config_path());
+        append_line(P_STATUS, "settings saved");
+    } else if (post == 1) {
+        cfg_.save_global(agent::global_config_path());
+        append_line(P_STATUS, "settings saved to " + agent::global_config_path());
     }
 }
 
