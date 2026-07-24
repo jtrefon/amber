@@ -54,6 +54,12 @@ public:
     int content_rows() const { return h_ - 2; }
     int content_cols() const { return w_ - 2; }
 
+    // The outer window (with border). Used by legacy Dialog API for
+    // callers that draw directly to the window surface.
+    WINDOW* win() const { return win_; }
+    int rows() const { return h_; }
+    int cols() const { return w_; }
+
     // Top-left position (computed for centering)
     int top() const { return top_; }
     int left() const { return left_; }
