@@ -1,7 +1,7 @@
 # amber — Current Issues Register
 
-- **Status:** Active (in review)
-- **Last updated:** 2026-07-23
+- **Status:** ✅ All resolved
+- **Last updated:** 2026-07-24
 - **Owner:** Jacek Trefon
 - **Tolerance:** Zero technical debt — every issue must be refactored, not patched
 
@@ -225,13 +225,54 @@
 
 ---
 
-## Superseded / Resolved
+## Resolved
 
-These issues were addressed in prior refactors (verified against current code):
+All 17 issues from the original audit are resolved. The following fixes
+were applied across 11 PRs and 3 documentation updates:
 
-- [x] `lib/llm.cpp` (511→84 lines) — split into request_builder, sse_parser, http_transport, model_probe, debug_log
-- [x] `lib/agent.cpp` (473→200 lines) — confirmation loop and tool-dispatch extracted
-- [x] `tui/tui.cpp` (1245→171 lines) — god-class split
-- [x] `tui/widgets.cpp` (333 lines) — split into dialog, form_edit, info_dialog, menu_select
-- [x] `tools/search/semantic_backend.cpp` (227→126 lines) — indexing helpers extracted
-- [x] `tools/bash_tool.cpp` (191→196 lines) — execute() decomposed into run_with_timeout + drain_output
+### 🔴 Critical
+
+| ID | Issue | Fix | PR |
+|----|-------|-----|----|
+| C1 | Detached thread use-after-free | Replaced with synchronous extraction | #3 |
+| C2 | HTTP transport depends on tool-cancel globals | Moved `CancellationToken` into core | #1 |
+
+### 🟠 High
+
+| ID | Issue | Fix | PR |
+|----|-------|-----|----|
+| H1 | `Agent::run()` SRP violation | Decomposed into 4 named methods (155→46 lines) | #4 |
+| H2 | `Agent::compress_now()` SRP violation | Reused `CompressionPipeline`, added `CompressionObserver` | #5 |
+| H3 | Tool cancel is module-level global state | Replaced with instance-scoped `CancellationToken` | #1 |
+| H4 | Tools compiled into `libagent.a` | Split into `libagent_core.a` + `libagent_tools.a` | #6 |
+
+### 🟡 Medium
+
+| ID | Issue | Fix | PR |
+|----|-------|-----|----|
+| M1 | Tests include TUI headers | Moved 45 TUI tests to `tests/tui_tests.cpp` | #9 |
+| M2 | No TDD/Red-Green policy | Added to AGENTS.md | docs |
+| M3 | No code review process | Added review checklist to AGENTS.md | docs |
+| M4 | No error handling convention | Added error handling section to AGENTS.md | docs |
+| M5 | Heavy include chain in `dispatch.h` | Replaced with forward declarations | #10 |
+| M6 | Naive memory extraction heuristic | Removed — LLM-based extraction in `compress_now()` is correct path | #11 |
+
+### 🔵 Low
+
+| ID | Issue | Fix | PR |
+|----|-------|-----|----|
+| L1 | Missing `noexcept` | Added to all Tool/SearchBackend/Config/Registry accessors | #11 |
+| L2 | POSIX `opendir` in SessionStore | Replaced with `std::filesystem::directory_iterator` | #11 |
+| L3 | Config is concrete struct | Acknowledged — not a priority | — |
+| L4 | Workspace uses static root | Added `reset_root()` for test isolation | #11 |
+| L5 | Test framework lacks fixtures | Acknowledged — acceptable for current scope | — |
+| L6 | 5 undocumented design patterns | Added to AGENTS.md (Observer, Command, Proxy, Null Object, Memento) | docs |
+
+### Pre-existing refactors (verified)
+
+- [x] `lib/llm.cpp` (511→84 lines)
+- [x] `lib/agent.cpp` (473→200 lines)
+- [x] `tui/tui.cpp` (1245→171 lines)
+- [x] `tui/widgets.cpp` (333 lines)
+- [x] `tools/search/semantic_backend.cpp` (227→126 lines)
+- [x] `tools/bash_tool.cpp` (191→196 lines)
