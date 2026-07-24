@@ -71,27 +71,7 @@ struct ModalScope {
     ModalScope& operator=(const ModalScope&) = delete;
 };
 
-// Dialog: a centered bordered window managed by a panel, with a drop-shadow
-// panel underneath. RAII: constructing shows it, destroying hides/frees it.
-class Dialog {
-public:
-    Dialog(int h, int w, const std::string& title);
-    ~Dialog();
 
-    WINDOW* win() const { return win_; }
-    int rows() const { return h_; }
-    int cols() const { return w_; }
-
-    Dialog(const Dialog&) = delete;
-    Dialog& operator=(const Dialog&) = delete;
-
-private:
-    WINDOW* win_ = nullptr;
-    WINDOW* shadow_win_ = nullptr;
-    PANEL* panel_ = nullptr;
-    PANEL* shadow_panel_ = nullptr;
-    int h_ = 0, w_ = 0;
-};
 
 // A single editable field in a form dialog.
 struct FieldSpec {
