@@ -175,7 +175,24 @@ void Tui::cmd_display(const std::string& arg) {
 }
 
 void Tui::cmd_set(const std::string& arg) {
-    if (arg.empty()) { append_line(P_STATUS, "usage: /set <option> <value>"); return; }
+    if (arg.empty()) {
+        // BitchX-style: /set alone shows all settings
+        append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
+        append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
+        append_line(P_STATUS, "display markdown: " + std::string(win().markdown_on ? "on" : "off"));
+        std::string tf = (tool_fold_ == ToolFold::Always) ? "always" :
+                         (tool_fold_ == ToolFold::Never) ? "never" : "auto";
+        append_line(P_STATUS, "toolfold: " + tf);
+        std::string pol = (cfg_.mode == agent::AgentMode::Read) ? "read" :
+                          (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
+        append_line(P_STATUS, "policy: " + pol);
+        append_line(P_STATUS, "provider: " + cfg_.provider_name);
+        append_line(P_STATUS, "model: " + cfg_.model);
+        append_line(P_STATUS, "thinking: " + cfg_.thinking);
+        append_line(P_STATUS, "Use /set <option> <value> to change a setting");
+        draw();
+        return;
+    }
 
     // Parse: /set detection loop off
     size_t sp = arg.find(' ');
@@ -354,14 +371,81 @@ void Tui::build_commands() {
         {"set", {}, "<option> <value>",
          "set runtime options: detection, display, toolfold, policy, provider, model, think",
           [this](const std::string& a) { cmd_set(a); },
-          [](const std::string& partial) {
+          [this](const std::string& partial) {
+              // Provide tab completions for all /set subcommands
               std::vector<std::string> categories = {"detection", "display",
                   "toolfold", "policy", "provider", "model", "think"};
               if (partial.empty()) return categories;
-              std::vector<std::string> out;
-              for (auto& c : categories)
-                  if (c.rfind(partial, 0) == 0) out.push_back(c);
-              return out;
+
+              // Parse: "detection " or "detection l" etc.
+              size_t sp = partial.find(' ');
+              std::string ns = (sp == std::string::npos) ? partial : partial.substr(0, sp);
+              std::string rest = (sp == std::string::npos) ? "" : partial.substr(sp + 1);
+
+              // Category-level completion
+              if (sp == std::string::npos) {
+                  std::vector<std::string> out;
+                  for (auto& c : categories)
+                      if (c.rfind(partial, 0) == 0) out.push_back(c);
+                  return out;
+              }
+
+              // Subcommand-level completion
+              if (ns == "detection") {
+                  static std::vector<std::string> det_vals = {"loop on", "loop off", "loop toggle",
+                      "duplicate on", "duplicate off", "duplicate toggle"};
+                  std::vector<std::string> out;
+                  for (auto& v : det_vals)
+                      if (v.rfind(rest, 0) == 0) out.push_back("detection " + v);
+                  return out;
+              }
+              if (ns == "display") {
+                  static std::vector<std::string> disp_vals = {"markdown on", "markdown off"};
+                  std::vector<std::string> out;
+                  for (auto& v : disp_vals)
+                      if (v.rfind(rest, 0) == 0) out.push_back("display " + v);
+                  return out;
+              }
+              if (ns == "toolfold") {
+                  static std::vector<std::string> fold_vals = {"always", "auto", "never"};
+                  std::vector<std::string> out;
+                  for (auto& v : fold_vals)
+                      if (v.rfind(rest, 0) == 0) out.push_back("toolfold " + v);
+                  return out;
+              }
+              if (ns == "policy") {
+                  static std::vector<std::string> pol_vals = {"read", "write", "yolo"};
+                  std::vector<std::string> out;
+                  for (auto& v : pol_vals)
+                      if (v.rfind(rest, 0) == 0) out.push_back("policy " + v);
+                  return out;
+              }
+              if (ns == "provider") {
+                  static std::vector<std::string> prov_vals = {"openrouter", "kilocode", "custom"};
+                  std::vector<std::string> out;
+                  for (auto& v : prov_vals)
+                      if (v.rfind(rest, 0) == 0) out.push_back("provider " + v);
+                  return out;
+              }
+              if (ns == "think") {
+                  static std::vector<std::string> think_vals = {"on", "off", "auto"};
+                  std::vector<std::string> out;
+                  for (auto& v : think_vals)
+                      if (v.rfind(rest, 0) == 0) out.push_back("think " + v);
+                  return out;
+              }
+              if (ns == "model") {
+                  // For model, fetch from provider and complete
+                  auto models = agent::list_models(cfg_);
+                  std::vector<std::string> out;
+                  for (auto& m : models)
+                      if (rest.empty() || m.rfind(rest, 0) == 0)
+                          out.push_back("model " + m);
+                  // Limit to 50 completions
+                  if (out.size() > 50) out.resize(50);
+                  return out;
+              }
+              return std::vector<std::string>{};
           },
           [this]() -> std::string {
               return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
@@ -487,7 +571,7 @@ void Tui::show_command_frame(const Command& c) {
 
 void Tui::cmd_model(const std::string& arg) {
     if (arg.empty()) {
-        // List available models from the provider
+        // Spawn a ListPanel with all available models (with filter/search)
         append_line(P_STATUS, "querying " + cfg_.models_url() + " ...");
         draw();
         auto models = agent::list_models(cfg_);
@@ -495,21 +579,40 @@ void Tui::cmd_model(const std::string& arg) {
             append_line(P_STATUS, "no models available or server unreachable");
             return;
         }
-        append_line(P_STATUS, "available models (" + std::to_string(models.size()) + "):");
-        int count = 0;
-        for (const auto& m : models) {
-            if (count >= 20) {
-                append_line(P_STATUS, "  ... and " + std::to_string(models.size() - 20) + " more");
-                break;
-            }
-            bool cur = (m == cfg_.model);
-            append_line(P_STATUS, std::string(cur ? "> " : "  ") + m);
-            ++count;
+
+        // Mark current model
+        std::vector<std::string> display;
+        int cur_idx = -1;
+        for (size_t i = 0; i < models.size(); ++i) {
+            bool cur = (models[i] == cfg_.model);
+            display.push_back((cur ? "> " : "  ") + models[i]);
+            if (cur) cur_idx = static_cast<int>(i);
         }
+
+        {
+            ModalScope scope;
+            curs_set(0);
+            ListPanel lp("Select Model (" + std::to_string(models.size()) + " available)",
+                         display);
+            int sel = lp.run();
+            if (sel < 0) return;
+            // Map back to original model name (the UI string has "> " or "  " prefix)
+            std::string chosen = display[sel].substr(2);
+            cfg_.model = chosen;
+            cfg_.model_explicit = true;
+        }
+
+        for (auto& w : windows_) {
+            if (!w->agent) continue;
+            w->agent->set_detection_loop(cfg_.detection_loop);
+        }
+        std::string global = agent::global_config_path();
+        cfg_.save_global(global);
+        append_line(P_STATUS, "model set to " + cfg_.model + " (saved to " + global + ")");
         return;
     }
 
-    // Set model by name
+    // Set model by name (direct)
     auto models = agent::list_models(cfg_);
     bool found = false;
     for (const auto& m : models)
@@ -520,10 +623,9 @@ void Tui::cmd_model(const std::string& arg) {
     }
     cfg_.model = arg;
     cfg_.model_explicit = true;
-    // Propagate to window agents
     for (auto& w : windows_) {
         if (!w->agent) continue;
-        w->agent->set_detection_loop(cfg_.detection_loop);  // force agent re-init
+        w->agent->set_detection_loop(cfg_.detection_loop);
     }
     std::string global = agent::global_config_path();
     cfg_.save_global(global);
