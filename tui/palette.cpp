@@ -3,6 +3,8 @@
 
 #include "palette.h"
 
+#include <algorithm>
+
 namespace tui::palette {
 
 // =========================================================================
@@ -26,17 +28,29 @@ bool wants_open(const std::string& input) {
 
 std::vector<const Command*> filter(const std::vector<Command>& commands,
                                    const std::string& tok) {
-    std::vector<const Command*> primary, aliased;
+    std::vector<const Command*> exact, prefix, aliased;
     for (const auto& c : commands) {
-        if (tok.empty() || c.name.rfind(tok, 0) == 0) {
-            primary.push_back(&c);
+        if (tok.empty()) {
+            exact.push_back(&c);
+        } else if (c.name == tok) {
+            exact.push_back(&c);
+        } else if (c.name.rfind(tok, 0) == 0) {
+            prefix.push_back(&c);
         } else {
             for (const auto& a : c.aliases)
-                if (a.rfind(tok, 0) == 0) { aliased.push_back(&c); break; }
+                if (a == tok) { exact.push_back(&c); break; }
+                else if (a.rfind(tok, 0) == 0) { aliased.push_back(&c); break; }
         }
     }
-    primary.insert(primary.end(), aliased.begin(), aliased.end());
-    return primary;
+    // Exact matches first, then shorter prefix/alias names (closer match).
+    auto by_length = [](const Command* a, const Command* b) {
+        return a->name.size() < b->name.size();
+    };
+    std::stable_sort(prefix.begin(), prefix.end(), by_length);
+    std::stable_sort(aliased.begin(), aliased.end(), by_length);
+    exact.insert(exact.end(), prefix.begin(), prefix.end());
+    exact.insert(exact.end(), aliased.begin(), aliased.end());
+    return exact;
 }
 
 const Command* find(const std::vector<Command>& commands,
