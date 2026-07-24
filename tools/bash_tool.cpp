@@ -23,6 +23,24 @@
 namespace agent {
 
 namespace {
+
+bool is_read_only_shell(const std::string& cmd) {
+    if (cmd.empty()) return false;
+    const char* read_commands[] = {
+        "cat", "ls", "grep", "find", "head", "tail", "wc", "sort",
+        "uniq", "which", "type", "file", "stat", "du", "df",
+        "echo", "printf", "pwd", "date", "whoami", "id", "env",
+        "printenv", "git status", "git log", "git diff"
+    };
+    for (const char* prefix : read_commands) {
+        if (cmd.rfind(prefix, 0) == 0) {
+            char following = cmd[std::strlen(prefix)];
+            if (following == '\0' || following == ' ') return true;
+        }
+    }
+    return false;
+}
+
 constexpr int kMaxTimeout = 3600;          // 1 hour ceiling
 constexpr std::size_t kMaxOutput = std::size_t{64} * 1024;   // 64 KiB cap
 
@@ -181,7 +199,12 @@ private:
         };
     }
 
-    bool requires_approval() const noexcept override { return true; }
+    bool requires_approval(const json& a) const noexcept override {
+        std::string cmd;
+        if (a.contains("command") && a["command"].is_string())
+            cmd = a["command"].get<std::string>();
+        return !is_read_only_shell(cmd);
+    }
 
     bool is_read_only() const noexcept override { return false; }
 

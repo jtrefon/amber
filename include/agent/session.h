@@ -96,6 +96,9 @@ private:
     std::string path_for(const std::string& id) const;
     std::string index_path() const;
     std::string workspace_path() const;
+    // Scan the session directory (without index cache). Never calls rebuild_index()
+    // or list(), breaking the recursion hazard between list() and rebuild_index().
+    std::vector<SessionMeta> scan_directory() const;
 };
 
 } // namespace agent

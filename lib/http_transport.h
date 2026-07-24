@@ -8,9 +8,16 @@
 #include "agent/llm.h"
 #include "agent/sse_parser.h"
 #include <curl/curl.h>
+#include <memory>
 #include <string>
 
 namespace agent {
+
+// RAII wrapper for curl_easy handles. Ensures cleanup on any exit path.
+using CurlPtr = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>;
+inline CurlPtr make_curl() {
+    return CurlPtr(curl_easy_init(), curl_easy_cleanup);
+}
 
 // RAII wrapper around a curl_slist of request headers.
 struct HeaderList {

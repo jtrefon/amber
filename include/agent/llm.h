@@ -88,7 +88,7 @@ public:
                         Stats* stats = nullptr);
 
     // libcurl write callback: accumulates the response body into a std::string.
-    static size_t write_cb(void* ptr, size_t size, size_t nmemb, void* user);
+    static size_t write_cb(char* ptr, size_t size, size_t nmemb, void* user);
 
 private:
     Config cfg_;

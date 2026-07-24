@@ -144,103 +144,51 @@ const AgentHooks& Agent::silent_hooks() const {
     return silent;
 }
 
+namespace {
+
+size_t estimate_tokens(const std::vector<Message>& msgs) {
+    size_t n = 0;
+    for (const auto& m : msgs)
+        n += (m.content.size() + m.reasoning.size()) / 4;
+    return n;
+}
+
+void apply_compression_memops(MemoryStore* store, const ExperienceConfig& exp_cfg,
+                               const CompressionResponse& cr, size_t turn,
+                               CompressionReporter& reporter) {
+    size_t upsert = 0, deprecate = 0;
+    for (const auto& op : cr.memory_ops) {
+        if (op.action == "deprecate") ++deprecate; else ++upsert;
+    }
+    if (!store || cr.memory_ops.empty()) return;
+    store->set_current_turn(turn);
+    apply_memory_ops(*store, cr.memory_ops, "");
+    store->decay_all();
+    if (!exp_cfg.store_path.empty())
+        store->save(exp_cfg.store_path);
+    reporter.on_memory_ops_applied(upsert, deprecate);
+}
+
+} // namespace
+
 CompressionResult Agent::compress_now() {
     CompressionResult r;
     if (!compression_ || history_.size() < 2) return r;
-
     auto before = history_;
 
-    // Status reporter: bridges CompressionObserver to hooks_.on_status
-    // and writes progress lines to stderr for the TUI.
-    class Reporter : public CompressionObserver {
-    public:
-        Reporter(const AgentHooks& h, CompressionResult& res)
-            : hooks_(h), r_(res), t0_(std::chrono::steady_clock::now()),
-              before_msgs_(0) {}
-        void set_before(size_t msgs, size_t tokens) {
-            before_msgs_ = msgs; r_.messages_before = msgs; r_.tokens_before = tokens;
-        }
-        void on_compress_start(size_t msgs, size_t) override {
-            log("compress started (" + std::to_string(msgs) + " msgs)");
-        }
-        void on_loop_collapse(size_t removed) override {
-            log("loop collapse: removed " + std::to_string(removed) + " messages");
-        }
-        void on_llm_request_sent() override { log("LLM request sent..."); }
-        void on_llm_reply_received(long sec) override {
-            log("LLM replied (" + std::to_string(sec) + "s)");
-        }
-        void on_parse_result(const CompressionResponse& cr) override {
-            log("parsed " + std::to_string(cr.segments.size()) + " spans, "
-                + std::to_string(cr.memory_ops.size()) + " memory ops, "
-                + std::to_string(cr.skill_ops.size()) + " skill ops");
-        }
-        void on_apply_result(const CompressionResult&) override {
-            log("apply complete");
-        }
-        void on_memory_ops_applied(size_t up, size_t dep) override {
-            log("store: " + std::to_string(up) + " upserts, "
-                + std::to_string(dep) + " deprecations");
-        }
-        void on_error(const std::string& msg) override {
-            log("FAILED — " + msg);
-        }
-        void on_compress_done(const CompressionResult& final) override {
-            r_.messages_after = final.messages_after;
-            r_.tokens_after = final.tokens_after;
-            auto now = std::chrono::steady_clock::now();
-            long total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - t0_).count();
-            log("finished in " + std::to_string(total_ms / 1000) + "s "
-                + std::to_string(r_.messages_before) + " -> "
-                + std::to_string(r_.messages_after) + " msgs");
-        }
-    private:
-        const AgentHooks& hooks_;
-        CompressionResult& r_;
-        std::chrono::steady_clock::time_point t0_;
-        size_t before_msgs_;
-        void log(const std::string& msg) {
-            auto now = std::chrono::steady_clock::now();
-            long sec = std::chrono::duration_cast<std::chrono::seconds>(
-                now - t0_).count();
-            std::string line = "[+" + std::to_string(sec) + "s] " + msg + "\n";
-            if (hooks_.on_status) hooks_.on_status(line);
-        }
-    };
-
-    // Compute before-stats and run pipeline through the observer
-    size_t tokens_before = 0;
-    for (const auto& m : before)
-        tokens_before += (m.content.size() + m.reasoning.size()) / 4;
-
-    Reporter reporter(hooks_, r);
-    reporter.set_before(before.size(), tokens_before);
+    CompressionReporter reporter(hooks_, r);
+    reporter.set_before(before.size(), estimate_tokens(before));
 
     CompressionConfig cc = load_compression_config(cfg_);
     CompressionResponse pipeline_cr;
     history_ = compression_->compress(before, cc, client_, &reporter, &pipeline_cr);
 
-    // Compute after-stats
-    for (const auto& m : history_)
-        r.tokens_after += (m.content.size() + m.reasoning.size()) / 4;
+    r.tokens_after = estimate_tokens(history_);
     r.messages_after = history_.size();
-    r.core_count = r.messages_after > 0 ? r.messages_after : 0;
+    r.core_count = r.messages_after;
 
-    // Apply memory/skill upsert/deprecate ops identified by the LLM.
-    size_t mem_upsert = 0, mem_deprecate = 0;
-    for (const auto& op : pipeline_cr.memory_ops) {
-        if (op.action == "deprecate") ++mem_deprecate; else ++mem_upsert;
-    }
-    if (memory_store_ && !pipeline_cr.memory_ops.empty()) {
-        memory_store_->set_current_turn(turn_counter_);
-        apply_memory_ops(*memory_store_, pipeline_cr.memory_ops, "");
-        memory_store_->decay_all();
-        if (!experience_cfg_.store_path.empty())
-            memory_store_->save(experience_cfg_.store_path);
-        reporter.on_memory_ops_applied(mem_upsert, mem_deprecate);
-    }
-
+    apply_compression_memops(memory_store_.get(), experience_cfg_,
+                             pipeline_cr, turn_counter_, reporter);
     last_compression_ = r;
     return r;
 }
@@ -394,13 +342,41 @@ std::string Agent::try_confirm(const std::string& candidate,
     return accepted;
 }
 
+std::vector<Tool*> Agent::resolve_tools() {
+    std::vector<Tool*> tools;
+    for (const auto& t : registry_.tools()) tools.push_back(t.get());
+    return tools;
+}
+
+std::function<Message()> Agent::make_chat_fn(const std::vector<Tool*>& tools) {
+    return [this, &tools]() { return chat_once(tools); };
+}
+
+void Agent::process_generation(Message& reply) {
+    history_.push_back(reply);
+    if (!reply.reasoning.empty())
+        log_.event("reasoning", {{"content", reply.reasoning}});
+    maybe_extract_text_tool_calls(reply.tool_calls, reply.content,
+                                  history_.back(), hooks_);
+}
+
+std::string Agent::finish_turn(std::string final_reply) {
+    if (final_reply.empty()) {
+        final_reply = empty_turn_reply(history_);
+        log_.event("error", {{"reason", final_reply.find("tool calls") != std::string::npos
+                                          ? "empty_after_tools" : "empty_reply"}});
+    }
+    log_.event("turn_end", {{"content", final_reply}});
+    if (hooks_.on_state) hooks_.on_state(RunState::Idle);
+    return final_reply;
+}
+
 std::string Agent::run(const std::string& user_prompt) {
     ensure_system_prompt();
     log_and_push_user_prompt(user_prompt);
 
-    std::vector<Tool*> tools;
-    for (const auto& t : registry_.tools()) tools.push_back(t.get());
-    auto chat = [this, &tools]() { return chat_once(tools); };
+    auto tools = resolve_tools();
+    auto chat = make_chat_fn(tools);
 
     FailStreak fail_streak;
     int loop_count = 0, text_loop_count = 0, tool_recovery_attempts = 0;
@@ -411,11 +387,7 @@ std::string Agent::run(const std::string& user_prompt) {
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
         Message reply = safe_chat_once(hooks_, log_, chat, "generation");
-        history_.push_back(reply);
-        if (!reply.reasoning.empty())
-            log_.event("reasoning", {{"content", reply.reasoning}});
-        maybe_extract_text_tool_calls(reply.tool_calls, reply.content,
-                                      history_.back(), hooks_);
+        process_generation(reply);
 
         if (dispatch_with_loop_detection(reply, fail_streak, loop_count,
                                           last_loop_key, tool_recovery_attempts,
@@ -427,20 +399,9 @@ std::string Agent::run(const std::string& user_prompt) {
             break;
 
         std::string accepted = try_confirm(reply.content, tools);
-        if (!accepted.empty()) {
-            final_reply = accepted;
-            break;
-        }
+        if (!accepted.empty()) { final_reply = accepted; break; }
     }
-
-    if (final_reply.empty()) {
-        final_reply = empty_turn_reply(history_);
-        log_.event("error", {{"reason", final_reply.find("tool calls") != std::string::npos
-                                          ? "empty_after_tools" : "empty_reply"}});
-    }
-    log_.event("turn_end", {{"content", final_reply}});
-    if (hooks_.on_state) hooks_.on_state(RunState::Idle);
-    return final_reply;
+    return finish_turn(std::move(final_reply));
 }
 
 } // namespace agent

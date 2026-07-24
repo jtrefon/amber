@@ -90,6 +90,7 @@ private:
     std::thread agent_thread_;
     std::atomic<bool> agent_busy_{false};
     std::atomic<bool> agent_cancel_{false};
+    std::atomic<bool> shutdown_requested_{false};
 
     // Name of the tool currently executing on the agent worker (foreground,
     // e.g. bash), surfaced on the status bar so a synchronous command that is
