@@ -955,8 +955,28 @@ void Tui::settings_screen() {
     curs_set(0);
     int sel;
     {
-        ListPanel lp("Provider Manager (" + std::to_string(prov_id.size() - 1) + " configured)",
-                     prov_display);
+        // Show provider list with summary info
+        std::vector<std::string> rich_display;
+        for (size_t i = 0; i < prov_id.size(); ++i) {
+            std::string id = prov_id[i];
+            if (id.empty()) {
+                rich_display.push_back(prov_display[i]);
+                continue;
+            }
+            bool active = (id == cfg_.provider_name);
+            std::string prefix = active ? "> " : "  ";
+            std::string key_hint = cfg_.api_key.empty() ? "no-key" : "key-set";
+            if (id == "openrouter" || id == "kilocode" || id == "custom") {
+                rich_display.push_back(prefix + id + "  (" + key_hint + ")");
+            } else {
+                std::string key = cfg_.api_key.empty() && active ? "no-key" : "key-set";
+                rich_display.push_back(prefix + id + "  (" + key + ")");
+            }
+        }
+        rich_display.back() = "  + Add new provider...";
+
+        ListPanel lp("Providers (" + std::to_string(prov_id.size() - 1) + " configured)",
+                     rich_display);
         sel = lp.run();
     }
     if (sel < 0) return;
