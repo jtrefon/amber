@@ -153,11 +153,18 @@ TopCompletion top_completion(const std::vector<std::unique_ptr<Command>>& comman
     }
     if (choices.empty()) return r;
 
+    // Build the full prefix path from all resolved tokens.
+    std::string prefix_path;
+    for (size_t i = 0; i < pi.tokens.size(); ++i) {
+        if (!prefix_path.empty()) prefix_path += " ";
+        prefix_path += pi.tokens[i];
+    }
+
     if (choices.size() == 1) {
         std::string tail = choices[0];
         const Command* matched = current->find_subcommand(tail);
         bool has_more = matched && !matched->subcommands.empty();
-        r.expanded = "/" + pi.tokens[0] + " " + tail;
+        r.expanded = "/" + prefix_path + " " + tail;
         if (!has_more) r.expanded += " ";
         if (partial.size() < tail.size())
             r.shadow = tail.substr(partial.size());
@@ -166,8 +173,7 @@ TopCompletion top_completion(const std::vector<std::unique_ptr<Command>>& comman
 
     std::string cp = common_prefix(choices);
     if (cp.size() > partial.size()) {
-        std::string tail = pi.tokens[0] + " " + cp;
-        r.expanded = "/" + tail;
+        r.expanded = "/" + prefix_path + " " + cp;
         r.shadow = cp.substr(partial.size());
     }
     return r;
