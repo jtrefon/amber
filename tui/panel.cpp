@@ -50,10 +50,6 @@ Panel::~Panel() {
 void Panel::draw_frame() {
     if (!win_) return;
 
-    // Clear the entire window to prevent artifacts from previous panels
-    // that may have drawn on overlapping screen areas.
-    werase(win_);
-
     // Border with ACS lines
     wborder(win_, ACS_VLINE, ACS_VLINE, ACS_HLINE, ACS_HLINE,
             ACS_ULCORNER, ACS_URCORNER, ACS_LLCORNER, ACS_LRCORNER);
