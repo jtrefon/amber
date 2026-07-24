@@ -3,8 +3,6 @@
 
 #include "completion/filter.h"
 
-#include <algorithm>
-
 namespace completion {
 
 std::string token(const std::string& input) {
@@ -25,30 +23,17 @@ bool wants_open(const std::string& input) {
 std::vector<const Command*> filter_top(
     const std::vector<std::unique_ptr<Command>>& commands,
     const std::string& tok) {
-    std::vector<const Command*> exact, prefix, aliased;
+    std::vector<const Command*> primary, aliased;
     for (const auto& c : commands) {
-        if (tok.empty()) {
-            exact.push_back(c.get());
-        } else if (c->name == tok) {
-            exact.push_back(c.get());
-        } else if (c->name.rfind(tok, 0) == 0) {
-            prefix.push_back(c.get());
+        if (tok.empty() || c->name.rfind(tok, 0) == 0) {
+            primary.push_back(c.get());
         } else {
             for (const auto& a : c->aliases)
-                if (a == tok) { exact.push_back(c.get()); break; }
-                else if (a.rfind(tok, 0) == 0) { aliased.push_back(c.get()); break; }
+                if (a.rfind(tok, 0) == 0) { aliased.push_back(c.get()); break; }
         }
     }
-    // Sort: exact matches first, then prefix matches, then alias matches.
-    // Within prefix/alias groups, shorter (closer) names come first.
-    auto by_length = [](const Command* a, const Command* b) {
-        return a->name.size() < b->name.size();
-    };
-    std::stable_sort(prefix.begin(), prefix.end(), by_length);
-    std::stable_sort(aliased.begin(), aliased.end(), by_length);
-    exact.insert(exact.end(), prefix.begin(), prefix.end());
-    exact.insert(exact.end(), aliased.begin(), aliased.end());
-    return exact;
+    primary.insert(primary.end(), aliased.begin(), aliased.end());
+    return primary;
 }
 
 std::string common_prefix(const std::vector<std::string>& names) {
@@ -89,94 +74,6 @@ std::string usage_line(const Command& cmd) {
     std::string u = "/" + cmd.name;
     if (!cmd.args_usage.empty()) u += " " + cmd.args_usage;
     return u;
-}
-
-TopCompletion top_completion(const std::vector<std::unique_ptr<Command>>& commands,
-                              const std::string& input) {
-    TopCompletion r;
-    r.expanded = input;
-
-    if (input.empty() || input[0] != '/') return r;
-
-    auto pi = parse_input(input);
-
-    // Top-level completion: extend the command name.
-    if (pi.tokens.empty()) {
-        std::string tok = token(input);
-        if (tok.empty()) return r;
-        auto matches = filter_top(commands, tok);
-        if (matches.empty()) return r;
-
-        // If only one match, complete to it.
-        if (matches.size() == 1) {
-            r.expanded = "/" + matches[0]->name;
-            if (tok.size() < matches[0]->name.size())
-                r.shadow = matches[0]->name.substr(tok.size());
-            return r;
-        }
-
-        // Multiple matches: extend to common prefix.
-        std::vector<std::string> names;
-        for (auto* c : matches) names.push_back(c->name);
-        std::string cp = common_prefix(names);
-        if (cp.size() > tok.size()) {
-            r.expanded = "/" + cp;
-            r.shadow = cp.substr(tok.size());
-        }
-        return r;
-    }
-
-    // Argument-level completion: walk the command tree.
-    const Command* current = nullptr;
-    for (size_t i = 0; i < pi.tokens.size(); ++i) {
-        if (i == 0) {
-            for (const auto& c : commands) {
-                if (c->name == pi.tokens[i]) { current = c.get(); break; }
-                for (const auto& a : c->aliases)
-                    if (a == pi.tokens[i]) { current = c.get(); break; }
-            }
-        } else if (current) {
-            current = current->find_subcommand(pi.tokens[i]);
-        }
-        if (!current) return r;
-    }
-
-    // We're at the current command, partial is the next word.
-    std::string partial = pi.partial;
-    // Collect subcommand names.
-    std::vector<std::string> choices;
-    for (const auto& sc : current->subcommands) {
-        if (partial.empty() || sc->name.rfind(partial, 0) == 0 ||
-            std::any_of(sc->aliases.begin(), sc->aliases.end(),
-                [&](const std::string& a) { return a.rfind(partial, 0) == 0; }))
-            choices.push_back(sc->name);
-    }
-    if (choices.empty()) return r;
-
-    // Build the full prefix path from all resolved tokens.
-    std::string prefix_path;
-    for (size_t i = 0; i < pi.tokens.size(); ++i) {
-        if (!prefix_path.empty()) prefix_path += " ";
-        prefix_path += pi.tokens[i];
-    }
-
-    if (choices.size() == 1) {
-        std::string tail = choices[0];
-        const Command* matched = current->find_subcommand(tail);
-        bool has_more = matched && !matched->subcommands.empty();
-        r.expanded = "/" + prefix_path + " " + tail;
-        if (!has_more) r.expanded += " ";
-        if (partial.size() < tail.size())
-            r.shadow = tail.substr(partial.size());
-        return r;
-    }
-
-    std::string cp = common_prefix(choices);
-    if (cp.size() > partial.size()) {
-        r.expanded = "/" + prefix_path + " " + cp;
-        r.shadow = cp.substr(partial.size());
-    }
-    return r;
 }
 
 } // namespace completion

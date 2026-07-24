@@ -5,14 +5,13 @@
 CXX       = @CXX@
 CC        = @CC@
 CXXFLAGS  = @CXXFLAGS@
-CPPFLAGS  = @CPPFLAGS@ -I$(SRC_DIR)/completion/include
+CPPFLAGS  = @CPPFLAGS@
 # Auto-generate header dependency files (.d) so editing a header rebuilds every
 # translation unit that includes it. Without this, struct-layout changes in
 # headers leave stale .o files -> ABI mismatch -> heap corruption at runtime.
 DEPFLAGS  = -MMD -MP
 CURL_CFLAGS = @CURL_CFLAGS@
 CURL_LIBS   = @CURL_LIBS@
-COMPLETION_CFLAGS = -I$(SRC_DIR)/completion/include
 
 prefix    = @prefix@
 bindir    = @bindir@
@@ -52,9 +51,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/memory_store.o \
             $(BUILD_DIR)/lib/memory_retriever.o \
             $(BUILD_DIR)/lib/tools_default.o \
-            $(BUILD_DIR)/lib/tool_call_parser.o \
-            $(BUILD_DIR)/lib/filter.o \
-            $(BUILD_DIR)/lib/completer.o
+            $(BUILD_DIR)/lib/tool_call_parser.o
 
 TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/write_tool.o \
@@ -212,14 +209,6 @@ $(BUILD_DIR)/tests/run_tests.o: $(SRC_DIR)/tests/run_tests.cpp
 $(BUILD_DIR)/tests/tui_tests.o: $(SRC_DIR)/tests/tui_tests.cpp
 	@mkdir -p $(BUILD_DIR)/tests
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/lib/filter.o: $(SRC_DIR)/completion/lib/filter.cpp
-	@mkdir -p $(BUILD_DIR)/lib
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/lib/completer.o: $(SRC_DIR)/completion/lib/completer.cpp
-	@mkdir -p $(BUILD_DIR)/lib
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
 # Pull in auto-generated header dependencies (ignored if absent, e.g. first run).
 -include $(CORE_OBJS:.o=.d)

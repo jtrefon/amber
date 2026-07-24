@@ -19,16 +19,14 @@
 
 namespace tui {
 
-// Signal handler is async-signal-safe: it only writes to an atomic flag.
-// The actual workspace save is deferred to the main event loop, which polls
-// the flag after every getch() timeout, so all I/O and mutex operations run
-// in a safe context.
-static std::atomic<bool>& shutdown_flag() {
-    static std::atomic<bool> flag{false};
-    return flag;
-}
-static void signal_handler(int) {
-    shutdown_flag().store(true);
+// Signal handler saves workspace before the process dies (SIGHUP/SIGTERM).
+// The pointer is set once in the Tui constructor and cleared in the destructor.
+static Tui* signal_tui_instance = nullptr;
+static void signal_handler(int sig) {
+    (void)sig;
+    if (signal_tui_instance)
+        signal_tui_instance->save_workspace_now();
+    _Exit(1);
 }
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
@@ -54,9 +52,8 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     use_legacy_coding(1);
     init_pairs();
 
-    // Signal handler sets an atomic flag; the main loop polls it and
-    // saves workspace from the safe main-thread context.
-    shutdown_flag().store(false);
+    // Signal handler ensures workspace is saved on terminal close / kill.
+    signal_tui_instance = this;
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
@@ -79,6 +76,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
 }
 
 Tui::~Tui() {
+    signal_tui_instance = nullptr;
     std::fputs("\033[?1007l", stdout);
     std::fflush(stdout);
 
@@ -90,9 +88,12 @@ Tui::~Tui() {
     for (const auto & window : windows_) {
         Window& w = *window;
         if (!w.dirty || !w.agent || w.agent->history().empty()) continue;
+        std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
+        std::fflush(stderr);
         agent::Session s = snapshot(w);
         if (store_.save(s)) w.session_id = s.id;
     }
+    std::fprintf(stderr, "\rsession save complete\n");
     endwin();
 }
 
@@ -454,15 +455,6 @@ void Tui::run() {
     while (!quit_) {
         bool had_events = drain_events();
 
-        // Check for deferred shutdown request from async-signal-safe handler.
-        // The signal handler only writes to an atomic flag; the actual save
-        // runs here on the main thread where I/O and mutex operations are safe.
-        if (shutdown_flag().load()) {
-            save_workspace_now();
-            quit_ = true;
-            break;
-        }
-
         // Reap background jobs that hit their idle/hard deadline. Runs every
         // tick so long-running processes are auto-killed even while the user is
         // idle and no agent event is flowing.
@@ -470,16 +462,23 @@ void Tui::run() {
 
         int ch = getch();
         if (ch == ERR) {
+            bool repainted = had_events;
             if (had_events) {
                 draw();
-            } else {
-                // Tick on wall-clock cadence regardless of agent/job state
-                // so the clock, context gauge, and activity wave stay live
-                // even when idle.
+            } else if (agent_busy_.load() || jobs_.running_count() > 0) {
+                // Either the agent is blocked on a call that emits no streaming
+                // tokens (silent confirmation exchange, a non-streaming tool
+                // result, or the model simply thinking), or a background job is
+                // running. In both cases no AgentEvent flows every frame, so this
+                // branch is what keeps the clock, the progress wave, and the
+                // background-job countdown alive. Repaint the status bar on a
+                // fixed wall-clock cadence instead of gating on anim_phase_
+                // (which would lock at one phase and freeze the whole bar).
                 auto now = std::chrono::steady_clock::now();
                 if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
                     last_status_tick_ = now;
                     tick_clock();
+                    repainted = true;
                 }
             }
             // Any background repaint moves the virtual cursor off the input
@@ -513,8 +512,6 @@ void Tui::run() {
         if (ch == 27) {
             if (drawer_open_) {
                 drawer_open_ = false;
-                drawer_items_help_.clear();
-                shadow_suffix_.clear();
                 draw(); draw_input(input);
                 continue;
             }
@@ -537,39 +534,22 @@ void Tui::run() {
             continue;
         }
         if (ch == '\t') {
-            auto cr = comp_completer_.complete(commands_completion(), input);
-            if (cr.show_popup) {
-                int sel = menu_select("complete:", cr.popup_items);
-                if (sel >= 0 && sel < static_cast<int>(cr.popup_items.size())) {
-                    input = cr.popup_items[sel];
-                    size_t sp = input.find("  -");
-                    if (sp != std::string::npos) input = input.substr(0, sp);
-                } else {
-                    input = cr.new_input;
-                }
+            auto tr = completer_.handle_tab(commands(), input, drawer_sel_);
+            if (tr.show_popup) {
+                int sel = menu_select("complete: " + tr.input, tr.popup_items);
+                if (sel >= 0 && sel < static_cast<int>(tr.popup_items.size()))
+                    input = tr.popup_items[sel] + " ";
+                else
+                    input = tr.input;
                 if (drawer_open_) { drawer_open_ = false; draw(); }
-                shadow_suffix_.clear();
                 draw_input(input);
                 continue;
             }
-            if (cr.close_drawer && drawer_open_)
-                drawer_open_ = false;
-            // Guard: never replace input with an empty result.
-            if (!cr.new_input.empty())
-                input = cr.new_input;
-            shadow_suffix_.clear();
-            draw_input(input);
-            continue;
-        }
-        // '?' triggers context-sensitive help (Cisco IOS style)
-        if (ch == '?' && !drawer_open_ && palette::wants_open(input)) {
-            auto cr = comp_completer_.complete(commands_completion(), input, true);
-            if (!cr.help_lines.empty()) {
-                drawer_items_help_ = cr.help_lines;
-                drawer_open_ = true;
-                draw();
-                draw_input(input);
+            input = tr.input;
+            if (tr.close_drawer && drawer_open_) {
+                drawer_open_ = false; draw();
             }
+            draw_input(input);
             continue;
         }
         if (drawer_open_ && (ch == KEY_UP || ch == KEY_DOWN)) {
@@ -670,18 +650,12 @@ void Tui::run() {
         if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
             if (!input.empty()) input.pop_back();
             completer_.reset();
-            // Instant shadow: compute top completion candidate after each keypress
-            auto tc = completion::top_completion(commands_completion(), input);
-            shadow_suffix_ = tc.expanded != input ? tc.shadow : std::string();
             update_drawer(input);
             draw(); draw_input(input); continue;
         }
         if (ch >= 32 && ch <= 126 && input.size() < 65536) {
             input += static_cast<char>(ch);
             completer_.reset();
-            // Instant shadow: compute top completion candidate after each keypress
-            auto tc = completion::top_completion(commands_completion(), input);
-            shadow_suffix_ = tc.expanded != input ? tc.shadow : std::string();
             update_drawer(input);
             ensure_chat_window();
             draw(); draw_input(input); continue;

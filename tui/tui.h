@@ -14,10 +14,6 @@
 #include "canvas.h"
 #include "markdown.h"
 
-#include <completion/command.h>
-#include <completion/completer.h>
-#include <completion/filter.h>
-
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -94,7 +90,6 @@ private:
     std::thread agent_thread_;
     std::atomic<bool> agent_busy_{false};
     std::atomic<bool> agent_cancel_{false};
-    std::atomic<bool> shutdown_requested_{false};
 
     // Name of the tool currently executing on the agent worker (foreground,
     // e.g. bash), surfaced on the status bar so a synchronous command that is
@@ -112,13 +107,7 @@ private:
     // the worker on its promise.
     bool modal_open_ = false;
     std::queue<AgentEvent> pending_approvals_;
-    palette::Completer completer_;        // Tab-press state machine (legacy)
-    completion::Completer comp_completer_;// Tab-press state machine (tree-based)
-
-    // Completion command tree (tree-based, for completion only)
-    std::vector<std::unique_ptr<completion::Command>> cmds_completion_;
-    const std::vector<std::unique_ptr<completion::Command>>& commands_completion();
-    void build_completion_commands();
+    palette::Completer completer_;  // Tab-press state machine
 
     // ---- geometry / layout ----------------------------------------------
     int height() const;
@@ -257,8 +246,6 @@ public:
     int anim_phase_ = 0;
     bool dirty_ = true;          // coalesce redraws into one flush per tick
     std::string last_input_;     // for change detection on idle ticks
-    std::string shadow_suffix_;           // inline (faded) completion suffix
-    std::vector<std::string> drawer_items_help_; // ?-style help lines for drawer
     // Wall-clock timestamp of the last status-bar repaint, so the clock and
     // progress wave keep ticking while the agent is blocked on a call that
     // emits no streaming tokens.
