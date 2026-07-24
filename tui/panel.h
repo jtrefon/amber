@@ -46,6 +46,12 @@ public:
           std::vector<FooterKey> footer = {});
     virtual ~Panel();
 
+    // Set footer keys after construction (used by Dialog compatibility).
+    void set_footer(std::vector<FooterKey> footer) {
+        footer_ = std::move(footer);
+        if (win_) draw_frame();
+    }
+
     Panel(const Panel&) = delete;
     Panel& operator=(const Panel&) = delete;
 

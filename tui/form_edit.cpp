@@ -65,9 +65,9 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
         wattroff(w, COLOR_PAIR(focus == 2 ? P_BUTTON_ACT : P_BUTTON) | A_BOLD);
     };
 
-    mvwaddnstr(w, dh - 2, 2,
-               "Tab/Arrows move  Enter confirm  Esc cancel", aw - 4);
-
+    dlg.set_footer({{"Tab/Arrows", "move"},
+                     {"Enter", "confirm"},
+                     {"Esc", "cancel"}});
     int focus = 0;
     curs_set(1);
     set_current_field(form, fs[0]);

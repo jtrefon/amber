@@ -22,6 +22,7 @@ public:
     using Panel::cols;
     using Panel::show;
     using Panel::hide;
+    using Panel::set_footer;
 };
 
 } // namespace tui
