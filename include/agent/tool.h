@@ -34,7 +34,7 @@ public:
 
     // OpenAI-compatible function schema (parameters object). The "name" and
     // top-level "description" are filled by the registry from name()/description().
-    virtual json parameters_schema() const noexcept = 0;
+    virtual json parameters_schema() const = 0;
 
     // Whether invoking this tool requires explicit user approval before it runs.
     // Side-effecting or dangerous tools (e.g. running shell commands) return
@@ -51,7 +51,7 @@ public:
     // A short, human-readable summary of what this specific invocation will do,
     // shown in approval prompts (e.g. the command line for a shell tool).
     // Defaults to the tool name; override to surface the concrete action.
-    virtual std::string summarize(const json& /*arguments*/) const noexcept {
+    virtual std::string summarize(const json& /*arguments*/) const {
         return name();
     }
 

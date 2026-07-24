@@ -27,7 +27,7 @@ public:
                "model can page through large files.";
     }
 
-    json parameters_schema() const noexcept override {
+    json parameters_schema() const override {
         return {
             {"type", "object"},
             {"properties", {

@@ -162,7 +162,7 @@ private:
                "Write operations (rm, mv, sed -i, >) require user approval.";
     }
 
-    json parameters_schema() const noexcept override {
+    json parameters_schema() const override {
         return {
             {"type", "object"},
             {"properties", {
@@ -185,7 +185,7 @@ private:
 
     bool is_read_only() const noexcept override { return false; }
 
-    std::string summarize(const json& a) const noexcept override {
+    std::string summarize(const json& a) const override {
         std::string cmd = (a.contains("command") && a["command"].is_string())
                               ? a["command"].get<std::string>() : "";
         if (cmd.size() > 200) { cmd.resize(197); cmd += "..."; }

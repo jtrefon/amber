@@ -38,7 +38,7 @@ public:
                 "not enumerate every symbol in one giant alternation.";
     }
 
-    json parameters_schema() const noexcept override {
+    json parameters_schema() const override {
         return {
             {"type", "object"},
             {"properties", {

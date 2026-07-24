@@ -29,7 +29,7 @@ public:
                "entire contents in 'new'. Edits are applied sequentially.";
     }
 
-    json parameters_schema() const noexcept override {
+    json parameters_schema() const override {
         return {
             {"type", "object"},
             {"properties", {
