@@ -50,6 +50,10 @@ Panel::~Panel() {
 void Panel::draw_frame() {
     if (!win_) return;
 
+    // Clear the entire window to prevent artifacts from previous panels
+    // that may have drawn on overlapping screen areas.
+    werase(win_);
+
     // Border with ACS lines
     wborder(win_, ACS_VLINE, ACS_VLINE, ACS_HLINE, ACS_HLINE,
             ACS_ULCORNER, ACS_URCORNER, ACS_LLCORNER, ACS_LRCORNER);
@@ -67,7 +71,9 @@ void Panel::draw_frame() {
         mvwaddch(win_, 0, t, ACS_VLINE);
     }
 
-    // Footer with keyboard shortcuts
+    // Footer with keyboard shortcuts — clear the entire bottom line first
+    // to avoid rendering artifacts from previous panels with longer footers.
+    mvwhline(win_, h_ - 1, 1, ' ', w_ - 2);
     if (!footer_.empty()) {
         int pos = 2;
         for (const auto& f : footer_) {
