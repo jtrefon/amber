@@ -599,7 +599,10 @@ const Command* Tui::find_command(const std::string& name) {
 
 bool Tui::handle_slash(const std::string& line) {
     if (line.empty() || line[0] != '/') return false;
-    std::string rest = line.substr(1);
+    std::string trimmed = line;
+    while (!trimmed.empty() && (trimmed.back() == ' ' || trimmed.back() == '\t'))
+        trimmed.pop_back();
+    std::string rest = trimmed.substr(1);
     std::string name, arg;
     size_t sp = rest.find(' ');
     if (sp == std::string::npos) name = rest;
