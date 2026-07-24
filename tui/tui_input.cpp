@@ -854,213 +854,56 @@ bool Tui::test_connection(bool announce) {
     return true;
 }
 
-static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
-    std::string model_field = cfg.model_explicit ? cfg.model : "";
+void Tui::settings_screen() {
+    std::string det = last_detected_.ok
+        ? ("detected: " + last_detected_.model + " / n_ctx " +
+           std::to_string(last_detected_.context_size))
+        : "detected: (none)";
+
+    std::vector<std::string> pre = {"Edit settings",
+                                    "Test connection & auto-fill",
+                                    "Save to " + settings_path_};
+    int pick = menu_select(det, pre);
+    if (pick == 1) { test_connection(true); return; }
+    if (pick == 2) {
+        cfg_.save_global(agent::global_config_path());
+        append_line(P_STATUS, "settings saved to " + agent::global_config_path());
+        return;
+    }
+    if (pick != 0) return;
+
+    std::string model_field = cfg_.model_explicit ? cfg_.model : "";
     std::string ctx_field =
-        cfg.context_explicit ? std::to_string(cfg.context_size) : "0";
+        cfg_.context_explicit ? std::to_string(cfg_.context_size) : "0";
     std::vector<FieldSpec> fields = {
-        {"Server URL", cfg.api_base, false},
-        {"API Key", cfg.api_key, true},
+        {"Server URL", cfg_.api_base, false},
+        {"API Key", cfg_.api_key, true},
         {"Model (blank = auto)", model_field, false},
         {"Context n_ctx (0 = auto)", ctx_field, false},
     };
-    if (!form_edit(title, fields)) return false;
-    cfg.api_base = fields[0].value;
-    while (!cfg.api_base.empty() && cfg.api_base.back() == '/')
-        cfg.api_base.pop_back();
-    cfg.api_key = fields[1].value;
+    if (!form_edit("Server settings", fields)) return;
+
+    cfg_.api_base = fields[0].value;
+    while (!cfg_.api_base.empty() && cfg_.api_base.back() == '/')
+        cfg_.api_base.pop_back();
+    cfg_.api_key = fields[1].value;
     if (fields[2].value.empty()) {
-        cfg.model_explicit = false;
+        cfg_.model_explicit = false;
     } else {
-        cfg.model = fields[2].value;
-        cfg.model_explicit = true;
+        cfg_.model = fields[2].value;
+        cfg_.model_explicit = true;
     }
     try {
         int n = std::stoi(fields[3].value);
-        if (n > 0) { cfg.context_size = n; cfg.context_explicit = true; }
-        else       { cfg.context_explicit = false; }
-    } catch (...) { cfg.context_explicit = false; }
-    return true;
-}
+        if (n > 0) { cfg_.context_size = n; cfg_.context_explicit = true; }
+        else       { cfg_.context_explicit = false; }
+    } catch (...) { cfg_.context_explicit = false; }
 
-void Tui::settings_screen() {
-    // Step 1: Build provider list from saved + built-in presets
-    // DEBUG: the fact you can see this message means the NEW settings_screen is running
-    append_line(P_STATUS, "Loading provider list...");
-    auto saved = agent::list_saved_providers();
-
-    std::vector<std::string> prov_display;
-    std::vector<std::string> prov_id;
-    int active_idx = -1;
-
-    // Built-in presets
-    auto add_preset = [&](const std::string& id, const std::string& label) {
-        prov_display.push_back((cfg_.provider_name == id ? "> " : "  ") + label);
-        prov_id.push_back(id);
-        if (cfg_.provider_name == id) active_idx = static_cast<int>(prov_id.size() - 1);
-    };
-    add_preset("openrouter", "OpenRouter  (openrouter.ai)");
-    add_preset("kilocode",   "Kilo Code   (api.kilocode.ai)");
-    add_preset("custom",     "Custom      (user-defined)");
-
-    // User-saved providers
-    for (const auto& s : saved) {
-        if (s == "openrouter" || s == "kilocode" || s == "custom") continue;
-        prov_display.push_back((cfg_.provider_name == s ? "> " : "  ") + s);
-        prov_id.push_back(s);
-        if (cfg_.provider_name == s) active_idx = static_cast<int>(prov_id.size() - 1);
-    }
-
-    // Add "Add new..." option at the end
-    int add_new_idx = static_cast<int>(prov_id.size());
-    prov_display.push_back("  + Add new provider...");
-    prov_id.push_back("");  // sentinel
-
-    if (active_idx < 0) active_idx = 2;  // default to custom
-
-    // Step 2: Select provider or action
-    ModalScope scope;
-    curs_set(0);
-    int sel;
-    {
-        // Show provider list with summary info
-        std::vector<std::string> rich_display;
-        for (size_t i = 0; i < prov_id.size(); ++i) {
-            std::string id = prov_id[i];
-            if (id.empty()) {
-                rich_display.push_back(prov_display[i]);
-                continue;
-            }
-            bool active = (id == cfg_.provider_name);
-            std::string prefix = active ? "> " : "  ";
-            std::string key_hint = cfg_.api_key.empty() ? "no-key" : "key-set";
-            if (id == "openrouter" || id == "kilocode" || id == "custom") {
-                rich_display.push_back(prefix + id + "  (" + key_hint + ")");
-            } else {
-                std::string key = cfg_.api_key.empty() && active ? "no-key" : "key-set";
-                rich_display.push_back(prefix + id + "  (" + key + ")");
-            }
-        }
-        rich_display.back() = "  + Add new provider...";
-
-        ListPanel lp("Providers (" + std::to_string(prov_id.size() - 1) + " configured)",
-                     rich_display);
-        sel = lp.run();
-    }
-    if (sel < 0) return;
-
-    // Handle "Add new provider..."
-    if (sel == add_new_idx) {
-        // Ask for provider name
-        std::vector<FieldSpec> name_field = {{"Provider name", "", false}};
-        if (!form_edit("New Provider", name_field)) return;
-        std::string new_name = name_field[0].value;
-        if (new_name.empty()) return;
-
-        // Check if preset exists
-        agent::Config prov_cfg;
-        bool is_preset = false;
-        for (auto* p : agent::provider::all) {
-            if (p->name == new_name) {
-                prov_cfg.provider_name = p->name;
-                prov_cfg.api_base = p->api_base;
-                prov_cfg.model = p->default_model;
-                is_preset = true;
-                break;
-            }
-        }
-        if (!is_preset) {
-            // Try to load saved provider
-            if (!agent::load_provider(new_name, prov_cfg)) {
-                prov_cfg.provider_name = new_name;
-            }
-        }
-        if (!edit_provider_form(prov_cfg, "Edit: " + new_name)) return;
-        prov_cfg.provider_name = new_name;
-        agent::save_provider(prov_cfg);
-        cfg_.provider_name = new_name;
-        cfg_.api_base = prov_cfg.api_base;
-        cfg_.api_key = prov_cfg.api_key;
-        cfg_.model = prov_cfg.model;
-        cfg_.model_explicit = !prov_cfg.model.empty();
-        cfg_.save_global(agent::global_config_path());
-        append_line(P_STATUS, "provider '" + new_name + "' added and activated");
-        return;
-    }
-
-    // Handle built-in / saved provider selection
-    std::string selected_id = prov_id[sel];
-    if (selected_id.empty()) return;
-
-    // Step 3: Show actions for selected provider
-    bool is_preset = (selected_id == "openrouter" || selected_id == "kilocode" || selected_id == "custom");
-    std::vector<std::string> actions = {"Activate & edit", "Test connection"};
-    if (!is_preset) {
-        actions.push_back("Delete provider");
-    }
-    int action = menu_select("Provider: " + selected_id, actions);
-    if (action < 0) return;
-
-    if (action == 0) {
-        // Activate & edit — start from preset defaults, overlay current values
-        agent::Config prov_cfg;
-        if (is_preset) {
-            prov_cfg.provider_name = selected_id;
-            prov_cfg.api_base = cfg_.api_base;
-            prov_cfg.api_key = cfg_.api_key;
-            prov_cfg.model = cfg_.model;
-            prov_cfg.model_explicit = cfg_.model_explicit;
-            // If not already using this preset, seed with its defaults
-            if (cfg_.provider_name != selected_id) {
-                prov_cfg.apply_provider(selected_id);
-                if (prov_cfg.api_key.empty()) prov_cfg.api_key = cfg_.api_key;
-            }
-        } else {
-            agent::load_provider(selected_id, prov_cfg);
-        }
-        if (!edit_provider_form(prov_cfg, "Edit: " + selected_id)) return;
-
-        if (is_preset) {
-            cfg_.provider_name = selected_id;
-            if (selected_id != "custom") {
-                cfg_.apply_provider(selected_id);
-            }
-            cfg_.api_base = prov_cfg.api_base;
-            cfg_.api_key = prov_cfg.api_key;
-            if (!prov_cfg.model.empty()) {
-                cfg_.model = prov_cfg.model;
-                cfg_.model_explicit = true;
-            }
-        } else {
-            prov_cfg.provider_name = selected_id;
-            agent::save_provider(prov_cfg);
-            cfg_.provider_name = selected_id;
-            cfg_.api_base = prov_cfg.api_base;
-            cfg_.api_key = prov_cfg.api_key;
-            cfg_.model = prov_cfg.model;
-            cfg_.model_explicit = !prov_cfg.model.empty();
-        }
-        cfg_.save_global(agent::global_config_path());
-        append_line(P_STATUS, "provider '" + selected_id + "' activated");
-
-        // Test connection
+    if (!cfg_.model_explicit || !cfg_.context_explicit)
         test_connection(false);
-    }
-    else if (action == 1) {
-        // Test connection
-        cfg_.provider_name = selected_id;
-        cfg_.save_global(agent::global_config_path());
-        test_connection(true);
-    }
-    else if (action == 2 && !is_preset) {
-        // Delete provider
-        std::string msg = "Delete provider \"" + selected_id + "\"?";
-        tui::ConfirmPanel confirm("Delete Provider", msg);
-        if (confirm.run()) {
-            agent::delete_provider(selected_id);
-            append_line(P_STATUS, "provider '" + selected_id + "' deleted");
-        }
-    }
+
+    cfg_.save_global(agent::global_config_path());
+    append_line(P_STATUS, "settings saved to " + agent::global_config_path());
 }
 
 void Tui::save_settings() { cfg_.save(settings_path_); }
