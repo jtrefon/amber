@@ -16,12 +16,37 @@ namespace agent {
 // orchestration depth. Switchable at runtime via /mode.
 enum class AgentMode : std::uint8_t { Read, Write, Yolo };
 
+// Known LLM provider definitions.
+struct Provider {
+    std::string name;
+    std::string api_base;
+    std::string default_model;
+    bool requires_key;
+};
+
+namespace provider {
+
+inline const Provider openrouter  = {"openrouter",  "https://openrouter.ai/api/v1",   "openai/gpt-4o",        true};
+inline const Provider kilocode   = {"kilocode",   "https://api.kilocode.ai/v1",     "kilocode/kilo-1",      true};
+inline const Provider custom     = {"custom",     "",                                "",                     false};
+
+inline const Provider* all[] = { &openrouter, &kilocode, &custom };
+inline constexpr int count = 3;
+
+inline const Provider* find(const std::string& name) {
+    for (auto* p : all) if (p->name == name) return p;
+    return &custom;
+}
+
+} // namespace provider
+
 // Runtime configuration for the harness. Sourced from command-line flags,
-// environment variables, and an optional config file. The library layer is
-// intentionally free of any UI concerns.
+// environment variables, and global/project config files.
+// The library layer is intentionally free of any UI concerns.
 struct Config {
+    std::string provider_name = "custom";
     std::string api_base = "http://localhost:8000/v1";
-    std::string api_key;                 // optional for local endpoints
+    std::string api_key;                 // required for managed providers
     std::string model = "gpt-4o-mini";
     std::string system_prompt_path;      // markdown file
     std::string tools_prompt_path;       // markdown file advertising tools
@@ -112,6 +137,14 @@ struct Config {
     // pinning the last probed value. Returns false if the file can't be written.
     bool save(const std::string& path) const;
 
+    // Apply a named provider preset (sets api_base, default_model, etc.).
+    void apply_provider(const std::string& name);
+
+    // Persist the LLM provider settings (api_base, api_key, model) to a global
+    // config file. Provider settings live globally because they are not project-
+    // specific. Returns false if unwritable.
+    bool save_global(const std::string& path) const;
+
     // Persist only the project-local (non-LLM-provider) settings to a KEY=VALUE
     // file. LLM provider settings (api_base, api_key, model, context_size) are
     // intentionally omitted so they stay in the global config and are not
@@ -126,6 +159,10 @@ struct Config {
     std::string api_url() const noexcept { return api_base + "/chat/completions"; }
     std::string models_url() const noexcept { return api_base + "/models"; }
 };
+
+// Path to the global config file (~/.config/amber/config). Used by the CLI
+// and TUI to load/store LLM provider settings across all projects.
+std::string global_config_path();
 
 } // namespace agent
 

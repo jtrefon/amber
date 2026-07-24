@@ -246,6 +246,94 @@ TEST(config_context_default_is_auto) {
 }
 
 // ---------------------------------------------------------------------------
+// Provider presets and global/project settings tiers
+// ---------------------------------------------------------------------------
+
+TEST(config_provider_openrouter_preset) {
+    agent::Config c;
+    c.apply_provider("openrouter");
+    ASSERT_EQ(c.provider_name, "openrouter");
+    ASSERT_EQ(c.api_base, "https://openrouter.ai/api/v1");
+    ASSERT(!c.model.empty());
+}
+
+TEST(config_provider_kilocode_preset) {
+    agent::Config c;
+    c.apply_provider("kilocode");
+    ASSERT_EQ(c.provider_name, "kilocode");
+    ASSERT_EQ(c.api_base, "https://api.kilocode.ai/v1");
+    ASSERT(!c.model.empty());
+}
+
+TEST(config_provider_unknown_falls_back_to_custom) {
+    agent::Config c;
+    c.api_base = "http://my-server:8080/v1";
+    c.apply_provider("nonexistent");
+    ASSERT_EQ(c.provider_name, "custom");  // unchanged
+    ASSERT_EQ(c.api_base, "http://my-server:8080/v1");
+}
+
+TEST(config_global_save_roundtrip_preserves_provider) {
+    std::string path = "/tmp/amber_global_test.conf";
+    agent::Config c;
+    c.apply_provider("openrouter");
+    c.api_key = "sk-test-123";
+    ASSERT_TRUE(c.save_global(path));
+
+    agent::Config d;
+    d.load(path);
+    ASSERT_EQ(d.provider_name, "openrouter");
+    ASSERT_EQ(d.api_base, "https://openrouter.ai/api/v1");
+    ASSERT_EQ(d.api_key, "sk-test-123");
+    std::remove(path.c_str());
+}
+
+TEST(config_validate_requires_api_key_for_openrouter) {
+    agent::Config c;
+    c.apply_provider("openrouter");
+    c.api_key.clear();
+    auto errs = c.validate();
+    bool found = false;
+    for (const auto& e : errs)
+        if (e.find("api_key") != std::string::npos) found = true;
+    ASSERT(found);
+}
+
+TEST(config_validate_skips_api_key_for_custom) {
+    agent::Config c;
+    c.api_key.clear();
+    auto errs = c.validate();
+    bool found = false;
+    for (const auto& e : errs)
+        if (e.find("api_key") != std::string::npos) found = true;
+    ASSERT_FALSE(found);
+}
+
+TEST(config_project_settings_omits_provider_fields) {
+    // save_settings() must NOT write api_base / api_key / model / provider
+    agent::Config c;
+    c.api_base = "http://localhost:8080/v1";
+    c.api_key = "sk-secret";
+    c.model = "llama-3.2-3b";
+    c.provider_name = "openrouter";
+    c.temperature = 0.7;
+
+    std::string path = "/tmp/amber_project_test.conf";
+    ASSERT_TRUE(c.save_settings(path));
+
+    // Load into a fresh config
+    agent::Config d;
+    d.load(path);
+    // Provider fields should still be defaults (not overwritten by project file)
+    ASSERT(d.api_base != "http://localhost:8080/v1");
+    ASSERT(d.api_key != "sk-secret");
+    ASSERT(d.provider_name != "openrouter");
+    // Project fields should be loaded
+    ASSERT_EQ(d.temperature, 0.7);
+    std::remove(path.c_str());
+}
+
+// ---------------------------------------------------------------------------
 // UTF-8 safety: tool/model text may carry invalid bytes (e.g. binary from
 // grep). Serializing it for the API request used to throw
 // [json.exception.type_error.316] and abort the turn. It must not.

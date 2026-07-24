@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui.h"
+#include "agent/model_probe.h"
 
 #include <algorithm>
 #include <ctime>
@@ -359,9 +360,19 @@ void Tui::build_commands() {
         {"sessions", {"load", "open"}, "",
          "browse and load a saved session",
          [this](const std::string&) { session_browser(); }},
-        {"quit", {"exit", "q"}, "",
-         "save all windows and exit",
-         [this](const std::string&) { request_quit(); }},
+         {"model", {}, "<name>",
+          "list or switch the LLM model (queries provider's /v1/models)",
+          [this](const std::string& a) { cmd_model(a); }},
+         {"provider", {}, "openrouter|kilocode|custom",
+          "switch LLM provider (sets api_base, presets models)",
+          [this](const std::string& a) { cmd_provider(a); },
+          [](const std::string&) {
+              return std::vector<std::string>{"openrouter", "kilocode", "custom"};
+          },
+          [this]() -> std::string { return cfg_.provider_name; }},
+         {"quit", {"exit", "q"}, "",
+          "save all windows and exit",
+          [this](const std::string&) { request_quit(); }},
     };
 }
 
@@ -416,6 +427,76 @@ void Tui::show_command_frame(const Command& c) {
         }
     }
     draw();
+}
+
+void Tui::cmd_model(const std::string& arg) {
+    if (arg.empty()) {
+        // List available models from the provider
+        append_line(P_STATUS, "querying " + cfg_.models_url() + " ...");
+        draw();
+        auto models = agent::list_models(cfg_);
+        if (models.empty()) {
+            append_line(P_STATUS, "no models available or server unreachable");
+            return;
+        }
+        append_line(P_STATUS, "available models (" + std::to_string(models.size()) + "):");
+        int count = 0;
+        for (const auto& m : models) {
+            if (count >= 20) {
+                append_line(P_STATUS, "  ... and " + std::to_string(models.size() - 20) + " more");
+                break;
+            }
+            bool cur = (m == cfg_.model);
+            append_line(P_STATUS, std::string(cur ? "> " : "  ") + m);
+            ++count;
+        }
+        return;
+    }
+
+    // Set model by name
+    auto models = agent::list_models(cfg_);
+    bool found = false;
+    for (const auto& m : models)
+        if (m == arg) { found = true; break; }
+    if (!found) {
+        append_line(P_STATUS, "model \"" + arg + "\" not found in provider's model list");
+        return;
+    }
+    cfg_.model = arg;
+    cfg_.model_explicit = true;
+    // Propagate to window agents
+    for (auto& w : windows_) {
+        if (!w->agent) continue;
+        w->agent->set_detection_loop(cfg_.detection_loop);  // force agent re-init
+    }
+    std::string global = agent::global_config_path();
+    cfg_.save_global(global);
+    append_line(P_STATUS, "model set to " + arg + " (saved to " + global + ")");
+}
+
+void Tui::cmd_provider(const std::string& arg) {
+    if (arg.empty()) {
+        append_line(P_STATUS, "current provider: " + cfg_.provider_name +
+                     " (" + cfg_.api_base + ")");
+        return;
+    }
+    auto* prov = agent::provider::find(arg);
+    if (!prov || prov->name == "custom" && arg != "custom") {
+        append_line(P_STATUS, "unknown provider: " + arg +
+                     " (try: openrouter, kilocode, custom)");
+        return;
+    }
+    if (arg == "custom") {
+        append_line(P_STATUS, "provider set to custom (use /set or amber.conf to configure)");
+        return;
+    }
+    cfg_.apply_provider(arg);
+    if (prov->requires_key && cfg_.api_key.empty()) {
+        append_line(P_STATUS, "warning: " + arg + " requires an API key (set AMBER_API_KEY)");
+    }
+    std::string global = agent::global_config_path();
+    cfg_.save_global(global);
+    append_line(P_STATUS, "provider switched to " + arg + " (saved to " + global + ")");
 }
 
 void Tui::cmd_help(const std::string& arg) {

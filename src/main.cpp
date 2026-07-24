@@ -34,6 +34,22 @@ int main(int argc, char** argv) {
     std::string config_file;
     bool auto_approve = false;
 
+    // Global settings: LLM provider from ~/.config/amber/config
+    {
+        std::string global_path = agent::global_config_path();
+        std::ifstream gf(global_path);
+        if (gf) {
+            agent::Config tmp;
+            tmp.load(global_path);
+            if (!tmp.provider_name.empty() && tmp.provider_name != "custom") {
+                cfg.apply_provider(tmp.provider_name);
+                cfg.api_key = tmp.api_key;
+                if (!tmp.model.empty()) { cfg.model = tmp.model; cfg.model_explicit = true; }
+                if (tmp.context_size > 0) { cfg.context_size = tmp.context_size; cfg.context_explicit = true; }
+            }
+        }
+    }
+
     // Load the project config by default so `amber` works without --config.
     // Explicit flags and --config override these; the file is only a base.
     {

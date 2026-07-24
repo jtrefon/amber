@@ -199,6 +199,8 @@ private:
     void cmd_job(const std::string& arg);
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
+    void cmd_model(const std::string& arg);
+    void cmd_provider(const std::string& arg);
     void job_ls();
     void job_kill(const std::string& id);
     void job_read(const std::string& id);

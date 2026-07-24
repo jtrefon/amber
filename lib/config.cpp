@@ -60,6 +60,8 @@ void Config::load(const std::string& path) {
             experience_max_memories = std::stoi(val);
         else if (key == "experience_max_skills")
             experience_max_skills = std::stoi(val);
+        else if (key == "provider")
+            provider_name = val;
         else if (key == "detection_loop")
             detection_loop = (val == "1" || val == "true" || val == "yes");
         else if (key == "detection_duplicate")
@@ -80,6 +82,42 @@ bool Config::save(const std::string& path) const {
     f << "context_size=" << (context_explicit ? context_size : 0) << "\n";
     f << "system_prompt=" << system_prompt_path << "\n";
     f << "tools_prompt=" << tools_prompt_path << "\n";
+    return static_cast<bool>(f);
+}
+
+static std::string global_config_dir() {
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg && *xdg) return std::string(xdg) + "/amber";
+    const char* home = std::getenv("HOME");
+    if (!home) return ".amber";
+    return std::string(home) + "/.config/amber";
+}
+
+std::string global_config_path() {
+    return global_config_dir() + "/config";
+}
+
+void Config::apply_provider(const std::string& name) {
+    auto* p = provider::find(name);
+    if (!p || p->name == "custom") return;
+    provider_name = p->name;
+    api_base = p->api_base;
+    if (model.empty() || model == "gpt-4o-mini")
+        model = p->default_model;
+}
+
+bool Config::save_global(const std::string& path) const {
+    std::error_code ec;
+    std::filesystem::path p(path);
+    std::filesystem::create_directories(p.parent_path(), ec);
+    std::ofstream f(path, std::ios::trunc);
+    if (!f) return false;
+    f << "# amber global settings (LLM provider)\n";
+    f << "provider=" << provider_name << "\n";
+    f << "api_base=" << api_base << "\n";
+    f << "api_key=" << api_key << "\n";
+    f << "model=" << model << "\n";
+    f << "context_size=" << context_size << "\n";
     return static_cast<bool>(f);
 }
 
@@ -149,6 +187,12 @@ std::vector<std::string> Config::validate() const {
 
     if (model.empty())
         errs.emplace_back("model is empty");
+
+    // Managed providers (OpenRouter, Kilo Code) require an API key.
+    auto* prov = provider::find(provider_name);
+    if (prov && prov->requires_key && api_key.empty())
+        errs.emplace_back("api_key is required for " + provider_name +
+                          " (set via AMBER_API_KEY env or save_global)");
 
     if (max_tool_iterations < 1)
         errs.push_back("max_tool_iterations must be >= 1 (got: " +
