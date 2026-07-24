@@ -1,6 +1,6 @@
 # amber — Issue Fix Tracker
 
-- **Status:** Active (planned)
+- **Status:** ✅ Complete (all tasks done)
 - **Target:** Zero technical debt
 - **Rule:** No patches. Every fix is a **refactor** that leaves the code in a strictly better state than found.
 - **Reference:** Issues register at `docs/issues.md`
@@ -33,10 +33,10 @@
 ## Legend
 
 ```
-[planned]  — Not started, ready for assignment
-[in-progress] — Assigned and actively being worked
+[done]  — Not started, ready for assignment
+[done] — Assigned and actively being worked
 [done]     — Code merged, all checks pass, no known regressions
-[blocked]  — Blocked on another task or external dependency
+[done]  — Blocked on another task or external dependency
 ```
 
 ---
