@@ -16,6 +16,7 @@
 
 #include <completion/command.h>
 #include <completion/completer.h>
+#include <completion/filter.h>
 
 #include <atomic>
 #include <chrono>

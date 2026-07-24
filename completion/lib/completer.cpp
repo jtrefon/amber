@@ -207,10 +207,14 @@ CompletionResult Completer::complete(
 
 done:
     // Track consecutive invocations for multi-tab state machine.
-    if (input != last_tab_input_)
-        consecutive_tabs_ = 0;
-    ++consecutive_tabs_;
-    last_tab_input_ = input;
+    // consecutive_tabs_ reflects the number of PREVIOUS Tab presses for the
+    // current result. A new result gets 1 (first Tab at this position);
+    // the same result again increments (subsequent Tab for popup).
+    if (r.new_input == last_tab_input_)
+        ++consecutive_tabs_;
+    else
+        consecutive_tabs_ = 1;
+    last_tab_input_ = r.new_input;
     return r;
 }
 

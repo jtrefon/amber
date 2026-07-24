@@ -40,6 +40,16 @@ ParsedInput parse_input(const std::string& input);
 // Build a usage string "/name <args>" for display.
 std::string usage_line(const Command& cmd);
 
+// Stateless: compute the best completion for a given input.
+// Returns the expanded input (or unchanged) and the shadow suffix
+// (the remaining portion to show faded after cursor).
+struct TopCompletion {
+    std::string expanded;   // the input after best completion
+    std::string shadow;     // text to show faded after cursor (empty if no suggestion)
+};
+TopCompletion top_completion(const std::vector<std::unique_ptr<Command>>& commands,
+                              const std::string& input);
+
 } // namespace completion
 
 #endif

@@ -541,34 +541,26 @@ void Tui::run() {
                 int sel = menu_select("complete:", cr.popup_items);
                 if (sel >= 0 && sel < static_cast<int>(cr.popup_items.size())) {
                     input = cr.popup_items[sel];
-                    // Strip description if present (format: "  name  -  desc")
                     size_t sp = input.find("  -");
                     if (sp != std::string::npos) input = input.substr(0, sp);
                 } else {
                     input = cr.new_input;
                 }
                 if (drawer_open_) { drawer_open_ = false; draw(); }
+                shadow_suffix_.clear();
                 draw_input(input);
                 continue;
             }
             if (cr.close_drawer && drawer_open_)
                 drawer_open_ = false;
             input = cr.new_input;
-            // Show shadow (inline suggestion) by updating the input bar
-            if (!cr.shadow.empty()) {
-                shadow_suffix_ = cr.shadow;
-            } else {
-                shadow_suffix_.clear();
-            }
+            // After Tab completes, clear shadow (the input matches the
+            // completion target; next keypress will recompute instantly).
+            shadow_suffix_.clear();
             draw_input(input);
             continue;
         }
         // '?' triggers context-sensitive help (Cisco IOS style)
-        if (ch == '/' && !drawer_open_) {
-            input += ch;
-            draw_input(input);
-            continue;
-        }
         if (ch == '?' && !drawer_open_ && palette::wants_open(input)) {
             auto cr = comp_completer_.complete(commands_completion(), input, true);
             if (!cr.help_lines.empty()) {
@@ -677,16 +669,20 @@ void Tui::run() {
         if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
             if (!input.empty()) input.pop_back();
             completer_.reset();
-            shadow_suffix_.clear();
             drawer_items_help_.clear();
+            // Instant shadow: compute top completion candidate after each keypress
+            auto tc = completion::top_completion(commands_completion(), input);
+            shadow_suffix_ = tc.expanded != input ? tc.shadow : std::string();
             update_drawer(input);
             draw(); draw_input(input); continue;
         }
         if (ch >= 32 && ch <= 126 && input.size() < 65536) {
             input += static_cast<char>(ch);
             completer_.reset();
-            shadow_suffix_.clear();
             drawer_items_help_.clear();
+            // Instant shadow: compute top completion candidate after each keypress
+            auto tc = completion::top_completion(commands_completion(), input);
+            shadow_suffix_ = tc.expanded != input ? tc.shadow : std::string();
             update_drawer(input);
             ensure_chat_window();
             draw(); draw_input(input); continue;
