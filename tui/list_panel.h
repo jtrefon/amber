@@ -24,10 +24,14 @@ public:
 
 private:
     std::vector<std::string> items_;
+    std::string filter_;
     int selection_ = 0;
     int scroll_offset_ = 0;
+    bool filter_mode_ = false;
 
+    std::vector<std::string> filtered() const;
     void draw_items();
+    void draw_filter_bar();
 };
 
 } // namespace tui
