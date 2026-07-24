@@ -113,12 +113,7 @@ void Tui::fold_reasoning() {
     draw();
 }
 
-void Tui::toggle_thinking() {
-    cfg_.show_reasoning = !cfg_.show_reasoning;
-    append_line(P_STATUS, std::string("thinking display: ") +
-                              (cfg_.show_reasoning ? "on" : "off"));
-    draw();
-}
+// toggle_thinking — deprecated. Use /set think on|off instead.
 
 void Tui::cmd_policy(const std::string& arg) {
     auto set_mode = [&](agent::AgentMode m) {
@@ -143,37 +138,9 @@ void Tui::cmd_policy(const std::string& arg) {
     else append_line(P_STATUS, "usage: /policy read|write|yolo");
 }
 
-void Tui::cmd_toolfold(const std::string& arg) {
-    ToolFold f;
-    if (arg == "always")      f = ToolFold::Always;
-    else if (arg == "auto")   f = ToolFold::Auto;
-    else if (arg == "never")  f = ToolFold::Never;
-    else {
-        append_line(P_STATUS, "usage: /toolfold always|auto|never");
-        return;
-    }
-    tool_fold_ = f;
-    append_line(P_STATUS, std::string("tool fold set to ") + arg);
-    draw();
-}
+// cmd_toolfold — deprecated. Use /set toolfold always|auto|never instead.
 
-void Tui::cmd_display(const std::string& arg) {
-    if (arg == "markdown" || arg.rfind("markdown ", 0) == 0) {
-        std::string v = arg == "markdown" ? "" : arg.substr(9);
-        if (v == "on" || v.empty()) {
-            win().markdown_on = true;
-            append_line(P_STATUS, "markdown rendering: on");
-        } else if (v == "off") {
-            win().markdown_on = false;
-            append_line(P_STATUS, "markdown rendering: off");
-        } else {
-            append_line(P_STATUS, "usage: /display markdown on|off");
-        }
-    } else {
-        append_line(P_STATUS, "usage: /display markdown on|off");
-    }
-    draw();
-}
+// cmd_display — deprecated. Use /set display markdown on|off instead.
 
 void Tui::cmd_set(const std::string& arg) {
     if (arg.empty()) {
@@ -937,7 +904,6 @@ void Tui::settings_screen() {
     add_preset("custom",     "Custom      (user-defined)");
 
     // User-saved providers
-    int saved_start = static_cast<int>(prov_id.size());
     for (const auto& s : saved) {
         if (s == "openrouter" || s == "kilocode" || s == "custom") continue;
         prov_display.push_back((cfg_.provider_name == s ? "> " : "  ") + s);

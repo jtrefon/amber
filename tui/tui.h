@@ -210,10 +210,7 @@ private:
 public:
     void save_workspace_now();
     void redraw_after_modal();
-    void toggle_thinking();
     void cmd_policy(const std::string& arg);
-    void cmd_toolfold(const std::string& arg);
-    void cmd_display(const std::string& arg);
     void config_screen() const;
     void detect_server(bool force);
     bool test_connection(bool announce);
