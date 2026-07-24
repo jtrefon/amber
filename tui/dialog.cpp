@@ -68,12 +68,10 @@ Dialog::Dialog(int h, int w, const std::string& title) {
     keypad(win_, TRUE);
     wbkgd(win_, COLOR_PAIR(P_DIALOG));
 
-    // Draw border with ACS characters (UTF-8 locale ensures correct glyphs).
+    // Canonical ncurses border. ncursesw handles ACS vs Unicode selection
+    // automatically based on locale and terminal capabilities.
     wattr_set(win_, A_NORMAL, P_DIALOG, nullptr);
-    wborder(win_, ACS_VLINE, ACS_VLINE,
-                  ACS_HLINE, ACS_HLINE,
-                  ACS_ULCORNER, ACS_URCORNER,
-                  ACS_LLCORNER, ACS_LRCORNER);
+    box(win_, 0, 0);
 
     // Title centered in top border with ACS_VLINE separators
     if (!title.empty()) {
