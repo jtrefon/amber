@@ -46,6 +46,12 @@ public:
           std::vector<FooterKey> footer = {});
     virtual ~Panel();
 
+    // Set footer keys after construction (used by Dialog compatibility).
+    void set_footer(std::vector<FooterKey> footer) {
+        footer_ = std::move(footer);
+        if (win_) draw_frame();
+    }
+
     Panel(const Panel&) = delete;
     Panel& operator=(const Panel&) = delete;
 
@@ -53,6 +59,12 @@ public:
     WINDOW* content() const { return content_win_; }
     int content_rows() const { return h_ - 2; }
     int content_cols() const { return w_ - 2; }
+
+    // The outer window (with border). Used by legacy Dialog API for
+    // callers that draw directly to the window surface.
+    WINDOW* win() const { return win_; }
+    int rows() const { return h_; }
+    int cols() const { return w_; }
 
     // Top-left position (computed for centering)
     int top() const { return top_; }
@@ -66,7 +78,10 @@ public:
     void hide();
 
     // Process input. Return true if the panel handled it.
-    virtual bool handle_key(int ch) { (void)ch; return false; }
+    virtual bool handle_key(int ch);
+
+    // Show a help popup listing all available keys for this panel.
+    virtual void show_help();
 
 protected:
     int h_, w_;           // outer dimensions (including border)

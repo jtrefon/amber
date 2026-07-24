@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui.h"
+#include "tui/dialog.h"
 #include "tui/confirm_panel.h"
 
 #include <ctime>
@@ -165,10 +166,12 @@ void Tui::session_browser() {
     int dh = std::min(sh - 6, sh - 2);
 
     Dialog dlg(dh, dw, "Sessions");
+    dlg.set_footer({{"Up/Down", "nav"}, {"Enter", "load"}, {"Del", "remove"},
+                    {"/", "search"}, {"Esc", "back"}});
     WINDOW* w = dlg.win();
     int aw = dlg.cols() - 2;       // content width
     int ah = dlg.rows() - 2;       // content height
-    int list_h = ah - 2;           // rows for list (minus search bar + footer)
+    int list_h = ah - 1;           // rows for list (minus search bar)
 
     std::string filter;
     int sel = 0;
@@ -231,14 +234,12 @@ void Tui::session_browser() {
             } else {
                 bool cur = (disp_idx == sel);
                 if (cur) {
-                    // Full-width highlight bar
-                    wattron(w, COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
+                    wattron(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
                     mvwaddstr(w, row, 1, std::string(aw, ' ').c_str());
-                    mvwaddstr(w, row, 1, "> ");
                 } else {
                     wattron(w, COLOR_PAIR(P_ASSISTANT));
-                    mvwaddstr(w, row, 1, "  ");
                 }
+                mvwaddstr(w, row, 1, "  ");
                 int x = 3;
                 auto& m = all[idx];
                 std::string title = m.title;
@@ -270,7 +271,7 @@ void Tui::session_browser() {
                 }
                 std::string ts = fmt_time(m.updated_ms);
                 mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
-                if (cur) wattroff(w, COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
+                if (cur) wattroff(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
                 else wattroff(w, COLOR_PAIR(P_ASSISTANT));
             }
         }
@@ -283,12 +284,11 @@ void Tui::session_browser() {
         wmove(w, ah - 1, 2 + static_cast<int>(filter.size()));
         wattroff(w, COLOR_PAIR(P_STATUS));
 
-        // Footer hint
-        wattron(w, A_DIM);
-        mvwaddstr(w, ah, 1,
-                  (text::glyph::up() + std::string(text::glyph::down()) +
-                   " nav  Enter load  Del remove  / search  Esc back").c_str());
-        wattroff(w, A_DIM);
+        // Scroll indicators
+        if (scroll_off > 0)
+            mvwaddch(w, 1, aw, ACS_UARROW);
+        if (scroll_off + list_h < nd)
+            mvwaddch(w, list_h, aw, ACS_DARROW);
 
         update_panels();
         doupdate();
