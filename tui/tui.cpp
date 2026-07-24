@@ -514,6 +514,7 @@ void Tui::run() {
             if (drawer_open_) {
                 drawer_open_ = false;
                 drawer_items_help_.clear();
+                shadow_suffix_.clear();
                 draw(); draw_input(input);
                 continue;
             }
@@ -553,9 +554,9 @@ void Tui::run() {
             }
             if (cr.close_drawer && drawer_open_)
                 drawer_open_ = false;
-            input = cr.new_input;
-            // After Tab completes, clear shadow (the input matches the
-            // completion target; next keypress will recompute instantly).
+            // Guard: never replace input with an empty result.
+            if (!cr.new_input.empty())
+                input = cr.new_input;
             shadow_suffix_.clear();
             draw_input(input);
             continue;
@@ -669,7 +670,6 @@ void Tui::run() {
         if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
             if (!input.empty()) input.pop_back();
             completer_.reset();
-            drawer_items_help_.clear();
             // Instant shadow: compute top completion candidate after each keypress
             auto tc = completion::top_completion(commands_completion(), input);
             shadow_suffix_ = tc.expanded != input ? tc.shadow : std::string();
@@ -679,7 +679,6 @@ void Tui::run() {
         if (ch >= 32 && ch <= 126 && input.size() < 65536) {
             input += static_cast<char>(ch);
             completer_.reset();
-            drawer_items_help_.clear();
             // Instant shadow: compute top completion candidate after each keypress
             auto tc = completion::top_completion(commands_completion(), input);
             shadow_suffix_ = tc.expanded != input ? tc.shadow : std::string();
