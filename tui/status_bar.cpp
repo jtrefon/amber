@@ -2,6 +2,8 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui/status_bar.h"
+#include "tui/glyphs.h"
+#include "agent/statusbar.h"
 
 #include <sstream>
 
@@ -15,7 +17,9 @@ StatusBar::StatusBar(std::shared_ptr<EventBus> bus) {
 
 std::string StatusBar::render() const {
     std::ostringstream out;
-    out << status_text_;
+    // Format: [model] mode [tool] lag Ns  t/s  ctx gauge [clock]
+    auto g = glyph::get();
+    out << "[" << model_ << "] " << status_text_;
     return out.str();
 }
 
