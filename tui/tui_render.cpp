@@ -444,9 +444,9 @@ void Tui::draw_input(const std::string& s) {
     if (!shadow_suffix_.empty() && cx < w - 2) {
         int shadow_w = w - cx - 1;
         std::string shadow_display = shadow_suffix_.substr(0, static_cast<size_t>(shadow_w));
-        attron(COLOR_PAIR(P_BAR_DIM) | A_DIM);
+        attron(COLOR_PAIR(P_USER) | A_DIM);
         mvaddnstr(y, cx, shadow_display.c_str(), shadow_w);
-        attroff(COLOR_PAIR(P_BAR_DIM) | A_DIM);
+        attroff(COLOR_PAIR(P_USER) | A_DIM);
     }
 
     attroff(COLOR_PAIR(P_USER));
