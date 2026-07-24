@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui.h"
+#include "tui/dialog.h"
 #include "tui/confirm_panel.h"
 
 #include <ctime>
