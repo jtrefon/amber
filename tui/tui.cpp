@@ -19,14 +19,16 @@
 
 namespace tui {
 
-// Signal handler saves workspace before the process dies (SIGHUP/SIGTERM).
-// The pointer is set once in the Tui constructor and cleared in the destructor.
-static Tui* signal_tui_instance = nullptr;
-static void signal_handler(int sig) {
-    (void)sig;
-    if (signal_tui_instance)
-        signal_tui_instance->save_workspace_now();
-    _Exit(1);
+// Signal handler is async-signal-safe: it only writes to an atomic flag.
+// The actual workspace save is deferred to the main event loop, which polls
+// the flag after every getch() timeout, so all I/O and mutex operations run
+// in a safe context.
+static std::atomic<bool>& shutdown_flag() {
+    static std::atomic<bool> flag{false};
+    return flag;
+}
+static void signal_handler(int) {
+    shutdown_flag().store(true);
 }
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
@@ -52,8 +54,9 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     use_legacy_coding(1);
     init_pairs();
 
-    // Signal handler ensures workspace is saved on terminal close / kill.
-    signal_tui_instance = this;
+    // Signal handler sets an atomic flag; the main loop polls it and
+    // saves workspace from the safe main-thread context.
+    shutdown_flag().store(false);
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
@@ -76,7 +79,6 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
 }
 
 Tui::~Tui() {
-    signal_tui_instance = nullptr;
     std::fputs("\033[?1007l", stdout);
     std::fflush(stdout);
 
@@ -88,12 +90,9 @@ Tui::~Tui() {
     for (const auto & window : windows_) {
         Window& w = *window;
         if (!w.dirty || !w.agent || w.agent->history().empty()) continue;
-        std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
-        std::fflush(stderr);
         agent::Session s = snapshot(w);
         if (store_.save(s)) w.session_id = s.id;
     }
-    std::fprintf(stderr, "\rsession save complete\n");
     endwin();
 }
 
@@ -455,6 +454,15 @@ void Tui::run() {
     while (!quit_) {
         bool had_events = drain_events();
 
+        // Check for deferred shutdown request from async-signal-safe handler.
+        // The signal handler only writes to an atomic flag; the actual save
+        // runs here on the main thread where I/O and mutex operations are safe.
+        if (shutdown_flag().load()) {
+            save_workspace_now();
+            quit_ = true;
+            break;
+        }
+
         // Reap background jobs that hit their idle/hard deadline. Runs every
         // tick so long-running processes are auto-killed even while the user is
         // idle and no agent event is flowing.
@@ -462,23 +470,16 @@ void Tui::run() {
 
         int ch = getch();
         if (ch == ERR) {
-            bool repainted = had_events;
             if (had_events) {
                 draw();
-            } else if (agent_busy_.load() || jobs_.running_count() > 0) {
-                // Either the agent is blocked on a call that emits no streaming
-                // tokens (silent confirmation exchange, a non-streaming tool
-                // result, or the model simply thinking), or a background job is
-                // running. In both cases no AgentEvent flows every frame, so this
-                // branch is what keeps the clock, the progress wave, and the
-                // background-job countdown alive. Repaint the status bar on a
-                // fixed wall-clock cadence instead of gating on anim_phase_
-                // (which would lock at one phase and freeze the whole bar).
+            } else {
+                // Tick on wall-clock cadence regardless of agent/job state
+                // so the clock, context gauge, and activity wave stay live
+                // even when idle.
                 auto now = std::chrono::steady_clock::now();
                 if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
                     last_status_tick_ = now;
                     tick_clock();
-                    repainted = true;
                 }
             }
             // Any background repaint moves the virtual cursor off the input

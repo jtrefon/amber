@@ -26,9 +26,8 @@ int cancel_check_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_
 
 // libcurl write callback shim: variadic_setopt cannot convert a lambda to a
 // function pointer, so we need a named function. Forwards to StreamParser.
-size_t stream_write_cb(void* ptr, size_t size, size_t nmemb, void* user) {
-    return static_cast<StreamParser*>(user)->on_write(
-        static_cast<char*>(ptr), size, nmemb);
+size_t stream_write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
+    return static_cast<StreamParser*>(user)->on_write(ptr, size, nmemb);
 }
 
 long read_usage_token(const json& usage, const char* key) {
@@ -101,49 +100,60 @@ void fill_buffered_stats(Stats& stats, const std::string& response, double ttfb,
     apply_tps(stats, ttfb, total);
 }
 
-// POST `payload` to the chat endpoint and return the raw response body, setting
-// up auth/JSON headers and throwing on any transport error. `accept_sse` adds
-// the text/event-stream Accept header for streaming requests. When non-null,
-// `ttfb`/`total` receive transfer timings in seconds.
-std::string post_completion(const Config& cfg, const std::string& payload,
-                            bool accept_sse, double* ttfb, double* total) {
-    CURL* c = curl_easy_init();
+namespace {
+
+// Shared curl request execution: sets up headers, URL, POST body, write
+// callback, timeout, and cancel wiring, then performs the request and
+// collects timing + status. Throws on transport or HTTP error.
+void curl_exec(const Config& cfg, const std::string& payload,
+               bool accept_sse, long timeout_s,
+               curl_write_callback write_fn, void* write_data,
+               long& http_code, double& ttfb, double& total,
+               const char* debug_tag) {
+    auto c = make_curl();
     if (!c) throw std::runtime_error("curl_easy_init failed");
     HeaderList headers;
     headers.add("Content-Type: application/json");
     if (accept_sse) headers.add("Accept: text/event-stream");
     apply_auth(headers, cfg);
 
-    curl_easy_setopt(c, CURLOPT_URL, cfg.api_url().c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers.list);
-    curl_easy_setopt(c, CURLOPT_POSTFIELDS, payload.c_str());
-    std::string response;
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, LLMClient::write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, accept_sse ? 900L : 300L);
-    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
-    curl_easy_setopt(c, CURLOPT_XFERINFODATA, &cfg.cancel_token);
+    curl_easy_setopt(c.get(), CURLOPT_URL, cfg.api_url().c_str());
+    curl_easy_setopt(c.get(), CURLOPT_HTTPHEADER, headers.list);
+    curl_easy_setopt(c.get(), CURLOPT_POSTFIELDS, payload.c_str());
+    curl_easy_setopt(c.get(), CURLOPT_WRITEFUNCTION, write_fn);
+    curl_easy_setopt(c.get(), CURLOPT_WRITEDATA, write_data);
+    curl_easy_setopt(c.get(), CURLOPT_TIMEOUT, timeout_s);
+    curl_easy_setopt(c.get(), CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(c.get(), CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
+    curl_easy_setopt(c.get(), CURLOPT_XFERINFODATA, &cfg.cancel_token);
 
-    CURLcode rc = curl_easy_perform(c);
-    long http_code = 0;
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http_code);
-    if (ttfb) {
-        double v = 0;
-        curl_easy_getinfo(c, CURLINFO_STARTTRANSFER_TIME, &v);
-        *ttfb = v;
-    }
-    if (total) {
-        double v = 0;
-        curl_easy_getinfo(c, CURLINFO_TOTAL_TIME, &v);
-        *total = v;
-    }
-    curl_easy_cleanup(c);
+    CURLcode rc = curl_easy_perform(c.get());
+    curl_easy_getinfo(c.get(), CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_getinfo(c.get(), CURLINFO_STARTTRANSFER_TIME, &ttfb);
+    curl_easy_getinfo(c.get(), CURLINFO_TOTAL_TIME, &total);
     if (rc != CURLE_OK) {
-        debug_log(cfg.debug_log, "error", std::string(curl_easy_strerror(rc)));
+        debug_log(cfg.debug_log, debug_tag, std::string(curl_easy_strerror(rc)));
         throw std::runtime_error(std::string("curl error: ") +
                                  curl_easy_strerror(rc));
     }
+}
+
+} // namespace
+
+// POST `payload` to the chat endpoint and return the raw response body, setting
+// up auth/JSON headers and throwing on any transport error. `accept_sse` adds
+// the text/event-stream Accept header for streaming requests. When non-null,
+// `ttfb`/`total` receive transfer timings in seconds.
+std::string post_completion(const Config& cfg, const std::string& payload,
+                            bool accept_sse, double* ttfb, double* total) {
+    std::string response;
+    long http_code = 0;
+    double t0 = 0, t1 = 0;
+    curl_exec(cfg, payload, accept_sse, accept_sse ? 900L : 300L,
+              LLMClient::write_cb, &response,
+              http_code, t0, t1, "error");
+    if (ttfb) *ttfb = t0;
+    if (total) *total = t1;
     if (http_code < 200 || http_code >= 300) {
         std::string snippet = response.substr(0, 200);
         throw std::runtime_error("HTTP " + std::to_string(http_code) +
@@ -156,37 +166,10 @@ std::string post_completion(const Config& cfg, const std::string& payload,
 // finalize. Fills `stats` (timings + token counts). Throws on transport error.
 void stream_completion(const Config& cfg, const std::string& payload,
                        StreamParser& parser, Stats* stats, long& status_out) {
-    CURL* c = curl_easy_init();
-    if (!c) throw std::runtime_error("curl_easy_init failed");
-
-    HeaderList headers;
-    headers.add("Content-Type: application/json");
-    headers.add("Accept: text/event-stream");
-    apply_auth(headers, cfg);
-
-    curl_easy_setopt(c, CURLOPT_URL, cfg.api_url().c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers.list);
-    curl_easy_setopt(c, CURLOPT_POSTFIELDS, payload.c_str());
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, stream_write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &parser);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 900L);
-    curl_easy_setopt(c, CURLOPT_BUFFERSIZE, 1024L);  // surface deltas promptly
-    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
-    curl_easy_setopt(c, CURLOPT_XFERINFODATA, &cfg.cancel_token);
-
-    CURLcode rc = curl_easy_perform(c);
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status_out);
     double ttfb = 0, total = 0;
-    curl_easy_getinfo(c, CURLINFO_STARTTRANSFER_TIME, &ttfb);
-    curl_easy_getinfo(c, CURLINFO_TOTAL_TIME, &total);
-    curl_easy_cleanup(c);
-    if (rc != CURLE_OK) {
-        debug_log(cfg.debug_log, "error-stream",
-                  std::string(curl_easy_strerror(rc)));
-        throw std::runtime_error(std::string("curl error: ") +
-                                 curl_easy_strerror(rc));
-    }
+    curl_exec(cfg, payload, true, 900L,
+              stream_write_cb, &parser,
+              status_out, ttfb, total, "error-stream");
     if (status_out < 200 || status_out >= 300) {
         throw std::runtime_error("HTTP " + std::to_string(status_out) +
                                  " from LLM server");

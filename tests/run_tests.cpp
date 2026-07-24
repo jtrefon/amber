@@ -1091,7 +1091,7 @@ TEST(agent_retains_history_across_turns) {
 
 TEST(bash_tool_runs_and_reports_exit) {
     auto tool = agent::make_bash_tool();
-    ASSERT_TRUE(tool->requires_approval());
+    ASSERT_TRUE(tool->requires_approval(agent::json::object()));
 
     auto ok = tool->execute({{"command", "echo hello"}});
     ASSERT_TRUE(ok.ok);
@@ -1200,7 +1200,7 @@ TEST(agent_denies_gated_tool_without_handler) {
     ag.set_hooks(hooks);
     auto* t = reg.find("bash");
     ASSERT_TRUE(t != nullptr);
-    ASSERT_TRUE(t->requires_approval());
+    ASSERT_TRUE(t->requires_approval(agent::json::object()));
     agent::Approval d = hooks.on_approval("bash", {{"command", "ls"}},
                                           t->summarize({{"command", "ls"}}));
     ASSERT_TRUE(called);
@@ -1492,7 +1492,7 @@ TEST(dispatch_approval_required_grants_session_access) {
     tc["id"] = "c1";
     tc["type"] = "function";
     tc["function"] = {{"name", "bash"},
-                      {"arguments", {{"command", "echo hello"}}}};
+                      {"arguments", {{"command", "touch /tmp/amber_test_dispatch"}}}};
     calls.push_back(tc);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,

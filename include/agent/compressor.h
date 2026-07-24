@@ -4,6 +4,7 @@
 #ifndef AGENT_COMPRESSOR_H
 #define AGENT_COMPRESSOR_H
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -14,6 +15,7 @@
 
 namespace agent {
 
+struct AgentHooks;
 class MemoryStore;
 struct Memory;
 struct Skill;
@@ -184,6 +186,30 @@ std::unique_ptr<CompressionGate> make_compression_gate(
     const CompressionConfig& cfg);
 
 CompressionConfig load_compression_config(const Config& cfg);
+
+// Bridges CompressionObserver to AgentHooks for status reporting.
+// Constructed with the hooks and a CompressionResult reference to fill.
+// The log() method writes timestamped status lines via hooks_.on_status.
+class CompressionReporter : public CompressionObserver {
+public:
+    CompressionReporter(const AgentHooks& hooks, CompressionResult& result);
+    void set_before(size_t msgs, size_t tokens);
+    void on_compress_start(size_t msgs, size_t) override;
+    void on_loop_collapse(size_t removed) override;
+    void on_llm_request_sent() override;
+    void on_llm_reply_received(long sec) override;
+    void on_parse_result(const CompressionResponse& cr) override;
+    void on_apply_result(const CompressionResult&) override;
+    void on_memory_ops_applied(size_t up, size_t dep) override;
+    void on_error(const std::string& msg) override;
+    void on_compress_done(const CompressionResult& final) override;
+private:
+    const AgentHooks& hooks_;
+    CompressionResult& r_;
+    std::chrono::steady_clock::time_point t0_;
+    size_t before_msgs_ = 0;
+    void log(const std::string& msg);
+};
 
 } // namespace agent
 

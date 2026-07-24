@@ -4,7 +4,9 @@
 #include "agent/dispatch.h"
 #include "agent/agent_helpers.h"
 
+#include <chrono>
 #include <future>
+#include <thread>
 
 namespace agent {
 
@@ -107,7 +109,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
                 dup = find_duplicate_call(c.fn, c.args, history);
             if (!dup.empty()) {
                 c.denied_reason = dup;
-            } else if (c.tool->requires_approval() &&
+            } else if (c.tool->requires_approval(c.args) &&
                        !session_approved.count(c.fn) &&
                        cfg.mode != agent::AgentMode::Yolo &&
                        !(hooks.on_approval &&
@@ -122,35 +124,25 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         todo.push_back(std::move(c));
     }
 
-    std::vector<std::future<ToolResult>> futures(todo.size());
+    struct Pending {
+        size_t idx;
+        std::future<ToolResult> future;
+    };
+    std::vector<Pending> pending;
     for (size_t i = 0; i < todo.size(); ++i) {
         if (!todo[i].approved) continue;
-        futures[i] = std::async(std::launch::async, [&todo, i]() -> ToolResult {
+        pending.push_back({i, std::async(std::launch::async, [&todo, i]() {
             try { return todo[i].tool->execute(todo[i].args); }
             catch (const std::exception& e) {
                 return ToolResult{false, "", std::string("tool threw: ") + e.what()};
             }
-        });
+        })});
     }
 
     bool all_ok = true;
-    for (size_t i = 0; i < todo.size(); ++i) {
-        auto& c = todo[i];
-        ToolResult res;
-        if (!c.approved) {
-            res.ok = false;
-            res.error = c.denied_reason;
-        } else if (!c.args_ok) {
-            res.ok = false;
-            std::string raw = c.args.is_string() ? c.args.get<std::string>()
-                                                  : c.args.dump();
-            res.error = "tool call arguments were not valid JSON (truncated or "
-                        "malformed): " + raw.substr(0, 200);
-        } else {
-            res = futures[i].get();
-        }
-        if (!res.ok) all_ok = false;
 
+    auto process_one = [&](const Call& c, ToolResult res) {
+        if (!res.ok) all_ok = false;
         if (hooks.on_tool_result) hooks.on_tool_result(c.fn, res);
         if (hooks.on_debug)
             hooks.on_debug("tool_result: " + c.fn + " (" +
@@ -163,12 +155,43 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         tool_msg.role = "tool";
         tool_msg.tool_call_id = c.id;
         tool_msg.name = c.fn;
-        // Set args_used so the envelope can echo them back to the model
         json call_args = c.args;
-        // Ensure denied/error tools still get args echoed
         tool_msg.content = utf8_sanitize(
             format_tool_envelope(c.fn, call_args, res));
-        history.push_back(tool_msg);
+        history.push_back(std::move(tool_msg));
+    };
+
+    // Process non-approved calls immediately (no execution needed).
+    for (size_t i = 0; i < todo.size(); ++i) {
+        auto& c = todo[i];
+        if (c.approved) continue;
+        ToolResult res;
+        if (c.args_ok) {
+            res.ok = false;
+            res.error = c.denied_reason;
+        } else {
+            res.ok = false;
+            std::string raw = c.args.is_string() ? c.args.get<std::string>()
+                                                   : c.args.dump();
+            res.error = "tool call arguments were not valid JSON (truncated or "
+                        "malformed): " + raw.substr(0, 200);
+        }
+        process_one(c, std::move(res));
+    }
+
+    // Process approved calls as they complete (out-of-order).
+    while (!pending.empty()) {
+        for (auto it = pending.begin(); it != pending.end(); ++it) {
+            if (it->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+                continue;
+            Call& c = todo[it->idx];
+            ToolResult res = it->future.get();
+            process_one(c, std::move(res));
+            pending.erase(it);
+            break;
+        }
+        if (!pending.empty())
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     return all_ok;
 }

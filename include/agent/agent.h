@@ -175,6 +175,16 @@ private:
     std::string try_confirm(const std::string& candidate,
                             const std::vector<Tool*>& tools);
 
+    // Build the tools vector and the chat lambda for the run loop.
+    std::vector<Tool*> resolve_tools();
+    std::function<Message()> make_chat_fn(const std::vector<Tool*>& tools);
+
+    // Push a generated reply into history, log reasoning, extract text calls.
+    void process_generation(Message& reply);
+
+    // Finalize a turn: fallback on empty, log, update state.
+    std::string finish_turn(std::string final_reply);
+
     Config cfg_;
     ToolRegistry& registry_;
     LLMClient client_;

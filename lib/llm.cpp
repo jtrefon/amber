@@ -17,9 +17,9 @@ LLMClient::LLMClient(Config  cfg) : cfg_(std::move(cfg)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 
-size_t LLMClient::write_cb(void* ptr, size_t size, size_t nmemb, void* user) {
+size_t LLMClient::write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
     auto* buf = static_cast<std::string*>(user);
-    buf->append(static_cast<char*>(ptr), size * nmemb);
+    buf->append(ptr, size * nmemb);
     return size * nmemb;
 }
 

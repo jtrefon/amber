@@ -5,6 +5,7 @@
 #include "agent/workspace.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -114,7 +115,7 @@ bool SessionStore::ensure_dir() const {
 }
 
 std::string SessionStore::new_id() {
-    static long long counter = 0;
+    static std::atomic<long long> counter{0};
     return std::to_string(now_ms()) + "-" + std::to_string(counter++);
 }
 
@@ -160,33 +161,7 @@ bool SessionStore::remove(const std::string& id) const {
     return ::remove(path_for(id).c_str()) == 0;
 }
 
-std::vector<SessionMeta> SessionStore::list() const {
-    if (cache_valid_) return list_cache_;
-
-    // Try the index file first — much faster than opening every session file.
-    std::ifstream idx(index_path());
-    if (idx.is_open()) {
-        try {
-            json j;
-            idx >> j;
-            std::vector<SessionMeta> out;
-            for (const auto& e : j.value("sessions", json::array())) {
-                SessionMeta m;
-                m.id = e.value("id", "");
-                m.title = e.value("title", "");
-                m.model = e.value("model", "");
-                m.updated_ms = static_cast<long long>(e.value("updated_ms", 0ll));
-                m.message_count = e.value("message_count", 0);
-                m.file_size = static_cast<size_t>(e.value("file_size", 0));
-                out.push_back(m);
-            }
-            list_cache_ = out;
-            cache_valid_ = true;
-            return list_cache_;
-        } catch (...) {
-            // Corrupt index — fall through to directory scan.
-        }
-    }
+std::vector<SessionMeta> SessionStore::scan_directory() const {
     std::vector<SessionMeta> out;
     std::error_code ec;
     for (const auto& entry : std::filesystem::directory_iterator(dir_, ec)) {
@@ -210,10 +185,14 @@ std::vector<SessionMeta> SessionStore::list() const {
               [](const SessionMeta& a, const SessionMeta& b) {
                   return a.updated_ms > b.updated_ms;
               });
-    list_cache_ = out;
+    return out;
+}
+
+std::vector<SessionMeta> SessionStore::list() const {
+    if (cache_valid_) return list_cache_;
+    list_cache_ = scan_directory();
     cache_valid_ = true;
-    // Write index for next startup.
-    if (!out.empty()) rebuild_index();
+    if (!list_cache_.empty()) rebuild_index();
     return list_cache_;
 }
 
@@ -224,7 +203,7 @@ bool SessionStore::list_contains(const std::string& id) const {
 }
 
 void SessionStore::rebuild_index() const {
-    auto entries = list();  // uses cache
+    auto entries = cache_valid_ ? list_cache_ : scan_directory();
     json j;
     j["version"] = 1;
     json arr = json::array();
