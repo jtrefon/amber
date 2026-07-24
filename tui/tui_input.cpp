@@ -484,6 +484,155 @@ void Tui::build_commands() {
     };
 }
 
+const std::vector<std::unique_ptr<completion::Command>>& Tui::commands_completion() {
+    if (cmds_completion_.empty()) build_completion_commands();
+    return cmds_completion_;
+}
+
+void Tui::build_completion_commands() {
+    cmds_completion_.clear();
+
+    // /set  —  tree: set → {detection → {loop, duplicate}, display, toolfold, ...}
+    auto set = std::make_unique<completion::Command>();
+    set->name = "set"; set->aliases = {};
+    set->description = "Configure runtime settings";
+    set->args_usage = "<option> <value>";
+
+    auto det = std::make_unique<completion::Command>();
+    det->name = "detection"; det->description = "Configure detection subsystems";
+    auto det_loop = std::make_unique<completion::Command>();
+    det_loop->name = "loop"; det_loop->description = "Tool/text loop detection toggle";
+    auto det_dup = std::make_unique<completion::Command>();
+    det_dup->name = "duplicate"; det_dup->description = "Duplicate call detection toggle";
+    det->add_subcommand(std::move(det_loop));
+    det->add_subcommand(std::move(det_dup));
+    set->add_subcommand(std::move(det));
+
+    auto disp = std::make_unique<completion::Command>();
+    disp->name = "display"; disp->description = "Display settings (markdown on/off)";
+    set->add_subcommand(std::move(disp));
+
+    auto tf = std::make_unique<completion::Command>();
+    tf->name = "toolfold"; tf->description = "Tool call fold mode (always/auto/never)";
+    set->add_subcommand(std::move(tf));
+
+    auto pol = std::make_unique<completion::Command>();
+    pol->name = "policy"; pol->description = "Agent policy mode (read/write/yolo)";
+    set->add_subcommand(std::move(pol));
+
+    auto prov = std::make_unique<completion::Command>();
+    prov->name = "provider"; prov->description = "LLM provider (openrouter/kilocode/custom)";
+    set->add_subcommand(std::move(prov));
+
+    auto think = std::make_unique<completion::Command>();
+    think->name = "think"; think->description = "Thinking mode (on/off/auto)";
+    set->add_subcommand(std::move(think));
+
+    auto model = std::make_unique<completion::Command>();
+    model->name = "model"; model->description = "LLM model name";
+    set->add_subcommand(std::move(model));
+
+    cmds_completion_.push_back(std::move(set));
+
+    // /get  —  tree: get → {detection, display, toolfold, policy, provider, model, think}
+    auto get = std::make_unique<completion::Command>();
+    get->name = "get"; get->description = "Show current settings";
+    get->args_usage = "<option>";
+    auto gdet = std::make_unique<completion::Command>();
+    gdet->name = "detection"; gdet->description = "Show detection settings";
+    auto gdet_loop = std::make_unique<completion::Command>();
+    gdet_loop->name = "loop"; gdet_loop->description = "Show loop detection state";
+    auto gdet_dup = std::make_unique<completion::Command>();
+    gdet_dup->name = "duplicate"; gdet_dup->description = "Show duplicate detection state";
+    gdet->add_subcommand(std::move(gdet_loop));
+    gdet->add_subcommand(std::move(gdet_dup));
+    get->add_subcommand(std::move(gdet));
+    cmds_completion_.push_back(std::move(get));
+
+    // /help
+    auto help = std::make_unique<completion::Command>();
+    help->name = "help"; help->aliases = {"?"};
+    help->description = "Show this help message";
+    cmds_completion_.push_back(std::move(help));
+
+    // /stop
+    auto stop = std::make_unique<completion::Command>();
+    stop->name = "stop"; stop->aliases = {"cancel", "kill"};
+    stop->description = "Terminate the current tool and agent loop";
+    cmds_completion_.push_back(std::move(stop));
+
+    // /save
+    auto save = std::make_unique<completion::Command>();
+    save->name = "save"; save->description = "Persist the current conversation";
+    cmds_completion_.push_back(std::move(save));
+
+    // /compress
+    auto compress = std::make_unique<completion::Command>();
+    compress->name = "compress"; compress->aliases = {"compact"};
+    compress->description = "Compress conversation history to free context space";
+    cmds_completion_.push_back(std::move(compress));
+
+    // /job
+    auto job = std::make_unique<completion::Command>();
+    job->name = "job"; job->description = "Manage background processes";
+    job->args_usage = "[ls|kill <id>|read <id>|start <cmd>]";
+    auto jls = std::make_unique<completion::Command>();
+    jls->name = "ls"; jls->description = "List running jobs";
+    auto jkill = std::make_unique<completion::Command>();
+    jkill->name = "kill"; jkill->description = "Kill a job by id";
+    auto jread = std::make_unique<completion::Command>();
+    jread->name = "read"; jread->description = "Read output of a job";
+    auto jstart = std::make_unique<completion::Command>();
+    jstart->name = "start"; jstart->description = "Start a new background command";
+    job->add_subcommand(std::move(jls));
+    job->add_subcommand(std::move(jkill));
+    job->add_subcommand(std::move(jread));
+    job->add_subcommand(std::move(jstart));
+    cmds_completion_.push_back(std::move(job));
+
+    // /settings
+    auto settings = std::make_unique<completion::Command>();
+    settings->name = "settings"; settings->aliases = {"server", "endpoint"};
+    settings->description = "Configure provider, model, API key, and connection test";
+    cmds_completion_.push_back(std::move(settings));
+
+    // /new
+    auto neww = std::make_unique<completion::Command>();
+    neww->name = "new"; neww->description = "Open a new chat window";
+    cmds_completion_.push_back(std::move(neww));
+
+    // /close
+    auto close = std::make_unique<completion::Command>();
+    close->name = "close"; close->description = "Close the current window";
+    cmds_completion_.push_back(std::move(close));
+
+    // /window
+    auto window = std::make_unique<completion::Command>();
+    window->name = "window"; window->aliases = {"win", "w"};
+    window->description = "Manage chat windows";
+    window->args_usage = "new|close|list|rename <name>";
+    cmds_completion_.push_back(std::move(window));
+
+    // /model (top-level alias for quick model switching)
+    auto model_tl = std::make_unique<completion::Command>();
+    model_tl->name = "model"; model_tl->aliases = {"settings"};
+    model_tl->description = "Change LLM model";
+    model_tl->args_usage = "<model-name>";
+    cmds_completion_.push_back(std::move(model_tl));
+
+    // /sessions
+    auto sessions = std::make_unique<completion::Command>();
+    sessions->name = "sessions"; sessions->aliases = {"load", "open"};
+    sessions->description = "Browse and load a saved session";
+    cmds_completion_.push_back(std::move(sessions));
+
+    // /quit
+    auto quit = std::make_unique<completion::Command>();
+    quit->name = "quit"; quit->aliases = {"exit", "q"};
+    quit->description = "Save all windows and exit";
+    cmds_completion_.push_back(std::move(quit));
+}
+
 const Command* Tui::find_command(const std::string& name) {
     return palette::find(commands(), name);
 }

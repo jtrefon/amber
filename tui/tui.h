@@ -14,6 +14,9 @@
 #include "canvas.h"
 #include "markdown.h"
 
+#include <completion/command.h>
+#include <completion/completer.h>
+
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -108,7 +111,13 @@ private:
     // the worker on its promise.
     bool modal_open_ = false;
     std::queue<AgentEvent> pending_approvals_;
-    palette::Completer completer_;  // Tab-press state machine
+    palette::Completer completer_;        // Tab-press state machine (legacy)
+    completion::Completer comp_completer_;// Tab-press state machine (tree-based)
+
+    // Completion command tree (tree-based, for completion only)
+    std::vector<std::unique_ptr<completion::Command>> cmds_completion_;
+    const std::vector<std::unique_ptr<completion::Command>>& commands_completion();
+    void build_completion_commands();
 
     // ---- geometry / layout ----------------------------------------------
     int height() const;
@@ -247,6 +256,8 @@ public:
     int anim_phase_ = 0;
     bool dirty_ = true;          // coalesce redraws into one flush per tick
     std::string last_input_;     // for change detection on idle ticks
+    std::string shadow_suffix_;           // inline (faded) completion suffix
+    std::vector<std::string> drawer_items_help_; // ?-style help lines for drawer
     // Wall-clock timestamp of the last status-bar repaint, so the clock and
     // progress wave keep ticking while the agent is blocked on a call that
     // emits no streaming tokens.
