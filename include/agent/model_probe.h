@@ -18,6 +18,12 @@ ServerInfo probe_server(const Config& cfg);
 // extraction logic can be unit-tested without a live server.
 ServerInfo parse_models(const std::string& body);
 
+// Return all model IDs from a /v1/models response. Pure, no network.
+std::vector<std::string> parse_model_list(const std::string& body);
+
+// Fetch all model IDs from the configured server. Returns empty on error.
+std::vector<std::string> list_models(const Config& cfg);
+
 } // namespace agent
 
 #endif // AGENT_MODEL_PROBE_H

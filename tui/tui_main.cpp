@@ -36,10 +36,27 @@ int main(int argc, char** argv) {
         else if (a == "--no-stream") cfg.stream = false;
     }
     if (!config_file.empty()) cfg.load(config_file);
+
+    // Global settings: LLM provider config lives in ~/.config/amber/config.
+    // This is loaded first so project-level and env overrides can layer on top.
     {
-        std::ifstream sf("amber.conf");
-        if (sf) cfg.load("amber.conf");
+        agent::Config tmp;
+        std::string global_path = agent::global_config_path();
+        std::ifstream sf(global_path);
+        if (sf) tmp.load(global_path);
+        // Apply provider preset if one was saved
+        if (!tmp.provider_name.empty() && tmp.provider_name != "custom") {
+            cfg.apply_provider(tmp.provider_name);
+            cfg.api_key = tmp.api_key;
+            if (!tmp.model.empty()) { cfg.model = tmp.model; cfg.model_explicit = true; }
+            if (tmp.context_size > 0) { cfg.context_size = tmp.context_size; cfg.context_explicit = true; }
+        } else {
+            // Fallback: load provider fields directly from legacy amber.conf
+            std::ifstream sf2("amber.conf");
+            if (sf2) cfg.load("amber.conf");
+        }
     }
+
     // Project-local overrides (non-LLM settings) live in .amber/settings so they
     // stay with the project while provider config remains global.
     {

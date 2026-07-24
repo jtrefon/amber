@@ -103,4 +103,53 @@ ServerInfo apply_server_autodetect(Config& cfg) {
     return info;
 }
 
+std::vector<std::string> parse_model_list(const std::string& body) {
+    std::vector<std::string> out;
+    json j = json::parse(body, nullptr, false);
+    if (j.is_discarded()) return out;
+
+    const json* arr = nullptr;
+    if (j.contains("data") && j["data"].is_array())
+        arr = &j["data"];
+    else if (j.contains("models") && j["models"].is_array())
+        arr = &j["models"];
+    if (!arr) return out;
+
+    for (const auto& e : *arr) {
+        if (e.contains("id") && e["id"].is_string())
+            out.push_back(e["id"].get<std::string>());
+        else if (e.contains("model") && e["model"].is_string())
+            out.push_back(e["model"].get<std::string>());
+        else if (e.contains("name") && e["name"].is_string())
+            out.push_back(e["name"].get<std::string>());
+    }
+    return out;
+}
+
+std::vector<std::string> list_models(const Config& cfg) {
+    std::string response;
+    CURL* c = curl_easy_init();
+    if (!c) return {};
+
+    struct curl_slist* headers = nullptr;
+    if (!cfg.api_key.empty()) {
+        std::string auth = "Authorization: Bearer " + cfg.api_key;
+        headers = curl_slist_append(headers, auth.c_str());
+    }
+
+    curl_easy_setopt(c, CURLOPT_URL, cfg.models_url().c_str());
+    if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
+    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
+
+    CURLcode rc = curl_easy_perform(c);
+    if (headers) curl_slist_free_all(headers);
+    curl_easy_cleanup(c);
+    if (rc != CURLE_OK) return {};
+    return parse_model_list(response);
+}
+
 } // namespace agent
