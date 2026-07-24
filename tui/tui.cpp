@@ -30,7 +30,8 @@ static void signal_handler(int sig) {
 }
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
-    : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs) {
+    : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs),
+      settings_path_(agent::Workspace::local_dir() + "/settings") {
     std::setlocale(LC_ALL, "");
     initscr();
     raw();        // capture Ctrl-C as keypress (ASCII 3) instead of SIGINT

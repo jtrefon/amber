@@ -3,6 +3,7 @@
 
 #include "agent/config.h"
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -83,6 +84,10 @@ bool Config::save(const std::string& path) const {
 }
 
 bool Config::save_settings(const std::string& path) const {
+    // Ensure the parent directory exists (e.g. .amber/ for .amber/settings)
+    std::error_code ec;
+    std::filesystem::path p(path);
+    std::filesystem::create_directories(p.parent_path(), ec);
     std::ofstream f(path, std::ios::trunc);
     if (!f) return false;
     f << "# amber project settings (local)\n";

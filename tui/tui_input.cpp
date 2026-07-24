@@ -208,7 +208,8 @@ void Tui::cmd_set(const std::string& arg) {
         hint = new_val ? "rejects repeated tool calls across turns" : "model may repeat the same call";
     append_line(P_STATUS, "detection " + key + ": " + (new_val ? "on" : "off") +
                           "  —  " + hint + "  (/set detection " + key + " toggle)");
-    cfg_.save_settings(settings_path_);
+    if (!cfg_.save_settings(settings_path_))
+        append_line(P_STATUS, "warning: could not save settings to " + settings_path_);
     draw();
 }
 

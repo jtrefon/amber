@@ -223,7 +223,7 @@ public:
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;       // host-owned; shared with process_* tools
     agent::SessionStore store_;
-    std::string settings_path_ = "amber.conf";
+    std::string settings_path_;
 
     std::vector<std::unique_ptr<Window>> windows_;
     size_t active_ = 0;
