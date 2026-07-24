@@ -29,7 +29,7 @@ void init_pairs() {
     init_pair(P_REASONING,  COLOR_WHITE,  -1);
     init_pair(P_BANNER,     COLOR_WHITE,  COLOR_BLUE);
     init_pair(P_FIELD,      COLOR_WHITE,  COLOR_BLACK);
-    init_pair(P_FIELD_ACT,  COLOR_WHITE,  COLOR_BLACK);
+    init_pair(P_FIELD_ACT,  COLOR_WHITE,  COLOR_CYAN);
     init_pair(P_DIALOG,     COLOR_WHITE,  COLOR_BLUE);
     init_pair(P_BUTTON,     COLOR_BLACK,  COLOR_WHITE);
     init_pair(P_BUTTON_ACT, COLOR_WHITE, COLOR_YELLOW);
@@ -68,24 +68,23 @@ Dialog::Dialog(int h, int w, const std::string& title) {
     keypad(win_, TRUE);
     wbkgd(win_, COLOR_PAIR(P_DIALOG));
 
-    // Draw border with dialog color pair so it inherits the correct
-    // foreground/background. Without this, box() uses A_NORMAL (terminal
-    // defaults) and the border may be invisible on some terminals.
+    // Draw border with ACS characters (UTF-8 locale ensures correct glyphs).
     wattr_set(win_, A_NORMAL, P_DIALOG, nullptr);
-    // Draw border with Unicode box-drawing characters (avoids ACS fallback
-    // to 'q'/'x' on terminals without alternate character set support).
-    wborder(win_, L'\u2502', L'\u2502',
-                  L'\u2500', L'\u2500',
-                  L'\u250c', L'\u2510',
-                  L'\u2514', L'\u2518');
+    wborder(win_, ACS_VLINE, ACS_VLINE,
+                  ACS_HLINE, ACS_HLINE,
+                  ACS_ULCORNER, ACS_URCORNER,
+                  ACS_LLCORNER, ACS_LRCORNER);
 
-    // Title embedded in top border: "┌─ Title ───┐"
+    // Title centered in top border with ACS_VLINE separators
     if (!title.empty()) {
-        std::wstring t = L" " + text::to_wide(title) + L" ";
-        // Erase the top border line where the title goes, then draw it.
-        mvwhline(win_, 0, 1, L' ', w_ - 2);
+        int t = (w_ - 2 - static_cast<int>(title.size())) / 2;
+        if (t < 2) t = 2;
+        mvwaddch(win_, 0, t - 1, ACS_VLINE);
+        mvwhline(win_, 0, t, ' ', static_cast<int>(title.size()));
         wattr_set(win_, A_BOLD, P_DIALOG, nullptr);
-        mvwaddnwstr(win_, 0, 2, t.c_str(), w_ - 4);
+        mvwaddnstr(win_, 0, t, title.c_str(), w_ - 4);
+        wattr_set(win_, A_NORMAL, P_DIALOG, nullptr);
+        mvwaddch(win_, 0, t + static_cast<int>(title.size()), ACS_VLINE);
     }
 
     panel_ = new_panel(win_);

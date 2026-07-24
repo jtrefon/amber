@@ -370,7 +370,7 @@ void Tui::lazy_load_active() {
         } else if (m.role == "tool") {
             std::string preview = m.content;
             if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-            append_line(P_STATUS, "  \\u2514 " + m.name + ": " + preview);
+            append_line(P_STATUS, "  \u2514\u2500 " + m.name + ": " + preview);
         }
     }
     if (!s.messages.empty())

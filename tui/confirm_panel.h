@@ -22,7 +22,7 @@ public:
 
 private:
     std::string message_;
-    bool yes_selected_ = true;  // true = Yes focused, false = No focused
+    bool yes_selected_ = false;  // true = Yes focused, false = No focused
 
     void draw_buttons();
 };
