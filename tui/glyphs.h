@@ -4,37 +4,19 @@
 #ifndef AMBER_TUI_GLYPHS_H
 #define AMBER_TUI_GLYPHS_H
 
-#include <clocale>
-#include <cstdlib>
+#include "tui/textutil.h"
+
 #include <string>
 
-// Terminal glyph selection: picks Unicode or ASCII based on UTF-8 locale.
-// This is htop's two-tier approach — no ncurses ACS involved.
-// Works on: Linux console (ASCII), xterm/tmux/screen/macOS (Unicode),
-// and over SSH (ASCII if locale not forwarded, Unicode otherwise).
+// Terminal glyph selection for borders and indicators.
+// Uses htop's two-tier approach: Unicode when UTF-8 locale, ASCII otherwise.
+// No ncurses ACS dependency — works on all terminals.
 //
-// Not affected by NCURSES_NO_UTF8_ACS since we don't use ACS at all.
+// The utf8 detection delegates to text::glyph::utf8() which honours the
+// AMBER_ASCII=1 escape hatch for terminals with broken Unicode rendering.
 
 namespace tui {
 namespace glyph {
-
-inline bool utf8_locale() {
-    // Three sources: LC_ALL > LC_CTYPE > LANG
-    auto is_utf8 = [](const char* s) -> bool {
-        if (!s) return false;
-        std::string v(s);
-        for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return v.find("utf-8") != std::string::npos || v.find("utf8") != std::string::npos;
-    };
-    return is_utf8(std::getenv("LC_ALL"))
-        || is_utf8(std::getenv("LC_CTYPE"))
-        || is_utf8(std::getenv("LANG"));
-}
-
-// Border glyphs — use instead of raw characters for cross-terminal rendering.
-// When utf8_locale() is true: returns Unicode box-drawing codepoints as UTF-8.
-// When false: returns ASCII fallback (+, -, |, ^, v).
-// These are safe even on TERM=linux which doesn't support UTF-8.
 
 struct Set {
     const char* hline;  // horizontal line
@@ -45,8 +27,6 @@ struct Set {
     const char* lr;     // lower-right corner
     const char* up;     // scroll up indicator
     const char* dn;     // scroll down indicator
-    const char* ellip;  // ellipsis
-    const char* bullet; // bullet
 };
 
 inline const Set& get() {
@@ -59,13 +39,11 @@ inline const Set& get() {
         "\xe2\x94\x98",  // ┘
         "\xe2\x86\x91",  // ↑
         "\xe2\x86\x93",  // ↓
-        "\xe2\x80\xa6",  // …
-        "\xe2\x80\xa2",  // •
     };
     static const Set ascii = {
-        "-", "|", "+", "+", "+", "+", "^", "v", "...", "*"
+        "-", "|", "+", "+", "+", "+", "^", "v"
     };
-    return utf8_locale() ? unicode : ascii;
+    return text::glyph::utf8() ? unicode : ascii;
 }
 
 } // namespace glyph

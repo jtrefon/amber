@@ -78,7 +78,10 @@ public:
     void hide();
 
     // Process input. Return true if the panel handled it.
-    virtual bool handle_key(int ch) { (void)ch; return false; }
+    virtual bool handle_key(int ch);
+
+    // Show a help popup listing all available keys for this panel.
+    virtual void show_help();
 
 protected:
     int h_, w_;           // outer dimensions (including border)

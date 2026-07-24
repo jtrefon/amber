@@ -23,6 +23,7 @@ private:
     agent::Stats stats_;
     std::string status_text_;
     std::string running_tool_;
+    std::string model_;
 
     void on_state(const StateChanged& e);
     void on_stats(const StatsUpdated& e);

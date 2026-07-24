@@ -137,7 +137,7 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     std::string wtag = "[" + std::to_string(active_ + 1) + "/" +
                        std::to_string(windows_.size()) + "]";
     segs.push_back({wtag, P_BANNER, 3});
-    segs.push_back({" [" + cfg_.model + "]", P_BANNER, 5});
+    segs.push_back({" [" + cfg_.model + "]", P_BAR_DIM | A_BOLD, 5});
 
     // Agent mode label with full words and colour coding.
     std::string mode_txt;
@@ -161,7 +161,10 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     if (stats_.latency_ms >= 0) {
         char b[32];
         std::snprintf(b, sizeof(b), "  lag %.0fms", stats_.latency_ms);
-        segs.push_back({b, P_BAR_DIM, 6});
+        int lag_pair = stats_.latency_ms > 5000 ? P_GAUGE_CRIT
+                     : stats_.latency_ms > 1000 ? P_GAUGE_WARN
+                     : P_BAR_DIM;
+        segs.push_back({b, lag_pair, 6});
     } else {
         segs.push_back({"  lag " + std::string(text::glyph::emdash()), P_BAR_DIM, 6});
     }
@@ -508,11 +511,15 @@ void Tui::draw_drawer(const std::string& input) {
         move(y, 0);
         clrtoeol();
         bool sel = (!arg_mode && i == drawer_sel_);
-        if (sel) attron(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
-        else attron(COLOR_PAIR(P_ASSISTANT));
-        mvaddnstr(y, 0, rows[i].c_str(), width());
-        if (sel) attroff(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
-        else attroff(COLOR_PAIR(P_ASSISTANT));
+        if (sel) {
+            attron(A_REVERSE);
+            mvaddnstr(y, 0, rows[i].c_str(), width());
+            attroff(A_REVERSE);
+        } else {
+            attron(COLOR_PAIR(P_ASSISTANT));
+            mvaddnstr(y, 0, rows[i].c_str(), width());
+            attroff(COLOR_PAIR(P_ASSISTANT));
+        }
     }
 }
 
@@ -542,12 +549,15 @@ int Tui::drawer_menu(const std::string& title,
             int y = top + header + i;
             move(y, 0); clrtoeol();
             bool cur = (idx == sel);
-            std::string row = (cur ? "> " : "  ") + items[idx];
-            if (cur) attron(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
-            else attron(COLOR_PAIR(P_ASSISTANT));
-            mvaddnstr(y, 0, row.c_str(), width());
-            if (cur) attroff(COLOR_PAIR(P_BUTTON_ACT) | A_BOLD);
-            else attroff(COLOR_PAIR(P_ASSISTANT));
+            if (cur) {
+                attron(A_REVERSE);
+                mvaddnstr(y, 0, ("  " + items[idx]).c_str(), width());
+                attroff(A_REVERSE);
+            } else {
+                attron(COLOR_PAIR(P_ASSISTANT));
+                mvaddnstr(y, 0, ("  " + items[idx]).c_str(), width());
+                attroff(COLOR_PAIR(P_ASSISTANT));
+            }
         }
         doupdate();
 

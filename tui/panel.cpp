@@ -104,4 +104,48 @@ void Panel::hide() {
     doupdate();
 }
 
+bool Panel::handle_key(int ch) {
+    if (ch == KEY_F(1)) {
+        show_help();
+        draw_frame();
+        return true;
+    }
+    return false;
+}
+
+void Panel::show_help() {
+    // Build help text from footer keys
+    std::vector<std::string> help_lines;
+    help_lines.push_back(" Available keys:");
+    help_lines.push_back("");
+    for (const auto& f : footer_) {
+        help_lines.push_back("  [" + f.key + "] " + f.action);
+    }
+    if (footer_.empty()) {
+        help_lines.push_back("  [Esc] Close");
+    }
+    help_lines.push_back("");
+    help_lines.push_back("  [F1] This help");
+    help_lines.push_back("  [Esc] Close");
+
+    int h = static_cast<int>(help_lines.size()) + 2;
+    int w = 40;
+    int sh, sw;
+    getmaxyx(stdscr, sh, sw);
+    int y = (sh - h) / 2;
+    int x = (sw - w) / 2;
+
+    WINDOW* help_win = newwin(h, w, y, x);
+    wbkgd(help_win, COLOR_PAIR(P_DIALOG));
+    box(help_win, 0, 0);
+    mvwaddstr(help_win, 0, 2, " Help ");
+    for (int i = 0; i < static_cast<int>(help_lines.size()); ++i)
+        mvwaddnstr(help_win, 1 + i, 1, help_lines[i].c_str(), w - 2);
+    wrefresh(help_win);
+    // Wait for a keypress then dismiss
+    wgetch(help_win);
+    delwin(help_win);
+    touchwin(win_);
+}
+
 } // namespace tui
