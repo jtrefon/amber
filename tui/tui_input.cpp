@@ -918,6 +918,8 @@ static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
 
 void Tui::settings_screen() {
     // Step 1: Build provider list from saved + built-in presets
+    // DEBUG: the fact you can see this message means the NEW settings_screen is running
+    append_line(P_STATUS, "Loading provider list...");
     auto saved = agent::list_saved_providers();
 
     std::vector<std::string> prov_display;
