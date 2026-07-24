@@ -15,6 +15,7 @@ autom4te.cache/
 amber
 amber-tui
 run_tests
+completion/tests/completion_test
 smoketest
 
 # Release packaging output
