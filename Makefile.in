@@ -68,9 +68,18 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/tui_input.o \
             $(BUILD_DIR)/tui/tui_session.o \
             $(BUILD_DIR)/tui/tui_main.o \
+            $(BUILD_DIR)/tui/app.o \
+            $(BUILD_DIR)/tui/renderer.o \
+            $(BUILD_DIR)/tui/input_handler.o \
+            $(BUILD_DIR)/tui/agent_service.o \
+            $(BUILD_DIR)/tui/chat_view.o \
+            $(BUILD_DIR)/tui/status_bar.o \
             $(BUILD_DIR)/tui/dialog.o \
             $(BUILD_DIR)/tui/form_edit.o \
             $(BUILD_DIR)/tui/info_dialog.o \
+            $(BUILD_DIR)/tui/panel.o \
+            $(BUILD_DIR)/tui/list_panel.o \
+            $(BUILD_DIR)/tui/confirm_panel.o \
             $(BUILD_DIR)/tui/menu_select.o \
             $(BUILD_DIR)/tui/textutil.o \
             $(BUILD_DIR)/tui/palette.o \

@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui.h"
+#include "tui/confirm_panel.h"
 
 #include <ctime>
 #include <cstdlib>
@@ -310,9 +311,9 @@ void Tui::session_browser() {
                 case KEY_DC: case 4: {  // Delete or Ctrl+D
                     if (sel >= 0) {
                         int del_idx = disp[sel].second;
-                        std::string prompt = "Delete \"" + all[del_idx].title + "\"?";
-                        int ch = menu_select(prompt, {"Cancel", "Delete"});
-                        if (ch == 1) {
+                        std::string msg = "Delete \"" + all[del_idx].title + "\"?";
+                        tui::ConfirmPanel confirm("Delete Session", msg);
+                        if (confirm.run()) {
                             store_.remove(all[del_idx].id);
                             all.erase(all.begin() + del_idx);
                             sel = 0; scroll_off = 0;
@@ -369,7 +370,7 @@ void Tui::lazy_load_active() {
         } else if (m.role == "tool") {
             std::string preview = m.content;
             if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-            append_line(P_STATUS, "  \\u2514 " + m.name + ": " + preview);
+            append_line(P_STATUS, "  \u2514\u2500 " + m.name + ": " + preview);
         }
     }
     if (!s.messages.empty())
