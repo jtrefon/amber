@@ -1034,7 +1034,7 @@ void Tui::settings_screen() {
     if (action < 0) return;
 
     if (action == 0) {
-        // Activate & edit
+        // Activate & edit — start from preset defaults, overlay current values
         agent::Config prov_cfg;
         if (is_preset) {
             prov_cfg.provider_name = selected_id;
@@ -1042,6 +1042,11 @@ void Tui::settings_screen() {
             prov_cfg.api_key = cfg_.api_key;
             prov_cfg.model = cfg_.model;
             prov_cfg.model_explicit = cfg_.model_explicit;
+            // If not already using this preset, seed with its defaults
+            if (cfg_.provider_name != selected_id) {
+                prov_cfg.apply_provider(selected_id);
+                if (prov_cfg.api_key.empty()) prov_cfg.api_key = cfg_.api_key;
+            }
         } else {
             agent::load_provider(selected_id, prov_cfg);
         }
