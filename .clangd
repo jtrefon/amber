@@ -5,5 +5,4 @@ CompileFlags:
     - -Isrc
     - -Itools
     - -I.
-    - -Icompletion/include
     - -Wall

@@ -2,6 +2,5 @@
 -Isrc
 -Itools
 -I.
--Icompletion/include
 -std=c++17
 -Wall

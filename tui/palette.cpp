@@ -3,8 +3,6 @@
 
 #include "palette.h"
 
-#include <algorithm>
-
 namespace tui::palette {
 
 // =========================================================================
@@ -42,12 +40,6 @@ std::vector<const Command*> filter(const std::vector<Command>& commands,
                 else if (a.rfind(tok, 0) == 0) { aliased.push_back(&c); break; }
         }
     }
-    // Exact matches first, then shorter prefix/alias names (closer match).
-    auto by_length = [](const Command* a, const Command* b) {
-        return a->name.size() < b->name.size();
-    };
-    std::stable_sort(prefix.begin(), prefix.end(), by_length);
-    std::stable_sort(aliased.begin(), aliased.end(), by_length);
     exact.insert(exact.end(), prefix.begin(), prefix.end());
     exact.insert(exact.end(), aliased.begin(), aliased.end());
     return exact;
