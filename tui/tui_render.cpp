@@ -438,8 +438,18 @@ void Tui::draw_input(const std::string& s) {
     if (scroll_off > 0 && !visible.empty())
         visible[0] = '~';  // overflow indicator (TODO: use \u2026 when UTF-8 support is unified)
     mvaddnstr(y, 0, visible.c_str(), vis_w);
-    attroff(COLOR_PAIR(P_USER));
+
+    // Draw shadow completion suffix (faded inline suggestion after cursor).
     int cx = std::min(total_w - scroll_off, w - 1);
+    if (!shadow_suffix_.empty() && cx < w - 2) {
+        int shadow_w = w - cx - 1;
+        std::string shadow_display = shadow_suffix_.substr(0, static_cast<size_t>(shadow_w));
+        attron(COLOR_PAIR(P_BAR_DIM) | A_DIM);
+        mvaddnstr(y, cx, shadow_display.c_str(), shadow_w);
+        attroff(COLOR_PAIR(P_BAR_DIM) | A_DIM);
+    }
+
+    attroff(COLOR_PAIR(P_USER));
     if (cx < 0) cx = 0;
     curs_set(1);
     move(y, cx);
@@ -469,6 +479,23 @@ void Tui::draw_drawer(const std::string& input) {
     if (!drawer_open_) return;
 
     int bar_row = height() - 2;
+
+    // Show ?-style help lines when available (Cisco IOS context help).
+    if (!drawer_items_help_.empty()) {
+        auto& rows = drawer_items_help_;
+        int max_rows = std::max(1, bar_row - chat_top());
+        int header = 0;
+        int shown = std::min<int>(static_cast<int>(rows.size()), max_rows);
+        int top = bar_row - shown;
+        for (int i = 0; i < shown; ++i) {
+            move(top + i, 0); clrtoeol();
+            attron(COLOR_PAIR(P_ASSISTANT));
+            mvaddnstr(top + i, 0, rows[i].c_str(), width());
+            attroff(COLOR_PAIR(P_ASSISTANT));
+        }
+        return;
+    }
+
     std::string token = drawer_token(input);
 
     std::vector<std::string> rows;
