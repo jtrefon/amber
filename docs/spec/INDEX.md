@@ -26,7 +26,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 |------|--------|
 | `agent-loop/core-loop.md` | ReAct iteration, history push, max-turns, idle/done/busy states |
 | `agent-loop/tool-dispatch.md` | Parallel dispatch, ordering, results aggregation, duplicate detection |
-| `agent-loop/mode-system.md` | read/write/yolo: tool availability, approval gates, self-review |
+| `agent-loop/mode-system.md` | read/write/yolo, PolicyStore, AlwaysAllow/AlwaysDeny, policy_approval toggle, session grants |
 | `agent-loop/error-recovery.md` | FailStreak, loop detection, recovery steering, empty-turn fallback |
 
 ## Tools

@@ -1,189 +1,81 @@
-# UX Policy — Interaction Model
+## UX Policy
 
-**How the user and the agent talk to each other.**
+### Core principle
 
-The vision (`VISION.md`) says *why*. The mission (`MISSION.md`) says *what
-and when*. This document says *how the interface works* — the rules that
-every UI component, every command, every dialog must follow.
+Every command has UI feedback; every UI action has a command equivalent.
+The single exception is the security/approval dialog — it is UI-only because
+it requires real-time human judgment.
 
----
+### PolicyStore-driven security
 
-## Core principle: 1:1 mapping with one exception
+The PolicyStore (`lib/policy.cpp`) is a JSON-persisted database of tool-level
+permission rules. Each rule maps a tool name to one of three levels:
+- `allow` — tool runs with last-chance dialog (auto-confirms on timeout)
+- `deny` — tool blocked with last-chance dialog (auto-denies on timeout)
+- `ask` — default state, user must actively choose every time
 
-**Every action that can be done via the UI must also be achievable via a
-command. Every action that can be done via a command must have UI feedback.**
+The store ships with 30+ predefined harmful patterns (`rm`, `dd`, `git reset`,
+`docker`, `sudo`, `npm install`, etc.) all set to `ask`. Users manage rules
+via the `/set policy` and `/get policy` command tree.
 
-| Direction | Interface | Always? |
-|-----------|-----------|---------|
-| User → agent | Command line (`/`) | Yes |
-| Agent → user | Scrollback (text output) | Yes |
-| User configures tool | Command OR UI dialog | Both work |
-| User confirms dangerous ops | UI dialog only | **Exception** — cannot be scripted |
-| User browses data | Command OR UI | Both work |
-| User monitors state | Status bar | Always visible |
-| User gets help | `?` at depth | Unified |
+### Approval dialog
 
-The single exception: **security boundaries**. Approval dialogs are UI-only
-because they block the agent thread and require explicit user consent. The
-CLI equivalent is `--yes` (pre-authorised batch mode).
+The `ApprovalPanel` is a 4-option ncurses dialog with keyboard shortcuts:
+- `1` Allow once — pass through, no state change
+- `2` Allow session — grant for rest of conversation
+- `3` Allow (always) — persist rule to PolicyStore
+- `4` Deny (always) — persist rule to PolicyStore
+- `Esc` — deny this call only
 
----
+A 60-second countdown timer auto-selects the last-chosen option as the
+default. The user can configure the timeout via `/set policy timeout <N>`.
 
-## The text vs UI boundary
-
-The user never asks "should I use a command or a dialog?" — the answer is
-always "both work, use what feels natural." This is possible because every
-UI flow has a command equivalent and every command has a UI feedback path.
+### Mode-based gate behavior
 
 ```
-User types `/`
-     │
-     ▼
-┌──────────────────────┐
-│ Is `?` the last      │
-│ token after a space? │──── Yes ──► Show help page for path before `?`
-└──────────┬───────────┘
-           │ No
-           ▼
-┌──────────────────────┐
-│ Is it a known        │
-│ command path?        │──── Yes ──► Resolve tree, dispatch handler
-└──────────┬───────────┘           │
-           │ No                    ▼
-           ▼               ┌──────────────┐
-      ┌──────────┐         │ UI feedback  │
-      │ Unknown  │         │ • status msg │
-      │ command  │──► Error│ • scrollback │
-      │ error    │         │ • drawer     │
-      └──────────┘         │ • dialog     │
-                           └──────────────┘
+Read  → PolicyStore bypassed (read-only tools only, no gate needed)
+Write → PolicyStore consulted, approval dialog shown for Ask rules
+Yolo  → PolicyStore bypassed (full trust, no road bumps)
 ```
 
-Every command produces at least one form of UI feedback:
-- **Status message** for quick confirmation ("detection loop: on")
-- **Scrollback entry** for permanent record
-- **Dialog** for complex output or choices
-- **Drawer update** for contextual feedback during typing
-
----
-
-## Input system hierarchy
+### Policy commands
 
 ```
-Layer 1: Readline key bindings  (Ctrl-A/E/B/F/W/U/K/Y/L/T/_, Alt-B/F/D)
-         Basic text editing. Always available. Standard shell UX.
+/set policy mode <read|write|yolo>        — agent access mode
+/set policy approval <on|off>            — master toggle for permission gate
+/set policy timeout <N>                  — dialog countdown (0 = no timeout)
+/set policy rule <name> <allow|deny|ask> — per-tool permission rule
 
-Layer 2: Autosuggest shadow      (fish/zsh style)
-         Completion hint faded in the input line. Updates on every keystroke.
-         Tab accepts the shadow. No need to Tab to "see" it.
-
-Layer 3: Tab cycling             (zsh menu selection)
-         Tab accepts shadow then cycles through alternatives inline.
-         Shift-Tab cycles reverse. The drawer follows the cycle.
-
-Layer 4: Choice commands         (Ctrl-D list-all, Ctrl-R history search)
-         Ctrl-D: show all completions without modifying input.
-         Ctrl-R: incremental reverse history search.
-
-Layer 5: `?` help at depth       (typed `?` as last token)
-         Opens full help page for the path before `?`.
-         `/set detection loop ?` — not `/help set detection loop`.
+/get policy                              — show mode, timeout, all rules
+/get policy rule <name>                  — show specific rule
 ```
 
----
+### Namespace-aware drawer
 
-## The `?` help system
-
-`?` has two modes, distinguished by the character before it:
-
-| Typed | Mode | Behaviour |
-|-------|------|-----------|
-| `/set detection loop?` | **No space** — inline popup | Quick popup of remaining options for the current position (e.g., `on`, `off`, `toggle`). `?` stripped, input unchanged. |
-| `/set detection loop ?` | **Space** — full page | Full help page for the resolved path before `?`. Usage, args, types, choices, current values, flags, related commands. |
-
-The space is the differentiator. No space = "help for what I'm typing right
-now". Space = "help for everything I already typed".
-
-`/help [path]` is kept as sugar for `?` at root.
-
-Examples:
-
-| What you type | What you get |
-|---------------|-------------|
-| `/ ?` | Full help for root |
-| `/set?` | Inline popup of subcommands |
-| `/set ?` | Full help page for `set` |
-| `/set detection loop?` | Inline popup: `on`, `off`, `toggle` |
-| `/set detection loop ?` | Full help page for `loop` (choices + current value) |
-| `/config network proxy?` | Inline popup: value spec for key-chain |
-| `/config network proxy ?` | Full help page showing key path + value spec |
-
-To pass `?` as a literal value: type without space before it.
-`/set val?` passes `val?` as the value (no space = no help trigger).
-
----
-
-## Widget policy
-
-| Widget | Used for | Rationale |
-|--------|----------|-----------|
-| `menu_select()` | Approval, multi-choice, completion popup | Simple, familiar, keyboard-first |
-| `form_edit()` | Provider config, multi-field settings | Grouped input, Tab between fields |
-| `info_dialog()` | Help pages, errors, status | Read-only display, dismiss on any key |
-| `list_panel()` | Model list, session browser, file chooser | Scrollable selection, Up/Down/Enter/Esc |
-| Status bar | Activity, token usage, jobs, clock, scroll% | Always visible, real-time, glanceable |
-| Drawer | Autosuggest, contextual help, completion list | Context-aware overlay, appears on `/` |
-| Scrollback | Agent output, command results, conversation history | Permanent record, scrollable, markdown-rendered |
-
----
-
-## Design rules for commands
-
-1. Every command that accepts arguments also works with `?` for help at
-   that node.
-2. Every CRUD operation has both a command path and a UI path.
-3. Commands use kebab-case names (`detection-loop`, `save-session`).
-4. Arguments with a fixed set of values use `<choice|choice|choice>` syntax
-   and Choice `ArgSpec`.
-5. Every command handler produces a status message.
-6. Destructive verbs (`delete`, `kill`, `stop`) show confirmation. The
-   user confirms via dialog or Enter.
-7. Shortcut aliases follow the BitchX/IrcII scheme: single-letter for
-   top-level (`/q`=quit), glued two-letter for nested (`/sl`=session list).
-
----
-
-## Habit formation loops
-
-Users form habits when actions are predictable:
-
+Typing `/get` at the prompt replaces the command list with the namespace's
+children, each showing:
 ```
-Change a setting:
-  /set ↵          — drawer shows categories
-  /set det ↵      — shadow shows detection
-  /set detection lo Tab  — shadow accepts, loop
-  /set detection loop Tab → on  — cycle to value
-  Enter            — dispatches
-  "detection loop: on"  — status confirms
+  name  One-line help text.  [choices|range]
 ```
 
-```
-Browse a file:
-  /files ls src/ ↵   — scrollback shows listing
-  /files open src/main.cpp ↵ — file content in pager
-  /ff *.rs ↵         — shortcut for files find
-```
+Typing `/get policy` descends into the policy namespace. Typing `/get think`
+shows the leaf with its available choices `[on|off|auto]`.
+Pressing `?` at any depth opens a full manual page popup.
+
+### Habit formation loops
 
 ```
-Kill a stuck job:
-  /job ls ↵          — shows running jobs
-  /job kill 3 ↵      — kills job 3
-  "job 3: killed"    — status confirms
+Set a per-tool policy:
+  /get policy               — list all rules
+  /get policy rule bash     — see bash's rule
+  /set policy rule bash allow  — allow bash permanently
+  /set policy approval off  — disable all permission gating
 ```
 
-```
-Get help:
-  /set ? ↵           — help for set node
-  /set detection ? ↵ — help for detection node
-  Esc                — dismiss help, back to /set detection
-```
+### Design rules
+
+1. Kebab-case for multi-word keys (`compression.threshold`).
+2. Fixed-set values use `[choices]` notation shown inline in the drawer.
+3. Destructive verbs show confirmation dialog (`confirm_delete`).
+4. Mode changes take effect on next agent run, not mid-turn.
+5. PolicyStore changes persist immediately to `.amber/policy.json`.
