@@ -69,12 +69,7 @@ struct AgentHooks {
     // about rendering. The default no-op is used by headless runs.
     std::function<void(const std::string&)> on_debug;
 
-    // Emitted after any context mutation (push, pop, clear). Carries the
-    // new total token count and context size. The TUI uses this to update
-    // the context-usage gauge; the compression gate uses it to decide
-    // whether to compress. Fires on every push/pop/clear so subscribers
-    // always have an accurate, deterministic count.
-    std::function<void(size_t tokens, size_t msgs)> on_context_change;
+
 };
 
 // The core agent loop. Given an initial user prompt it drives the conversation:
@@ -148,6 +143,10 @@ public:
     PolicyStore& policy() { return policy_; }
     const PolicyStore& policy() const { return policy_; }
 
+    // Subscribe to context change events (token count + message count).
+    // Fires on every push/pop/clear.
+    ContextEventSource& context_events() { return context_events_; }
+
 private:
     // Build and push the system message if the conversation is empty. Idempotent.
     void ensure_system_prompt();
@@ -205,6 +204,7 @@ private:
     AgentHooks hooks_;
     ConversationLog log_;
     Context context_;
+    ContextEventSource context_events_;
     std::set<std::string> session_approved_;  // tools granted for the session
     std::unique_ptr<CompressionStrategy> compression_;
     std::unique_ptr<CompressionGate> gate_;

@@ -16,10 +16,9 @@ namespace agent {
 
 namespace {
 
-// Helper: fire the context-change hook after any context mutation.
-void emit_context_event(const AgentHooks& hooks, const Context& ctx) {
-    if (hooks.on_context_change)
-        hooks.on_context_change(ctx.token_count(), ctx.size());
+// Helper: publish context-change event to all subscribers.
+void emit_context_event(ContextEventSource& src, const Context& ctx) {
+    src.publish(ctx.token_count(), ctx.size());
 }
 
 // Apply memory/skill ops from a compression response to the store.
@@ -108,14 +107,14 @@ void Agent::ensure_system_prompt() {
     sys_msg.role = "system";
     sys_msg.content = system;
     context_.push(std::move(sys_msg));
-    emit_context_event(hooks_, context_);
+    emit_context_event(context_events_, context_);
 }
 
 void Agent::set_context(std::vector<Message> messages) {
     context_.clear();
     for (auto& m : messages)
         context_.push(std::move(m));
-    emit_context_event(hooks_, context_);
+    emit_context_event(context_events_, context_);
 }
 
 Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
@@ -210,7 +209,7 @@ void Agent::push_reply(Message reply) {
     if (!reply.reasoning.empty())
         log_.event("reasoning", {{"content", reply.reasoning}});
     context_.push(std::move(reply));
-    emit_context_event(hooks_, context_);
+    emit_context_event(context_events_, context_);
 }
 
 CompressionResult Agent::compress_now() {
@@ -234,7 +233,7 @@ CompressionResult Agent::compress_now() {
 
     // Remove old messages from the bottom.
     context_.pop(pop_count);
-    emit_context_event(hooks_, context_);
+    emit_context_event(context_events_, context_);
 
     // Push a compressed-context summary message.
     Message summary_msg;
@@ -244,7 +243,7 @@ CompressionResult Agent::compress_now() {
                           " earlier messages removed. " +
                           std::to_string(context_.size()) + " messages remain.]";
     context_.push(std::move(summary_msg));
-    emit_context_event(hooks_, context_);
+    emit_context_event(context_events_, context_);
 
     r.messages_before = pop_count;
     r.messages_after = context_.size();
@@ -262,11 +261,11 @@ std::string Agent::confirm_turn(const std::string& candidate,
         "Are you finished? If you need more information or analysis, "
         "use tools now. Otherwise reply with \"done.\"";
     context_.push(std::move(done_msg));
-    emit_context_event(hooks_, context_);
+    emit_context_event(context_events_, context_);
 
     Message check = chat_once(tools, /*display=*/false);
     context_.push(std::move(check));
-    emit_context_event(hooks_, context_);
+    emit_context_event(context_events_, context_);
 
     if (!check.tool_calls.is_null() && !check.tool_calls.empty()) {
         if (hooks_.on_status) hooks_.on_status("continuing investigation");
@@ -312,7 +311,7 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
     msg.role = "user";
     msg.content = prompt;
     context_.push(std::move(msg));
-    emit_context_event(hooks_, context_);
+    emit_context_event(context_events_, context_);
 }
 
 bool Agent::dispatch_with_loop_detection(
@@ -376,7 +375,7 @@ bool Agent::detect_text_loop(const Message& reply, int& text_loop_count,
                 "If you are done, say \"done.\" If you need more "
                 "information, use a tool. Do not repeat yourself.";
             context_.push(std::move(steer));
-            emit_context_event(hooks_, context_);
+            emit_context_event(context_events_, context_);
             if (hooks_.on_status)
                 hooks_.on_status("text loop: injected recovery steer");
             last_text.clear();
