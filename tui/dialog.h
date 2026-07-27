@@ -14,7 +14,7 @@ namespace tui {
 class Dialog : private Panel {
 public:
     Dialog(int h, int w, const std::string& title);
-    ~Dialog() = default;
+    ~Dialog() override = default;
 
     using Panel::win;
     using Panel::content;

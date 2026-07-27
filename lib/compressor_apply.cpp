@@ -41,7 +41,7 @@ std::vector<Message> apply_classification(
             case Classification::context:
                 if (archive_segments.empty() ||
                     archive_segments.back().first != i - 1) {
-                    archive_segments.push_back({i, summaries[i]});
+                    archive_segments.emplace_back(i, summaries[i]);
                 }
                 break;
             case Classification::prune:
@@ -94,10 +94,10 @@ std::string hash_content(const std::string& content) {
 
 void apply_memory_ops(MemoryStore& store,
                       const std::vector<KnowledgeOp>& ops,
-                      const std::string& store_path) {
+                      const std::string& store_path,
+                      std::vector<ExtractionItem>* items) {
     for (const auto& op : ops) {
         if (op.action == "deprecate") {
-            // Find existing memory by content hash and deprecate
             auto existing = store.top_memories(100, "");
             std::string key = hash_content(op.content);
             for (const auto& mem : existing) {
@@ -105,18 +105,28 @@ void apply_memory_ops(MemoryStore& store,
                     Memory updated = mem;
                     updated.evidence_count = std::max(0, mem.evidence_count - 1);
                     store.upsert(updated);
+                    if (items) items->push_back({op.name.empty() ? op.content.substr(0, 40) : op.name, "deprecate", updated.evidence_count, updated.promoted});
                     break;
                 }
             }
         } else {
-            // Upsert — LLM explicitly confirmed this knowledge; promote
-            // immediately so it appears in the system prompt on the next turn.
+            // Validate name uniqueness: if a memory with the same name but
+            // different content exists, flag as conflict so the LLM picks
+            // a different name rather than silently overwriting.
+            std::string label = op.name.empty() ? op.content.substr(0, 40) : op.name;
+            const Memory* existing = store.find_memory(label);
+            if (existing && existing->content != op.content) {
+                if (items) items->push_back({label, "conflict: name \"" + label + "\" already used for different content", existing->evidence_count, existing->promoted});
+                continue;
+            }
             Memory mem;
+            mem.name = label;
             mem.content = op.content;
             mem.tags = op.tags;
             mem.evidence_count = 3;
             mem.promoted = true;
             store.upsert(mem);
+            if (items) items->push_back({label, "upsert", 3, true});
         }
     }
 
@@ -126,7 +136,8 @@ void apply_memory_ops(MemoryStore& store,
 
 void apply_skill_ops(MemoryStore& store,
                      const std::vector<KnowledgeOp>& ops,
-                     const std::string& store_path) {
+                     const std::string& store_path,
+                     std::vector<ExtractionItem>* items) {
     for (const auto& op : ops) {
         if (op.action == "deprecate") {
             auto existing = store.top_skills(100, "");
@@ -136,44 +147,31 @@ void apply_skill_ops(MemoryStore& store,
                     Skill updated = sk;
                     updated.evidence_count = std::max(0, sk.evidence_count - 1);
                     store.upsert(updated);
+                    if (items) items->push_back({op.name.empty() ? op.content.substr(0, 40) : op.name, "deprecate", updated.evidence_count, updated.promoted});
                     break;
                 }
             }
         } else {
+            std::string label = op.name.empty() ? op.content.substr(0, 40) : op.name;
+            const Skill* existing = store.find_skill(label);
+            if (existing && existing->content != op.content) {
+                if (items) items->push_back({label, "conflict: name \"" + label + "\" already used for different content", existing->evidence_count, existing->promoted});
+                continue;
+            }
             Skill sk;
+            sk.name = label;
             sk.content = op.content;
             sk.tags = op.tags;
             sk.trigger_phrase = op.trigger_phrase;
             sk.evidence_count = 3;
             sk.promoted = true;
             store.upsert(sk);
+            if (items) items->push_back({label, "upsert", 3, true});
         }
     }
 
     if (!store_path.empty())
         store.save(store_path);
-}
-
-CompressionResult build_compression_result(
-    const std::vector<Message>& before,
-    const std::vector<Message>& after,
-    const std::vector<Classification>& per_turn_tags) {
-    CompressionResult r;
-    r.messages_before = before.size();
-    r.messages_after = after.size();
-
-    for (const auto& msg : before)
-        r.tokens_before += (msg.content.size() + msg.reasoning.size()) / 4;
-    for (const auto& msg : after)
-        r.tokens_after += (msg.content.size() + msg.reasoning.size()) / 4;
-
-    for (auto t : per_turn_tags) {
-        if (t == Classification::core) ++r.core_count;
-        else if (t == Classification::context) ++r.context_count;
-        else if (t == Classification::prune) ++r.prune_count;
-    }
-
-    return r;
 }
 
 } // namespace agent

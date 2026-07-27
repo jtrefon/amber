@@ -17,6 +17,7 @@
 #include "agent/conversation_log.h"
 #include "agent/compressor.h"
 #include "agent/experience.h"
+#include "agent/policy.h"
 #include "agent/tool_recovery.h"
 
 namespace agent {
@@ -33,11 +34,13 @@ enum class RunState : std::uint8_t {
 
 // The host's answer when the agent asks permission to run an approval-gated
 // tool (e.g. the shell tool). AllowSession grants the tool for the rest of the
-// conversation; the harness, not the library, remembers that grant.
+// conversation; AlwaysAllow/AlwaysDeny persist to the policy store.
 enum class Approval : std::uint8_t {
-    Deny,           // reject this invocation
-    AllowOnce,      // permit just this one call
-    AllowSession    // permit this and future calls of the same tool this session
+    Deny,           // reject this invocation only
+    AllowOnce,      // permit just this one call (no state change)
+    AllowSession,   // permit for the rest of this conversation
+    AlwaysAllow,    // persist — never ask again for this tool
+    AlwaysDeny      // persist — always block this tool
 };
 
 // A hook invoked on each significant event so UIs can render progress without
@@ -93,9 +96,6 @@ public:
     // prompt is (re)seeded on the next run. Clears telemetry log association.
     void set_history(std::vector<Message> messages);
 
-    // Forget everything and start a fresh conversation on the next run.
-    void reset();
-
     // Force immediate compression of the conversation history, bypassing
     // the gate.  The compressed history replaces the full history; this is
     // a one-way operation.  Returns a summary of what was saved.
@@ -114,6 +114,7 @@ public:
     struct ExtractionResult {
         size_t new_memories = 0;
         size_t new_skills = 0;
+        std::vector<agent::ExtractionItem> items;
     };
     ExtractionResult last_extraction_result() const {
         return last_extraction_;
@@ -123,17 +124,22 @@ public:
     // each turn (e.g. a TUI window rebinding lambdas that capture live state).
     void set_hooks(AgentHooks hooks) { hooks_ = std::move(hooks); }
 
-    // Enable or disable raw HTTP debug logging at runtime, pointing the log at
-    // `path` (empty disables). Lets the TUI /debug toggle drive the client's
-    // file tracing without reconstructing the agent.
-    void set_debug_log(const std::string& path) {
-        cfg_.debug_log = path;
-        client_.set_debug_log(path);
-    }
-
     // Enable or disable detection subsystems at runtime (/set detection namespace).
     void set_detection_loop(bool on) { cfg_.detection_loop = on; }
     void set_detection_duplicate(bool on) { cfg_.detection_duplicate = on; }
+
+    void set_compression_threshold(double t) {
+        cfg_.compression_threshold = t;
+        if (gate_) gate_->set_threshold(t);
+    }
+    void set_compression_min_turns(int n) {
+        cfg_.compression_min_turns = n;
+        if (gate_) gate_->set_min_turns(n);
+    }
+
+    // Policy store for tool approval rules.
+    PolicyStore& policy() { return policy_; }
+    const PolicyStore& policy() const { return policy_; }
 
 private:
     // Build and push the system message if the conversation is empty. Idempotent.
@@ -197,6 +203,7 @@ private:
     std::unique_ptr<MemoryStore> memory_store_;
     std::unique_ptr<MemoryRetriever> retriever_;
     ExperienceConfig experience_cfg_;
+    PolicyStore policy_;
     size_t turn_counter_ = 0;
     CompressionResult last_compression_;
     ExtractionResult last_extraction_;

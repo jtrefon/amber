@@ -7,12 +7,27 @@
 #include "agent/model_probe.h"
 
 #include <algorithm>
+#include <csignal>
 #include <ctime>
 #include <fstream>
 #include <stdexcept>
+#include <thread>
 #include <unistd.h>
 
 namespace tui {
+
+namespace {
+
+int map_last_choice(agent::PolicyLevel lc) {
+    switch (lc) {
+        case agent::PolicyLevel::AllowSession: return 1;
+        case agent::PolicyLevel::AlwaysAllow:  return 2;
+        case agent::PolicyLevel::AlwaysDeny:   return 3;
+        default: return 0;
+    }
+}
+
+} // namespace
 
 void Tui::send(const std::string& prompt) {
     agent::AgentHooks hooks;
@@ -46,17 +61,18 @@ void Tui::send(const std::string& prompt) {
     hooks.on_tool_result = [this](const std::string& n, const agent::ToolResult& r) {
         append_line(P_STATUS, "result:" + n + " " + (r.ok ? r.output : r.error));
     };
-    hooks.on_approval = [this](const std::string&, const agent::json&,
-                               const std::string& summary) -> agent::Approval {
+    hooks.on_approval = [this](const std::string& tool, const agent::json&,
+                                const std::string& summary) -> agent::Approval {
         flush_stream();
-        int pick = menu_select("Approve action?  " + summary,
-                               {"Deny", "Allow once", "Allow for this session"});
-        agent::Approval d = agent::Approval::Deny;
-        if (pick == 1) d = agent::Approval::AllowOnce;
-        else if (pick == 2) d = agent::Approval::AllowSession;
-        const char* verdict = "allowed for session";
-        if (d == agent::Approval::Deny) verdict = "denied";
-        else if (d == agent::Approval::AllowOnce) verdict = "allowed once";
+        int dflt = 0;
+        if (auto* ag = win().agent.get())
+            dflt = map_last_choice(ag->policy().last_choice(tool));
+        agent::Approval d = approve_dialog(summary, 60, dflt);
+        const char* verdict = "denied";
+        if (d == agent::Approval::AllowOnce) verdict = "allowed once";
+        else if (d == agent::Approval::AllowSession) verdict = "allowed session";
+        else if (d == agent::Approval::AlwaysAllow) verdict = "always allow";
+        else if (d == agent::Approval::AlwaysDeny) verdict = "always deny";
         append_line(P_STATUS,
                     std::string("approval: ") + verdict + "  (" + summary + ")");
         draw();
@@ -113,8 +129,6 @@ void Tui::fold_reasoning() {
     draw();
 }
 
-// toggle_thinking — deprecated. Use /set think on|off instead.
-
 void Tui::cmd_policy(const std::string& arg) {
     auto set_mode = [&](agent::AgentMode m) {
         cfg_.mode = m;
@@ -138,11 +152,56 @@ void Tui::cmd_policy(const std::string& arg) {
     else append_line(P_STATUS, "usage: /policy read|write|yolo");
 }
 
-// cmd_toolfold — deprecated. Use /set toolfold always|auto|never instead.
-
-// cmd_display — deprecated. Use /set display markdown on|off instead.
-
 void Tui::cmd_set(const std::string& arg) {
+    // Try the SettingRegistry first for both dotted AND space-separated keys.
+    // Convert "detection loop on" → try "detection.loop", value "on".
+    auto try_registry = [&](const std::string& dotted_key, const std::string& val) -> bool {
+        const Setting* s = settings_.find(dotted_key);
+        if (s && s->setter && !val.empty()) {
+            s->setter(std::string(val));
+            append_line(P_STATUS, s->key + ": " + s->getter() + "  —  " + s->help);
+            cfg_.save_settings(settings_path_);
+            return true;
+        }
+        return false;
+    };
+    // For space-separated args like "detection loop on", try dotted form "detection.loop".
+    {
+        size_t last_sp = arg.rfind(' ');
+        if (last_sp != std::string::npos) {
+            std::string space_key = arg.substr(0, last_sp);
+            std::string space_val = arg.substr(last_sp + 1);
+            // Convert space-separated key to dotted.
+            std::string dotted;
+            size_t p = 0;
+            while (p < space_key.size()) {
+                size_t sp = space_key.find(' ', p);
+                if (sp == std::string::npos) { dotted += space_key.substr(p); break; }
+                if (!dotted.empty()) dotted += ".";
+                dotted += space_key.substr(p, sp - p);
+                p = sp + 1;
+            }
+            if (!dotted.empty() && try_registry(dotted, space_val))
+                return;
+        }
+    }
+    // Fast path: dotted keys via SettingRegistry (e.g. "compression.threshold 0.8").
+    if (arg.find('.') != std::string::npos) {
+        size_t sp = arg.find(' ');
+        std::string key = (sp == std::string::npos) ? arg : arg.substr(0, sp);
+        std::string val = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
+        const Setting* s = settings_.find(key);
+        if (s && s->setter && !val.empty()) {
+            s->setter(std::string(val));
+            append_line(P_STATUS, s->key + ": " + s->getter() + "  —  " + s->help);
+            cfg_.save_settings(settings_path_);
+            return;
+        }
+        if (s && s->help.empty() && val.empty()) {
+            append_line(P_STATUS, s->help + "  (" + s->placeholder + ")");
+            return;
+        }
+    }
     if (arg.empty()) {
         // BitchX-style: /set alone shows all settings
         append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
@@ -154,6 +213,10 @@ void Tui::cmd_set(const std::string& arg) {
         std::string pol = (cfg_.mode == agent::AgentMode::Read) ? "read" :
                           (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
         append_line(P_STATUS, "policy: " + pol);
+        append_line(P_STATUS, "compression threshold: " +
+            std::to_string(cfg_.compression_threshold > 0.0 ? cfg_.compression_threshold : 0.75));
+        append_line(P_STATUS, "compression min_turns: " +
+            std::to_string(cfg_.compression_min_turns > 0 ? cfg_.compression_min_turns : 10));
         append_line(P_STATUS, "provider: " + cfg_.provider_name);
         append_line(P_STATUS, "model: " + cfg_.model);
         append_line(P_STATUS, "thinking: " + cfg_.thinking);
@@ -221,13 +284,58 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    // policy read|write|yolo
+    // policy: mode read|write|yolo, or tool <tool> <level>, or timeout <N>
     if (ns == "policy") {
-        if (rest == "read") cfg_.mode = agent::AgentMode::Read;
-        else if (rest == "write") cfg_.mode = agent::AgentMode::Write;
-        else if (rest == "yolo") cfg_.mode = agent::AgentMode::Yolo;
-        else { append_line(P_STATUS, "usage: /set policy read|write|yolo"); return; }
-        append_line(P_STATUS, "policy: " + rest);
+        // /set policy read|write|yolo — backward compat shortcut for mode
+        if (rest == "read" || rest == "write" || rest == "yolo") {
+            cfg_.mode = (rest == "read") ? agent::AgentMode::Read :
+                        (rest == "yolo") ? agent::AgentMode::Yolo :
+                                           agent::AgentMode::Write;
+            append_line(P_STATUS, "policy mode: " + rest);
+            draw();
+            return;
+        }
+        // /set policy rule <name> <allow|deny|ask> — permission rule
+        size_t sp_rule = rest.find(' ');
+        std::string subcmd = (sp_rule == std::string::npos) ? rest : rest.substr(0, sp_rule);
+        std::string subargs = (sp_rule == std::string::npos) ? "" : rest.substr(sp_rule + 1);
+        if (subcmd == "rule") {
+            size_t sp2 = subargs.find(' ');
+            std::string name = (sp2 == std::string::npos) ? subargs : subargs.substr(0, sp2);
+            std::string lvl = (sp2 == std::string::npos) ? "" : subargs.substr(sp2 + 1);
+            if (name.empty() || lvl.empty()) {
+                append_line(P_STATUS, "usage: /set policy rule <name> <allow|deny|ask>");
+                draw();
+                return;
+            }
+            agent::PolicyLevel pl = agent::policy_level_from_name(lvl);
+            if (pl == agent::PolicyLevel::Ask) {
+                for (auto& w : windows_)
+                    if (w->agent) w->agent->policy().revoke(name);
+                append_line(P_STATUS, "policy rule revoked for " + name);
+            } else if (pl == agent::PolicyLevel::AlwaysAllow || pl == agent::PolicyLevel::AlwaysDeny) {
+                for (auto& w : windows_)
+                    if (w->agent) w->agent->policy().set_rule(name, pl);
+                append_line(P_STATUS, "policy rule " + lvl + " for " + name);
+            } else {
+                append_line(P_STATUS, "invalid level: " + lvl + " (use allow, deny, or ask)");
+                draw();
+                return;
+            }
+            if (win().agent) {
+                std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
+                win().agent->policy().save(policy_path);
+            }
+            draw();
+            return;
+        }
+        append_line(P_STATUS, "usage: /set policy mode <read|write|yolo> | /set policy rule <name> <allow|deny|ask> | /set policy timeout <N> | /set policy approval <on|off>");
+        draw();
+        return;
+        if (win().agent) {
+            std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
+            win().agent->policy().save(policy_path);
+        }
         draw();
         return;
     }
@@ -255,10 +363,62 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    append_line(P_STATUS, "unknown option: " + ns + " (try: detection, display, toolfold, policy, provider, model, think)");
+    // compression threshold <0.0-1.0> | min_turns <N>
+    if (ns == "compression") {
+        size_t sp2 = rest.find(' ');
+        std::string key = (sp2 == std::string::npos) ? "" : rest.substr(0, sp2);
+        std::string val = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
+        if (key == "threshold") {
+            double t = std::atof(val.c_str());
+            if (t <= 0.0 || t > 1.0 || val.empty()) {
+                append_line(P_STATUS, "usage: /set compression threshold <0.1-1.0>");
+                return;
+            }
+            cfg_.compression_threshold = t;
+            for (auto& w : windows_)
+                if (w->agent) w->agent->set_compression_threshold(t);
+            append_line(P_STATUS, "compression threshold: " + std::to_string(t));
+        } else if (key == "min_turns") {
+            int n = std::atoi(val.c_str());
+            if (n < 1 || val.empty()) {
+                append_line(P_STATUS, "usage: /set compression min_turns <1-999>");
+                return;
+            }
+            cfg_.compression_min_turns = n;
+            for (auto& w : windows_)
+                if (w->agent) w->agent->set_compression_min_turns(n);
+            append_line(P_STATUS, "compression min_turns: " + std::to_string(n));
+        } else {
+            append_line(P_STATUS, "usage: /set compression threshold|min_turns <value>");
+        }
+        if (!cfg_.save_settings(settings_path_))
+            append_line(P_STATUS, "warning: could not save to " + settings_path_);
+        draw();
+        return;
+    }
+
+    append_line(P_STATUS, "unknown option: " + ns + " (try: detection, display, toolfold, policy, compression, provider, model, think)");
 }
 
 void Tui::cmd_get(const std::string& arg) {
+    // Try the SettingRegistry first — it handles dotted keys (detection.loop)
+    // AND any key registered in build_settings() (model, provider, toolfold, etc.).
+    const Setting* reg = settings_.find(arg);
+    if (reg && reg->getter) {
+        std::string help_text = settings_.help_for(arg);
+        std::string msg = arg + ": " + reg->getter();
+        if (!help_text.empty()) msg += "  —  " + help_text;
+        append_line(P_STATUS, msg);
+        return;
+    }
+    // Also try appending suffixes for namespace-level queries (e.g. "detection" → "detection.loop").
+    auto subs = settings_.keys_in(arg);
+    if (!subs.empty()) {
+        for (const auto& sub : subs)
+            cmd_get(arg + "." + sub);
+        return;
+    }
+
     if (arg == "config" || arg.empty()) {
         config_screen();
         redraw_after_modal();
@@ -278,11 +438,44 @@ void Tui::cmd_get(const std::string& arg) {
         append_line(P_STATUS, "toolfold: " + v);
         return;
     }
-    if (arg == "policy") {
-        std::string v = (cfg_.mode == agent::AgentMode::Read) ? "read" :
-                        (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
-        append_line(P_STATUS, "policy: " + v);
-        return;
+    if (arg.rfind("policy", 0) == 0) {
+        std::string sub = (arg.size() > 7) ? arg.substr(7) : "";
+        if (sub.empty() || sub == " ") {
+            // Show mode
+            std::string v = (cfg_.mode == agent::AgentMode::Read) ? "read" :
+                            (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
+            append_line(P_STATUS, "policy mode: " + v);
+            append_line(P_STATUS, "policy timeout: " + std::to_string(policy_timeout_) + "s");
+            // List stored rules
+            auto* ag = win().agent.get();
+            if (ag) {
+                for (const auto& r : ag->policy().rules()) {
+                    if (r.level == agent::PolicyLevel::Ask) continue;
+                    append_line(P_STATUS, "  " + r.tool + " → " +
+                        agent::policy_level_name(r.level) +
+                        " (used " + std::to_string(r.count) + "x)");
+                }
+            }
+            return;
+        }
+        // /get policy rule <name> — show specific rule
+        std::string name = sub;
+        if (!name.empty() && name[0] == ' ') name = name.substr(1);
+        if (name.rfind("rule ", 0) == 0) name = name.substr(5);
+        if (!name.empty()) {
+            if (auto* ag = win().agent.get()) {
+                const auto* r = ag->policy().find(name);
+                if (r) {
+                    append_line(P_STATUS, "rule " + r->tool + ": " +
+                        agent::policy_level_name(r->level) +
+                        " (last: " + agent::policy_level_name(r->last_choice) +
+                        ", used " + std::to_string(r->count) + "x)");
+                } else {
+                    append_line(P_STATUS, "rule " + name + ": ask (no stored rule)");
+                }
+            }
+            return;
+        }
     }
     if (arg == "display") {
         append_line(P_STATUS, "markdown: " + std::string(win().markdown_on ? "on" : "off"));
@@ -300,6 +493,19 @@ void Tui::cmd_get(const std::string& arg) {
         if (sub.empty() || sub == " duplicate") {
             append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
         }
+        return;
+    }
+    if (arg.rfind("compression", 0) == 0) {
+        double t = (cfg_.compression_threshold > 0.0) ? cfg_.compression_threshold : 0.75;
+        int mt = (cfg_.compression_min_turns > 0) ? cfg_.compression_min_turns : 10;
+        append_line(P_STATUS, "compression threshold: " + std::to_string(t));
+        append_line(P_STATUS, "compression min_turns: " + std::to_string(mt));
+        return;
+    }
+    // Look up dotted keys via the SettingRegistry (e.g. "compression.threshold").
+    const Setting* s = settings_.find(arg);
+    if (s && s->getter) {
+        append_line(P_STATUS, s->key + ": " + s->getter() + "  —  " + s->help);
         return;
     }
     // Default: show all settings via config screen
@@ -320,9 +526,24 @@ void Tui::build_commands() {
         {"settings", {"server", "endpoint"}, "",
          "configure provider, model, API key, and connection test",
          [this](const std::string&) { settings_screen(); redraw_after_modal(); }},
-        {"new", {}, "",
-         "open a new chat window",
-         [this](const std::string&) { new_window("chat"); draw(); }},
+        {"new", {"clear", "reset"}, "",
+         "clear the current conversation and start fresh",
+         [this](const std::string&) {
+             if (win().agent) {
+                 win().agent->set_history({});
+                 win().agent->policy().clear_session();
+             }
+             win().stream_buf.clear();
+             win().stream_ts.clear();
+             win().reason_buf.clear();
+             win().reason_folded = false;
+             win().scroll_top = 0;
+             ctx_used_ = -1;
+             live_ctx_offset_ = 0;
+             append_line(P_STATUS, "conversation cleared — next message starts fresh");
+             drawer_open_ = false;
+             draw();
+         }},
         {"close", {}, "",
          "close the current window",
          [this](const std::string&) { close_window(); }},
@@ -337,84 +558,9 @@ void Tui::build_commands() {
               append_line(P_STATUS, "stop requested");
           }},
         {"set", {}, "<option> <value>",
-         "set runtime options: detection, display, toolfold, policy, provider, model, think",
+         "set runtime options: detection, display, toolfold, policy (mode|tool <name> <level>|timeout <N>), compression, provider, model, think",
           [this](const std::string& a) { cmd_set(a); },
-          [this](const std::string& partial) {
-              // Provide tab completions for all /set subcommands
-              std::vector<std::string> categories = {"detection", "display",
-                  "toolfold", "policy", "provider", "model", "think"};
-              if (partial.empty()) return categories;
-
-              // Parse: "detection " or "detection l" etc.
-              size_t sp = partial.find(' ');
-              std::string ns = (sp == std::string::npos) ? partial : partial.substr(0, sp);
-              std::string rest = (sp == std::string::npos) ? "" : partial.substr(sp + 1);
-
-              // Category-level completion
-              if (sp == std::string::npos) {
-                  std::vector<std::string> out;
-                  for (auto& c : categories)
-                      if (c.rfind(partial, 0) == 0) out.push_back(c);
-                  return out;
-              }
-
-              // Subcommand-level completion
-              if (ns == "detection") {
-                  static std::vector<std::string> det_vals = {"loop on", "loop off", "loop toggle",
-                      "duplicate on", "duplicate off", "duplicate toggle"};
-                  std::vector<std::string> out;
-                  for (auto& v : det_vals)
-                      if (v.rfind(rest, 0) == 0) out.push_back("detection " + v);
-                  return out;
-              }
-              if (ns == "display") {
-                  static std::vector<std::string> disp_vals = {"markdown on", "markdown off"};
-                  std::vector<std::string> out;
-                  for (auto& v : disp_vals)
-                      if (v.rfind(rest, 0) == 0) out.push_back("display " + v);
-                  return out;
-              }
-              if (ns == "toolfold") {
-                  static std::vector<std::string> fold_vals = {"always", "auto", "never"};
-                  std::vector<std::string> out;
-                  for (auto& v : fold_vals)
-                      if (v.rfind(rest, 0) == 0) out.push_back("toolfold " + v);
-                  return out;
-              }
-              if (ns == "policy") {
-                  static std::vector<std::string> pol_vals = {"read", "write", "yolo"};
-                  std::vector<std::string> out;
-                  for (auto& v : pol_vals)
-                      if (v.rfind(rest, 0) == 0) out.push_back("policy " + v);
-                  return out;
-              }
-              if (ns == "provider") {
-                  static std::vector<std::string> prov_vals = {"openrouter", "kilocode", "custom"};
-                  std::vector<std::string> out;
-                  for (auto& v : prov_vals)
-                      if (v.rfind(rest, 0) == 0) out.push_back("provider " + v);
-                  return out;
-              }
-              if (ns == "think") {
-                  static std::vector<std::string> think_vals = {"on", "off", "auto"};
-                  std::vector<std::string> out;
-                  for (auto& v : think_vals)
-                      if (v.rfind(rest, 0) == 0) out.push_back("think " + v);
-                  return out;
-              }
-              if (ns == "model") {
-                  // For model, fetch from provider and complete
-                  auto models = agent::list_models(cfg_);
-                  std::vector<std::string> out;
-                  for (auto& m : models)
-                      if (rest.empty() || m.rfind(rest, 0) == 0)
-                          out.push_back("model " + m);
-                  // Limit to 50 completions
-                  if (out.size() > 50) out.resize(50);
-                  return out;
-              }
-              return std::vector<std::string>{};
-          },
+          nullptr,
           [this]() -> std::string {
               return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
                      "  display " + (win().markdown_on ? "on" : "off") +
@@ -427,17 +573,8 @@ void Tui::build_commands() {
                      "  think " + cfg_.thinking;
           }},
         {"get", {}, "<option>",
-         "show current setting: config, model, provider, toolfold, policy, display, detection",
-          [this](const std::string& a) { cmd_get(a); },
-          [](const std::string& partial) {
-              std::vector<std::string> keys = {"config", "model", "provider",
-                  "toolfold", "policy", "display", "detection loop", "detection duplicate", "think"};
-              if (partial.empty()) return keys;
-              std::vector<std::string> out;
-              for (auto& k : keys)
-                  if (k.rfind(partial, 0) == 0) out.push_back(k);
-              return out;
-          }},
+         "show current setting: config, model, provider, toolfold, policy (mode|timeout|<tool>), display, compression, detection",
+          [this](const std::string& a) { cmd_get(a); }},
         {"compress", {"compact"}, "",
          "compress conversation history to free context space",
           [this](const std::string&) { cmd_compress(""); }},
@@ -481,6 +618,270 @@ void Tui::build_commands() {
         {"quit", {"exit", "q"}, "",
          "save all windows and exit",
          [this](const std::string&) { request_quit(); }},
+
+        // Provider management (CRUD)
+        {"provider", {"p"}, "list|add|edit|delete|test",
+         "manage API providers",
+         [this](const std::string& a) {
+             if (a.empty()) { settings_screen(); redraw_after_modal(); return; }
+             std::string sub, rest; size_t sp = a.find(' ');
+             if (sp == std::string::npos) { sub = a; rest.clear(); }
+             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
+             if (sub == "list") {
+                 auto providers = agent::list_saved_providers();
+                 std::string msg;
+                 for (auto& p : providers) msg += p + " ";
+                 append_line(P_STATUS, "providers: " + (msg.empty() ? "(none)" : msg));
+             } else if (sub == "add" || sub == "edit") {
+                 append_line(P_STATUS, "use /settings to add/edit providers");
+             } else if (sub == "delete") {
+                 agent::delete_provider(rest);
+                 append_line(P_STATUS, "deleted provider: " + rest);
+             } else if (sub == "test") {
+                 append_line(P_STATUS, "testing " + rest + "...");
+                 agent::Config test_cfg = cfg_;
+                 agent::load_provider(rest, test_cfg);
+                 agent::ServerInfo info = agent::probe_server(test_cfg);
+                 append_line(P_STATUS, rest + ": " + (info.ok ? "OK" : "FAILED"));
+             } else {
+                 // Set active provider by name.
+                    cfg_.apply_provider(a);
+                    cfg_.save_global(agent::global_config_path());
+                 append_line(P_STATUS, "provider: " + a);
+             }
+         }},
+
+        // Model management (CRUD)
+        {"model", {"m"}, "list|set|probe",
+         "manage AI models",
+         [this](const std::string& a) {
+             std::string sub, rest; size_t sp = a.find(' ');
+             if (sp == std::string::npos) { sub = a; rest.clear(); }
+             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
+             if (sub == "list" || sub.empty()) {
+                 auto models = agent::list_models(cfg_);
+                 std::string msg;
+                 for (auto& m : models) msg += m + " ";
+                 if (msg.size() > 200) msg.resize(200);
+                 append_line(P_STATUS, "models: " + (msg.empty() ? "(none)" : msg));
+             } else if (sub == "probe") {
+                 auto info = agent::probe_server(cfg_);
+                 if (info.ok)
+                     append_line(P_STATUS, "model: " + info.model + " ctx: " + std::to_string(info.context_size));
+                 else
+                     append_line(P_STATUS, "probe failed");
+             } else {
+                    cfg_.model = a; cfg_.model_explicit = true;
+                cfg_.save_global(agent::global_config_path());
+                 append_line(P_STATUS, "model: " + a);
+             }
+         }},
+
+        // Session management (expanded CRUD)
+        {"session", {}, "list|save|load|delete|rename <id> <title>",
+         "manage saved sessions",
+         [this](const std::string& a) {
+             std::string sub, rest; size_t sp = a.find(' ');
+             if (sp == std::string::npos) { sub = a; rest.clear(); }
+             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
+             if (sub == "list" || sub.empty()) {
+                 session_browser();
+             } else if (sub == "save") {
+                 save_session();
+             } else if (sub == "load") {
+                 if (!rest.empty()) {
+                     agent::Session s;
+                     store_.load(rest, s);
+                     if (s.id.empty())
+                         append_line(P_STATUS, "session not found: " + rest);
+                     else
+                         load_session(rest);
+                 } else {
+                     session_browser();
+                 }
+             } else if (sub == "delete") {
+                 if (!rest.empty()) {
+                     store_.remove(rest);
+                     append_line(P_STATUS, "deleted session: " + rest);
+                 }
+             } else if (sub == "rename") {
+                 append_line(P_STATUS, "rename not yet implemented");
+             }
+         }},
+
+        // Job aliases and expanded management
+        // (job already exists above — aliases are in the alias list)
+
+        // File browsing
+        {"files", {"f"}, "ls|tree|open|find <path>",
+         "browse and view files in the workspace",
+         [this](const std::string& a) {
+             std::string sub, rest; size_t sp = a.find(' ');
+             if (sp == std::string::npos) { sub = a; rest.clear(); }
+             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
+             namespace fs = std::filesystem;
+             std::string root = agent::Workspace::root();
+             if (rest.empty()) rest = ".";
+             if (rest[0] != '/') rest = root + "/" + rest;
+             fs::path p(rest);
+             if (sub == "ls" || sub.empty()) {
+                 if (!fs::exists(p)) { append_line(P_STATUS, "not found: " + rest); return; }
+                 if (fs::is_directory(p)) {
+                     std::string out;
+                     for (const auto& e : fs::directory_iterator(p))
+                         out += e.path().filename().string() + "  ";
+                     if (out.empty()) out = "(empty)";
+                     append_line(P_ASSISTANT, out);
+                 } else {
+                     append_line(P_ASSISTANT, p.filename().string());
+                 }
+             } else if (sub == "tree") {
+                 std::string out;
+                 if (fs::exists(p) && fs::is_directory(p)) {
+                     std::function<void(const fs::path&, int)> walk;
+                     walk = [&](const fs::path& dir, int depth) {
+                         if (depth > 3) return;
+                         for (const auto& e : fs::directory_iterator(dir)) {
+                             for (int i = 0; i < depth; ++i) out += "  ";
+                             out += e.path().filename().string() + "\n";
+                             if (fs::is_directory(e)) walk(e.path(), depth + 1);
+                         }
+                     };
+                     walk(p, 0);
+                 }
+                 if (out.empty()) out = "(empty)";
+                 append_line(P_ASSISTANT, out);
+             } else if (sub == "open") {
+                 if (!fs::exists(p) || fs::is_directory(p)) {
+                     append_line(P_STATUS, "not a file: " + rest);
+                 } else {
+                     std::ifstream f(p);
+                     std::string content((std::istreambuf_iterator<char>(f)),
+                                          std::istreambuf_iterator<char>());
+                     if (content.size() > 4096) content.resize(4096);
+                     append_line(P_ASSISTANT, p.filename().string() + ":\n" + content);
+                 }
+             } else if (sub == "find") {
+                 if (!fs::exists(p) || !fs::is_directory(p)) {
+                     append_line(P_STATUS, "not a directory: " + rest);
+                 } else {
+                     // rest is the search root; we need a pattern
+                     size_t sp2 = a.find(' ', sp + 1);
+                     std::string pattern, dir;
+                     if (sp2 == std::string::npos) {
+                         // no pattern given — show directory contents
+                         for (const auto& e : fs::directory_iterator(p))
+                             append_line(P_ASSISTANT, e.path().filename().string());
+                     }
+                 }
+             }
+         }},
+
+        // System operations
+        {"system", {"sy"}, "exec|delete|rmdir|mkdir|mv|cp|info|ps|kill|df|uptime|uname",
+         "system operations (file mgmt, processes, disk)",
+         [this](const std::string& a) {
+             std::string sub, rest; size_t sp = a.find(' ');
+             if (sp == std::string::npos) { sub = a; rest.clear(); }
+             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
+
+             auto run_cmd = [&](const std::string& cmd) -> std::string {
+                 FILE* f = popen(cmd.c_str(), "r");
+                 if (!f) return "(popen failed)";
+                 std::string out;
+                 char buf[4096];
+                 while (fgets(buf, sizeof(buf), f)) out += buf;
+                 pclose(f);
+                 return out;
+             };
+
+             namespace fs = std::filesystem;
+
+             if (sub == "exec") {
+                 if (rest.empty()) { append_line(P_STATUS, "usage: /system exec <command>"); return; }
+                 std::string out = run_cmd(rest);
+                 if (!out.empty() && out.back() == '\n') out.pop_back();
+                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+             } else if (sub == "delete") {
+                 if (rest.empty()) { append_line(P_STATUS, "usage: /system delete <path>"); return; }
+                 std::error_code ec;
+                 if (fs::remove(fs::path(rest), ec))
+                     append_line(P_STATUS, "deleted: " + rest);
+                 else
+                     append_line(P_STATUS, "delete failed: " + ec.message());
+             } else if (sub == "rmdir") {
+                 if (rest.empty()) { append_line(P_STATUS, "usage: /system rmdir <path>"); return; }
+                 std::error_code ec;
+                 if (fs::remove_all(fs::path(rest), ec) > 0)
+                     append_line(P_STATUS, "removed: " + rest);
+                 else
+                     append_line(P_STATUS, "remove failed: " + ec.message());
+             } else if (sub == "mkdir") {
+                 if (rest.empty()) { append_line(P_STATUS, "usage: /system mkdir <path>"); return; }
+                 std::error_code ec;
+                 if (fs::create_directories(fs::path(rest), ec))
+                     append_line(P_STATUS, "created: " + rest);
+                 else
+                     append_line(P_STATUS, "mkdir failed: " + ec.message());
+             } else if (sub == "mv") {
+                 size_t sp2 = rest.find(' ');
+                 if (sp2 == std::string::npos) { append_line(P_STATUS, "usage: /system mv <src> <dst>"); return; }
+                 std::string src = rest.substr(0, sp2), dst = rest.substr(sp2 + 1);
+                 std::error_code ec;
+                 fs::rename(fs::path(src), fs::path(dst), ec);
+                 if (!ec)
+                     append_line(P_STATUS, "moved: " + src + " -> " + dst);
+                 else
+                     append_line(P_STATUS, "mv failed: " + ec.message());
+             } else if (sub == "cp") {
+                 size_t sp2 = rest.find(' ');
+                 if (sp2 == std::string::npos) { append_line(P_STATUS, "usage: /system cp <src> <dst>"); return; }
+                 std::string src = rest.substr(0, sp2), dst = rest.substr(sp2 + 1);
+                 std::error_code ec;
+                 fs::copy(fs::path(src), fs::path(dst), fs::copy_options::recursive, ec);
+                 if (!ec)
+                     append_line(P_STATUS, "copied: " + src + " -> " + dst);
+                 else
+                     append_line(P_STATUS, "cp failed: " + ec.message());
+             } else if (sub == "info") {
+                 if (rest.empty()) { append_line(P_STATUS, "usage: /system info <path>"); return; }
+                 std::error_code ec;
+                 auto s = fs::status(fs::path(rest), ec);
+                 if (ec) { append_line(P_STATUS, "stat failed: " + ec.message()); return; }
+                 std::string type;
+                 if (fs::is_directory(s)) type = "directory";
+                 else if (fs::is_regular_file(s)) type = "file";
+                 else if (fs::is_symlink(s)) type = "symlink";
+                 else type = "other";
+                 auto size = fs::file_size(fs::path(rest), ec);
+                 append_line(P_STATUS, rest + ": " + type + " " + std::to_string(size) + " bytes");
+             } else if (sub == "ps") {
+                 std::string out = run_cmd("ps aux --sort=-%mem 2>/dev/null | head -20 || ps aux 2>/dev/null | head -20");
+                 if (!out.empty() && out.back() == '\n') out.pop_back();
+                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+             } else if (sub == "kill") {
+                 if (rest.empty()) { append_line(P_STATUS, "usage: /system kill <pid>"); return; }
+                 int pid = std::atoi(rest.c_str());
+                 if (pid > 0 && ::kill(pid, SIGTERM) == 0)
+                     append_line(P_STATUS, "killed: " + rest);
+                 else
+                     append_line(P_STATUS, "kill failed");
+             } else if (sub == "df") {
+                 std::string out = run_cmd("df -h " + rest + " 2>/dev/null || df -h . 2>/dev/null");
+                 if (!out.empty() && out.back() == '\n') out.pop_back();
+                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+             } else if (sub == "uptime") {
+                 std::string out = run_cmd("uptime 2>/dev/null");
+                 if (!out.empty() && out.back() == '\n') out.pop_back();
+                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+             } else if (sub == "uname") {
+                 std::string out = run_cmd("uname -a 2>/dev/null");
+                 if (!out.empty() && out.back() == '\n') out.pop_back();
+                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+             } else {
+                 append_line(P_STATUS, "unknown system command: " + sub);
+             }
+         }},
     };
 }
 
@@ -553,11 +954,9 @@ void Tui::cmd_model(const std::string& arg) {
 
         // Mark current model
         std::vector<std::string> display;
-        int cur_idx = -1;
         for (size_t i = 0; i < models.size(); ++i) {
             bool cur = (models[i] == cfg_.model);
             display.push_back((cur ? "> " : "  ") + models[i]);
-            if (cur) cur_idx = static_cast<int>(i);
         }
 
         {
@@ -610,7 +1009,7 @@ void Tui::cmd_provider(const std::string& arg) {
         return;
     }
     auto* prov = agent::provider::find(arg);
-    if (!prov || prov->name == "custom" && arg != "custom") {
+    if (!prov || (prov->name == "custom" && arg != "custom")) {
         append_line(P_STATUS, "unknown provider: " + arg +
                      " (try: openrouter, kilocode, custom)");
         return;
@@ -714,43 +1113,14 @@ void Tui::cmd_compress(const std::string&) {
         append_line(P_STATUS, "no active session to compress");
         return;
     }
-    append_line(P_STATUS, "compressing... (see terminal for progress)");
-    draw();
-    write(STDERR_FILENO, "--- /compress ---\n", 18);
-    auto r = w.agent->compress_now();
-    write(STDERR_FILENO, "--- /compress done ---\n", 23);
-    if (r.messages_before == 0) {
-        append_line(P_STATUS, "compress: no compressor configured");
+    if (agent_busy_.load()) {
+        append_line(P_STATUS, "compress: agent is busy");
         return;
     }
-
-    // Recalculate context gauge from compressed size
-    ctx_used_ = static_cast<long>(r.tokens_after);
-
-    if (r.messages_after >= r.messages_before) {
-        append_line(P_STATUS, "compress: nothing to prune ("
-                    + std::to_string(r.messages_before)
-                    + " messages, ~" + std::to_string(r.tokens_before)
-                    + " tokens)");
-        return;
-    }
-    append_line(P_STATUS,
-                "compress: " + std::to_string(r.messages_before)
-                + " → " + std::to_string(r.messages_after)
-                + " msgs, ~" + std::to_string(r.tokens_before)
-                + " → ~" + std::to_string(r.tokens_after) + " tokens"
-                + "  (core:" + std::to_string(r.core_count)
-                + " ctx:" + std::to_string(r.context_count)
-                + " prune:" + std::to_string(r.prune_count) + ")");
-
-    auto ext = w.agent->last_extraction_result();
-    if (ext.new_memories > 0 || ext.new_skills > 0) {
-        append_line(P_STATUS,
-                    "  extracted: " + std::to_string(ext.new_memories)
-                    + " memories, " + std::to_string(ext.new_skills)
-                    + " skills");
-    }
-    dirty_ = true;
+    append_line(P_STATUS, "compressing...");
+    state_ = agent::RunState::Waiting;
+    std::thread t([this] { compress_worker(); });
+    t.detach();
 }
 
 void Tui::cmd_job(const std::string& arg) {
@@ -1066,6 +1436,109 @@ void Tui::settings_screen() {
     }
 }
 
-void Tui::save_settings() { cfg_.save(settings_path_); }
+void Tui::build_settings() {
+    settings_ = tui::SettingRegistry{};
+    auto add = [&](const std::string& key, const std::string& help,
+                   const std::string& placeholder, Setting::Type type,
+                   std::vector<std::string> choices,
+                   double rmin, double rmax,
+                   std::function<std::string()> getter,
+                   std::function<void(const std::string&)> setter) {
+        settings_.add({key, help, placeholder, type, choices, rmin, rmax, getter, setter});
+    };
+    add("detection.loop", "Tool-loop detection", "<on|off|toggle>", Setting::Choice,
+        {"on","off","toggle"}, 0, 0,
+        [this](){ return cfg_.detection_loop ? "on" : "off"; },
+        [this](const std::string& v) {
+            if (v == "toggle") cfg_.detection_loop = !cfg_.detection_loop;
+            else cfg_.detection_loop = (v == "on");
+            cfg_.save_settings(settings_path_);
+            for (auto& w : windows_) if (w && w->agent) w->agent->set_detection_loop(cfg_.detection_loop);
+        });
+    add("detection.duplicate", "Duplicate call detection", "<on|off|toggle>", Setting::Choice,
+        {"on","off","toggle"}, 0, 0,
+        [this](){ return cfg_.detection_duplicate ? "on" : "off"; },
+        [this](const std::string& v) {
+            if (v == "toggle") cfg_.detection_duplicate = !cfg_.detection_duplicate;
+            else cfg_.detection_duplicate = (v == "on");
+            cfg_.save_settings(settings_path_);
+        });
+    add("display.markdown", "Markdown rendering", "<on|off>", Setting::Choice,
+        {"on","off"}, 0, 0,
+        [this](){ return win().markdown_on ? "on" : "off"; },
+        [this](const std::string& v) {
+            win().markdown_on = (v == "on");
+            cfg_.save_settings(settings_path_);
+        });
+    add("toolfold", "Tool result folding mode", "<always|auto|never>", Setting::Choice,
+        {"always","auto","never"}, 0, 0,
+        [this]() -> std::string {
+            return tool_fold_ == ToolFold::Always ? "always" :
+                   tool_fold_ == ToolFold::Never ? "never" : "auto";
+        },
+        [this](const std::string& v) {
+            if (v == "always") tool_fold_ = ToolFold::Always;
+            else if (v == "never") tool_fold_ = ToolFold::Never;
+            else tool_fold_ = ToolFold::Auto;
+            cfg_.save_settings(settings_path_);
+        });
+    add("policy.mode", "Agent mode", "<read|write|yolo>", Setting::Choice,
+        {"read","write","yolo"}, 0, 0,
+        [this]() -> std::string {
+            return cfg_.mode == agent::AgentMode::Read ? "read" :
+                   cfg_.mode == agent::AgentMode::Yolo ? "yolo" : "write";
+        },
+        [this](const std::string& v) {
+            if (v == "read") cfg_.mode = agent::AgentMode::Read;
+            else if (v == "yolo") cfg_.mode = agent::AgentMode::Yolo;
+            else cfg_.mode = agent::AgentMode::Write;
+        });
+    add("policy.timeout", "Approval dialog timeout", "<0-999>", Setting::Int, {}, 0, 999,
+        [this]() -> std::string { return std::to_string(policy_timeout_); },
+        [this](const std::string& v) {
+            policy_timeout_ = std::stoi(v);
+            cfg_.save_settings(settings_path_);
+        });
+    add("policy.approval", "Enable permission gating in Write mode", "<on|off|toggle>", Setting::Choice,
+        {"on","off","toggle"}, 0, 0,
+        [this]() -> std::string { return cfg_.policy_approval ? "on" : "off"; },
+        [this](const std::string& v) {
+            if (v == "toggle") cfg_.policy_approval = !cfg_.policy_approval;
+            else cfg_.policy_approval = (v == "on");
+            cfg_.save_settings(settings_path_);
+            append_line(P_STATUS, std::string("policy approval: ") + (cfg_.policy_approval ? "on" : "off"));
+        });
+    // Namespace root for /get policy (no setter — children handle values).
+    add("policy", "Permission rules and approval settings", "", Setting::String, {}, 0, 0,
+        []() -> std::string { return ""; }, nullptr);
+    // Simple display-only keys (read-only, for /get completion).
+    add("config", "Open the settings configuration screen", "", Setting::String, {}, 0, 0,
+        []() -> std::string { return ""; }, nullptr);
+    add("model", "Active model name", "", Setting::String, {}, 0, 0,
+        [this]() -> std::string { return cfg_.model + " (" + cfg_.provider_name + ")"; }, nullptr);
+    add("provider", "Active provider name and API base URL", "", Setting::String, {}, 0, 0,
+        [this]() -> std::string { return cfg_.provider_name + " (" + cfg_.api_base + ")"; }, nullptr);
+
+    add("think", "Thinking mode", "<on|off|auto>", Setting::Choice,
+        {"on","off","auto"}, 0, 0,
+        [this](){ return cfg_.thinking; },
+        [this](const std::string& v) { cfg_.thinking = v; cfg_.save_settings(settings_path_); });
+    add("compression.threshold", "Context utilisation threshold",
+        "<0.1-1.0>", Setting::Float, {}, 0.1, 1.0,
+        [this]() -> std::string { return std::to_string(cfg_.compression_threshold > 0 ? cfg_.compression_threshold : 0.75); },
+        [this](const std::string& v) {
+            cfg_.compression_threshold = std::stod(v);
+            cfg_.save_settings(settings_path_);
+            for (auto& w : windows_) if (w && w->agent) w->agent->set_compression_threshold(cfg_.compression_threshold);
+        });
+    add("compression.min_turns", "Minimum turns before compression",
+        "<1-999>", Setting::Int, {}, 1, 999,
+        [this]() -> std::string { return std::to_string(cfg_.compression_min_turns > 0 ? cfg_.compression_min_turns : 10); },
+        [this](const std::string& v) {
+            cfg_.compression_min_turns = std::stoi(v);
+            cfg_.save_settings(settings_path_);
+            for (auto& w : windows_) if (w && w->agent) w->agent->set_compression_min_turns(cfg_.compression_min_turns);
+        });
+}
 
 } // namespace tui

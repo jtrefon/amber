@@ -81,8 +81,20 @@ Message message_from_completion(const std::string& response) {
     out.content = strip_think(str_or_raw(msg, "content", ""));
     for (const char* key : {"reasoning_content", "reasoning"})
         out.reasoning += str_or_raw(msg, key, "");
-    if (msg.contains("tool_calls") && !msg["tool_calls"].is_null())
+    if (msg.contains("tool_calls") && !msg["tool_calls"].is_null()) {
         out.tool_calls = msg["tool_calls"];
+        // Discard tool calls with non-JSON arguments — they poison history.
+        bool valid = true;
+        for (const auto& tc : out.tool_calls) {
+            auto fn = tc.value("function", json::object());
+            std::string raw = fn.value("arguments", "");
+            if (!raw.empty()) {
+                auto parsed = json::parse(raw, nullptr, false);
+                if (parsed.is_discarded()) { valid = false; break; }
+            }
+        }
+        if (!valid) out.tool_calls = json::value_t::null;
+    }
     return out;
 }
 
@@ -123,6 +135,15 @@ void curl_exec(const Config& cfg, const std::string& payload,
     curl_easy_setopt(c.get(), CURLOPT_WRITEFUNCTION, write_fn);
     curl_easy_setopt(c.get(), CURLOPT_WRITEDATA, write_data);
     curl_easy_setopt(c.get(), CURLOPT_TIMEOUT, timeout_s);
+    // Small buffer for SSE streaming — surface reasoning/delta chunks
+    // promptly instead of buffering 16KB+ at the transport layer.
+    if (accept_sse) {
+        curl_easy_setopt(c.get(), CURLOPT_BUFFERSIZE, 1024L);
+        // Abort if no data arrives for 60s (detects hung server quickly
+        // without interfering with legitimate long generations).
+        curl_easy_setopt(c.get(), CURLOPT_LOW_SPEED_LIMIT, 1L);
+        curl_easy_setopt(c.get(), CURLOPT_LOW_SPEED_TIME, 60L);
+    }
     curl_easy_setopt(c.get(), CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(c.get(), CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
     curl_easy_setopt(c.get(), CURLOPT_XFERINFODATA, &cfg.cancel_token);
@@ -149,7 +170,7 @@ std::string post_completion(const Config& cfg, const std::string& payload,
     std::string response;
     long http_code = 0;
     double t0 = 0, t1 = 0;
-    curl_exec(cfg, payload, accept_sse, accept_sse ? 900L : 300L,
+    curl_exec(cfg, payload, accept_sse, accept_sse ? 300L : 300L,
               LLMClient::write_cb, &response,
               http_code, t0, t1, "error");
     if (ttfb) *ttfb = t0;
@@ -167,12 +188,13 @@ std::string post_completion(const Config& cfg, const std::string& payload,
 void stream_completion(const Config& cfg, const std::string& payload,
                        StreamParser& parser, Stats* stats, long& status_out) {
     double ttfb = 0, total = 0;
-    curl_exec(cfg, payload, true, 900L,
+    curl_exec(cfg, payload, true, 300L,
               stream_write_cb, &parser,
               status_out, ttfb, total, "error-stream");
     if (status_out < 200 || status_out >= 300) {
+        std::string detail = parser.raw_body_.substr(0, 400);
         throw std::runtime_error("HTTP " + std::to_string(status_out) +
-                                 " from LLM server");
+                                 " from LLM server: " + detail);
     }
     parser.finalize();
     if (stats) {

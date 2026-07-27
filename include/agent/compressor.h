@@ -19,6 +19,7 @@ struct AgentHooks;
 class MemoryStore;
 struct Memory;
 struct Skill;
+struct ExtractionItem;
 
 // ---------------------------------------------------------------------------
 // Value types
@@ -51,12 +52,6 @@ struct CompressedContext {
     int version = 1;
 };
 
-struct CompressionBudget {
-    double core     = 0.30;
-    double archive  = 0.15;
-    double headroom = 0.50;
-};
-
 struct CompressionResult {
     size_t messages_before = 0;
     size_t messages_after = 0;
@@ -65,14 +60,13 @@ struct CompressionResult {
     size_t core_count = 0;
     size_t context_count = 0;
     size_t prune_count = 0;
+    std::string error;               // non-empty when compression failed
 };
 
 struct CompressionConfig {
-    double threshold        = 0.75;
+    double threshold        = 0.50;
     int    min_turns        = 10;
     int    cooldown_turns   = 20;
-    size_t summary_max_tokens = 200;
-    CompressionBudget budget;
 };
 
 // One classified span in the LLM response.
@@ -85,6 +79,7 @@ struct ClassifiedSegment {
 
 // One memory or skill operation from the LLM.
 struct KnowledgeOp {
+    std::string name;                // human-readable label
     std::string content;
     std::vector<std::string> tags;
     std::string action;             // "upsert" or "deprecate"
@@ -126,6 +121,8 @@ public:
     virtual bool is_within_cooldown(size_t current_turn) const {
         (void)current_turn; return false;
     }
+    virtual void set_threshold(double t) { (void)t; }
+    virtual void set_min_turns(int n) { (void)n; }
 };
 
 class CompressionStrategy {
@@ -151,7 +148,7 @@ public:
 void collapse_loops(std::vector<Message>& history);
 
 // Build the user message that asks the LLM to classify and compress.
-Message build_compression_request(const std::vector<Message>& history);
+Message build_compression_request();
 
 // Parse the LLM's JSON response into a CompressionResponse.
 CompressionResponse parse_compression_response(const std::string& json);
@@ -162,18 +159,15 @@ std::vector<Message> apply_classification(
     const CompressionResponse& response);
 
 // Apply memory/skill upsert/deprecate ops to a MemoryStore.
+// When `items` is non-null, it receives one ExtractionItem per op for UI reporting.
 void apply_memory_ops(MemoryStore& store,
                       const std::vector<KnowledgeOp>& ops,
-                      const std::string& store_path);
+                      const std::string& store_path,
+                      std::vector<ExtractionItem>* items = nullptr);
 void apply_skill_ops(MemoryStore& store,
                      const std::vector<KnowledgeOp>& ops,
-                     const std::string& store_path);
-
-// Build a CompressionResult from before/after history and tags.
-CompressionResult build_compression_result(
-    const std::vector<Message>& before,
-    const std::vector<Message>& after,
-    const std::vector<Classification>& per_turn_tags);
+                     const std::string& store_path,
+                     std::vector<ExtractionItem>* items = nullptr);
 
 // ---------------------------------------------------------------------------
 // Factory functions

@@ -56,9 +56,9 @@ struct Config {
     bool stream = true;                  // use SSE streaming when supported
 
     // Agent mode: controls tool availability and approval policy.
-    //   read  — only observation tools (search, grep, read)
-    //   write — all tools, approval gated
-    //   yolo  — all tools, auto-approve
+    //   read  — only observation tools (search, grep, read); writes disallowed
+    //   write — all tools available, all auto-approved within the workspace
+    //   yolo  — all tools, auto-approve, full system access
     AgentMode mode = AgentMode::Write;
 
     // Thinking / reasoning control for Qwen-style models served with a native
@@ -101,18 +101,27 @@ struct Config {
     // empty. Env: AMBER_DEBUG.
     std::string debug_log;
 
+    // Real token usage from the last LLM call (usage.prompt_tokens), set by
+    // Agent after each chat_once. Used by the compression gate instead of
+    // the character-based estimate when >= 0. -1 means "not yet known".
+    long prompt_tokens_used = -1;
+
     // Detection toggles (BitchX-style /set detection namespace).
     //   loop:      tool-loop and text-loop detectors; when off the model runs
-    //              until max_tool_iterations or a natural stop.
+    //              until max_tool_iterations or a natural stop. Default off.
     //   duplicate: find_duplicate_call in dispatch; when off the model may
-    //              repeat the exact same tool call across turns.
-    bool detection_loop = true;
-    bool detection_duplicate = true;
+    //              repeat the exact same tool call across turns. Default off.
+    bool detection_loop = false;
+    bool detection_duplicate = false;
 
     // Context compression settings. 0 means "use default".
     double compression_threshold = 0.0;
     int compression_min_turns = 0;
     int compression_cooldown_turns = 0;
+
+    // Master switch for the permission/approval system in Write mode.
+    // When off, gated tools run without prompting (pre-policy behavior).
+    bool policy_approval = true;
 
     // Cancellation token shared by the Agent, HTTP transport, and tools.
     // Requesting cancellation (TUI Esc or /stop) sets this flag; long-running
@@ -128,14 +137,6 @@ struct Config {
     // (AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL, ...).
     void load(const std::string& path);
     void apply_environment();
-
-    // Persist the user-facing settings to a KEY=VALUE file (round-trips with
-    // load()). Crucially it writes *intent*, not resolved values: when a value
-    // was auto-detected rather than set by the user (model_explicit /
-    // context_explicit are false) it emits the auto sentinels (blank model,
-    // context_size=0) so a later load() re-enables auto-detection instead of
-    // pinning the last probed value. Returns false if the file can't be written.
-    bool save(const std::string& path) const;
 
     // Apply a named provider preset (sets api_base, default_model, etc.).
     void apply_provider(const std::string& name);

@@ -53,6 +53,7 @@ double compute_score(const Memory& mem, const std::string& user_msg,
 json memory_to_json(const Memory& mem) {
     return {
         {"id", mem.id},
+        {"name", mem.name},
         {"content", mem.content},
         {"tags", mem.tags},
         {"evidence", mem.evidence_count},
@@ -65,6 +66,7 @@ json memory_to_json(const Memory& mem) {
 Memory json_to_memory(const json& j) {
     Memory mem;
     mem.id = j.value("id", "");
+    mem.name = j.value("name", "");
     mem.content = j.value("content", "");
     for (const auto& t : j.value("tags", json::array()))
         mem.tags.push_back(t.get<std::string>());
@@ -78,6 +80,7 @@ Memory json_to_memory(const json& j) {
 json skill_to_json(const Skill& sk) {
     return {
         {"id", sk.id},
+        {"name", sk.name},
         {"content", sk.content},
         {"trigger_phrase", sk.trigger_phrase},
         {"steps", sk.steps},
@@ -93,6 +96,7 @@ json skill_to_json(const Skill& sk) {
 Skill json_to_skill(const json& j) {
     Skill sk;
     sk.id = j.value("id", "");
+    sk.name = j.value("name", "");
     sk.content = j.value("content", "");
     sk.trigger_phrase = j.value("trigger_phrase", "");
     for (const auto& s : j.value("steps", json::array()))
@@ -118,7 +122,7 @@ public:
     explicit JsonMemoryStore(ExperienceConfig cfg)
         : cfg_(std::move(cfg)) {
         if (!cfg_.store_path.empty())
-            load(cfg_.store_path);
+            JsonMemoryStore::load(cfg_.store_path);  // NOLINT: final class — no further dispatch
     }
 
     void set_current_turn(size_t turn) override {
@@ -215,6 +219,18 @@ public:
         if (filtered.size() > k)
             filtered.resize(k);
         return filtered;
+    }
+
+    const Memory* find_memory(const std::string& name) const override {
+        for (const auto& [id, mem] : memories_)
+            if (mem.name == name) return &mem;
+        return nullptr;
+    }
+
+    const Skill* find_skill(const std::string& name) const override {
+        for (const auto& [id, sk] : skills_)
+            if (sk.name == name) return &sk;
+        return nullptr;
     }
 
     void decay_all() override {

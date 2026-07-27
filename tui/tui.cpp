@@ -2,6 +2,8 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui.h"
+#include "command_line.h"
+#include "confirm_panel.h"
 
 #include <agent.h>
 #include <agent/compressor.h>
@@ -31,7 +33,8 @@ static void signal_handler(int sig) {
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs),
-      settings_path_(agent::Workspace::local_dir() + "/settings") {
+      settings_path_(agent::Workspace::local_dir() + "/settings"),
+      policy_timeout_(60) {
     std::setlocale(LC_ALL, "");
     initscr();
     raw();        // capture Ctrl-C as keypress (ASCII 3) instead of SIGINT
@@ -110,6 +113,7 @@ Window& Tui::new_window(const std::string& title) {
         agent::AgentHooks{},
         std::move(compressor), std::move(gate),
         std::move(mem_store), std::move(retriever));
+    w->agent->policy().init(agent::Workspace::local_dir() + "/policy.json");
     windows_.push_back(std::move(w));
     active_ = windows_.size() - 1;
     return *windows_.back();
@@ -260,6 +264,30 @@ bool Tui::drain_events() {
             autosave();
             win().dirty = true;
             break;
+        case AgentEvent::CompressResult: {
+            auto& r = ev.compress_result;
+            state_ = agent::RunState::Idle;
+            ctx_used_ = static_cast<long>(r.tokens_after);
+            if (r.messages_before == 0) {
+                append_line(P_STATUS, "compress: no compressor configured");
+            } else if (r.messages_after >= r.messages_before) {
+                append_line(P_STATUS, "compress: nothing to prune ("
+                            + std::to_string(r.messages_before)
+                            + " messages, ~" + std::to_string(r.tokens_before)
+                            + " tokens)");
+            } else {
+                append_line(P_STATUS,
+                    "compress: " + std::to_string(r.messages_before)
+                    + " \u2192 " + std::to_string(r.messages_after)
+                    + " msgs, ~" + std::to_string(r.tokens_before)
+                    + " \u2192 ~" + std::to_string(r.tokens_after) + " tokens"
+                    + "  (core:" + std::to_string(r.core_count)
+                    + " ctx:" + std::to_string(r.context_count)
+                    + " prune:" + std::to_string(r.prune_count) + ")");
+            }
+            win().dirty = true;
+            break;
+        }
         case AgentEvent::Approval: {
             // While a modal dialog is open the main thread is not in the event
             // loop; queue the approval so we don't nest ncurses dialogs or
@@ -287,14 +315,12 @@ bool Tui::drain_events() {
 }
 
 void Tui::resolve_approval(const AgentEvent& ev) {
-    int pick = menu_select("Approve action?  " + ev.text,
-                            {"Deny", "Allow once", "Allow for this session"});
-    agent::Approval d = agent::Approval::Deny;
-    if (pick == 1) d = agent::Approval::AllowOnce;
-    else if (pick == 2) d = agent::Approval::AllowSession;
-    const char* verdict = "allowed for session";
-    if (d == agent::Approval::Deny) verdict = "denied";
-    else if (d == agent::Approval::AllowOnce) verdict = "allowed once";
+    agent::Approval d = approve_dialog(ev.text, 60, 0);
+    const char* verdict = "denied";
+    if (d == agent::Approval::AllowOnce) verdict = "allowed once";
+    else if (d == agent::Approval::AllowSession) verdict = "allowed session";
+    else if (d == agent::Approval::AlwaysAllow) verdict = "always allow";
+    else if (d == agent::Approval::AlwaysDeny) verdict = "always deny";
     append_line(P_STATUS,
                 std::string("approval: ") + verdict + "  (" + ev.text + ")");
     if (ev.approval_promise)
@@ -308,12 +334,46 @@ void Tui::pump_events() {
     }
 }
 
-void Tui::send_async(const std::string& prompt) {
+std::string Tui::expand_at_references(const std::string& raw) const {
+    std::string out;
+    size_t i = 0;
+    while (i < raw.size()) {
+        size_t at = raw.find('@', i);
+        if (at == std::string::npos || at == 0) {
+            out += raw.substr(i);
+            break;
+        }
+        out += raw.substr(i, at - i);
+        // Find end of reference token (space, end, punctuation).
+        size_t end = at + 1;
+        while (end < raw.size() && raw[end] != ' ' && raw[end] != '\t' &&
+               raw[end] != ',' && raw[end] != '.' && raw[end] != '!' &&
+               raw[end] != '?' && raw[end] != ';' && raw[end] != ':')
+            ++end;
+        std::string ref = raw.substr(at + 1, end - at - 1);
+        if (!ref.empty()) {
+            namespace fs = std::filesystem;
+            std::string root = agent::Workspace::root();
+            fs::path ref_path = fs::path(root) / ref;
+            std::error_code ec;
+            if (fs::is_regular_file(ref_path, ec)) {
+                std::ifstream f(ref_path);
+                std::string content((std::istreambuf_iterator<char>(f)),
+                                     std::istreambuf_iterator<char>());
+                if (content.size() > 4096) content.resize(4096);
+                out += "\n[file: " + ref + "]\n" + content + "\n[/file]\n";
+            } else {
+                out += ref;
+            }
+        }
+        i = end;
+    }
+    return out;
+}
+
+void Tui::send_async(const std::string& raw_prompt) {
     if (agent_busy_.load()) return;
 
-    // If the previous agent thread has finished but wasn't joined (because
-    // agent_busy_ went false before the thread handle was cleaned up), join
-    // it now so the next std::thread assignment doesn't call terminate().
     if (agent_thread_.joinable())
         agent_thread_.join();
 
@@ -321,13 +381,15 @@ void Tui::send_async(const std::string& prompt) {
     agent_cancel_.store(false);
 
     ensure_chat_window();
-    append_line(P_USER, "> " + prompt);
+    append_line(P_USER, "> " + raw_prompt);
 
     auto& w = win();
     w.reason_buf.clear();
     w.reason_folded = false;
     show_reasoning_ = cfg_.show_reasoning;
     w.stream_ts = timestamp();
+
+    std::string prompt = expand_at_references(raw_prompt);
 
     agent_thread_ = std::thread([this, prompt] { agent_worker(prompt); });
 }
@@ -443,47 +505,142 @@ void Tui::agent_worker(const std::string& prompt) {
     agent_busy_.store(false);
 }
 
+void Tui::compress_worker() {
+    AgentEvent ev;
+    ev.type = AgentEvent::CompressResult;
+    if (win().agent) {
+        ev.compress_result = win().agent->compress_now();
+    }
+    {
+        std::scoped_lock lk(event_mtx_);
+        event_queue_.push(std::move(ev));
+    }
+}
+
 void Tui::run() {
     draw();
     draw_input("");
     flush();
     detect_server(false);
-
     timeout(50);
 
-    std::string input;
+    // Build the setting registry and command tree.
+    build_settings();
+    (void)commands();  // force command tree build
+    // Load completion metadata from JSON (help text, choices, ranges).
+    // This is the single source of truth for completion metadata — code edits
+    // cannot break completion unless the JSON file is damaged.
+    settings_.load_completions_json("completions.json");
+
+    // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
+    CommandLine cl;
+    cl.set_history(win().prompt_history);
+
+    // Helper: update CommandLine's completion context from the command tree and JSON.
+    // This is the SINGLE source of completions — no duplicate logic in draw_drawer.
+    auto update_completions = [&]() {
+        std::string input = cl.text();
+        size_t sp = input.find(' ');
+        if (sp != std::string::npos && input[0] == '/') {
+            std::string cmd_name = input.substr(1, sp - 1);
+            std::string partial = input.substr(sp + 1);
+
+            // 1. SettingRegistry for /get and /set (dotted key config).
+            if (cmd_name == "get" || cmd_name == "set") {
+                // Convert space-separated partial to dotted for registry lookup:
+                // "policy mode" → "policy.mode"
+                std::string dotted_partial;
+                size_t p = 0;
+                while (p < partial.size()) {
+                    size_t spc = partial.find(' ', p);
+                    if (spc == std::string::npos) { dotted_partial += partial.substr(p); break; }
+                    if (!dotted_partial.empty()) dotted_partial += ".";
+                    dotted_partial += partial.substr(p, spc - p);
+                    p = spc + 1;
+                }
+                // Strip the last namespace level so we complete leaf names only.
+                // e.g. "policy.mo" → ns="policy", leaf="mo" → we want completions for "policy"
+                std::string ns_part, leaf_part;
+                size_t last_dot = dotted_partial.rfind('.');
+                if (last_dot != std::string::npos) {
+                    ns_part = dotted_partial.substr(0, last_dot);
+                    leaf_part = dotted_partial.substr(last_dot + 1);
+                } else {
+                    leaf_part = dotted_partial;
+                }
+                auto completions = settings_.complete(ns_part.empty() ? leaf_part : ns_part);
+                std::vector<std::string> stripped;
+                for (auto& c : completions) {
+                    // Only show keys that match the leaf_part prefix.
+                    if (!leaf_part.empty() && c.rfind(leaf_part, 0) != 0) continue;
+                    // Strip the namespace prefix.
+                    if (!ns_part.empty()) {
+                        if (c.rfind(ns_part + ".", 0) == 0)
+                            stripped.push_back(c.substr(ns_part.size() + 1));
+                    } else {
+                        stripped.push_back(c);
+                    }
+                }
+                // Also include single-level keys from the legacy complete_arg.
+                const Command* cmd = find_command(cmd_name);
+                if (cmd && cmd->complete_arg) {
+                    auto legacy = cmd->complete_arg(partial);
+                    for (const auto& l : legacy)
+                        if (std::find(stripped.begin(), stripped.end(), l) == stripped.end())
+                            stripped.push_back(l);
+                }
+                cl.set_completions(stripped);
+                return;
+            }
+
+            // 2. Subcommands from JSON (system, files, provider, model, session, job, window).
+            auto subs = settings_.subcommands_for(cmd_name);
+            if (!subs.empty()) {
+                if (partial.empty()) {
+                    cl.set_completions(subs);
+                } else {
+                    std::vector<std::string> filtered;
+                    for (const auto& s : subs)
+                        if (s.rfind(partial, 0) == 0)
+                            filtered.push_back(s);
+                    cl.set_completions(filtered);
+                }
+                return;
+            }
+
+            // 3. Legacy complete_arg lambda (fallback).
+            const Command* cmd = find_command(cmd_name);
+            if (cmd && cmd->complete_arg) {
+                cl.set_completions(cmd->complete_arg(partial));
+                return;
+            }
+        }
+        // Default: top-level command names (including aliases).
+        std::vector<std::string> names;
+        for (const auto& c : commands()) {
+            names.push_back(c.name);
+            for (const auto& a : c.aliases)
+                names.push_back(a);
+        }
+        cl.set_completions(names);
+    };
+    update_completions();
+
     while (!quit_) {
         bool had_events = drain_events();
-
-        // Reap background jobs that hit their idle/hard deadline. Runs every
-        // tick so long-running processes are auto-killed even while the user is
-        // idle and no agent event is flowing.
         jobs_.check_timeouts();
 
         int ch = getch();
         if (ch == ERR) {
-            bool repainted = had_events;
-            if (had_events) {
-                draw();
-            } else if (agent_busy_.load() || jobs_.running_count() > 0) {
-                // Either the agent is blocked on a call that emits no streaming
-                // tokens (silent confirmation exchange, a non-streaming tool
-                // result, or the model simply thinking), or a background job is
-                // running. In both cases no AgentEvent flows every frame, so this
-                // branch is what keeps the clock, the progress wave, and the
-                // background-job countdown alive. Repaint the status bar on a
-                // fixed wall-clock cadence instead of gating on anim_phase_
-                // (which would lock at one phase and freeze the whole bar).
+            if (had_events) { draw(); }
+            else {
                 auto now = std::chrono::steady_clock::now();
                 if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
                     last_status_tick_ = now;
                     tick_clock();
-                    repainted = true;
                 }
             }
-            // Any background repaint moves the virtual cursor off the input
-            // line; always park it back so the caret stays in place.
-            draw_input(input);
+            draw_input(cl.text(), cl.cursor(), cl.shadow());
             if (!agent_busy_.load() && !pending_prompt_.empty()) {
                 std::string p = std::move(pending_prompt_);
                 send_async(p);
@@ -491,179 +648,252 @@ void Tui::run() {
             if (dirty_) flush();
             continue;
         }
-        // Alt+1..9 window switch, sent as a single meta-encoded key by some
-        // terminals (0x80 | digit). Works even while the agent is busy.
+
+        // Alt+1..9 window switch (meta-encoded).
         if (ch >= 0xB1 && ch <= 0xB9) {
             switch_to(static_cast<size_t>(ch - 0xB1));
-            draw_input(input);
+            draw_input(cl.text(), cl.cursor(), cl.shadow());
             continue;
         }
-
-        if (ch == 14) {
-            if (agent_busy_.load()) continue;
+        if (ch == 14 && !agent_busy_.load()) {
             new_window("chat");
-            draw(); draw_input(input); continue;
+            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue;
         }
-        if (ch == 23) {
-            if (agent_busy_.load()) continue;
-            close_window();
-            draw(); draw_input(input); continue;
-        }
+
+        // ESC handling.
         if (ch == 27) {
-            if (drawer_open_) {
-                drawer_open_ = false;
-                draw(); draw_input(input);
+            if (cl.drawer_open()) {
+                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
-            // Alt+number arrives as ESC followed by a digit. Read the next key
-            // first so the chord switches windows even while the agent is busy;
-            // a lone ESC is the fallback that cancels a running agent.
             int n = getch();
             if (n >= '1' && n <= '9') {
                 switch_to(static_cast<size_t>(n - '1'));
-                draw_input(input);
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
+            if (n == 'b' || n == 'B') { cl.on_ctrl_w(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+            if (n == KEY_UP) { win().scroll_top = std::max(0, win().scroll_top - 1); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+            if (n == KEY_DOWN) { win().scroll_top += 1; draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+            if (n == KEY_LEFT) { win().scroll_top = 0; draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+            if (n == KEY_RIGHT) { win().scroll_top = max_scroll(); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
             if (agent_busy_.load()) {
                 cfg_.cancel_token.request();
                 agent_cancel_.store(true);
                 append_line(P_STATUS, "cancelling…");
-                draw(); draw_input(input);
+                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+            }
+            continue;
+        }
+
+        // Ctrl+C: cancel or save+exit.
+        if (ch == 3) {
+            if (agent_busy_.load()) {
+                cfg_.cancel_token.request();
+                agent_cancel_.store(true);
+                append_line(P_STATUS, "cancelling…");
+                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
-            continue;
-        }
-        if (ch == '\t') {
-            auto tr = completer_.handle_tab(commands(), input, drawer_sel_);
-            if (tr.show_popup) {
-                int sel = menu_select("complete: " + tr.input, tr.popup_items);
-                if (sel >= 0 && sel < static_cast<int>(tr.popup_items.size()))
-                    input = tr.popup_items[sel] + " ";
-                else
-                    input = tr.input;
-                if (drawer_open_) { drawer_open_ = false; draw(); }
-                draw_input(input);
-                continue;
-            }
-            input = tr.input;
-            if (tr.close_drawer && drawer_open_) {
-                drawer_open_ = false; draw();
-            }
-            draw_input(input);
-            continue;
-        }
-        if (drawer_open_ && (ch == KEY_UP || ch == KEY_DOWN)) {
-            int n = static_cast<int>(filter_commands(drawer_token(input)).size());
-            if (n > 0) {
-                if (ch == KEY_DOWN) drawer_sel_ = (drawer_sel_ + 1) % n;
-                else drawer_sel_ = (drawer_sel_ + n - 1) % n;
-            }
-            draw_input(input);
-            continue;
-        }
-        if (ch == 3) {  // Ctrl-C: save and exit
             save_workspace_now();
             quit_ = true;
             break;
         }
-        // KEY_UP/KEY_DOWN or j/k:  viewport scrolling (mouse wheel via
-        // alternate scroll sends the same codes).  Ctrl+P/Ctrl+N for history.
-        if ((ch == KEY_UP || ch == 'k') && !drawer_open_) {
-            win().scroll_top = std::max(0, win().scroll_top - 1);
-            draw(); draw_input(input); continue;
+
+        // ── Route through CommandLine (pure logic, unit tested) ─
+        CommandLine::Result result;
+        bool handled = true;
+
+        switch (ch) {
+        case '	':            result = cl.on_tab(); break;
+        case KEY_UP:          result = cl.on_up(); break;
+        case KEY_DOWN:        result = cl.on_down(); break;
+        case KEY_LEFT:        result = cl.on_left(); break;
+        case KEY_RIGHT:       result = cl.on_right(); break;
+        case KEY_HOME:        result = cl.on_home(); break;
+        case KEY_END:         result = cl.on_end(); break;
+        case KEY_BACKSPACE: case 127: case 8: result = cl.on_backspace(); break;
+        case 10: case 13: case KEY_ENTER: result = cl.on_enter(); break;
+        case 1:  result = cl.on_ctrl_a(); break;
+        case 5:  result = cl.on_ctrl_e(); break;
+        case 11: result = cl.on_ctrl_k(); break;
+        case 20: result = cl.on_ctrl_t(); break;
+        case 21: result = cl.on_ctrl_u(); break;
+        case 23: result = cl.on_ctrl_w(); break;
+        case 25: result = cl.on_ctrl_y(); break;
+        case 31: result = cl.on_undo();   break;
+        case 4:  result = cl.on_ctrl_d(); break;
+        case 18:
+            append_line(P_STATUS, "Ctrl-R: not yet implemented");
+            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+            continue;
+        default:
+            if (ch >= 32 && ch <= 126)
+                result = cl.on_char(static_cast<char>(ch));
+            else
+                handled = false;
+            break;
         }
-        if ((ch == KEY_DOWN || ch == 'j') && !drawer_open_) {
-            win().scroll_top += 1;
-            draw(); draw_input(input); continue;
-        }
-        if (ch == 16 && !drawer_open_ && !win().prompt_history.empty()) {
-            if (win().history_pos > 0) --win().history_pos;
-            input = win().prompt_history[win().history_pos];
-            draw(); draw_input(input); continue;
-        }
-        if (ch == 14 && !drawer_open_ && !win().prompt_history.empty()) {
-            if (win().history_pos < win().prompt_history.size() - 1) {
-                ++win().history_pos;
-                input = win().prompt_history[win().history_pos];
-            } else {
-                win().history_pos = win().prompt_history.size();
-                input.clear();
-            }
-            draw(); draw_input(input); continue;
-        }
-        if (ch == KEY_NPAGE) {
-            if (win().read_only) continue;
-            win().scroll_top += lines_per_page();
-            draw(); draw_input(input); continue;
-        }
-        if (ch == KEY_PPAGE) {
-            if (win().read_only) continue;
-            win().scroll_top = std::max(0, win().scroll_top - lines_per_page());
-            draw(); draw_input(input); continue;
-        }
-        if (ch == 7 || ch == 10 || ch == 13 || ch == KEY_ENTER) {
-            if (drawer_open_ && !drawer_has_arg(input)) {
-                auto matches = filter_commands(drawer_token(input));
-                if (!matches.empty() &&
-                    drawer_sel_ < static_cast<int>(matches.size())) {
-                    const Command* c = matches[drawer_sel_];
-                    drawer_open_ = false;
-                    input.clear();
-                    handle_slash("/" + c->name);
-                    draw(); draw_input("");
-                    continue;
-                }
-            }
-            if (input.empty()) continue;
-            std::string prompt = input;
-            // Push to prompt history (per-window) before sending.
-            if (!prompt.empty()) {
+
+        if (handled) {
+            // Update completion context for shadow computation.
+            update_completions();
+            // Sync drawer state from CommandLine (CommandLine owns drawer logic now).
+            drawer_open_ = cl.drawer_open();
+            drawer_sel_ = cl.drawer_sel();
+            switch (result.action) {
+            case CommandLine::Result::Dispatch: {
+                std::string text = result.dispatch_text;
                 auto& ph = win().prompt_history;
-                if (ph.empty() || ph.back() != prompt) {
-                    ph.push_back(prompt);
+                if (!text.empty() && (ph.empty() || ph.back() != text)) {
+                    ph.push_back(text);
                     if (ph.size() > 100) ph.erase(ph.begin());
                 }
                 win().history_pos = ph.size();
-            }
-            drawer_open_ = false;
-            if (handle_slash(prompt)) {
-                input.clear();
-                draw(); draw_input("");
+                cl.set_history(ph);
+                if (handle_slash(text)) {
+                    draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+                    continue;
+                }
+                if (agent_busy_.load()) {
+                    pending_prompt_ = text;
+                    append_line(P_STATUS, "queued");
+                } else {
+                    ensure_chat_window();
+                    send_async(text);
+                }
+                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
-            if (agent_busy_.load()) {
-                // Agent is mid-turn: keep the prompt and send it automatically
-                // once the agent returns to idle, so typing never feels blocked.
-                pending_prompt_ = prompt;
-                input.clear();
-                append_line(P_STATUS,
-                            "queued: will send when the agent is idle");
-                draw(); draw_input(input);
+            case CommandLine::Result::ShowPopup: {
+                if (!cl.text().empty() && cl.text().back() == '@') {
+                    namespace fs = std::filesystem;
+                    std::string root = agent::Workspace::root();
+                    std::vector<std::string> items;
+                    for (const auto& e : fs::directory_iterator(root)) {
+                        std::string name = e.path().filename().string();
+                        if (name.front() == '.') continue;
+                        if (fs::is_directory(e)) name += "/";
+                        items.push_back(name);
+                    }
+                    std::sort(items.begin(), items.end());
+                    if (!items.empty()) {
+                        int sel = menu_select("reference file:", items);
+                        if (sel >= 0 && sel < static_cast<int>(items.size())) {
+                            std::string ref = items[sel];
+                            if (ref.back() == '/') ref.pop_back();
+                            cl.set_text_and_cursor(cl.text() + ref, cl.text().size() + ref.size());
+                        }
+                    }
+                } else {
+                    std::string tok = palette::token(cl.text());
+                    auto matches = filter_commands(tok);
+                    if (!matches.empty()) {
+                        std::vector<std::string> items;
+                        for (auto* c : matches)
+                            items.push_back(palette::usage(*c) + "  " + c->help);
+                        menu_select("options:", items);
+                    }
+                }
+                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
-            ensure_chat_window();
-            input.clear();
-            draw();
-            send_async(prompt);
+    case CommandLine::Result::ShowHelpPage: {
+        std::string node = result.help_node;
+        if (!node.empty() && node[0] == '/') node = node.substr(1);
+        std::string help_key = node;
+        size_t first_sp = node.find(' ');
+        if (first_sp != std::string::npos)
+            help_key = node.substr(first_sp + 1);
+        // Try full man page first.
+        std::string man = settings_.man_for(help_key);
+        if (!man.empty()) {
+            std::vector<std::string> page;
+            // Header: help text as subtitle
+            std::string helptxt = settings_.help_for(help_key);
+            if (!helptxt.empty())
+                page.push_back(helptxt);
+            page.push_back("");
+            // Body: full man text with word wrapping
+            size_t pos = 0;
+            while (pos < man.size()) {
+                size_t next = man.find('\n', pos);
+                if (next == std::string::npos) {
+                    page.push_back(man.substr(pos));
+                    break;
+                }
+                page.push_back(man.substr(pos, next - pos));
+                pos = next + 1;
+            }
+            page.push_back("");
+            // Children listing
+            auto kids = settings_.children_of(help_key);
+            if (!kids.empty()) {
+                page.push_back("sub-commands:");
+                for (const auto& k : kids) {
+                    std::string line = "  " + k;
+                    std::string h = settings_.help_for(help_key + "." + k);
+                    if (!h.empty()) line += "  —  " + h;
+                    page.push_back(line);
+                }
+                page.push_back("");
+            }
+            // Choices / range for leaf settings
+            const auto& ch = settings_.choices_for(help_key);
+            if (!ch.empty()) {
+                std::string line = "choices: ";
+                for (size_t i = 0; i < ch.size(); ++i) {
+                    if (i > 0) line += ", ";
+                    line += ch[i];
+                }
+                page.push_back(line);
+            }
+            double rlo, rhi;
+            if (settings_.range_for(help_key, rlo, rhi))
+                page.push_back("range: " + std::to_string((int)rlo) + " – " + std::to_string((int)rhi));
+            info_dialog(help_key, page);
+            redraw_after_modal();
+            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
             continue;
         }
-        if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
-            if (!input.empty()) input.pop_back();
-            completer_.reset();
-            update_drawer(input);
-            draw(); draw_input(input); continue;
+        // Fallback to one-line status for leaf settings without man text.
+        std::string desc = settings_.help_for(help_key);
+        if (!desc.empty()) {
+            std::string msg = help_key + "  —  " + desc;
+            const auto& ch = settings_.choices_for(help_key);
+            if (!ch.empty()) {
+                msg += "  choices: ";
+                for (const auto& c : ch) msg += c + "|";
+                msg.pop_back();
+            }
+            double rlo, rhi;
+            if (settings_.range_for(help_key, rlo, rhi))
+                msg += "  range: " + std::to_string(rlo) + "-" + std::to_string(rhi);
+            append_line(P_STATUS, msg);
+            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+            continue;
         }
-        if (ch >= 32 && ch <= 126 && input.size() < 65536) {
-            input += static_cast<char>(ch);
-            completer_.reset();
-            update_drawer(input);
-            ensure_chat_window();
-            draw(); draw_input(input); continue;
+        // Fallback to cmd_help for top-level commands.
+        size_t sp = node.find(' ');
+        if (sp != std::string::npos) node = node.substr(0, sp);
+        cmd_help(node);
+        draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+        continue;
+    }
+            default:
+                break;
+            }
+            // Redraw full screen to clear any previous drawer overlay content.
+            draw();
+            draw_input(cl.text(), cl.cursor(), cl.shadow());
+            if (dirty_) { flush(); dirty_ = false; }
+            continue;
         }
-        if (dirty_) {
-            flush();
-            dirty_ = false;
-        }
+
+        // Unhandled keys.
+        if (ch == KEY_NPAGE) { win().scroll_top += lines_per_page(); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+        if (ch == KEY_PPAGE) { win().scroll_top = std::max(0, win().scroll_top - lines_per_page()); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+        if (dirty_) { flush(); dirty_ = false; }
     }
 }
 

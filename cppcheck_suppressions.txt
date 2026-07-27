@@ -22,3 +22,5 @@ uselessOverride
 knownConditionTrueFalse
 unreachableCode
 constParameterPointer
+# libcurl callback signatures are fixed by the C API; cannot add const.
+constParameterCallback

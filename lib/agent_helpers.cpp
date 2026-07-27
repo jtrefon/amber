@@ -12,13 +12,39 @@
 
 namespace agent {
 
+std::string fingerprint_tool_calls(const json& calls) {
+    if (calls.is_null() || !calls.is_array() || calls.empty())
+        return {};
+    std::string key;
+    for (const auto& tc : calls) {
+        std::string id, fn;
+        json args;
+        bool ok = true;
+        parse_tool_call(tc, id, fn, args, ok);
+        if (!key.empty()) key += '|';
+        key += fn;
+        key += '|';
+        key += args.dump();
+    }
+    return key;
+}
+
 std::string format_tool_envelope(const std::string& name, const json& args,
                                   const ToolResult& result) {
-    std::string status = result.ok ? "ok" : "error";
-
     // Ensure meta is always an object, never null (tools that return early
     // on error may leave meta uninitialized).
     json meta = result.meta.is_null() ? json::object() : result.meta;
+
+    std::string status;
+    if (result.ok) {
+        status = "ok";
+    } else if (meta.value("denied", false)) {
+        status = "denied";
+    } else if (meta.value("timeout", false)) {
+        status = "timeout";
+    } else {
+        status = "error";
+    }
 
     std::string header = "[tool=" + name +
         " args=" + args.dump() +
@@ -96,15 +122,28 @@ void parse_tool_call(const json& call, std::string& id, std::string& fn,
 }
 
 bool maybe_extract_text_tool_calls(json& tool_calls, std::string& content,
-                                   Message& stored, const AgentHooks& hooks) {
+                                    Message& stored, const AgentHooks& hooks) {
     bool has_json = !tool_calls.is_null() && !tool_calls.empty();
-    if (has_json || content.empty()) return false;
-    auto extracted = extract_tool_calls_from_text(content);
+    if (has_json) return false;
+    // When content is empty, try extracting tool calls from the reasoning
+    // field instead. Some models (Qwen/Jinja) emit <tool_call> XML in their
+    // thinking/reasoning block and leave content blank.
+    bool from_reasoning = false;
+    std::string source = content;
+    if (source.empty()) {
+        source = stored.reasoning;
+        from_reasoning = true;
+    }
+    if (source.empty()) return false;
+    auto extracted = extract_tool_calls_from_text(source);
     if (extracted.is_null()) return false;
     tool_calls = std::move(extracted);
-    content.clear();
-    stored.content.clear();
     stored.tool_calls = tool_calls;
+    if (from_reasoning) {
+        stored.reasoning.clear();
+    }
+    stored.content.clear();
+    content.clear();
     if (hooks.on_status) hooks.on_status("parsed tool calls from text");
     return true;
 }

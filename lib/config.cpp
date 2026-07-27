@@ -62,27 +62,13 @@ void Config::load(const std::string& path) {
             experience_max_skills = std::stoi(val);
         else if (key == "provider")
             provider_name = val;
+        else if (key == "policy_approval")
+            policy_approval = (val == "1" || val == "true" || val == "yes");
         else if (key == "detection_loop")
             detection_loop = (val == "1" || val == "true" || val == "yes");
         else if (key == "detection_duplicate")
             detection_duplicate = (val == "1" || val == "true" || val == "yes");
     }
-}
-
-bool Config::save(const std::string& path) const {
-    std::ofstream f(path, std::ios::trunc);
-    if (!f) return false;
-    f << "# amber settings\n";
-    f << "api_base=" << api_base << "\n";
-    f << "api_key=" << api_key << "\n";
-    // Persist intent, not the auto-detected value: only write a concrete model /
-    // context_size when the user set one explicitly. Otherwise write the
-    // sentinels (empty / 0) so the next load() auto-detects again.
-    f << "model=" << (model_explicit ? model : "") << "\n";
-    f << "context_size=" << (context_explicit ? context_size : 0) << "\n";
-    f << "system_prompt=" << system_prompt_path << "\n";
-    f << "tools_prompt=" << tools_prompt_path << "\n";
-    return static_cast<bool>(f);
 }
 
 static std::string global_config_dir() {
@@ -190,6 +176,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "tools_prompt=" << tools_prompt_path << "\n";
     f << "log_path=" << log_path << "\n";
     f << "debug_log=" << debug_log << "\n";
+    f << "policy_approval=" << (policy_approval ? 1 : 0) << "\n";
     f << "detection_loop=" << (detection_loop ? 1 : 0) << "\n";
     f << "detection_duplicate=" << (detection_duplicate ? 1 : 0) << "\n";
     return static_cast<bool>(f);
@@ -237,11 +224,16 @@ std::vector<std::string> Config::validate() const {
     if (model.empty())
         errs.emplace_back("model is empty");
 
-    // Managed providers (OpenRouter, Kilo Code) require an API key.
+    // Managed providers (OpenRouter, Kilo Code) require an API key UNLESS
+    // the user has overridden api_base (e.g. to a local endpoint). In that
+    // case the provider name is just a label and the key is not needed.
     auto* prov = provider::find(provider_name);
-    if (prov && prov->requires_key && api_key.empty())
-        errs.emplace_back("api_key is required for " + provider_name +
-                          " (set via AMBER_API_KEY env or save_global)");
+    if (prov && prov->requires_key && api_key.empty()) {
+        bool base_overridden = (api_base != prov->api_base);
+        if (!base_overridden)
+            errs.emplace_back("api_key is required for " + provider_name +
+                              " (set via AMBER_API_KEY env or save_global)");
+    }
 
     if (max_tool_iterations < 1)
         errs.push_back("max_tool_iterations must be >= 1 (got: " +

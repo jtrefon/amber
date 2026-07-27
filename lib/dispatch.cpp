@@ -3,6 +3,7 @@
 
 #include "agent/dispatch.h"
 #include "agent/agent_helpers.h"
+#include "agent/policy.h"
 
 #include <chrono>
 #include <future>
@@ -12,45 +13,105 @@ namespace agent {
 
 namespace {
 
-// Check if a tool call (name + arguments) already exists in history.
+// Build a canonical key for a tool call: "fn|args_dump".
+// args is assumed to be already-parsed JSON (object).
+std::string call_key(const std::string& fn, const json& args) {
+    return fn + "|" + (args.is_object() ? args.dump() : json::object().dump());
+}
+
+// Look up the tool result for a given tool_call_id and extract its
+// status from the envelope header (e.g. "ok", "error", "denied").
+// Returns "unknown" if not found.
+std::string prev_call_outcome(const std::string& tool_call_id,
+                               const std::vector<Message>& history) {
+    if (tool_call_id.empty()) return "unknown";
+    for (const auto& m : history) {
+        if (m.role != "tool") continue;
+        if (m.tool_call_id != tool_call_id) continue;
+        // Envelope: [tool=name args=... status=X meta=...]\n...
+        auto pos = m.content.find("status=");
+        if (pos == std::string::npos) return "unknown";
+        pos += 7; // skip "status="
+        auto end = m.content.find(' ', pos);
+        if (end == std::string::npos) end = m.content.find(']', pos);
+        if (end == std::string::npos) return "unknown";
+        return m.content.substr(pos, end - pos);
+    }
+    return "unknown";
+}
+
+// Check if a previous tool call was denied (not executed) by looking for
+// the corresponding tool result message in history. Returns true if the
+// previous call matching the given `tool_call_id` was denied by policy.
+bool was_prev_call_denied(const std::string& tool_call_id,
+                           const std::vector<Message>& history) {
+    if (tool_call_id.empty()) return false;
+    return prev_call_outcome(tool_call_id, history) == "denied";
+}
+
+// Check if a tool call (name + arguments) already exists in a PRIOR
+// assistant message — one whose tool_calls do NOT include the current
+// call's `id`.  This prevents a batch of calls in the current turn from
+// matching each other while still catching genuine repeats across turns.
+// Calls that were previously DENIED (not executed) are skipped, allowing
+// retries after the user extends permissions.
 // Returns a descriptive message string if duplicate, empty string if not.
 std::string find_duplicate_call(const std::string& fn, const json& args,
-                                 const std::vector<Message>& history) {
+                                 const std::vector<Message>& history,
+                                 const std::string& current_id) {
+    std::string needle = call_key(fn, args);
     for (const auto& m : history) {
-        if (m.role == "assistant" && !m.tool_calls.is_null()) {
-            for (const auto& tc : m.tool_calls) {
-                auto func = tc.value("function", json::object());
-                if (func.value("name", "") != fn) continue;
-                // Stored arguments is a JSON-encoded string (from the LLM);
-                // compare by parsing both to eliminate whitespace differences.
-                json stored_args;
-                try {
-                    stored_args = json::parse(func.value("arguments", ""));
-                } catch (...) {
-                    continue;
-                }
-                // Compare parsed JSON objects (eliminates whitespace differences
-                // between the LLM's raw arguments string and our re-serialization).
-                if (!(stored_args == args)) continue;
-                // Build a short summary of the arguments (first 120 chars)
-                std::string preview;
-                if (args.is_object()) {
-                    for (auto it = args.begin(); it != args.end(); ++it) {
-                        if (it.value().is_string())
-                            preview += it.value().get<std::string>() + " ";
-                        else
-                            preview += it.key() + " ";
-                    }
-                }
-                if (preview.size() > 120)
-                    preview.resize(120);
-                return "You already ran \"" + fn + "\" with these "
-                       "exact parameters (" + preview + "...). "
-                       "Repeating the same tool call will produce the "
-                       "same result. Use the output already in the "
-                       "conversation, or if you hit a loop, say \"done\" "
-                        "or \"stop\" to end this task.";
+        if (m.role != "assistant" || m.tool_calls.is_null()) continue;
+        bool is_current = false;
+        for (const auto& tc : m.tool_calls)
+            if (tc.value("id", "") == current_id) { is_current = true; break; }
+        if (is_current) continue;
+        for (const auto& tc : m.tool_calls) {
+            auto func = tc.value("function", json::object());
+            if (func.value("name", "") != fn) continue;
+            const json& raw = func.value("arguments", json::object());
+            json stored_args;
+            if (raw.is_string()) {
+                try { stored_args = json::parse(raw.get_ref<const std::string&>()); }
+                catch (...) { continue; }
+            } else if (raw.is_object()) {
+                stored_args = raw;
+            } else {
+                continue;
             }
+            if (call_key(fn, stored_args) != needle) continue;
+
+            // Skip if the previous call was denied (user didn't approve it).
+            // The agent may retry after the user extends permissions.
+            std::string prev_id = tc.value("id", "");
+            if (was_prev_call_denied(prev_id, history))
+                continue;
+
+            // Look up the outcome of the previous call so the model can
+            // decide whether retrying makes sense.
+            std::string outcome = prev_call_outcome(prev_id, history);
+
+            std::string preview;
+            if (args.is_object()) {
+                for (auto it = args.begin(); it != args.end(); ++it) {
+                    if (it.value().is_string())
+                        preview += it.value().get<std::string>() + " ";
+                    else
+                        preview += it.key() + " ";
+                }
+            }
+            if (preview.size() > 120) preview.resize(120);
+            std::string msg = "You already ran \"";
+            msg += fn;
+            msg += "\" with these exact parameters (";
+            msg += preview;
+            msg += "...). That previous execution had status=\"";
+            msg += outcome;
+            msg += "\". Repeating the same tool call will produce the "
+                   "same result. If it already succeeded, move on. "
+                   "If it failed, adjust your approach. Do not retry "
+                   "the exact same call.";
+            return msg;
         }
     }
     return {};
@@ -59,24 +120,53 @@ std::string find_duplicate_call(const std::string& fn, const json& args,
 
 } // namespace
 
-// Fail-safe approval: with no handler, deny gated tools outright. A session
-// grant is recorded so the same tool is auto-approved for the rest of the turn.
+// Consult the policy store and host hooks to decide whether a tool call is
+// approved. PolicyStore rules (always_allow / always_deny) set the dialog
+// default and short-circuit on timeout; the dialog always appears as a
+// last-chance safety net. Session grants bypass the dialog entirely.
 bool approve_tool(const Tool& tool, const json& args, const AgentHooks& hooks,
-                  std::set<std::string>& session_approved) {
+                  std::set<std::string>& session_approved,
+                  PolicyStore* policy) {
     if (!hooks.on_approval) return false;
+    std::string name = tool.name();
     std::string summary = tool.summarize(args);
-    Approval d = hooks.on_approval(tool.name(), args, summary);
-    if (d == Approval::AllowSession) {
-        session_approved.insert(tool.name());
+
+    // Session grant already exists — skip dialog.
+    if (policy && policy->is_granted_session(name))
+        return true;
+
+    // Compute the dialog default from the policy store (last choice per tool).
+    Approval d = hooks.on_approval(name, args, summary);
+
+    // Process the result and update policy state.
+    if (d == Approval::AlwaysAllow) {
+        if (policy) policy->set_rule(name, PolicyLevel::AlwaysAllow);
         return true;
     }
-    return d == Approval::AllowOnce;
+    if (d == Approval::AlwaysDeny) {
+        if (policy) policy->set_rule(name, PolicyLevel::AlwaysDeny);
+        return false;
+    }
+    if (d == Approval::AllowSession) {
+        session_approved.insert(name);
+        if (policy) {
+            policy->grant_session(name);
+            policy->record_choice(name, PolicyLevel::AllowSession);
+        }
+        return true;
+    }
+    if (d == Approval::AllowOnce) {
+        if (policy) policy->record_choice(name, PolicyLevel::AllowOnce);
+        return true;
+    }
+    return false; // Deny
 }
 
 bool dispatch_tool_calls(const json& calls, const Config& cfg,
                          ToolRegistry& registry, const AgentHooks& hooks,
                          ConversationLog& log,
                          std::set<std::string>& session_approved,
+                         PolicyStore* policy,
                          std::vector<Message>& history) {
     struct Call {
         std::string id, fn;
@@ -106,15 +196,17 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
             // Duplicate detection: skip when disabled (/set detection duplicate off).
             std::string dup;
             if (cfg.detection_duplicate)
-                dup = find_duplicate_call(c.fn, c.args, history);
+                dup = find_duplicate_call(c.fn, c.args, history, c.id);
             if (!dup.empty()) {
                 c.denied_reason = dup;
-            } else if (c.tool->requires_approval(c.args) &&
+            } else if (cfg.mode != agent::AgentMode::Yolo &&
+                       cfg.policy_approval &&
+                       c.tool->requires_approval(c.args) &&
                        !session_approved.count(c.fn) &&
-                       cfg.mode != agent::AgentMode::Yolo &&
                        !(hooks.on_approval &&
-                         approve_tool(*c.tool, c.args, hooks, session_approved))) {
-                c.denied_reason = "denied by user: " + c.fn + " was not approved";
+                         approve_tool(*c.tool, c.args, hooks,
+                                      session_approved, policy))) {
+                c.denied_reason = "denied by user: " + c.fn + " was not approved.";
                 log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
                                           {"args", c.args}});
             } else {
@@ -134,7 +226,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         pending.push_back({i, std::async(std::launch::async, [&todo, i]() {
             try { return todo[i].tool->execute(todo[i].args); }
             catch (const std::exception& e) {
-                return ToolResult{false, "", std::string("tool threw: ") + e.what()};
+                return ToolResult{false, "", std::string("tool threw: ") + e.what(), agent::json{}};
             }
         })});
     }
@@ -162,13 +254,13 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
     };
 
     // Process non-approved calls immediately (no execution needed).
-    for (size_t i = 0; i < todo.size(); ++i) {
-        auto& c = todo[i];
+    for (auto& c : todo) {
         if (c.approved) continue;
         ToolResult res;
         if (c.args_ok) {
             res.ok = false;
             res.error = c.denied_reason;
+            res.meta["denied"] = true;
         } else {
             res.ok = false;
             std::string raw = c.args.is_string() ? c.args.get<std::string>()

@@ -5,9 +5,7 @@
 
 namespace agent {
 
-Message build_compression_request(const std::vector<Message>& history) {
-    (void)history;
-
+Message build_compression_request() {
     Message req;
     req.role = "user";
     req.content = R"(Analyze the conversation above and produce a JSON response with the following exact structure. Do not include any text outside the JSON block.
@@ -19,10 +17,12 @@ Message build_compression_request(const std::vector<Message>& history) {
     {"turns": "4-5", "tag": "prune", "summary": ""}
   ],
   "memories": [
-    {"content": "fact learned from the conversation", "tags": ["tag1", "tag2"], "action": "upsert"}
+    {"name": "project-uses-make", "content": "The amber project uses GNU Make with a custom ./configure script that generates Makefile from Makefile.in.", "tags": ["build", "make"], "action": "upsert"},
+    {"name": "test-command", "content": "Tests are run via 'make test' which builds and runs the run_tests binary. There are 150+ unit tests.", "tags": ["testing", "make"], "action": "upsert"}
   ],
   "skills": [
-    {"content": "procedure description", "tags": ["tag1"], "trigger_phrase": "keyword", "action": "upsert"}
+    {"name": "running-tests", "content": "When the user asks to run tests: execute 'make test' in the workspace root. Report pass/fail counts.", "tags": ["testing"], "trigger_phrase": "test", "action": "upsert"},
+    {"name": "build-project", "content": "When the user asks to build: run 'make' in the workspace root. The build produces amber, amber-tui, and libagent archive files.", "tags": ["build"], "trigger_phrase": "build", "action": "upsert"}
   ]
 }
 
@@ -32,10 +32,14 @@ Tag meanings:
   "prune"   = drop entirely — stale tool output, superseded attempts, loops
 
 Memory/skill actions:
-  "upsert"   = add or update this item (merge with existing by content hash)
+  "upsert"   = add or update this item (merge with existing by unique name)
   "deprecate" = mark as stale — evidence should be decremented
 
-Summaries max 200 tokens per entry. Use contiguous turn ranges. Prefer single-turn ranges when possible.)";
+Guidelines:
+  - "name" should be short, unique, kebab-case, and descriptive — it's the stable identifier
+  - Keep content under 200 tokens per entry
+  - Use contiguous turn ranges for classification. Prefer single-turn ranges
+  - Up to ~20 memories and ~10 skills; leave unused slots empty rather than fabricating entries)";
 
     return req;
 }
