@@ -3,6 +3,7 @@
 
 #include "agent/tool_recovery.h"
 #include "agent/agent_helpers.h"
+#include "agent/context.h"
 
 namespace agent {
 
@@ -18,7 +19,7 @@ int FailStreak::update(const json& calls, bool all_ok) {
     return worst;
 }
 
-void inject_tool_recovery_steer(std::vector<Message>& history,
+void inject_tool_recovery_steer(Context* context,
                                 const AgentHooks& hooks, ConversationLog& log) {
     Message steer;
     steer.role = "user";
@@ -27,7 +28,7 @@ void inject_tool_recovery_steer(std::vector<Message>& history,
         "messages above). Do not retry a failing call with the same "
         "arguments. Either provide corrected arguments, switch to a "
         "different tool, or stop and give your best answer now.";
-    history.push_back(std::move(steer));
+    context->push(std::move(steer));
     if (hooks.on_status) hooks.on_status("tool recovery: injected steer");
     log.event("tool_recovery", {{"action", "steer"}});
 }

@@ -17,7 +17,8 @@ agent::Session Tui::snapshot(Window& w) const {
     s.id = w.session_id;
     s.model = cfg_.model;
     if (w.agent) {
-        s.messages = w.agent->history();
+        const auto& ctx = w.agent->context().get_all();
+        s.messages.assign(ctx.begin(), ctx.end());
         s.meta = w.agent->meta_;
     }
     // Persist UI state so it survives exit/reload.
@@ -36,7 +37,7 @@ agent::Session Tui::snapshot(Window& w) const {
 
 void Tui::autosave() {
     Window& w = win();
-    if (!w.dirty || !w.agent || w.agent->history().empty()) return;
+    if (!w.dirty || !w.agent || w.agent->context().empty()) return;
     agent::Session s = snapshot(w);
     if (store_.save(s)) {
         w.session_id = s.id;
@@ -47,7 +48,7 @@ void Tui::autosave() {
 
 void Tui::save_session() {
     Window& w = win();
-    if (!w.agent || w.agent->history().empty()) {
+    if (!w.agent || w.agent->context().empty()) {
         append_line(P_STATUS, "nothing to save (empty conversation)");
         return;
     }
@@ -69,7 +70,7 @@ void Tui::load_session(const std::string& id) {
     }
     Window& w = new_window(s.title.empty() ? "chat" : s.title);
     w.session_id = s.id;
-    w.agent->set_history(s.messages);
+    w.agent->set_context(s.messages);
     if (!s.meta.empty())
         w.agent->meta_ = s.meta;
     // Restore UI state from saved session meta.
@@ -366,13 +367,13 @@ void Tui::session_browser() {
 
 void Tui::lazy_load_active() {
     auto& w = win();
-    if (!w.agent || !w.agent->history().empty() || w.session_id.empty()) return;
+    if (!w.agent || !w.agent->context().empty() || w.session_id.empty()) return;
     agent::Session s;
     if (!store_.load(w.session_id, s)) {
         w.session_id.clear();
         return;
     }
-    w.agent->set_history(s.messages);
+    w.agent->set_context(s.messages);
     // Restore meta and UI state (same logic as load_session).
     if (!s.meta.empty())
         w.agent->meta_ = s.meta;

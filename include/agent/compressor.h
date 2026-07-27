@@ -15,6 +15,7 @@
 
 namespace agent {
 
+class Context;
 struct AgentHooks;
 class MemoryStore;
 struct Memory;
@@ -115,7 +116,7 @@ struct CompressionObserver {
 class CompressionGate {
 public:
     virtual ~CompressionGate() = default;
-    virtual bool should_compress(const std::vector<Message>& history,
+    virtual bool should_compress(const Context& context,
                                   const Config& agent_cfg) const = 0;
     virtual void set_last_compress_turn(size_t turn) { (void)turn; }
     virtual bool is_within_cooldown(size_t current_turn) const {

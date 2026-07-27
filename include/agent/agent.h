@@ -16,6 +16,7 @@
 #include "agent/llm.h"
 #include "agent/conversation_log.h"
 #include "agent/compressor.h"
+#include "agent/context.h"
 #include "agent/experience.h"
 #include "agent/policy.h"
 #include "agent/tool_recovery.h"
@@ -67,6 +68,13 @@ struct AgentHooks {
     // mirror the agent's internals to the screen without the core knowing
     // about rendering. The default no-op is used by headless runs.
     std::function<void(const std::string&)> on_debug;
+
+    // Emitted after any context mutation (push, pop, clear). Carries the
+    // new total token count and context size. The TUI uses this to update
+    // the context-usage gauge; the compression gate uses it to decide
+    // whether to compress. Fires on every push/pop/clear so subscribers
+    // always have an accurate, deterministic count.
+    std::function<void(size_t tokens, size_t msgs)> on_context_change;
 };
 
 // The core agent loop. Given an initial user prompt it drives the conversation:
@@ -87,14 +95,13 @@ public:
     // the final assistant reply text.
     std::string run(const std::string& user_prompt);
 
-    // Full conversation so far, including the system prompt (index 0 once
-    // seeded). Used by UIs to persist a session.
-    const std::vector<Message>& history() const { return history_; }
+    // Read-only access to the conversation context stack.
+    // Used by UIs to persist a session.
+    const Context& context() const { return context_; }
 
     // Replace the conversation with a previously saved one (e.g. loaded from a
-    // session file). If `messages` has no leading system message, the system
-    // prompt is (re)seeded on the next run. Clears telemetry log association.
-    void set_history(std::vector<Message> messages);
+    // session file). Clears telemetry log association.
+    void set_context(std::vector<Message> messages);
 
     // Force immediate compression of the conversation history, bypassing
     // the gate.  The compressed history replaces the full history; this is
@@ -165,7 +172,8 @@ private:
     // Dispatch tool calls with loop detection. Returns true if the loop
     // should continue (tool calls were present and handled). Sets final_reply
     // on hard stop.
-    bool dispatch_with_loop_detection(const Message& reply,
+    bool dispatch_with_loop_detection(const json& tool_calls,
+                                      const std::string& content,
                                       FailStreak& fail_streak,
                                       int& loop_count,
                                       std::string& last_loop_key,
@@ -185,8 +193,8 @@ private:
     std::vector<Tool*> resolve_tools();
     std::function<Message()> make_chat_fn(const std::vector<Tool*>& tools);
 
-    // Push a generated reply into history, log reasoning, extract text calls.
-    void process_generation(Message& reply);
+    // Push a generated reply into context, log, and fire context event.
+    void push_reply(Message reply);
 
     // Finalize a turn: fallback on empty, log, update state.
     std::string finish_turn(std::string final_reply);
@@ -196,7 +204,7 @@ private:
     LLMClient client_;
     AgentHooks hooks_;
     ConversationLog log_;
-    std::vector<Message> history_;
+    Context context_;
     std::set<std::string> session_approved_;  // tools granted for the session
     std::unique_ptr<CompressionStrategy> compression_;
     std::unique_ptr<CompressionGate> gate_;

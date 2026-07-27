@@ -2,6 +2,7 @@
 // Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/compressor.h"
+#include "agent/context.h"
 #include "agent/experience.h"
 #include "agent/agent.h"
 
@@ -20,10 +21,10 @@ public:
     explicit DefaultCompressionGate(const CompressionConfig& cfg)
         : cfg_(cfg) {}
 
-    bool should_compress(const std::vector<Message>& history,
+    bool should_compress(const Context& context,
                           const Config& agent_cfg) const override {
-        if (!threshold_exceeded(history, agent_cfg)) return false;
-        if (!sufficient_turns(history)) return false;
+        if (!threshold_exceeded(context, agent_cfg)) return false;
+        if (!sufficient_turns(context)) return false;
         return true;
     }
 
@@ -41,33 +42,16 @@ public:
     }
 
 private:
-    bool threshold_exceeded(const std::vector<Message>& history,
+    bool threshold_exceeded(const Context& context,
                              const Config& agent_cfg) const {
         if (agent_cfg.context_size <= 0) return false;
-        // Use the real token count from the last LLM call when available
-        // (much more accurate than character-based estimation).
-        if (agent_cfg.prompt_tokens_used > 0) {
-            double utilisation = static_cast<double>(agent_cfg.prompt_tokens_used) /
-                                 static_cast<double>(agent_cfg.context_size);
-            return utilisation >= cfg_.threshold;
-        }
-        // Fallback: estimate from character counts. Include tool_calls JSON
-        // (function arguments, names, ids) which can be a significant fraction
-        // of prompt tokens. Use 3 chars/token — JSON-heavy tool conversations
-        // are denser than prose (4 chars/token would underestimate by 30-50%).
-        size_t total_chars = 0;
-        for (const auto& msg : history) {
-            total_chars += msg.content.size() + msg.reasoning.size();
-            if (!msg.tool_calls.is_null())
-                total_chars += msg.tool_calls.dump().size();
-        }
-        double utilisation = (static_cast<double>(total_chars) / 3.0) /
+        double utilisation = static_cast<double>(context.token_count()) /
                              static_cast<double>(agent_cfg.context_size);
         return utilisation >= cfg_.threshold;
     }
 
-    bool sufficient_turns(const std::vector<Message>& history) const {
-        return history.size() >= static_cast<size_t>(cfg_.min_turns);
+    bool sufficient_turns(const Context& context) const {
+        return context.size() >= static_cast<size_t>(cfg_.min_turns);
     }
 
     CompressionConfig cfg_;

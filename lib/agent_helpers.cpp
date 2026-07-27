@@ -170,7 +170,7 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
     }
 }
 
-std::string empty_turn_reply(const std::vector<Message>& history) {
+std::string empty_turn_reply(const std::deque<Message>& history) {
     bool had_tool = false;
     for (const auto& m : history)
         if (m.role == "tool") { had_tool = true; break; }

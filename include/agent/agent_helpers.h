@@ -4,6 +4,7 @@
 #ifndef AGENT_AGENT_HELPERS_H
 #define AGENT_AGENT_HELPERS_H
 
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -56,7 +57,7 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
                        const std::function<Message()>& chat, const char* stage);
 
 // Build the final-reply fallback when the loop ended without a usable answer.
-std::string empty_turn_reply(const std::vector<Message>& history);
+std::string empty_turn_reply(const std::deque<Message>& history);
 
 // Format a tool result into the standard immutable envelope. Every tool output
 // follows the exact same form regardless of status:
