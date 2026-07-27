@@ -90,7 +90,7 @@ Tui::~Tui() {
 
     for (const auto & window : windows_) {
         Window& w = *window;
-        if (!w.dirty || !w.agent || w.agent->history().empty()) continue;
+        if (!w.dirty || !w.agent || w.agent->context().get_all().empty()) continue;
         std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
         std::fflush(stderr);
         agent::Session s = snapshot(w);

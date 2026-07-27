@@ -12,6 +12,7 @@
 
 namespace agent {
 
+class Context;
 class PolicyStore;
 class ToolRegistry;
 struct Config;
@@ -31,7 +32,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
                          ConversationLog& log,
                          std::set<std::string>& session_approved,
                          PolicyStore* policy,
-                         std::vector<Message>& history);
+                         Context* context);
 
 } // namespace agent
 

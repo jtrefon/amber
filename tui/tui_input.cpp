@@ -530,7 +530,7 @@ void Tui::build_commands() {
          "clear the current conversation and start fresh",
          [this](const std::string&) {
              if (win().agent) {
-                 win().agent->set_history({});
+                 win().agent->set_context({});
                  win().agent->policy().clear_session();
              }
              win().stream_buf.clear();

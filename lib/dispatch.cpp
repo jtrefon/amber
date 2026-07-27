@@ -3,6 +3,7 @@
 
 #include "agent/dispatch.h"
 #include "agent/agent_helpers.h"
+#include "agent/context.h"
 #include "agent/policy.h"
 
 #include <chrono>
@@ -23,7 +24,7 @@ std::string call_key(const std::string& fn, const json& args) {
 // status from the envelope header (e.g. "ok", "error", "denied").
 // Returns "unknown" if not found.
 std::string prev_call_outcome(const std::string& tool_call_id,
-                               const std::vector<Message>& history) {
+                                const std::deque<Message>& history) {
     if (tool_call_id.empty()) return "unknown";
     for (const auto& m : history) {
         if (m.role != "tool") continue;
@@ -44,7 +45,7 @@ std::string prev_call_outcome(const std::string& tool_call_id,
 // the corresponding tool result message in history. Returns true if the
 // previous call matching the given `tool_call_id` was denied by policy.
 bool was_prev_call_denied(const std::string& tool_call_id,
-                           const std::vector<Message>& history) {
+                            const std::deque<Message>& history) {
     if (tool_call_id.empty()) return false;
     return prev_call_outcome(tool_call_id, history) == "denied";
 }
@@ -57,7 +58,7 @@ bool was_prev_call_denied(const std::string& tool_call_id,
 // retries after the user extends permissions.
 // Returns a descriptive message string if duplicate, empty string if not.
 std::string find_duplicate_call(const std::string& fn, const json& args,
-                                 const std::vector<Message>& history,
+                                  const std::deque<Message>& history,
                                  const std::string& current_id) {
     std::string needle = call_key(fn, args);
     for (const auto& m : history) {
@@ -167,7 +168,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
                          ConversationLog& log,
                          std::set<std::string>& session_approved,
                          PolicyStore* policy,
-                         std::vector<Message>& history) {
+                         Context* context) {
     struct Call {
         std::string id, fn;
         json args;
@@ -196,7 +197,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
             // Duplicate detection: skip when disabled (/set detection duplicate off).
             std::string dup;
             if (cfg.detection_duplicate)
-                dup = find_duplicate_call(c.fn, c.args, history, c.id);
+                dup = find_duplicate_call(c.fn, c.args, context->get_all(), c.id);
             if (!dup.empty()) {
                 c.denied_reason = dup;
             } else if (cfg.mode != agent::AgentMode::Yolo &&
@@ -250,7 +251,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         json call_args = c.args;
         tool_msg.content = utf8_sanitize(
             format_tool_envelope(c.fn, call_args, res));
-        history.push_back(std::move(tool_msg));
+        context->push(std::move(tool_msg));
     };
 
     // Process non-approved calls immediately (no execution needed).

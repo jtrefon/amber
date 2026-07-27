@@ -1341,16 +1341,17 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
                       {"arguments", {{"command", "echo hello"}}}};
     calls.push_back(tc);
 
+    agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, history);
+                                         approved, nullptr, &dctx);
     ASSERT(ok);
     ASSERT(tool_results == 1);
     ASSERT(captured.ok);
     ASSERT(!captured.output.empty());
     ASSERT(captured.output.find("hello") != std::string::npos);
-    // Tool result must be recorded in history
+    // Tool result must be recorded in context
     bool found = false;
-    for (const auto& m : history)
+    for (const auto& m : dctx.get_all())
         if (m.role == "tool" && m.name == "bash")
             { found = true; break; }
     ASSERT(found);
@@ -1364,9 +1365,9 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     reg.register_tool(agent::make_bash_tool());
     agent::ConversationLog log;
     std::set<std::string> approved;
-    std::vector<agent::Message> history;
+    agent::Context dctx;
 
-    // Pre-populate history with an assistant message that already made this call.
+    // Pre-populate context with an assistant message that already made this call.
     // This simulates a model repeating a tool call from a prior turn.
     agent::json prior_tc = agent::json::array();
     agent::json tc1;
@@ -1379,7 +1380,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     prior.role = "assistant";
     prior.content = "";
     prior.tool_calls = prior_tc;
-    history.push_back(prior);
+    dctx.push(std::move(prior));
 
     int tool_results = 0;
     std::vector<agent::ToolResult> results;
@@ -1399,7 +1400,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     calls.push_back(tc2);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, history);
+                                         approved, nullptr, &dctx);
     // Should be rejected as duplicate
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
@@ -1436,8 +1437,9 @@ TEST(dispatch_auto_approves_in_write_mode) {
                       {"arguments", {{"command", "touch /tmp/amber_test_dispatch"}}}};
     calls.push_back(tc);
 
+    agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, history);
+                                         approved, nullptr, &dctx);
     ASSERT(ok);
     // Write mode consults the approval callback for gated tools
     ASSERT(approval_called);
@@ -1469,8 +1471,9 @@ TEST(dispatch_missing_tool_reports_unknown) {
                       {"arguments", "{}"}};
     calls.push_back(tc);
 
+    agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, history);
+                                         approved, nullptr, &dctx);
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
     ASSERT_FALSE(captured.ok);
@@ -1664,11 +1667,10 @@ TEST(compression_gate_below_threshold) {
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 100000;
-    std::vector<agent::Message> hist = {
-        msg("system", "short"),
-        msg("user", "hi"),
-    };
-    ASSERT_FALSE(gate->should_compress(hist, cfg));
+    agent::Context ctx;
+    ctx.push(msg("system", "short"));
+    ctx.push(msg("user", "hi"));
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
 }
 
 TEST(compression_gate_above_threshold) {
@@ -1677,10 +1679,10 @@ TEST(compression_gate_above_threshold) {
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 1000;
-    std::vector<agent::Message> hist;
+    agent::Context ctx;
     for (int i = 0; i < 10; ++i)
-        hist.push_back(msg("user", std::string(100, 'a')));
-    ASSERT(gate->should_compress(hist, cfg));
+        ctx.push(msg("user", std::string(100, 'a')));
+    ASSERT(gate->should_compress(ctx, cfg));
 }
 
 TEST(compression_gate_min_turns) {
@@ -1690,8 +1692,9 @@ TEST(compression_gate_min_turns) {
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 100000;
-    std::vector<agent::Message> hist = {msg("user", "hello")};
-    ASSERT_FALSE(gate->should_compress(hist, cfg));
+    agent::Context ctx;
+    ctx.push(msg("user", "hello"));
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
 }
 
 TEST(request_builder_returns_message) {
@@ -1922,11 +1925,11 @@ TEST(agent_text_only_reply) {
     agent::Message sys; sys.role = "system"; sys.content = "test";
     agent::Message u;   u.role = "user";     u.content = "say hello";
     agent::Message a;   a.role = "assistant"; a.content = "Hello world";
-    ag.set_history({sys, u, a});
+    ag.set_context({sys, u, a});
 
-    ASSERT(ag.history().size() >= 3u);
-    ASSERT_EQ(ag.history().back().role, "assistant");
-    ASSERT(ag.history().back().content.find("Hello") != std::string::npos);
+    ASSERT(ag.context().size() >= 3u);
+    ASSERT(ag.context().get_all().back().role == "assistant");
+    ASSERT(ag.context().get_all().back().content.find("Hello") != std::string::npos);
 
 }
 
