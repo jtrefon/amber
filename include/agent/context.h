@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <vector>
 
 #include "agent/llm.h"
@@ -86,6 +87,26 @@ private:
         for (const auto& msg : stack_)
             token_count_ += message_tokens(msg);
     }
+};
+
+// Lightweight one-to-many event source for context-change notifications.
+// Multiple subscribers receive (token_count, message_count) on every
+// push/pop/clear. Subscriber order is not guaranteed.
+class ContextEventSource {
+public:
+    using Callback = std::function<void(size_t tokens, size_t msgs)>;
+
+    void subscribe(Callback cb) {
+        subs_.push_back(std::move(cb));
+    }
+
+    void publish(size_t tokens, size_t msgs) const {
+        for (const auto& cb : subs_)
+            if (cb) cb(tokens, msgs);
+    }
+
+private:
+    std::vector<Callback> subs_;
 };
 
 } // namespace agent
