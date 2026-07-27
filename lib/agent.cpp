@@ -148,8 +148,8 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
     if (gate_ && compression_) {
         if (gate_->should_compress(context_, cfg_)) {
             auto cc = load_compression_config(cfg_);
-            prompt_copy.assign(compression_->compress(prompt_copy, cc, client_)
-                               .begin(), compression_->compress(prompt_copy, cc, client_).end());
+            auto compressed = compression_->compress(prompt_copy, cc, client_);
+            prompt_copy.assign(compressed.begin(), compressed.end());
             gate_->set_last_compress_turn(turn_counter_);
         }
     }
