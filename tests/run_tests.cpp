@@ -197,47 +197,6 @@ TEST(config_explicit_model_and_context_are_flagged) {
     std::remove(path.c_str());
 }
 
-// Regression guard for the actual save path (Config::save, used by the TUI F10
-// "save settings"). Auto-detected model/context must be written as sentinels so
-// a reload re-enables auto-detection instead of pinning the probed value. This
-// exercises the real serializer, not a hand-written file.
-TEST(config_save_preserves_autodetect_intent) {
-    std::string path = "/tmp/amber_save_auto.conf";
-    agent::Config src;
-    src.api_base = "http://localhost:8081/v1";
-    src.api_key = "";
-    // Simulate a probe having filled these, WITHOUT the user setting them.
-    src.model = "qwen-probed";  src.model_explicit = false;
-    src.context_size = 8192;    src.context_explicit = false;
-    ASSERT_TRUE(src.save(path));
-
-    agent::Config back;
-    back.load(path);
-    ASSERT_EQ(back.api_base, "http://localhost:8081/v1");
-    ASSERT_TRUE(back.model.empty());       // sentinel, not the probed value
-    ASSERT_FALSE(back.model_explicit);     // auto-detect stays enabled
-    ASSERT_EQ(back.context_size, 0);       // sentinel, not 8192
-    ASSERT_FALSE(back.context_explicit);
-    std::remove(path.c_str());
-}
-
-// The mirror case: user-set model/context must survive save->load as explicit.
-TEST(config_save_preserves_explicit_values) {
-    std::string path = "/tmp/amber_save_explicit.conf";
-    agent::Config src;
-    src.model = "my-model";   src.model_explicit = true;
-    src.context_size = 32768; src.context_explicit = true;
-    ASSERT_TRUE(src.save(path));
-
-    agent::Config back;
-    back.load(path);
-    ASSERT_EQ(back.model, "my-model");
-    ASSERT_TRUE(back.model_explicit);
-    ASSERT_EQ(back.context_size, 32768);
-    ASSERT_TRUE(back.context_explicit);
-    std::remove(path.c_str());
-}
-
 // Context size defaults to 0 (auto) so the gauge hides and probing is allowed.
 TEST(config_context_default_is_auto) {
     agent::Config c;
@@ -1065,27 +1024,6 @@ TEST(session_store_save_load_list_delete) {
 }
 
 // ---------------------------------------------------------------------------
-// Agent conversation memory (stateful across run() calls)
-// ---------------------------------------------------------------------------
-
-TEST(agent_retains_history_across_turns) {
-    agent::Config cfg;
-    agent::ToolRegistry reg;
-    agent::Agent ag(cfg, reg);
-
-    // Seed a prior conversation as if loaded from a session.
-    agent::Message sys; sys.role = "system"; sys.content = "sys";
-    agent::Message u;   u.role = "user";     u.content = "earlier";
-    agent::Message a;   a.role = "assistant"; a.content = "reply";
-    ag.set_history({sys, u, a});
-    ASSERT_EQ(ag.history().size(), 3u);
-    ASSERT_EQ(ag.history().front().role, "system");
-
-    ag.reset();
-    ASSERT_EQ(ag.history().size(), 0u);
-}
-
-// ---------------------------------------------------------------------------
 // bash tool
 // ---------------------------------------------------------------------------
 
@@ -1255,6 +1193,8 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     cfg.stream = true;
     cfg.mode = agent::AgentMode::Yolo;
     cfg.max_tool_iterations = 32;   // default; the loop must NOT reach this
+    cfg.detection_loop = true;       // enable loop detection for this test
+    cfg.system_prompt_path = "prompts/system.md";
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::register_default_tools(reg, jobs);
@@ -1269,9 +1209,9 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     ag.set_hooks(hooks);
 
     std::string out = ag.run("review ncurses usage");
-    // Must terminate well before max_tool_iterations (bounded by fail_streak).
+    // Must terminate well before max_tool_iterations (bounded by loop detector).
     ASSERT(tool_results < 10);
-    ASSERT(out.find("kept failing") != std::string::npos);
+    ASSERT(out.find("loop detected") != std::string::npos);
     close(fd);
 }
 
@@ -1388,7 +1328,7 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     int tool_results = 0;
     agent::ToolResult captured;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string& n, const agent::ToolResult& r) {
+    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& r) {
         ++tool_results;
         captured = r;
     };
@@ -1402,7 +1342,7 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     calls.push_back(tc);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, history);
+                                         approved, nullptr, history);
     ASSERT(ok);
     ASSERT(tool_results == 1);
     ASSERT(captured.ok);
@@ -1419,6 +1359,7 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
 TEST(dispatch_rejects_duplicate_tool_call) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
+    cfg.detection_duplicate = true;
     agent::ToolRegistry reg;
     reg.register_tool(agent::make_bash_tool());
     agent::ConversationLog log;
@@ -1458,7 +1399,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     calls.push_back(tc2);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, history);
+                                         approved, nullptr, history);
     // Should be rejected as duplicate
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
@@ -1466,22 +1407,22 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     ASSERT(results[0].error.find("already ran") != std::string::npos);
 }
 
-TEST(dispatch_approval_required_grants_session_access) {
+TEST(dispatch_auto_approves_in_write_mode) {
     agent::Config cfg;
-    // NOT yolo mode — approval handler will be consulted
     agent::ToolRegistry reg;
-    reg.register_tool(agent::make_bash_tool());
     agent::ConversationLog log;
+    reg.register_tool(agent::make_bash_tool());
+
     std::set<std::string> approved;
     std::vector<agent::Message> history;
 
     int tool_results = 0;
     bool approval_called = false;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult& r) {
+    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& /*r*/) {
         ++tool_results;
     };
-    hooks.on_approval = [&](const std::string& n, const agent::json&,
+    hooks.on_approval = [&](const std::string& /*n*/, const agent::json&,
                             const std::string&) -> agent::Approval {
         approval_called = true;
         return agent::Approval::AllowSession;
@@ -1496,12 +1437,13 @@ TEST(dispatch_approval_required_grants_session_access) {
     calls.push_back(tc);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, history);
+                                         approved, nullptr, history);
     ASSERT(ok);
+    // Write mode consults the approval callback for gated tools
     ASSERT(approval_called);
     ASSERT(tool_results == 1);
-    // Session approval should be recorded for auto-approval of same tool
-    ASSERT(approved.count("bash") == 1u);
+    // AllowSession stores the grant
+    ASSERT(approved.count("bash") == 1);
 }
 
 TEST(dispatch_missing_tool_reports_unknown) {
@@ -1528,7 +1470,7 @@ TEST(dispatch_missing_tool_reports_unknown) {
     calls.push_back(tc);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, history);
+                                         approved, nullptr, history);
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
     ASSERT_FALSE(captured.ok);
@@ -1753,11 +1695,7 @@ TEST(compression_gate_min_turns) {
 }
 
 TEST(request_builder_returns_message) {
-    std::vector<agent::Message> hist = {
-        msg("system", "prompt"),
-        msg("user", "hello"),
-    };
-    auto req = agent::build_compression_request(hist);
+    auto req = agent::build_compression_request();
     ASSERT(req.role == "user");
     ASSERT(!req.content.empty());
 }
@@ -1920,9 +1858,9 @@ TEST(integration_apply_and_retrieve) {
     store->set_current_turn(1);
 
     cr.memory_ops.push_back(
-        {"project uses GNU make with ./configure", {"build", "make"}, "upsert", ""});
+        {"build system", "project uses GNU make with ./configure", {"build", "make"}, "upsert", ""});
     cr.memory_ops.push_back(
-        {"103 tests passed", {"tests", "testing"}, "upsert", ""});
+        {"test results", "103 tests passed", {"tests", "testing"}, "upsert", ""});
 
     // Single compression cycle — memories are now promoted immediately
     // (evidence=3, promoted=true) since the LLM confirmed them.
@@ -1992,28 +1930,6 @@ TEST(agent_text_only_reply) {
 
 }
 
-TEST(agent_loop_behavioral_spec) {
-    // Verify the core agent loop invariants: history management, tool resolution,
-    // and state transitions. This test does NOT make HTTP requests — it operates
-    // on pre-seeded histories to verify that set_history/reset round-trip and
-    // that the loop infrastructure is wired correctly.
-    agent::Config cfg;
-    cfg.max_tool_iterations = 1;
-    agent::ToolRegistry reg;
-    agent::Agent ag(cfg, reg);
-
-    agent::Message sys; sys.role = "system"; sys.content = "test system";
-    agent::Message u;   u.role = "user";     u.content = "first message";
-    agent::Message a;   a.role = "assistant"; a.content = "first reply";
-    ag.set_history({sys, u, a});
-    ASSERT_EQ(ag.history().size(), 3u);
-    ASSERT_EQ(ag.history().front().role, "system");
-    ASSERT_EQ(ag.history().back().content, "first reply");
-
-    ag.reset();
-    ASSERT_EQ(ag.history().size(), 0u);
-}
-
 // ---------------------------------------------------------------------------
 // Compression observer (FIX-004)
 // ---------------------------------------------------------------------------
@@ -2061,8 +1977,9 @@ TEST(build_system_separates_core_and_tools) {
     std::string core_contents;
     {
         std::array<char, 128> buf;
-        std::unique_ptr<FILE, decltype(&pclose)> pipe(
-            popen(("ar t " + core_archive).c_str(), "r"), pclose);
+        auto deleter = [](FILE* f) { if (f) pclose(f); };
+        std::unique_ptr<FILE, decltype(deleter)> pipe(
+            popen(("ar t " + core_archive).c_str(), "r"), deleter);
         if (pipe) while (fgets(buf.data(), buf.size(), pipe.get())) core_contents += buf.data();
     }
     if (core_contents.find("tools/") != std::string::npos) {

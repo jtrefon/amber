@@ -20,6 +20,15 @@ agent::Session Tui::snapshot(Window& w) const {
         s.messages = w.agent->history();
         s.meta = w.agent->meta_;
     }
+    // Persist UI state so it survives exit/reload.
+    s.meta["ctx_used"] = ctx_used_;
+    s.meta["ctx_size"] = cfg_.context_size;
+    if (stats_.valid) {
+        s.meta["latency_ms"] = stats_.latency_ms;
+        s.meta["tps"] = stats_.tps;
+        s.meta["prompt_tokens"] = stats_.prompt_tokens;
+        s.meta["completion_tokens"] = stats_.completion_tokens;
+    }
     s.derive_title();
     if (w.title != "chat" && !w.title.empty()) s.title = w.title;
     return s;
@@ -63,6 +72,20 @@ void Tui::load_session(const std::string& id) {
     w.agent->set_history(s.messages);
     if (!s.meta.empty())
         w.agent->meta_ = s.meta;
+    // Restore UI state from saved session meta.
+    auto get_num = [&](const char* key, long def) -> long {
+        return (s.meta.contains(key) && s.meta[key].is_number())
+                   ? s.meta[key].get<long>() : def;
+    };
+    ctx_used_ = get_num("ctx_used", -1);
+    cfg_.context_size = static_cast<int>(get_num("ctx_size", 0));
+    if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
+        stats_.latency_ms = s.meta["latency_ms"].get<double>();
+        stats_.tps = static_cast<double>(get_num("tps", -1));
+        stats_.prompt_tokens = get_num("prompt_tokens", -1);
+        stats_.completion_tokens = get_num("completion_tokens", -1);
+        stats_.valid = true;
+    }
     for (const auto& m : s.messages) {
         if (m.role == "user") {
             append_line(P_USER, "> " + m.content);
@@ -350,6 +373,22 @@ void Tui::lazy_load_active() {
         return;
     }
     w.agent->set_history(s.messages);
+    // Restore meta and UI state (same logic as load_session).
+    if (!s.meta.empty())
+        w.agent->meta_ = s.meta;
+    auto get_num = [&](const char* key, long def) -> long {
+        return (s.meta.contains(key) && s.meta[key].is_number())
+                   ? s.meta[key].get<long>() : def;
+    };
+    ctx_used_ = get_num("ctx_used", -1);
+    cfg_.context_size = static_cast<int>(get_num("ctx_size", 0));
+    if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
+        stats_.latency_ms = s.meta["latency_ms"].get<double>();
+        stats_.tps = static_cast<double>(get_num("tps", -1));
+        stats_.prompt_tokens = get_num("prompt_tokens", -1);
+        stats_.completion_tokens = get_num("completion_tokens", -1);
+        stats_.valid = true;
+    }
     w.lines.clear();
     for (const auto& m : s.messages) {
         if (m.role == "user")

@@ -95,9 +95,9 @@ an empty string as `old`.
 
 ## bash
 
-Execute a shell command. Requires user approval (TTY prompt or TUI
-dialog). Denied automatically when input is not interactive and `--yes`
-was not passed.
+Execute a shell command. Approval required only in READ mode (where
+bash is blocked entirely); in WRITE and YOLO modes commands run
+immediately.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|

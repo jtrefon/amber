@@ -51,6 +51,7 @@ public:
     const ChunkSink& on_chunk_;
     std::string debug_path_;
     SseState st_;
+    std::string raw_body_;  // all bytes received; used for error diagnostics
 };
 
 } // namespace agent

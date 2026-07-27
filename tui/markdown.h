@@ -19,8 +19,7 @@ namespace md {
      int heading_pair = P_MD_HEAD;    // headings
      int code_pair = P_MD_CODE;       // inline + fenced code
      int quote_pair = P_MD_QUOTE;     // block quotes
-     int emph_pair = P_ASSISTANT;     // bold/strong emphasis (bold attr added)
-     int link_pair = P_MD_LINK;       // link text
+      int link_pair = P_MD_LINK;       // link text
      int table_pair = P_MD_TABLE;     // table body
      int table_head_pair = P_MD_HEAD; // table header row
      int hr_pair = P_MD_HR;           // horizontal rule

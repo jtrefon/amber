@@ -15,8 +15,9 @@ namespace tui {
 // Keyboard: Up/Down to navigate, Enter to select, Esc to cancel.
 class ListPanel : public Panel {
 public:
+    ListPanel(const std::string& title, const std::vector<std::string>& items);
     ListPanel(const std::string& title, const std::vector<std::string>& items,
-              std::vector<FooterKey> footer = {});
+              std::vector<FooterKey> footer);
 
     int run();  // Returns selected index, or -1 on cancel
 

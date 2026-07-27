@@ -14,6 +14,12 @@ namespace agent { class MemoryStore; }
 
 namespace agent {
 
+// Build a canonical fingerprint for a set of tool calls. Uses the same
+// parse_tool_call logic as dispatch so comparisons are consistent: arguments
+// are normalized to parsed JSON, then dump()-ed for ordering/stability.
+// Returns "name1|args1|name2|args2|..." or empty string for null/empty input.
+std::string fingerprint_tool_calls(const json& calls);
+
 // Replace invalid UTF-8 sequences with U+FFFD so model/tool text can never
 // carry bytes that make nlohmann throw on json::dump (type_error.316). Tool
 // output (grep/semantic search) and some servers' assistant content can
@@ -33,9 +39,13 @@ std::string strip_think(std::string s);
 void parse_tool_call(const json& call, std::string& id, std::string& fn,
                      json& args, bool& ok);
 
-// Extract XML-embedded tool calls from reply content (Jinja-style chat
-// templates that emit XML instead of JSON tool_calls). On success it rewrites
-// `tool_calls`/`content`/`stored` and returns true.
+// Extract XML-embedded tool calls from reply content or reasoning
+// (Jinja-style chat templates that emit XML instead of JSON tool_calls).
+// When `content` is empty, falls back to `stored.reasoning` — some models
+// (Qwen/Jinja) emit <tool_call> XML in their thinking block and leave
+// content blank. On success it rewrites `tool_calls`, clears the source
+// field (`content` or `stored.reasoning`), clears `content`, and returns
+// true.
 bool maybe_extract_text_tool_calls(json& tool_calls, std::string& content,
                                    Message& stored, const AgentHooks& hooks);
 

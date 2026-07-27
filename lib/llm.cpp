@@ -66,6 +66,27 @@ Message LLMClient::chat_stream(const std::vector<Message>& messages,
               "http=" + std::to_string(status) +
                   " content=" + out.content +
                   "\n---reasoning---\n" + out.reasoning);
+
+    // Validate tool call arguments: if any tool call has non-JSON arguments,
+    // discard ALL tool calls and keep only text.  Malformed tool calls in
+    // history poison subsequent requests (the server rejects them).
+    if (!out.tool_calls.is_null() && out.tool_calls.is_array()) {
+        bool valid = true;
+        for (const auto& tc : out.tool_calls) {
+            auto fn = tc.value("function", json::object());
+            std::string raw = fn.value("arguments", "");
+            if (!raw.empty()) {
+                auto parsed = json::parse(raw, nullptr, false);
+                if (parsed.is_discarded()) { valid = false; break; }
+            }
+        }
+        if (!valid) {
+            debug_log(cfg_.debug_log, "response-stream",
+                      "discarding malformed tool calls");
+            out.tool_calls = json::value_t::null;
+        }
+    }
+
     return out;
 }
 

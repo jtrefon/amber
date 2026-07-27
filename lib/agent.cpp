@@ -32,17 +32,17 @@ void Agent::ensure_system_prompt() {
 
     std::string system = load_prompt(cfg_.system_prompt_path);
     if (system.empty())
-        system = "You are amber, a helpful coding assistant running on a "
-                 "Linux server. Use the bash tool for ALL file operations. "
-                 "Read files with: cat, head, tail, grep, ls. "
-                 "Edit files with: sed, redirect (>), or use the write tool. "
-                 "Run builds with: g++, make, cmake. "
-                 "Read-only commands (cat, ls, grep, find) need no approval. "
-                 "Write commands (sed -i, rm, mv, >) may be gated by policy.";
-    if (!cfg_.tools_prompt_path.empty())
-        system += "\n\n" + load_prompt(cfg_.tools_prompt_path);
-    else if (!registry_.empty())
+        throw std::runtime_error("system prompt file not found or empty: " +
+                                 cfg_.system_prompt_path);
+    if (!cfg_.tools_prompt_path.empty()) {
+        std::string tools = load_prompt(cfg_.tools_prompt_path);
+        if (tools.empty())
+            throw std::runtime_error("tools prompt file not found or empty: " +
+                                     cfg_.tools_prompt_path);
+        system += "\n\n" + tools;
+    } else if (!registry_.empty()) {
         system += "\n\n" + render_tools_markdown(registry_);
+    }
 
     switch (cfg_.mode) {
     case agent::AgentMode::Read:
@@ -51,13 +51,15 @@ void Agent::ensure_system_prompt() {
                   "is disallowed. Answer questions about the codebase but do not "
                   "make changes.";
         break;
-    case agent::AgentMode::Yolo:
-        system += "\n\nYou are in YOLO mode. All tools are auto-approved and "
-                  "execute immediately. Be thorough but efficient; the user trusts "
-                  "you to make the right decisions.";
-        break;
     case agent::AgentMode::Write:
-    default:
+        system += "\n\nYou are in WRITE mode. All tools run without interactive "
+                  "approval. You can read, edit, create files, and run commands. "
+                  "You are trusted to modify the project.";
+        break;
+    case agent::AgentMode::Yolo:
+        system += "\n\nYou are in YOLO mode. All tools run without approval and "
+                  "execute immediately with full system access. The user trusts "
+                  "you completely.";
         break;
     }
 
@@ -127,7 +129,10 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
     } else {
         reply = client_.chat(prompt_msgs, tools, &stats);
     }
-    if (stats.valid && hooks_.on_stats) hooks_.on_stats(stats);
+    if (stats.valid) {
+        if (hooks_.on_stats) hooks_.on_stats(stats);
+        cfg_.prompt_tokens_used = stats.prompt_tokens;
+    }
 
     ++turn_counter_;
     return reply;
@@ -155,18 +160,35 @@ size_t estimate_tokens(const std::vector<Message>& msgs) {
 
 void apply_compression_memops(MemoryStore* store, const ExperienceConfig& exp_cfg,
                                const CompressionResponse& cr, size_t turn,
-                               CompressionReporter& reporter) {
-    size_t upsert = 0, deprecate = 0;
-    for (const auto& op : cr.memory_ops) {
-        if (op.action == "deprecate") ++deprecate; else ++upsert;
-    }
-    if (!store || cr.memory_ops.empty()) return;
+                               CompressionReporter& reporter,
+                               Agent::ExtractionResult* extraction_out) {
+    if (!store || (cr.memory_ops.empty() && cr.skill_ops.empty())) return;
     store->set_current_turn(turn);
-    apply_memory_ops(*store, cr.memory_ops, "");
+
+    size_t mem_up = 0, mem_dep = 0;
+    for (const auto& op : cr.memory_ops) {
+        if (op.action == "deprecate") ++mem_dep; else ++mem_up;
+    }
+    std::vector<ExtractionItem> items;
+    if (!cr.memory_ops.empty())
+        apply_memory_ops(*store, cr.memory_ops, "", &items);
+
+    size_t sk_up = 0, sk_dep = 0;
+    for (const auto& op : cr.skill_ops) {
+        if (op.action == "deprecate") ++sk_dep; else ++sk_up;
+    }
+    if (!cr.skill_ops.empty())
+        apply_skill_ops(*store, cr.skill_ops, "", &items);
+
     store->decay_all();
     if (!exp_cfg.store_path.empty())
         store->save(exp_cfg.store_path);
-    reporter.on_memory_ops_applied(upsert, deprecate);
+    reporter.on_memory_ops_applied(mem_up + sk_up, mem_dep + sk_dep);
+    if (extraction_out) {
+        extraction_out->new_memories = mem_up;
+        extraction_out->new_skills = sk_up;
+        extraction_out->items = std::move(items);
+    }
 }
 
 } // namespace
@@ -185,17 +207,23 @@ CompressionResult Agent::compress_now() {
 
     r.tokens_after = estimate_tokens(history_);
     r.messages_after = history_.size();
-    r.core_count = r.messages_after;
+    r.core_count = 0;
+    r.context_count = 0;
+    r.prune_count = 0;
+    for (const auto& seg : pipeline_cr.segments) {
+        size_t turns = seg.turn_end - seg.turn_start + 1;
+        switch (seg.tag) {
+            case Classification::core:    r.core_count += turns; break;
+            case Classification::context: r.context_count += turns; break;
+            case Classification::prune:   r.prune_count += turns; break;
+        }
+    }
 
     apply_compression_memops(memory_store_.get(), experience_cfg_,
-                             pipeline_cr, turn_counter_, reporter);
+                             pipeline_cr, turn_counter_, reporter,
+                             &last_extraction_);
     last_compression_ = r;
     return r;
-}
-
-void Agent::reset() {
-    history_.clear();
-    session_approved_.clear();
 }
 
 // Accept the candidate when the model confirms (or improves) the answer, or
@@ -214,8 +242,20 @@ std::string Agent::confirm_turn(const std::string& candidate,
     history_.push_back(check);
     if (!check.tool_calls.is_null() && !check.tool_calls.empty()) {
         if (hooks_.on_status) hooks_.on_status("continuing investigation");
-        dispatch_tool_calls(check.tool_calls, cfg_, registry_, hooks_, log_,
-                            session_approved_, history_);
+        bool any_ran = dispatch_tool_calls(check.tool_calls, cfg_, registry_,
+                                            hooks_, log_, session_approved_,
+                                            &policy_, history_);
+        // If ALL tool calls were denied (not genuinely executed), break the
+        // loop instead of returning "" which would cause an infinite confirm
+        // cycle. Check the last tool result in history as a heuristic.
+        if (!any_ran) {
+            for (auto it = history_.rbegin(); it != history_.rend(); ++it) {
+                if (it->role != "tool") continue;
+                if (it->content.find("status=denied") != std::string::npos)
+                    return candidate;
+                break;
+            }
+        }
         return "";
     }
 
@@ -262,26 +302,19 @@ bool Agent::dispatch_with_loop_detection(
                         " tool call(s)");
 
     bool ok = dispatch_tool_calls(reply.tool_calls, cfg_, registry_,
-                                  hooks_, log_, session_approved_, history_);
+                                  hooks_, log_, session_approved_,
+                                  &policy_, history_);
 
     if (cfg_.detection_loop) {
-        auto loop_key = [](const json& calls) -> std::string {
-            std::string key;
-            for (const auto& tc : calls) {
-                auto fn = tc.value("function", json::object());
-                key += fn.value("name", "") + ":" + fn.value("arguments", "") + "|";
-            }
-            return key;
-        };
-        if (ok) {
-            std::string cur = loop_key(reply.tool_calls);
-            if (cur == last_loop_key) ++loop_count;
-            else { loop_count = 0; last_loop_key = cur; }
-        }
+        std::string cur = fingerprint_tool_calls(reply.tool_calls);
+        if (!cur.empty() && cur == last_loop_key) ++loop_count;
+        else { loop_count = 0; last_loop_key = cur; }
         if (loop_count >= 3) {
             if (hooks_.on_status)
                 hooks_.on_status("loop detected: breaking tool loop");
             log_.event("error", {{"reason", "tool_loop_detected"}});
+            final_reply = "[loop detected: the model repeated the same tool "
+                          "call 3+ times. Rephrase or break down the task.]";
             return true;
         }
         int worst = fail_streak.update(reply.tool_calls, ok);
@@ -387,6 +420,21 @@ std::string Agent::run(const std::string& user_prompt) {
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
         Message reply = safe_chat_once(hooks_, log_, chat, "generation");
+
+        // If the LLM call failed (HTTP 5xx or timeout), retry once without
+        // compression — compress_now() destroys the KV cache by replacing
+        // history_ with synthetic messages, making every subsequent call
+        // slower (full prompt re-evaluation).
+        if (reply.content.rfind("[error during", 0) == 0) {
+            if (hooks_.on_status)
+                hooks_.on_status("LLM error — retrying once");
+            reply = safe_chat_once(hooks_, log_, chat, "generation-retry");
+            if (reply.content.rfind("[error during", 0) == 0) {
+                if (hooks_.on_status)
+                    hooks_.on_status("retry still failing — continuing with error");
+            }
+        }
+
         process_generation(reply);
 
         if (dispatch_with_loop_detection(reply, fail_streak, loop_count,

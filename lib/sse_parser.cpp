@@ -188,6 +188,7 @@ void dispatch_event_impl(SseState& st, Message& out,
 
 size_t StreamParser::on_write(const char* data, size_t size, size_t nmemb) {
     const std::string raw(data, size * nmemb);
+    raw_body_.append(raw);
     if (!debug_path_.empty())
         debug_log(debug_path_, "sse-raw", raw);
     st_.buffer.append(raw);

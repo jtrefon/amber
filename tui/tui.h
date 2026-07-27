@@ -13,9 +13,11 @@
 #include "rich.h"
 #include "canvas.h"
 #include "markdown.h"
+#include "setting_registry.h"
 
 #include <atomic>
 #include <chrono>
+#include <set>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -46,6 +48,7 @@ struct AgentEvent {
         Approval,
         Error,
         Done,
+        CompressResult,
     };
     Type type;
     std::string text;
@@ -55,6 +58,7 @@ struct AgentEvent {
     agent::ToolResult tool_result{};
     agent::json tool_args;
     std::string error_msg;
+    agent::CompressionResult compress_result{};
 
     // Worker thread blocks on this promise until the UI thread
     // shows the approval dialog and resolves it.
@@ -82,8 +86,10 @@ private:
     bool drain_events();       // pop and process all pending events
     void pump_events();        // drain + redraw; safe to call from a modal loop
     void resolve_approval(const AgentEvent& ev);
-    void send_async(const std::string& prompt);
+    void send_async(const std::string& raw_prompt);
+    std::string expand_at_references(const std::string& raw) const;
     void agent_worker(const std::string& prompt);
+    void compress_worker();
 
     std::queue<AgentEvent> event_queue_;
     std::mutex event_mtx_;
@@ -107,8 +113,6 @@ private:
     // the worker on its promise.
     bool modal_open_ = false;
     std::queue<AgentEvent> pending_approvals_;
-    palette::Completer completer_;  // Tab-press state machine
-
     // ---- geometry / layout ----------------------------------------------
     int height() const;
     int width() const;
@@ -155,17 +159,16 @@ private:
     void draw();
     void draw_status_bar(const std::string& tail);
     void tick_clock();
-    void draw_input(const std::string& s);
+    void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
     void draw_drawer(const std::string& input);
     int drawer_menu(const std::string& title,
                     const std::vector<std::string>& items);
 
     // ---- command drawer -------------------------------------------------
-    void update_drawer(const std::string& input);
+
     static std::string drawer_token(const std::string& input);
     static bool drawer_has_arg(const std::string& input);
     std::vector<const tui::Command*> filter_commands(const std::string& token);
-    bool drawer_wants_open(const std::string& input) const;
 
     // ---- streaming helpers ----------------------------------------------
     void fold_reasoning();
@@ -215,7 +218,6 @@ public:
     void detect_server(bool force);
     bool test_connection(bool announce);
     void settings_screen();
-    void save_settings();
     void send(const std::string& prompt);
 
     // ---- member variables -----------------------------------------------
@@ -232,12 +234,15 @@ public:
     md::Style md_style_;                 // markdown color mapping
 
     std::vector<tui::Command> commands_;
+    tui::SettingRegistry settings_;
+    void build_settings();
     bool quit_ = false;
 
     bool drawer_open_ = false;
     int drawer_sel_ = 0;
     bool show_reasoning_ = true;
 
+    int policy_timeout_ = 60;
     agent::RunState state_ = agent::RunState::Idle;
     agent::Stats stats_;
     long ctx_used_ = -1;
@@ -245,7 +250,6 @@ public:
     agent::ServerInfo last_detected_;
     int anim_phase_ = 0;
     bool dirty_ = true;          // coalesce redraws into one flush per tick
-    std::string last_input_;     // for change detection on idle ticks
     // Wall-clock timestamp of the last status-bar repaint, so the clock and
     // progress wave keep ticking while the agent is blocked on a call that
     // emits no streaming tokens.

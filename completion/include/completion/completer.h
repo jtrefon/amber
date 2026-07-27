@@ -60,12 +60,12 @@ private:
     CompletionResult complete_top_level(
         const std::vector<std::unique_ptr<Command>>& commands,
         const std::string& input, bool question_mark,
-        Context ctx);
+        const Context& ctx);
 
     CompletionResult complete_arg_level(
         const std::vector<std::unique_ptr<Command>>& commands,
         const std::string& input, bool question_mark,
-        Context ctx);
+        const Context& ctx) const;
 
     // Build help lines for a set of commands (name  -  description).
     std::vector<std::string> help_for_commands(

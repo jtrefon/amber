@@ -4,6 +4,7 @@
 #include <agent.h>
 #include <agent/compressor.h>
 #include <agent/experience.h>
+#include <agent/data_path.h>
 #include <cctype>
 #include <cstring>
 #include <iostream>
@@ -111,9 +112,13 @@ int main(int argc, char** argv) {
     }
 
     if (cfg.system_prompt_path.empty())
-        cfg.system_prompt_path = "prompts/system.md";
+        cfg.system_prompt_path = agent::resolve_data_path("prompts/system.md", argv[0]);
+    else
+        cfg.system_prompt_path = agent::resolve_data_path(cfg.system_prompt_path, argv[0]);
     if (cfg.tools_prompt_path.empty())
-        cfg.tools_prompt_path = "prompts/tools.md";
+        cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", argv[0]);
+    else
+        cfg.tools_prompt_path = agent::resolve_data_path(cfg.tools_prompt_path, argv[0]);
 
     agent::ToolRegistry registry;
     agent::JobService jobs;
@@ -174,6 +179,7 @@ int main(int argc, char** argv) {
         agent::Agent agent(cfg, registry, hooks,
                            std::move(compressor), std::move(gate),
                            std::move(mem_store), std::move(retriever));
+        agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
         std::string reply = agent.run(prompt);
         std::cout << "\n" << reply << "\n";
     } catch (const std::exception& e) {

@@ -4,6 +4,7 @@
 #include <agent.h>
 
 #include "agent/workspace.h"
+#include "agent/data_path.h"
 
 #include "tui.h"
 
@@ -56,11 +57,12 @@ int main(int argc, char** argv) {
         if (!tmp.model.empty() && !cfg.model_explicit) { cfg.model = tmp.model; }
         if (tmp.context_size > 0 && !cfg.context_explicit) { cfg.context_size = tmp.context_size; }
 
-        // Fallback: load provider fields directly from legacy amber.conf
-        if (tmp.provider_name.empty() || tmp.provider_name == "custom") {
-            std::ifstream sf2("amber.conf");
-            if (sf2) cfg.load("amber.conf");
-        }
+        // Load project-level amber.conf unconditionally (like the CLI does).
+        // This overlays on top of the global config so api_base, model, etc.
+        // from amber.conf take effect even when a managed provider is configured
+        // globally.
+        std::ifstream sf2("amber.conf");
+        if (sf2) cfg.load("amber.conf");
     }
 
     // Project-local overrides (non-LLM settings) live in .amber/settings so they
@@ -80,8 +82,14 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    if (cfg.system_prompt_path.empty()) cfg.system_prompt_path = "prompts/system.md";
-    if (cfg.tools_prompt_path.empty()) cfg.tools_prompt_path = "prompts/tools.md";
+    if (cfg.system_prompt_path.empty())
+        cfg.system_prompt_path = agent::resolve_data_path("prompts/system.md", argv[0]);
+    else
+        cfg.system_prompt_path = agent::resolve_data_path(cfg.system_prompt_path, argv[0]);
+    if (cfg.tools_prompt_path.empty())
+        cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", argv[0]);
+    else
+        cfg.tools_prompt_path = agent::resolve_data_path(cfg.tools_prompt_path, argv[0]);
 
     agent::ToolRegistry registry;
     agent::JobService jobs;

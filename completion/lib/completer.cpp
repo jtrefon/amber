@@ -61,7 +61,7 @@ Completer::Context Completer::resolve_context(
 
 CompletionResult Completer::complete_top_level(
     const std::vector<std::unique_ptr<Command>>& commands,
-    const std::string& input, bool question_mark, Context ctx) {
+    const std::string& input, bool question_mark, const Context& /*ctx*/) {
     CompletionResult r;
 
     // Token from the input (everything after /, before space).
@@ -101,8 +101,8 @@ CompletionResult Completer::complete_top_level(
 }
 
 CompletionResult Completer::complete_arg_level(
-    const std::vector<std::unique_ptr<Command>>& commands,
-    const std::string& input, bool question_mark, Context ctx) {
+    const std::vector<std::unique_ptr<Command>>& /*commands*/,
+    const std::string& input, bool question_mark, const Context& ctx) const {
     CompletionResult r;
 
     if (!ctx.command) return r;

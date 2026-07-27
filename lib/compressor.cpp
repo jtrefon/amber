@@ -31,6 +31,9 @@ public:
         last_compress_turn_ = turn;
     }
 
+    void set_threshold(double t) override { cfg_.threshold = t; }
+    void set_min_turns(int n) override { cfg_.min_turns = n; }
+
     bool is_within_cooldown(size_t current_turn) const override {
         if (last_compress_turn_ == 0) return false;
         return (current_turn - last_compress_turn_) <
@@ -41,10 +44,24 @@ private:
     bool threshold_exceeded(const std::vector<Message>& history,
                              const Config& agent_cfg) const {
         if (agent_cfg.context_size <= 0) return false;
+        // Use the real token count from the last LLM call when available
+        // (much more accurate than character-based estimation).
+        if (agent_cfg.prompt_tokens_used > 0) {
+            double utilisation = static_cast<double>(agent_cfg.prompt_tokens_used) /
+                                 static_cast<double>(agent_cfg.context_size);
+            return utilisation >= cfg_.threshold;
+        }
+        // Fallback: estimate from character counts. Include tool_calls JSON
+        // (function arguments, names, ids) which can be a significant fraction
+        // of prompt tokens. Use 3 chars/token — JSON-heavy tool conversations
+        // are denser than prose (4 chars/token would underestimate by 30-50%).
         size_t total_chars = 0;
-        for (const auto& msg : history)
+        for (const auto& msg : history) {
             total_chars += msg.content.size() + msg.reasoning.size();
-        double utilisation = (static_cast<double>(total_chars) / 4.0) /
+            if (!msg.tool_calls.is_null())
+                total_chars += msg.tool_calls.dump().size();
+        }
+        double utilisation = (static_cast<double>(total_chars) / 3.0) /
                              static_cast<double>(agent_cfg.context_size);
         return utilisation >= cfg_.threshold;
     }
@@ -65,11 +82,10 @@ class CompressionPipeline : public CompressionStrategy {
 public:
     std::vector<Message> compress(
         const std::vector<Message>& history,
-        const CompressionConfig& cfg,
+        const CompressionConfig& /*cfg*/,
         LLMClient& client,
         CompressionObserver* observer,
         CompressionResponse* response_out) override {
-        (void)cfg;
 
         if (observer) observer->on_compress_start(history.size(), 0);
 
@@ -81,15 +97,15 @@ public:
             if (removed > 0) observer->on_loop_collapse(removed);
         }
 
-        Message request = build_compression_request(copy);
+        Message request = build_compression_request();
         copy.push_back(request);
 
         if (observer) observer->on_llm_request_sent();
         Message reply;
         try {
             reply = client.chat(copy, {});
-        } catch (const std::exception&) {
-            if (observer) observer->on_error("LLM call failed");
+        } catch (const std::exception& e) {
+            if (observer) observer->on_error(std::string("LLM call failed: ") + e.what());
             return history;
         }
         copy.pop_back();
@@ -116,8 +132,7 @@ public:
 // =========================================================================
 
 std::unique_ptr<CompressionStrategy> make_compressor(
-    const CompressionConfig& cfg) {
-    (void)cfg;
+    const CompressionConfig& /*cfg*/) {
     return std::make_unique<CompressionPipeline>();
 }
 
@@ -144,7 +159,7 @@ CompressionConfig load_compression_config(const Config& cfg) {
 CompressionReporter::CompressionReporter(const AgentHooks& hooks,
                                          CompressionResult& result)
     : hooks_(hooks), r_(result),
-      t0_(std::chrono::steady_clock::now()), before_msgs_(0) {}
+      t0_(std::chrono::steady_clock::now()) {}
 
 void CompressionReporter::set_before(size_t msgs, size_t tokens) {
     before_msgs_ = msgs; r_.messages_before = msgs; r_.tokens_before = tokens;
@@ -180,6 +195,7 @@ void CompressionReporter::on_memory_ops_applied(size_t up, size_t dep) {
 }
 
 void CompressionReporter::on_error(const std::string& msg) {
+    r_.error = msg;
     log("FAILED — " + msg);
 }
 

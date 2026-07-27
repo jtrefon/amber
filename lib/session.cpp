@@ -197,9 +197,9 @@ std::vector<SessionMeta> SessionStore::list() const {
 }
 
 bool SessionStore::list_contains(const std::string& id) const {
-    for (const auto& m : list())
-        if (m.id == id) return true;
-    return false;
+    const auto& entries = list();
+    return std::any_of(entries.begin(), entries.end(),
+                       [&](const auto& m) { return m.id == id; });
 }
 
 void SessionStore::rebuild_index() const {
