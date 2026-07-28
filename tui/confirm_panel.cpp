@@ -63,7 +63,9 @@ void ApprovalPanel::draw() {
     // Summary line (truncated if too long)
     std::string disp = summary_;
     if (static_cast<int>(disp.size()) > cw - 4)
-        disp = disp.substr(0, static_cast<std::size_t>(cw - 7)) + "...";
+        if (static_cast<int>(disp.size()) > cw - 7)
+            disp.resize(static_cast<std::size_t>(cw - 7));
+        disp += "...";
     int sx = (cw - static_cast<int>(disp.size())) / 2;
     if (sx < 0) sx = 0;
     mvwprintw(content(), 1, sx, "%s", disp.c_str());

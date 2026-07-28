@@ -523,7 +523,7 @@ void Tui::draw_drawer(const std::string& input) {
         size_t last_sp = ns_path.rfind(' ');
         if (last_sp != std::string::npos) {
             partial = ns_path.substr(last_sp + 1);
-            ns_path = ns_path.substr(0, last_sp);
+            ns_path.resize(last_sp);
         }
         // Convert space-separated to dotted: "get policy" → "get.policy"
         std::string dotted;
