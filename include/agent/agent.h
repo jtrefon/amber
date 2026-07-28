@@ -181,7 +181,7 @@ private:
 
     // Detect repeated text replies. Returns true if a hard text loop was
     // detected and final_reply was set.
-    bool detect_text_loop(const Message& reply, int& text_loop_count,
+    bool detect_text_loop(const std::string& content, int& text_loop_count,
                           std::string& last_text, std::string& final_reply);
 
     // Run confirm_turn and either break with the final reply or continue.

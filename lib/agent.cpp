@@ -363,10 +363,10 @@ bool Agent::dispatch_with_loop_detection(
     return true;
 }
 
-bool Agent::detect_text_loop(const Message& reply, int& text_loop_count,
+bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
                               std::string& last_text, std::string& final_reply) {
     if (!cfg_.detection_loop) return false;
-    if (reply.content == last_text && !reply.content.empty()) {
+    if (content == last_text && !content.empty()) {
         ++text_loop_count;
         if (text_loop_count == 2) {
             Message steer;
@@ -391,7 +391,7 @@ bool Agent::detect_text_loop(const Message& reply, int& text_loop_count,
         }
     } else {
         text_loop_count = 0;
-        last_text = reply.content;
+        last_text = content;
     }
     return false;
 }
@@ -465,10 +465,10 @@ std::string Agent::run(const std::string& user_prompt) {
             if (!final_reply.empty()) break;
             continue;
         }
-        if (detect_text_loop(reply, text_loop_count, last_text, final_reply))
+        if (detect_text_loop(content, text_loop_count, last_text, final_reply))
             break;
 
-        std::string accepted = try_confirm(reply.content, tools);
+        std::string accepted = try_confirm(content, tools);
         if (!accepted.empty()) { final_reply = accepted; break; }
     }
     return finish_turn(std::move(final_reply));
