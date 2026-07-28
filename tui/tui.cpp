@@ -845,12 +845,12 @@ void Tui::run() {
                 page.push_back("");
             }
             // Choices / range for leaf settings
-            const auto& ch = settings_.choices_for(help_key);
-            if (!ch.empty()) {
+            const auto& ch_choices = settings_.choices_for(help_key);
+            if (!ch_choices.empty()) {
                 std::string line = "choices: ";
-                for (size_t i = 0; i < ch.size(); ++i) {
+                for (size_t i = 0; i < ch_choices.size(); ++i) {
                     if (i > 0) line += ", ";
-                    line += ch[i];
+                    line += ch_choices[i];
                 }
                 page.push_back(line);
             }
@@ -866,10 +866,10 @@ void Tui::run() {
         std::string desc = settings_.help_for(help_key);
         if (!desc.empty()) {
             std::string msg = help_key + "  —  " + desc;
-            const auto& ch = settings_.choices_for(help_key);
-            if (!ch.empty()) {
+            const auto& chc = settings_.choices_for(help_key);
+            if (!chc.empty()) {
                 msg += "  choices: ";
-                for (const auto& c : ch) msg += c + "|";
+                for (const auto& c : chc) msg += c + "|";
                 msg.pop_back();
             }
             double rlo, rhi;
@@ -881,7 +881,7 @@ void Tui::run() {
         }
         // Fallback to cmd_help for top-level commands.
         size_t sp = node.find(' ');
-        if (sp != std::string::npos) node = node.substr(0, sp);
+        if (sp != std::string::npos) node.resize(sp);
         cmd_help(node);
         draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
         continue;

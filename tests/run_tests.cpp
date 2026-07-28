@@ -1323,7 +1323,6 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     reg.register_tool(agent::make_bash_tool());
     agent::ConversationLog log;
     std::set<std::string> approved;
-    std::vector<agent::Message> history;
 
     int tool_results = 0;
     agent::ToolResult captured;
@@ -1415,7 +1414,6 @@ TEST(dispatch_auto_approves_in_write_mode) {
     reg.register_tool(agent::make_bash_tool());
 
     std::set<std::string> approved;
-    std::vector<agent::Message> history;
 
     int tool_results = 0;
     bool approval_called = false;
@@ -1453,7 +1451,6 @@ TEST(dispatch_missing_tool_reports_unknown) {
     agent::ToolRegistry reg;
     agent::ConversationLog log;
     std::set<std::string> approved;
-    std::vector<agent::Message> history;
 
     int tool_results = 0;
     agent::ToolResult captured;
