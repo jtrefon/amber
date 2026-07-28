@@ -2037,5 +2037,134 @@ TEST(cancel_token_copies_share_state) {
 }
 
 // ---------------------------------------------------------------------------
+// Context immutable stack + event source
+// ---------------------------------------------------------------------------
+
+TEST(context_push_seals_message) {
+    agent::Context ctx;
+    agent::Message m;
+    m.role = "user";
+    m.content = "hello";
+    m.tool_calls = agent::json::array({agent::json::object({{"id", "1"}})});
+
+    ctx.push(std::move(m));
+    // After push the original reference is moved-from; the message is sealed.
+    ASSERT_EQ(ctx.size(), 1u);
+    ASSERT_EQ(ctx.get_all().back().role, "user");
+    ASSERT_EQ(ctx.get_all().back().content, "hello");
+
+    // get_all() returns const& — compiler enforces read-only.
+    const auto& ref = ctx.get_all();
+    ASSERT_EQ(ref.back().content, "hello");
+    // Attempting ref.back().content = "x" would fail at compile time.
+}
+
+TEST(context_token_count_tracks_content) {
+    agent::Context ctx;
+    ASSERT_EQ(ctx.token_count(), 0u);
+
+    agent::Message m;
+    m.role = "user";
+    m.content = "hello world";               // 11 chars / 4 = 2 + 4 overhead = 6
+    ctx.push(std::move(m));
+    ASSERT_EQ(ctx.token_count(), 6u);
+
+    agent::Message m2;
+    m2.role = "assistant";
+    m2.content = std::string(100, 'x');      // 100/4 = 25 + 4 = 29
+    ctx.push(std::move(m2));
+    ASSERT_EQ(ctx.token_count(), 35u);       // 6 + 29
+
+    ctx.clear();
+    ASSERT_EQ(ctx.token_count(), 0u);
+    ASSERT_EQ(ctx.size(), 0u);
+}
+
+TEST(context_pop_reduces_count) {
+    agent::Context ctx;
+    for (int i = 0; i < 5; ++i) {
+        agent::Message m;
+        m.role = "user";
+        m.content = "msg" + std::to_string(i);
+        ctx.push(std::move(m));
+    }
+    ASSERT_EQ(ctx.size(), 5u);
+    size_t before = ctx.token_count();
+
+    auto popped = ctx.pop(3);
+    ASSERT_EQ(popped.size(), 3u);
+    ASSERT_EQ(ctx.size(), 2u);
+    ASSERT(ctx.token_count() < before);
+    ASSERT_EQ(popped[0].content, "msg0");
+    ASSERT_EQ(popped[2].content, "msg2");
+}
+
+TEST(context_event_source_delivers_to_all_subscribers) {
+    agent::Context ctx;
+    agent::ContextEventSource src;
+
+    int sub1_count = 0, sub2_count = 0;
+    size_t sub1_tokens = 0, sub2_tokens = 0;
+
+    src.subscribe([&](size_t t, size_t) { ++sub1_count; sub1_tokens = t; });
+    src.subscribe([&](size_t t, size_t) { ++sub2_count; sub2_tokens = t; });
+
+    // Publish initial event.
+    src.publish(ctx.token_count(), ctx.size());
+    ASSERT_EQ(sub1_count, 1);
+    ASSERT_EQ(sub2_count, 1);
+
+    // Push a message and publish again.
+    agent::Message m;
+    m.role = "user";
+    m.content = "test";
+    ctx.push(std::move(m));
+    src.publish(ctx.token_count(), ctx.size());
+
+    ASSERT_EQ(sub1_count, 2);
+    ASSERT_EQ(sub2_count, 2);
+    ASSERT(sub1_tokens > 0u);
+    ASSERT_EQ(sub1_tokens, sub2_tokens);
+}
+
+TEST(context_event_integration_with_agent) {
+    // Verify that Agent's context mutations fire events to subscribers
+    // without requiring a live LLM server.
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg);
+
+    int events_fired = 0;
+    size_t last_tokens = 0;
+    size_t last_msgs = 0;
+    ag.context_events().subscribe([&](size_t t, size_t m) {
+        ++events_fired;
+        last_tokens = t;
+        last_msgs = m;
+    });
+
+    // Initially empty — no events yet (system prompt is pushed in run()).
+    ASSERT_EQ(events_fired, 0);
+
+    // set_context fires one bulk event after clearing + pushing.
+    agent::Message msg;
+    msg.role = "user";
+    msg.content = "test";
+    ag.set_context({msg});
+    ASSERT_EQ(events_fired, 1);
+    ASSERT(last_tokens > 0u);
+    ASSERT_EQ(last_msgs, 1u);
+
+    // Replace with two messages: one bulk event.
+    agent::Message msg2;
+    msg2.role = "assistant";
+    msg2.content = "reply";
+    ag.set_context({msg, msg2});
+    ASSERT_EQ(events_fired, 2);
+    ASSERT_EQ(last_msgs, 2u);
+}
+
+// ---------------------------------------------------------------------------
 
 int main() { return agent::test::run_all(); }
