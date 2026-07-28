@@ -137,15 +137,19 @@ lint:
 # in parallel and ignores the vendored nlohmann/json header (known-good, slow to
 # parse). Slower than lint; run explicitly rather than on every build.
 ANALYZE_JOBS = $(shell nproc 2>/dev/null || echo 4)
+ANALYZE_BUILD_DIR = /tmp/cppcheck_amber
 analyze:
 	@echo "cppcheck (warning/style/performance/portability/unusedFunction)..."
+	@mkdir -p $(ANALYZE_BUILD_DIR)
 	@cppcheck --enable=warning,style,performance,portability,unusedFunction --std=c++17 \
+	    --cppcheck-build-dir=$(ANALYZE_BUILD_DIR) \
 	    --max-ctu-depth=0 -j$(ANALYZE_JOBS) \
 	    --suppressions-list=$(SRC_DIR)/cppcheck_suppressions.txt \
 	    --suppress=missingIncludeSystem --error-exitcode=1 \
 	    -I$(SRC_DIR)/include -I$(SRC_DIR)/src -I$(SRC_DIR)/tools -I$(SRC_DIR) \
 	    $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/tests 2>/tmp/cp_$$.log; rc=$$?; \
-	grep -v "^Checking\|^nofile" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
+	grep -v "^Checking\|^nofile\|^cppcheck: progress" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
+	rm -rf $(ANALYZE_BUILD_DIR); \
 	exit $$rc
 
 DUPLICATE_MIN_LINES ?= 6
