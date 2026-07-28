@@ -102,7 +102,7 @@ TUI_BIN   = amber-tui
 NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
-.PHONY: all lib cli tui check test lint analyze clean install uninstall
+.PHONY: all lib cli tui check test lint analyze duplicates clean install uninstall
 
 # Lint sources: every project translation unit, third_party excluded.
 LINT_SRCS = $(wildcard $(SRC_DIR)/lib/*.cpp) \
@@ -138,15 +138,21 @@ lint:
 # parse). Slower than lint; run explicitly rather than on every build.
 ANALYZE_JOBS = $(shell nproc 2>/dev/null || echo 4)
 analyze:
-	@echo "cppcheck..."
-	@cppcheck --enable=warning,style,performance,portability --std=c++17 \
+	@echo "cppcheck (warning/style/performance/portability/unusedFunction)..."
+	@cppcheck --enable=warning,style,performance,portability,unusedFunction --std=c++17 \
 	    --max-ctu-depth=0 -j$(ANALYZE_JOBS) \
 	    --suppressions-list=$(SRC_DIR)/cppcheck_suppressions.txt \
 	    --suppress=missingIncludeSystem --error-exitcode=1 \
 	    -I$(SRC_DIR)/include -I$(SRC_DIR)/src -I$(SRC_DIR)/tools -I$(SRC_DIR) \
-	    $(SRC_DIR)/tui $(SRC_DIR)/tests 2>/tmp/cp_$$.log; rc=$$?; \
-	grep -v "^Checking" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
+	    $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/tests 2>/tmp/cp_$$.log; rc=$$?; \
+	grep -v "^Checking\|^nofile" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
 	exit $$rc
+
+DUPLICATE_MIN_LINES ?= 6
+duplicates:
+	@echo "python3 duplicate block detector (min $(DUPLICATE_MIN_LINES) lines)..."
+	@python3 "$(SRC_DIR)/tools/duplicate_detector.py" --min-lines=$(DUPLICATE_MIN_LINES) $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/tests $(SRC_DIR)/src
+	@echo "  clean"
 
 all: lib cli tui
 
