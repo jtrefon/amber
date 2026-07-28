@@ -477,6 +477,17 @@ std::vector<const Command*> Tui::filter_commands(const std::string& token) {
 
 void Tui::draw_drawer(const std::string& input) {
     if (!drawer_open_) return;
+    // Don't draw the drawer when a modal dialog is active — it uses raw
+    // move/addch which bypasses the panel system and paints on top of
+    // modal dialogs (approval, info, menu_select). Clear the area to
+    // remove any stale text that would peek through the modal.
+    if (modal_open_) {
+        int bar_row = height() - 2;
+        for (int row = std::max(0, bar_row - 8); row < bar_row; ++row) {
+            move(row, 0); clrtoeol();
+        }
+        return;
+    }
 
     int bar_row = height() - 2;
     std::string token = drawer_token(input);
