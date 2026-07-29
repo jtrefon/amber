@@ -234,18 +234,34 @@ public:
     }
 
     void decay_all() override {
-        for (auto& [id, mem] : memories_) {
-            if (mem.evidence_count > 0)
-                mem.evidence_count -= 1;
-            if (mem.evidence_count <= 0)
-                mem.promoted = false;
+        for (auto it = memories_.begin(); it != memories_.end(); ) {
+            if (it->second.evidence_count <= 0) {
+                it = memories_.erase(it);
+            } else {
+                int decay = std::max(1, static_cast<int>(
+                    it->second.evidence_count * cfg_.decay_rate));
+                it->second.evidence_count -= decay;
+                if (it->second.evidence_count <= 0)
+                    it->second.promoted = false;
+                ++it;
+            }
         }
-        for (auto& [id, sk] : skills_) {
-            if (sk.evidence_count > 0)
-                sk.evidence_count -= 1;
-            if (sk.evidence_count <= 0)
-                sk.promoted = false;
+        for (auto it = skills_.begin(); it != skills_.end(); ) {
+            if (it->second.evidence_count <= 0) {
+                it = skills_.erase(it);
+            } else {
+                int decay = std::max(1, static_cast<int>(
+                    it->second.evidence_count * cfg_.decay_rate));
+                it->second.evidence_count -= decay;
+                if (it->second.evidence_count <= 0)
+                    it->second.promoted = false;
+                ++it;
+            }
         }
+    }
+
+    size_t store_size() const override {
+        return memories_.size() + skills_.size();
     }
 
     bool load(const std::string& path) override {
@@ -269,6 +285,13 @@ public:
     }
 
     bool save(const std::string& path) const override {
+        // Ensure parent directory exists
+        auto slash = path.find_last_of('/');
+        if (slash != std::string::npos) {
+            std::string dir = path.substr(0, slash);
+            std::string cmd = "mkdir -p " + dir;
+            if (std::system(cmd.c_str()) < 0) { /* ignore */ }
+        }
         json j;
         j["version"] = 1;
         json mems = json::array();
@@ -308,10 +331,16 @@ ExperienceConfig load_experience_config(const Config& cfg) {
     ExperienceConfig ec;
     if (!cfg.experience_enabled)
         ec.enabled = false;
+    if (!cfg.experience_store_path.empty())
+        ec.store_path = cfg.experience_store_path;
     if (cfg.experience_max_memories > 0)
         ec.max_memories = static_cast<size_t>(cfg.experience_max_memories);
     if (cfg.experience_max_skills > 0)
         ec.max_skills = static_cast<size_t>(cfg.experience_max_skills);
+    if (cfg.experience_decay_rate > 0.0)
+        ec.decay_rate = cfg.experience_decay_rate;
+    if (cfg.experience_promote_threshold > 0)
+        ec.memory_promote_threshold = cfg.experience_promote_threshold;
     if (ec.store_path.empty()) {
         const char* home = std::getenv("HOME");
         if (home) ec.store_path = std::string(home) + "/.amber/memories.json";

@@ -33,10 +33,21 @@ std::string extract_json_block(const std::string& raw) {
     attempt = json::parse(s, nullptr, false);
     if (!attempt.is_discarded()) return s;
 
+    // Try to find a JSON object or array
     auto brace = s.find('{');
-    if (brace == std::string::npos) return {};
-    s = s.substr(brace);
-    auto close = s.rfind('}');
+    auto bracket = s.find('[');
+    size_t start = std::string::npos;
+    char close_char = 0;
+    if (brace != std::string::npos && (bracket == std::string::npos || brace < bracket)) {
+        start = brace;
+        close_char = '}';
+    } else if (bracket != std::string::npos) {
+        start = bracket;
+        close_char = ']';
+    }
+    if (start == std::string::npos) return {};
+    s = s.substr(start);
+    auto close = s.rfind(close_char);
     if (close == std::string::npos) return {};
     s = s.substr(0, close + 1);
     attempt = json::parse(s, nullptr, false);
@@ -56,7 +67,30 @@ CompressionResponse parse_compression_response(const std::string& json_str) {
     try {
         json j = json::parse(cleaned);
 
-        // Parse classification segments
+        // If the LLM returned a bare array, it's a classification-only response.
+        if (j.is_array()) {
+            for (const auto& seg : j) {
+                if (!seg.is_object()) continue;
+                ClassifiedSegment cs;
+                std::string turns = seg.value("turns", "0-0");
+                std::string tag = seg.value("tag", "context");
+                std::string summary = seg.value("summary", "");
+                cs.tag = tag_from_string(tag);
+                cs.summary = summary;
+
+                size_t dash = turns.find('-');
+                if (dash != std::string::npos) {
+                    cs.turn_start = static_cast<size_t>(
+                        std::atol(turns.substr(0, dash).c_str()));
+                    cs.turn_end = static_cast<size_t>(
+                        std::atol(turns.substr(dash + 1).c_str()));
+                }
+                cr.segments.push_back(cs);
+            }
+            return cr;  // Classification only — no memory/skill ops
+        }
+
+        // Parse classification segments from an object
         if (j.contains("classification") && j["classification"].is_array()) {
             for (const auto& seg : j["classification"]) {
                 ClassifiedSegment cs;

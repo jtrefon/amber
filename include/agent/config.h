@@ -119,6 +119,10 @@ struct Config {
     int compression_min_turns = 0;
     int compression_cooldown_turns = 0;
 
+    // Current turn counter, updated by Agent after each chat_once.
+    // Used by the compression gate for cooldown tracking.
+    mutable size_t turn_counter = 0;
+
     // Master switch for the permission/approval system in Write mode.
     // When off, gated tools run without prompting (pre-policy behavior).
     bool policy_approval = true;
@@ -130,8 +134,11 @@ struct Config {
 
     // Experience / memory settings. 0 means "use default".
     bool experience_enabled = true;
+    std::string experience_store_path;
     int experience_max_memories = 0;
     int experience_max_skills = 0;
+    double experience_decay_rate = 0.0;
+    int experience_promote_threshold = 0;
 
     // Load from a simple KEY=VALUE config file, then overlay env vars
     // (AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL, ...).

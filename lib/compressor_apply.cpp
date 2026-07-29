@@ -21,8 +21,9 @@ std::vector<Message> apply_classification(
     std::vector<std::string> summaries(history.size());
 
     for (const auto& seg : response.segments) {
+        size_t start = std::min(seg.turn_start, history.size() - 1);
         size_t end = std::min(seg.turn_end, history.size() - 1);
-        for (size_t i = seg.turn_start; i <= end; ++i) {
+        for (size_t i = start; i <= end; ++i) {
             tags[i] = seg.tag;
             summaries[i] = seg.summary;
         }
@@ -30,7 +31,9 @@ std::vector<Message> apply_classification(
 
     // Separate messages by tag
     std::vector<Message> core;
-    std::vector<std::pair<size_t, std::string>> archive_segments;
+    // Archive entry: (start_turn, end_turn, summary)
+    struct ArchiveSeg { size_t start; size_t end; std::string summary; };
+    std::vector<ArchiveSeg> archive_segments;
     size_t prune_count = 0;
 
     for (size_t i = 0; i < history.size(); ++i) {
@@ -40,8 +43,12 @@ std::vector<Message> apply_classification(
                 break;
             case Classification::context:
                 if (archive_segments.empty() ||
-                    archive_segments.back().first != i - 1) {
-                    archive_segments.emplace_back(i, summaries[i]);
+                    archive_segments.back().end != i - 1) {
+                    // Non-contiguous: start a new segment
+                    archive_segments.push_back({i, i, summaries[i]});
+                } else {
+                    // Contiguous: extend the current segment
+                    archive_segments.back().end = i;
                 }
                 break;
             case Classification::prune:
@@ -54,9 +61,11 @@ std::vector<Message> apply_classification(
     json archive_json = json::array();
     for (const auto& seg : archive_segments) {
         json entry;
-        entry["turns"] = std::to_string(seg.first) + "-" +
-                         std::to_string(seg.first);
-        entry["summary"] = seg.second.empty() ? "(compressed)" : seg.second;
+        std::string range = (seg.start == seg.end)
+            ? std::to_string(seg.start)
+            : std::to_string(seg.start) + "-" + std::to_string(seg.end);
+        entry["turns"] = range;
+        entry["summary"] = seg.summary.empty() ? "(compressed)" : seg.summary;
         archive_json.push_back(entry);
     }
 
@@ -80,6 +89,19 @@ std::vector<Message> apply_classification(
     compressed_msg.content = "Compressed conversation context:\n" + ctx.dump(2);
     core.push_back(compressed_msg);
 
+    // Minimum context invariant: ensure at least one user message survives.
+    bool has_user = false;
+    for (const auto& msg : core)
+        if (msg.role == "user") { has_user = true; break; }
+    if (!has_user && !history.empty()) {
+        for (auto it = history.rbegin(); it != history.rend(); ++it) {
+            if (it->role == "user") {
+                core.push_back(*it);
+                break;
+            }
+        }
+    }
+
     return core;
 }
 
@@ -95,7 +117,8 @@ std::string hash_content(const std::string& content) {
 void apply_memory_ops(MemoryStore& store,
                       const std::vector<KnowledgeOp>& ops,
                       const std::string& store_path,
-                      std::vector<ExtractionItem>* items) {
+                      std::vector<ExtractionItem>* items,
+                      int promote_threshold) {
     for (const auto& op : ops) {
         if (op.action == "deprecate") {
             auto existing = store.top_memories(100, "");
@@ -123,10 +146,10 @@ void apply_memory_ops(MemoryStore& store,
             mem.name = label;
             mem.content = op.content;
             mem.tags = op.tags;
-            mem.evidence_count = 3;
+            mem.evidence_count = promote_threshold;
             mem.promoted = true;
             store.upsert(mem);
-            if (items) items->push_back({label, "upsert", 3, true});
+            if (items) items->push_back({label, "upsert", promote_threshold, true});
         }
     }
 
@@ -137,7 +160,8 @@ void apply_memory_ops(MemoryStore& store,
 void apply_skill_ops(MemoryStore& store,
                      const std::vector<KnowledgeOp>& ops,
                      const std::string& store_path,
-                     std::vector<ExtractionItem>* items) {
+                     std::vector<ExtractionItem>* items,
+                     int promote_threshold) {
     for (const auto& op : ops) {
         if (op.action == "deprecate") {
             auto existing = store.top_skills(100, "");
@@ -163,15 +187,58 @@ void apply_skill_ops(MemoryStore& store,
             sk.content = op.content;
             sk.tags = op.tags;
             sk.trigger_phrase = op.trigger_phrase;
-            sk.evidence_count = 3;
+            sk.evidence_count = promote_threshold;
             sk.promoted = true;
             store.upsert(sk);
-            if (items) items->push_back({label, "upsert", 3, true});
+            if (items) items->push_back({label, "upsert", promote_threshold, true});
         }
     }
 
     if (!store_path.empty())
         store.save(store_path);
+}
+
+// ---------------------------------------------------------------------------
+// Budget enforcement
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Recount estimated token count for a message vector.
+size_t count_tokens(const std::vector<Message>& msgs) {
+    size_t n = 0;
+    for (const auto& msg : msgs) {
+        n += msg.content.size() / 4;
+        n += msg.reasoning.size() / 4;
+        if (!msg.tool_calls.is_null())
+            n += msg.tool_calls.dump().size() / 4;
+        n += 4;
+    }
+    return n;
+}
+
+} // namespace
+
+// Enforce that the compressed context leaves at least 25% headroom.
+std::vector<Message> enforce_headroom(std::vector<Message> compressed,
+                                       size_t context_size) {
+    if (context_size <= 0) return compressed;
+    size_t budget = static_cast<size_t>(
+        static_cast<double>(context_size) * 0.75);
+    size_t used = count_tokens(compressed);
+    if (used <= budget) return compressed;
+
+    for (size_t i = 1; i < compressed.size(); ++i) {
+        if (compressed[i].role == "system") continue;
+        Message archived;
+        archived.role = "system";
+        archived.content = "[over-budget archived]";
+        compressed[i] = std::move(archived);
+
+        used = count_tokens(compressed);
+        if (used <= budget) break;
+    }
+    return compressed;
 }
 
 } // namespace agent

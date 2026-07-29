@@ -69,6 +69,28 @@ public:
         token_count_ = 0;
     }
 
+    // Atomically replace the entire stack with a compressed history.
+    // Used by compression to swap the full context in one operation.
+    // The old stack is destroyed after the replacement — no intermediate
+    // window where the context is empty. Token count is recomputed.
+    void replace(std::vector<Message> new_msgs) noexcept {
+        // Build a new deque in-place, then swap.
+        std::deque<Message> replacement;
+        for (auto& m : new_msgs)
+            replacement.push_back(std::move(m));
+        stack_.swap(replacement);
+        recompute_token_count();
+    }
+
+    // Pop the most recently pushed message from the top of the stack.
+    // Used by compression to remove a request message after the LLM call,
+    // keeping the KV cache valid for subsequent turns.
+    void pop_back() noexcept {
+        if (stack_.empty()) return;
+        token_count_ -= message_tokens(stack_.back());
+        stack_.pop_back();
+    }
+
 private:
     std::deque<Message> stack_;
     size_t token_count_ = 0;

@@ -56,10 +56,16 @@ void Config::load(const std::string& path) {
             compression_cooldown_turns = std::stoi(val);
         else if (key == "experience_enabled")
             experience_enabled = (val == "1" || val == "true" || val == "yes");
+        else if (key == "experience_store_path")
+            experience_store_path = val;
         else if (key == "experience_max_memories")
             experience_max_memories = std::stoi(val);
         else if (key == "experience_max_skills")
             experience_max_skills = std::stoi(val);
+        else if (key == "experience_decay_rate")
+            experience_decay_rate = std::stod(val);
+        else if (key == "experience_promote_threshold")
+            experience_promote_threshold = std::stoi(val);
         else if (key == "provider")
             provider_name = val;
         else if (key == "policy_approval")
