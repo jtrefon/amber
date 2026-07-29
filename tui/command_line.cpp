@@ -24,12 +24,6 @@ void CommandLine::reset_cycle() {
     last_tab_input_.clear();
 }
 
-void CommandLine::start_cycle(const std::vector<std::string>& matches) {
-    cycle_matches_ = matches;
-    cycle_index_ = 0;
-    consecutive_tabs_ = 1;
-    last_tab_input_ = input_;
-}
 
 void CommandLine::advance_cycle(int dir) {
     if (cycle_matches_.empty()) return;

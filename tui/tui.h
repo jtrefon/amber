@@ -84,7 +84,7 @@ public:
 private:
     // ---- thread / event machinery ---------------------------------------
     bool drain_events();       // pop and process all pending events
-    void pump_events();        // drain + redraw; safe to call from a modal loop
+
     void resolve_approval(const AgentEvent& ev);
     void send_async(const std::string& raw_prompt);
     std::string expand_at_references(const std::string& raw) const;
@@ -123,7 +123,6 @@ private:
     int max_scroll() const;
 
     // ---- low-level helpers ----------------------------------------------
-    void redraw(const std::string& input);
     static size_t utf8_len(const std::string& s, size_t i);
     static std::vector<std::string> wrap_text(const std::string& text, int w);
     static std::string timestamp();
@@ -161,8 +160,6 @@ private:
     void tick_clock();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
     void draw_drawer(const std::string& input);
-    int drawer_menu(const std::string& title,
-                    const std::vector<std::string>& items);
 
     // ---- command drawer -------------------------------------------------
 
@@ -180,7 +177,7 @@ private:
     void save_session();
     void load_session(const std::string& id);
     void session_browser();
-    void pick_session();
+
 
     // ---- window management ----------------------------------------------
     void switch_to(size_t idx);
@@ -213,7 +210,7 @@ private:
 public:
     void save_workspace_now();
     void redraw_after_modal();
-    void cmd_policy(const std::string& arg);
+
     void config_screen() const;
     void detect_server(bool force);
     bool test_connection(bool announce);

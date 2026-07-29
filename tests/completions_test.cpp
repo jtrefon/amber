@@ -55,7 +55,8 @@ TEST(test_namespace_children) {
     auto policy_kids = reg.children_of("policy");
     ASSERT(!policy_kids.empty());
     ASSERT_EQ(policy_kids.size(), 3u);
-    ASSERT_EQ(policy_kids[0], "mode");
+    // JSON object keys are sorted alphabetically by nlohmann::json (std::map).
+    ASSERT_EQ(policy_kids.at(0), "approval");
 }
 
 // ── Test: choices are loaded from JSON ─────────────────────────────
@@ -66,9 +67,9 @@ TEST(test_choices_loaded) {
     auto ch = reg.choices_for("detection.loop");
     ASSERT(!ch.empty());
     ASSERT_EQ(ch.size(), 3u);
-    ASSERT_EQ(ch[0], "on");
-    ASSERT_EQ(ch[1], "off");
-    ASSERT_EQ(ch[2], "toggle");
+    ASSERT_EQ(ch.at(0), "on");
+    ASSERT_EQ(ch.at(1), "off");
+    ASSERT_EQ(ch.at(2), "toggle");
 }
 
 // ── Test: ranges are loaded from JSON ──────────────────────────────
@@ -177,6 +178,7 @@ int main() {
     test_missing_json_is_ok();
     test_empty_registry();
     test_json_only_key_in_completions();
+    test_namespace_children();
 
     std::cout << (failed ? "FAILED" : "ALL PASSED")
               << " (" << failed << " failures)\n";

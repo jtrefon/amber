@@ -581,10 +581,6 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
                              + std::to_string(after_decay) + " total)");
     }
 
-    // Report
-    last_extraction_.new_memories = mem_up;
-    last_extraction_.new_skills = sk_up;
-
     // Log what happened
     auto log_status = [&](const std::string& msg) {
         if (hooks_.on_status) hooks_.on_status(msg);
@@ -597,7 +593,6 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
     if (!summary.empty()) log_status("extraction: " + summary);
     size_t st = memory_store_->store_size();
     log_status("memory store: " + std::to_string(st) + " total (memories + skills)");
-    last_extraction_.items = std::move(items);
 }
 
 } // namespace agent

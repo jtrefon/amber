@@ -49,7 +49,7 @@ std::string extract_json_block(const std::string& raw) {
     s = s.substr(start);
     auto close = s.rfind(close_char);
     if (close == std::string::npos) return {};
-    s = s.substr(0, close + 1);
+    s.resize(close + 1);
     attempt = json::parse(s, nullptr, false);
     if (!attempt.is_discarded()) return s;
     return {};

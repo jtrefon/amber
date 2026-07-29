@@ -33,13 +33,6 @@ struct Line {
     int heading = 0;          // 1..6 for heading lines (extra bold/space)
 };
 
-inline bool is_empty(const Line& l) {
-    if (l.is_hr) return false;
-    for (const auto& r : l.runs)
-        if (!r.text.empty()) return false;
-    return true;
-}
-
 // Number of display columns occupied by a UTF-8 string (whole glyphs count
 // as one column). Reused semantics from text::display_cols.
 int cols(const std::string& s);

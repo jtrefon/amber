@@ -127,9 +127,6 @@ void Tui::load_session(const std::string& id) {
     draw();
 }
 
-void Tui::pick_session() {
-    session_browser();
-}
 
 namespace {
 
