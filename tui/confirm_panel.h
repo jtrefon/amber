@@ -51,8 +51,6 @@ private:
     void draw_buttons();
 };
 
-bool confirm_dialog(const std::string& title, const std::string& message);
-
 } // namespace tui
 
 #endif // AMBER_TUI_CONFIRM_PANEL_H

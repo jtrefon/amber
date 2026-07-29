@@ -83,7 +83,7 @@ public:
     // Call rebuild_index() after any session save/remove to keep it fresh.
     std::vector<SessionMeta> list() const;
     void rebuild_index() const;
-    bool list_contains(const std::string& id) const;
+
 
     // Workspace state: persist / restore open windows and their sessions.
     bool save_workspace(const WorkspaceState& ws) const;

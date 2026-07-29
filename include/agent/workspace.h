@@ -40,7 +40,7 @@ public:
     // Clear the cached root so the next call to root() re-initializes from
     // the environment or cwd. Used by tests to avoid interference across
     // test cases. Not thread-safe — call only between tests, not concurrently.
-    static void reset_root();
+
 };
 
 } // namespace agent

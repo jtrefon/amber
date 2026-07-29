@@ -196,12 +196,6 @@ std::vector<SessionMeta> SessionStore::list() const {
     return list_cache_;
 }
 
-bool SessionStore::list_contains(const std::string& id) const {
-    const auto& entries = list();
-    return std::any_of(entries.begin(), entries.end(),
-                       [&](const auto& m) { return m.id == id; });
-}
-
 void SessionStore::rebuild_index() const {
     auto entries = cache_valid_ ? list_cache_ : scan_directory();
     json j;

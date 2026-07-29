@@ -114,6 +114,7 @@ LINT_SRCS = $(wildcard $(SRC_DIR)/lib/*.cpp) \
 
 # Flags shared by the lint tools: same include roots the build uses, plus
 # the auto-detected curl/ncurses cflags so headers resolve.
+LINT_CXXFLAGS = $(CXXFLAGS) $(CPPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS)
 
 # clang-tidy: per-file static analysis using the project's .clang-tidy config.
 # Runs in parallel (one job per CPU core) via xargs -P.

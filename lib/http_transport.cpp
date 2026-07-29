@@ -206,7 +206,7 @@ std::string post_completion(Config& cfg, const std::string& payload,
     std::string response;
     long http_code = 0;
     double t0 = 0, t1 = 0;
-    curl_exec(cfg, payload, accept_sse, accept_sse ? 300L : 300L,
+    curl_exec(cfg, payload, accept_sse, 300L,
               LLMClient::write_cb, &response,
               http_code, t0, t1, "error");
     if (ttfb) *ttfb = t0;

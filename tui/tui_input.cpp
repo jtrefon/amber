@@ -129,28 +129,6 @@ void Tui::fold_reasoning() {
     draw();
 }
 
-void Tui::cmd_policy(const std::string& arg) {
-    auto set_mode = [&](agent::AgentMode m) {
-        cfg_.mode = m;
-        std::vector<const char*> labels = {"read", "write", "yolo"};
-        const char* l = labels[static_cast<int>(m)];
-        append_line(P_STATUS, std::string("policy set to ") + l);
-        draw();
-    };
-    if (arg.empty()) {
-        std::vector<std::string> choices = {"read  (observation only, safe)",
-                                            "write (all tools, approval gated)",
-                                            "yolo  (all tools, auto-approve)"};
-        int sel = menu_select("Select policy", choices);
-        if (sel >= 0 && sel <= 2)
-            set_mode(static_cast<agent::AgentMode>(sel));
-        return;
-    }
-    if (arg == "read")      set_mode(agent::AgentMode::Read);
-    else if (arg == "write") set_mode(agent::AgentMode::Write);
-    else if (arg == "yolo")  set_mode(agent::AgentMode::Yolo);
-    else append_line(P_STATUS, "usage: /policy read|write|yolo");
-}
 
 void Tui::cmd_set(const std::string& arg) {
     // Try the SettingRegistry first for both dotted AND space-separated keys.
@@ -767,8 +745,8 @@ void Tui::build_commands() {
                  } else {
                      // rest is the search root; we need a pattern
                      size_t sp2 = a.find(' ', sp + 1);
-                     std::string pattern, dir;
-                     if (sp2 == std::string::npos) {
+                    std::string pattern;
+                    if (sp2 == std::string::npos) {
                          // no pattern given — show directory contents
                          for (const auto& e : fs::directory_iterator(p))
                              append_line(P_ASSISTANT, e.path().filename().string());

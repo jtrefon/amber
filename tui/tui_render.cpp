@@ -31,14 +31,6 @@ int Tui::max_scroll() const {
     return m < 0 ? 0 : m;
 }
 
-void Tui::redraw(const std::string& input) {
-    touchwin(stdscr);
-    draw();
-    draw_input(input);
-    flush();
-    dirty_ = true;
-}
-
 size_t Tui::utf8_len(const std::string& s, size_t i) {
     return text::utf8_len(s, i);
 }
@@ -665,55 +657,6 @@ render:
             mvaddnstr(y, 0, rows[i].c_str(), width());
             attroff(COLOR_PAIR(P_ASSISTANT));
         }
-    }
-}
-
-int Tui::drawer_menu(const std::string& title,
-                     const std::vector<std::string>& items) {
-    if (items.empty()) return -1;
-    int sel = 0, off = 0;
-    for (;;) {
-        int bar_row = height() - 2;
-        int max_rows = std::max(1, bar_row - chat_top());
-        int header = 1;
-        int visible = std::min<int>(items.size(), max_rows - header);
-        if (sel < off) off = sel;
-        if (sel >= off + visible) off = sel - visible + 1;
-        int top = bar_row - header - visible;
-
-        draw();
-        std::string hdr = " " + title +
-            "  (Up/Down select  Enter open  Esc cancel) ";
-        move(top, 0);
-        attron(COLOR_PAIR(P_STATUS) | A_BOLD);
-        for (int i = 0; i < width(); ++i) addch(' ');
-        mvaddnstr(top, 0, hdr.c_str(), width());
-        attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
-        for (int i = 0; i < visible; ++i) {
-            int idx = off + i;
-            int y = top + header + i;
-            move(y, 0); clrtoeol();
-            bool cur = (idx == sel);
-            if (cur) {
-                attron(A_REVERSE);
-                mvaddnstr(y, 0, ("  " + items[idx]).c_str(), width());
-                attroff(A_REVERSE);
-            } else {
-                attron(COLOR_PAIR(P_ASSISTANT));
-                mvaddnstr(y, 0, ("  " + items[idx]).c_str(), width());
-                attroff(COLOR_PAIR(P_ASSISTANT));
-            }
-        }
-        doupdate();
-
-        int c = getch();
-        int n = static_cast<int>(items.size());
-        if (c == KEY_DOWN) sel = (sel + 1) % n;
-        else if (c == KEY_UP) sel = (sel + n - 1) % n;
-        else if (c == KEY_NPAGE) sel = std::min(n - 1, sel + visible);
-        else if (c == KEY_PPAGE) sel = std::max(0, sel - visible);
-        else if (c == 10 || c == 13 || c == KEY_ENTER) return sel;
-        else if (c == 27 || c == 'q') return -1;
     }
 }
 

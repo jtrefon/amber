@@ -28,7 +28,7 @@ public:
     bool drawer_open() const { return drawer_open_; }
     int  drawer_sel() const { return drawer_sel_; }
     const std::string& shadow() const { return shadow_; }
-    const std::string& kill_buffer() const { return kill_buffer_; }
+
 
     // Result of an event.
     struct Result {
@@ -75,14 +75,13 @@ public:
 
     void set_history(const std::vector<std::string>& h) { history_ = h; history_pos_ = history_.size(); }
     const std::vector<std::string>& history() const { return history_; }
-    size_t history_pos() const { return history_pos_; }
+
 
     // ── Completion context (set by the host for shadow computation) ──
 
     // Provide the list of valid command/subcommand names at the current depth.
     // CommandLine uses these to compute the shadow (faded completion hint).
     void set_completions(const std::vector<std::string>& names) { completions_ = names; recompute(); }
-    const std::vector<std::string>& completions() const { return completions_; }
 
     // ── Direct state control (for test setup) ───────────────────────
 
@@ -115,7 +114,7 @@ private:
     // Internal helpers
     void recompute();              // update shadow, drawer after mutation
     void save_undo();              // save state for undo
-    void start_cycle(const std::vector<std::string>& matches);
+
     void advance_cycle(int dir);
     void reset_cycle();
 

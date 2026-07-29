@@ -68,7 +68,7 @@ public:
 
     // Top-left position (computed for centering)
     int top() const { return top_; }
-    int left() const { return left_; }
+
 
     // Draw the border, title, and footer
     void draw_frame();

@@ -320,51 +320,6 @@ static std::vector<tui::palette::Command> palette_fixture() {
     };
 }
 
-// A richer fixture with duplicate-detection commands that have complete_arg.
-static std::vector<tui::palette::Command> palette_detection_fixture() {
-    // Reusable complete_arg that matches the real /set command.
-    auto set_complete = [](const std::string& partial) {
-        std::vector<std::string> all = {
-            "detection loop off", "detection loop on", "detection loop toggle",
-            "detection duplicate off", "detection duplicate on",
-            "detection duplicate toggle"};
-        if (partial.empty())
-            return std::vector<std::string>{"detection loop", "detection duplicate"};
-        std::vector<std::string> out;
-        for (const auto& a : all) {
-            if (a.rfind(partial, 0) == 0) { out.push_back(a); continue; }
-            size_t pos = 0;
-            while (pos < a.size()) {
-                pos = a.find_first_not_of(' ', pos);
-                if (pos == std::string::npos) break;
-                if (a.rfind(partial, pos) == pos) { out.push_back(a); break; }
-                pos = a.find(' ', pos);
-                if (pos == std::string::npos) break;
-                ++pos;
-            }
-        }
-        return out;
-    };
-    return {
-        {"set", {}, "detection loop|duplicate off|on|toggle",
-         "set runtime options",
-         nullptr, set_complete, nullptr},
-        // model has alias "settings" — used to test primary-name priority
-        {"model", {"settings", "server"}, "",
-         "server settings",
-         nullptr, nullptr, nullptr},
-        {"stop", {"cancel"}, "",
-         "stop agent",
-         nullptr, nullptr, nullptr},
-        {"save", {}, "",
-         "save session",
-         nullptr, nullptr, nullptr},
-        {"compress", {"compact"}, "",
-         "compress history",
-         nullptr, nullptr, nullptr},
-    };
-}
-
 TEST(palette_token_and_arg_detection) {
     ASSERT_EQ(tui::palette::token("/wi"), "wi");
     ASSERT_EQ(tui::palette::token("/window new"), "window");

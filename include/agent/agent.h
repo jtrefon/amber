@@ -112,21 +112,6 @@ public:
     // history_ in the session file for future internal use.
     json meta_ = json::object();
 
-    // Result of the most recent compression, or default-constructed if none.
-    const CompressionResult& last_compression_result() const {
-        return last_compression_;
-    }
-
-    // Number of memories and skills extracted during the last async pass.
-    struct ExtractionResult {
-        size_t new_memories = 0;
-        size_t new_skills = 0;
-        std::vector<agent::ExtractionItem> items;
-    };
-    ExtractionResult last_extraction_result() const {
-        return last_extraction_;
-    }
-
     // Replace the UI callbacks. Lets a long-lived agent receive fresh closures
     // each turn (e.g. a TUI window rebinding lambdas that capture live state).
     void set_hooks(AgentHooks hooks) { hooks_ = std::move(hooks); }
@@ -224,7 +209,6 @@ private:
     PolicyStore policy_;
     size_t turn_counter_ = 0;
     CompressionResult last_compression_;
-    ExtractionResult last_extraction_;
 };
 
 } // namespace agent

@@ -47,9 +47,6 @@ void parse_tool_call(const json& call, std::string& id, std::string& fn,
 // content blank. On success it rewrites `tool_calls`, clears the source
 // field (`content` or `stored.reasoning`), clears `content`, and returns
 // true.
-bool maybe_extract_text_tool_calls(json& tool_calls, std::string& content,
-                                   Message& stored, const AgentHooks& hooks);
-
 // One model round-trip that never aborts the turn: calls `chat`, sanitizes the
 // reply text, and on any failure returns a recovered assistant error message so
 // the loop can retry on the next iteration instead of crashing.

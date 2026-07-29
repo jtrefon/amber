@@ -121,33 +121,6 @@ void parse_tool_call(const json& call, std::string& id, std::string& fn,
     }
 }
 
-bool maybe_extract_text_tool_calls(json& tool_calls, std::string& content,
-                                    Message& stored, const AgentHooks& hooks) {
-    bool has_json = !tool_calls.is_null() && !tool_calls.empty();
-    if (has_json) return false;
-    // When content is empty, try extracting tool calls from the reasoning
-    // field instead. Some models (Qwen/Jinja) emit <tool_call> XML in their
-    // thinking/reasoning block and leave content blank.
-    bool from_reasoning = false;
-    std::string source = content;
-    if (source.empty()) {
-        source = stored.reasoning;
-        from_reasoning = true;
-    }
-    if (source.empty()) return false;
-    auto extracted = extract_tool_calls_from_text(source);
-    if (extracted.is_null()) return false;
-    tool_calls = std::move(extracted);
-    stored.tool_calls = tool_calls;
-    if (from_reasoning) {
-        stored.reasoning.clear();
-    }
-    stored.content.clear();
-    content.clear();
-    if (hooks.on_status) hooks.on_status("parsed tool calls from text");
-    return true;
-}
-
 Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
                        const std::function<Message()>& chat, const char* stage) {
     try {

@@ -327,12 +327,6 @@ void Tui::resolve_approval(const AgentEvent& ev) {
         ev.approval_promise->set_value(d);
 }
 
-void Tui::pump_events() {
-    if (drain_events()) {
-        draw();
-        flush();
-    }
-}
 
 std::string Tui::expand_at_references(const std::string& raw) const {
     std::string out;

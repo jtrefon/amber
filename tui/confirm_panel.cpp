@@ -226,9 +226,4 @@ void ConfirmPanel::draw_buttons() {
     doupdate();
 }
 
-bool confirm_dialog(const std::string& title, const std::string& message) {
-    ConfirmPanel panel(title, message);
-    return panel.run();
-}
-
 } // namespace tui
