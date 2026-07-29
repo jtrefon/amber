@@ -1,15 +1,60 @@
 ## Spec: Context Compression Pipeline
 
 ### Purpose
-Reduce conversation history size to fit within the LLM's context window without
-losing essential task state. The pipeline collapses repetitive tool-call loops,
-asks the LLM to classify each turn as core/context/prune, replaces archived
-turns with a JSON summary block, and optionally extracts memories and skills
-from the compressed content.
+
+Reduce conversation history size without triggering expensive context reloads. The pipeline runs as a sequence of small LLM requests — each one appends an instruction to the TAIL of the existing conversation, extending the server's KV cache incrementally. No full prefill is triggered during compression. Only after the compressed context is assembled does the next turn pay for one prefill — of a much smaller context.
+
+### The Core Constraint: Prefill Cost
+
+On local llama.cpp inference (4090, 27B Q4_K_M, 262K context):
+- **Full prefill** (building KV from scratch for 262K tokens): 10-30 minutes
+- **KV extension** (appending 500 tokens to existing KV): ~1-2 seconds
+
+The entire architecture is designed around **zero full prefills during compression**. Every instruction is appended to the existing context as a new user message. The KV cache for the conversation prefix is reused. Only the new instruction tokens and their generated response compute attention.
 
 ### Ownership
-- **Source files**: `lib/compressor.cpp` (`CompressionPipeline`, `DefaultCompressionGate`, `CompressionReporter`), `lib/compressor_scanner.cpp` (`collapse_loops`), `lib/compressor_request.cpp` (`build_compression_request`), `lib/compressor_parser.cpp` (`parse_compression_response`), `lib/compressor_apply.cpp` (`apply_classification`, `apply_memory_ops`, `apply_skill_ops`, `build_compression_result`), `lib/agent.cpp` (`compress_now()`, gate call in `chat_once()`), `include/agent/compressor.h`
-- **Test files**: `tests/run_tests.cpp` — compression tests (lines 1555–1782 + integration 1878–1949)
+
+- **Source files**: `lib/compressor.cpp` (`CompressionPipeline`, `DefaultCompressionGate`, `CompressionReporter`), `lib/compressor_scanner.cpp` (`collapse_loops`), `lib/compressor_request.cpp` (`build_classify_request`, `build_extract_request`, `build_archive_request`), `lib/compressor_parser.cpp` (`parse_classify_response`, `parse_extract_response`), `lib/compressor_apply.cpp` (`apply_classification`, `apply_memory_ops`, `apply_skill_ops`), `lib/agent.cpp` (`compress_now()`, gate call in `chat_once()`), `include/agent/compressor.h`
+- **Test files**: `tests/run_tests.cpp` — compression tests
+
+---
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Compression cycle                                 │
+│                                                                     │
+│  Existing KV cache (unchanged prefix, built once):                   │
+│  [system][conversation turns 1..N]  ← 262K of KV, paid once         │
+│                                                                     │
+│  Step 1 — classify turns (appends to tail, ~1s)                     │
+│  [system][conv 1..N] [CLASSIFY_REQUEST]                              │
+│                       ^-- new tokens, KV extends                     │
+│  ← response: classification_json                                     │
+│                                                                     │
+│  Step 2 — extract memories/skills (appends to tail, ~1s)            │
+│  [system][conv 1..N] [CLASSIFY_RESP] [EXTRACT_REQUEST]               │
+│                                        ^-- KV extends further        │
+│  ← response: extraction_json (memories + skills)                     │
+│                                                                     │
+│  Step 3 — optional: tag persisted items (appends to tail, ~1s)      │
+│  [system][conv 1..N] [CLASSIFY_RESP] [EXTRACT_RESP] [ARCHIVE_REQ]   │
+│                                                      ^-- extends     │
+│  ← response: archive_json (if needed)                                │
+│                                                                     │
+│  Step 4 — assemble compressed context (C++ side, no LLM call)       │
+│  Collate all responses → build new shorter context                   │
+│  context_.replace(compressed_history)                                │
+│                                                                     │
+│  Step 5 — next LLM turn (one prefill of compressed)                  │
+│  [system][compressed 2K-10K]  ← cheap prefill, ~1s                  │
+│                                                                     │
+│  Total: 1 expensive prefill + 3 cheap extensions + 1 cheap prefill  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key property:** Each step appends to the SAME prefix. The server's KV cache for `[system][conv 1..N]` is computed once and reused across all three steps. No step triggers a full reload.
 
 ---
 
@@ -17,22 +62,138 @@ from the compressed content.
 
 | Dimension | Detail |
 |-----------|--------|
-| **Input** | `std::vector<Message>` (full or partial conversation history) + `CompressionConfig` + `LLMClient` (for the classification LLM call) |
-| **Output** | Compressed `std::vector<Message>`: core turns verbatim, pruned turns removed, archived turns replaced by a synthetic `compressed_context` system message. |
-| **Error states** | LLM call failure → return input unchanged. Parse failure (invalid JSON) → return post-collapse, pre-classification messages. Empty input → return unchanged. |
-| **Invariants** | See below. |
-| **Thread safety** | Called synchronously from agent thread. `Agent::compress_now()` replaces `history_` on the calling thread. |
+| **Input** | `std::vector<Message>` (full conversation history) + `CompressionConfig` + `LLMClient` |
+| **Output** | Compressed `std::vector<Message>`: core turns verbatim, pruned turns removed, archived turns replaced by compressed context message |
+| **Error states** | LLM call at any step fails → return input unchanged. Parse failure → return pre-classification history. Empty input → return unchanged. |
+| **Thread safety** | Called synchronously from agent thread. `Agent::compress_now()` replaces `context_` on the calling thread. |
 
 ### Invariants
 
 1. The number of messages after compression is never greater than before (monotonic reduction).
 2. No message is ever duplicated in the compressed output.
-3. The order of remaining `core` messages is preserved (stable).
-4. `prune` turns are removed entirely — no trace remains in the output.
-5. `context` turns are removed from the main sequence and replaced by an entry in the `archive[]` JSON block.
-6. The archive JSON block is inserted as a system message with content `"Compressed conversation context:\n{...}"`.
-7. If the LLM call or parse fails, the input history is returned unchanged (safe fallback).
-8. The loop-collapse step (consecutive identical tool calls) always runs before the LLM classification step.
+3. The order of remaining core messages is preserved (stable).
+4. Prune turns are removed entirely — no trace remains in the output.
+5. Context turns are removed from the main sequence and replaced by an entry in the archive JSON block.
+6. Every LLM request during compression appends as a plain user message — system prompt NEVER changes.
+7. If any LLM call or parse fails, the input history is returned unchanged (safe fallback).
+8. Loop collapse always runs before the first LLM call (it's C++ side, no token cost).
+9. Memory injection does NOT modify the system prompt — it's a separate message slot.
+
+---
+
+### Step-by-Step
+
+#### Step 0: Loop collapse (C++ side, zero LLM calls)
+
+```cpp
+void collapse_loops(std::vector<Message>& history);
+```
+
+Scans for consecutive identical tool calls (3+ repetitions of same name + arguments). Replaces them with a single `[loop collapsed]` note. Runs on the C++ side before any LLM call — no tokens, no KV cost.
+
+#### Step 1: Classify turns (one LLM call, ~400 tokens of new KV)
+
+Build a user message instructing the LLM to classify each turn range:
+
+```
+Request:
+  role: "user"
+  content: "
+Analyze the conversation above. Classify every turn range:
+
+  core    = keep verbatim. Active task, current investigation, decisions.
+  context = archive with one-line summary. Useful background.
+  prune   = drop entirely. Completed investigations, dead ends,
+            irrelevant file reads, loops.
+
+Respond with ONLY a JSON array:
+  [{\"turns\": \"0-5\", \"tag\": \"prune\", \"summary\": \"\"},
+   {\"turns\": \"6-8\", \"tag\": \"core\", \"summary\": \"\"},
+   ...]
+
+Continue the conversation naturally after the JSON.
+"
+
+Response:
+  [{"turns": "0-5", "tag": "prune", "summary": ""},
+   {"turns": "6-8", "tag": "core", "summary": ""},
+   ...]
+  ...model continues with its normal response if the user message was part
+  of the regular turn flow...
+```
+
+**Appended to the tail of the existing conversation.** KV for `[system][conv 1..N]` is already cached. Only the ~400 instruction tokens compute attention.
+
+#### Step 2: Extract memories and skills (separate LLM call, same prefix)
+
+```
+Request:
+  role: "user"
+  content: "
+Given the classification above, extract durable knowledge.
+
+MEMORIES = facts about the codebase, project, or user.
+  Fixed commit messages, config locations, bug causes.
+  name: kebab-case unique identifier
+  content: one sentence describing the fact
+
+SKILLS = reusable procedures.
+  How to run tests, how to deploy, how to reproduce a bug.
+  name: kebab-case unique identifier
+  trigger_phrase: what the user says to trigger this
+  content: one sentence describing the procedure
+
+Respond with ONLY JSON:
+  {\"memories\": [
+    {\"name\": \"bug-fix-parser-null\", \"content\": \"Parser segfault on empty
+     input fixed by adding null check in parse_body()\", \"tags\": [\"parser\"],
+     \"action\": \"upsert\"}
+  ], \"skills\": [
+    {\"name\": \"run-tests\", \"content\": \"make test runs 150+ unit tests\",
+     \"trigger_phrase\": \"test\", \"action\": \"upsert\"}
+  ]}
+"
+
+Response:
+  {"memories": [...], "skills": [...]}
+```
+
+**Appended AFTER step 1's response.** KV for the prefix + step 1 is already cached. Only step 2's request/response tokens are new.
+
+#### Step 3: Assemble compressed context (C++ side, zero LLM calls)
+
+Using the classification from step 1 and the extraction from step 2:
+
+```cpp
+// 1. Apply classification to the pre-classification history.
+//    (history was snapshotted before step 1)
+auto before = snapshot_.get_all();
+auto collapsed = collapse_loops(before);
+auto compressed = apply_classification(collapsed, classify_response);
+
+// 2. Apply memory/skill ops to the store.
+apply_compression_result(extract_response);
+
+// 3. Guarantee minimum context.
+enforce_minimum_context(compressed, before);    // keep last user msg
+enforce_headroom(compressed, context_size);     // keep 25% free
+
+// 4. Atomic replace.
+context_.replace(compressed);
+```
+
+The next LLM call builds KV for the compressed context (2K-10K tokens instead of 262K).
+
+---
+
+### Why Multiple Requests Instead of One Big Combined Request
+
+| Approach | KV cost | Parse complexity | Error handling |
+|----------|---------|-----------------|----------------|
+| **One combined request** (classify + extract + archive in one JSON) | 1 extension of ~500 tokens | Complex JSON with 3 schemas. Hard to test. | All-or-nothing. One bad schema kills all. |
+| **Multiple focused requests** (each step is a simple request) | 3 extensions of ~1500 tokens total | Each step is one simple JSON schema. Easy to test. | Per-step. If extraction fails, classification result is still usable. |
+
+**The total KV extension cost is nearly identical** (~500 vs ~1500 tokens of new KV). On a 262K context, the difference between .2% and .6% extension is negligible. The benefit of simpler parsing, easier testing, and per-step error handling far outweighs the trivial token difference.
 
 ---
 
@@ -50,7 +211,6 @@ from the compressed content.
 - **Given**: History fits in context comfortably (e.g. 20% of context window used)
 - **Input**: `CompressionGate::should_compress(history, cfg)` with 1,000/8,192 tokens
 - **Expected**: Returns `false`.
-- **Threshold logic**: Uses `cfg.prompt_tokens_used / context_size` when real token count is known. Falls back to `total_chars / 3 / context_size` when tokens are not yet known.
 
 #### [CP-03] Context utilisation exceeds threshold — compression triggers
 
@@ -62,130 +222,151 @@ from the compressed content.
 #### [CP-04] Cooldown prevents re-compression
 
 - **Given**: Compression just ran (cooldown = 20 turns)
-- **Input**: `compression_gate.is_within_cooldown(turn_counter_)`
+- **Input**: `compression_gate.is_within_cooldown(turn_counter_)` — checked in `should_compress()`
 - **Expected**: Returns `true` for 20 subsequent turns. Returns `false` at turn 21+.
-- **On failure**: Compression fires every turn, thrashing history and wasting tokens.
 
-#### [CP-05] Loop collapse with 3+ identical tool calls
+#### [CP-05] Loop collapse with 3+ identical tool calls (C++ side, free)
 
 - **Given**: History with 4 consecutive `read(foo.txt)` calls and their results
-- **Input**: `collapse_loops(history)`
-- **Expected**: The 3rd+ identical call sequences are removed. A single note message inserted: `"[loop collapsed] turns 2-5: tool loop detected, 3 identical calls collapsed"`.
-- **On failure**: Garbage results (wrong turns collapsed, note malformed).
+- **Input**: `collapse_loops(history)` — runs before any LLM call
+- **Expected**: Loop detected. Repeated calls removed. Note inserted. Zero KV cost.
 
-#### [CP-06] Loop collapse with short history — no-op
-
-- **Given**: History with <4 messages
-- **Input**: `collapse_loops(history)`
-- **Expected**: Returns history unchanged.
-- **On failure**: Crash or undefined access.
-
-#### [CP-07] Build compression request
+#### [CP-06] Build classification request
 
 - **Given**: Post-collapse history
-- **Input**: `build_compression_request(history)`
-- **Expected**: Returns a single `user` role message containing instructions for JSON classification output. The message documents three tags (`core`, `context`, `prune`) and memory/skill ops (`upsert`, `deprecate`).
-- **Content**: Must not reference any tool or system prompt (plain user message to preserve KV cache).
+- **Input**: `build_classify_request(history)`
+- **Expected**: Returns a single `user` role message with classification instructions.
+- **Content**: Must not reference tools or modify system prompt. Plain user message to preserve KV prefix.
 
-#### [CP-08] LLM returns valid classification JSON
+#### [CP-07] Step 1 — classify turns (appended to tail)
 
-- **Given**: Valid JSON response from LLM
-- **Input**: LLM reply with ```json\n{"classification": [...], "memories": [...], "skills": [...]}\n```
-- **Expected**: `parse_compression_response()` strips markdown fences, extracts JSON, parses segments/memories/skills. Returns fully populated `CompressionResponse`.
-- **JSON extraction priority**: Direct parse → strip ```json fences → strip \\n → find outermost `{}`.
+- **Given**: KV cache for [system][conv 1..N] is built. Context at 50% utilisation.
+- **Input**: Classify request appended as user message
+- **Expected**: KV extends by ~400 tokens. No prefill triggered. Response parsed as JSON array of `{turns, tag, summary}`.
+- **On failure**: LLM returns non-JSON → step 1 parse fails → pipeline returns original history unchanged.
 
-#### [CP-09] LLM returns non-JSON (parse failure)
+#### [CP-08] Step 2 — extract memories/skills (appended after step 1)
 
-- **Given**: LLM returns plain text instead of JSON
-- **Input**: LLM says "I don't understand compression"
-- **Expected**: `parse_compression_response()` returns empty `CompressionResponse`. Pipeline returns the post-collapse, pre-classification history. No data lost.
-- **On failure**: Crash from try/catch exception.
-- **Regression guard**: `parse_compression_response_invalid_json` test.
+- **Given**: Step 1 completed successfully. KV cache now covers: [system][conv 1..N][CLASSIFY_REQ][CLASSIFY_RESP]
+- **Input**: Extract request appended after step 1's response
+- **Expected**: KV extends by ~300 tokens. No prefill triggered. Response parsed as `{memories: [...], skills: [...]}`.
+- **On failure**: Extraction step fails → classification result is still used. No memory ops applied. Degraded but safe.
 
-#### [CP-10] Classification: all core
+#### [CP-09] Step 3 — assemble and replace (C++ side, zero LLM calls)
 
-- **Given**: LLM classifies all turns as `core`
-- **Input**: `apply_classification(history, response)` where all segments have `tag = "core"`
-- **Expected**: All messages preserved verbatim. No archive block inserted. Zero messages removed.
-- **Regression guard**: `apply_classification_all_core` test.
+- **Given**: Classification from step 1, extraction from step 2
+- **Input**: `apply_classification(history, classify_response)` + `apply_compression_result(extract_response)`
+- **Expected**: Core turns kept verbatim. Prune turns removed. Context turns archived. Memories/skills applied to store. Decay runs. Store saved. Context replaced atomically.
+- **Minimum context invariant**: The last user message is ALWAYS preserved, even if the LLM prunes everything.
 
-#### [CP-11] Classification: prunes and archives
+#### [CP-10] Step 4 — next LLM turn (one cheap prefill)
+
+- **Given**: Context replaced with compressed version (2K-10K tokens)
+- **Input**: Normal agent LLM call
+- **Expected**: One prefill of the compressed context. ~1 second vs 10-30 minutes for the original 262K.
+- **KV cost**: The prefill is unavoidable — the context changed. But the compressed context is 10-50x smaller.
+
+#### [CP-11] Classification: all core — no change
+
+- **Given**: LLM classifies all turns as core
+- **Input**: `apply_classification(history, all_core_response)`
+- **Expected**: All messages preserved verbatim. Zero messages removed. Archive block NOT inserted.
+- **Rationale**: If everything is active work, nothing is compressed. The gate's threshold ensures we don't waste cycles compressing when the context has room.
+
+#### [CP-12] Classification: prunes and archives
 
 - **Given**: Mixed classification: 2 core, 3 context, 1 prune
-- **Input**: 6-turn history; LLM returns segments tagging each turn
-- **Expected**: Pruned turn removed. Context turns removed from sequence, replaced by `archive[0]` entry in compressed context block. Core turns preserved verbatim. Output shorter than input.
-- **Archive JSON**: Contains `archive[0].turns = "1-3"` and `archive[0].summary`.
-- **Regression guard**: `apply_classification_prunes_and_archives` test.
+- **Input**: `apply_classification(history, mixed_response)`
+- **Expected**: Pruned turn removed. Context turns removed, replaced by archive entry. Core preserved verbatim. Output shorter than input.
 
-#### [CP-12] Classification: empty response (no-op)
+#### [CP-13] Memory ops applied after extraction step
 
-- **Given**: LLM returns `{"classification": []}`
-- **Input**: `apply_classification(history, empty_response)`
-- **Expected**: Returns history unchanged. All messages preserved.
-- **Regression guard**: `apply_classification_empty` test.
+- **Given**: Step 2 returned `"memories":[{"name":"proj-name","content":"Project X"}]`
+- **Input**: `apply_memory_ops(store, extract_response.memories, path)`
+- **Expected**: New memory created with `evidence_count = promote_threshold`, `promoted = true`. Saved to store.
 
-#### [CP-13] Memory ops applied after compression
+#### [CP-14] Skill ops applied after extraction step
 
-- **Given**: LLM response includes `"memories": [{"name": "proj-name", "content": "Project X", "action": "upsert"}]`
-- **Input**: `apply_memory_ops(response, store)`
-- **Expected**: New memory created with `name = "proj-name"`, `content = "Project X"`, `evidence_count = 3`, `promoted = true`.
-- **On conflict**: If memory with same name but different content exists, op is SKIPPED silently.
+- **Given**: Step 2 returned `"skills":[{"name":"deploy-cmd","content":"make deploy","trigger_phrase":"deploy"}]`
+- **Input**: `apply_skill_ops(store, extract_response.skills, path)`
+- **Expected**: New skill created with `trigger_phrase = "deploy"`. Same evidence rules as memories.
 
-#### [CP-14] Skill ops applied after compression
+#### [CP-15] Step failure — safe fallback at every step
 
-- **Given**: LLM response includes `"skills": [{"name": "deploy-cmd", "content": "use make deploy", "trigger_phrase": "deploy", "action": "upsert"}]`
-- **Input**: `apply_skill_ops(response, store)`
-- **Expected**: New skill created with `name = "deploy-cmd"`, `trigger_phrase = "deploy"`. Same conflict rules as memories.
+- **Given**: Step 1 LLM call throws (timeout, server error)
+- **Input**: Exception in `client.chat()`
+- **Expected**: Exception caught. `on_error` fired. Original history returned unchanged. No partial state.
+- **Given**: Step 1 succeeds but step 2 fails
+- **Expected**: Classification result is used. Memory store is NOT updated. Decay does NOT run. Classification result still provides compression benefit.
+- **On failure**: Partial compression (classification applied, no memory extraction). Original history unchanged if step 1 fails.
 
-#### [CP-15] Deprecate existing memory
+#### [CP-16] Minimum context invariant
 
-- **Given**: An existing memory/skill with content hash matching
-- **Input**: `{"action": "deprecate", "name": "old-info"}`
-- **Expected**: `evidence_count` decremented (floor 0). Content not deleted.
-- **On failure**: Evidence count goes negative.
+- **Given**: LLM classifies everything as prune (empty core output)
+- **Input**: `apply_classification(history, all_prune_response)`
+- **Expected**: Before returning, the function detects no user messages in core. Restores the last user message from the original history. Agent continues with at least: system prompt + compressed archive + last user message.
+- **On failure**: Agent loses all conversation state (corruption).
 
-#### [CP-16] Manual compression (`/compress` command)
+#### [CP-17] Headroom enforcement
+
+- **Given**: Compressed history token count exceeds `context_size × 0.75`
+- **Input**: `enforce_headroom(compressed, context_size)`
+- **Expected**: Oldest non-system messages are context-archived until the compressed history fits within 75% of the context window. Leaves 25% headroom for the next LLM response.
+
+#### [CP-18] Manual compression (`/compress` command)
 
 - **Given**: TUI sends `/compress` to Agent
 - **Input**: `Agent::compress_now()` called
-- **Expected**: Snapshots `before = history_`. Runs full pipeline (collapse → request → LLM → parse → apply). Replaces `history_` with compressed result. Applies memory/skill ops. Updates `last_compression_` and `last_extraction_`. Compression status emitted via hooks.
-- **On failure**: `history_` unchanged (pipeline returns original on error).
+- **Expected**: Snapshots context. Runs full three-step pipeline (classify → extract → assemble). Replaces context with compressed result. Applies memory/skill ops. Updates telemetry.
+- **On failure**: Context unchanged (pipeline returns original on any step failure).
 
-#### [CP-17] Automatic compression in `chat_once()` (non-destructive)
+#### [CP-19] Automatic compression in `chat_once()` (same prefix, append-only)
 
-- **Given**: Gate triggers mid-conversation
-- **Input**: `chat_once()` compresses the prompt COPY before sending to LLM
-- **Expected**: `prompt_msgs` is compressed but `history_` is NOT modified. Gate's `last_compress_turn` is updated. Next LLM call sees compressed context.
-- **On failure**: `history_` incorrectly replaced (destructive compression during normal chat).
+- **Given**: Gate triggers mid-conversation. KV cache for [system][conv 1..N] is live.
+- **Input**: `chat_once()` detects gate → appends classify request to the prompt copy
+- **Expected**: Classification runs as part of the SAME response as the agent's next turn. The model outputs: `[classification JSON]\n\n[natural response continues...]`. The agent strips the JSON block, applies it, and uses the natural response as the normal turn output.
+- **On failure**: JSON parse fails → model response is used as-is (no compression this turn). History_ unchanged. Gate cooldown prevents retry for N turns.
 
-#### [CP-18] Pipeline fallback on LLM failure
+---
 
-- **Given**: LLM client throws during compression call
-- **Input**: `CompressionPipeline::compress()` where `client.chat()` throws
-- **Expected**: Exception caught. `on_error` fired. Original `history` returned unchanged.
-- **Regression guard**: `compressor_pipeline_fallback_on_no_client` test.
+### Integration with Agent Loop
 
-#### [CP-19] Compression after loop detection (error retry)
+The key integration change: the classify request is **not a separate compression-only call**. It's appended as part of the normal chat request:
 
-- **Given**: LLM error, retry succeeds
-- **Input**: `run()` error-retry path: first call fails, second call succeeds
-- **Expected**: Compression is NOT triggered between retries (the retry path avoids compression to preserve KV cache). Only after the successful LLM call does the gate re-evaluate.
-- **Rationale**: Documented in `agent.cpp` line 429 comment.
+```cpp
+// In chat_once(), when gate fires:
+if (gate_->should_compress(context_, cfg_)) {
+    // Append classify instruction AFTER the user message
+    prompt_copy.push_back(build_classify_request());
+    // tools are still provided — model can use them AND classify
+}
+
+// Model response contains both:
+//   [classification JSON]
+//   ...
+//   [normal assistant response]
+//
+// Pre-gate parsing separates them.
+```
+
+This means: the LLM classifies the conversation, outputs the JSON, AND continues its normal work — all in one generation. The classification tokens extend the KV cache from the conversation prefix. The response tokens extend it from the classification JSON. No separate requests, no prefill.
+
+The extraction step (step 2) runs as a SEPARATE small request after the classification result is parsed. This is the only separate call — and it shares the same KV prefix as the classification request, so it extends incrementally.
 
 ---
 
 ### Cross-references
 
-- **Depends on**: `llm-client/streaming.md` (LLM call for classification), `memory/extraction.md` (memory/skill ops), `memory/memory-store.md`
-- **Depended on by**: `agent-loop/core-loop.md` (compression gate in `chat_once()`), `docs/spec/INDEX.md` (compression category)
-- **Test coverage**: `tests/run_tests.cpp` — `collapse_loops_*` (3 tests), `parse_compression_response_*` (3 tests), `apply_classification_*` (4 tests), `compression_gate_*` (3 tests), `request_builder_returns_message`, `compressor_pipeline_fallback_on_no_client`, `integration_apply_and_retrieve`, `compression_observer_interface`
+- **Depends on**: `llm-client/streaming.md` (LLM call), `memory/extraction.md` (memory/skill ops), `memory/memory-store.md`
+- **Depended on by**: `agent-loop/core-loop.md` (compression gate in `chat_once()`)
+- **Test coverage**: `tests/run_tests.cpp` — compression tests
 
 ### Known gaps
 
-1. **No mock LLM in compression tests** — The pipeline's LLM call step only exists in production; tests verify individual sub-steps in isolation.
-2. **`CompressionBudget` not enforced** — The `core`/`archive`/`headroom` fractions are declared but never checked. The safety net described in the design doc (walking backward from oldest core turns) is not implemented.
-3. **Token estimation is heuristic** — Fallback `total_chars / 3.0` for token count is an approximation; for pure prose, 4 chars/token is more accurate.
-4. **`on_compress_start` tokens_before is always 0** — The pipeline reports 0 to the observer; real estimation happens in `Agent::compress_now()` only.
-5. **No `turn_start` clamping** — `apply_classification()` clamps `turn_end` to `history.size() - 1` but does not clamp `turn_start`. Negative or out-of-range start values cause undefined `tags[i]` access.
-6. **Memory/skill conflict is name-only** — If the LLM reuses a name with different content, the op is silently skipped. No fallback or retry.
-7. **History between `compress_now()` and agent loop** — After manual compression, the compressed history includes a synthetic system message. The agent loop treats it as normal `history_` content; the system prompt at `history_[0]` is preserved separately.
+1. **No mock LLM in compression tests** — Pipeline tests verify sub-steps in isolation. Integration test with a real LLM only runs manually.
+
+2. **Classification prompt quality** — The LLM's ability to distinguish active vs. completed investigations depends on prompt quality. Currently the prompt is generic — the redesigned prompt (with work-state heuristics) needs to be evaluated.
+
+3. **Memory injection still changes the prompt prefix** — Memory/skill injection currently modifies the system prompt copy, which changes the prefix and triggers a prefill on every turn. This is a separate concern from compression: it affects regular turns, not compression steps. Documented in `memory/memory-store.md`.
+
+4. **`CompressionBudget` not enforced** — Headroom enforcement (Invariant: 25% free after compression) is designed but not yet implemented. Low priority — the gate threshold already prevents overflow in most cases.

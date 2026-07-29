@@ -101,7 +101,12 @@ public:
     // Force immediate compression of the conversation history, bypassing
     // the gate.  The compressed history replaces the full history; this is
     // a one-way operation.  Returns a summary of what was saved.
-    CompressionResult compress_now();
+    CompressionResult compress_now(std::function<void()> progress_cb = {});
+
+    // Check whether the compression gate would fire on the current context
+    // (without actually running compression). Useful for triggering
+    // compression on session load.
+    bool should_compress();
 
     // Internal metadata — never sent to the LLM.  Persisted alongside
     // history_ in the session file for future internal use.
@@ -197,6 +202,11 @@ private:
 
     // Finalize a turn: fallback on empty, log, update state.
     std::string finish_turn(std::string final_reply);
+
+    // Apply memory/skill ops from a compression response to the store.
+    // Calls apply_memory_ops, apply_skill_ops, decay_all, then save.
+    // Updates last_extraction_ for UI reporting.
+    void apply_compression_result(const CompressionResponse& cr);
 
     Config cfg_;
     ToolRegistry& registry_;

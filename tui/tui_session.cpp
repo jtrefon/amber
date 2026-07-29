@@ -71,6 +71,18 @@ void Tui::load_session(const std::string& id) {
     Window& w = new_window(s.title.empty() ? "chat" : s.title);
     w.session_id = s.id;
     w.agent->set_context(s.messages);
+    // Large context on load?  Compress asynchronously so the first turn uses a
+    // smaller prefill.  We check utilisation directly (not the per-turn gate)
+    // because this is a one-time load reduction, not an inline compression that
+    // would break tail-injection.
+    double utilisation = s.messages.empty() ? 0.0
+        : static_cast<double>(w.agent->context().token_count())
+          / std::max(1, cfg_.context_size);
+    if (utilisation > 0.40) {
+        append_line(P_STATUS, "large session — background compression started");
+        switch_to(windows_.size() - 1);
+        compress_worker();
+    }
     if (!s.meta.empty())
         w.agent->meta_ = s.meta;
     // Restore UI state from saved session meta.

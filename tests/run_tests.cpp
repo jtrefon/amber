@@ -1679,6 +1679,7 @@ TEST(compression_gate_above_threshold) {
     agent::Context ctx;
     for (int i = 0; i < 10; ++i)
         ctx.push(msg("user", std::string(100, 'a')));
+    cfg.turn_counter = 25;  // past the 20-turn cooldown
     ASSERT(gate->should_compress(ctx, cfg));
 }
 

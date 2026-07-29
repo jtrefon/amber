@@ -158,6 +158,10 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     }
     segs.push_back({mode_txt, mode_pair, 2});
 
+    if (scroll_mode_) {
+        segs.push_back({" S ", P_GAUGE_OK, 0});
+    }
+
     if (stats_.latency_ms >= 0) {
         char b[32];
         std::snprintf(b, sizeof(b), "  lag %.0fms", stats_.latency_ms);

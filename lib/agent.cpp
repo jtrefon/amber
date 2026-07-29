@@ -21,37 +21,6 @@ void emit_context_event(ContextEventSource& src, const Context& ctx) {
     src.publish(ctx.token_count(), ctx.size());
 }
 
-// Apply memory/skill ops from a compression response to the store.
-void apply_compression_memops(MemoryStore* store, const ExperienceConfig& exp_cfg,
-                               const CompressionResponse& cr, size_t turn,
-                               CompressionReporter& reporter,
-                               Agent::ExtractionResult* extraction_out) {
-    if (!store || (cr.memory_ops.empty() && cr.skill_ops.empty())) return;
-    store->set_current_turn(turn);
-    size_t mem_up = 0, mem_dep = 0;
-    for (const auto& op : cr.memory_ops) {
-        if (op.action == "deprecate") ++mem_dep; else ++mem_up;
-    }
-    std::vector<ExtractionItem> items;
-    if (!cr.memory_ops.empty())
-        apply_memory_ops(*store, cr.memory_ops, "", &items);
-    size_t sk_up = 0, sk_dep = 0;
-    for (const auto& op : cr.skill_ops) {
-        if (op.action == "deprecate") ++sk_dep; else ++sk_up;
-    }
-    if (!cr.skill_ops.empty())
-        apply_skill_ops(*store, cr.skill_ops, "", &items);
-    store->decay_all();
-    if (!exp_cfg.store_path.empty())
-        store->save(exp_cfg.store_path);
-    reporter.on_memory_ops_applied(mem_up + sk_up, mem_dep + sk_dep);
-    if (extraction_out) {
-        extraction_out->new_memories = mem_up;
-        extraction_out->new_skills = sk_up;
-        extraction_out->items = std::move(items);
-    }
-}
-
 } // namespace
 
 Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
@@ -127,29 +96,66 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
     auto prompt_msgs = context_.get_all();
     std::vector<Message> prompt_copy(prompt_msgs.begin(), prompt_msgs.end());
 
-    // Inject memories into the system message (copy only, not stored context).
+    // Sync the turn counter so the compression gate can check cooldown.
+    cfg_.turn_counter = turn_counter_;
+
+    // Inject memories as a SEPARATE message (never modify system prompt).
+    // This keeps the KV prefix stable for llama.cpp cache-prompt reuse.
     if (retriever_) {
         std::string user_msg;
         for (const auto& m : prompt_copy)
             if (m.role == "user") { user_msg = m.content; break; }
         auto suffix = retriever_->build_system_prompt_suffix(user_msg, 500);
         if (!suffix.empty()) {
-            for (auto& msg : prompt_copy) {
-                if (msg.role == "system") {
-                    msg.content += suffix;
+            for (size_t i = 0; i < prompt_copy.size(); ++i) {
+                if (prompt_copy[i].role == "system") {
+                    Message knowledge;
+                    knowledge.role = "system";
+                    knowledge.content = suffix;
+                    prompt_copy.insert(prompt_copy.begin() + static_cast<ptrdiff_t>(i + 1),
+                                       std::move(knowledge));
                     break;
                 }
             }
         }
     }
 
-    // Check compression gate. If triggered, compress non-system messages.
+    // Check compression gate. If triggered, compress and persist.
     if (gate_ && compression_) {
         if (gate_->should_compress(context_, cfg_)) {
             auto cc = load_compression_config(cfg_);
-            auto compressed = compression_->compress(prompt_copy, cc, client_);
-            prompt_copy.assign(compressed.begin(), compressed.end());
+            CompressionResponse cr;
+            CompressionResult r;
+            CompressionReporter reporter(hooks_, r);
+            size_t before_msgs = context_.size();
+            size_t before_tok = context_.token_count();
+            reporter.set_before(before_msgs, before_tok);
+            auto compressed = compression_->compress(
+                context_, cc, client_, &reporter, &cr);
+            // Persist to live context so every subsequent turn
+            // uses the compressed version. (The pipeline already replaces
+            // the context, but the vector is returned for post-processing.)
+            context_.replace(std::move(compressed));
+            // Apply memory/skill ops from the LLM classification.
+            apply_compression_result(cr);
+            // Report final stats
+            r.messages_before = before_msgs;
+            r.tokens_before = before_tok;
+            r.messages_after = context_.size();
+            r.tokens_after = context_.token_count();
+            for (const auto& seg : cr.segments) {
+                switch (seg.tag) {
+                    case Classification::core:    ++r.core_count; break;
+                    case Classification::context: ++r.context_count; break;
+                    case Classification::prune:   ++r.prune_count; break;
+                }
+            }
+            reporter.on_compress_done(r);
             gate_->set_last_compress_turn(turn_counter_);
+            // Build prompt_copy from the new compressed context for
+            // the current LLM call.
+            auto new_msgs = context_.get_all();
+            prompt_copy.assign(new_msgs.begin(), new_msgs.end());
         }
     }
 
@@ -172,6 +178,8 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
     }
     if (stats.valid) {
         if (hooks_.on_stats) hooks_.on_stats(stats);
+        if (stats.prompt_tokens > 0)
+            cfg_.prompt_tokens_used = stats.prompt_tokens;
     }
 
     ++turn_counter_;
@@ -212,45 +220,103 @@ void Agent::push_reply(Message reply) {
     emit_context_event(context_events_, context_);
 }
 
-CompressionResult Agent::compress_now() {
+CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     CompressionResult r;
     if (!compression_ || context_.size() < 2) return r;
 
-    // Keep the last N turns (configurable), pop the rest from the bottom.
-    // The popped messages are discarded; the kept ones remain immutable.
-    // A compressed summary is pushed to replace the removed context.
-    size_t keep = static_cast<size_t>(cfg_.compression_min_turns > 0
-                                      ? cfg_.compression_min_turns : 10);
+    // Snapshot BEFORE compression — immutable, never mutate live stack.
+    auto before = context_.get_all();
+    size_t msgs_before = before.size();
+    size_t tokens_before = context_.token_count();
+
     CompressionReporter reporter(hooks_, r);
+    reporter.set_before(msgs_before, tokens_before);
 
-    // We cannot pop the system message at index 0.
-    size_t pop_count = (context_.size() > keep + 1)
-                       ? context_.size() - keep - 1 : 0;
-    if (pop_count == 0) return r;
+    // Wrap the reporter with a progress-callback proxy so the TUI can
+    // pump events during long-running compression.
+    struct ProgressProxy : public CompressionReporter {
+        std::function<void()> cb;
+        ProgressProxy(const AgentHooks& h, CompressionResult& r,
+                      std::function<void()> cb)
+            : CompressionReporter(h, r), cb(std::move(cb)) {}
+        void on_compress_start(size_t msgs, size_t arg) override {
+            CompressionReporter::on_compress_start(msgs, arg);
+            if (cb) cb();
+        }
+        void on_llm_request_sent() override {
+            CompressionReporter::on_llm_request_sent();
+            if (cb) cb();
+        }
+        void on_llm_reply_received(long sec) override {
+            CompressionReporter::on_llm_reply_received(sec);
+            if (cb) cb();
+        }
+        void on_parse_result(const CompressionResponse& cr) override {
+            CompressionReporter::on_parse_result(cr);
+            if (cb) cb();
+        }
+        void on_apply_result(const CompressionResult& cr) override {
+            CompressionReporter::on_apply_result(cr);
+            if (cb) cb();
+        }
+        void on_memory_ops_applied(size_t up, size_t dep) override {
+            CompressionReporter::on_memory_ops_applied(up, dep);
+            if (cb) cb();
+        }
+        void on_error(const std::string& msg) override {
+            CompressionReporter::on_error(msg);
+            if (cb) cb();
+        }
+        void on_loop_collapse(size_t removed) override {
+            CompressionReporter::on_loop_collapse(removed);
+            if (cb) cb();
+        }
+    };
+    ProgressProxy proxy(hooks_, r, std::move(progress_cb));
 
-    // Snapshot popped messages for summarization.
-    reporter.set_before(pop_count, 0);
+    // Call pipeline on the LIVE context so the LLM calls extend the KV
+    // cache instead of forcing a full prefill from a separate copy.
+    // Pipeline handles: append classify → LLM → pop → parse → apply →
+    // replace context → append extract → LLM → pop → parse.
+    // Pipeline also atomically replaces context_ after classification.
+    auto cc = load_compression_config(cfg_);
+    CompressionResponse cr;
+    // before was captured at the top; the live context is still the same
+    // since compress_now runs synchronously.
+    auto compressed = compression_->compress(context_, cc, client_,
+                                              &proxy, &cr);
 
-    // Remove old messages from the bottom.
-    context_.pop(pop_count);
+    // Atomic replace — no window where context is empty.
+    context_.replace(std::move(compressed));
     emit_context_event(context_events_, context_);
 
-    // Push a compressed-context summary message.
-    Message summary_msg;
-    summary_msg.role = "system";
-    // TODO: generate a meaningful summary (character-based for now)
-    summary_msg.content = "[compressed: " + std::to_string(pop_count) +
-                          " earlier messages removed. " +
-                          std::to_string(context_.size()) + " messages remain.]";
-    context_.push(std::move(summary_msg));
-    emit_context_event(context_events_, context_);
+    // Apply memory/skill ops from the LLM classification response.
+    apply_compression_result(cr);
 
-    r.messages_before = pop_count;
+    // Stats — captured BEFORE the snapshot was taken.
+    r.messages_before = msgs_before;
     r.messages_after = context_.size();
-    r.tokens_before = 0;
+    r.tokens_before = tokens_before;
     r.tokens_after = context_.token_count();
+
+    // Populate segment counts from the classification response.
+    for (const auto& seg : cr.segments) {
+        switch (seg.tag) {
+            case Classification::core:    ++r.core_count; break;
+            case Classification::context: ++r.context_count; break;
+            case Classification::prune:   ++r.prune_count; break;
+        }
+    }
+
+    reporter.on_compress_done(r);
     last_compression_ = r;
     return r;
+}
+
+bool Agent::should_compress() {
+    if (!gate_) return false;
+    cfg_.turn_counter = turn_counter_;
+    return gate_->should_compress(context_, cfg_);
 }
 
 std::string Agent::confirm_turn(const std::string& candidate,
@@ -472,6 +538,66 @@ std::string Agent::run(const std::string& user_prompt) {
         if (!accepted.empty()) { final_reply = accepted; break; }
     }
     return finish_turn(std::move(final_reply));
+}
+
+void Agent::apply_compression_result(const CompressionResponse& cr) {
+    if (!memory_store_ || experience_cfg_.store_path.empty()) return;
+    if (cr.memory_ops.empty() && cr.skill_ops.empty()) return;
+
+    memory_store_->set_current_turn(turn_counter_);
+
+    // Apply memory ops
+    size_t mem_up = 0, mem_dep = 0;
+    for (const auto& op : cr.memory_ops) {
+        if (op.action == "deprecate") ++mem_dep; else ++mem_up;
+    }
+    std::vector<ExtractionItem> items;
+    if (!cr.memory_ops.empty())
+        apply_memory_ops(*memory_store_, cr.memory_ops,
+                        experience_cfg_.store_path, &items,
+                        experience_cfg_.memory_promote_threshold);
+
+    // Apply skill ops
+    size_t sk_up = 0, sk_dep = 0;
+    for (const auto& op : cr.skill_ops) {
+        if (op.action == "deprecate") ++sk_dep; else ++sk_up;
+    }
+    if (!cr.skill_ops.empty())
+        apply_skill_ops(*memory_store_, cr.skill_ops,
+                       experience_cfg_.store_path, &items,
+                       experience_cfg_.skill_promote_threshold);
+
+    // Decay and persist
+    size_t before_decay = memory_store_->store_size();
+    memory_store_->decay_all();
+    size_t after_decay = memory_store_->store_size();
+    if (!experience_cfg_.store_path.empty())
+        memory_store_->save(experience_cfg_.store_path);
+    if (hooks_.on_status) {
+        size_t pruned = (before_decay > after_decay) ? before_decay - after_decay : 0;
+        if (pruned > 0)
+            hooks_.on_status("decay: " + std::to_string(pruned) + " items evicted ("
+                             + std::to_string(before_decay) + " → "
+                             + std::to_string(after_decay) + " total)");
+    }
+
+    // Report
+    last_extraction_.new_memories = mem_up;
+    last_extraction_.new_skills = sk_up;
+
+    // Log what happened
+    auto log_status = [&](const std::string& msg) {
+        if (hooks_.on_status) hooks_.on_status(msg);
+    };
+    std::string summary;
+    if (mem_up) summary += std::to_string(mem_up) + " memories upserted";
+    if (mem_dep) summary += (summary.empty() ? "" : ", ") + std::to_string(mem_dep) + " deprecated";
+    if (sk_up) summary += (summary.empty() ? "" : ", ") + std::to_string(sk_up) + " skills upserted";
+    if (sk_dep) summary += (summary.empty() ? "" : ", ") + std::to_string(sk_dep) + " deprecated";
+    if (!summary.empty()) log_status("extraction: " + summary);
+    size_t st = memory_store_->store_size();
+    log_status("memory store: " + std::to_string(st) + " total (memories + skills)");
+    last_extraction_.items = std::move(items);
 }
 
 } // namespace agent

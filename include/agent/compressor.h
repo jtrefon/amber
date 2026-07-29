@@ -68,6 +68,7 @@ struct CompressionConfig {
     double threshold        = 0.50;
     int    min_turns        = 10;
     int    cooldown_turns   = 20;
+    int    context_size     = 0;       // filled from Config for headroom enforcement
 };
 
 // One classified span in the LLM response.
@@ -129,12 +130,13 @@ public:
 class CompressionStrategy {
 public:
     virtual ~CompressionStrategy() = default;
-    // Compress `history` and return the compressed message list.
-    // When `response_out` is non-null it receives the parsed CompressionResponse
-    // containing memory/skill ops identified by the LLM. This lets callers apply
-    // knowledge operations after compression without re-parsing.
+    // Compress the conversation in `context`. Appends classify/extract
+    // requests to the LIVE context so the LLM call extends the KV cache
+    // instead of forcing a full prefill. After the LLM responds the
+    // temporary request messages are removed.
+    // Returns the compressed message list.
     virtual std::vector<Message> compress(
-        const std::vector<Message>& history,
+        Context& context,
         const CompressionConfig& cfg,
         LLMClient& client,
         CompressionObserver* observer = nullptr,
@@ -151,6 +153,14 @@ void collapse_loops(std::vector<Message>& history);
 // Build the user message that asks the LLM to classify and compress.
 Message build_compression_request();
 
+// Build a classification-only request (returns array of turn tags).
+// This is the first step of the multi-step pipeline.
+Message build_classify_request();
+
+// Build an extraction request (returns memories + skills).
+// This is the second step, appended after the classification response.
+Message build_extract_request();
+
 // Parse the LLM's JSON response into a CompressionResponse.
 CompressionResponse parse_compression_response(const std::string& json);
 
@@ -164,11 +174,20 @@ std::vector<Message> apply_classification(
 void apply_memory_ops(MemoryStore& store,
                       const std::vector<KnowledgeOp>& ops,
                       const std::string& store_path,
-                      std::vector<ExtractionItem>* items = nullptr);
+                      std::vector<ExtractionItem>* items = nullptr,
+                      int promote_threshold = 3);
 void apply_skill_ops(MemoryStore& store,
                      const std::vector<KnowledgeOp>& ops,
                      const std::string& store_path,
-                     std::vector<ExtractionItem>* items = nullptr);
+                     std::vector<ExtractionItem>* items = nullptr,
+                     int promote_threshold = 3);
+
+// Enforce that the compressed context leaves at least 25% headroom.
+// Walks backward from oldest non-system messages, archiving them until
+// the token budget fits. The system prompt at index 0 is never modified.
+// Returns the tightened vector (it may be shorter than the input).
+std::vector<Message> enforce_headroom(std::vector<Message> compressed,
+                                       size_t context_size);
 
 // ---------------------------------------------------------------------------
 // Factory functions

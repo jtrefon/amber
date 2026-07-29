@@ -41,6 +41,42 @@ void apply_tps(Stats& stats, double ttfb, double total) {
         stats.tps = stats.completion_tokens / gen;
 }
 
+// Try to extract context_size from an HTTP 400 error body.
+// Returns > 0 if a pattern like "maximum context length is NNNN" is found,
+// or 0 if no known pattern matches.
+int parse_context_size_from_error(const std::string& body) {
+    // Common error patterns across providers:
+    // "maximum context length is 8192 tokens"
+    // "max context length: 4096"
+    // "n_ctx is 2048"
+    // "context length exceeds 16384"
+    // "model's maximum context length is 128K"
+    // "Request exceeds maximum context length (4096 tokens)"
+    const char* patterns[] = {
+        "maximum context length is ",
+        "max context length: ",
+        "max context length is ",
+        "n_ctx is ",
+        "n_ctx = ",
+        "context length exceeds ",
+        "maximum context length (",
+        "context length of ",
+    };
+    for (const char* pat : patterns) {
+        auto pos = body.find(pat);
+        if (pos == std::string::npos) continue;
+        pos += strlen(pat);
+        // Skip past any non-digit prefix (e.g. open paren)
+        while (pos < body.size() && !std::isdigit(static_cast<unsigned char>(body[pos])))
+            ++pos;
+        if (pos >= body.size()) continue;
+        long val = std::atol(body.c_str() + pos);
+        if (val > 0 && val < 10000000) // sanity: 1M tokens is generous max
+            return static_cast<int>(val);
+    }
+    return 0;
+}
+
 } // namespace
 
 HeaderList::~HeaderList() {
@@ -165,7 +201,7 @@ void curl_exec(const Config& cfg, const std::string& payload,
 // up auth/JSON headers and throwing on any transport error. `accept_sse` adds
 // the text/event-stream Accept header for streaming requests. When non-null,
 // `ttfb`/`total` receive transfer timings in seconds.
-std::string post_completion(const Config& cfg, const std::string& payload,
+std::string post_completion(Config& cfg, const std::string& payload,
                             bool accept_sse, double* ttfb, double* total) {
     std::string response;
     long http_code = 0;
@@ -176,6 +212,15 @@ std::string post_completion(const Config& cfg, const std::string& payload,
     if (ttfb) *ttfb = t0;
     if (total) *total = t1;
     if (http_code < 200 || http_code >= 300) {
+        // Try to learn context_size from HTTP 400 overflow errors.
+        // This lets an unknown-context server teach us its limit.
+        if (http_code == 400 && (!cfg.context_explicit || cfg.context_size <= 0)) {
+            int learned = parse_context_size_from_error(response);
+            if (learned > 0) {
+                cfg.context_size = learned;
+                cfg.context_explicit = true;
+            }
+        }
         std::string snippet = response.substr(0, 200);
         throw std::runtime_error("HTTP " + std::to_string(http_code) +
                                  " from LLM server: " + snippet);

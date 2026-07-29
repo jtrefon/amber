@@ -33,7 +33,7 @@ void apply_auth(HeaderList& h, const Config& cfg);
 // POST `payload` to the chat endpoint; return the raw response body (or throw on
 // transport error). `accept_sse` adds the text/event-stream Accept header.
 // `ttfb`/`total` receive transfer timings in seconds when non-null.
-std::string post_completion(const Config& cfg, const std::string& payload,
+std::string post_completion(Config& cfg, const std::string& payload,
                             bool accept_sse, double* ttfb, double* total);
 
 // Run a streaming completion: POST `payload`, feed SSE bytes to `parser`, and

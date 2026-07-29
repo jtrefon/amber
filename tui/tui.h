@@ -254,6 +254,9 @@ public:
     // progress wave keep ticking while the agent is blocked on a call that
     // emits no streaming tokens.
     std::chrono::steady_clock::time_point last_status_tick_{};
+    // Scroll-mode focus: when active, Up/Down/PgUp/PgDn scroll the chat window
+    // instead of navigating the command line. Toggle with Escape.
+    bool scroll_mode_ = false;
 };
 
 } // namespace tui

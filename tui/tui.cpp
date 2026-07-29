@@ -512,15 +512,22 @@ void Tui::agent_worker(const std::string& prompt) {
 }
 
 void Tui::compress_worker() {
-    AgentEvent ev;
-    ev.type = AgentEvent::CompressResult;
-    if (win().agent) {
-        ev.compress_result = win().agent->compress_now();
-    }
-    {
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
-    }
+    // Run on a background thread so the main event loop keeps processing
+    // events (status messages, input) during the long LLM calls.
+    agent_busy_.store(true);
+    std::thread t([this]() {
+        AgentEvent ev;
+        ev.type = AgentEvent::CompressResult;
+        if (win().agent) {
+            ev.compress_result = win().agent->compress_now();
+        }
+        agent_busy_.store(false);
+        {
+            std::scoped_lock lk(event_mtx_);
+            event_queue_.push(std::move(ev));
+        }
+    });
+    t.detach();
 }
 
 void Tui::run() {
@@ -666,7 +673,7 @@ void Tui::run() {
             draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue;
         }
 
-        // ESC handling.
+        // ESC handling — toggle scroll mode or window switch.
         if (ch == 27) {
             if (cl.drawer_open()) {
                 draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
@@ -678,17 +685,24 @@ void Tui::run() {
                 draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
-            if (n == 'b' || n == 'B') { cl.on_ctrl_w(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
-            if (n == KEY_UP) { win().scroll_top = std::max(0, win().scroll_top - 1); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
-            if (n == KEY_DOWN) { win().scroll_top += 1; draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
-            if (n == KEY_LEFT) { win().scroll_top = 0; draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
-            if (n == KEY_RIGHT) { win().scroll_top = max_scroll(); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+            if (n == 'b' || n == 'B') {
+                cl.on_ctrl_w();
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
+                continue;
+            }
+            // Cancel when agent is busy (ESC alone).
             if (agent_busy_.load()) {
                 cfg_.cancel_token.request();
                 agent_cancel_.store(true);
                 append_line(P_STATUS, "cancelling…");
                 draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+                continue;
             }
+            // Plain ESC (not busy, no key within timeout): toggle scroll mode.
+            scroll_mode_ = !scroll_mode_;
+            if (scroll_mode_)
+                append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
+            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
             continue;
         }
 
@@ -712,14 +726,35 @@ void Tui::run() {
 
         switch (ch) {
         case '	':            result = cl.on_tab(); break;
-        case KEY_UP:          result = cl.on_up(); break;
-        case KEY_DOWN:        result = cl.on_down(); break;
-        case KEY_LEFT:        result = cl.on_left(); break;
-        case KEY_RIGHT:       result = cl.on_right(); break;
-        case KEY_HOME:        result = cl.on_home(); break;
-        case KEY_END:         result = cl.on_end(); break;
+        case KEY_UP:
+            if (scroll_mode_)
+                { win().scroll_top = std::max(0, win().scroll_top - 1); draw(); }
+            else
+                result = cl.on_up();
+            break;
+        case KEY_DOWN:
+            if (scroll_mode_)
+                { win().scroll_top += 1; draw(); }
+            else
+                result = cl.on_down();
+            break;
+        case KEY_LEFT:          result = cl.on_left(); break;
+        case KEY_RIGHT:         result = cl.on_right(); break;
+        case KEY_HOME:          result = cl.on_home(); break;
+        case KEY_END:           result = cl.on_end(); break;
+        case KEY_PPAGE:
+            if (scroll_mode_)
+                { win().scroll_top = std::max(0, win().scroll_top - 10); draw(); }
+            break;
+        case KEY_NPAGE:
+            if (scroll_mode_)
+                { win().scroll_top = std::min(max_scroll(), win().scroll_top + 10); draw(); }
+            break;
         case KEY_BACKSPACE: case 127: case 8: result = cl.on_backspace(); break;
-        case 10: case 13: case KEY_ENTER: result = cl.on_enter(); break;
+        case 10: case 13: case KEY_ENTER:
+            if (scroll_mode_) { scroll_mode_ = false; draw(); }
+            result = cl.on_enter();
+            break;
         case 1:  result = cl.on_ctrl_a(); break;
         case 5:  result = cl.on_ctrl_e(); break;
         case 11: result = cl.on_ctrl_k(); break;

@@ -85,6 +85,9 @@ public:
 
     virtual void decay_all() = 0;
 
+    // Total number of items (memories + skills) in the store.
+    virtual size_t store_size() const = 0;
+
     virtual bool load(const std::string& path) = 0;
     virtual bool save(const std::string& path) const = 0;
 };
