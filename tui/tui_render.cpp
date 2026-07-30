@@ -419,6 +419,7 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
         ? std::string("amber> ")
         : text::git_prompt(project, git_branch_, git_ins_, git_del_);
     int prompt_w = static_cast<int>(display_cols(kPrompt));
+    int prompt_bytes = static_cast<int>(kPrompt.size());
 
     move(y, 0);
     clrtoeol();
@@ -427,17 +428,30 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     int total_w = display_cols(full);
     std::string before_cursor = kPrompt + s.substr(0, std::min(cursor, s.size()));
     int cursor_col = display_cols(before_cursor);
+    // Horizontal scrolling: scroll_off and vis_w are DISPLAY columns.
     int scroll_off = 0;
     if (cursor_col >= w) scroll_off = cursor_col - w + 1;
     if (scroll_off < prompt_w) scroll_off = 0;
     int vis_w = std::min(total_w - scroll_off, w);
     if (vis_w <= 0) { scroll_off = std::max(0, total_w - w); vis_w = std::min(total_w, w); }
 
-    // Render the prompt and input in P_USER.
+    // Convert display-column offsets to byte offsets for substr().
+    size_t byte_start = text::col_to_byte(shown, scroll_off);
+    size_t byte_end = text::col_to_byte(shown, scroll_off + vis_w);
+    if (byte_end <= byte_start) byte_end = shown.size();
+    std::string visible = shown.substr(byte_start, byte_end - byte_start);
+    if (scroll_off > 0 && !visible.empty()) {
+        // Don't replace the leading ┌ (U+250C, UTF-8: E2 94 8C) with ~.
+        bool is_deco = visible.size() >= 3 &&
+                       static_cast<unsigned char>(visible[0]) == 0xE2 &&
+                       static_cast<unsigned char>(visible[1]) == 0x94 &&
+                       static_cast<unsigned char>(visible[2]) == 0x8C;
+        if (!is_deco) visible[0] = '~';
+    }
+
+    // Render in P_USER.
     attron(COLOR_PAIR(P_USER));
-    std::string visible = shown.substr(scroll_off, vis_w);
-    if (scroll_off > 0 && !visible.empty()) visible[0] = '~';
-    mvaddnstr(y, 0, visible.c_str(), std::min(vis_w, w));
+    mvaddnstr(y, 0, visible.c_str(), std::min(static_cast<int>(visible.size()), w));
     attroff(COLOR_PAIR(P_USER));
 
     // Render shadow (faded) after the input text.

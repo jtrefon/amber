@@ -399,3 +399,33 @@ TEST(git_prompt_empty_project) {
     ASSERT(r.find("main") != std::string::npos);
 }
 
+
+TEST(col_to_byte_ascii) {
+    // "hello" = 5 bytes, 5 columns
+    ASSERT_EQ(tui::text::col_to_byte("hello", 0), (size_t)0);
+    ASSERT_EQ(tui::text::col_to_byte("hello", 3), (size_t)3);
+    ASSERT_EQ(tui::text::col_to_byte("hello", 5), (size_t)5);
+    ASSERT_EQ(tui::text::col_to_byte("hello", 99), (size_t)5);
+}
+
+
+TEST(col_to_byte_utf8) {
+    // "┌ a" = ┌(3 bytes,1 col) + space(1 byte,1 col) + a(1 byte,1 col)
+    std::string s = "\u250c a";
+    ASSERT_EQ(tui::text::col_to_byte(s, 0), (size_t)0);   // col 0 → byte 0
+    ASSERT_EQ(tui::text::col_to_byte(s, 1), (size_t)3);   // col 1 → byte 3 (past ┌)
+    ASSERT_EQ(tui::text::col_to_byte(s, 2), (size_t)4);   // col 2 → byte 4 (past space)
+    ASSERT_EQ(tui::text::col_to_byte(s, 3), (size_t)5);   // col 3 → byte 5 (past 'a')
+}
+
+
+TEST(col_to_byte_git_prompt) {
+    std::string p = tui::text::git_prompt("proj", "fix", 3, 1);
+    // p = "┌ proj fix +3/-1 ❯ " (roughly: ┌=1col, sp=1, proj=4, sp=1, fix=3, ...)
+    // Verify column 0 always maps to byte 0.
+    ASSERT_EQ(tui::text::col_to_byte(p, 0), (size_t)0);
+    // Verify the whole string is reachable.
+    int total = tui::text::display_cols(p);
+    ASSERT(tui::text::col_to_byte(p, total) <= p.size());
+}
+

@@ -62,6 +62,22 @@ std::string git_prompt(const std::string& project, const std::string& branch,
     return p;
 }
 
+size_t col_to_byte(const std::string& s, int col) {
+    if (col <= 0) return 0;
+    size_t byte_pos = 0;
+    int cur_col = 0;
+    while (byte_pos < s.size()) {
+        size_t advance = utf8_len(s, byte_pos);
+        if (advance == 0) advance = 1;
+        std::string cp = s.substr(byte_pos, advance);
+        int w = display_cols(cp);
+        if (cur_col + w > col) return byte_pos;
+        cur_col += w;
+        byte_pos += advance;
+    }
+    return s.size();
+}
+
 std::size_t utf8_len(const std::string& s, std::size_t i) {
     auto c = static_cast<unsigned char>(s[i]);
     std::size_t n = 1;
