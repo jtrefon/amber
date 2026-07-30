@@ -1,6 +1,5 @@
 
 #include "tui.h"
-#include "textutil.h"
 #include "welcome.h"
 
 #include <algorithm>
@@ -412,50 +411,36 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     draw_drawer(s);
     int y = height() - 1;
     int w = width();
-
-    // Build prompt prefix via the testable free function.
-    std::string project = git_project_.empty() ? "project" : git_project_;
-    std::string kPrompt = git_branch_.empty()
-        ? std::string("amber> ")
-        : text::git_prompt(project, git_branch_, git_ins_, git_del_);
-    int prompt_w = static_cast<int>(display_cols(kPrompt));
-    int prompt_bytes = static_cast<int>(kPrompt.size());
-
     move(y, 0);
     clrtoeol();
+    attron(COLOR_PAIR(P_USER));
+    const std::string kPrompt = "amber> ";
     std::string shown = kPrompt + s;
+    // If we have shadow text, include it for width calculation but render it faded.
     std::string full = shown + shadow;
+    int prompt_w = static_cast<int>(kPrompt.size());
     int total_w = display_cols(full);
+    // Cursor is after prompt + input text before cursor.
     std::string before_cursor = kPrompt + s.substr(0, std::min(cursor, s.size()));
     int cursor_col = display_cols(before_cursor);
-    // Horizontal scrolling: scroll_off and vis_w are DISPLAY columns.
+    // Horizontal scrolling.
     int scroll_off = 0;
     if (cursor_col >= w) scroll_off = cursor_col - w + 1;
     if (scroll_off < prompt_w) scroll_off = 0;
     int vis_w = std::min(total_w - scroll_off, w);
     if (vis_w <= 0) { scroll_off = std::max(0, total_w - w); vis_w = std::min(total_w, w); }
-
-    // Convert display-column offsets to byte offsets for substr().
-    size_t byte_start = text::col_to_byte(shown, scroll_off);
-    size_t byte_end = text::col_to_byte(shown, scroll_off + vis_w);
-    if (byte_end <= byte_start) byte_end = shown.size();
-    std::string visible = shown.substr(byte_start, byte_end - byte_start);
-    if (scroll_off > 0 && !visible.empty()) {
-        // Don't replace the leading ┌ (U+250C, UTF-8: E2 94 8C) with ~.
-        bool is_deco = visible.size() >= 3 &&
-                       static_cast<unsigned char>(visible[0]) == 0xE2 &&
-                       static_cast<unsigned char>(visible[1]) == 0x94 &&
-                       static_cast<unsigned char>(visible[2]) == 0x8C;
-        if (!is_deco) visible[0] = '~';
-    }
-
-    // Render in P_USER.
-    attron(COLOR_PAIR(P_USER));
-    mvaddnstr(y, 0, visible.c_str(), std::min(static_cast<int>(visible.size()), w));
+    // Render visible portion of input text.
+    std::string visible;
+    if (scroll_off < static_cast<int>(shown.size()))
+        visible = shown.substr(static_cast<size_t>(scroll_off),
+                                static_cast<size_t>(vis_w));
+    if (scroll_off > 0 && !visible.empty())
+        visible[0] = '~';
+    mvaddnstr(y, 0, visible.c_str(), std::min(vis_w, w));
     attroff(COLOR_PAIR(P_USER));
-
     // Render shadow (faded) after the input text.
     if (!shadow.empty() && cursor == s.size()) {
+        // Only show shadow when cursor is at end of input.
         int input_w = display_cols(shown);
         int shadow_start = input_w - scroll_off;
         if (shadow_start >= 0 && shadow_start < w) {
