@@ -599,7 +599,11 @@ void Tui::run() {
     // Load completion metadata from JSON (help text, choices, ranges).
     // This is the single source of truth for completion metadata — code edits
     // cannot break completion unless the JSON file is damaged.
-    settings_.load_completions_json("completions.json");
+    {
+        std::string json_path = agent::Workspace::root() + "/completions.json";
+        if (!settings_.load_completions_json(json_path))
+            append_line(P_STATUS, "warning: could not load " + json_path);
+    }
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
     CommandLine cl;
