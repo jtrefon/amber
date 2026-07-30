@@ -599,10 +599,43 @@ void Tui::run() {
     // Load completion metadata from JSON (help text, choices, ranges).
     // This is the single source of truth for completion metadata — code edits
     // cannot break completion unless the JSON file is damaged.
+    // Search order: binary dir, workspace root, user config dir.
     {
-        std::string json_path = agent::Workspace::root() + "/completions.json";
-        if (!settings_.load_completions_json(json_path))
-            append_line(P_STATUS, "warning: could not load " + json_path);
+        auto try_load = [&](const std::string& path) {
+            if (path.empty()) return false;
+            bool ok = settings_.load_completions_json(path);
+            if (ok) append_line(P_DEBUG, "loaded completions from " + path);
+            return ok;
+        };
+        // 1. Next to the amber binary (/proc/self/exe).
+        std::string bin_dir;
+        {
+            std::array<char, 4096> buf;
+            ssize_t len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
+            if (len > 0) {
+                buf[len] = '\0';
+                std::string exe(buf.data());
+                size_t slash = exe.rfind('/');
+                if (slash != std::string::npos) {
+                    bin_dir = exe.substr(0, slash);
+                    if (try_load(bin_dir + "/completions.json"))
+                        goto json_loaded;
+                }
+            }
+        }
+        // 2. Workspace root (project directory).
+        {
+            std::string ws = agent::Workspace::root();
+            if (!ws.empty() && try_load(ws + "/completions.json"))
+                goto json_loaded;
+        }
+        // 3. User config directory.
+        {
+            const char* home = std::getenv("HOME");
+            if (home)
+                try_load(std::string(home) + "/.config/amber/completions.json");
+        }
+        json_loaded:;
     }
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
