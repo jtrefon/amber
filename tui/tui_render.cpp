@@ -411,37 +411,89 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     draw_drawer(s);
     int y = height() - 1;
     int w = width();
+    int x = 0;
+    int prompt_w = 0;
+
     move(y, 0);
     clrtoeol();
-    attron(COLOR_PAIR(P_USER));
-    const std::string kPrompt = "amber> ";
-    std::string shown = kPrompt + s;
-    // If we have shadow text, include it for width calculation but render it faded.
-    std::string full = shown + shadow;
-    int prompt_w = static_cast<int>(kPrompt.size());
-    int total_w = display_cols(full);
-    // Cursor is after prompt + input text before cursor.
-    std::string before_cursor = kPrompt + s.substr(0, std::min(cursor, s.size()));
-    int cursor_col = display_cols(before_cursor);
-    // Horizontal scrolling.
+
+    // ── Prompt segments (colored, same pattern as bar_segments) ────────
+    auto put = [&](const std::string& text, int pair) {
+        if (x >= w) return;
+        std::wstring ws = to_wide(text);
+        int room = w - x;
+        if (static_cast<int>(ws.size()) > room) ws.resize(room);
+        attron(COLOR_PAIR(pair));
+        mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
+        attroff(COLOR_PAIR(pair));
+        x += static_cast<int>(ws.size());
+    };
+
+    if (!git_branch_.empty()) {
+        put("\u250c ", P_USER);
+        put(git_project_, P_USER);
+        put(" " + git_branch_, P_ASSISTANT);
+        if (git_ins_ > 0)
+            put(" +" + std::to_string(git_ins_), P_GIT_PLUS);
+        if (git_del_ > 0)
+            put(" -" + std::to_string(git_del_), P_GIT_MINUS);
+        put(" \u276f ", P_USER);
+    } else {
+        put("amber> ", P_USER);
+    }
+
+    prompt_w = x;  // columns consumed by prompt
+
+    // ── Input text (render after prompt, scroll horizontally) ─────────
+    prompt_w = x;  // columns consumed by prompt (x is already in wide-char count)
+    int total_w = prompt_w + static_cast<int>(display_cols(s)) +
+                  static_cast<int>(display_cols(shadow));
+    // Cursor column: prompt width + input text before cursor.
+    int cursor_col = prompt_w + static_cast<int>(display_cols(s.substr(0, cursor)));
     int scroll_off = 0;
     if (cursor_col >= w) scroll_off = cursor_col - w + 1;
     if (scroll_off < prompt_w) scroll_off = 0;
     int vis_w = std::min(total_w - scroll_off, w);
     if (vis_w <= 0) { scroll_off = std::max(0, total_w - w); vis_w = std::min(total_w, w); }
-    // Render visible portion of input text.
-    std::string visible;
-    if (scroll_off < static_cast<int>(shown.size()))
-        visible = shown.substr(static_cast<size_t>(scroll_off),
-                                static_cast<size_t>(vis_w));
-    if (scroll_off > 0 && !visible.empty())
-        visible[0] = '~';
-    mvaddnstr(y, 0, visible.c_str(), std::min(vis_w, w));
-    attroff(COLOR_PAIR(P_USER));
-    // Render shadow (faded) after the input text.
+
+    // Render visible part of input text starting at column prompt_w.
+    int input_start = prompt_w - scroll_off;
+    if (input_start < 0) input_start = 0;
+    if (input_start < w && scroll_off > prompt_w) {
+        // Scrolled past prompt — render input only.
+        const char* input_visible = s.c_str();
+        int input_len = static_cast<int>(s.size());
+        if (scroll_off > prompt_w) {
+            size_t skip = static_cast<size_t>(scroll_off - prompt_w);
+            if (skip < s.size()) {
+                input_visible += skip;
+                input_len = static_cast<int>(s.size()) - static_cast<int>(skip);
+            } else {
+                input_len = 0;
+            }
+        }
+        if (input_len > 0) {
+            if (input_len > w) input_len = w;
+            attron(COLOR_PAIR(P_USER));
+            mvaddnstr(y, input_start, input_visible, input_len);
+            attroff(COLOR_PAIR(P_USER));
+        }
+    } else if (input_start < w && scroll_off <= prompt_w) {
+        // Input starts after prompt on same line.
+        const char* input_visible = s.c_str();
+        int input_len = static_cast<int>(s.size());
+        if (input_len > w - input_start)
+            input_len = w - input_start;
+        if (input_len > 0) {
+            attron(COLOR_PAIR(P_USER));
+            mvaddnstr(y, input_start, input_visible, input_len);
+            attroff(COLOR_PAIR(P_USER));
+        }
+    }
+
+    // ── Shadow (faded completion hint after cursor) ────────────────────
     if (!shadow.empty() && cursor == s.size()) {
-        // Only show shadow when cursor is at end of input.
-        int input_w = display_cols(shown);
+        int input_w = prompt_w + static_cast<int>(display_cols(s));
         int shadow_start = input_w - scroll_off;
         if (shadow_start >= 0 && shadow_start < w) {
             attron(A_DIM | COLOR_PAIR(P_GRAY));
@@ -450,7 +502,8 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
             attroff(A_DIM | COLOR_PAIR(P_GRAY));
         }
     }
-    // Position cursor.
+
+    // ── Cursor ─────────────────────────────────────────────────────────
     int cx = cursor_col - scroll_off;
     if (cx < 0) cx = 0;
     if (cx >= w) cx = w - 1;
