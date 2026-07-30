@@ -430,14 +430,20 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     };
 
     if (!git_branch_.empty()) {
-        put("\u250c ", P_USER);
-        put(git_project_, P_USER);
-        put(" " + git_branch_, P_ASSISTANT);
-        if (git_ins_ > 0)
-            put(" +" + std::to_string(git_ins_), P_GIT_PLUS);
-        if (git_del_ > 0)
-            put(" -" + std::to_string(git_del_), P_GIT_MINUS);
-        put(" \u276f ", P_USER);
+        // BitchX-inspired frame:  ┌─[project]─[branch]─[+3/-1]─→
+        put("\u250c\u2500", P_USER);
+        put("[" + git_project_ + "]", P_USER);
+        put("\u2500[" + git_branch_ + "]", P_ASSISTANT);
+        if (git_ins_ > 0 || git_del_ > 0) {
+            put("\u2500[", P_USER);
+            if (git_ins_ > 0)
+                put("+" + std::to_string(git_ins_), P_GIT_PLUS);
+            put("/", P_USER);
+            if (git_del_ > 0)
+                put("-" + std::to_string(git_del_), P_GIT_MINUS);
+            put("]", P_USER);
+        }
+        put("\u2500\u2192 ", P_USER);
     } else {
         put("amber> ", P_USER);
     }
