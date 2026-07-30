@@ -355,3 +355,47 @@ TEST(palette_usage_and_common_prefix) {
     ASSERT_EQ(tui::palette::common_prefix({}), "");
 }
 
+
+TEST(git_prompt_no_diff) {
+    std::string r = tui::text::git_prompt("myproject", "main", 0, 0);
+    ASSERT(r.find("myproject") != std::string::npos);
+    ASSERT(r.find("main") != std::string::npos);
+    ASSERT(!r.empty());
+    // First char should be the box-drawing ┌ (U+250C, 3 UTF-8 bytes: E2 94 8C)
+    ASSERT_EQ(static_cast<unsigned char>(r[0]), 0xE2);
+    ASSERT_EQ(static_cast<unsigned char>(r[1]), 0x94);
+    ASSERT_EQ(static_cast<unsigned char>(r[2]), 0x8C);
+    // Should contain the ❯ delimiter
+    ASSERT(r.find("\u276f") != std::string::npos);
+    // No +/- indicators
+    ASSERT(r.find('+') == std::string::npos);
+    ASSERT(r.find('-') == std::string::npos);
+}
+
+
+TEST(git_prompt_with_diff) {
+    std::string r = tui::text::git_prompt("proj", "feature/x", 3, 1);
+    ASSERT(r.find("proj") != std::string::npos);
+    ASSERT(r.find("feature/x") != std::string::npos);
+    ASSERT(r.find("+3") != std::string::npos);
+    ASSERT(r.find("-1") != std::string::npos);
+}
+
+
+TEST(git_prompt_insertions_only) {
+    std::string r = tui::text::git_prompt("x", "fix", 5, 0);
+    ASSERT(r.find("+5") != std::string::npos);
+}
+
+
+TEST(git_prompt_deletions_only) {
+    std::string r = tui::text::git_prompt("x", "fix", 0, 2);
+    ASSERT(r.find("-2") != std::string::npos);
+}
+
+
+TEST(git_prompt_empty_project) {
+    std::string r = tui::text::git_prompt("", "main", 0, 0);
+    ASSERT(r.find("main") != std::string::npos);
+}
+
