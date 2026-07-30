@@ -10,6 +10,10 @@
 #include <agent/experience.h>
 #include <agent/tools.h>
 
+#include <array>
+#include <cstdio>
+#include <memory>
+
 #include "widgets.h"
 #include "textutil.h"
 #include "welcome.h"
@@ -311,6 +315,10 @@ bool Tui::drain_events() {
         pending_approvals_.pop();
         resolve_approval(ev);
     }
+
+    // Refresh git state after event processing so the decorated prompt always
+    // reflects the latest branch, diff, and dirty state.
+    git_refresh();
     return true;
 }
 
@@ -524,7 +532,51 @@ void Tui::compress_worker() {
     t.detach();
 }
 
+void Tui::git_refresh() {
+    // Fast filesystem queries — completes in <1ms on any modern system.
+    auto read_stdout = [](const char* cmd) -> std::string {
+        std::array<char, 128> buf;
+        std::string result;
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+        if (!pipe) return result;
+        while (fgets(buf.data(), buf.size(), pipe.get()) != nullptr)
+            result += buf.data();
+        return result;
+    };
+
+    std::string ref = read_stdout("git symbolic-ref HEAD 2>/dev/null");
+    if (ref.empty()) {
+        git_branch_.clear();
+        git_ins_ = 0;
+        git_del_ = 0;
+        return;
+    }
+    // Strip "refs/heads/" prefix and trailing newline
+    ref.erase(ref.find_last_not_of(" \n\r") + 1);
+    if (ref.compare(0, 11, "refs/heads/") == 0)
+        git_branch_ = ref.substr(11);
+    else
+        git_branch_ = ref;
+
+    std::string stat = read_stdout("git diff --shortstat 2>/dev/null");
+    git_ins_ = 0;
+    git_del_ = 0;
+    if (!stat.empty()) {
+        auto extract = [&](const std::string& needle) -> int {
+            size_t pos = stat.find(needle);
+            if (pos == std::string::npos) return 0;
+            size_t start = pos;
+            while (start > 0 && isdigit(static_cast<unsigned char>(stat[start - 1])))
+                --start;
+            return std::stoi(stat.substr(start, pos - start));
+        };
+        git_ins_ = extract(" insertion");
+        git_del_ = extract(" deletion");
+    }
+}
+
 void Tui::run() {
+    git_refresh();
     draw();
     draw_input("");
     flush();

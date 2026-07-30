@@ -104,6 +104,12 @@ private:
     // blocked.
     std::string pending_prompt_;
 
+    // ---- git state (decorated prompt) ------------------------------------
+    std::string git_branch_;    // current branch name, empty if not a git repo
+    int git_ins_ = 0;           // lines added (git diff --shortstat)
+    int git_del_ = 0;           // lines deleted
+    void git_refresh();         // query git, update the fields above
+
     // A modal dialog (info_dialog / menu_select / config / session browser)
     // blocks the main thread in wgetch, so drain_events() cannot run. If the
     // agent needs an approval while a modal is open we queue it and resolve it

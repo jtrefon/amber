@@ -411,14 +411,54 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     draw_drawer(s);
     int y = height() - 1;
     int w = width();
+
+    // Build decorated prompt.
+    std::string kPrompt;
+    int prompt_w;
+    if (!git_branch_.empty()) {
+        // Decoration line (second-to-last row). Use dim gray so it does not
+        // compete with the scrollback. ┌─(amber)─branch─(+3/-1)─
+        int deco_y = y - 1;
+        if (deco_y >= 0) {
+            std::string deco = "\u250c\u2500(";
+            deco += "amber";
+            deco += ")\u2500";
+            deco += git_branch_;
+            if (git_ins_ > 0 || git_del_ > 0) {
+                deco += "\u2500(";
+                if (git_ins_ > 0) { deco += "+"; deco += std::to_string(git_ins_); }
+                deco += "/";
+                if (git_del_ > 0) { deco += "-"; deco += std::to_string(git_del_); }
+                deco += ")";
+            }
+            deco += "\u2500";
+            // Truncate if wider than terminal, leaving room for trailing corner.
+            int deco_w = display_cols(deco);
+            if (deco_w > w - 1) {
+                while (display_cols(deco) > w - 3)
+                    deco.pop_back();
+                deco += "\u2026";
+            }
+            move(deco_y, 0);
+            clrtoeol();
+            attron(A_DIM | COLOR_PAIR(P_GRAY));
+            mvaddnstr(deco_y, 0, deco.c_str(),
+                       std::min(static_cast<int>(deco.size()), w));
+            attroff(A_DIM | COLOR_PAIR(P_GRAY));
+        }
+        kPrompt = "\u2570 ";
+        prompt_w = 2;
+    } else {
+        kPrompt = "amber> ";
+        prompt_w = 7;
+    }
+
     move(y, 0);
     clrtoeol();
     attron(COLOR_PAIR(P_USER));
-    const std::string kPrompt = "amber> ";
     std::string shown = kPrompt + s;
     // If we have shadow text, include it for width calculation but render it faded.
     std::string full = shown + shadow;
-    int prompt_w = static_cast<int>(kPrompt.size());
     int total_w = display_cols(full);
     // Cursor is after prompt + input text before cursor.
     std::string before_cursor = kPrompt + s.substr(0, std::min(cursor, s.size()));
