@@ -71,6 +71,10 @@ const char* check();
 std::string git_prompt(const std::string& project, const std::string& branch,
                        int ins, int del);
 
+// Convert a display-column offset to a byte offset in a UTF-8 string.
+// Returns the byte position (npos if col exceeds the string's display width).
+size_t col_to_byte(const std::string& s, int col);
+
 } // namespace text
 } // namespace tui
 
