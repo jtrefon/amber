@@ -70,6 +70,13 @@ void Agent::ensure_system_prompt() {
         break;
     }
 
+    // Optional git workflow prompt
+    std::string git_path = cfg_.git_prompt_path.empty()
+        ? "prompts/git.md" : cfg_.git_prompt_path;
+    std::string git = load_prompt(git_path);
+    if (!git.empty())
+        system += "\n\n" + git;
+
     Message sys_msg;
     sys_msg.role = "system";
     sys_msg.content = system;

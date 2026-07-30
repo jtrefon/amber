@@ -48,6 +48,7 @@ struct Config {
     std::string model = "gpt-4o-mini";
     std::string system_prompt_path;      // markdown file
     std::string tools_prompt_path;       // markdown file advertising tools
+    std::string git_prompt_path;         // markdown file for git workflow
     int max_tool_iterations = 100;
     double temperature = 0.2;
     size_t max_tokens = 16384;
