@@ -1,8 +1,11 @@
 
 # amber shell prompt — single line, project-aware, git-aware
 #
-# Source from .zshrc:
-#   source ~/.config/amber/amber-prompt.zsh
+# Source from .zshrc (adjust path to your checkout):
+#   source /home/jack/Projects/cpp-agent/scripts/amber-prompt.zsh
+#
+# Or from any directory:
+#   source <path-to-amber>/scripts/amber-prompt.zsh
 #
 # Configurable via AMBER_PROMPT env:
 #   AMBER_PROMPT=minimal   →  fix/ui-fix  +3/-1
@@ -11,6 +14,9 @@
 #   AMBER_PROMPT=deluxe    →  amber fix/ui-fix +3/-1 ❯
 #
 # Default: deluxe (single-line, compact)
+#
+# Quick test (run from the project root):
+#   source scripts/amber-prompt.zsh
 
 _amber_prompt() {
     local project="amber"
