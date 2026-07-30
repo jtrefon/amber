@@ -39,6 +39,32 @@ bool is_read_only_shell(const std::string& cmd) {
     return false;
 }
 
+// Returns true for commands that can cause data loss or system damage.
+// Only these trigger the approval dialog — everything else runs freely.
+bool is_dangerous_shell(const std::string& cmd) {
+    if (cmd.empty()) return false;
+    const char* dangerous[] = {
+        "rm -rf", "rm -r", "rm -f", "rm --",
+        "dd", "mkfs", "fdisk", "parted",
+        "git reset --hard", "git push -f", "git push --force",
+        "git clean -f", "git clean -fd",
+        "sudo rm", "sudo dd", "sudo mkfs",
+        "chmod -R", "chown -R",
+        "shutdown", "reboot", "halt", "poweroff",
+        "kill -9", "pkill -9",
+        "docker rm -f", "docker rmi", "docker system prune",
+        "docker volume rm", "docker network rm",
+        "npm uninstall", "pip uninstall",
+    };
+    for (const char* pattern : dangerous) {
+        if (cmd.rfind(pattern, 0) == 0) {
+            char following = cmd[std::strlen(pattern)];
+            if (following == '\0' || following == ' ') return true;
+        }
+    }
+    return false;
+}
+
 constexpr int kMaxTimeout = 3600;          // 1 hour ceiling
 constexpr std::size_t kMaxOutput = std::size_t{64} * 1024;   // 64 KiB cap
 
@@ -154,7 +180,8 @@ void format_result(std::string output, bool timed_out, int code, int timeout,
 //                              a long-running task that keeps emitting is never cut off
 //
 // Safety: this tool executes arbitrary commands, so it declares
-// requires_approval() == true. The agent loop will not run it unless the host
+// is_dangerous_shell() == true triggers the approval gate. Benign commands
+// (mkdir, touch, cp, mv, python, etc.) run freely without prompting.
 // grants approval (a TUI confirmation dialog or a CLI opt-in). It runs with the
 // working directory set to the confined workspace root, in its own process
 // group so a timeout can reliably kill the whole subtree.
@@ -201,7 +228,7 @@ private:
         std::string cmd;
         if (a.contains("command") && a["command"].is_string())
             cmd = a["command"].get<std::string>();
-        return !is_read_only_shell(cmd);
+        return is_dangerous_shell(cmd);
     }
 
     bool is_read_only() const noexcept override { return false; }
