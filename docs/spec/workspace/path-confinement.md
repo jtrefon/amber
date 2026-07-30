@@ -6,7 +6,7 @@ directory. Uses lexical path normalisation with slash-terminated prefix
 matching to prevent `../` traversal and sibling-directory prefix collisions.
 
 ### Ownership
-- **Source files**: `lib/workspace.cpp` (83 lines), `include/agent/workspace.h` (48 lines)
+- **Source files**: `lib/workspace.cpp` (90 lines), `include/agent/workspace.h` (50 lines)
 - **Test files**: `tests/run_tests.cpp` — `workspace_confines_relative_and_rejects_escape` (544), `read_write_tools_reject_paths_outside_workspace` (564)
 
 ---
@@ -83,6 +83,20 @@ matching to prevent `../` traversal and sibling-directory prefix collisions.
 
 ---
 
+### API: Workspace::relative()
+
+```cpp
+static std::string relative(const std::string& path);
+```
+
+Strips the workspace root prefix from an absolute path, returning a workspace-
+relative path. Used by tools (read, search) to display compact file paths in
+output summaries rather than full absolute paths.
+
+- If `path` does not start with the workspace root, returns `path` unchanged.
+- Returns `"."` when `path` equals the root exactly.
+- Never throws.
+
 ### Cross-references
 
 - **Depends on**: `workspace/security-model.md`
@@ -92,5 +106,5 @@ matching to prevent `../` traversal and sibling-directory prefix collisions.
 ### Known gaps
 
 1. **No symlink resolution** — Confinement is purely lexical. A symlink inside the workspace pointing outside is NOT detected.
-2. **Function-local static root is not thread-safe** — `reset_root()` cannot be called concurrently with `confine()`.
+2. **Function-local static root is not thread-safe** — `set_root()` cannot be called concurrently with `confine()`.
 3. **`AMBER_WORKSPACE` is read once** — Changing the env var after first `confine()` call has no effect (cached).

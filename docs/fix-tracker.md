@@ -126,7 +126,12 @@ Replace the fire-and-forget async extraction with a safe asynchronous pattern. O
 ### Refactor Rules
 
 - Prefer Option A: store `std::future` in Agent, wait on destruction.
-- Do NOT use `std::thread::detach()` anywhere in the codebase after this fix.
+- Do NOT use `std::thread::detach()` in `lib/` (core library) after this fix.
+- TUI may still use `detach()` for `compress_worker` (background compression) but the
+  worker body MUST be wrapped in try-catch so exceptions never skip the
+  `agent_busy_.store(false)` reset. The TUI owns its thread lifetime and the
+  thread does not capture `this` across destruction boundaries in a way that
+  causes use-after-free (the Tui object lives for the full process lifetime).
 - Do NOT add `shared_from_this` to `Agent` unless truly needed — prefer value-capture of data.
 - If using `std::async`, verify the extraction lambda does not capture `this`; capture `memory_store_` raw pointer only after verifying lifetime is managed (e.g., Agent owns the store via `unique_ptr`, and the future is joined before the `unique_ptr` is destroyed).
 - Extract the inline heuristic into a named private method `extract_memories_from_tool_results()`.
@@ -134,7 +139,7 @@ Replace the fire-and-forget async extraction with a safe asynchronous pattern. O
 ### Verification
 
 - [ ] `make clean && make && make test` passes
-- [ ] `grep -rn '\.detach()' lib/ tui/ tools/` returns nothing
+- [ ] `grep -rn '\.detach()' lib/` returns nothing (TUI t/ + linters/ exempt)
 - [ ] TUI `/quit` during streaming returns within 2 seconds (no blocking on zombie threads)
 - [ ] Valgrind or ASan run shows no use-after-free on normal exit
 
@@ -529,7 +534,7 @@ Add to AGENTS.md under "Conventions":
   - Test coverage: the PR includes a failing test → fix → passing test sequence
   - No new clang-tidy or cppcheck warnings
   - No commented-out code, dead branches, or speculative generality
-  - SPDX header present on new files
+  - No SPDX/copyright boilerplate — first line is functional
 
 ### Error handling conventions
 

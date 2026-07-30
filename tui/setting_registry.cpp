@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "setting_registry.h"
 #include "nlohmann/json.hpp"
@@ -52,14 +50,19 @@ std::vector<std::string> SettingRegistry::complete(const std::string& prefix) co
     if (dot != std::string::npos) {
         std::string ns = prefix.substr(0, dot);
         std::string sub = prefix.substr(dot + 1);
-        for (const auto& s : settings_) {
-            // Match keys that start with "ns." and the sub-prefix.
+        auto match = [&](const std::string& key) {
             std::string expected = ns + ".";
-            if (s.key.rfind(expected, 0) == 0) {
-                std::string tail = s.key.substr(expected.size());
+            if (key.rfind(expected, 0) == 0) {
+                std::string tail = key.substr(expected.size());
                 if (tail.rfind(sub, 0) == 0)
                     out.push_back(tail);
             }
+        };
+        for (const auto& s : settings_)
+            match(s.key);
+        for (const auto& [key, _] : key_help_) {
+            if (key.rfind("core.", 0) != 0 && key.rfind("os.", 0) != 0)
+                match(key);
         }
         return out;
     }

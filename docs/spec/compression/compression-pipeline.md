@@ -28,33 +28,30 @@ The entire architecture is designed around **zero full prefills during compressi
 │  Existing KV cache (unchanged prefix, built once):                   │
 │  [system][conversation turns 1..N]  ← 262K of KV, paid once         │
 │                                                                     │
-│  Step 1 — classify turns (appends to tail, ~1s)                     │
-│  [system][conv 1..N] [CLASSIFY_REQUEST]                              │
-│                       ^-- new tokens, KV extends                     │
+│  Step 1 — classify turns (push onto live context, LLM, pop)          │
+│  context_.push(CLASSIFY_REQ) → LLM → context_.pop()                  │
+│  The push/pop pair extends the KV cache from the live prefix.        │
 │  ← response: classification_json                                     │
 │                                                                     │
-│  Step 2 — extract memories/skills (appends to tail, ~1s)            │
-│  [system][conv 1..N] [CLASSIFY_RESP] [EXTRACT_REQUEST]               │
-│                                        ^-- KV extends further        │
+│  Step 2 — extract memories/skills (push onto SAME context, LLM, pop)│
+│  context_.push(EXTRACT_REQ) → LLM → context_.pop()                   │
+│  Same prefix as step 1 — KV cache untouched by the pop.             │
 │  ← response: extraction_json (memories + skills)                     │
 │                                                                     │
-│  Step 3 — optional: tag persisted items (appends to tail, ~1s)      │
-│  [system][conv 1..N] [CLASSIFY_RESP] [EXTRACT_RESP] [ARCHIVE_REQ]   │
-│                                                      ^-- extends     │
-│  ← response: archive_json (if needed)                                │
+│  Step 3 — assemble compressed context (C++ side, no LLM call)       │
+│  Apply classification to snapshot.  Then:                            │
+│  context_.clear();                                                   │
+│  for (auto& m : compressed) context_.push(std::move(m));             │
+│  emit_context_event(context_events_, context_);                      │
 │                                                                     │
-│  Step 4 — assemble compressed context (C++ side, no LLM call)       │
-│  Collate all responses → build new shorter context                   │
-│  context_.replace(compressed_history)                                │
-│                                                                     │
-│  Step 5 — next LLM turn (one prefill of compressed)                  │
+│  Step 4 — next LLM turn (one prefill of compressed)                  │
 │  [system][compressed 2K-10K]  ← cheap prefill, ~1s                  │
 │                                                                     │
-│  Total: 1 expensive prefill + 3 cheap extensions + 1 cheap prefill  │
+│  Total: 1 expensive prefill + 2 cheap extensions + 1 cheap prefill  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key property:** Each step appends to the SAME prefix. The server's KV cache for `[system][conv 1..N]` is computed once and reused across all three steps. No step triggers a full reload.
+**Key property:** Both LLM calls push/pop on the SAME live context. The first call extends the KV cache from the conversation prefix. After the first pop restores the context, the second push extends from the same prefix again — no full prefill between them. The final clear+push is a pure stack rebuild (no mutation, just unstack + restack).
 
 ---
 
@@ -65,7 +62,7 @@ The entire architecture is designed around **zero full prefills during compressi
 | **Input** | `std::vector<Message>` (full conversation history) + `CompressionConfig` + `LLMClient` |
 | **Output** | Compressed `std::vector<Message>`: core turns verbatim, pruned turns removed, archived turns replaced by compressed context message |
 | **Error states** | LLM call at any step fails → return input unchanged. Parse failure → return pre-classification history. Empty input → return unchanged. |
-| **Thread safety** | Called synchronously from agent thread. `Agent::compress_now()` replaces `context_` on the calling thread. |
+| **Thread safety** | Called synchronously from agent thread. `Agent::compress_now()` clears and repushes `context_` on the calling thread via `clear() + push()`. |
 
 ### Invariants
 
@@ -165,21 +162,18 @@ Response:
 Using the classification from step 1 and the extraction from step 2:
 
 ```cpp
-// 1. Apply classification to the pre-classification history.
-//    (history was snapshotted before step 1)
-auto before = snapshot_.get_all();
-auto collapsed = collapse_loops(before);
-auto compressed = apply_classification(collapsed, classify_response);
+// 1. Apply classification to the pre-classification snapshot.
+auto compressed = apply_classification(snapshot, classify_response);
+compressed = enforce_headroom(std::move(compressed), context_size);
 
 // 2. Apply memory/skill ops to the store.
 apply_compression_result(extract_response);
 
-// 3. Guarantee minimum context.
-enforce_minimum_context(compressed, before);    // keep last user msg
-enforce_headroom(compressed, context_size);     // keep 25% free
-
-// 4. Atomic replace.
-context_.replace(compressed);
+// 3. Rebuild the context stack — pure clear + push (no mutation).
+context_.clear();
+for (auto& m : compressed)
+    context_.push(std::move(m));
+emit_context_event(context_events_, context_);
 ```
 
 The next LLM call builds KV for the compressed context (2K-10K tokens instead of 262K).
@@ -252,11 +246,11 @@ The next LLM call builds KV for the compressed context (2K-10K tokens instead of
 - **Expected**: KV extends by ~300 tokens. No prefill triggered. Response parsed as `{memories: [...], skills: [...]}`.
 - **On failure**: Extraction step fails → classification result is still used. No memory ops applied. Degraded but safe.
 
-#### [CP-09] Step 3 — assemble and replace (C++ side, zero LLM calls)
+#### [CP-09] Step 3 — assemble and rebuild (C++ side, zero LLM calls)
 
 - **Given**: Classification from step 1, extraction from step 2
 - **Input**: `apply_classification(history, classify_response)` + `apply_compression_result(extract_response)`
-- **Expected**: Core turns kept verbatim. Prune turns removed. Context turns archived. Memories/skills applied to store. Decay runs. Store saved. Context replaced atomically.
+- **Expected**: Core turns kept verbatim. Prune turns removed. Context turns archived. Memories/skills applied to store. Decay runs. Store saved. Context rebuilt via clear() + push().
 - **Minimum context invariant**: The last user message is ALWAYS preserved, even if the LLM prunes everything.
 
 #### [CP-10] Step 4 — next LLM turn (one cheap prefill)

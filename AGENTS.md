@@ -50,8 +50,7 @@ C++17 AI agent harness: a core library (`libagent.a`) plus a headless CLI
 
 - Style: `.clang-format` (LLVM-based, 4-space, no tabs, 100 cols). Run
   `clang-format -i <files>` on touched code. No comments that restate code.
-- Every new source file needs the SPDX/Apache-2.0 header:
-  `// SPDX-License-Identifier: Apache-2.0` + `// Copyright 2026 Jacek Trefon`.
+- New source files need no copyright/SPDX header — keep the first line functional.
 - Commits: imperative mood, scoped prefixes (e.g. `tui: fix drawer scroll`).
   Tests for behavior changes go in `tests/run_tests.cpp`.
 
@@ -63,6 +62,35 @@ C++17 AI agent harness: a core library (`libagent.a`) plus a headless CLI
   on a TTY, denies when stdin is not a TTY unless `--yes`. TUI shows a dialog.
   Default timeout 60s, output capped 64 KiB.
 - Keep the agent unprivileged (container / dedicated dir).
+
+## Context stack architecture (immutable, hash-chained)
+
+The `Context` class (`include/agent/context.h`) is a **pure stack** — messages are
+sealed on `push()` and can never be modified in-place. The only mutation
+operations are:
+
+| Operation | What it does |
+|-----------|-------------|
+| `push(msg)` | Append a sealed message to the **top** of the stack. |
+| `pop()` | Remove the **most recently pushed** message (LIFO). Used by compression to push a classify/extract request, call the LLM, then pop it. |
+| `clear()` | Remove all messages. Used by compression rebuild after assembly. |
+| `get_all()` | **Read-only** view of the entire stack. Asserts FNV-1a hash-chain integrity before returning. |
+
+Every `push()` computes `h_i = FNV(prev_hash || msg)` and stores it in a parallel
+deque. `pop()` restores the previous hash in O(1). `get_all()` recomputes the
+entire chain from the stored messages — any in-place mutation (`const_cast`,
+rogue `replace` method, direct deque access) breaks a link and crashes with
+`assert` in debug builds.
+
+**Rules:**
+- NEVER add a mutation method (replace, insert, update, set_message, etc.).
+  If you need to rebuild the context, call `clear()` then `push()` each message.
+- NEVER modify a message after it has been pushed (including via `const_cast`).
+- The `assert(verify_chain())` in `get_all()` is the integrity gate. If you
+  bypass `get_all()` to read the deque directly, you are responsible for
+  verifying the chain yourself.
+- See `tests/run_tests.cpp` (`context_hash_chain_integrity`) for the test that
+  exercises every mutation path and verifies the chain survives.
 
 ## Runtime / config
 
@@ -176,8 +204,9 @@ Every PR reviewer MUST verify:
       fix commit (or a clear explanation if not possible).
 - [ ] All CI checks pass: `make`, `make test`, `make lint`, `make analyze`.
 - [ ] Zero dead code: no commented-out code, no stubs, no speculative branches.
-- [ ] SPDX/Apache-2.0 header on every new file.
+- [ ] No SPDX/copyright boilerplate — first line is functional (`#include`, `#ifndef`, etc.).
 - [ ] No new clang-tidy or cppcheck warnings.
+- [ ] **Context is a pure stack** — only `push()`, `pop()` (LIFO), `clear()`, `get_all()`. No mutation of sealed messages. No `replace()` or similar. The FNV-1a hash chain in `get_all()` asserts integrity — any bypass crashes in debug.
 
 ## Coding standards
 
@@ -264,21 +293,18 @@ claim 0-debt conformance:
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 1036 | Test file; exempt from class-size rule but a candidate for per-area headers. |
-| `lib/session.cpp` | 196 | OK, but `list()` mixes POSIX `opendir` with JSON — consider an `fs` helper. |
-| `tui/tui_render.cpp` | 410 | Method implementations (not a class); exempt from class-size rule. |
-| `tui/tui_input.cpp` | 342 | Method implementations (not a class); exempt from class-size rule. |
+| `tests/run_tests.cpp` | 2263 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `lib/session.cpp` | 269 | OK, but `list()` mixes POSIX `opendir` with JSON — consider an `fs` helper. |
+| `tui/tui_render.cpp` | 661 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 1520 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `request_builder`, `sse_parser`,
   `http_transport`, `model_probe`, `debug_log` (+ `llm.cpp` keeps the class).
-- `lib/agent.cpp` (473 → 200): after a regression that re-inlined the
-  confirmation loop and tool-recovery logic, `run` is again a thin orchestrator.
-  The confirmation step is `confirm_turn`; tool dispatch is the free
-  `dispatch_tool_calls` (`dispatch.{h,cpp}`); parsing/sanitize/extract helpers are
-  in `agent_helpers.{h,cpp}`; failure-streak + recovery steering in
-  `tool_recovery.{h,cpp}`.
-- `tui/tui.cpp` (1245 → 171): god-class `Tui` split into `tui.h` (declaration,
+- `lib/agent.cpp` (473 → 200, now 601): `run` decomposed into `confirm_turn`,
+  `dispatch_tool_calls`, `agent_helpers`, `tool_recovery`; `compress_now` now
+  delegates to `CompressionPipeline::compress()` via `compression_->compress()`.
+- `tui/tui.cpp` (1245 → 171, now 935): god-class `Tui` split into `tui.h` (declaration,
   152 lines) + `tui_render.cpp`, `tui_input.cpp`, `tui_session.cpp`,
   `tui_main.cpp`. No file defines a class >200 lines.
 - `tui/widgets.cpp` (333): split into `dialog.cpp`, `form_edit.cpp`,
@@ -287,24 +313,22 @@ claim 0-debt conformance:
   `semantic_index.cpp` (107 lines) + `semantic_helpers.h`.
 - `tools/bash_tool.cpp` (191 → 196): `execute()` decomposed into free helpers
   `run_with_timeout` + `drain_output` in the anonymous namespace.
+- **Detached thread in `chat_once`** (Critical): replaced with synchronous
+  extraction — `chat_once` no longer spawns a thread.
+- **HTTP transport + tool-cancel globals** (Critical): `CancellationToken` in
+  `include/agent/process.h`, used by `http_transport`; no module-level globals.
+- **`Agent::run()` SRP** (High): decomposed into 4 named methods.
+- **`Agent::compress_now()` SRP** (High): reuses `CompressionPipeline::compress()`
+  via `compression_->compress()` with `CompressionObserver`.
+- **Tool cancel globals** (High): instance-scoped `CancellationToken`.
+- **Tools in `libagent.a`** (High): split into `libagent_core.a` +
+  `libagent_tools.a` in `Makefile`.
+- **Tests include TUI headers** (Medium): TUI tests moved to
+  `tests/tui_tests.cpp`; `tests/run_tests.cpp` is TUI-header-free.
 
-### Current outstanding issues
-See `docs/issues.md` for the full register and `docs/fix-tracker.md` for detailed
-fix plans. Key items:
-
-| Issue | Severity | Area |
-|-------|----------|------|
-| Detached thread use-after-free in `chat_once` | Critical | `lib/agent.cpp` |
-| HTTP transport depends on tool-cancel globals (boundary violation) | Critical | `lib/http_transport.cpp` |
-| `Agent::run()` violates SRP and 10-line rule | High | `lib/agent.cpp` |
-| `Agent::compress_now()` violates SRP and dupes pipeline | High | `lib/agent.cpp` |
-| Tool cancel as module-level globals | High | `tools/bash_tool.cpp` |
-| Tools compiled into `libagent.a` (build-layer blur) | High | `Makefile.in` |
-| Tests include TUI headers (boundary violation) | Medium | `tests/run_tests.cpp` |
-
-Method-size and branching: most methods are short, but the long `run`,
-`compress_now`, and `bash_tool::execute` bodies violate the <10-line / low-branch
-rule and should be decomposed first (highest leverage, lowest risk).
+All items previously listed in "Current outstanding issues" have been resolved.
+See `docs/issues.md` for the historical register and `docs/fix-tracker.md` for
+fix details.
 
 When refactoring to fix these, preserve behavior and keep `make test` green. Run
 `make clean && make` after touching headers (see Compilation gotchas).

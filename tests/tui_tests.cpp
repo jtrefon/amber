@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 // TUI-specific unit tests. These test the ncurses-adjacent utilities
 // (text wrapping, markdown rendering, command palette, completer).

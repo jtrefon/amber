@@ -1,13 +1,16 @@
-# amber — Current Issues Register
+# amber — Historical Issues Register
 
 - **Status:** ✅ All resolved
-- **Last updated:** 2026-07-24
+- **Last updated:** 2026-07-30
 - **Owner:** Jacek Trefon
 - **Tolerance:** Zero technical debt — every issue must be refactored, not patched
 
+> **⚠ Historical record only.** All items below have been resolved. See
+> `docs/fix-tracker.md` for fix details.
+
 ---
 
-## Classification Key
+## Classification Key (Historical)
 
 | Severity | Colour | Meaning |
 |----------|--------|---------|

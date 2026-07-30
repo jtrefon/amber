@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "textutil.h"
 
@@ -44,6 +42,7 @@ const char* glyph::down()     { return utf8() ? "\u2193" : "v"; }
 const char* glyph::block_l()  { return utf8() ? "\u2590" : "|"; }
 const char* glyph::block_r()  { return utf8() ? "\u258c" : "|"; }
 const char* glyph::ellipsis() { return utf8() ? "\u2026" : "..."; }
+const char* glyph::check()    { return utf8() ? "\u2713" : "+"; }
 
 std::size_t utf8_len(const std::string& s, std::size_t i) {
     auto c = static_cast<unsigned char>(s[i]);

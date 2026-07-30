@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/tool.h"
 #include "agent/tools.h"
@@ -101,11 +99,12 @@ public:
         } else {
             out << "[" << backend->name() << "] " << hits.size() << " hit(s):\n";
             for (const auto& h : hits) {
+                std::string rel = Workspace::relative(h.path);
                 if (mode == "semantic")
-                    out << h.path << ":" << h.line_no << " (score=" << h.score
+                    out << rel << ":" << h.line_no << " (score=" << h.score
                         << ") " << h.line << "\n";
                 else
-                    out << h.path << ":" << h.line_no << ":" << h.line << "\n";
+                    out << rel << ":" << h.line_no << ":" << h.line << "\n";
             }
         }
         r.output = out.str();

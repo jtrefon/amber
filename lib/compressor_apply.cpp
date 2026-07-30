@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/compressor.h"
 #include "agent/experience.h"
@@ -29,14 +27,22 @@ std::vector<Message> apply_classification(
         }
     }
 
-    // Separate messages by tag
+    // Always preserve the system prompt (index 0) regardless of how the
+    // classifier tagged it — the classifier treats message indices as "turn"
+    // numbers and may accidentally prune or archive the system message.
+    Message saved_system;
+    if (!history.empty() && history[0].role == "system")
+        saved_system = history[0];
+
+    // Separate messages by tag, skipping the saved system prompt (it will
+    // be prepended before returning so the classifier cannot prune/archive it).
     std::vector<Message> core;
-    // Archive entry: (start_turn, end_turn, summary)
     struct ArchiveSeg { size_t start; size_t end; std::string summary; };
     std::vector<ArchiveSeg> archive_segments;
     size_t prune_count = 0;
 
-    for (size_t i = 0; i < history.size(); ++i) {
+    size_t start_idx = saved_system.role == "system" ? 1 : 0;
+    for (size_t i = start_idx; i < history.size(); ++i) {
         switch (tags[i]) {
             case Classification::core:
                 core.push_back(history[i]);
@@ -101,6 +107,10 @@ std::vector<Message> apply_classification(
             }
         }
     }
+
+    // Prepend the saved system prompt so the classifier cannot remove it.
+    if (saved_system.role == "system")
+        core.insert(core.begin(), std::move(saved_system));
 
     return core;
 }

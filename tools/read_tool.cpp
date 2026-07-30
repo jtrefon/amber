@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/tool.h"
 #include "agent/tools.h"
@@ -72,8 +70,15 @@ public:
             out << (lineno + 1) << ":\t" << line << "\n";
             ++lineno; ++printed;
         }
-        r.output = out.str();
-        r.meta = {{"lines", printed}, {"total", total}, {"more", printed >= limit && lineno < total}};
+
+        std::string rel = Workspace::relative(path);
+        long end_line = offset + printed - 1;
+        r.output = "# " + rel + ":" + std::to_string(offset) + "-" +
+                   std::to_string(end_line) + " (" + std::to_string(printed) +
+                   " lines)\n" + out.str();
+        r.meta = {{"lines", printed}, {"total", total},
+                  {"more", printed >= limit && lineno < total},
+                  {"path", rel}, {"start", offset}};
         if (printed >= limit && lineno < total)
             r.output += "\n[more lines available: " + std::to_string(total - lineno)
                       + " remaining; pass offset=" + std::to_string(lineno + 1)

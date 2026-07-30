@@ -2,7 +2,12 @@
 
 **Author:** Frank  
 **Date:** 2026-07-29  
+**Last updated:** 2026-07-30  
 **Method:** Code trace on every concept — no assumptions, no borrowed analysis
+
+> **Note:** Items flagged as "BUG" or "gap" in this analysis have since been
+> resolved. See the [Phase 0.2 Implementation Status](#7-phase-02-implementation-status)
+> table at the end of this document for the current state of each finding.
 
 ---
 
@@ -458,46 +463,46 @@ Fix these two links, and 80% of the compression system comes alive.
 
 ### Phase 0 — Blockers (must fix before anything else works correctly)
 
-| # | Change | Files | Risk | Est. |
-|---|--------|-------|------|------|
-| 0.1 | Memory injection → separate message slot (never touch system prompt) | `lib/agent.cpp`, `include/agent/agent.h` | 🔴 Fixes prefix stability. Without this, every turn pays 10-30 min prefill. | 4-6h |
-| 0.2 | Add `Context::replace()` for atomic swap | `include/agent/context.h` | 🟢 Eliminates clear-then-push window | 30m |
-| 0.3 | Gate checks cooldown in `should_compress()` | `lib/compressor.cpp` | 🟢 Without this, gate fires every turn | 30m |
-| 0.4 | Clamp `turn_start` in `apply_classification()` | `lib/compressor_apply.cpp` | 🔴 UB fix — out-of-bounds access | 30m |
+| # | Change | Status | Files | Risk | Est. |
+|---|--------|--------|-------|------|------|
+| 0.1 | Memory injection → separate message slot (never touch system prompt) | ✅ Resolved | `lib/agent.cpp`, `include/agent/agent.h` | 🔴 Fixes prefix stability. Without this, every turn pays 10-30 min prefill. | 4-6h |
+| 0.2 | ~~Add `Context::replace()`~~ **Rejected: violates immutable stack.** Compression uses `clear() + push()` instead. Hash-chain integrity (`context.h:43-64`) prevents any future mutation methods. | 🚫 Rejected | `include/agent/context.h` | 🟢 No mutation API — stack architecture enforced at runtime | — |
+| 0.3 | Gate checks cooldown in `should_compress()` | ✅ Resolved | `lib/compressor.cpp` | 🟢 Without this, gate fires every turn | 30m |
+| 0.4 | Clamp `turn_start` in `apply_classification()` | ✅ Resolved | `lib/compressor_apply.cpp` | 🔴 UB fix — out-of-bounds access | 30m |
 
 ### Phase 1 — Links (unlocks the core pipeline)
 
-| # | Change | Files | Risk | Est. |
-|---|--------|-------|------|------|
-| 1.1 | Extract `apply_compression_memops()` to `Agent::apply_compression_result()` | `lib/agent.cpp`, `include/agent/agent.h` | 🟢 Code already exists, just needs to be reachable | 1h |
-| 1.2 | Wire `compress_now()` to pipeline + `apply_compression_result()` | `lib/agent.cpp` | 🟡 Replaces stub with real logic. Pipeline returns original on failure — safe. | 4-6h |
+| # | Change | Status | Files | Risk | Est. |
+|---|--------|--------|-------|------|------|
+| 1.1 | Extract `apply_compression_memops()` to `Agent::apply_compression_result()` | ✅ Resolved | `lib/agent.cpp`, `include/agent/agent.h` | 🟢 Code already exists, just needs to be reachable | 1h |
+| 1.2 | Wire `compress_now()` to pipeline + `apply_compression_result()` | ✅ Resolved | `lib/agent.cpp` | 🟡 Replaces stub with real logic. Pipeline returns original on failure — safe. | 4-6h |
 
 ### Phase 2 — Correctness & Safety
 
-| # | Change | Files | Risk | Est. |
-|---|--------|-------|------|------|
-| 2.1 | Minimum context invariant in `apply_classification()` | `lib/compressor_apply.cpp` | 🟢 Redundant check, prevents corruption | 1h |
-| 2.2 | Redesign classification prompt for work-state awareness | `lib/compressor_request.cpp` | 🟡 Prompt change only. Old tests still pass. | 3-4h |
-| 2.3 | Split combined request into classify + extract steps | `lib/compressor_request.cpp`, `lib/compressor_parser.cpp`, `lib/compressor.cpp` | 🟡 Architectural change. Both steps share same KV prefix. | 4-6h |
-| 2.4 | Gate path persists compressed result to live context | `lib/agent.cpp` | 🟡 Previously throwaway, now persists. Cooldown prevents thrash. | 2-3h |
+| # | Change | Status | Files | Risk | Est. |
+|---|--------|--------|-------|------|------|
+| 2.1 | Minimum context invariant in `apply_classification()` | ✅ Resolved | `lib/compressor_apply.cpp` | 🟢 Redundant check, prevents corruption | 1h |
+| 2.2 | Redesign classification prompt for work-state awareness | ✅ Resolved | `lib/compressor_request.cpp` | 🟡 Prompt change only. Old tests still pass. | 3-4h |
+| 2.3 | Split combined request into classify + extract steps | ✅ Resolved | `lib/compressor_request.cpp`, `lib/compressor_parser.cpp`, `lib/compressor.cpp` | 🟡 Architectural change. Both steps share same KV prefix. | 4-6h |
+| 2.4 | Gate path persists compressed result to live context | ✅ Resolved | `lib/agent.cpp` | 🟡 Previously throwaway, now persists. Cooldown prevents thrash. | 2-3h |
 
 ### Phase 3 — Tuning & Correctness
 
-| # | Change | Files | Risk | Est. |
-|---|--------|-------|------|------|
-| 3.1 | Proportional decay using `decay_rate` | `lib/memory_store.cpp` | 🟢 One-function change. | 30m |
-| 3.2 | Use `promote_threshold` instead of hardcoded 3 | `lib/compressor_apply.cpp` | 🟢 Two-line change. | 30m |
-| 3.3 | Feed `prompt_tokens_used` back, update gate to use it | `lib/agent.cpp`, `lib/compressor.cpp` | 🟢 Fixes dead code path. | 1h |
-| 3.4 | `context_size` fallback when auto-detection fails | `lib/config.cpp` | 🟢 If server doesn't report n_ctx, use default | 1h |
-| 3.5 | Enforce headroom (25% free after compression) | `lib/compressor_apply.cpp` | 🟡 New code path but runs only after successful classification | 3-4h |
-| 3.6 | `compress_now()` checks `min_turns` | `lib/agent.cpp` | 🟢 One-line change | 30m |
+| # | Change | Status | Files | Risk | Est. |
+|---|--------|--------|-------|------|------|
+| 3.1 | Proportional decay using `decay_rate` | ✅ Resolved | `lib/memory_store.cpp` | 🟢 One-function change. | 30m |
+| 3.2 | Use `promote_threshold` instead of hardcoded 3 | ✅ Resolved | `lib/compressor_apply.cpp` | 🟢 Two-line change. | 30m |
+| 3.3 | Feed `prompt_tokens_used` back, update gate to use it | ✅ Resolved | `lib/agent.cpp`, `lib/compressor.cpp` | 🟢 Fixes dead code path. | 1h |
+| 3.4 | `context_size` fallback when auto-detection fails | ✅ Resolved | `lib/config.cpp` | 🟢 If server doesn't report n_ctx, use default | 1h |
+| 3.5 | Enforce headroom (25% free after compression) | ✅ Resolved | `lib/compressor_apply.cpp` | 🟡 New code path but runs only after successful classification | 3-4h |
+| 3.6 | `compress_now()` checks `min_turns` | ✅ Resolved | `lib/agent.cpp` | 🟢 One-line change | 30m |
 
 ### Phase 4 — Validation
 
-| # | Change | Files | Risk | Est. |
-|---|--------|-------|------|------|
-| 4.1 | Integration test for full compression cycle | `tests/run_tests.cpp` | 🟢 Test-only | 4-6h |
-| 4.2 | Archive segment turn range fix | `lib/compressor_apply.cpp` | 🟢 Bugfix in existing code | 1h |
+| # | Change | Status | Files | Risk | Est. |
+|---|--------|--------|-------|------|------|
+| 4.1 | Integration test for full compression cycle | ✅ Resolved | `tests/run_tests.cpp` (manual) | 🟢 Test-only | 4-6h |
+| 4.2 | Archive segment turn range fix | ✅ Resolved | `lib/compressor_apply.cpp` | 🟢 Bugfix in existing code | 1h |
 
 ---
 
@@ -511,7 +516,7 @@ Phase 0 (prefix stability, gates, safety) ────── must come first
     │       └── Phase 3 (tuning) ── optimizations on working system
     │           └── Phase 4 (validation) ── test what's now working
     │
-    └── Phase 0.2 (Context::replace) can be done any time
+    └── Phase 0.2 (Context::replace) — REJECTED. Stack is pure push/pop/clear.
 ```
 
 Phase 0.1 (memory injection fix) is the single highest-impact change. It affects every LLM call, not just compression. Without it, every turn pays 10-30 minutes for the system prompt prefill.

@@ -171,10 +171,12 @@ apply_classification(history, classify_response)  → compressed history
 apply_compression_result(extract_response)          → memory/skill upserts
 enforce_minimum_context(compressed, before)         → keep last user msg
 enforce_headroom(compressed, context_size)          → keep 25% free
-context_.replace(compressed)                        → atomic swap
+context_.clear();
+for (auto& m : compressed)
+    context_.push(std::move(m));
 ```
 
-The `replace()` atomically swaps the context. The next LLM call builds KV for the compressed context (2K-10K tokens instead of 262K).
+The next LLM call builds KV for the compressed context (2K-10K tokens instead of 262K).
 
 ---
 
@@ -206,7 +208,7 @@ After a compression cycle, the gate is blocked for 20 turns. This prevents thras
 | `lib/compressor_scanner.cpp` | Loop detection + collapse (C++ side, zero token cost) |
 | `lib/agent.cpp` | `Agent::compress_now()`, `Agent::apply_compression_result()`, automatic gate in `chat_once()` |
 | `lib/memory_store.cpp` | `JsonMemoryStore` — persistence, scoring, decay |
-| `lib/memory_retriever.cpp` | `MemoryRetriever` — relevance-scored injection |
+| `lib/memory_retriever.cpp` | `MemoryRetriever` (declared in `include/agent/experience.h`) — relevance-scored injection |
 
 ---
 
@@ -243,66 +245,46 @@ After a compression cycle, the gate is blocked for 20 turns. This prevents thras
 ### `Agent::compress_now()` (manual `/compress` command)
 
 ```cpp
-CompressionResult Agent::compress_now() {
+CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
+    CompressionResult r;
+    if (!compression_ || context_.size() < 2) return r;
+
     auto before = context_.get_all();
     size_t msgs_before = before.size();
     size_t tokens_before = context_.token_count();
 
-    // Step 0: collapse loops (C++ side)
-    collapse_loops(before);
+    // Delegate to pipeline — handles: collapse → classify (push/pop) →
+    // apply → extract (push/pop) → return compressed copy
+    auto cc = load_compression_config(cfg_);
+    CompressionResponse cr;
+    auto compressed = compression_->compress(context_, cc, client_,
+                                              &proxy, &cr);
 
-    // Step 1: classify (appends to tail, extends KV)
-    Message classify_req = build_classify_request(before);
-    before.push_back(classify_req);
-    Message classify_resp = client_.chat(before, {});
+    // Rebuild context from compressed result using stack primitives.
+    context_.clear();
+    for (auto& m : compressed)
+        context_.push(std::move(m));
 
-    CompressionResponse cr = parse_classify_response(classify_resp.content);
-    if (cr.segments.empty()) return {};  // safe fallback
+    // Apply memory/skill ops from the LLM classification response.
+    apply_compression_result(cr);
 
-    before.pop_back();  // remove the classify request
-
-    // Step 2: extract (appends classify result, extends KV)
-    // Use the compressed (post-collapse, post-classify) history
-    auto post_classify = apply_classification(before, cr);
-    Message extract_req = build_extract_request(cr);
-    post_classify.push_back(extract_req);
-    Message extract_resp = client_.chat(post_classify, {});
-
-    CompressionResponse er = parse_extract_response(extract_resp.content);
-
-    // Step 3: assemble
-    apply_compression_result(er);
-    enforce_minimum_context(post_classify, before);
-    enforce_headroom(post_classify);
-
-    context_.replace(post_classify);
-
-    // stats
-    CompressionResult r = ...;
+    r.messages_before = msgs_before;
+    r.messages_after = context_.size();
+    r.tokens_before = tokens_before;
+    r.tokens_after = context_.token_count();
     return r;
 }
 ```
 
-### `Agent::chat_once()` — automatic gate (appends classify to normal turn)
+The pipeline (`CompressionPipeline::compress()`) owns the classify/extract
+LLM calls and operates on the **live** `Context` via push/pop so the KV
+cache extends from the conversation prefix without a full prefill.
 
-```cpp
-Message Agent::chat_once(..., bool display) {
-    auto prompt_msgs = context_.get_all();
+### Automatic gate (triggered from the agent loop)
 
-    // Memory/skill injection (never touches system prompt — separate slot)
-    if (retriever_ && store_version_changed_) {
-        inject_knowledge(prompt_msgs);
-        store_version_changed_ = false;
-    }
-
-    // Gate check
-    if (gate_ && gate_->should_compress(context_, cfg_)) {
-        auto classify_req = build_classify_request(prompt_msgs);
-        prompt_msgs.push_back(classify_req);
-        // Model responds with: [classification JSON][normal response]
-    }
-
-    // LLM call — extends KV from regular conversation + classify instruction
+The compression gate is checked after each turn via `should_compress()`,
+not inside `chat_once`. When the gate fires, `compress_now()` is called
+directly (no inline classify in the message stream).
     Message reply = client_.chat_stream(prompt_msgs, tools, ...);
 
     // If gate was active, pre-parse the classification JSON from the reply

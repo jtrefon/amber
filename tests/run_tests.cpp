@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent.h"
 #include "agent/tools.h"
@@ -1654,6 +1652,43 @@ TEST(apply_classification_context_creates_archive_entry) {
     ASSERT(has_archive);
 }
 
+TEST(apply_classification_preserves_system_when_classifier_tags_as_prune) {
+    std::vector<agent::Message> hist = {
+        msg("system", "Your name is Amber."),
+        msg("user", "hello"),
+        msg("assistant", "hi"),
+    };
+    // The LLM classifies turn 0 (index 0, the system prompt) as "prune" —
+    // the old code would remove it outright.
+    agent::CompressionResponse cr;
+    cr.segments.push_back({0, 0, agent::Classification::prune, ""});
+    cr.segments.push_back({1, 1, agent::Classification::core, ""});
+    cr.segments.push_back({2, 2, agent::Classification::core, ""});
+    auto result = agent::apply_classification(hist, cr);
+    // System prompt must survive at index 0
+    ASSERT(!result.empty());
+    ASSERT(result[0].role == "system");
+    ASSERT(result[0].content.find("Amber") != std::string::npos);
+}
+
+TEST(apply_classification_preserves_system_when_classifier_tags_as_context) {
+    std::vector<agent::Message> hist = {
+        msg("system", "Your name is Amber."),
+        msg("user", "hello"),
+        msg("assistant", "hi"),
+    };
+    // The LLM classifies turn 0 (index 0, the system prompt) as "context" —
+    // the old code would archive it, losing the identity.
+    agent::CompressionResponse cr;
+    cr.segments.push_back({0, 0, agent::Classification::context, "first turn"});
+    cr.segments.push_back({1, 2, agent::Classification::core, ""});
+    auto result = agent::apply_classification(hist, cr);
+    // System prompt must survive at index 0
+    ASSERT(!result.empty());
+    ASSERT(result[0].role == "system");
+    ASSERT(result[0].content.find("Amber") != std::string::npos);
+}
+
 // =========================================================================
 // Compression gate tests (unchanged)
 // =========================================================================
@@ -2078,7 +2113,7 @@ TEST(context_token_count_tracks_content) {
     ASSERT_EQ(ctx.size(), 0u);
 }
 
-TEST(context_pop_reduces_count) {
+TEST(context_lifo_pop) {
     agent::Context ctx;
     for (int i = 0; i < 5; ++i) {
         agent::Message m;
@@ -2087,14 +2122,74 @@ TEST(context_pop_reduces_count) {
         ctx.push(std::move(m));
     }
     ASSERT_EQ(ctx.size(), 5u);
-    size_t before = ctx.token_count();
 
-    auto popped = ctx.pop(3);
-    ASSERT_EQ(popped.size(), 3u);
-    ASSERT_EQ(ctx.size(), 2u);
-    ASSERT(ctx.token_count() < before);
-    ASSERT_EQ(popped[0].content, "msg0");
-    ASSERT_EQ(popped[2].content, "msg2");
+    // Pop is LIFO — removes the most recently pushed message.
+    auto top = ctx.pop();
+    ASSERT_EQ(top.content, "msg4");
+    ASSERT_EQ(ctx.size(), 4u);
+
+    top = ctx.pop();
+    ASSERT_EQ(top.content, "msg3");
+    ASSERT_EQ(ctx.size(), 3u);
+
+    ctx.clear();
+    ASSERT_EQ(ctx.size(), 0u);
+    ASSERT_EQ(ctx.token_count(), 0u);
+}
+
+TEST(context_hash_chain_integrity) {
+    // The hash chain asserts on every get_all(). If any mutation method
+    // corrupts the chain (or if someone modifies a sealed message via
+    // const_cast or a rogue method), get_all() crashes with assert failure.
+    // This test exercises every mutation path to ensure the chain survives.
+
+    agent::Context ctx;
+
+    // Push the system prompt.
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "You are a helpful assistant.";
+    ctx.push(std::move(sys));
+    ASSERT_EQ(ctx.size(), 1u);
+    // get_all() verifies the hash chain internally.
+    ASSERT_EQ(ctx.get_all().size(), 1u);
+
+    // Push user and assistant turns.
+    agent::Message u1, a1, u2, a2;
+    u1.role = "user";      u1.content = "hello";
+    a1.role = "assistant"; a1.content = "hi there";
+    u2.role = "user";      u2.content = "what is c++";
+    a2.role = "assistant"; a2.content = "a language";
+    ctx.push(std::move(u1)); ctx.get_all();
+    ctx.push(std::move(a1)); ctx.get_all();
+    ctx.push(std::move(u2)); ctx.get_all();
+    ctx.push(std::move(a2)); ctx.get_all();
+    ASSERT_EQ(ctx.size(), 5u);
+
+    // Pop the last assistant reply (LIFO).
+    auto popped = ctx.pop();
+    ASSERT_EQ(popped.content, "a language");
+    ctx.get_all();  // chain must survive pop
+    ASSERT_EQ(ctx.size(), 4u);
+
+    // Pop again.
+    popped = ctx.pop();
+    ASSERT_EQ(popped.content, "what is c++");
+    ctx.get_all();  // chain must survive second pop
+    ASSERT_EQ(ctx.size(), 3u);
+
+    // Clear and re-push from scratch.
+    ctx.clear();
+    ctx.get_all();  // chain must survive clear
+    ASSERT_EQ(ctx.size(), 0u);
+
+    agent::Message m;
+    m.role = "user";
+    m.content = "fresh start";
+    ctx.push(std::move(m));
+    ctx.get_all();  // chain must survive rebuild
+    ASSERT_EQ(ctx.size(), 1u);
+    ASSERT_EQ(ctx.get_all().back().content, "fresh start");
 }
 
 TEST(context_event_source_delivers_to_all_subscribers) {

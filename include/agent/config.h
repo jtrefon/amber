@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_CONFIG_H
 #define AGENT_CONFIG_H
@@ -79,6 +77,12 @@ struct Config {
     // server's /v1/models endpoint on startup unless set explicitly. <=0 means
     // "unknown / auto" and hides the gauge. Env: AMBER_CONTEXT.
     int context_size = 0;
+
+    // Provider-level default context_size, loaded from the provider preset file
+    // (~/.config/amber/providers/<name>.conf). Does NOT set context_explicit,
+    // so server auto-detect and manual user overrides still win. 0 means no
+    // provider-level default.
+    int default_context_size = 0;
 
     // Set true when model / context_size were provided explicitly (config file,
     // env, or CLI flag). Startup auto-detection only fills values that were NOT
