@@ -436,9 +436,9 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     };
 
     if (!git_branch_.empty()) {
-        // BitchX-inspired frame:  ┌─[project]─[branch]─[+3/-1]─→
-        // Decoration in dim gray, content in their respective colors.
-        auto decor = [&](const std::string& t) { put(t, P_GRAY, A_DIM); };
+        // BitchX-inspired frame:  ┌─[project]─[branch]─[+3/-1]─❯
+        // Decoration in dim P_USER (subdued green), content colored.
+        auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
         decor("\u250c\u2500[");
         put(git_project_, P_USER);
         decor("]\u2500[");
@@ -453,9 +453,7 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
                 put("-" + std::to_string(git_del_), P_GIT_MINUS);
             decor("]");
         }
-        decor("\u2500");
-        put(text::glyph::arrow(), P_GRAY, A_DIM);
-        put(" ", P_USER);
+        decor(" \u276f ");
     } else {
         put("amber> ", P_USER);
     }
