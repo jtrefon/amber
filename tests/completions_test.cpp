@@ -239,6 +239,38 @@ TEST(test_empty_registry) {
     ASSERT(d.empty());
 }
 
+// ── Test: drawer namespace children at every level ────────────────
+// Simulates exactly what draw_drawer() does for /set policy mode
+
+TEST(test_drawer_namespace_levels) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+
+    // Level 2: /set <TAB> → children of "set"
+    auto set_kids = reg.children_of("set");
+    ASSERT(!set_kids.empty());
+    bool has_policy = false;
+    for (const auto& k : set_kids)
+        if (k == "policy") has_policy = true;
+    ASSERT(has_policy);
+
+    // Level 3: /set policy <TAB> → children of "policy"
+    auto policy_kids = reg.children_of("policy");
+    ASSERT(!policy_kids.empty());
+    ASSERT_EQ(policy_kids.size(), 3u);
+    ASSERT_EQ(policy_kids.at(0), "approval");
+
+    // Level 4: /set policy mode <TAB> → children of "policy.mode"
+    auto mode_kids = reg.children_of("policy.mode");
+    ASSERT(mode_kids.empty());  // mode is a leaf node, no children
+
+    // Verify help text at each level
+    ASSERT(!reg.help_for("policy").empty());
+    ASSERT(!reg.help_for("policy.mode").empty());
+    ASSERT(!reg.help_for("policy.approval").empty());
+}
+
 int main() {
     test_json_loads_all_commands();
     test_core_actions_have_help();
@@ -256,6 +288,7 @@ int main() {
     test_complete_depth1_compression_namespace();
     test_complete_nonexistent_namespace();
     test_complete_depth1_namespace_matches_at_top();
+    test_drawer_namespace_levels();
 
     std::cout << (failed ? "FAILED" : "ALL PASSED")
               << " (" << failed << " failures)\n";

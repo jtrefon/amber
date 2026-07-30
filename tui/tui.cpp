@@ -245,6 +245,8 @@ bool Tui::drain_events() {
             } else {
                 append_line(P_STATUS, line);
             }
+            // Tool may have modified files — refresh git state for prompt.
+            git_refresh();
             break;
         }
         case AgentEvent::Assistant:
@@ -318,9 +320,6 @@ bool Tui::drain_events() {
         pending_approvals_.pop();
         resolve_approval(ev);
     }
-    // Refresh git state after tool events so the decorated prompt always
-    // reflects the latest branch, diff, and dirty state.
-    git_refresh();
     return true;
 }
 
@@ -588,7 +587,6 @@ void Tui::git_refresh() {
 }
 
 void Tui::run() {
-    git_refresh();
     draw();
     draw_input("");
     flush();
