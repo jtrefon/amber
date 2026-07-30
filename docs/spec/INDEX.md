@@ -128,3 +128,9 @@ all layers (spec, implementation, strategy), prioritised by phase.
 |------|--------|
 | `workspace/path-confinement.md` | Confine algorithm, `../` prevention, symlink handling, root resolution |
 | `workspace/security-model.md` | Mode gating, tool-level restrictions, approval flow |
+
+## Git Integration
+
+| File | Covers |
+|------|--------|
+| `git-integration/git-workflow.md` | Three-layer architecture (shell prompt, agent prompt, bash execution), commit/rollback workflow, invariants, tool-deferral reasoning |
