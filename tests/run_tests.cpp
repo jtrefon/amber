@@ -1027,7 +1027,8 @@ TEST(session_store_save_load_list_delete) {
 
 TEST(bash_tool_runs_and_reports_exit) {
     auto tool = agent::make_bash_tool();
-    ASSERT_TRUE(tool->requires_approval(agent::json::object()));
+    ASSERT_TRUE(tool->requires_approval({{"command", "rm -rf /tmp/test"}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "echo hello"}}));
 
     auto ok = tool->execute({{"command", "echo hello"}});
     ASSERT_TRUE(ok.ok);
@@ -1136,7 +1137,8 @@ TEST(agent_denies_gated_tool_without_handler) {
     ag.set_hooks(hooks);
     auto* t = reg.find("bash");
     ASSERT_TRUE(t != nullptr);
-    ASSERT_TRUE(t->requires_approval(agent::json::object()));
+    ASSERT_TRUE(t->requires_approval({{"command", "rm -rf /tmp/test"}}));
+    ASSERT_FALSE(t->requires_approval({{"command", "ls"}}));
     agent::Approval d = hooks.on_approval("bash", {{"command", "ls"}},
                                           t->summarize({{"command", "ls"}}));
     ASSERT_TRUE(called);
@@ -1430,7 +1432,7 @@ TEST(dispatch_auto_approves_in_write_mode) {
     tc["id"] = "c1";
     tc["type"] = "function";
     tc["function"] = {{"name", "bash"},
-                      {"arguments", {{"command", "touch /tmp/amber_test_dispatch"}}}};
+                      {"arguments", {{"command", "rm -rf /tmp/amber_test_dispatch"}}}};
     calls.push_back(tc);
 
     agent::Context dctx;

@@ -90,8 +90,11 @@ void Panel::draw_frame() {
 }
 
 void Panel::show() {
-    if (panel_) show_panel(panel_);
+    // Show shadow first so it stays BENEATH the main window.
+    // show_panel() places the panel on top of the stack; showing
+    // the shadow before the window keeps the window on top.
     if (shadow_panel_) show_panel(shadow_panel_);
+    if (panel_) show_panel(panel_);
     draw_frame();
     update_panels();
     doupdate();
