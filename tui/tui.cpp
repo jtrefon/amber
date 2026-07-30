@@ -18,6 +18,9 @@
 #include "textutil.h"
 #include "welcome.h"
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
 #include <clocale>
 #include <csignal>
 #include <ctime>
@@ -533,7 +536,6 @@ void Tui::compress_worker() {
 }
 
 void Tui::git_refresh() {
-    // Fast filesystem queries — completes in <1ms on any modern system.
     auto read_stdout = [](const char* cmd) -> std::string {
         std::array<char, 128> buf;
         std::string result;
@@ -544,6 +546,11 @@ void Tui::git_refresh() {
         return result;
     };
 
+    // Project name from working directory basename.
+    std::error_code ec;
+    fs::path cwd = fs::current_path(ec);
+    git_project_ = ec ? "project" : cwd.filename().string();
+
     std::string ref = read_stdout("git symbolic-ref HEAD 2>/dev/null");
     if (ref.empty()) {
         git_branch_.clear();
@@ -551,7 +558,6 @@ void Tui::git_refresh() {
         git_del_ = 0;
         return;
     }
-    // Strip "refs/heads/" prefix and trailing newline
     ref.erase(ref.find_last_not_of(" \n\r") + 1);
     if (ref.compare(0, 11, "refs/heads/") == 0)
         git_branch_ = ref.substr(11);

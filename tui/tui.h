@@ -105,6 +105,7 @@ private:
     std::string pending_prompt_;
 
     // ---- git state (decorated prompt) ------------------------------------
+    std::string git_project_;   // project name (cwd basename)
     std::string git_branch_;    // current branch name, empty if not a git repo
     int git_ins_ = 0;           // lines added (git diff --shortstat)
     int git_del_ = 0;           // lines deleted

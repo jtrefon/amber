@@ -1,5 +1,6 @@
 
 #include "tui.h"
+#include "textutil.h"
 #include "welcome.h"
 
 #include <algorithm>
@@ -412,24 +413,12 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     int y = height() - 1;
     int w = width();
 
-    // Build prompt prefix.
-    std::string kPrompt;
-    int prompt_w;
-    if (!git_branch_.empty()) {
-        // Single-line decorated:  ┌ amber branch +3/-1 ❯
-        kPrompt = "\u250c amber " + git_branch_;
-        if (git_ins_ > 0 || git_del_ > 0) {
-            kPrompt += " ";
-            if (git_ins_ > 0) { kPrompt += "+"; kPrompt += std::to_string(git_ins_); }
-            kPrompt += "/";
-            if (git_del_ > 0) { kPrompt += "-"; kPrompt += std::to_string(git_del_); }
-        }
-        kPrompt += " \u276f ";
-        prompt_w = static_cast<int>(display_cols(kPrompt));
-    } else {
-        kPrompt = "amber> ";
-        prompt_w = 7;
-    }
+    // Build prompt prefix via the testable free function.
+    std::string project = git_project_.empty() ? "project" : git_project_;
+    std::string kPrompt = git_branch_.empty()
+        ? std::string("amber> ")
+        : text::git_prompt(project, git_branch_, git_ins_, git_del_);
+    int prompt_w = static_cast<int>(display_cols(kPrompt));
 
     move(y, 0);
     clrtoeol();
@@ -444,95 +433,12 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     int vis_w = std::min(total_w - scroll_off, w);
     if (vis_w <= 0) { scroll_off = std::max(0, total_w - w); vis_w = std::min(total_w, w); }
 
-    // Render prompt prefix with colors, then input text in P_USER.
-    int prompt_bytes = static_cast<int>(kPrompt.size());
-    int rendered = 0;
-
-    if (git_branch_.empty()) {
-        // Simple amber>  prompt — render it all in P_USER.
-        attron(COLOR_PAIR(P_USER));
-        std::string visible = shown.substr(scroll_off, vis_w);
-        if (scroll_off > 0 && !visible.empty()) visible[0] = '~';
-        mvaddnstr(y, 0, visible.c_str(), std::min(vis_w, w));
-        attroff(COLOR_PAIR(P_USER));
-    } else {
-        // Segmented git prompt — render each segment with its own color.
-        // Layout: ┌ amber BRANCH [+3/-1] ❯ <input>
-        // Colors:  ┌=default, amber=P_USER, BRANCH=P_ASSISTANT,
-        //          +=P_GIT_PLUS, -=P_GIT_MINUS, ❯=P_USER, input=P_USER
-        struct Seg { int start; int len; int pair; bool bold; };
-        std::vector<Seg> segs;
-
-        // Segment 1: "┌ amber "
-        segs.push_back({0, 2, 0, false});        // ┌<space>
-        segs.push_back({2, 6, P_USER, false});    // "amber "
-        // Segment 2: branch name
-        int branch_off = static_cast<int>(std::string("\u250c amber ").size());
-        segs.push_back({branch_off, static_cast<int>(git_branch_.size()),
-                        P_ASSISTANT, false});
-        // Segment 3: +/- stat
-        int stat_off = branch_off + static_cast<int>(git_branch_.size()) + 1;
-        if (git_ins_ > 0 || git_del_ > 0) {
-            std::string stat;
-            if (git_ins_ > 0) {
-                stat += "+"; stat += std::to_string(git_ins_);
-                segs.push_back({stat_off, static_cast<int>(stat.size()),
-                                P_GIT_PLUS, false});
-                stat_off += static_cast<int>(stat.size());
-            }
-            // "/" separator — always render in default
-            segs.push_back({stat_off, 1, 0, false});
-            stat_off += 1;
-            if (git_del_ > 0) {
-                std::string ds = "-" + std::to_string(git_del_);
-                segs.push_back({stat_off, static_cast<int>(ds.size()),
-                                P_GIT_MINUS, false});
-                stat_off += static_cast<int>(ds.size());
-            }
-        }
-        // Segment 4: " ❯ " (delimiter)
-        segs.push_back({stat_off, 3, P_USER, false});  // space,❯,space
-
-        // Render each segment with its color, handling scroll offset.
-        for (const auto& seg : segs) {
-            int seg_end = seg.start + seg.len;
-            if (seg_end <= scroll_off) continue;
-            if (seg.start >= scroll_off + vis_w) break;
-            int vis_start = std::max(seg.start - scroll_off, 0);
-            int vis_end = std::min(seg_end - scroll_off, vis_w);
-            int vis_len = vis_end - vis_start;
-            if (vis_len <= 0) continue;
-            int src_off = scroll_off + vis_start - seg.start;
-            std::string part = kPrompt.substr(seg.start + src_off,
-                                              static_cast<size_t>(vis_len));
-            if (vis_start == 0 && scroll_off > 0 && part.size() > 0)
-                part[0] = '~';
-            if (seg.pair == 0)
-                attron(A_BOLD);
-            else
-                attron(COLOR_PAIR(seg.pair));
-            mvaddnstr(y, vis_start, part.c_str(), vis_len);
-            if (seg.pair == 0)
-                attroff(A_BOLD);
-            else
-                attroff(COLOR_PAIR(seg.pair));
-            rendered += vis_len;
-        }
-
-        // Render the actual input text after the prompt prefix.
-        int input_start = prompt_bytes - scroll_off;
-        if (input_start >= 0 && input_start < vis_w) {
-            int input_len = std::min(static_cast<int>(s.size()), vis_w - input_start);
-            if (input_len > 0) {
-                std::string input_part = s.substr(0, static_cast<size_t>(input_len));
-                if (input_start == 0 && scroll_off > 0 && !input_part.empty())
-                    input_part[0] = '~';
-                attron(COLOR_PAIR(P_USER));
-                mvaddnstr(y, input_start, input_part.c_str(), input_len);
-                attroff(COLOR_PAIR(P_USER));
-            }
-        }
-    }
+    // Render the prompt and input in P_USER.
+    attron(COLOR_PAIR(P_USER));
+    std::string visible = shown.substr(scroll_off, vis_w);
+    if (scroll_off > 0 && !visible.empty()) visible[0] = '~';
+    mvaddnstr(y, 0, visible.c_str(), std::min(vis_w, w));
+    attroff(COLOR_PAIR(P_USER));
 
     // Render shadow (faded) after the input text.
     if (!shadow.empty() && cursor == s.size()) {

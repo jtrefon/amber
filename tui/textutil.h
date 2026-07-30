@@ -65,6 +65,12 @@ const char* check();
 
 } // namespace glyph
 
+// Build the git-aware decorated prompt string.
+// Project is the folder basename, branch is git branch, ins/del from diff.
+// Returns e.g. "┌ project branch +3/-1 ❯ " or ASCII fallback.
+std::string git_prompt(const std::string& project, const std::string& branch,
+                       int ins, int del);
+
 } // namespace text
 } // namespace tui
 

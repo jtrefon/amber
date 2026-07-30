@@ -44,6 +44,24 @@ const char* glyph::block_r()  { return utf8() ? "\u258c" : "|"; }
 const char* glyph::ellipsis() { return utf8() ? "\u2026" : "..."; }
 const char* glyph::check()    { return utf8() ? "\u2713" : "+"; }
 
+std::string git_prompt(const std::string& project, const std::string& branch,
+                       int ins, int del) {
+    bool u = glyph::utf8();
+    std::string p;
+    p += u ? "\u250c " : "+ ";
+    p += project;
+    p += " ";
+    p += branch;
+    if (ins > 0 || del > 0) {
+        p += " ";
+        if (ins > 0) { p += "+"; p += std::to_string(ins); }
+        p += "/";
+        if (del > 0) { p += "-"; p += std::to_string(del); }
+    }
+    p += u ? " \u276f " : " > ";
+    return p;
+}
+
 std::size_t utf8_len(const std::string& s, std::size_t i) {
     auto c = static_cast<unsigned char>(s[i]);
     std::size_t n = 1;
