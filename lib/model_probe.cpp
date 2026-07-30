@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/model_probe.h"
 #include "agent/debug_log.h"
@@ -92,14 +90,27 @@ void merge_server_info(Config& cfg, const ServerInfo& info) {
     if (!info.ok) return;
     if (!cfg.model_explicit && !info.model.empty())
         cfg.model = info.model;
-    if (!cfg.context_explicit && info.context_size > 0)
-        cfg.context_size = info.context_size;
+    if (!cfg.context_explicit) {
+        if (info.context_size > 0) {
+            cfg.context_size = info.context_size;
+        } else if (cfg.context_size <= 0) {
+            // Fallback: server didn't report n_ctx — use 128K as a generous
+            // minimum. This keeps the compression gate active and the context
+            // gauge visible. If the actual limit is smaller, the HTTP 400
+            // error learner (http_transport.cpp) will correct it downward.
+            cfg.context_size = 131072;
+        }
+    }
 }
 
 ServerInfo apply_server_autodetect(Config& cfg) {
     LLMClient client(cfg);
     ServerInfo info = client.probe_server();
     merge_server_info(cfg, info);
+    // If still unknown after merge, apply the system fallback so the
+    // compression gate and context gauge always have a budget to work with.
+    if (!cfg.context_explicit && cfg.context_size <= 0)
+        cfg.context_size = 131072;
     return info;
 }
 

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AMBER_TUI_TEXTUTIL_H
 #define AMBER_TUI_TEXTUTIL_H
@@ -42,7 +40,7 @@ bool utf8();
 // Sparkle bullet used to prefix tool-call / tool-result lines.
 const char* tool();
 
-// Right arrow used in tool-result summaries ("→ exit 0").
+// Right arrow used in tool-result summaries ("→ ✓").
 const char* arrow();
 
 // Middle dot used as a separator in the welcome banner.
@@ -61,6 +59,9 @@ const char* block_r();
 
 // Horizontal ellipsis used for truncation in lists.
 const char* ellipsis();
+
+// Checkmark used for tool-result success indicators.
+const char* check();
 
 } // namespace glyph
 

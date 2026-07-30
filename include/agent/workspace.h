@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_WORKSPACE_H
 #define AGENT_WORKSPACE_H
@@ -36,6 +34,10 @@ public:
     // `error` with a message suitable for returning to the model.
     static bool confine(const std::string& path, std::string& resolved,
                         std::string& error);
+
+    // Strip the workspace root prefix from `path`, returning a relative path.
+    // If `path` is not under the root, returns it unchanged.
+    static std::string relative(const std::string& path);
 
     // Clear the cached root so the next call to root() re-initializes from
     // the environment or cwd. Used by tests to avoid interference across

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_AGENT_H
 #define AGENT_AGENT_H
@@ -99,8 +97,9 @@ public:
     void set_context(std::vector<Message> messages);
 
     // Force immediate compression of the conversation history, bypassing
-    // the gate.  The compressed history replaces the full history; this is
-    // a one-way operation.  Returns a summary of what was saved.
+    // the gate.  The compressed history replaces the full history (via
+    // stack pop-all + push); this is a one-way operation.  Returns a
+    // summary of what was saved.
     CompressionResult compress_now(std::function<void()> progress_cb = {});
 
     // Check whether the compression gate would fire on the current context

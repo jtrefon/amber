@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/compressor.h"
 #include "agent/context.h"
@@ -208,11 +206,11 @@ public:
                 std::vector<Message> req(live.begin(), live.end());
                 class_reply = client.chat(req, {});
             } catch (const std::exception& e) {
-                context.pop_back();
+                context.pop();
                 if (observer) observer->on_error(std::string("LLM call failed: ") + e.what());
                 return copy;
             }
-            context.pop_back();  // remove classify request, restore context
+            context.pop();  // remove classify request, restore context
 
             // Parse classification
             CompressionResponse cr = parse_compression_response(class_reply.content);
@@ -229,17 +227,11 @@ public:
                                     static_cast<size_t>(cfg.context_size));
 
             if (observer) observer->on_apply_result({});
-
-            // Atomically replace the live context with the compressed result
-            // so the extraction step (and subsequent LLM calls) see the
-            // reduced history.
-            context.replace(copy);
         }
 
         // Step 3: extract memories/skills (second LLM call).
-        // The context now holds the compressed history (smaller = faster
-        // prefill if the KV slot was recycled, but still faster than the
-        // full original context).
+        // Both calls share the SAME original context so they extend the
+        // KV cache from the same prefix — no full prefill between them.
         {
             Message ext_req = build_extract_request();
             context.push(ext_req);
@@ -252,14 +244,14 @@ public:
                 ext_reply = client.chat(req, {});
             } catch (const std::exception&) {
                 // Extraction failure is non-fatal — classification result used
-                context.pop_back();
+                context.pop();
                 // Build CompressedResponse from what we have
                 CompressionResponse cr;
                 // Re-parse from the compressed context (simplified: empty response)
                 if (response_out) *response_out = std::move(cr);
                 return copy;
             }
-            context.pop_back();  // remove extract request
+            context.pop();  // remove extract request
 
             // Parse extraction and merge into the compression response
             CompressionResponse er = parse_compression_response(ext_reply.content);

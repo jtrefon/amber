@@ -159,6 +159,76 @@ TEST(test_missing_json_is_ok) {
     ASSERT(!ok);  // should return false, not crash
 }
 
+// ── 3-level deep completions ────────────────────────────────────────
+
+TEST(test_complete_depth1_prefix) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto r = reg.complete("detec");
+    ASSERT(!r.empty());
+    ASSERT_EQ(r.size(), 1u);
+    ASSERT_EQ(r.at(0), "detection");
+}
+
+TEST(test_complete_depth2_with_dot) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto r = reg.complete("detection.");
+    ASSERT(!r.empty());
+    ASSERT_EQ(r.size(), 2u);
+    ASSERT_EQ(r.at(0), "duplicate");
+    ASSERT_EQ(r.at(1), "loop");
+}
+
+TEST(test_complete_depth2_prefix) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto r = reg.complete("detection.d");
+    ASSERT(!r.empty());
+    ASSERT_EQ(r.size(), 1u);
+    ASSERT_EQ(r.at(0), "duplicate");
+}
+
+TEST(test_complete_depth2_policy) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto r = reg.complete("policy.");
+    ASSERT(!r.empty());
+    ASSERT_EQ(r.size(), 3u);
+    ASSERT_EQ(r.at(0), "approval");
+    ASSERT_EQ(r.at(1), "mode");
+    ASSERT_EQ(r.at(2), "timeout");
+}
+
+TEST(test_complete_depth1_compression_namespace) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto r = reg.complete("compression.");
+    ASSERT(!r.empty());
+    ASSERT_EQ(r.size(), 2u);
+    ASSERT_EQ(r.at(0), "min_turns");
+    ASSERT_EQ(r.at(1), "threshold");
+}
+
+TEST(test_complete_nonexistent_namespace) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto r = reg.complete("nonexistent.");
+    ASSERT(r.empty());
+}
+
+TEST(test_complete_depth1_namespace_matches_at_top) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto r = reg.complete("comp");
+    ASSERT(!r.empty());
+    // "compression" should appear as a top-level namespace match
+    bool found_compression = false;
+    for (const auto& s : r)
+        if (s == "compression") found_compression = true;
+    ASSERT(found_compression);
+}
+
 // ── Test: empty completions after no settings ──────────────────────
 
 TEST(test_empty_registry) {
@@ -179,6 +249,13 @@ int main() {
     test_empty_registry();
     test_json_only_key_in_completions();
     test_namespace_children();
+    test_complete_depth1_prefix();
+    test_complete_depth2_with_dot();
+    test_complete_depth2_prefix();
+    test_complete_depth2_policy();
+    test_complete_depth1_compression_namespace();
+    test_complete_nonexistent_namespace();
+    test_complete_depth1_namespace_matches_at_top();
 
     std::cout << (failed ? "FAILED" : "ALL PASSED")
               << " (" << failed << " failures)\n";

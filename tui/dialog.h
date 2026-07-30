@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AMBER_TUI_DIALOG_H
 #define AMBER_TUI_DIALOG_H

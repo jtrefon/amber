@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "command_line.h"
 
@@ -20,6 +18,7 @@ void CommandLine::save_undo() {
 void CommandLine::reset_cycle() {
     cycle_matches_.clear();
     cycle_index_ = 0;
+    drawer_sel_ = 0;
     consecutive_tabs_ = 0;
     last_tab_input_.clear();
 }
@@ -34,8 +33,16 @@ void CommandLine::advance_cycle(int dir) {
     // Find the start of the current word.
     size_t start = cursor_;
     while (start > 0 && input_[start - 1] != ' ') --start;
-    input_.replace(start, cursor_ - start, cycle_matches_[cycle_index_]);
-    cursor_ = start + cycle_matches_[cycle_index_].size();
+    std::string token = input_.substr(start, cursor_ - start);
+    std::string replacement = cycle_matches_[cycle_index_];
+    // For dotted tokens where completions are leaf-level, preserve the prefix.
+    size_t dot = token.rfind('.');
+    if (dot != std::string::npos) {
+        std::string prefix = token.substr(0, dot + 1);
+        replacement = prefix + replacement;
+    }
+    input_.replace(start, cursor_ - start, replacement);
+    cursor_ = start + replacement.size();
     drawer_sel_ = static_cast<int>(cycle_index_);
 }
 
@@ -55,13 +62,29 @@ void CommandLine::recompute() {
     std::string partial = input_.substr(tok_start);
     if (partial.empty()) return;
 
+    // Helper: match `partial` against a candidate completion `name`.
+    // When partial is dotted (e.g. "detection.l") but completions are
+    // leaf-level ("loop"), try matching only the suffix after the last dot.
+    auto matches = [&](const std::string& name, const std::string& p) -> bool {
+        if (p.empty()) return false;
+        if (name.size() >= p.size() && name.substr(0, p.size()) == p)
+            return true;
+        size_t dot = p.rfind('.');
+        if (dot == std::string::npos || dot + 1 >= p.size()) return false;
+        std::string suffix = p.substr(dot + 1);
+        return name.size() >= suffix.size() &&
+               name.substr(0, suffix.size()) == suffix;
+    };
+
     // First, try cycle matches (set by Tab cycling).
     if (!cycle_matches_.empty() && cycle_index_ < cycle_matches_.size()) {
         const std::string& match = cycle_matches_[cycle_index_];
-        if (match.size() >= partial.size() &&
-            match.substr(0, partial.size()) == partial) {
-            if (match.size() > partial.size())
-                shadow_ = match.substr(partial.size());
+        size_t dot = partial.rfind('.');
+        std::string p = (dot == std::string::npos || dot + 1 >= partial.size())
+                        ? partial : partial.substr(dot + 1);
+        if (!p.empty() && match.size() >= p.size() && match.substr(0, p.size()) == p) {
+            if (match.size() > p.size())
+                shadow_ = match.substr(p.size());
             else
                 shadow_ = " ";
             return;
@@ -70,12 +93,13 @@ void CommandLine::recompute() {
 
     // Fallback: compute shadow from the current completion context.
     for (const auto& name : completions_) {
-        if (name.size() >= partial.size() &&
-            name.substr(0, partial.size()) == partial) {
-            if (name.size() > partial.size()) {
-                shadow_ = name.substr(partial.size());
+        if (matches(name, partial)) {
+            size_t dot = partial.rfind('.');
+            std::string p = (dot == std::string::npos || dot + 1 >= partial.size())
+                            ? partial : partial.substr(dot + 1);
+            if (name.size() > p.size()) {
+                shadow_ = name.substr(p.size());
             } else {
-                // Exact match: shadow is a trailing space (Tab would accept).
                 shadow_ = " ";
             }
             return;
@@ -164,11 +188,28 @@ CommandLine::Result CommandLine::on_tab() {
         input_ += shadow_;
         cursor_ = input_.size();
         shadow_.clear();
-        // Start cycling with current matches.
-        if (!cycle_matches_.empty()) {
+        // Start cycling with current completions.
+        if (!completions_.empty() && cycle_matches_.empty()) {
+            cycle_matches_ = completions_;
+            cycle_index_ = 0;
+            consecutive_tabs_ = 1;
+            last_tab_input_ = input_;
+        } else if (!cycle_matches_.empty()) {
             cycle_index_ = 0;
             consecutive_tabs_ = 1;
         }
+        recompute();
+        return r;
+    }
+
+    // No shadow, but completions exist (e.g. empty suffix after dot).
+    if (!completions_.empty()) {
+        input_ += completions_[0];
+        cursor_ = input_.size();
+        cycle_matches_ = completions_;
+        cycle_index_ = 0;
+        consecutive_tabs_ = 1;
+        last_tab_input_ = input_;
         recompute();
         return r;
     }
@@ -192,15 +233,36 @@ CommandLine::Result CommandLine::on_enter() {
     if (input_.empty()) return r;
 
     // If drawer is open with selection, dispatch the selected command.
-    if (drawer_open_ && drawer_sel_ >= 0 &&
-        drawer_sel_ < static_cast<int>(cycle_matches_.size())) {
-        r.action = Result::Dispatch;
-        r.dispatch_text = "/" + cycle_matches_[drawer_sel_];
-        r.drawer_open = false;
-        input_.clear();
-        cursor_ = 0;
-        reset_cycle();
-        return r;
+    // Match against completions_ (filtered) rather than cycle_matches_
+    // (which may be stale or unfiltered from Tab cycling).
+    if (drawer_open_ && drawer_sel_ >= 0) {
+        size_t tok_start = input_.rfind(' ');
+        tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
+        std::string partial = input_.substr(tok_start);
+        auto matches = [&](const std::string& name, const std::string& p) -> bool {
+            if (p.empty()) return false;
+            if (name.size() >= p.size() && name.substr(0, p.size()) == p)
+                return true;
+            size_t dot = p.rfind('.');
+            if (dot == std::string::npos || dot + 1 >= p.size()) return false;
+            std::string suffix = p.substr(dot + 1);
+            return name.size() >= suffix.size() &&
+                   name.substr(0, suffix.size()) == suffix;
+        };
+        std::vector<std::string> filtered;
+        for (const auto& name : completions_) {
+            if (matches(name, partial))
+                filtered.push_back(name);
+        }
+        if (drawer_sel_ < static_cast<int>(filtered.size())) {
+            r.action = Result::Dispatch;
+            r.dispatch_text = "/" + filtered[drawer_sel_];
+            r.drawer_open = false;
+            input_.clear();
+            cursor_ = 0;
+            reset_cycle();
+            return r;
+        }
     }
 
     // Dispatch whatever is in the input.

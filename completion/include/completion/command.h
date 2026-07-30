@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef COMPLETION_COMMAND_H
 #define COMPLETION_COMMAND_H

@@ -369,6 +369,150 @@ TEST(test_up_down_history) {
     PASS;
 }
 
+// -- 3-level deep shadow tests ------------------------------------------
+
+TEST(test_shadow_depth2_get_detection_dot_l) {
+    std::cout << "[TEST] /get detection.l shadow...";
+    tui::CommandLine cl;
+    // Simulate update_completions for depth 2: after space-to-dot conversion,
+    // the host feeds leaf-level completions that the setting registry returned.
+    cl.set_completions({"loop", "duplicate"});
+    cl.set_text("/get detection.l");
+    // Partial = "detection.l". Suffix after last dot: "l".
+    // Should match "loop" and shadow "oop".
+    ASSERT(!cl.shadow().empty());
+    ASSERT_EQ(cl.shadow(), "oop");
+    PASS;
+}
+
+TEST(test_shadow_depth2_get_detection_dup) {
+    std::cout << "[TEST] /get detection.dup shadow...";
+    tui::CommandLine cl;
+    cl.set_completions({"loop", "duplicate"});
+    cl.set_text("/get detection.dup");
+    ASSERT(!cl.shadow().empty());
+    ASSERT_EQ(cl.shadow(), "licate");
+    PASS;
+}
+
+TEST(test_shadow_depth2_exact_match) {
+    std::cout << "[TEST] /get detection.loop exact shadow...";
+    tui::CommandLine cl;
+    cl.set_completions({"loop", "duplicate"});
+    cl.set_text("/get detection.loop");
+    // Exact match → shadow should be space.
+    ASSERT(!cl.shadow().empty());
+    ASSERT_EQ(cl.shadow(), " ");
+    PASS;
+}
+
+TEST(test_shadow_depth3_set_policy_ap) {
+    std::cout << "[TEST] /set policy.ap shadow...";
+    tui::CommandLine cl;
+    // At 3 levels deep: /set policy.ap → "approval"
+    cl.set_completions({"approval", "mode", "timeout"});
+    cl.set_text("/set policy.ap");
+    ASSERT(!cl.shadow().empty());
+    ASSERT_EQ(cl.shadow(), "proval");
+    PASS;
+}
+
+TEST(test_shadow_depth3_no_match) {
+    std::cout << "[TEST] /set detection.zz no shadow...";
+    tui::CommandLine cl;
+    cl.set_completions({"loop", "duplicate"});
+    cl.set_text("/set detection.zz");
+    ASSERT_EQ(cl.shadow(), "");
+    PASS;
+}
+
+TEST(test_shadow_depth2_without_dot_no_shadow) {
+    std::cout << "[TEST] /set loop no shadow when namespace expected...";
+    tui::CommandLine cl;
+    // When user is at namespace level but hasn't typed the dot,
+    // completions are namespace-level keys, not leaf-level.
+    cl.set_completions({"detection", "compression", "policy"});
+    cl.set_text("/set loop");
+    // "loop" doesn't match any namespace completion.
+    ASSERT_EQ(cl.shadow(), "");
+    PASS;
+}
+
+// -- Tab cycling at depth 2 ----------------------------------------------
+
+TEST(test_tab_depth2_first_match) {
+    std::cout << "[TEST] Tab at /get detection. cycles to first...";
+    tui::CommandLine cl;
+    cl.set_completions({"loop", "duplicate"});
+    cl.set_text("/get detection.");
+    // Tab should pick the first completion (alphabetic: loop)
+    cl.on_tab();
+    ASSERT_EQ(cl.text(), "/get detection.loop");
+    PASS;
+}
+
+TEST(test_tab_depth2_cycle_to_second) {
+    std::cout << "[TEST] Tab twice at /get detection. cycles...";
+    tui::CommandLine cl;
+    cl.set_completions({"loop", "duplicate"});
+    cl.set_text("/get detection.");
+    cl.on_tab();  // first → loop
+    cl.on_tab();  // second → duplicate
+    ASSERT_EQ(cl.text(), "/get detection.duplicate");
+    PASS;
+}
+
+TEST(test_tab_depth2_cycle_three_times_wraps) {
+    std::cout << "[TEST] Tab three times wraps around...";
+    tui::CommandLine cl;
+    cl.set_completions({"loop", "duplicate"});
+    cl.set_text("/get detection.");
+    cl.on_tab();  // loop
+    cl.on_tab();  // duplicate
+    cl.on_tab();  // wraps back to loop
+    ASSERT_EQ(cl.text(), "/get detection.loop");
+    PASS;
+}
+
+// -- 3-level deep shadow via character-by-character typing --------------
+
+TEST(test_shadow_depth2_sequential_typing) {
+    std::cout << "[TEST] sequential typing at depth 2...";
+    tui::CommandLine cl;
+    cl.set_completions({"loop", "duplicate"});
+
+    // Type /get detection.
+    cl.on_char('/'); cl.on_char('g'); cl.on_char('e'); cl.on_char('t');
+    cl.on_char(' '); cl.on_char('d'); cl.on_char('e'); cl.on_char('t');
+    cl.on_char('e'); cl.on_char('c'); cl.on_char('t'); cl.on_char('i');
+    cl.on_char('o'); cl.on_char('n'); cl.on_char('.');
+
+    // At /get detection. → partial = "detection." → suffix = "" → no shadow
+    ASSERT_EQ(cl.shadow(), "");
+
+    // Type 'l' → /get detection.l → suffix "l" → shadow "oop"
+    cl.on_char('l');
+    ASSERT(!cl.shadow().empty());
+    ASSERT_EQ(cl.shadow(), "oop");
+
+    // Type 'o' → /get detection.lo → suffix "lo" → shadow "op"
+    cl.on_char('o');
+    ASSERT(!cl.shadow().empty());
+    ASSERT_EQ(cl.shadow(), "op");
+
+    // Type 'o' → /get detection.loo → suffix "loo" → shadow "p"
+    cl.on_char('o');
+    ASSERT(!cl.shadow().empty());
+    ASSERT_EQ(cl.shadow(), "p");
+
+    // Type 'p' → /get detection.loop → exact → shadow " "
+    cl.on_char('p');
+    ASSERT(!cl.shadow().empty());
+    ASSERT_EQ(cl.shadow(), " ");
+
+    PASS;
+}
+
 int main() {
     test_slash_drawer();
     test_set_typed();
@@ -386,6 +530,16 @@ int main() {
     test_shadow_sequential_typing();
     test_get_dete_shadow();
     test_get_question_help();
+    test_shadow_depth2_get_detection_dot_l();
+    test_shadow_depth2_get_detection_dup();
+    test_shadow_depth2_exact_match();
+    test_shadow_depth3_set_policy_ap();
+    test_shadow_depth3_no_match();
+    test_shadow_depth2_without_dot_no_shadow();
+    test_tab_depth2_first_match();
+    test_tab_depth2_cycle_to_second();
+    test_tab_depth2_cycle_three_times_wraps();
+    test_shadow_depth2_sequential_typing();
     std::cout << "\nALL E2E TESTS PASSED\n";
     return 0;
 }

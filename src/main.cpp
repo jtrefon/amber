@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include <agent.h>
 #include <agent/compressor.h>
@@ -135,12 +133,32 @@ int main(int argc, char** argv) {
         std::cerr << "[think] " << t;
     };
     hooks.on_tool_call = [](const std::string& n, const agent::json& args) {
-        std::cout.flush();
-        std::cerr << "[tool] " << n << " " << args.dump() << "\n";
+        (void)n; (void)args;
     };
     hooks.on_tool_result = [](const std::string& n, const agent::ToolResult& r) {
-        std::cerr << "[result:" << n << "] "
-                  << (r.ok ? r.output : r.error) << "\n";
+        std::string s = "[tool] " + n + " ";
+        if (!r.ok) {
+            std::string err = r.error;
+            if (err.size() > 80) { err.resize(77); err += "..."; }
+            s += "\u2716 " + err;
+            std::cerr << s << "\n";
+            return;
+        }
+        // Build compact summary from meta if available
+        if (r.meta.count("path") && r.meta["path"].is_string()) {
+            std::string p = r.meta["path"].get<std::string>();
+            long start = r.meta.value("start", 1L);
+            long lines = r.meta.value("lines", 1L);
+            if (p.size() > 30) p = "..." + p.substr(p.size() - 27);
+            s += "\u2713 " + p + ":" + std::to_string(start) + "-" +
+                 std::to_string(start + lines - 1) + " (" +
+                 std::to_string(lines) + " lines)";
+        } else {
+            int lines = 1;
+            for (char c : r.output) if (c == '\n') ++lines;
+            s += "\u2713 (" + std::to_string(lines) + " lines)";
+        }
+        std::cerr << s << "\n";
     };
     // Approval gate for side-effecting tools (bash). With --yes, grant for the
     // session. Otherwise prompt on a TTY; if stdin is not interactive, deny

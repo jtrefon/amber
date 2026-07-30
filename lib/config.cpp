@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/config.h"
 #include <cstdlib>
@@ -42,6 +40,11 @@ void Config::load(const std::string& path) {
             // as an explicit override that suppresses server probing.
             context_size = std::stoi(val);
             context_explicit = context_size > 0;
+        }
+        else if (key == "default_context_size") {
+            // Provider-level default; does NOT set context_explicit so
+            // server auto-detect and user-override can still win.
+            if (!val.empty()) default_context_size = std::stoi(val);
         }
         else if (key == "log_path") log_path = val;
         else if (key == "debug_log") debug_log = val;
@@ -130,6 +133,8 @@ bool save_provider(const Config& cfg) {
     f << "api_key=" << cfg.api_key << "\n";
     f << "default_model=" << cfg.model << "\n";
     f << "requires_key=" << (cfg.api_key.empty() ? "0" : "1") << "\n";
+    if (cfg.context_size > 0)
+        f << "default_context_size=" << cfg.context_size << "\n";
     return static_cast<bool>(f);
 }
 
@@ -139,6 +144,17 @@ bool delete_provider(const std::string& name) {
 }
 
 void Config::apply_provider(const std::string& name) {
+    // First, try loading a saved provider file; its fields (including
+    // default_context_size) take precedence over built-in presets.
+    Config saved;
+    if (load_provider(name, saved)) {
+        provider_name = saved.provider_name;
+        if (!saved.api_base.empty()) api_base = saved.api_base;
+        if (!saved.model.empty()) { model = saved.model; model_explicit = saved.model_explicit; }
+        if (saved.default_context_size > 0 && !context_explicit)
+            context_size = saved.default_context_size;
+        return;
+    }
     auto* p = provider::find(name);
     if (!p || p->name == "custom") return;
     provider_name = p->name;

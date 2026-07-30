@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/agent.h"
 #include "agent/prompt.h"
@@ -132,10 +130,12 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
             reporter.set_before(before_msgs, before_tok);
             auto compressed = compression_->compress(
                 context_, cc, client_, &reporter, &cr);
-            // Persist to live context so every subsequent turn
-            // uses the compressed version. (The pipeline already replaces
-            // the context, but the vector is returned for post-processing.)
-            context_.replace(std::move(compressed));
+            // Rebuild the context from the compressed result using stack
+            // primitives — no replace/mutation, just clear + push.
+            context_.clear();
+            for (auto& m : compressed)
+                context_.push(std::move(m));
+            emit_context_event(context_events_, context_);
             // Apply memory/skill ops from the LLM classification.
             apply_compression_result(cr);
             // Report final stats
@@ -274,11 +274,12 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     };
     ProgressProxy proxy(hooks_, r, std::move(progress_cb));
 
-    // Call pipeline on the LIVE context so the LLM calls extend the KV
-    // cache instead of forcing a full prefill from a separate copy.
+    // Call pipeline on the LIVE context so both LLM calls extend the KV
+    // cache from the same prefix (no full prefill between them).
     // Pipeline handles: append classify → LLM → pop → parse → apply →
-    // replace context → append extract → LLM → pop → parse.
-    // Pipeline also atomically replaces context_ after classification.
+    // append extract → LLM → pop → parse.  Pipeline touches context_ only
+    // via push/pop (classify/extract requests); the actual compressed
+    // result is applied below via pop-all + push.
     auto cc = load_compression_config(cfg_);
     CompressionResponse cr;
     // before was captured at the top; the live context is still the same
@@ -286,8 +287,10 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     auto compressed = compression_->compress(context_, cc, client_,
                                               &proxy, &cr);
 
-    // Atomic replace — no window where context is empty.
-    context_.replace(std::move(compressed));
+    // Rebuild context from compressed result using stack primitives.
+    context_.clear();
+    for (auto& m : compressed)
+        context_.push(std::move(m));
     emit_context_event(context_events_, context_);
 
     // Apply memory/skill ops from the LLM classification response.
