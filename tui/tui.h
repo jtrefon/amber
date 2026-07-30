@@ -104,6 +104,13 @@ private:
     // blocked.
     std::string pending_prompt_;
 
+    // ---- git state (decorated prompt) ------------------------------------
+    std::string git_project_;   // cwd basename
+    std::string git_branch_;    // current branch, empty if not a git repo
+    int git_ins_ = 0;           // git diff --shortstat insertions
+    int git_del_ = 0;           // git diff --shortstat deletions
+    void git_refresh();         // query git, populate fields above
+
 
 
     // A modal dialog (info_dialog / menu_select / config / session browser)

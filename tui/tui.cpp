@@ -18,6 +18,9 @@
 #include "textutil.h"
 #include "welcome.h"
 
+#include <array>
+#include <unistd.h>
+
 #include <clocale>
 #include <csignal>
 #include <ctime>
@@ -315,7 +318,9 @@ bool Tui::drain_events() {
         pending_approvals_.pop();
         resolve_approval(ev);
     }
-
+    // Refresh git state after tool events so the decorated prompt always
+    // reflects the latest branch, diff, and dirty state.
+    git_refresh();
     return true;
 }
 
@@ -529,7 +534,61 @@ void Tui::compress_worker() {
     t.detach();
 }
 
+void Tui::git_refresh() {
+    auto read_stdout = [](const char* cmd) -> std::string {
+        std::string result;
+        FILE* pipe = popen(cmd, "r");
+        if (!pipe) return result;
+        char buf[256];
+        while (fgets(buf, sizeof(buf), pipe))
+            result += buf;
+        pclose(pipe);
+        return result;
+    };
+
+    // Project name from cwd basename.
+    {
+        std::string cwd;
+        std::array<char, 4096> buf;
+        if (getcwd(buf.data(), buf.size()))
+            cwd = buf.data();
+        size_t slash = cwd.rfind('/');
+        git_project_ = (slash == std::string::npos) ? cwd : cwd.substr(slash + 1);
+        if (git_project_.empty()) git_project_ = "project";
+    }
+
+    std::string ref = read_stdout("git symbolic-ref HEAD 2>/dev/null");
+    if (ref.empty()) {
+        git_branch_.clear();
+        git_ins_ = 0;
+        git_del_ = 0;
+        return;
+    }
+    ref.erase(ref.find_last_not_of(" \n\r") + 1);
+    if (ref.compare(0, 11, "refs/heads/") == 0)
+        git_branch_ = ref.substr(11);
+    else
+        git_branch_ = ref;
+
+    std::string stat = read_stdout("git diff --shortstat 2>/dev/null");
+    git_ins_ = 0;
+    git_del_ = 0;
+    if (!stat.empty()) {
+        auto extract = [&](const std::string& needle) -> int {
+            size_t pos = stat.find(needle);
+            if (pos == std::string::npos) return 0;
+            size_t start = pos;
+            while (start > 0 && isdigit(static_cast<unsigned char>(stat[start - 1])))
+                --start;
+            return std::stoi(stat.substr(start, pos - start));
+        };
+        git_ins_ = extract(" insertion");
+        git_del_ = extract(" deletion");
+    }
+}
+
 void Tui::run() {
+    git_refresh();
     draw();
     draw_input("");
     flush();
