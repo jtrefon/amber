@@ -29,6 +29,7 @@ void Config::load(const std::string& path) {
         }
         else if (key == "system_prompt") system_prompt_path = val;
         else if (key == "tools_prompt") tools_prompt_path = val;
+        else if (key == "git_prompt") git_prompt_path = val;
         else if (key == "max_tool_iterations") max_tool_iterations = std::stoi(val);
         else if (key == "temperature") temperature = std::stod(val);
         else if (key == "max_tokens") max_tokens = std::stoul(val);
@@ -196,6 +197,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "show_reasoning=" << (show_reasoning ? 1 : 0) << "\n";
     f << "system_prompt=" << system_prompt_path << "\n";
     f << "tools_prompt=" << tools_prompt_path << "\n";
+    f << "git_prompt=" << git_prompt_path << "\n";
     f << "log_path=" << log_path << "\n";
     f << "debug_log=" << debug_log << "\n";
     f << "policy_approval=" << (policy_approval ? 1 : 0) << "\n";
@@ -213,6 +215,7 @@ void Config::apply_environment() {
     get("AMBER_API_KEY", api_key);
     { std::string prev = model; get("AMBER_MODEL", model);
       if (model != prev) model_explicit = true; }
+    get("AMBER_GIT_PROMPT", git_prompt_path);
     get("AMBER_SYSTEM_PROMPT", system_prompt_path);
     get("AMBER_TOOLS_PROMPT", tools_prompt_path);
     const char* s = std::getenv("AMBER_STREAM");
