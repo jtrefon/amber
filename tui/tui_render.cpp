@@ -435,28 +435,23 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
         x += static_cast<int>(ws.size());
     };
 
+    // Always show project name. Git branch and diff stats when available.
+    auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
+    decor("\u250c\u2500[");
+    put(git_project_, P_USER);
     if (!git_branch_.empty()) {
-        // BitchX-inspired frame:  ┌─[project]─[branch]─[+3/-1]─❯
-        // Decoration in dim P_USER (subdued green), content colored.
-        auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
-        decor("\u250c\u2500[");
-        put(git_project_, P_USER);
         decor("]\u2500[");
         put(git_branch_, P_ASSISTANT);
-        decor("]");
         if (git_ins_ > 0 || git_del_ > 0) {
-            decor("\u2500[");
+            decor("]\u2500[");
             if (git_ins_ > 0)
                 put("+" + std::to_string(git_ins_), P_GIT_PLUS);
             decor("/");
             if (git_del_ > 0)
                 put("-" + std::to_string(git_del_), P_GIT_MINUS);
-            decor("]");
         }
-        decor(" \u276f ");
-    } else {
-        put("amber> ", P_USER);
     }
+    decor("]\u2500\u276f ");
 
     prompt_w = x;  // columns consumed by prompt
 
