@@ -418,32 +418,44 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     clrtoeol();
 
     // ── Prompt segments (colored, same pattern as bar_segments) ────────
-    auto put = [&](const std::string& text, int pair) {
+    auto put = [&](const std::string& text, int pair, int attrs = 0) {
         if (x >= w) return;
         std::wstring ws = to_wide(text);
         int room = w - x;
         if (static_cast<int>(ws.size()) > room) ws.resize(room);
-        attron(COLOR_PAIR(pair));
+        if (attrs)
+            attron(COLOR_PAIR(pair) | attrs);
+        else
+            attron(COLOR_PAIR(pair));
         mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
-        attroff(COLOR_PAIR(pair));
+        if (attrs)
+            attroff(COLOR_PAIR(pair) | attrs);
+        else
+            attroff(COLOR_PAIR(pair));
         x += static_cast<int>(ws.size());
     };
 
     if (!git_branch_.empty()) {
         // BitchX-inspired frame:  ┌─[project]─[branch]─[+3/-1]─→
-        put("\u250c\u2500", P_USER);
-        put("[" + git_project_ + "]", P_USER);
-        put("\u2500[" + git_branch_ + "]", P_ASSISTANT);
+        // Decoration in dim gray, content in their respective colors.
+        auto decor = [&](const std::string& t) { put(t, P_GRAY, A_DIM); };
+        decor("\u250c\u2500[");
+        put(git_project_, P_USER);
+        decor("]\u2500[");
+        put(git_branch_, P_ASSISTANT);
+        decor("]");
         if (git_ins_ > 0 || git_del_ > 0) {
-            put("\u2500[", P_USER);
+            decor("\u2500[");
             if (git_ins_ > 0)
                 put("+" + std::to_string(git_ins_), P_GIT_PLUS);
-            put("/", P_USER);
+            decor("/");
             if (git_del_ > 0)
                 put("-" + std::to_string(git_del_), P_GIT_MINUS);
-            put("]", P_USER);
+            decor("]");
         }
-        put("\u2500\u2192 ", P_USER);
+        decor("\u2500");
+        put(text::glyph::arrow(), P_GRAY, A_DIM);
+        put(" ", P_USER);
     } else {
         put("amber> ", P_USER);
     }
