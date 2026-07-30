@@ -36,6 +36,8 @@ void init_pairs() {
     init_pair(P_GAUGE_WARN, COLOR_YELLOW,  COLOR_BLUE);
     init_pair(P_GAUGE_CRIT, COLOR_RED,     COLOR_BLUE);
     init_pair(P_BAR_DIM,    COLOR_CYAN,    COLOR_BLUE);
+    init_pair(P_GIT_PLUS,   COLOR_GREEN,   -1);
+    init_pair(P_GIT_MINUS,  COLOR_RED,     -1);
     init_pair(P_MD_HEAD,    COLOR_WHITE,   -1);
     init_pair(P_MD_QUOTE,   COLOR_CYAN,    -1);
     init_pair(P_MD_CODE,    COLOR_GREEN,   -1);
