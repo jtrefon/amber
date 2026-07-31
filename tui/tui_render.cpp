@@ -191,6 +191,16 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
         // running here rather than the bar looking idle.
         segs.push_back({"  " + running_tool_ + "…", P_GAUGE_WARN, 1});
     }
+
+    // Connected MCP servers; a failed one is flagged with '!'.
+    std::string mcp_txt;
+    for (const auto& st : mcp_servers_.snapshot()) {
+        if (!st.connected && st.error.empty()) continue;
+        if (!mcp_txt.empty()) mcp_txt += "·";
+        mcp_txt += (st.connected ? "" : "!") + st.name;
+    }
+    if (!mcp_txt.empty())
+        segs.push_back({"  mcp: " + mcp_txt, P_BAR_DIM, 8});
     return segs;
 }
 
