@@ -30,8 +30,6 @@ struct Memory : KnowledgeItem {};
 
 struct Skill : KnowledgeItem {
     std::string trigger_phrase;
-    std::vector<std::string> steps;
-    std::string expected_outcome;
 };
 
 // One item extracted during compression, used to report results back to the UI.

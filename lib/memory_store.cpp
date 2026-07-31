@@ -81,8 +81,6 @@ json skill_to_json(const Skill& sk) {
         {"name", sk.name},
         {"content", sk.content},
         {"trigger_phrase", sk.trigger_phrase},
-        {"steps", sk.steps},
-        {"expected_outcome", sk.expected_outcome},
         {"tags", sk.tags},
         {"evidence", sk.evidence_count},
         {"last_confirm_turn", sk.last_confirm_turn},
@@ -97,9 +95,6 @@ Skill json_to_skill(const json& j) {
     sk.name = j.value("name", "");
     sk.content = j.value("content", "");
     sk.trigger_phrase = j.value("trigger_phrase", "");
-    for (const auto& s : j.value("steps", json::array()))
-        sk.steps.push_back(s.get<std::string>());
-    sk.expected_outcome = j.value("expected_outcome", "");
     for (const auto& t : j.value("tags", json::array()))
         sk.tags.push_back(t.get<std::string>());
     sk.evidence_count = j.value("evidence", 0);
