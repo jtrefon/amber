@@ -531,7 +531,6 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
             emit_context_event(context_events_, context_);
             if (hooks_.on_status)
                 hooks_.on_status("text loop: injected recovery steer");
-            last_text.clear();
         }
         if (text_loop_count >= 5) {
             if (hooks_.on_status)
