@@ -99,13 +99,21 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `compression/loop-collapse.md` | Consecutive tool-call merging rules, lossless vs lossy |
 | `compression/turn-classification.md` | Tag assignment: keep/drop/summarize per-turn logic |
 
+## Skills
+
+| File | Covers |
+|------|--------|
+| `skills/agent-skills.md` | Umbrella: two-tier model (authored vs learned), scope axes, precedence, progressive disclosure, injection-slot policy, budgets |
+| `skills/skill-files.md` | Authored `SKILL.md` format (Agent Skills open standard subset), tolerant frontmatter parser, directory scanner, interop gate |
+| `skills/skill-catalog.md` | `SkillCatalog`/`SkillOverrides` ports, `read_skill`/`write_skill`/`list_skills` tools, `/set skills` + `/get skills` curation commands |
+
 ## Memory / Experience
 
 | File | Covers |
 |------|--------|
 | `memory/extraction.md` | Extraction triggers, signal detection, quality gating |
-| `memory/memory-store.md` | Storage, dedup, query, recall-injection into context |
-| `memory/skill-operations.md` | Skill upsert/deprecate lifecycle |
+| `memory/memory-store.md` | Storage, dedup, query, recall-injection into context (project-scoped learned skills) |
+| `memory/skill-operations.md` | Learned skill upsert/deprecate lifecycle (authored skills live in `skills/`) |
 
 ## Session
 

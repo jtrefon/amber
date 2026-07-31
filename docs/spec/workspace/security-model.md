@@ -93,11 +93,57 @@ confinement, and approval gating for side-effect operations.
 
 ---
 
+### Skills trust posture (authored skill packages)
+
+Authored skills are **instructions from a possibly untrusted author**. Their
+frontmatter and body are treated as untrusted input, like any file the agent
+reads. No skill text can raise privilege or escape the tool-gating model; see
+`docs/spec/skills/`.
+
+| Control | Mechanism |
+|---------|-----------|
+| Skills are text, not code | The harness never executes `scripts/` directly; `allowed-tools` frontmatter is parsed and ignored ([SF-01]/[SF-07], `skills/skill-files.md`) |
+| Provenance is visible | Catalog lines carry origin (`project/global/interop/learned`); `/set skills show` surfaces it ([SK-11]) |
+| Instant suppression | `disable`/`block` overrides persist and survive re-scans; `block` records author metadata for audit ([SK-06]/[SK-08]) |
+| Opt-in interop | `.claude/skills`/`.codex/skills` are never scanned unless `skills_interop = true` ([AS-08]) |
+| No new execution surface | `read_skill` injects text; resources are reached only via the existing gated read/bash/process tools |
+| Prompt-injection residue | An activated skill's instructions are plain context; mitigations are provenance labels + one-command disable ([AS-11]) |
+
+#### [SM-09] Skill body is untrusted text
+
+- **Given**: Skill `evil-cmd` body instructs the model to `rm -rf /` via bash
+- **Input**: Model activates `evil-cmd`, then follows its instruction
+- **Expected**: The bash tool's existing gates apply unchanged — Read mode blocks it, Write mode requires approval (or auto-approves per mode), confinement governs paths. Skill text has no special authority.
+- **On failure**: Skill body bypasses approval or confinement.
+
+#### [SM-10] allowed-tools frontmatter is ignored
+
+- **Given**: Skill frontmatter declares `allowed-tools: ["bash"]` (implying other tools are disallowed, or bash is pre-authorized)
+- **Input**: Skill discovered and activated
+- **Expected**: Field parsed and dropped. The model's tool set is unchanged; all standard gates apply.
+- **On failure**: Skill grants or restricts tool access.
+
+#### [SM-11] Interop gate requires consent
+
+- **Given**: `.claude/skills/` contains a skill; `skills_interop = false`
+- **Input**: Session start
+- **Expected**: No interop skill discovered. Only an explicit `/set skills interop on` + `refresh` enables the scan ([SK-16]).
+- **On failure**: Third-party skills loaded without consent.
+
+#### [SM-12] Block persists across restarts
+
+- **Given**: User runs `/set skills block some-skill` (with author metadata)
+- **Input**: Restart; new session
+- **Expected**: Override file loaded at catalog construction; skill excluded from discovery and activation. `note` records why.
+- **On failure**: Block is forgotten; skill resurrects on next scan.
+
+---
+
 ### Cross-references
 
-- **Depends on**: `agent-loop/mode-system.md`, `workspace/path-confinement.md`, `agent-loop/tool-dispatch.md`
+- **Depends on**: `agent-loop/mode-system.md`, `workspace/path-confinement.md`, `agent-loop/tool-dispatch.md`, `skills/agent-skills.md` (trust posture), `skills/skill-files.md` (interop gate, `allowed-tools`), `skills/skill-catalog.md` (overrides, `block` state)
 - **Depended on by**: `docs/spec/INDEX.md`
-- **Test coverage**: `tests/run_tests.cpp`: approval tests (1183–1208), confinement tests (544–578)
+- **Test coverage**: `tests/run_tests.cpp`: approval tests (1183–1208), confinement tests (544–578). Skills trust: `tests/skill_catalog_test.cpp` (see `docs/skills-tracker.md`)
 
 ### Known gaps
 

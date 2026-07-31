@@ -61,6 +61,15 @@ set                                     — Runtime settings
   compression                            — Compression settings
     threshold <0.1-1.0>                  — Context utilisation threshold
     min_turns <1-999>                    — Min turns before compression
+  skills                                 — Skill settings
+    interop <on|off>                     — Scan .claude/skills, .codex/skills
+    create <name> [--global]             — Author a new skill (opens editor)
+    delete <name> [--global]             — Remove a skill (project by default)
+    export <name>                        — Graduation: learned skill → global authored
+    refresh                              — Re-scan roots, rebuild discovery
+    show [name]                          — List skills + origins; details for one
+    enable <name>|disable <name>|block <name>
+                                         — Persist override (survives re-scan)
 get [key]                               — Show current setting(s)
 
 # Provider management (CRUD)
@@ -498,6 +507,36 @@ resolve(tokens, node):
 - **Given**: User types `/set detection loop `
 - **Input**: `?`
 - **Expected**: Popup shows ArgSpec choices: `on`, `off`, `toggle`.
+
+---
+
+#### [NC-22] `/set skills show` — list skills with origins
+
+- **Given**: Tree: `set` → `skills` → `show` (ArgSpec: optional `name`)
+- **Input**: `/set skills show`
+- **Expected**: Tree walk: `set` → `skills` → `show` → no arg → handler renders the catalog table: `project · authored · run-tests · enabled`, `global · authored · deploy · enabled`, `project · learned · deploy · suppressed`. See `skills/skill-catalog.md` scope mapping.
+- **On failure**: Empty output; origins omitted.
+
+#### [NC-23] `/set skills export <name>` — graduate a learned skill
+
+- **Given**: Learned skill `nightly-deploy` in the project store; `skills export` has ArgSpec: String
+- **Input**: `/set skills export nightly-deploy`
+- **Expected**: Handler writes `~/.config/amber/skills/nightly-deploy/SKILL.md`, re-runs discovery, reports `"exported nightly-deploy to global authored skills"`. Learned entry suppressed by precedence (authored wins).
+- **On failure**: Unknown learned skill → error `"no learned skill named ghost"`, nothing written.
+
+#### [NC-24] `/set skills create <name> --global` — flag selects scope
+
+- **Given**: `skills create` has ArgSpec String `name` + FlagSpec `global`
+- **Input**: `/set skills create backup-script --global`
+- **Expected**: Flag extracted; remaining token matched to `name`. Editor opens; on save, `~/.config/amber/skills/backup-script/SKILL.md` written, discovery re-run.
+- **On failure**: Skill written to project scope by mistake (flag ignored).
+
+#### [NC-25] `/set skills disable <name>` — sticky override
+
+- **Given**: Skill `obsolete-workflow` on disk, no override
+- **Input**: `/set skills disable obsolete-workflow`
+- **Expected**: Override persisted to `<workspace>/.amber/skills.json`; skill excluded from discovery and `read_skill`. Survives `/set skills refresh` and restart.
+- **On failure**: Re-scan resurrects the skill.
 
 ---
 
