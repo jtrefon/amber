@@ -6,7 +6,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "agent/mcp_commands.h"
 #include "agent/mcp_config.h"
+#include "agent/prompt.h"
+#include "agent/registry.h"
 #include "agent/workspace.h"
 #include "tests/test_util.h"
 
@@ -269,4 +272,101 @@ TEST(mcp_config_token_redaction) {
     std::string snap_text;
     for (const auto& s : mgr.snapshot()) snap_text += s.name + s.type;
     ASSERT(snap_text.find("super-secret-token") == std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Command backends ([MU-01] list, [MU-03] prompts, prompt get/set)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct EchoManager {
+    std::string cwd;
+    std::string ws;
+    agent::ServerManager mgr;
+    agent::ToolRegistry reg;
+
+    EchoManager() {
+        char buf[4096];
+        cwd = getcwd(buf, sizeof buf) ? buf : ".";
+        ws = "/tmp/amber_mcp_cmd_ws";
+        run_cmd("rm -rf " + ws);
+        agent::Workspace::set_root(ws);
+        agent::McpServerConfig cfg;
+        cfg.name = "echo";
+        cfg.type = "stdio";
+        cfg.command = "python3";
+        cfg.args = {"tests/fixtures/mcp_echo.py"};
+        cfg.cwd = cwd;
+        mgr = agent::ServerManager({{"echo", cfg}});
+    }
+};
+
+} // namespace
+
+// [MU-01] /mcp list renders state lines.
+TEST(mcp_commands_list_lines) {
+    EchoManager env;
+    ASSERT_EQ(agent::mcp_connect(env.mgr, env.reg, "echo"), "");
+    auto lines = agent::mcp_list_lines(env.mgr);
+    ASSERT_EQ(lines.size(), 1u);
+    ASSERT(lines[0].find("echo") != std::string::npos);
+    ASSERT(lines[0].find("connected") != std::string::npos);
+    ASSERT(lines[0].find("1 tools") != std::string::npos);
+    agent::mcp_disconnect(env.mgr, env.reg, "echo");
+    auto lines2 = agent::mcp_list_lines(env.mgr);
+    ASSERT(lines2[0].find("disconnected") != std::string::npos);
+    env.mgr.shutdown_all();
+}
+
+// [MU-02] connect registers adapters; disconnect removes them.
+TEST(mcp_commands_connect_registers_tools) {
+    EchoManager env;
+    ASSERT_EQ(agent::mcp_connect(env.mgr, env.reg, "echo"), "");
+    ASSERT(env.reg.find("mcp_echo_echo_tool") != nullptr);
+    agent::mcp_disconnect(env.mgr, env.reg, "echo");
+    ASSERT(env.reg.find("mcp_echo_echo_tool") == nullptr);
+    env.mgr.shutdown_all();
+}
+
+// [MU-03] /prompt get validates args and returns the flattened template.
+TEST(mcp_commands_prompt_get) {
+    EchoManager env;
+    ASSERT_EQ(agent::mcp_connect(env.mgr, env.reg, "echo"), "");
+    std::string text;
+    std::string err = agent::mcp_prompt(env.mgr, "echo", "greet",
+                                        {{"name", "bob"}}, text);
+    ASSERT_EQ(err, "");
+    ASSERT(text.find("user: greet bob") != std::string::npos);
+
+    std::string text2;
+    std::string err2 = agent::mcp_prompt(env.mgr, "echo", "greet",
+                                         json::object(), text2);
+    ASSERT_FALSE(err2.empty());
+    ASSERT(err2.find("missing required argument 'name'") !=
+           std::string::npos);
+
+    std::string text3;
+    std::string err3 = agent::mcp_prompt(env.mgr, "echo", "ghost",
+                                         json::object(), text3);
+    ASSERT_FALSE(err3.empty());
+    ASSERT(err3.find("unknown prompt") != std::string::npos);
+    env.mgr.shutdown_all();
+}
+
+// refresh re-registers adapters after a discovery change.
+TEST(mcp_commands_refresh) {
+    EchoManager env;
+    ASSERT_EQ(agent::mcp_connect(env.mgr, env.reg, "echo"), "");
+    ASSERT_EQ(agent::mcp_refresh(env.mgr, env.reg, "echo"), "");
+    ASSERT(env.reg.find("mcp_echo_echo_tool") != nullptr);
+    env.mgr.shutdown_all();
+}
+
+// prompts/mcp.md loads non-empty at session start.
+TEST(mcp_prompts_file_loaded) {
+    std::string p = agent::load_prompt("prompts/mcp.md");
+    ASSERT_FALSE(p.empty());
+    ASSERT(p.find("mcp_") != std::string::npos);
+    ASSERT(p.find("user only") != std::string::npos);
 }
