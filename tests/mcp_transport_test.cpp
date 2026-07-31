@@ -1,7 +1,12 @@
 
+#include <cerrno>
+#include <fstream>
 #include <string>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "agent/mcp_transport.h"
+#include "agent/mcp_transport_stdio.h"
 #include "tests/test_util.h"
 
 // [MT-01] Encode/decode round-trip for requests, notifications, responses,
@@ -97,4 +102,108 @@ TEST(mcp_wire_string_id_tolerated) {
     ASSERT(msg.has_value());
     ASSERT(msg->id.has_value());
     ASSERT_EQ(msg->id->dump(), "\"abc\"");
+}
+
+// ---------------------------------------------------------------------------
+// stdio transport ([MT-01] echo round-trip, [MT-02] SIGKILL escalation,
+// [MT-03] stderr isolation)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bool wait_for_file(const std::string& path, int attempts = 100) {
+    for (int i = 0; i < attempts; ++i) {
+        std::ifstream f(path);
+        if (f.is_open()) return true;
+        usleep(10 * 1000);
+    }
+    return false;
+}
+
+} // namespace
+
+// [MT-01] Echo round-trip over newline-framed stdio.
+TEST(mcp_stdio_echo_roundtrip) {
+    agent::StdioTransport t("python3", {"tests/fixtures/mcp_echo.py"}, ".",
+                            {}, 5000);
+    ASSERT_EQ(t.failure_reason(), "");
+
+    auto resp = t.request(1, "initialize",
+                          {{"protocolVersion", "2025-06-18"}});
+    ASSERT(resp.has_value());
+    ASSERT(resp->id.has_value());
+    ASSERT_EQ(resp->id->dump(), "1");
+    ASSERT(resp->result.has_value());
+    ASSERT_EQ(resp->result->value("echo", json::object())
+                 .value("method", ""),
+              "initialize");
+
+    auto r2 = t.request(2, "tools/list", json::object());
+    ASSERT(r2.has_value());
+    ASSERT_EQ(r2->id->dump(), "2");
+    ASSERT_TRUE(t.notify("notifications/initialized", json::object()));
+    t.shutdown();
+    ASSERT_FALSE(t.failure_reason().empty());
+}
+
+// [MT-02] A server that ignores SIGTERM is escalated to SIGKILL and reaped.
+TEST(mcp_stdio_sigterm_escalates_to_sigkill) {
+    std::string pidfile = "/tmp/mcp_sigterm_pid.txt";
+    unlink(pidfile.c_str());
+    {
+        agent::StdioTransport t(
+            "python3",
+            {"tests/fixtures/mcp_ignore_sigterm.py", pidfile}, ".", {}, 5000);
+        ASSERT(wait_for_file(pidfile));
+        int pid = -1;
+        {
+            std::ifstream f(pidfile);
+            f >> pid;
+        }
+        ASSERT(pid > 0);
+        t.shutdown();
+        int st = 0;
+        ASSERT_EQ(waitpid(pid, &st, WNOHANG), -1);
+        ASSERT_EQ(errno, ECHILD);
+    }
+}
+
+// [MT-03] stderr never pollutes the protocol; it is retained for diagnostics.
+TEST(mcp_stdio_stderr_isolated) {
+    agent::StdioTransport t(
+        "python3", {"tests/fixtures/mcp_echo.py", "stderr"}, ".", {}, 5000);
+    auto resp = t.request(1, "ping", json::object());
+    ASSERT(resp.has_value());
+    ASSERT(resp->result.has_value());
+    ASSERT(resp->result->dump().find("hello stderr") == std::string::npos);
+}
+
+// A server that dies at startup surfaces its stderr in failure_reason().
+TEST(mcp_stdio_startup_failure_reports_stderr) {
+    agent::StdioTransport t(
+        "python3", {"tests/fixtures/mcp_echo.py", "boom"}, ".", {}, 2000);
+    std::string reason;
+    for (int i = 0; i < 200; ++i) {
+        reason = t.failure_reason();
+        if (!reason.empty()) break;
+        usleep(10 * 1000);
+    }
+    ASSERT_FALSE(reason.empty());
+    ASSERT(reason.find("fatal startup error") != std::string::npos);
+}
+
+// A missing server binary fails fast with a spawn error, never hangs.
+TEST(mcp_stdio_spawn_failure_fails_fast) {
+    agent::StdioTransport t("no-such-mcp-server-binary", {}, ".", {}, 2000);
+    std::string reason;
+    for (int i = 0; i < 200; ++i) {
+        reason = t.failure_reason();
+        if (!reason.empty()) break;
+        usleep(10 * 1000);
+    }
+    ASSERT_FALSE(reason.empty());
+    ASSERT(reason.find("spawn") != std::string::npos ||
+           reason.find("closed") != std::string::npos);
+    ASSERT_FALSE(t.request(1, "ping", json::object()).has_value());
+    ASSERT_FALSE(t.notify("notifications/initialized", json::object()));
 }

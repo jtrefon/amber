@@ -91,6 +91,11 @@ public:
     // Blocking teardown; idempotent. Called by the owning client.
     virtual void shutdown() = 0;
 
+    // Empty while healthy; otherwise a human-readable reason the transport
+    // cannot be used (spawn failure, disconnect, protocol violation). May
+    // include a capped tail of the server's stderr.
+    virtual std::string failure_reason() const = 0;
+
 protected:
     std::function<void(const McpMessage&)> on_server_message_;
 };
