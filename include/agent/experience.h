@@ -79,6 +79,34 @@ public:
         (void)name; return nullptr;
     }
 
+    // Full listings for the /learn surface, sorted by score descending
+    // (evidence/recency-driven; no relevance term).
+    virtual std::vector<Memory> all_memories() const { return {}; }
+    virtual std::vector<Skill> all_skills() const { return {}; }
+
+    // Remove the item with `id` from either collection. Returns false when
+    // the id is unknown (store unchanged).
+    virtual bool remove(const std::string& id) {
+        (void)id;
+        return false;
+    }
+
+    // Set/clear the promoted flag on the item with `id`. Returns false when
+    // the id is unknown.
+    virtual bool set_promoted(const std::string& id, bool pinned) {
+        (void)id;
+        (void)pinned;
+        return false;
+    }
+
+    // The item's score (same metric all_* sorts by; relevance to an empty
+    // query, so evidence/recency-driven). Used by the /learn display so the
+    // shown number matches the ordering.
+    virtual double score_of(const KnowledgeItem& item) const {
+        (void)item;
+        return 0.0;
+    }
+
     virtual void decay_all() = 0;
 
     // Total number of items (memories + skills) in the store.

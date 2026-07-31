@@ -5,6 +5,15 @@
 #include "agent/process.h"
 
 #include <curl/curl.h>
+
+namespace {
+// libcurl write callback: accumulate the response body into a std::string.
+size_t write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
+    auto* buf = static_cast<std::string*>(user);
+    buf->append(ptr, size * nmemb);
+    return size * nmemb;
+}
+} // namespace
 #include <stdexcept>
 #include <nlohmann/json.hpp>
 
@@ -205,7 +214,7 @@ std::string post_completion(Config& cfg, const std::string& payload,
     long http_code = 0;
     double t0 = 0, t1 = 0;
     curl_exec(cfg, payload, accept_sse, 300L,
-              LLMClient::write_cb, &response,
+              write_cb, &response,
               http_code, t0, t1, "error");
     if (ttfb) *ttfb = t0;
     if (total) *total = t1;
@@ -220,8 +229,10 @@ std::string post_completion(Config& cfg, const std::string& payload,
             }
         }
         std::string snippet = response.substr(0, 200);
-        throw std::runtime_error("HTTP " + std::to_string(http_code) +
-                                 " from LLM server: " + snippet);
+        bool retryable = http_code == 429 || http_code >= 500;
+        throw ApiError(http_code, retryable,
+                       "HTTP " + std::to_string(http_code) +
+                           " from LLM server: " + snippet);
     }
     return response;
 }
@@ -236,8 +247,10 @@ void stream_completion(const Config& cfg, const std::string& payload,
               status_out, ttfb, total, "error-stream");
     if (status_out < 200 || status_out >= 300) {
         std::string detail = parser.raw_body_.substr(0, 400);
-        throw std::runtime_error("HTTP " + std::to_string(status_out) +
-                                 " from LLM server: " + detail);
+        bool retryable = status_out == 429 || status_out >= 500;
+        throw ApiError(status_out, retryable,
+                       "HTTP " + std::to_string(status_out) +
+                           " from LLM server: " + detail);
     }
     parser.finalize();
     if (stats) {

@@ -82,7 +82,8 @@ public:
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
           std::unique_ptr<MemoryStore> memory_store = {},
-          std::unique_ptr<MemoryRetriever> retriever = {});
+          std::unique_ptr<MemoryRetriever> retriever = {},
+          std::unique_ptr<LLMClient> client = {});
 
     // Run one turn to completion, appending to the ongoing conversation.
     // Context from previous turns is retained (the agent is stateful). Returns
@@ -140,6 +141,20 @@ public:
     // Subscribe to context change events (token count + message count).
     // Fires on every push/pop/clear.
     ContextEventSource& context_events() { return context_events_; }
+
+    // The session's experience store (nullptr when experience is disabled).
+    // Read-only use by the UI; mutation goes through learn_forget/learn_pin
+    // so persistence stays in the core.
+    MemoryStore* memory_store() { return memory_store_.get(); }
+    const MemoryStore* memory_store() const { return memory_store_.get(); }
+
+    // The resolved experience configuration (store path, budgets).
+    const ExperienceConfig& experience_config() const { return experience_cfg_; }
+
+    // Remove / pin one learned item, persisting to the experience store.
+    // Returns "" on success or a typed error string.
+    std::string learn_forget(const std::string& id);
+    std::string learn_pin(const std::string& id, bool pinned);
 
 private:
     // Build and push the system message if the conversation is empty. Idempotent.
@@ -199,7 +214,7 @@ private:
 
     Config cfg_;
     ToolRegistry& registry_;
-    LLMClient client_;
+    std::unique_ptr<LLMClient> client_;
     AgentHooks hooks_;
     ConversationLog log_;
     Context context_;

@@ -11,25 +11,19 @@
 
 namespace agent {
 
-LLMClient::LLMClient(Config  cfg) : cfg_(std::move(cfg)) {
+HttpLLMClient::HttpLLMClient(Config cfg) : cfg_(std::move(cfg)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
-}
-
-size_t LLMClient::write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
-    auto* buf = static_cast<std::string*>(user);
-    buf->append(ptr, size * nmemb);
-    return size * nmemb;
 }
 
 ServerInfo LLMClient::parse_models(const std::string& body) {
     return agent::parse_models(body);
 }
 
-ServerInfo LLMClient::probe_server() const {
+ServerInfo HttpLLMClient::probe_server() const {
     return agent::probe_server(cfg_);
 }
 
-Message LLMClient::chat(const std::vector<Message>& messages,
+Message HttpLLMClient::chat(const std::vector<Message>& messages,
                         const std::vector<Tool*>& tools, Stats* stats) {
     json body = build_chat_body(cfg_, messages, tools, false);
     // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
@@ -46,7 +40,7 @@ Message LLMClient::chat(const std::vector<Message>& messages,
     return out;
 }
 
-Message LLMClient::chat_stream(const std::vector<Message>& messages,
+Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
                                const std::vector<Tool*>& tools,
                                const std::function<void(const StreamChunk&)>& on_chunk,
                                Stats* stats) {

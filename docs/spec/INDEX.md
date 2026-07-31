@@ -87,6 +87,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | File | Covers |
 |------|--------|
 | `llm-client/streaming.md` | SSE parser, token events, cancel during stream, buffering |
+| `llm-client/agent-loop-reliability.md` | Chat port + scripted fake for hermetic loop tests, typed retry policy (backoff/cancel), n_ctx fallback budget; context immutability is non-negotiable |
 | `llm-client/http-transport.md` | libcurl setup, retry, timeout, cancel-check callback |
 | `llm-client/model-probe.md` | `/v1/models`, capability detection, fallback chain |
 | `llm-client/error-handling.md` | HTTP 4xx/5xx, JSON parse errors, malformed response recovery |
@@ -124,6 +125,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `memory/extraction.md` | Extraction triggers, signal detection, quality gating |
 | `memory/memory-store.md` | Storage, dedup, query, recall-injection into context (project-scoped learned skills) |
 | `memory/skill-operations.md` | Learned skill upsert/deprecate lifecycle (authored skills live in `skills/`) |
+| `memory/learn-ui.md` | `/learn` visibility + management: show/inspect/forget/pin, `/get learn` summary, store list/remove/promote APIs |
 
 ## Session
 

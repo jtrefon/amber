@@ -26,8 +26,12 @@ Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<CompressionStrategy> compressor,
              std::unique_ptr<CompressionGate> gate,
              std::unique_ptr<MemoryStore> memory_store,
-             std::unique_ptr<MemoryRetriever> retriever)
-    : cfg_(cfg), registry_(registry), client_(cfg), hooks_(std::move(hooks))
+             std::unique_ptr<MemoryRetriever> retriever,
+             std::unique_ptr<LLMClient> client)
+    : cfg_(cfg), registry_(registry),
+      client_(client ? std::move(client)
+                     : std::make_unique<HttpLLMClient>(cfg)),
+      hooks_(std::move(hooks))
     , compression_(std::move(compressor))
     , gate_(std::move(gate))
     , memory_store_(std::move(memory_store))
@@ -103,6 +107,24 @@ void Agent::ensure_system_prompt() {
     emit_context_event(context_events_, context_);
 }
 
+std::string Agent::learn_forget(const std::string& id) {
+    if (!memory_store_ || experience_cfg_.store_path.empty())
+        return "experience store disabled";
+    if (!memory_store_->remove(id))
+        return "no learned item with id '" + id + "'";
+    memory_store_->save(experience_cfg_.store_path);
+    return "";
+}
+
+std::string Agent::learn_pin(const std::string& id, bool pinned) {
+    if (!memory_store_ || experience_cfg_.store_path.empty())
+        return "experience store disabled";
+    if (!memory_store_->set_promoted(id, pinned))
+        return "no learned item with id '" + id + "'";
+    memory_store_->save(experience_cfg_.store_path);
+    return "";
+}
+
 void Agent::set_context(std::vector<Message> messages) {
     context_.clear();
     for (auto& m : messages)
@@ -155,7 +177,7 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
             size_t before_tok = context_.token_count();
             reporter.set_before(before_msgs, before_tok);
             auto compressed = compression_->compress(
-                context_, cc, client_, &reporter, &cr);
+                context_, cc, *client_, &reporter, &cr);
             // Rebuild the context from the compressed result using stack
             // primitives — no replace/mutation, just clear + push.
             context_.clear();
@@ -221,7 +243,7 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
 
     const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
-        reply = client_.chat_stream(prompt_copy, tools,
+        reply = client_->chat_stream(prompt_copy, tools,
             [&h](const StreamChunk& ch) {
                 if (ch.done) return;
                 if (!ch.reasoning.empty()) {
@@ -234,7 +256,7 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
                 }
             }, &stats);
     } else {
-        reply = client_.chat(prompt_copy, tools, &stats);
+        reply = client_->chat(prompt_copy, tools, &stats);
     }
     if (stats.valid) {
         if (hooks_.on_stats) hooks_.on_stats(stats);
@@ -344,7 +366,7 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     CompressionResponse cr;
     // before was captured at the top; the live context is still the same
     // since compress_now runs synchronously.
-    auto compressed = compression_->compress(context_, cc, client_,
+    auto compressed = compression_->compress(context_, cc, *client_,
                                               &proxy, &cr);
 
     // Rebuild context from compressed result using stack primitives.
@@ -509,7 +531,6 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
             emit_context_event(context_events_, context_);
             if (hooks_.on_status)
                 hooks_.on_status("text loop: injected recovery steer");
-            last_text.clear();
         }
         if (text_loop_count >= 5) {
             if (hooks_.on_status)
@@ -572,17 +593,8 @@ std::string Agent::run(const std::string& user_prompt) {
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
-        Message reply = safe_chat_once(hooks_, log_, chat, "generation");
-
-        if (reply.content.rfind("[error during", 0) == 0) {
-            if (hooks_.on_status)
-                hooks_.on_status("LLM error — retrying once");
-            reply = safe_chat_once(hooks_, log_, chat, "generation-retry");
-            if (reply.content.rfind("[error during", 0) == 0) {
-                if (hooks_.on_status)
-                    hooks_.on_status("retry still failing — continuing with error");
-            }
-        }
+        Message reply = chat_with_retry(hooks_, log_, chat, "generation",
+                                        cfg_.cancel_token);
 
         // Extract tool_calls and content before push_reply (which moves reply).
         json tc = reply.tool_calls;

@@ -104,7 +104,7 @@ void merge_server_info(Config& cfg, const ServerInfo& info) {
 }
 
 ServerInfo apply_server_autodetect(Config& cfg) {
-    LLMClient client(cfg);
+    HttpLLMClient client(cfg);
     ServerInfo info = client.probe_server();
     merge_server_info(cfg, info);
     // If still unknown after merge, apply the system fallback so the
