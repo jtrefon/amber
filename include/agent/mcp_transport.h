@@ -115,6 +115,13 @@ public:
     // include a capped tail of the server's stderr.
     virtual std::string failure_reason() const = 0;
 
+    // (Re)bind the server-message callback (used when the transport is
+    // constructed before its owner exists).
+    void set_on_server_message(
+        std::function<void(const McpMessage&)> cb) {
+        on_server_message_ = std::move(cb);
+    }
+
 protected:
     std::function<void(const McpMessage&)> on_server_message_;
 };
