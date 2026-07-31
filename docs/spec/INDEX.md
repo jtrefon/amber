@@ -107,6 +107,16 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `skills/skill-files.md` | Authored `SKILL.md` format (Agent Skills open standard subset), tolerant frontmatter parser, directory scanner, interop gate |
 | `skills/skill-catalog.md` | `SkillCatalog`/`SkillOverrides` ports, `read_skill`/`write_skill`/`list_skills` tools, `/set skills` + `/get skills` curation commands |
 
+## MCP (Model Context Protocol)
+
+| File | Covers |
+|------|--------|
+| `mcp/mcp-architecture.md` | Umbrella: amber as MCP client, scope (tools/resources/prompts, no roots/sampling), primitive mapping, session lifecycle, invariants |
+| `mcp/mcp-transport.md` | JSON-RPC 2.0 wire contract, stdio (spawn/framing/shutdown), Streamable HTTP (POST/SSE/session id), timeouts, cancellation |
+| `mcp/mcp-client.md` | Per-server client session: initialize/negotiation, discovery, pagination, listChanged, tool/resource/prompt adapters, server config |
+| `mcp/mcp-ui.md` | `/mcp` + `/prompt` commands, dynamic prompt subtree, `mcp.*` get/set keys, status bar, CLI flags |
+| `mcp/mcp-security.md` | Trust model: untrusted-by-default servers, approval gate, read-mode policy, output caps, cancellation, no server-initiated capabilities |
+
 ## Memory / Experience
 
 | File | Covers |

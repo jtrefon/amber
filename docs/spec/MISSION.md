@@ -67,7 +67,7 @@ feature compete for the same cycle, P2 wins every time.
 | Vim modal mode | ❌ | Prompt is insert-always. |
 | Plugin system | ❌ | Every UNIX tool is already a plugin via bash. YAGNI. Skills (P3) cover the "teach the agent a procedure" case — a plugin *loader* is still not wanted. |
 | Authored skill packages (`SKILL.md`) | ✅ P3 | Agent Skills open standard; progressive disclosure. Distinct from plugins: skills are *instructions*, not *code*. |
-| MCP server protocol | ❌ | Standardise on tool API, not another protocol. |
+| MCP client (Model Context Protocol) | ✅ P6 | Revisited 2026-07-31: MCP is now the ecosystem standard for third-party capability servers (the Agent Skills standard interoperates with it). Amber stays hexagonal — MCP is an *adapter over the existing `Tool` port*, not a second tool API. Scope: client-only (tools/resources/prompts), no roots/sampling, untrusted-by-default servers behind the approval gate. See `docs/spec/mcp/` and `docs/mcp-tracker.md`. The "no plugin loader" decision stands: MCP servers are external processes, not amber plugins. |
 | SaaS / telemetry | ❌ | Local-first. Trust invariant. |
 | Mobile app / remote web | ❌ | SSH exists. Amber lives on the server. |
 | Add inline images | ⚠️ Post-1.0 | Fun but doesn't help coding/server/research. |
@@ -165,6 +165,7 @@ Status: ✅ design resolved, 🔧 needs implementation, ❓ needs decision
 | `config` key-chain not implemented | Implementation | P3 | 🔧 | Unlimited depth config |
 | Memory/skill UI not wired | Implementation | P3 | 🔧 | No visibility into learning |
 | Skills system not implemented | Implementation | P3 | 🔧 | Spec: `docs/spec/skills/` (agent-skills, skill-files, skill-catalog). Tracker: `docs/skills-tracker.md`. |
+| MCP client not implemented | Implementation | P6 | 🔧 | Spec: `docs/spec/mcp/` (architecture, transport, client, ui, security). Tracker: `docs/mcp-tracker.md`. Client-only; no roots/sampling; untrusted-by-default. |
 | Learned store global-scoped (leaks across projects) | Design | P3 | ✅ | Project-scoped `<workspace>/.amber/experience.json` + one-time legacy migration, per `memory/memory-store.md` |
 | Dead `Skill::steps`/`expected_outcome` fields | Design | P3 | ✅ | Dropped; learned skills are single-content entries, per `memory/extraction.md` |
 | Compression pipeline not visible in TUI | Implementation | P3 | 🔧 | Progress not shown |
