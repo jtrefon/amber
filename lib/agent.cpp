@@ -103,6 +103,24 @@ void Agent::ensure_system_prompt() {
     emit_context_event(context_events_, context_);
 }
 
+std::string Agent::learn_forget(const std::string& id) {
+    if (!memory_store_ || experience_cfg_.store_path.empty())
+        return "experience store disabled";
+    if (!memory_store_->remove(id))
+        return "no learned item with id '" + id + "'";
+    memory_store_->save(experience_cfg_.store_path);
+    return "";
+}
+
+std::string Agent::learn_pin(const std::string& id, bool pinned) {
+    if (!memory_store_ || experience_cfg_.store_path.empty())
+        return "experience store disabled";
+    if (!memory_store_->set_promoted(id, pinned))
+        return "no learned item with id '" + id + "'";
+    memory_store_->save(experience_cfg_.store_path);
+    return "";
+}
+
 void Agent::set_context(std::vector<Message> messages) {
     context_.clear();
     for (auto& m : messages)
