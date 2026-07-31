@@ -4,6 +4,7 @@
 #include <string>
 
 #include "agent/skill_catalog.h"
+#include "agent/skill_commands.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
 #include "tests/test_util.h"
@@ -50,7 +51,7 @@ struct CatalogEnv {
         ws = "/tmp/amber_sk4_" + tag;
         home = "/tmp/amber_sk4_home_" + tag;
         project_skills = ws + "/.amber/skills";
-        global_skills = home + "/skills";
+        global_skills = home + "/.config/amber/skills";
         claude_skills = ws + "/.claude/skills";
         run_cmd("rm -rf " + ws + " " + home);
         agent::Workspace::set_root(ws);
@@ -336,7 +337,7 @@ TEST(skill_tool_read_skill_unknown) {
 TEST(skill_tool_read_skill_oversized) {
     CatalogEnv env("rdbig");
     write_file(env.project_skills + "/mega/SKILL.md",
-               "---\ndescription: huge\n---\n" + std::string(9000, 'x') +
+               "---\ndescription: huge\n---\n" + std::string(30000, 'x') +
                    "\n");
     agent::Config cfg;
     cfg.skills_body_budget_tokens = 5000;
@@ -434,6 +435,126 @@ TEST(skill_tool_write_skill_validation) {
     ASSERT(global.ok);
     ASSERT(catalog.lookup("global-skill") != nullptr);
     ASSERT(catalog.lookup("global-skill")->scope == agent::SkillScope::Global);
-    std::ifstream f(env.home + "/skills/global-skill/SKILL.md");
+    std::ifstream f(env.home + "/.config/amber/skills/global-skill/SKILL.md");
     ASSERT(f.is_open());
+}
+
+// /set skills show: scope table with origins and suppressed learned entries.
+TEST(skill_commands_show_table) {
+    CatalogEnv env("showtbl");
+    write_skill(env.project_skills, "run-tests", "team standard");
+    write_skill(env.project_skills, "nightly-deploy", "authored deploy");
+    write_skill(env.global_skills, "deploy", "global deploy");
+    std::vector<agent::Skill> learned;
+    agent::Skill a;
+    a.name = "nightly-deploy";
+    a.content = "learned deploy";
+    learned.push_back(a);
+
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover(learned);
+    auto lines = agent::skill_show_lines(catalog);
+    ASSERT_EQ(lines.size(), 4u);
+
+    bool found = false;
+    for (const auto& l : lines)
+        if (l.find("run-tests") != std::string::npos &&
+            l.find("project") == 0 && l.find("enabled") != std::string::npos)
+            found = true;
+    ASSERT(found);
+    found = false;
+    for (const auto& l : lines)
+        if (l.find("deploy") != std::string::npos &&
+            l.find("global") == 0)
+            found = true;
+    ASSERT(found);
+    found = false;
+    for (const auto& l : lines)
+        if (l.find("nightly-deploy") != std::string::npos &&
+            l.find("learned") != std::string::npos &&
+            l.find("suppressed") != std::string::npos)
+            found = true;
+    ASSERT(found);
+}
+
+// /set skills create --global writes under ~/.config/amber/skills.
+TEST(skill_commands_create_global) {
+    CatalogEnv env("crtg");
+    setenv("HOME", env.home.c_str(), 1);
+    unsetenv("XDG_CONFIG_HOME");
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    std::string err = agent::skill_create(catalog, "backup-script", "backup",
+                                          "rsync -a", "global");
+    ASSERT_EQ(err, "");
+    ASSERT(catalog.lookup("backup-script") != nullptr);
+    ASSERT(catalog.lookup("backup-script")->scope ==
+           agent::SkillScope::Global);
+    std::ifstream f(env.home + "/.config/amber/skills/backup-script/SKILL.md");
+    ASSERT(f.is_open());
+}
+
+// /set skills delete removes the skill directory.
+TEST(skill_commands_delete) {
+    CatalogEnv env("del");
+    write_skill(env.project_skills, "old-skill", "old");
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    ASSERT(catalog.lookup("old-skill") != nullptr);
+    std::string err = agent::skill_delete(catalog, "old-skill", "project");
+    ASSERT_EQ(err, "");
+    ASSERT(catalog.lookup("old-skill") == nullptr);
+    std::string err2 = agent::skill_delete(catalog, "ghost", "project");
+    ASSERT_FALSE(err2.empty());
+}
+
+// /set skills export graduates a learned skill into global authored (one-way).
+TEST(skill_commands_export) {
+    CatalogEnv env("exp");
+    setenv("HOME", env.home.c_str(), 1);
+    unsetenv("XDG_CONFIG_HOME");
+    std::vector<agent::Skill> learned;
+    agent::Skill a;
+    a.name = "nightly-deploy";
+    a.content = "run nightly deploy steps";
+    learned.push_back(a);
+
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover(learned);
+    ASSERT(catalog.lookup("nightly-deploy") != nullptr);
+
+    std::string err = agent::skill_export(catalog, "nightly-deploy");
+    ASSERT_EQ(err, "");
+    const auto* e = catalog.lookup("nightly-deploy");
+    ASSERT(e != nullptr);
+    ASSERT(e->origin == agent::SkillOrigin::Authored);
+    ASSERT(e->scope == agent::SkillScope::Global);
+    std::ifstream f(env.home + "/.config/amber/skills/nightly-deploy/SKILL.md");
+    ASSERT(f.is_open());
+    std::stringstream ss;
+    ss << f.rdbuf();
+    ASSERT(ss.str().find("run nightly deploy steps") != std::string::npos);
+
+    std::string err2 = agent::skill_export(catalog, "ghost");
+    ASSERT_EQ(err2, "no learned skill named 'ghost'");
+}
+
+// /set skills disable persists across refresh.
+TEST(skill_commands_override) {
+    CatalogEnv env("ovr");
+    write_skill(env.project_skills, "bad-skill", "bad");
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    std::string err = agent::skill_set_override(catalog, "bad-skill",
+                                                "disable");
+    ASSERT_EQ(err, "");
+    catalog.refresh();
+    ASSERT(catalog.lookup("bad-skill") == nullptr);
+    std::string bad = agent::skill_set_override(catalog, "bad-skill", "bogus");
+    ASSERT_FALSE(bad.empty());
 }
