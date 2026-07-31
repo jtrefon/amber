@@ -49,9 +49,9 @@ struct CatalogEnv {
     std::string claude_skills;
     agent::SkillScanPaths paths;
 
-    CatalogEnv(const std::string& tag) {
-        ws = "/tmp/amber_sk4_" + tag;
-        home = "/tmp/amber_sk4_home_" + tag;
+    CatalogEnv(const std::string& tag)
+        : ws("/tmp/amber_sk4_" + tag),
+          home("/tmp/amber_sk4_home_" + tag) {
         project_skills = ws + "/.amber/skills";
         global_skills = home + "/.config/amber/skills";
         claude_skills = ws + "/.claude/skills";
