@@ -10,9 +10,11 @@
 > "Current Open Issues" section at the top of the register.
 
 > **🆕 Current open issues.** Registered 2026-07-31 during the tool-prompt /
-> agent-empowerment review. Items I-1..I-3 + I-9 form the completed
-> "agent empowerment" workstream (shipped on `feat/agent-empowerment`);
-> I-4..I-8 are follow-ups to be scheduled.
+> agent-empowerment review. Items I-1..I-3 + I-6 + I-9 are completed
+> (shipped on `feat/agent-loop-hardening`); I-4 closed as by design
+> (loop-stability guard, per-turn probe cost is intentional). Open:
+> I-5 (CommandNode tree), I-7 (cooldown config trap), I-8 (skills
+> marketplace installer, token/dependency-free).
 
 ## 🆕 Current Open Issues
 
@@ -22,11 +24,11 @@
 | I-2 | 🟠 High | Search exclusion overreach: `.git`/`.amber`/`third_party` excluded unconditionally — vendored code was unsearchable even with an explicit `path`. Now default-only: an explicit path inside an excluded dir drops that exclusion. | ✅ Done |
 | I-3 | 🟡 Medium | Search exclusion policy duplicated (grep backend flags + semantic index `find` predicates). Now one shared definition: `default_excluded_dirs()` in `include/agent/search_backend.h`. | ✅ Done |
 | I-9 | 🟡 Medium | No environment grounding: the agent didn't know its OS/distro, user, cwd, resources, or installed tools. New `EnvironmentInfo` probe + `render_environment_card()` (lib/environment.cpp), injected into the system prompt at session start (stable KV prefix). | ✅ Done |
-| I-4 | 🟡 Medium | Confirmation probe doubles LLM round trips: every text turn costs an extra classify/extract call. Make the probe adaptive (skip when the previous turn needed none). | ⏳ Open |
-| I-5 | 🔵 Low | CommandNode tree (P2): string-parsing debt in `tui/tui_input.cpp` (1520 lines of method implementations). Strategic refactor; no behavior change. | ⏳ Open |
+| I-4 | 🟡 Medium | Confirmation probe doubles LLM round trips (generation + probe per turn). **Closed as by design**: the probe is the guard that keeps the agent in the agentic loop — it prevents loop dropout and task abandonment, so the per-turn cost is intentional. Do NOT remove; re-evaluate only with an alternative loop-stability mechanism in place. | ✅ By design |
+| I-5 | 🔵 Low | CommandNode tree (P2): command dispatch in `tui/tui_input.cpp` is hand-rolled string parsing — `find(' ')`/`substr` + `if/else` compare chains (e.g. `/set policy rule`, `/jobs ls|kill|read|start`), inline usage strings, ad-hoc completion/help. Refactor: one declarative command tree (schema with args, help text, completion lists) driving parse + drawer completion + help pages, extracted as a pure-logic module (mirroring `tui/command_line.cpp`, which already anticipates `help_node` tree paths) so dispatch is unit-testable without ncurses. | ⏳ Open |
 | I-6 | 🔵 Low | Repo hygiene: in-tree test binaries (`command_line_test`, `completions_test`, `e2e_test`, `run_*` debug variants) were tracked in git. Untracked via `git rm --cached` and added to `.gitignore`; build targets unaffected. | ✅ Done |
 | I-7 | 🔵 Low | Config trap: `compression_min_turns` / `cooldown_turns = 0` silently keep defaults instead of disabling. Fix 0 → disable semantics, document. | ⏳ Open |
-| I-8 | 🔵 Low | Skills marketplace installer (optional product feature): browse/install authored `SKILL.md` packages from a remote index. | ⏳ Open |
+| I-8 | 🔵 Low | Skills marketplace installer (optional product feature): browse/install authored `SKILL.md` packages. **Re-scoped: token-free and dependency-free** — no API auth/keys; a static HTTPS JSON index fetched with plain GET via libcurl (already a hard dependency); packages are plain `SKILL.md` tarballs. | ⏳ Open |
 
 ---
 
