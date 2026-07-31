@@ -39,7 +39,8 @@ TEST(mcp_wire_response_roundtrip) {
     ASSERT(msg->id.has_value());
     ASSERT_EQ(msg->id->dump(), "3");
     ASSERT(msg->result.has_value());
-    ASSERT(msg->result->is_array());
+    ASSERT(msg->result->is_object());
+    ASSERT((*msg->result)["tools"].is_array());
     ASSERT_FALSE(msg->error.has_value());
 }
 
