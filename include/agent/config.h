@@ -145,6 +145,12 @@ struct Config {
     double experience_decay_rate = 0.0;
     int experience_promote_threshold = 0;
 
+    // Authored-skill system settings. 0 means "use default" for the budgets.
+    // skills_interop gates scanning of .claude/skills and .codex/skills.
+    bool skills_interop = false;
+    int skills_max_discovery = 0;
+    int skills_body_budget_tokens = 0;
+
     // Load from a simple KEY=VALUE config file, then overlay env vars
     // (AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL, ...).
     void load(const std::string& path);
@@ -176,6 +182,9 @@ struct Config {
 // Path to the global config file (~/.config/amber/config). Used by the CLI
 // and TUI to load/store LLM provider settings across all projects.
 std::string global_config_path();
+
+// Directory holding global amber state (~/.config/amber, or $XDG_CONFIG_HOME/amber).
+std::string global_config_dir();
 
 // ---------------------------------------------------------------------------
 // Provider storage — each provider is a key=value file under

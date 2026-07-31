@@ -163,10 +163,9 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
             else if (first_dot == std::string::npos)
                 key_path = display_path;  // single-level, no prefix to strip
         }
-        if (!key_path.empty() && (key_path.find('.') != std::string::npos ||
-            !node.contains("children")))
-            idx(key_path, help_text, man_text, choices, rlo, rhi, has_range);
-        else if (!key_path.empty() && !help_text.empty())
+        if (!key_path.empty() &&
+            (key_path.find('.') != std::string::npos ||
+             !node.contains("children") || !help_text.empty()))
             idx(key_path, help_text, man_text, choices, rlo, rhi, has_range);
 
         // Store subcommand names for commands that have children.

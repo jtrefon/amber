@@ -17,7 +17,7 @@ inline std::string resolve_data_path(const std::string& path, const char* argv0)
     if (stat(path.c_str(), &st) == 0) return path;
     if (path.empty() || path[0] == '/' || !argv0) return path;
     std::string argv0_copy(argv0);
-    char* dir = ::dirname(&argv0_copy[0]);
+    char* dir = ::dirname(argv0_copy.data());
     std::string candidate = std::string(dir) + "/" + path;
     if (stat(candidate.c_str(), &st) == 0) return candidate;
     return path;

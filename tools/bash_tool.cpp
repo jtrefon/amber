@@ -30,13 +30,13 @@ bool is_read_only_shell(const std::string& cmd) {
         "echo", "printf", "pwd", "date", "whoami", "id", "env",
         "printenv", "git status", "git log", "git diff"
     };
-    for (const char* prefix : read_commands) {
-        if (cmd.rfind(prefix, 0) == 0) {
-            char following = cmd[std::strlen(prefix)];
-            if (following == '\0' || following == ' ') return true;
-        }
-    }
-    return false;
+    auto matches = [&](const char* prefix) {
+        if (cmd.rfind(prefix, 0) != 0) return false;
+        char following = cmd[std::strlen(prefix)];
+        return following == '\0' || following == ' ';
+    };
+    return std::any_of(std::begin(read_commands), std::end(read_commands),
+                       matches);
 }
 
 // Returns true for commands that can cause data loss or system damage.
@@ -56,13 +56,12 @@ bool is_dangerous_shell(const std::string& cmd) {
         "docker volume rm", "docker network rm",
         "npm uninstall", "pip uninstall",
     };
-    for (const char* pattern : dangerous) {
-        if (cmd.rfind(pattern, 0) == 0) {
-            char following = cmd[std::strlen(pattern)];
-            if (following == '\0' || following == ' ') return true;
-        }
-    }
-    return false;
+    auto matches = [&](const char* pattern) {
+        if (cmd.rfind(pattern, 0) != 0) return false;
+        char following = cmd[std::strlen(pattern)];
+        return following == '\0' || following == ' ';
+    };
+    return std::any_of(std::begin(dangerous), std::end(dangerous), matches);
 }
 
 constexpr int kMaxTimeout = 3600;          // 1 hour ceiling

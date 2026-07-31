@@ -40,7 +40,7 @@ struct FooterKey {
 // title, footer, shadow, and centered layout.
 class Panel {
 public:
-    Panel(int h, int w, const std::string& title,
+    Panel(int h, int w, std::string title,
           std::vector<FooterKey> footer = {});
     virtual ~Panel();
 

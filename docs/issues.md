@@ -8,6 +8,11 @@
 > **⚠ Historical record only.** All items below have been resolved. See
 > `docs/fix-tracker.md` for fix details.
 
+> **🆕 New work — Skills system.** The two-tier Agent Skills feature (authored
+> `SKILL.md` packages + learned procedural memory) is designed but not yet
+> implemented. See `docs/spec/skills/` for the specs and
+> `docs/skills-tracker.md` for the itemized Red→Green implementation tasks.
+
 ---
 
 ## Classification Key (Historical)

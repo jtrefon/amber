@@ -18,9 +18,9 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 ├── id: string                          ├── (no extra fields)
 ├── name: string                        │
 ├── content: string                     Skill (is-a KnowledgeItem)
-├── tags: vector<string>                ├── trigger_phrase: string
-├── evidence_count: int                 ├── steps: vector<string>
-├── last_confirm_turn: int              └── expected_outcome: string
+├── tags: vector<string>                └── trigger_phrase: string
+├── evidence_count: int
+├── last_confirm_turn: int
 ├── score: double
 └── promoted: bool
 ```
@@ -30,12 +30,14 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 - "Config files live under ~/.config/amber/"
 - "Bug #42 was a null pointer dereference in parser.cpp"
 
-**Skill** (is-a KnowledgeItem with trigger_phrase) — procedural knowledge. Recipes for accomplishing specific tasks. Answers "how?". Examples:
+**Learned skill** (is-a KnowledgeItem with trigger_phrase) — procedural knowledge. Recipes for accomplishing specific tasks. Answers "how?". Examples:
 - "To run tests: call 'make test'. Trigger: 'test'"
 - "To add a new tool: subclass Tool, implement execute(), register in register_default_tools(). Trigger: 'new tool'"
 - "To find a function definition: grep -rn 'func_name' src/. Trigger: 'find function'"
 
 **The dividing line:** Memory is a fact you reference. Skill is a procedure you follow. Both are knowledge, but one is passive (knowing) and one is active (doing). The trigger_phrase on skills is a call-to-action pattern — when the user says something matching it, the skill becomes relevant to inject.
+
+**Learned vs authored:** Learned skills live in this store, are project-scoped, and decay. Authored skills live in `skills/` directories as `SKILL.md` packages (deliberate, portable) — see `docs/spec/skills/`. Same-name authored skills shadow learned ones; `export` graduates learned → authored.
 
 ---
 
@@ -46,6 +48,7 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 | **Input** | `upsert(Memory)`, `upsert(Skill)`, `top_memories(k, user_msg)`, `top_skills(k, user_msg)`, `decay_all()`, `load(path)`, `save(path)` |
 | **Output** | Persisted JSON file. Retrieval by relevance score. |
 | **Error states** | File not found → empty store. JSON parse failure → empty store. Name conflict on upsert → op skipped silently. |
+| **Store path** | Default `<workspace>/.amber/experience.json` (project-scoped); override `experience_store_path`. Legacy `~/.amber/memories.json` migration-seeded once ([MS-10]). |
 | **Invariants** | See below. |
 
 ### Invariants
@@ -131,6 +134,21 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 - **Expected**: Only the 20 promoted items are scored and returned. The non-promoted 180 are ignored.
 - **Rationale**: The limit is on injection, not storage. Items on disk don't cost tokens.
 
+#### [MS-09] Authoring is not in the store
+
+- **Given**: User runs `/set skills create foo`
+- **Input**: `SkillCatalog` writes `foo/SKILL.md`; store untouched
+- **Expected**: Authored skill lives in the `skills/` directory and the catalog; it does not appear in `MemoryStore` items or decay. (The two tiers are disjoint.)
+- **On failure**: Authored skill mixed into learned store; decays or gets shadowed wrongly.
+
+#### [MS-10] Project-scoped default + legacy migration
+
+- **Given**: No `experience_store_path`; legacy `~/.amber/memories.json` exists; `<workspace>/.amber/experience.json` absent
+- **Input**: First `Agent` construction in the workspace
+- **Expected**: `load_experience_config` resolves the default store to `<workspace>/.amber/experience.json`; the store is seeded once from the legacy file; the legacy file is left untouched; subsequent runs load the project store.
+- **On failure**: Learned skills disappear after upgrade, or the legacy global store keeps being read (cross-project leak).
+- **Regression guard**: `docs/skills-tracker.md` item for store path + migration.
+
 ---
 
 ### Decay lifecycle
@@ -176,7 +194,7 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 
 ### Cross-references
 
-- **Depends on**: `memory/extraction.md`, `memory/skill-operations.md`
+- **Depends on**: `memory/extraction.md`, `memory/skill-operations.md`, `skills/agent-skills.md` (two-tier model, budgets, precedence), `skills/skill-catalog.md` (export, [SK-09])
 - **Depended on by**: `agent-loop/core-loop.md` (memory injection), `compression/compression-pipeline.md` (memory ops after compression)
 - **Test coverage**: `tests/run_tests.cpp`: `memory_store_upsert_and_retrieve`, `top_k_limits`, `skill_trigger`, `decay`, `retriever_empty`, `retriever_with_memories`
 
@@ -186,3 +204,9 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 2. **Force-promotion on creation** — Previously new items got evidence=3 promoted=true regardless of threshold. Now they use `promote_threshold`, so low-threshold items require fewer reconfirmations.
 3. **In-memory only until save** — If process crashes between mutation and `save()`, all changes since last save are lost. Acceptable for current scope.
 4. **Trigger phrase is simple substring match** — No regex, no negation, no multi-phrase. Acceptable for current scope.
+
+### Revision history
+
+| Date | Reason |
+|------|--------|
+| 2026-07-31 | Dropped dead `steps`/`expected_outcome` from `Skill`; project-scoped store default + legacy migration ([MS-10]); two-tier cross-references |

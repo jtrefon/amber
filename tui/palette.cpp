@@ -28,9 +28,7 @@ std::vector<const Command*> filter(const std::vector<Command>& commands,
                                    const std::string& tok) {
     std::vector<const Command*> exact, prefix, aliased;
     for (const auto& c : commands) {
-        if (tok.empty()) {
-            exact.push_back(&c);
-        } else if (c.name == tok) {
+        if (tok.empty() || c.name == tok) {
             exact.push_back(&c);
         } else if (c.name.rfind(tok, 0) == 0) {
             prefix.push_back(&c);

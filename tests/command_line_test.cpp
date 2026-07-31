@@ -96,7 +96,7 @@ static int test_undo() {
     tui::CommandLine cl;
     cl.set_text("hello");
     cl.on_ctrl_w();  // delete word backward — saves undo
-    ASSERT_EQ(cl.text(), "");
+    ASSERT(cl.text().empty());
     cl.on_undo();
     ASSERT_EQ(cl.text(), "hello");
     return 0;
@@ -156,7 +156,7 @@ static int test_enter_dispatch() {
     ASSERT_EQ(r.action, tui::CommandLine::Result::Dispatch);
     ASSERT_EQ(r.dispatch_text, "hello");
     // Input cleared
-    ASSERT_EQ(cl.text(), "");
+    ASSERT(cl.text().empty());
     // History updated
     ASSERT_EQ(cl.history().size(), 1u);
     ASSERT_EQ(cl.history()[0], "hello");
@@ -213,7 +213,7 @@ static int test_long_input() {
 // ── Test: empty input ──
 static int test_empty_input() {
     tui::CommandLine cl;
-    ASSERT_EQ(cl.text(), "");
+    ASSERT(cl.text().empty());
     ASSERT_EQ(cl.cursor(), 0u);
     ASSERT(!cl.drawer_open());
     auto r = cl.on_enter();

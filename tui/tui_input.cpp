@@ -3,6 +3,8 @@
 #include "tui/list_panel.h"
 #include "tui/confirm_panel.h"
 #include "agent/model_probe.h"
+#include "agent/skill_commands.h"
+#include "agent/mcp_commands.h"
 
 #include <algorithm>
 #include <csignal>
@@ -27,6 +29,23 @@ int map_last_choice(agent::PolicyLevel lc) {
 
 } // namespace
 
+
+namespace {
+
+std::string toolfold_name(ToolFold f) {
+    if (f == ToolFold::Always) return "always";
+    if (f == ToolFold::Never) return "never";
+    return "auto";
+}
+
+std::string mode_name(agent::AgentMode m) {
+    if (m == agent::AgentMode::Read) return "read";
+    if (m == agent::AgentMode::Yolo) return "yolo";
+    return "write";
+}
+
+} // namespace
+
 void Tui::send(const std::string& prompt) {
     agent::AgentHooks hooks;
     win().reason_buf.clear();
@@ -44,7 +63,7 @@ void Tui::send(const std::string& prompt) {
         }
         win().stream_color = P_ASSISTANT;
         win().stream_buf += d;
-        live_ctx_offset_ += static_cast<long>(d.size()) / 4 + 1;
+        live_ctx_offset_ += (static_cast<long>(d.size()) / 4) + 1;
         win().scroll_top = max_scroll();
         draw();
     };
@@ -183,12 +202,8 @@ void Tui::cmd_set(const std::string& arg) {
         append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
         append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
         append_line(P_STATUS, "display markdown: " + std::string(win().markdown_on ? "on" : "off"));
-        std::string tf = (tool_fold_ == ToolFold::Always) ? "always" :
-                         (tool_fold_ == ToolFold::Never) ? "never" : "auto";
-        append_line(P_STATUS, "toolfold: " + tf);
-        std::string pol = (cfg_.mode == agent::AgentMode::Read) ? "read" :
-                          (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
-        append_line(P_STATUS, "policy: " + pol);
+        append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
+        append_line(P_STATUS, "policy: " + mode_name(cfg_.mode));
         append_line(P_STATUS, "compression threshold: " +
             std::to_string(cfg_.compression_threshold > 0.0 ? cfg_.compression_threshold : 0.75));
         append_line(P_STATUS, "compression min_turns: " +
@@ -220,16 +235,22 @@ void Tui::cmd_set(const std::string& arg) {
             return;
         }
         bool* field = (key == "loop") ? &cfg_.detection_loop : &cfg_.detection_duplicate;
-        bool new_val = (val == "on") ? true : (val == "off") ? false : !*field;
+        bool new_val;
+        if (val == "on") new_val = true;
+        else if (val == "off") new_val = false;
+        else new_val = !*field;
         *field = new_val;
         for (auto& w : windows_) {
             if (!w->agent) continue;
             if (key == "loop") w->agent->set_detection_loop(new_val);
             else w->agent->set_detection_duplicate(new_val);
         }
-        std::string hint = (key == "loop")
-            ? (new_val ? "breaks on repeat" : "runs until stop")
-            : (new_val ? "rejects duplicates" : "may repeat calls");
+        std::string hint;
+        if (key == "loop") {
+            hint = new_val ? "breaks on repeat" : "runs until stop";
+        } else {
+            hint = new_val ? "rejects duplicates" : "may repeat calls";
+        }
         append_line(P_STATUS, "detection " + key + ": " + (new_val ? "on" : "off") + " — " + hint);
         if (!cfg_.save_settings(settings_path_))
             append_line(P_STATUS, "warning: could not save to " + settings_path_);
@@ -264,9 +285,9 @@ void Tui::cmd_set(const std::string& arg) {
     if (ns == "policy") {
         // /set policy read|write|yolo — backward compat shortcut for mode
         if (rest == "read" || rest == "write" || rest == "yolo") {
-            cfg_.mode = (rest == "read") ? agent::AgentMode::Read :
-                        (rest == "yolo") ? agent::AgentMode::Yolo :
-                                           agent::AgentMode::Write;
+            if (rest == "read") cfg_.mode = agent::AgentMode::Read;
+            else if (rest == "yolo") cfg_.mode = agent::AgentMode::Yolo;
+            else cfg_.mode = agent::AgentMode::Write;
             append_line(P_STATUS, "policy mode: " + rest);
             draw();
             return;
@@ -311,6 +332,40 @@ void Tui::cmd_set(const std::string& arg) {
         if (win().agent) {
             std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
             win().agent->policy().save(policy_path);
+        }
+        draw();
+        return;
+    }
+
+    // skills: interop on|off, refresh, show [name], create <name> [--global],
+    // delete <name> [--global], export <name>, enable|disable|block <name>
+    if (ns == "skills") {
+        cmd_skills_set(rest);
+        return;
+    }
+
+    // mcp: trust <server> on|off, enable <server> on|off
+    if (ns == "mcp") {
+        size_t sp2 = rest.find(' ');
+        std::string key = (sp2 == std::string::npos) ? rest : rest.substr(0, sp2);
+        std::string val = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
+        size_t sp3 = val.find(' ');
+        std::string server = (sp3 == std::string::npos) ? "" : val.substr(0, sp3);
+        std::string onoff = (sp3 == std::string::npos) ? "" : val.substr(sp3 + 1);
+        if ((key == "trust" || key == "enable") && !server.empty() &&
+            (onoff == "on" || onoff == "off")) {
+            std::string err;
+            if (key == "trust") {
+                err = agent::mcp_trust(mcp_servers_, server, onoff == "on");
+            } else {
+                err = agent::mcp_enable(mcp_servers_, reg_, server,
+                                        onoff == "on");
+            }
+            append_line(P_STATUS, err.empty()
+                ? ("mcp " + key + " " + server + ": " + onoff)
+                : err);
+        } else {
+            append_line(P_STATUS, "usage: /set mcp trust|enable <server> on|off");
         }
         draw();
         return;
@@ -373,7 +428,7 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    append_line(P_STATUS, "unknown option: " + ns + " (try: detection, display, toolfold, policy, compression, provider, model, think)");
+    append_line(P_STATUS, "unknown option: " + ns + " (try: detection, display, toolfold, policy, compression, provider, model, think, skills)");
 }
 
 void Tui::cmd_get(const std::string& arg) {
@@ -390,8 +445,12 @@ void Tui::cmd_get(const std::string& arg) {
     // Also try appending suffixes for namespace-level queries (e.g. "detection" → "detection.loop").
     auto subs = settings_.keys_in(arg);
     if (!subs.empty()) {
-        for (const auto& sub : subs)
-            cmd_get(arg + "." + sub);
+        for (const auto& sub : subs) {
+            std::string key = arg;
+            key += ".";
+            key += sub;
+            cmd_get(key);
+        }
         return;
     }
 
@@ -409,18 +468,14 @@ void Tui::cmd_get(const std::string& arg) {
         return;
     }
     if (arg == "toolfold") {
-        std::string v = (tool_fold_ == ToolFold::Always) ? "always" :
-                        (tool_fold_ == ToolFold::Never) ? "never" : "auto";
-        append_line(P_STATUS, "toolfold: " + v);
+        append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
         return;
     }
     if (arg.rfind("policy", 0) == 0) {
         std::string sub = (arg.size() > 7) ? arg.substr(7) : "";
         if (sub.empty() || sub == " ") {
             // Show mode
-            std::string v = (cfg_.mode == agent::AgentMode::Read) ? "read" :
-                            (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
-            append_line(P_STATUS, "policy mode: " + v);
+            append_line(P_STATUS, "policy mode: " + mode_name(cfg_.mode));
             append_line(P_STATUS, "policy timeout: " + std::to_string(policy_timeout_) + "s");
             // List stored rules
             auto* ag = win().agent.get();
@@ -484,9 +539,328 @@ void Tui::cmd_get(const std::string& arg) {
         append_line(P_STATUS, s->key + ": " + s->getter() + "  —  " + s->help);
         return;
     }
+    // /get skills [name] — scope table for the skill catalog
+    if (arg.rfind("skills", 0) == 0) {
+        std::string sub = (arg.size() > 6) ? arg.substr(6) : "";
+        cmd_skills_get(sub);
+        return;
+    }
+    // /get mcp — server + prompt state
+    if (arg == "mcp" || arg.rfind("mcp ", 0) == 0) {
+        std::string sub = (arg.size() > 3) ? arg.substr(3) : "";
+        if (sub.empty() || sub == " servers") {
+            for (const auto& l : agent::mcp_list_lines(mcp_servers_))
+                append_line(P_STATUS, l);
+        } else if (sub == " prompts" || sub == ".prompts") {
+            cmd_prompt_list();
+            return;
+        } else if (sub.rfind(" prompts ", 0) == 0 ||
+                   sub.rfind(".prompts ", 0) == 0) {
+            std::string server = sub.substr(sub.find(' ') + 1);
+            const agent::MCPClient* c = mcp_servers_.client(server);
+            if (!c) {
+                append_line(P_STATUS, "server '" + server + "' not connected");
+            } else {
+                for (const auto& p : c->prompts())
+                    append_line(P_STATUS, server + " \u00b7 " + p.name +
+                                " \u00b7 " + p.description);
+            }
+        }
+        draw();
+        return;
+    }
     // Default: show all settings via config screen
     config_screen();
     redraw_after_modal();
+}
+
+void Tui::cmd_skills_set(const std::string& rest) {
+    if (!win().agent) {
+        append_line(P_STATUS, "no agent in this window");
+        draw();
+        return;
+    }
+    agent::SkillCatalog& catalog = win().agent->skills();
+    size_t sp = rest.find(' ');
+    std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
+    std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
+    auto trim = [](const std::string& s) {
+        size_t b = s.find_first_not_of(" \t");
+        size_t e = s.find_last_not_of(" \t");
+        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    };
+
+    if (sub == "interop") {
+        if (args != "on" && args != "off") {
+            append_line(P_STATUS, "usage: /set skills interop on|off");
+            draw();
+            return;
+        }
+        bool on = (args == "on");
+        cfg_.skills_interop = on;
+        catalog.set_interop_enabled(on);
+        catalog.refresh();
+        append_line(P_STATUS, "skills interop: " + args + " — .claude/skills and "
+            ".codex/skills " + (on ? "scanned" : "ignored"));
+        if (!cfg_.save_settings(settings_path_))
+            append_line(P_STATUS, "warning: could not save to " + settings_path_);
+        draw();
+        return;
+    }
+    if (sub == "refresh") {
+        catalog.refresh();
+        append_line(P_STATUS, "skills refreshed: " +
+            std::to_string(catalog.entries().size()) + " union entries");
+        draw();
+        return;
+    }
+    if (sub == "show") {
+        auto lines = agent::skill_show_lines(catalog);
+        if (lines.empty()) append_line(P_STATUS, "(no skills)");
+        for (const auto& l : lines) append_line(P_STATUS, l);
+        draw();
+        return;
+    }
+    if (sub == "create" || sub == "delete") {
+        std::string name = args;
+        std::string scope = "project";
+        size_t gpos = name.find("--global");
+        if (gpos != std::string::npos) {
+            scope = "global";
+            name.resize(gpos);
+        }
+        name = trim(name);
+        if (name.empty()) {
+            append_line(P_STATUS, "usage: /set skills " + sub +
+                " <name> [--global]");
+            draw();
+            return;
+        }
+        std::string err;
+        if (sub == "create") {
+            err = agent::skill_create(catalog, name, name,
+                "## " + name + "\n\n(instructions)", scope);
+        } else {
+            err = agent::skill_delete(catalog, name, scope);
+        }
+        append_line(P_STATUS, err.empty()
+            ? "skill '" + name + "' " + sub + "d (" + scope + ")"
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "export") {
+        std::string name = trim(args);
+        if (name.empty()) {
+            append_line(P_STATUS, "usage: /set skills export <name>");
+            draw();
+            return;
+        }
+        std::string err = agent::skill_export(catalog, name);
+        append_line(P_STATUS, err.empty()
+            ? "exported '" + name + "' to global authored skills"
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "enable" || sub == "disable" || sub == "block") {
+        std::string name = trim(args);
+        if (name.empty()) {
+            append_line(P_STATUS, "usage: /set skills " + sub + " <name>");
+            draw();
+            return;
+        }
+        std::string err = agent::skill_set_override(catalog, name, sub);
+        append_line(P_STATUS, err.empty()
+            ? "skill '" + name + "' " + sub + "d"
+            : err);
+        draw();
+        return;
+    }
+    append_line(P_STATUS, "usage: /set skills interop on|off | refresh | show "
+        "| create <name> [--global] | delete <name> [--global] | export <name> "
+        "| enable|disable|block <name>");
+    draw();
+}
+
+void Tui::cmd_skills_get(const std::string& sub) {
+    if (!win().agent) {
+        append_line(P_STATUS, "no agent in this window");
+        draw();
+        return;
+    }
+    std::string name = sub;
+    if (!name.empty() && name[0] == ' ') name = name.substr(1);
+    auto lines = agent::skill_show_lines(win().agent->skills());
+    bool any = false;
+    for (const auto& l : lines) {
+        if (!name.empty() && l.find(name) == std::string::npos) continue;
+        any = true;
+        append_line(P_STATUS, l);
+    }
+    if (!any)
+        append_line(P_STATUS, name.empty() ? "(no skills)"
+            : "no skill matching '" + name + "'");
+    draw();
+}
+
+void Tui::cmd_mcp(const std::string& rest) {
+    size_t sp = rest.find(' ');
+    std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
+    std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
+    auto trim = [](const std::string& s) {
+        size_t b = s.find_first_not_of(" \t");
+        size_t e = s.find_last_not_of(" \t");
+        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    };
+    auto usage = [&]() {
+        append_line(P_STATUS, "usage: /mcp list | show <server> | connect <server> | "
+            "disconnect <server> | refresh <server> | prompts <server> | "
+            "enable|disable <server> | trust <server> on|off");
+        draw();
+    };
+    if (sub.empty() || sub == "list") {
+        auto lines = agent::mcp_list_lines(mcp_servers_);
+        if (lines.empty())
+            append_line(P_STATUS, "(no MCP servers configured \u2014 see "
+                        "~/.config/amber/mcp/<name>.conf)");
+        for (const auto& l : lines) append_line(P_STATUS, l);
+        draw();
+        return;
+    }
+    if (sub == "show") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        std::string err;
+        auto lines = agent::mcp_show_lines(mcp_servers_, server, err);
+        if (!err.empty()) append_line(P_STATUS, err);
+        for (const auto& l : lines) append_line(P_STATUS, l);
+        draw();
+        return;
+    }
+    if (sub == "connect") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        std::string err = agent::mcp_connect(mcp_servers_, reg_, server);
+        append_line(P_STATUS, err.empty()
+            ? ("mcp server '" + server + "' connected")
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "disconnect") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        agent::mcp_disconnect(mcp_servers_, reg_, server);
+        append_line(P_STATUS, "mcp server '" + server + "' disconnected");
+        draw();
+        return;
+    }
+    if (sub == "refresh") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        std::string err = agent::mcp_refresh(mcp_servers_, reg_, server);
+        append_line(P_STATUS, err.empty()
+            ? ("mcp server '" + server + "' refreshed")
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "enable" || sub == "disable") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        std::string err = agent::mcp_enable(mcp_servers_, reg_, server,
+                                            sub == "enable");
+        append_line(P_STATUS, err.empty()
+            ? ("mcp server '" + server + "' " + sub + "d")
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "trust") {
+        size_t sp2 = args.find(' ');
+        std::string server = (sp2 == std::string::npos) ? args : args.substr(0, sp2);
+        std::string val = (sp2 == std::string::npos) ? "" : args.substr(sp2 + 1);
+        if (val != "on" && val != "off") {
+            append_line(P_STATUS, "usage: /mcp trust <server> on|off");
+            draw();
+            return;
+        }
+        std::string err = agent::mcp_trust(mcp_servers_, server, val == "on");
+        append_line(P_STATUS, err.empty()
+            ? ("mcp server '" + server + "' trust: " + val)
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "prompts") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        const agent::MCPClient* c = mcp_servers_.client(server);
+        if (!c) {
+            append_line(P_STATUS, "server '" + server + "' not connected");
+            draw();
+            return;
+        }
+        if (c->prompts().empty()) append_line(P_STATUS, "(no prompts)");
+        for (const auto& p : c->prompts())
+            append_line(P_STATUS, "  " + p.name + " \u00b7 " + p.description);
+        draw();
+        return;
+    }
+    usage();
+}
+
+void Tui::cmd_prompt_list() {
+    bool any = false;
+    for (const auto& st : mcp_servers_.snapshot()) {
+        if (!st.connected) continue;
+        const agent::MCPClient* c = mcp_servers_.client(st.name);
+        if (!c) continue;
+        for (const auto& p : c->prompts()) {
+            any = true;
+            append_line(P_STATUS, st.name + " \u00b7 " + p.name + " \u00b7 " +
+                        p.description);
+        }
+    }
+    if (!any) append_line(P_STATUS, "(no MCP prompts available)");
+    draw();
+}
+
+void Tui::cmd_prompt(const std::string& rest) {
+    if (rest.empty() || rest == "list") {
+        cmd_prompt_list();
+        return;
+    }
+    size_t sp = rest.find(' ');
+    std::string server = (sp == std::string::npos) ? rest : rest.substr(0, sp);
+    std::string tail = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
+    size_t sp2 = tail.find(' ');
+    std::string name = (sp2 == std::string::npos) ? tail : tail.substr(0, sp2);
+    std::string args_str = (sp2 == std::string::npos) ? "" : tail.substr(sp2 + 1);
+    if (server.empty() || name.empty()) {
+        append_line(P_STATUS, "usage: /prompt list | /prompt <server> <name> [k=v ...]");
+        draw();
+        return;
+    }
+    json arguments = json::object();
+    std::stringstream ss(args_str);
+    std::string kv;
+    while (ss >> kv) {
+        size_t eq = kv.find('=');
+        if (eq == std::string::npos || eq == 0) continue;
+        arguments[kv.substr(0, eq)] = kv.substr(eq + 1);
+    }
+    std::string text;
+    std::string err = agent::mcp_prompt(mcp_servers_, server, name,
+                                        arguments, text);
+    if (!err.empty()) {
+        append_line(P_STATUS, err);
+        draw();
+        return;
+    }
+    input_fill_ = text;
+    draw();
 }
 
 const std::vector<Command>& Tui::commands() {
@@ -502,6 +876,12 @@ void Tui::build_commands() {
         {"settings", {"server", "endpoint"}, "",
          "configure provider, model, API key, and connection test",
          [this](const std::string&) { settings_screen(); redraw_after_modal(); }},
+        {"mcp", {}, "[subcommand]",
+         "manage MCP servers (list|show|connect|disconnect|refresh|prompts|enable|disable|trust)",
+         [this](const std::string& a) { cmd_mcp(a); }},
+        {"prompt", {}, "[server name k=v...]",
+         "invoke an MCP prompt template (fills the input line)",
+         [this](const std::string& a) { cmd_prompt(a); }},
         {"new", {"clear", "reset"}, "",
          "clear the current conversation and start fresh",
          [this](const std::string&) {
@@ -541,9 +921,9 @@ void Tui::build_commands() {
               return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
                      "  display " + (win().markdown_on ? "on" : "off") +
                      "  toolfold " + (tool_fold_ == ToolFold::Always ? "always" :
-                                      tool_fold_ == ToolFold::Never ? "never" : "auto") +
+                                      toolfold_name(tool_fold_)) +
                      "  policy " + (cfg_.mode == agent::AgentMode::Read ? "read" :
-                                    cfg_.mode == agent::AgentMode::Yolo ? "yolo" : "write") +
+                                    mode_name(cfg_.mode)) +
                      "  provider " + cfg_.provider_name +
                      "  model " + cfg_.model +
                      "  think " + cfg_.thinking;
@@ -741,11 +1121,10 @@ void Tui::build_commands() {
                  if (!fs::exists(p) || !fs::is_directory(p)) {
                      append_line(P_STATUS, "not a directory: " + rest);
                  } else {
-                     // rest is the search root; we need a pattern
+                     // rest is the search root; no pattern given — show
+                     // directory contents
                      size_t sp2 = a.find(' ', sp + 1);
-                    std::string pattern;
-                    if (sp2 == std::string::npos) {
-                         // no pattern given — show directory contents
+                     if (sp2 == std::string::npos) {
                          for (const auto& e : fs::directory_iterator(p))
                              append_line(P_ASSISTANT, e.path().filename().string());
                      }
@@ -930,9 +1309,10 @@ void Tui::cmd_model(const std::string& arg) {
 
         // Mark current model
         std::vector<std::string> display;
-        for (size_t i = 0; i < models.size(); ++i) {
-            bool cur = (models[i] == cfg_.model);
-            display.push_back((cur ? "> " : "  ") + models[i]);
+        display.reserve(models.size());
+        for (const auto& m : models) {
+            bool cur = (m == cfg_.model);
+            display.emplace_back((cur ? "> " : "  ") + m);
         }
 
         {
@@ -1262,8 +1642,8 @@ void Tui::settings_screen() {
 
     // Add "Add new..." option at the end
     int add_new_idx = static_cast<int>(prov_id.size());
-    prov_display.push_back("  + Add new provider...");
-    prov_id.push_back("");  // sentinel
+    prov_display.emplace_back("  + Add new provider...");
+    prov_id.emplace_back("");  // sentinel
 
     if (active_idx < 0) active_idx = 2;  // default to custom
 
@@ -1283,12 +1663,16 @@ void Tui::settings_screen() {
             bool active = (id == cfg_.provider_name);
             std::string prefix = active ? "> " : "  ";
             std::string key_hint = cfg_.api_key.empty() ? "no-key" : "key-set";
+            std::string line = prefix;
+            line += id;
+            line += "  (";
             if (id == "openrouter" || id == "kilocode" || id == "custom") {
-                rich_display.push_back(prefix + id + "  (" + key_hint + ")");
+                line += key_hint;
             } else {
-                std::string key = cfg_.api_key.empty() && active ? "no-key" : "key-set";
-                rich_display.push_back(prefix + id + "  (" + key + ")");
+                line += cfg_.api_key.empty() && active ? "no-key" : "key-set";
             }
+            line += ")";
+            rich_display.push_back(line);
         }
         rich_display.back() = "  + Add new provider...";
 
@@ -1345,7 +1729,7 @@ void Tui::settings_screen() {
     bool is_preset = (selected_id == "openrouter" || selected_id == "kilocode" || selected_id == "custom");
     std::vector<std::string> actions = {"Activate & edit", "Test connection"};
     if (!is_preset) {
-        actions.push_back("Delete provider");
+        actions.emplace_back("Delete provider");
     }
     int action = menu_select("Provider: " + selected_id, actions);
     if (action < 0) return;
@@ -1420,7 +1804,8 @@ void Tui::build_settings() {
                    double rmin, double rmax,
                    std::function<std::string()> getter,
                    std::function<void(const std::string&)> setter) {
-        settings_.add({key, help, placeholder, type, choices, rmin, rmax, getter, setter});
+        settings_.add({key, help, placeholder, type, std::move(choices),
+                       rmin, rmax, std::move(getter), std::move(setter)});
     };
     add("detection.loop", "Tool-loop detection", "<on|off|toggle>", Setting::Choice,
         {"on","off","toggle"}, 0, 0,
@@ -1448,10 +1833,7 @@ void Tui::build_settings() {
         });
     add("toolfold", "Tool result folding mode", "<always|auto|never>", Setting::Choice,
         {"always","auto","never"}, 0, 0,
-        [this]() -> std::string {
-            return tool_fold_ == ToolFold::Always ? "always" :
-                   tool_fold_ == ToolFold::Never ? "never" : "auto";
-        },
+        [this]() -> std::string { return toolfold_name(tool_fold_); },
         [this](const std::string& v) {
             if (v == "always") tool_fold_ = ToolFold::Always;
             else if (v == "never") tool_fold_ = ToolFold::Never;
@@ -1460,10 +1842,7 @@ void Tui::build_settings() {
         });
     add("policy.mode", "Agent mode", "<read|write|yolo>", Setting::Choice,
         {"read","write","yolo"}, 0, 0,
-        [this]() -> std::string {
-            return cfg_.mode == agent::AgentMode::Read ? "read" :
-                   cfg_.mode == agent::AgentMode::Yolo ? "yolo" : "write";
-        },
+        [this]() -> std::string { return mode_name(cfg_.mode); },
         [this](const std::string& v) {
             if (v == "read") cfg_.mode = agent::AgentMode::Read;
             else if (v == "yolo") cfg_.mode = agent::AgentMode::Yolo;

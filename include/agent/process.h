@@ -5,6 +5,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 #include <sys/types.h>
 
 namespace agent {
@@ -34,6 +35,15 @@ struct CancellationToken {
 // (caller owns and must close it). On failure returns -1 with `err` set.
 pid_t spawn_shell(const std::string& command, const std::string& cwd,
                   int& read_fd, std::string& err);
+
+// Spawn an MCP stdio server: direct exec (no shell) of `command` with `args`,
+// three separate pipes (child stdin / child stdout / child stderr) returned
+// via the out params, own process group, optional cwd. On failure returns -1
+// with `err` set; all fds are closed.
+pid_t spawn_mcp_server(const std::string& command,
+                       const std::vector<std::string>& args,
+                       const std::string& cwd, int& stdin_fd, int& stdout_fd,
+                       int& stderr_fd, std::string& err);
 
 // Kill an entire process group spawned by spawn_shell (SIGKILL).
 void kill_process_group(pid_t pid);

@@ -23,6 +23,10 @@ public:
 
     const std::vector<std::unique_ptr<Tool>>& tools() const { return tools_; }
 
+    // Remove every tool whose name starts with `prefix` (e.g. "mcp_github_").
+    // Returns the number removed.
+    size_t unregister_tools_with_prefix(const std::string& prefix);
+
 private:
     std::vector<std::unique_ptr<Tool>> tools_;
 };

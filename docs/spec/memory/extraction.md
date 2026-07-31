@@ -2,7 +2,14 @@
 
 ### Purpose
 
-Extract knowledge (memories and skills) from the LLM's compression response and apply them to the `MemoryStore`. This is the only path for learning — the old heuristic-based async extraction was removed. Every extraction is driven by the LLM's judgment during the compression cycle.
+Extract knowledge (memories and learned skills) from the LLM's compression
+response and apply them to the `MemoryStore`. This is the only path for
+**learning** — the old heuristic-based async extraction was removed. Every
+extraction is driven by the LLM's judgment during the compression cycle.
+
+Learned skills are one tier of the two-tier skills system; authored `SKILL.md`
+skills are covered by `docs/spec/skills/`. This spec covers the learned tier's
+extraction only.
 
 ### Ownership
 
@@ -20,8 +27,7 @@ Compression cycle
 CompressionResponse
   ├── segments[]    (core/context/prune classification)
   ├── memory_ops[]  (KnowledgeOp — upsert/deprecate)
-  └── skill_ops[]   (KnowledgeOp — upsert/deprecate with trigger_phrase)
-       │
+  └── skill_ops[]   (KnowledgeOp — upsert/deprecate with trigger_phrase)       │
        ▼
 Agent::apply_compression_result(cr)
   ├── 1. apply_memory_ops(store, cr.memory_ops, path)
@@ -104,7 +110,8 @@ Agent::apply_compression_result(cr)
 
 - **Given**: LLM returns `"skills":[{"name":"deploy-cmd","content":"use make deploy","trigger_phrase":"deploy","action":"upsert"}]`
 - **Input**: `apply_skill_ops(response, store)`
-- **Expected**: Skill created. `trigger_phrase = "deploy"`. `evidence_count = promote_threshold`. `promoted = true`. On next retrieval, user message containing "deploy" triggers this skill.
+- **Expected**: Learned skill created. `trigger_phrase = "deploy"`. `evidence_count = promote_threshold`. `promoted = true`. On next retrieval, user message containing "deploy" triggers this skill.
+- **Note**: The old `steps`/`expected_outcome` skill fields were dead (serialized but never populated by the extraction prompt) and are dropped — a learned skill is a single `content` entry plus `trigger_phrase`, matching `KnowledgeItem`.
 
 #### [ME-06] Skill reconfirmation (same content)
 
@@ -143,7 +150,7 @@ Agent::apply_compression_result(cr)
 
 ### Injection into context
 
-Memories and skills are injected into the **system prompt copy** before every LLM call:
+Memories and learned skills are injected into the **prompt copy** before every LLM call:
 
 ```
 [system] "You are an AI assistant..."
@@ -153,16 +160,32 @@ Memories and skills are injected into the **system prompt copy** before every LL
 === End Learned Knowledge ==="
 ```
 
-**This is done on a COPY of the prompt**, not the live context. The live context's system message is never modified. This ensures the KV cache within each request is maximally reused — the system prompt prefix is the same until the injection block.
+The authored-skill **discovery metadata** block is injected as a *separate slot*
+immediately after this learned-knowledge block (fixed order preserves the
+KV-cache prefix), and activated skill bodies append later slots on demand. See
+`skills/agent-skills.md` (injection-slot rules, [AS-01]).
 
-**Optimization:** The injection is only performed when the store's version has changed since the last call. If no new memories or skills were added/removed between turns, the injection block is identical and can be skipped (the per-request KV cache still processes it, but the HTTP overhead is reduced).
+**This is done on a COPY of the prompt**, not the live context. The live
+context's system message is never modified. This ensures the KV cache within
+each request is maximally reused — the system prompt prefix is the same until
+the injection block.
+
+**Optimization:** The injection is only performed when the store's version has
+changed since the last call. If no new memories or skills were added/removed
+between turns, the injection block is identical and can be skipped (the
+per-request KV cache still processes it, but the HTTP overhead is reduced).
+
+**Store location:** The learned store is **project-scoped** by default at
+`<workspace>/.amber/experience.json` (override via `experience_store_path`). The
+legacy global `~/.amber/memories.json` is migration-seeded once on first use —
+see `memory/memory-store.md` ([MS-10]) and `skills/agent-skills.md` ([AS-09]).
 
 ---
 
 ### Cross-references
 
-- **Depends on**: `compression/compression-pipeline.md` (provides `CompressionResponse`), `memory/memory-store.md` (storage and retrieval)
-- **Depended on by**: `agent-loop/core-loop.md` (memory injection in chat_once)
+- **Depends on**: `compression/compression-pipeline.md` (provides `CompressionResponse`), `memory/memory-store.md` (storage and retrieval), `skills/agent-skills.md` (two-tier model, injection-slot rules)
+- **Depended on by**: `agent-loop/core-loop.md` (memory injection in chat_once), `memory/skill-operations.md` (learned skill lifecycle)
 - **Test coverage**: `tests/run_tests.cpp`: `integration_apply_and_retrieve`, `agent_extract_memories_from_tool_results`
 
 ### Known gaps
@@ -174,3 +197,11 @@ Memories and skills are injected into the **system prompt copy** before every LL
 3. **Store version tracking not yet implemented** — The optimization to skip injection on unchanged store is designed but not coded. Currently every turn pays the injection cost. Low priority — the cost is ~500 tokens of compute per turn.
 
 4. **Decay rate was hardcoded to -1** — Now fixed to use the configured `decay_rate` with proportional decay (see `memory-store.md` [MS-06]).
+
+5. **Learned skills are the automatic tier only** — Extraction never produces authored `SKILL.md` packages. Authoring is explicit-request only (`write_skill`/`/set skills create`); see `skills/skill-catalog.md` [SK-05].
+
+### Revision history
+
+| Date | Reason |
+|------|--------|
+| 2026-07-31 | Dropped dead `steps`/`expected_outcome` skill fields; injection order with authored-skill discovery slot; project-scoped store + legacy migration note; two-tier cross-references |

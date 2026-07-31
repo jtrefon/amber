@@ -70,6 +70,12 @@ void Config::load(const std::string& path) {
             experience_decay_rate = std::stod(val);
         else if (key == "experience_promote_threshold")
             experience_promote_threshold = std::stoi(val);
+        else if (key == "skills_interop")
+            skills_interop = (val == "1" || val == "true" || val == "yes");
+        else if (key == "skills_max_discovery")
+            skills_max_discovery = std::stoi(val);
+        else if (key == "skills_body_budget_tokens")
+            skills_body_budget_tokens = std::stoi(val);
         else if (key == "provider")
             provider_name = val;
         else if (key == "policy_approval")
@@ -81,7 +87,7 @@ void Config::load(const std::string& path) {
     }
 }
 
-static std::string global_config_dir() {
+std::string global_config_dir() {
     const char* xdg = std::getenv("XDG_CONFIG_HOME");
     if (xdg && *xdg) return std::string(xdg) + "/amber";
     const char* home = std::getenv("HOME");
@@ -203,6 +209,9 @@ bool Config::save_settings(const std::string& path) const {
     f << "policy_approval=" << (policy_approval ? 1 : 0) << "\n";
     f << "detection_loop=" << (detection_loop ? 1 : 0) << "\n";
     f << "detection_duplicate=" << (detection_duplicate ? 1 : 0) << "\n";
+    f << "skills_interop=" << (skills_interop ? 1 : 0) << "\n";
+    f << "skills_max_discovery=" << skills_max_discovery << "\n";
+    f << "skills_body_budget_tokens=" << skills_body_budget_tokens << "\n";
     return static_cast<bool>(f);
 }
 

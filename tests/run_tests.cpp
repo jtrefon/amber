@@ -1768,7 +1768,7 @@ TEST(memory_store_upsert_and_retrieve) {
     mem.promoted = true;
     store->upsert(mem);
     auto results = store->top_memories(10, "how to build");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].content == "project uses make");
 }
 
@@ -1798,10 +1798,94 @@ TEST(memory_store_skill_trigger) {
     sk.promoted = true;
     store->upsert(sk);
     auto results = store->top_skills(10, "run the tests");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].content == "run tests");
     auto no_match = store->top_skills(10, "build the project");
     ASSERT(no_match.empty());
+}
+
+TEST(skill_no_dead_fields_in_serialization) {
+    agent::Skill sk;
+    sk.name = "deploy-cmd";
+    sk.content = "make deploy";
+    sk.trigger_phrase = "deploy";
+    sk.evidence_count = 5;
+    sk.promoted = true;
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->upsert(sk);
+    std::string path = "/tmp/amber_skill_no_dead.json";
+    std::remove(path.c_str());
+    ASSERT(store->save(path));
+    std::ifstream f(path);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    std::string txt = ss.str();
+    ASSERT(txt.find("steps") == std::string::npos);
+    ASSERT(txt.find("expected_outcome") == std::string::npos);
+}
+
+TEST(skill_legacy_json_loads_without_dead_fields) {
+    std::string path = "/tmp/amber_skill_legacy.json";
+    {
+        std::ofstream f(path);
+        f << R"({"version":1,"memories":[],"skills":[{"id":"1","name":"deploy","content":"make deploy","trigger_phrase":"deploy","steps":["a","b"],"expected_outcome":"done","tags":["deploy"],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}]})";
+    }
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    ASSERT(store->load(path));
+    auto skills = store->top_skills(10, "deploy");
+    ASSERT(skills.size() == 1u);
+    ASSERT(skills[0].content == "make deploy");
+    ASSERT(skills[0].trigger_phrase == "deploy");
+}
+
+TEST(experience_store_project_default) {
+    agent::Workspace::set_root("/tmp/amber_sk2_ws");
+    agent::Config cfg;
+    auto ec = agent::load_experience_config(cfg);
+    ASSERT_EQ(ec.store_path, "/tmp/amber_sk2_ws/.amber/experience.json");
+}
+
+TEST(experience_store_legacy_seed_once) {
+    agent::Workspace::set_root("/tmp/amber_sk2_ws2");
+    std::string legacy_dir = "/tmp/amber_sk2_home/.amber";
+    std::string legacy = legacy_dir + "/memories.json";
+    run_cmd("rm -rf /tmp/amber_sk2_home /tmp/amber_sk2_ws2");
+    run_cmd("mkdir -p " + legacy_dir);
+    {
+        std::ofstream f(legacy);
+        f << R"({"version":1,"memories":[{"id":"m1","name":"proj","content":"uses make","tags":[],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}],"skills":[]})";
+    }
+    setenv("HOME", "/tmp/amber_sk2_home", 1);
+
+    agent::Config cfg;
+    auto ec = agent::load_experience_config(cfg);
+    ASSERT_EQ(ec.store_path, "/tmp/amber_sk2_ws2/.amber/experience.json");
+    {
+        std::ifstream f(ec.store_path);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("\"memories\"") != std::string::npos);
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
+    {
+        std::ifstream f(legacy);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
+    {
+        std::ofstream f(legacy);
+        f << "changed-after-seed";
+    }
+    auto ec2 = agent::load_experience_config(cfg);
+    {
+        std::ifstream f(ec2.store_path);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
 }
 
 TEST(memory_store_decay) {
@@ -1815,7 +1899,7 @@ TEST(memory_store_decay) {
     store->upsert(mem);
     store->decay_all();
     auto results = store->top_memories(10, "");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].evidence_count == 2);
 }
 
@@ -1910,13 +1994,14 @@ TEST(integration_apply_and_retrieve) {
     std::string suffix = retriever.build_system_prompt_suffix(
         "how do I build this project?");
     ASSERT(!suffix.empty());
-    ASSERT(suffix.find("GNU make") != std::string::npos ||
-           suffix.find("./configure") != std::string::npos);
+    bool found = suffix.find("GNU make") != std::string::npos ||
+                 suffix.find("./configure") != std::string::npos;
+    ASSERT(found);
 
     // Phase 4: Verify decay — evidence 3 → 2 after one decay call
     store->decay_all();
     auto after_decay = store->top_memories(10, "build");
-    ASSERT(after_decay.size() >= 1u);
+    ASSERT(!after_decay.empty());
     ASSERT(after_decay[0].evidence_count == 2);
 }
 

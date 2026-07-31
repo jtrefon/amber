@@ -65,7 +65,9 @@ void PolicyStore::load(const std::string& path) {
         for (const auto& item : j) {
             rules_.push_back(json_to_rule(item));
         }
-    } catch (...) {}
+    } catch (const std::exception&) {
+        (void)rules_;
+    }
 }
 
 void PolicyStore::save(const std::string& path) const {
