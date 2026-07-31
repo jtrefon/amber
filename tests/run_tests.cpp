@@ -1840,6 +1840,54 @@ TEST(skill_legacy_json_loads_without_dead_fields) {
     ASSERT(skills[0].trigger_phrase == "deploy");
 }
 
+TEST(experience_store_project_default) {
+    agent::Workspace::set_root("/tmp/amber_sk2_ws");
+    agent::Config cfg;
+    auto ec = agent::load_experience_config(cfg);
+    ASSERT_EQ(ec.store_path, "/tmp/amber_sk2_ws/.amber/experience.json");
+}
+
+TEST(experience_store_legacy_seed_once) {
+    agent::Workspace::set_root("/tmp/amber_sk2_ws2");
+    std::string legacy_dir = "/tmp/amber_sk2_home/.amber";
+    std::string legacy = legacy_dir + "/memories.json";
+    run_cmd("rm -rf /tmp/amber_sk2_home /tmp/amber_sk2_ws2");
+    run_cmd("mkdir -p " + legacy_dir);
+    {
+        std::ofstream f(legacy);
+        f << R"({"version":1,"memories":[{"id":"m1","name":"proj","content":"uses make","tags":[],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}],"skills":[]})";
+    }
+    setenv("HOME", "/tmp/amber_sk2_home", 1);
+
+    agent::Config cfg;
+    auto ec = agent::load_experience_config(cfg);
+    ASSERT_EQ(ec.store_path, "/tmp/amber_sk2_ws2/.amber/experience.json");
+    {
+        std::ifstream f(ec.store_path);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("\"memories\"") != std::string::npos);
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
+    {
+        std::ifstream f(legacy);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
+    {
+        std::ofstream f(legacy);
+        f << "changed-after-seed";
+    }
+    auto ec2 = agent::load_experience_config(cfg);
+    {
+        std::ifstream f(ec2.store_path);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
+}
+
 TEST(memory_store_decay) {
     agent::ExperienceConfig ec;
     auto store = agent::make_memory_store(ec);
