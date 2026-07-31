@@ -36,12 +36,14 @@ StdioTransport::StdioTransport(std::string command,
                                std::string cwd,
                                std::function<void(const McpMessage&)>
                                    on_server_message,
-                               int request_timeout_ms)
+                               int request_timeout_ms,
+                               const CancellationToken* cancel_token)
     : McpTransport(std::move(on_server_message)),
       command_(std::move(command)),
       args_(std::move(args)),
       cwd_(std::move(cwd)),
-      request_timeout_ms_(request_timeout_ms > 0 ? request_timeout_ms : 60000) {
+      request_timeout_ms_(request_timeout_ms > 0 ? request_timeout_ms : 60000),
+      cancel_token_(cancel_token) {
     std::string err;
     pid_ = spawn_mcp_server(command_, args_, cwd_, stdin_fd_, stdout_fd_,
                             stderr_fd_, err);
@@ -70,14 +72,27 @@ McpTransportResult StdioTransport::request(int id, const std::string& method,
     }
 
     std::unique_lock<std::mutex> lk(mtx_);
-    bool answered = cv_.wait_for(
-        lk, std::chrono::milliseconds(request_timeout_ms_), [&] {
-            return closed_.load() || pending_.count(id) > 0;
-        });
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(request_timeout_ms_);
+    bool answered = false;
+    while (true) {
+        bool pred = closed_.load() || pending_.count(id) > 0 ||
+                    (cancel_token_ && cancel_token_->is_requested());
+        if (pred) {
+            answered = true;
+            break;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) break;
+        cv_.wait_for(lk, std::chrono::milliseconds(50));
+    }
     McpTransportResult r;
     if (!answered) {
         r.status = closed_.load() ? McpTransportStatus::TransportError
                                   : McpTransportStatus::Timeout;
+        return r;
+    }
+    if (cancel_token_ && cancel_token_->is_requested()) {
+        r.status = McpTransportStatus::Cancelled;
         return r;
     }
     auto it = pending_.find(id);

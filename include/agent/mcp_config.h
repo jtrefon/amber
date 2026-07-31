@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "agent/mcp_client.h"
+#include "agent/process.h"
 
 namespace agent {
 
@@ -54,7 +55,8 @@ struct McpServerStatus {
 // agent thread; the UI reads snapshot().
 class ServerManager {
 public:
-    explicit ServerManager(std::map<std::string, McpServerConfig> servers = {});
+    explicit ServerManager(std::map<std::string, McpServerConfig> servers = {},
+                           const CancellationToken* cancel_token = nullptr);
 
     // Connect every enabled && auto_connect server; failures are recorded per
     // server and never thrown.
@@ -86,6 +88,7 @@ public:
 private:
     std::map<std::string, McpServerConfig> configs_;
     std::map<std::string, std::unique_ptr<MCPClient>> clients_;
+    const CancellationToken* cancel_token_ = nullptr;
 };
 
 } // namespace agent

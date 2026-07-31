@@ -6,6 +6,7 @@
 #include <string>
 
 #include "agent/mcp_transport.h"
+#include "agent/process.h"
 
 namespace agent {
 
@@ -21,7 +22,8 @@ public:
     HttpTransport(std::string url, std::string auth_token = "",
                   int request_timeout_ms = 60000,
                   std::function<void(const McpMessage&)> on_server_message =
-                      {});
+                      {},
+                  const CancellationToken* cancel_token = nullptr);
 
     McpTransportResult request(int id, const std::string& method,
                                const json& params) override;
@@ -53,6 +55,7 @@ private:
     std::string url_;
     std::string auth_token_;
     int request_timeout_ms_;
+    const CancellationToken* cancel_token_ = nullptr;
     std::string session_id_;
     std::string failure_;
     bool closed_ = false;

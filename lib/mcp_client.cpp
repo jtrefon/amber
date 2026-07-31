@@ -37,10 +37,12 @@ json init_params() {
 
 MCPClient::MCPClient(std::string server_name,
                      std::unique_ptr<McpTransport> transport,
-                     std::string transport_error)
+                     std::string transport_error,
+                     const CancellationToken* cancel_token)
     : name_(std::move(server_name)),
       transport_(std::move(transport)),
-      transport_error_(std::move(transport_error)) {
+      transport_error_(std::move(transport_error)),
+      cancel_token_(cancel_token) {
     if (transport_) {
         transport_->set_on_server_message(
             [this](const McpMessage& m) { handle_server_message(m); });
@@ -138,9 +140,27 @@ McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
         out.error = "mcp server '" + name_ + "' not connected";
         return out;
     }
+    if (cancel_token_ && cancel_token_->is_requested()) {
+        out.ok = false;
+        out.error = "cancelled by user";
+        return out;
+    }
     if (list_changed_) refresh();
-    auto r = request_with_retry(next_id(), "tools/call",
+    int req_id = next_id();
+    auto r = request_with_retry(req_id, "tools/call",
                                 {{"name", name}, {"arguments", arguments}});
+    if (cancel_token_ && cancel_token_->is_requested()) {
+        notify_cancelled(req_id);
+        out.ok = false;
+        out.error = "cancelled by user";
+        return out;
+    }
+    if (r.status == McpTransportStatus::Cancelled) {
+        notify_cancelled(req_id);
+        out.ok = false;
+        out.error = "cancelled by user";
+        return out;
+    }
     if (r.status == McpTransportStatus::Timeout) {
         out.ok = false;
         out.error = "mcp call timed out";
@@ -386,6 +406,13 @@ std::string mcp_flatten_content(const json& content, size_t cap_bytes) {
         }
     }
     return out;
+}
+
+void MCPClient::notify_cancelled(int request_id) {
+    if (!transport_) return;
+    transport_->notify("notifications/cancelled",
+                       {{"requestId", request_id},
+                        {"reason", "user cancelled"}});
 }
 
 } // namespace agent

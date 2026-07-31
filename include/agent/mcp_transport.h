@@ -66,11 +66,13 @@ std::optional<McpMessage> mcp_decode_line(const std::string& line);
 
 // Outcome of a request: Ok with a message, or a typed failure the client can
 // act on. SessionExpired means the remote session is gone and the client
-// should re-initialize and retry once.
+// should re-initialize and retry once. Cancelled means the shared
+// CancellationToken was requested while the call was in flight.
 enum class McpTransportStatus : std::uint8_t {
     Ok,
     Timeout,
     SessionExpired,
+    Cancelled,
     TransportError,
 };
 

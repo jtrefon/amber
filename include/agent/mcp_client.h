@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "agent/mcp_transport.h"
+#include "agent/process.h"
 
 namespace agent {
 
@@ -65,9 +66,12 @@ struct McpResult {
 class MCPClient {
 public:
     // Takes ownership of `transport` (any implementation). A null transport
-    // yields a client whose connect() reports the given error.
+    // yields a client whose connect() reports the given error. `cancel_token`
+    // (optional, shared) aborts in-flight calls with a Cancelled result and
+    // sends notifications/cancelled to the server.
     MCPClient(std::string server_name, std::unique_ptr<McpTransport> transport,
-              std::string transport_error = "");
+              std::string transport_error = "",
+              const CancellationToken* cancel_token = nullptr);
 
     // initialize + version negotiation + discovery. Returns "" on success or
     // a human-readable error.
@@ -106,11 +110,13 @@ private:
     std::string discover_resources();
     std::string discover_prompts();
     void handle_server_message(const McpMessage& msg);
+    void notify_cancelled(int request_id);
     int next_id() { return id_counter_++; }
 
     std::string name_;
     std::unique_ptr<McpTransport> transport_;
     std::string transport_error_;
+    const CancellationToken* cancel_token_ = nullptr;
     int request_timeout_ms_ = 60000;
     int id_counter_ = 1;
     bool connected_ = false;

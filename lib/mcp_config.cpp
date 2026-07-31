@@ -156,6 +156,9 @@ bool save_mcp_server(const McpServerConfig& cfg) {
         }
         f << "\n";
     }
+    fs::permissions(dir / (cfg.name + ".conf"), fs::perms::owner_read |
+                                                    fs::perms::owner_write,
+                    fs::perm_options::replace, ec);
     if (!cfg.cwd.empty()) f << "cwd=" << cfg.cwd << "\n";
     if (!cfg.url.empty()) f << "url=" << cfg.url << "\n";
     if (!cfg.auth_token.empty()) f << "auth_token=" << cfg.auth_token << "\n";
@@ -171,8 +174,9 @@ bool delete_mcp_server(const std::string& name) {
     return fs::remove(fs::path(mcp_dir(true)) / (name + ".conf"), ec);
 }
 
-ServerManager::ServerManager(std::map<std::string, McpServerConfig> servers)
-    : configs_(std::move(servers)) {}
+ServerManager::ServerManager(std::map<std::string, McpServerConfig> servers,
+                             const CancellationToken* cancel_token)
+    : configs_(std::move(servers)), cancel_token_(cancel_token) {}
 
 void ServerManager::connect_all() {
     for (const auto& kv : configs_) {
@@ -201,7 +205,7 @@ std::string ServerManager::connect(const std::string& name) {
                                                     timeout_ms, nullptr);
     }
     auto client = std::make_unique<MCPClient>(name, std::move(transport),
-                                              transport_error);
+                                              transport_error, cancel_token_);
     std::string err = client->connect();
     clients_[name] = std::move(client);
     return err;

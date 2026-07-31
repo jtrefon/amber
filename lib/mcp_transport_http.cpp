@@ -20,6 +20,12 @@ size_t write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     return n;
 }
 
+int progress_cb(void* userdata, curl_off_t, curl_off_t, curl_off_t,
+                 curl_off_t) {
+    auto* token = static_cast<const CancellationToken*>(userdata);
+    return token->is_requested() ? 1 : 0;
+}
+
 size_t header_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* reply = static_cast<HttpTransport::HttpReply*>(userdata);
     size_t n = size * nmemb;
@@ -51,12 +57,14 @@ size_t header_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
 HttpTransport::HttpTransport(std::string url, std::string auth_token,
                              int request_timeout_ms,
                              std::function<void(const McpMessage&)>
-                                 on_server_message)
+                                 on_server_message,
+                             const CancellationToken* cancel_token)
     : McpTransport(std::move(on_server_message)),
       url_(std::move(url)),
       auth_token_(std::move(auth_token)),
       request_timeout_ms_(request_timeout_ms > 0 ? request_timeout_ms
-                                                 : 60000) {}
+                                                 : 60000),
+      cancel_token_(cancel_token) {}
 
 McpTransportResult HttpTransport::request(int id, const std::string& method,
                                           const json& params) {
@@ -67,7 +75,9 @@ McpTransportResult HttpTransport::request(int id, const std::string& method,
     HttpReply reply;
     if (!post(mcp_encode_request(req), reply)) {
         McpTransportResult r;
-        r.status = McpTransportStatus::TransportError;
+        r.status = (cancel_token_ && cancel_token_->is_requested())
+            ? McpTransportStatus::Cancelled
+            : McpTransportStatus::TransportError;
         return r;
     }
     McpTransportResult r;
@@ -200,6 +210,12 @@ bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
     curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &reply.body);
     curl_easy_setopt(curl.get(), CURLOPT_HEADERFUNCTION, header_cb);
     curl_easy_setopt(curl.get(), CURLOPT_HEADERDATA, &reply);
+    if (cancel_token_) {
+        curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress_cb);
+        curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA,
+                         const_cast<CancellationToken*>(cancel_token_));
+    }
     if (!payload.empty()) {
         curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
         curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, payload.c_str());
@@ -210,6 +226,11 @@ bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
     }
 
     CURLcode rc = curl_easy_perform(curl.get());
+    if (rc == CURLE_ABORTED_BY_CALLBACK && cancel_token_ &&
+        cancel_token_->is_requested()) {
+        failure_ = "cancelled";
+        return false;
+    }
     if (rc != CURLE_OK) {
         failure_ = "mcp http transport error: " +
                    std::string(curl_easy_strerror(rc));

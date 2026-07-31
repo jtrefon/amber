@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "agent/mcp_transport.h"
+#include "agent/process.h"
 
 namespace agent {
 
@@ -27,7 +28,8 @@ public:
                    std::string cwd,
                    std::function<void(const McpMessage&)> on_server_message =
                        {},
-                   int request_timeout_ms = 60000);
+                   int request_timeout_ms = 60000,
+                   const CancellationToken* cancel_token = nullptr);
     ~StdioTransport() override;
 
     McpTransportResult request(int id, const std::string& method,
@@ -50,6 +52,7 @@ private:
     std::vector<std::string> args_;
     std::string cwd_;
     int request_timeout_ms_;
+    const CancellationToken* cancel_token_ = nullptr;
     pid_t pid_ = -1;
     int stdin_fd_ = -1;
     int stdout_fd_ = -1;
