@@ -28,11 +28,12 @@ class SemanticBackend : public SearchBackend {
 public:
     std::string name() const noexcept override { return "semantic"; }
 
-    std::vector<SearchHit> search(const std::string& query,
-                                  const std::string& root,
-                                  const std::string& glob,
-                                  long max) const override {
-        ensure_index(root, glob);
+    std::vector<SearchHit> search(
+        const std::string& query, const std::string& root,
+        const std::string& glob, long max,
+        const std::vector<std::string>& exclude_dirs =
+            default_excluded_dirs()) const override {
+        ensure_index(root, glob, exclude_dirs);
         std::vector<double> qvec;
         auto terms = tokenize(query);
         embed(terms, qvec, &idf_);
@@ -64,16 +65,20 @@ private:
         std::vector<double> vec;
     };
 
-    void ensure_index(const std::string& root, const std::string& glob) const {
+    void ensure_index(const std::string& root, const std::string& glob,
+                      const std::vector<std::string>& exclude_dirs) const {
         std::scoped_lock lock(mtx_);
-        // Rebuild if never built for this root/glob combo.
-        if (indexed_root_ == root && indexed_glob_ == glob && !lines_.empty())
+        std::string excl_key;
+        for (const auto& d : exclude_dirs) excl_key += d + "\n";
+        // Rebuild if never built for this root/glob/excludes combo.
+        if (indexed_root_ == root && indexed_glob_ == glob &&
+            indexed_excludes_ == excl_key && !lines_.empty())
             return;
 
         lines_.clear();
         idf_.clear();
         std::vector<std::string> files;
-        walk(root, glob, files);
+        walk(root, glob, exclude_dirs, files);
 
         // document frequency per term
         std::unordered_map<std::string, double> df;
@@ -108,6 +113,7 @@ private:
         idf_ = std::move(df);
         indexed_root_ = root;
         indexed_glob_ = glob;
+        indexed_excludes_ = excl_key;
     }
 
     mutable std::mutex mtx_;
@@ -115,6 +121,7 @@ private:
     mutable std::unordered_map<std::string, double> idf_;
     mutable std::string indexed_root_;
     mutable std::string indexed_glob_;
+    mutable std::string indexed_excludes_;
 };
 
 std::unique_ptr<SearchBackend> make_semantic_backend() {
