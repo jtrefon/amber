@@ -26,7 +26,13 @@ error messages the agent can forward to the model for self-recovery.
 
 1. All transport errors throw `std::runtime_error` — never return error codes.
 2. `safe_chat_once()` catches ALL exceptions and returns an error message — never lets exceptions propagate to the agent loop.
-3. The agent loop retries ONCE on `"[error during"` reply.
+3. `chat_with_retry` retries transient failures up to 3 attempts with
+   1s→2s exponential backoff (cancellable, 100 ms slices polling the shared
+   CancellationToken). Retryable: transport/curl errors, timeouts, empty
+   bodies, HTTP 429/502/503/504. Non-retryable (auth/misconfig 4xx, malformed
+   bodies): fail fast. On exhaustion the standard `"[error during"` message
+   is returned and the loop degrades gracefully (see
+   `llm-client/agent-loop-reliability.md`).
 4. Malformed JSON responses return `"[error: malformed LLM response]"` with raw body — not a throw.
 5. Tool calls with non-JSON arguments are silently discarded (with debug log) — not an error.
 
