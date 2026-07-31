@@ -1,9 +1,11 @@
 
 #include "agent/experience.h"
+#include "agent/workspace.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <unordered_set>
 
@@ -320,6 +322,25 @@ std::unique_ptr<MemoryStore> make_memory_store(const ExperienceConfig& cfg) {
     return std::make_unique<JsonMemoryStore>(cfg);
 }
 
+namespace {
+namespace fs = std::filesystem;
+
+// One-time migration: seed the project store from the legacy global store
+// (~/.amber/memories.json) so existing learned knowledge is not lost. Runs only
+// when the project store is absent and the resolved path is the default
+// project path (not a user override). The legacy file is never modified.
+void seed_from_legacy(const std::string& store_path) {
+    std::error_code ec;
+    if (fs::exists(store_path, ec)) return;
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+    std::string legacy = std::string(home) + "/.amber/memories.json";
+    if (legacy == store_path || !fs::exists(legacy, ec)) return;
+    fs::create_directories(fs::path(store_path).parent_path(), ec);
+    fs::copy_file(legacy, store_path, fs::copy_options::none, ec);
+}
+} // namespace
+
 ExperienceConfig load_experience_config(const Config& cfg) {
     ExperienceConfig ec;
     if (!cfg.experience_enabled)
@@ -335,8 +356,8 @@ ExperienceConfig load_experience_config(const Config& cfg) {
     if (cfg.experience_promote_threshold > 0)
         ec.memory_promote_threshold = cfg.experience_promote_threshold;
     if (ec.store_path.empty()) {
-        const char* home = std::getenv("HOME");
-        if (home) ec.store_path = std::string(home) + "/.amber/memories.json";
+        ec.store_path = Workspace::local_dir() + "/experience.json";
+        seed_from_legacy(ec.store_path);
     }
     return ec;
 }
