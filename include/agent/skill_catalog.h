@@ -30,6 +30,12 @@ struct SkillOverride {
     std::string note;
 };
 
+// A session-activated skill body, appended to the prompt copy on the next turn.
+struct ActivatedSkill {
+    std::string name;
+    std::string body;
+};
+
 // The runtime union view of every discoverable skill (authored at all scopes +
 // interop + learned) plus persisted curation. Owns lookup, body caching, and
 // override filtering. Mutation (discover/apply_override) happens on the agent
@@ -53,6 +59,20 @@ public:
     // their stored content. Returns nullopt when unknown, disabled, unreadable,
     // or over the body budget (skills_body_budget_tokens).
     std::optional<std::string> read_body(const std::string& name);
+
+    // Load (and cache) the body for `name` and mark it session-activated so it
+    // is appended to the prompt copy. Returns the body, or nullopt when the
+    // skill is unknown, disabled, or oversized.
+    std::optional<std::string> activate(const std::string& name);
+
+    // Session-activated bodies in activation order.
+    const std::vector<ActivatedSkill>& activated_skills() const {
+        return activated_;
+    }
+
+    // Re-run discover() with the last-learned list (used after an authoring
+    // write or /set skills refresh).
+    void refresh();
 
     // Persist an enable/disable/block override for `name`. Returns false on
     // invalid state or write failure.
@@ -90,6 +110,8 @@ private:
     std::vector<SkillEntry> entries_;
     std::map<std::string, SkillOverride> overrides_;
     std::map<std::string, std::string> body_cache_;
+    std::vector<Skill> learned_;
+    std::vector<ActivatedSkill> activated_;
     std::string project_overrides_path_;
     std::string global_overrides_path_;
 };

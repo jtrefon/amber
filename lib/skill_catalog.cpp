@@ -53,6 +53,8 @@ SkillCatalog::SkillCatalog(const Config& cfg, const SkillScanPaths& paths,
 void SkillCatalog::discover(const std::vector<Skill>& learned) {
     entries_.clear();
     body_cache_.clear();
+    activated_.clear();
+    learned_ = learned;
     std::set<std::string> selected;
     std::vector<std::string> warnings;
 
@@ -126,6 +128,17 @@ std::optional<std::string> SkillCatalog::read_body(const std::string& name) {
     body_cache_[name] = contents;
     return contents;
 }
+
+std::optional<std::string> SkillCatalog::activate(const std::string& name) {
+    auto body = read_body(name);
+    if (!body) return std::nullopt;
+    for (const auto& a : activated_)
+        if (a.name == name) return body;
+    activated_.push_back({name, *body});
+    return body;
+}
+
+void SkillCatalog::refresh() { discover(learned_); }
 
 bool SkillCatalog::apply_override(const std::string& name,
                                   const std::string& state,

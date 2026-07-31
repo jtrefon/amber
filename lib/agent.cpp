@@ -5,6 +5,7 @@
 #include "agent/agent_helpers.h"
 #include "agent/tool_recovery.h"
 #include "agent/dispatch.h"
+#include "agent/tools.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -39,6 +40,7 @@ Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
         learned.assign(top.begin(), top.end());
     }
     skills_->discover(learned);
+    register_skill_tools(registry_, *skills_);
 }
 
 void Agent::ensure_system_prompt() {
@@ -195,6 +197,15 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
                     prompt_copy.begin() + static_cast<ptrdiff_t>(pos),
                     std::move(disc_msg));
             }
+        }
+        // Append session-activated skill bodies at the tail of the prompt
+        // copy. Activation is rare and explicit, so the prefix is extended.
+        for (const auto& act : skills_->activated_skills()) {
+            Message body_msg;
+            body_msg.role = "system";
+            body_msg.content =
+                "[activated skill: " + act.name + "]\n" + act.body;
+            prompt_copy.push_back(std::move(body_msg));
         }
     }
 
