@@ -165,7 +165,7 @@ Status: ✅ design resolved, 🔧 needs implementation, ❓ needs decision
 | `config` key-chain not implemented | Implementation | P3 | 🔧 | Unlimited depth config |
 | Memory/skill UI not wired | Implementation | P3 | 🔧 | Spec: `docs/spec/memory/learn-ui.md`. Tracker: `docs/learn-tracker.md`. |
 | Skills system not implemented | Implementation | P3 | 🔧 | Spec: `docs/spec/skills/` (agent-skills, skill-files, skill-catalog). Tracker: `docs/skills-tracker.md`. |
-| Agent loop untested (concrete LLMClient, no hermetic loop tests) | Implementation | P2 | 🔧 | Spec: `docs/spec/llm-client/agent-loop-reliability.md`. Tracker: `docs/agent-loop-tracker.md`. |
+| Agent loop untested (concrete LLMClient, no hermetic loop tests) | Implementation | P2 | ✅ | LLMClient is now a port with a scripted fake; hermetic loop tests landed (incl. a text-loop hard-stop fix). Spec: `docs/spec/llm-client/agent-loop-reliability.md`. Tracker: `docs/agent-loop-tracker.md`. |
 | MCP client not implemented | Implementation | P6 | 🔧 | Spec: `docs/spec/mcp/` (architecture, transport, client, ui, security). Tracker: `docs/mcp-tracker.md`. Client-only; no roots/sampling; untrusted-by-default. |
 | Learned store global-scoped (leaks across projects) | Design | P3 | ✅ | Project-scoped `<workspace>/.amber/experience.json` + one-time legacy migration, per `memory/memory-store.md` |
 | Dead `Skill::steps`/`expected_outcome` fields | Design | P3 | ✅ | Dropped; learned skills are single-content entries, per `memory/extraction.md` |
