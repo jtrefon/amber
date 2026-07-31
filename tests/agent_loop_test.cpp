@@ -65,6 +65,8 @@ TEST(agent_loop_plain_reply) {
     // Context: system, user, assistant, probe prompt, probe ack.
     const auto& ctx = ag.context().get_all();
     ASSERT_EQ(ctx.size(), 5u);
+    // [I-9] The environment card rides in the system message.
+    ASSERT(ctx[0].content.find("## Environment") != std::string::npos);
     bool saw_user = false;
     for (const auto& m : ctx)
         if (m.role == "user" && m.content == "hi") saw_user = true;

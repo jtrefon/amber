@@ -22,23 +22,6 @@ namespace agent {
 
 namespace {
 
-bool is_read_only_shell(const std::string& cmd) {
-    if (cmd.empty()) return false;
-    const char* read_commands[] = {
-        "cat", "ls", "grep", "find", "head", "tail", "wc", "sort",
-        "uniq", "which", "type", "file", "stat", "du", "df",
-        "echo", "printf", "pwd", "date", "whoami", "id", "env",
-        "printenv", "git status", "git log", "git diff"
-    };
-    auto matches = [&](const char* prefix) {
-        if (cmd.rfind(prefix, 0) != 0) return false;
-        char following = cmd[std::strlen(prefix)];
-        return following == '\0' || following == ' ';
-    };
-    return std::any_of(std::begin(read_commands), std::end(read_commands),
-                       matches);
-}
-
 // Returns true for commands that can cause data loss or system damage.
 // Only these trigger the approval dialog — everything else runs freely.
 bool is_dangerous_shell(const std::string& cmd) {
