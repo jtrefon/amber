@@ -3,6 +3,7 @@
 #define AMBER_TUI_TUI_H
 
 #include <agent.h>
+#include <agent/mcp_config.h>
 
 #include "widgets.h"
 #include "textutil.h"
@@ -207,6 +208,11 @@ private:
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
     void cmd_get(const std::string& arg);
+    void cmd_skills_set(const std::string& rest);
+    void cmd_skills_get(const std::string& sub);
+    void cmd_mcp(const std::string& rest);
+    void cmd_prompt(const std::string& rest);
+    void cmd_prompt_list();
     void cmd_model(const std::string& arg);
     void cmd_provider(const std::string& arg);
     void job_ls();
@@ -228,6 +234,8 @@ public:
     agent::Config cfg_;
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;       // host-owned; shared with process_* tools
+    agent::ServerManager mcp_servers_;  // session-scoped MCP manager
+    std::string input_fill_;            // /prompt result applied to the input line
     agent::SessionStore store_;
     std::string settings_path_;
 

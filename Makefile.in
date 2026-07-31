@@ -47,17 +47,28 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/compressor_request.o \
             $(BUILD_DIR)/lib/compressor_parser.o \
             $(BUILD_DIR)/lib/compressor_apply.o \
-            $(BUILD_DIR)/lib/memory_store.o \
-            $(BUILD_DIR)/lib/memory_retriever.o \
-            $(BUILD_DIR)/lib/policy.o \
-            $(BUILD_DIR)/lib/tools_default.o \
-            $(BUILD_DIR)/lib/tool_call_parser.o
+             $(BUILD_DIR)/lib/memory_store.o \
+             $(BUILD_DIR)/lib/memory_retriever.o \
+             $(BUILD_DIR)/lib/skill_file.o \
+             $(BUILD_DIR)/lib/skill_catalog.o \
+             $(BUILD_DIR)/lib/skill_commands.o \
+             $(BUILD_DIR)/lib/mcp_jsonrpc.o \
+             $(BUILD_DIR)/lib/mcp_transport_stdio.o \
+             $(BUILD_DIR)/lib/mcp_transport_http.o \
+             $(BUILD_DIR)/lib/mcp_client.o \
+             $(BUILD_DIR)/lib/mcp_config.o \
+             $(BUILD_DIR)/lib/mcp_tools.o \
+             $(BUILD_DIR)/lib/mcp_commands.o \
+             $(BUILD_DIR)/lib/policy.o \
+             $(BUILD_DIR)/lib/tools_default.o \
+             $(BUILD_DIR)/lib/tool_call_parser.o
 
 TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/write_tool.o \
              $(BUILD_DIR)/tools/search_tool.o \
              $(BUILD_DIR)/tools/bash_tool.o \
              $(BUILD_DIR)/tools/process_tool.o \
+             $(BUILD_DIR)/tools/skill_tools.o \
              $(BUILD_DIR)/tools/search/grep_backend.o \
              $(BUILD_DIR)/tools/search/semantic_backend.o \
              $(BUILD_DIR)/tools/search/semantic_index.o
@@ -87,7 +98,13 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/canvas.o \
             $(BUILD_DIR)/third_party/md4c/md4c.o
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
-UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o
+UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
+               $(BUILD_DIR)/tests/skill_file_test.o \
+               $(BUILD_DIR)/tests/skill_catalog_test.o \
+               $(BUILD_DIR)/tests/mcp_transport_test.o \
+               $(BUILD_DIR)/tests/mcp_client_test.o \
+               $(BUILD_DIR)/tests/mcp_config_test.o \
+               $(BUILD_DIR)/tests/mcp_tools_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
@@ -123,10 +140,10 @@ lint:
 	@export fail=0; \
 	 printf '%s\0' $(LINT_SRCS) | \
 	 xargs -0 -P$$(nproc) -I{} sh -c \
-	    'out=$$(clang-tidy "{}" -- $(LINT_CXXFLAGS) 2>&1); \
+	    'out=$$(clang-tidy -quiet "{}" -- $(LINT_CXXFLAGS) 2>&1); \
 	     if [ -n "$$out" ]; then \
-	       echo "$$out" | grep -v "^Suppressed\|^Use -header-filter" || true; \
-	       if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter"; then \
+	       echo "$$out" | grep -v "^Suppressed\|^Use -header-filter\|warnings generated" || true; \
+	       if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter\|warnings generated"; then \
 	         exit 1; \
 	       fi; \
 	     fi' _; \
@@ -228,6 +245,30 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 
 
 $(BUILD_DIR)/tests/run_tests.o: $(SRC_DIR)/tests/run_tests.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/skill_file_test.o: $(SRC_DIR)/tests/skill_file_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/skill_catalog_test.o: $(SRC_DIR)/tests/skill_catalog_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_transport_test.o: $(SRC_DIR)/tests/mcp_transport_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_client_test.o: $(SRC_DIR)/tests/mcp_client_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_config_test.o: $(SRC_DIR)/tests/mcp_config_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_tools_test.o: $(SRC_DIR)/tests/mcp_tools_test.cpp
 	@mkdir -p $(BUILD_DIR)/tests
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 

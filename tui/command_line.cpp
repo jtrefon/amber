@@ -135,7 +135,8 @@ CommandLine::Result CommandLine::on_char(char c) {
             cursor_ = input_.size();
             drawer_open_ = false;
             return r;
-        } else {
+        }
+        {
             // No space → inline remaining-options popup.
             // The input before ? is valid; show completion options.
             r.action = Result::ShowPopup;
@@ -160,7 +161,7 @@ CommandLine::Result CommandLine::on_char(char c) {
 
     // Regular printable character.
     if (c >= 32 && c <= 126 && input_.size() < 65536) {
-        input_.insert(cursor_, 1, static_cast<char>(c));
+        input_.insert(cursor_, 1, c);
         ++cursor_;
         reset_cycle();
         drawer_open_ = (!input_.empty() && input_[0] == '/');

@@ -76,11 +76,57 @@ TUI, overrideable by CLI flags, env vars, and server auto-detection.
 
 ---
 
+### Skills and experience keys
+
+Keys governing the skills system (spec: `docs/spec/skills/`) and the learned
+experience store (spec: `docs/spec/memory/`). `experience_*` keys already exist;
+`skills_*` keys are new.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `skills_max_discovery` | `20` | Max `name: description` entries in the injected discovery block (hard cap, `skills/agent-skills.md` [AS-06]) |
+| `skills_body_budget_tokens` | `5000` | Max token budget for a `read_skill` body; oversized bodies rejected, not truncated ([AS-07]) |
+| `skills_interop` | `false` | Scan `.claude/skills` and `.codex/skills` (opt-in, [AS-08]) |
+| `experience_store_path` | *(empty)* | Absolute path override for the experience store. Empty = default `<workspace>/.amber/experience.json` (project-scoped). Legacy `~/.amber/memories.json` is migration-seeded once. |
+| `experience_enabled` | `true` | Master switch for learned memory/skills |
+| `experience_max_memories` | `20` | Top-K memories injected |
+| `experience_max_skills` | `10` | Top-K learned skills injected (authored skills budget separately via `skills_max_discovery`) |
+
+#### [FC-07] skills_interop defaults off
+
+- **Given**: Config without `skills_interop`
+- **Input**: `cfg.skills_interop`
+- **Expected**: `false`. Interop scan disabled.
+- **On failure**: Third-party skills loaded without consent.
+
+#### [FC-08] skills budgets are parsed
+
+- **Given**: `skills_max_discovery=15\nskills_body_budget_tokens=8000\n`
+- **Input**: `Config::load()`
+- **Expected**: Both fields populated. Out-of-range values rejected by `validate()` with a descriptive error.
+- **On failure**: Budgets silently defaulted; caps not enforced.
+
+#### [FC-09] experience_store_path override
+
+- **Given**: `experience_store_path=/data/experience.json`
+- **Input**: `load_experience_config(cfg)`
+- **Expected**: Store loads/saves to the absolute path. Empty value → project default `<workspace>/.amber/experience.json`.
+- **On failure**: Store resolves to a global path (cross-project leak).
+
+#### [FC-10] Legacy store migration
+
+- **Given**: `~/.amber/memories.json` exists; `<workspace>/.amber/experience.json` absent
+- **Input**: First `Agent` construction in the project
+- **Expected**: Project store seeded once from the legacy file; legacy file untouched; subsequent runs use the project store (see `skills/agent-skills.md` [AS-09]).
+- **On failure**: Learned skills disappear after upgrade.
+
+---
+
 ### Cross-references
 
 - **Depends on**: `config/merge-semantics.md` (priority ordering)
-- **Depended on by**: `config/cli-config.md`, `config/ui-config.md`
-- **Test coverage**: `tests/run_tests.cpp`: `config_defaults`, `config_validate_flags_problems`, `config_trailing_slash_validation`, etc.
+- **Depended on by**: `config/cli-config.md`, `config/ui-config.md`, `skills/skill-files.md` (`skills_interop`), `skills/skill-catalog.md` (budgets)
+- **Test coverage**: `tests/run_tests.cpp`: `config_defaults`, `config_validate_flags_problems`, `config_trailing_slash_validation`, etc. Skills keys: `tests/skill_file_test.cpp`, `tests/skill_catalog_test.cpp`.
 
 ### Known gaps
 

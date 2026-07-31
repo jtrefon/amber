@@ -5,6 +5,7 @@
 #include "agent/agent_helpers.h"
 #include "agent/tool_recovery.h"
 #include "agent/dispatch.h"
+#include "agent/tools.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -32,6 +33,14 @@ Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
     , memory_store_(std::move(memory_store))
     , retriever_(std::move(retriever)) {
     experience_cfg_ = load_experience_config(cfg_);
+    skills_ = std::make_unique<SkillCatalog>(cfg_);
+    std::vector<Skill> learned;
+    if (memory_store_) {
+        auto top = memory_store_->top_skills(experience_cfg_.max_skills, "");
+        learned.assign(top.begin(), top.end());
+    }
+    skills_->discover(learned);
+    register_skill_tools(registry_, *skills_);
 }
 
 void Agent::ensure_system_prompt() {
@@ -76,6 +85,16 @@ void Agent::ensure_system_prompt() {
     std::string git = load_prompt(git_path);
     if (!git.empty())
         system += "\n\n" + git;
+
+    // Optional skills prompt (discovery block, authoring rule, trust boundary)
+    std::string skills = load_prompt("prompts/skills.md");
+    if (!skills.empty())
+        system += "\n\n" + skills;
+
+    // Optional MCP prompt (untrusted-server posture, user-only prompts)
+    std::string mcp = load_prompt("prompts/mcp.md");
+    if (!mcp.empty())
+        system += "\n\n" + mcp;
 
     Message sys_msg;
     sys_msg.role = "system";
@@ -163,6 +182,40 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
             // the current LLM call.
             auto new_msgs = context_.get_all();
             prompt_copy.assign(new_msgs.begin(), new_msgs.end());
+        }
+    }
+
+    // Inject the skill discovery block as its own system slot on the prompt
+    // copy, directly after the learned-knowledge slot. Keeps the stable prefix
+    // system -> knowledge -> discovery; bodies load only on read_skill.
+    if (skills_) {
+        auto block = skills_->discovery_block();
+        if (!block.empty()) {
+            std::string disc = "Available skills (activate with read_skill):\n";
+            for (const auto& line : block) disc += line + "\n";
+            size_t pos = 0;
+            for (size_t i = 0; i < prompt_copy.size(); ++i) {
+                if (prompt_copy[i].role == "system") { pos = i + 1; break; }
+            }
+            if (pos < prompt_copy.size() && prompt_copy[pos].role == "system")
+                ++pos;
+            if (pos <= prompt_copy.size()) {
+                Message disc_msg;
+                disc_msg.role = "system";
+                disc_msg.content = disc;
+                prompt_copy.insert(
+                    prompt_copy.begin() + static_cast<ptrdiff_t>(pos),
+                    std::move(disc_msg));
+            }
+        }
+        // Append session-activated skill bodies at the tail of the prompt
+        // copy. Activation is rare and explicit, so the prefix is extended.
+        for (const auto& act : skills_->activated_skills()) {
+            Message body_msg;
+            body_msg.role = "system";
+            body_msg.content =
+                "[activated skill: " + act.name + "]\n" + act.body;
+            prompt_copy.push_back(std::move(body_msg));
         }
     }
 
@@ -340,14 +393,16 @@ std::string Agent::confirm_turn(const std::string& candidate,
     emit_context_event(context_events_, context_);
 
     Message check = chat_once(tools, /*display=*/false);
+    json check_tool_calls = check.tool_calls;
+    std::string check_content = check.content;
     context_.push(std::move(check));
     emit_context_event(context_events_, context_);
 
-    if (!check.tool_calls.is_null() && !check.tool_calls.empty()) {
+    if (!check_tool_calls.is_null() && !check_tool_calls.empty()) {
         if (hooks_.on_status) hooks_.on_status("continuing investigation");
-        bool any_ran = dispatch_tool_calls(check.tool_calls, cfg_, registry_,
-                                            hooks_, log_, session_approved_,
-                                            &policy_, &context_);
+        bool any_ran = dispatch_tool_calls(check_tool_calls, cfg_, registry_,
+                                           hooks_, log_, session_approved_,
+                                           &policy_, &context_);
         if (!any_ran) {
             // Scan from the back for the last tool result; if it was denied
             // the loop is broken.
@@ -375,9 +430,9 @@ std::string Agent::confirm_turn(const std::string& candidate,
                flat == "complete" || flat == "alldone";
     };
 
-    if (is_confirmation(check.content) || check.content.empty())
+    if (is_confirmation(check_content) || check_content.empty())
         return candidate;
-    return check.content;
+    return check_content;
 }
 
 void Agent::log_and_push_user_prompt(const std::string& prompt) {

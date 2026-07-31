@@ -14,6 +14,17 @@
 
 int failed = 0;
 
+// cppcheck cannot see through the ASSERT macro; a real guard keeps the
+// container-access checks provably safe.
+#define REQUIRE_NONEMPTY(v)                                                       \
+    do {                                                                          \
+        if ((v).empty()) {                                                        \
+            std::cerr << "FAIL: " #v " empty\n";                                 \
+            failed++;                                                             \
+            return;                                                               \
+        }                                                                         \
+    } while (0)
+
 #include "tui/setting_registry.h"
 
 // ── Test: JSON loads and produces expected actions ─────────────────
@@ -25,7 +36,7 @@ TEST(test_json_loads_all_commands) {
     // After loading, the command_completions_ map should have entries.
     // We verify by checking that the help text for known keys is populated.
     std::string h = reg.help_for("detection.loop");
-    ASSERT(!h.empty());
+    REQUIRE_NONEMPTY(h);
 }
 
 // ── Test: core actions have help text ──────────────────────────────
@@ -47,16 +58,16 @@ TEST(test_namespace_children) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
     auto get_kids = reg.children_of("get");
-    ASSERT(!get_kids.empty());
+    REQUIRE_NONEMPTY(get_kids);
     bool found_think = false;
     for (const auto& k : get_kids)
         if (k == "think") found_think = true;
     ASSERT(found_think);
     auto policy_kids = reg.children_of("policy");
-    ASSERT(!policy_kids.empty());
+    REQUIRE_NONEMPTY(policy_kids);
     ASSERT_EQ(policy_kids.size(), 3u);
     // JSON object keys are sorted alphabetically by nlohmann::json (std::map).
-    ASSERT_EQ(policy_kids.at(0), "approval");
+    ASSERT_EQ(policy_kids.front(), "approval");
 }
 
 // ── Test: choices are loaded from JSON ─────────────────────────────
@@ -65,11 +76,11 @@ TEST(test_choices_loaded) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
     auto ch = reg.choices_for("detection.loop");
-    ASSERT(!ch.empty());
+    REQUIRE_NONEMPTY(ch);
     ASSERT_EQ(ch.size(), 3u);
-    ASSERT_EQ(ch.at(0), "on");
-    ASSERT_EQ(ch.at(1), "off");
-    ASSERT_EQ(ch.at(2), "toggle");
+    ASSERT_EQ(ch.front(), "on");
+    ASSERT_EQ(ch[1], "off");
+    ASSERT_EQ(ch[2], "toggle");
 }
 
 // ── Test: ranges are loaded from JSON ──────────────────────────────
@@ -105,7 +116,7 @@ TEST(test_completions_work) {
     // "det" → detection only
     auto det = reg.complete("det");
     ASSERT_EQ(det.size(), 1u);
-    ASSERT_EQ(det[0], "detection");
+    ASSERT_EQ(det.front(), "detection");
 
     // "detection." → loop duplicate
     auto sub = reg.complete("detection.");
@@ -165,49 +176,49 @@ TEST(test_complete_depth1_prefix) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
     auto r = reg.complete("detec");
-    ASSERT(!r.empty());
+    REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 1u);
-    ASSERT_EQ(r.at(0), "detection");
+    ASSERT_EQ(r.front(), "detection");
 }
 
 TEST(test_complete_depth2_with_dot) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
     auto r = reg.complete("detection.");
-    ASSERT(!r.empty());
+    REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 2u);
-    ASSERT_EQ(r.at(0), "duplicate");
-    ASSERT_EQ(r.at(1), "loop");
+    ASSERT_EQ(r.front(), "duplicate");
+    ASSERT_EQ(r[1], "loop");
 }
 
 TEST(test_complete_depth2_prefix) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
     auto r = reg.complete("detection.d");
-    ASSERT(!r.empty());
+    REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 1u);
-    ASSERT_EQ(r.at(0), "duplicate");
+    ASSERT_EQ(r.front(), "duplicate");
 }
 
 TEST(test_complete_depth2_policy) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
     auto r = reg.complete("policy.");
-    ASSERT(!r.empty());
+    REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 3u);
-    ASSERT_EQ(r.at(0), "approval");
-    ASSERT_EQ(r.at(1), "mode");
-    ASSERT_EQ(r.at(2), "timeout");
+    ASSERT_EQ(r.front(), "approval");
+    ASSERT_EQ(r[1], "mode");
+    ASSERT_EQ(r[2], "timeout");
 }
 
 TEST(test_complete_depth1_compression_namespace) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
     auto r = reg.complete("compression.");
-    ASSERT(!r.empty());
+    REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 2u);
-    ASSERT_EQ(r.at(0), "min_turns");
-    ASSERT_EQ(r.at(1), "threshold");
+    ASSERT_EQ(r.front(), "min_turns");
+    ASSERT_EQ(r[1], "threshold");
 }
 
 TEST(test_complete_nonexistent_namespace) {
@@ -221,7 +232,7 @@ TEST(test_complete_depth1_namespace_matches_at_top) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
     auto r = reg.complete("comp");
-    ASSERT(!r.empty());
+    REQUIRE_NONEMPTY(r);
     // "compression" should appear as a top-level namespace match
     bool found_compression = false;
     for (const auto& s : r)
@@ -249,7 +260,7 @@ TEST(test_drawer_namespace_levels) {
 
     // Level 2: /set <TAB> → children of "set"
     auto set_kids = reg.children_of("set");
-    ASSERT(!set_kids.empty());
+    REQUIRE_NONEMPTY(set_kids);
     bool has_policy = false;
     for (const auto& k : set_kids)
         if (k == "policy") has_policy = true;
@@ -257,9 +268,9 @@ TEST(test_drawer_namespace_levels) {
 
     // Level 3: /set policy <TAB> → children of "policy"
     auto policy_kids = reg.children_of("policy");
-    ASSERT(!policy_kids.empty());
+    REQUIRE_NONEMPTY(policy_kids);
     ASSERT_EQ(policy_kids.size(), 3u);
-    ASSERT_EQ(policy_kids.at(0), "approval");
+    ASSERT_EQ(policy_kids.front(), "approval");
 
     // Level 4: /set policy mode <TAB> → children of "policy.mode"
     auto mode_kids = reg.children_of("policy.mode");

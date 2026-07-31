@@ -6,6 +6,7 @@
 #include "confirm_panel.h"
 
 #include <agent.h>
+#include <agent/mcp_tools.h>
 #include <agent/compressor.h>
 #include <agent/experience.h>
 #include <agent/tools.h>
@@ -18,7 +19,6 @@
 #include "textutil.h"
 #include "welcome.h"
 
-#include <array>
 #include <unistd.h>
 
 #include <clocale>
@@ -40,8 +40,8 @@ static void signal_handler(int sig) {
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs),
-      settings_path_(agent::Workspace::local_dir() + "/settings"),
-      policy_timeout_(60) {
+      mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token),
+      settings_path_(agent::Workspace::local_dir() + "/settings") {
     std::setlocale(LC_ALL, "");
     initscr();
     raw();        // capture Ctrl-C as keypress (ASCII 3) instead of SIGINT
@@ -66,6 +66,12 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     signal_tui_instance = this;
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
+
+    reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
+    mcp_servers_.connect_all();
+    for (const auto& st : mcp_servers_.snapshot())
+        if (st.connected) agent::register_server_tools(reg_, mcp_servers_,
+                                                       st.name);
 
     // Restore previous workspace: open saved sessions in their own windows.
     // On first launch (no saved workspace) show the welcome mural instead.
@@ -179,7 +185,7 @@ bool Tui::drain_events() {
                 fold_reasoning();
             win().stream_color = P_ASSISTANT;
             win().stream_buf += ev.text;
-            live_ctx_offset_ += static_cast<long>(ev.text.size()) / 4 + 1;
+            live_ctx_offset_ += (static_cast<long>(ev.text.size()) / 4) + 1;
             win().scroll_top = max_scroll();
             break;
         case AgentEvent::Status:
@@ -364,7 +370,9 @@ std::string Tui::expand_at_references(const std::string& raw) const {
                 std::string content((std::istreambuf_iterator<char>(f)),
                                      std::istreambuf_iterator<char>());
                 if (content.size() > 4096) content.resize(4096);
-                out += "\n[file: " + ref + "]\n" + content + "\n[/file]\n";
+                out += "\n[file: " + ref + "]\n";
+                out += content;
+                out += "\n[/file]\n";
             } else {
                 out += ref;
             }
@@ -735,6 +743,10 @@ void Tui::run() {
     while (!quit_) {
         bool had_events = drain_events();
         jobs_.check_timeouts();
+        if (!input_fill_.empty()) {
+            cl.set_text(input_fill_);
+            input_fill_.clear();
+        }
 
         int ch = getch();
         if (ch == ERR) {
@@ -924,8 +936,9 @@ void Tui::run() {
                     auto matches = filter_commands(tok);
                     if (!matches.empty()) {
                         std::vector<std::string> items;
+                        items.reserve(matches.size());
                         for (auto* c : matches)
-                            items.push_back(palette::usage(*c) + "  " + c->help);
+                            items.emplace_back(palette::usage(*c) + "  " + c->help);
                         menu_select("options:", items);
                     }
                 }
@@ -946,31 +959,37 @@ void Tui::run() {
             // Header: help text as subtitle
             std::string helptxt = settings_.help_for(help_key);
             if (!helptxt.empty())
-                page.push_back(helptxt);
-            page.push_back("");
+                page.emplace_back(helptxt);
+            page.emplace_back("");
             // Body: full man text with word wrapping
             size_t pos = 0;
             while (pos < man.size()) {
                 size_t next = man.find('\n', pos);
                 if (next == std::string::npos) {
-                    page.push_back(man.substr(pos));
+                    page.emplace_back(man.substr(pos));
                     break;
                 }
-                page.push_back(man.substr(pos, next - pos));
+                page.emplace_back(man.substr(pos, next - pos));
                 pos = next + 1;
             }
-            page.push_back("");
+            page.emplace_back("");
             // Children listing
             auto kids = settings_.children_of(help_key);
             if (!kids.empty()) {
-                page.push_back("sub-commands:");
+                page.emplace_back("sub-commands:");
                 for (const auto& k : kids) {
                     std::string line = "  " + k;
-                    std::string h = settings_.help_for(help_key + "." + k);
-                    if (!h.empty()) line += "  —  " + h;
-                    page.push_back(line);
+                    std::string subkey = help_key;
+                    subkey += ".";
+                    subkey += k;
+                    std::string h = settings_.help_for(subkey);
+                    if (!h.empty()) {
+                        line += "  —  ";
+                        line += h;
+                    }
+                    page.emplace_back(line);
                 }
-                page.push_back("");
+                page.emplace_back("");
             }
             // Choices / range for leaf settings
             const auto& ch_choices = settings_.choices_for(help_key);
@@ -984,7 +1003,8 @@ void Tui::run() {
             }
             double rlo, rhi;
             if (settings_.range_for(help_key, rlo, rhi))
-                page.push_back("range: " + std::to_string((int)rlo) + " – " + std::to_string((int)rhi));
+                page.push_back("range: " + std::to_string((int)rlo) +
+                           " – " + std::to_string((int)rhi));
             info_dialog(help_key, page);
             redraw_after_modal();
             draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
@@ -993,7 +1013,9 @@ void Tui::run() {
         // Fallback to one-line status for leaf settings without man text.
         std::string desc = settings_.help_for(help_key);
         if (!desc.empty()) {
-            std::string msg = help_key + "  —  " + desc;
+            std::string msg = help_key;
+            msg += "  —  ";
+            msg += desc;
             const auto& chc = settings_.choices_for(help_key);
             if (!chc.empty()) {
                 msg += "  choices: ";
