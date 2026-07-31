@@ -2642,3 +2642,54 @@ TEST(search_tool_explicit_path_inside_excluded) {
     ASSERT(vendored.output.find("z.cpp") != std::string::npos);
     run_cmd("rm -rf " + dir);
 }
+
+// ---------------------------------------------------------------------------
+// Environment card ([I-9]): a compact session-fixed system-prompt section
+// telling the agent its OS, user, working directory, resources, and which
+// tools exist — so it can act in its environment without probing.
+// ---------------------------------------------------------------------------
+
+TEST(environment_card_renders_compact) {
+    agent::EnvironmentInfo info;
+    info.os = "Ubuntu 24.04 (Linux 6.8.0-45-generic x86_64)";
+    info.user_host = "jack@box";
+    info.cwd = "/home/jack/project";
+    info.resources = "8 cores \u00b7 16 GB RAM";
+    info.tools = {"git", "python3", "make", "g++"};
+
+    std::string card = agent::render_environment_card(info);
+    ASSERT_FALSE(card.empty());
+    ASSERT(card.find("## Environment") == 0);
+    ASSERT(card.find("OS: Ubuntu 24.04") != std::string::npos);
+    ASSERT(card.find("User: jack@box") != std::string::npos);
+    ASSERT(card.find("Working directory: /home/jack/project") !=
+           std::string::npos);
+    ASSERT(card.find("8 cores") != std::string::npos);
+    ASSERT(card.find("Tools available: git, python3, make, g++") !=
+           std::string::npos);
+    // Compact: well under a couple of hundred tokens.
+    ASSERT(card.size() < 600u);
+}
+
+TEST(environment_card_omits_unknown_fields) {
+    agent::EnvironmentInfo info;
+    std::string card = agent::render_environment_card(info);
+    ASSERT_EQ(card, "");
+    info.os = "Linux";
+    card = agent::render_environment_card(info);
+    ASSERT(card.find("User:") == std::string::npos);
+    ASSERT(card.find("Tools") == std::string::npos);
+}
+
+// On the test machine the probe must find the basics.
+TEST(environment_probe_collects_facts) {
+    auto info = agent::probe_environment();
+    ASSERT_FALSE(info.os.empty());
+    ASSERT(info.os.find("Linux") != std::string::npos);
+    ASSERT_FALSE(info.user_host.empty());
+    char buf[4096];
+    ASSERT_EQ(info.cwd, std::string(getcwd(buf, sizeof buf) ? buf : ""));
+    ASSERT_FALSE(info.resources.empty());
+    ASSERT(info.tools.size() >= 1u);  // git or python3 present in CI
+    ASSERT_FALSE(agent::render_environment_card(info).empty());
+}
