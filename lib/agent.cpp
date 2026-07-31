@@ -593,17 +593,8 @@ std::string Agent::run(const std::string& user_prompt) {
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
-        Message reply = safe_chat_once(hooks_, log_, chat, "generation");
-
-        if (reply.content.rfind("[error during", 0) == 0) {
-            if (hooks_.on_status)
-                hooks_.on_status("LLM error — retrying once");
-            reply = safe_chat_once(hooks_, log_, chat, "generation-retry");
-            if (reply.content.rfind("[error during", 0) == 0) {
-                if (hooks_.on_status)
-                    hooks_.on_status("retry still failing — continuing with error");
-            }
-        }
+        Message reply = chat_with_retry(hooks_, log_, chat, "generation",
+                                        cfg_.cancel_token);
 
         // Extract tool_calls and content before push_reply (which moves reply).
         json tc = reply.tool_calls;

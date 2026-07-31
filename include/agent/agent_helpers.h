@@ -51,6 +51,19 @@ void parse_tool_call(const json& call, std::string& id, std::string& fn,
 Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
                        const std::function<Message()>& chat, const char* stage);
 
+// Chat with retry/backoff for transient failures: up to `max_attempts`
+// attempts with 1s->2s exponential backoff, sleeping in 100 ms slices that
+// poll `cancel_token` (a request aborts the wait). Retryable errors are
+// ApiError{retryable=true} (429/5xx/timeouts) or plain transport exceptions;
+// non-retryable ApiErrors (auth/misconfig 4xx) fail fast after one attempt.
+// On exhaustion returns the standard "[error during ...]" message so the loop
+// degrades gracefully and the conversation stays intact.
+Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
+                        const std::function<Message()>& chat,
+                        const char* stage,
+                        const CancellationToken& cancel_token,
+                        int max_attempts = 3);
+
 // Build the final-reply fallback when the loop ended without a usable answer.
 std::string empty_turn_reply(const std::deque<Message>& history);
 

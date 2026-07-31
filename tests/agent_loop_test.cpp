@@ -355,6 +355,8 @@ TEST(agent_loop_cancel_during_backoff) {
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - t0);
     ASSERT(reply.find("cancelled") != std::string::npos);
-    ASSERT_EQ(raw->chat_calls, 1);  // first attempt only, no backoff retry
+    // Only the first generation attempt ran (the backoff wait was aborted);
+    // the second call is the loop's confirmation probe, not a retry.
+    ASSERT_EQ(raw->chat_calls, 2);
     ASSERT(elapsed.count() < 900);
 }

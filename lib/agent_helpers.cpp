@@ -7,6 +7,7 @@
 #include <cctype>
 #include <functional>
 #include <stdexcept>
+#include <unistd.h>
 
 namespace agent {
 
@@ -140,6 +141,62 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
         return err;
     }
 }
+
+namespace {
+bool retryable_error(const std::exception& e) {
+    const auto* api = dynamic_cast<const ApiError*>(&e);
+    return api == nullptr || api->retryable;
+}
+int backoff_ms(int attempt) { return attempt <= 1 ? 1000 : 2000; }
+bool wait_cancellable(const CancellationToken& token, int ms) {
+    for (int waited = 0; waited < ms; waited += 100) {
+        if (token.is_requested()) return true;
+        usleep(100 * 1000);
+    }
+    return false;
+}
+} // namespace
+
+Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
+                        const std::function<Message()>& chat,
+                        const char* stage,
+                        const CancellationToken& cancel_token,
+                        int max_attempts) {
+    std::string last_error;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        try {
+            Message m = chat();
+            m.content = utf8_sanitize(m.content);
+            m.reasoning = utf8_sanitize(m.reasoning);
+            return m;
+        } catch (const std::exception& e) {
+            last_error = e.what();
+            log.event("chat_error", {{"stage", stage},
+                                     {"error", last_error},
+                                     {"attempt", attempt}});
+            if (hooks.on_debug)
+                hooks.on_debug("chat error (attempt " +
+                               std::to_string(attempt) + "): " + last_error);
+            if (attempt >= max_attempts || !retryable_error(e)) break;
+            if (hooks.on_status)
+                hooks.on_status("LLM error - retrying (" +
+                                std::to_string(attempt) + "/" +
+                                std::to_string(max_attempts) + ") in " +
+                                std::to_string(backoff_ms(attempt) / 1000) +
+                                "s");
+            if (wait_cancellable(cancel_token, backoff_ms(attempt))) {
+                last_error = "cancelled by user";
+                break;
+            }
+        }
+    }
+    Message err;
+    err.role = "assistant";
+    err.content = "[error during " + std::string(stage) + ": " +
+                  last_error + "] Please retry or adjust your approach.";
+    return err;
+}
+
 
 std::string empty_turn_reply(const std::deque<Message>& history) {
     bool had_tool = false;
