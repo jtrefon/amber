@@ -87,7 +87,7 @@ void Config::load(const std::string& path) {
     }
 }
 
-static std::string global_config_dir() {
+std::string global_config_dir() {
     const char* xdg = std::getenv("XDG_CONFIG_HOME");
     if (xdg && *xdg) return std::string(xdg) + "/amber";
     const char* home = std::getenv("HOME");

@@ -32,6 +32,13 @@ Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
     , memory_store_(std::move(memory_store))
     , retriever_(std::move(retriever)) {
     experience_cfg_ = load_experience_config(cfg_);
+    skills_ = std::make_unique<SkillCatalog>(cfg_);
+    std::vector<Skill> learned;
+    if (memory_store_) {
+        auto top = memory_store_->top_skills(experience_cfg_.max_skills, "");
+        learned.assign(top.begin(), top.end());
+    }
+    skills_->discover(learned);
 }
 
 void Agent::ensure_system_prompt() {
@@ -163,6 +170,31 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
             // the current LLM call.
             auto new_msgs = context_.get_all();
             prompt_copy.assign(new_msgs.begin(), new_msgs.end());
+        }
+    }
+
+    // Inject the skill discovery block as its own system slot on the prompt
+    // copy, directly after the learned-knowledge slot. Keeps the stable prefix
+    // system -> knowledge -> discovery; bodies load only on read_skill.
+    if (skills_) {
+        auto block = skills_->discovery_block();
+        if (!block.empty()) {
+            std::string disc = "Available skills (activate with read_skill):\n";
+            for (const auto& line : block) disc += line + "\n";
+            size_t pos = 0;
+            for (size_t i = 0; i < prompt_copy.size(); ++i) {
+                if (prompt_copy[i].role == "system") { pos = i + 1; break; }
+            }
+            if (pos < prompt_copy.size() && prompt_copy[pos].role == "system")
+                ++pos;
+            if (pos <= prompt_copy.size()) {
+                Message disc_msg;
+                disc_msg.role = "system";
+                disc_msg.content = disc;
+                prompt_copy.insert(
+                    prompt_copy.begin() + static_cast<ptrdiff_t>(pos),
+                    std::move(disc_msg));
+            }
         }
     }
 

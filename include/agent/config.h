@@ -183,6 +183,9 @@ struct Config {
 // and TUI to load/store LLM provider settings across all projects.
 std::string global_config_path();
 
+// Directory holding global amber state (~/.config/amber, or $XDG_CONFIG_HOME/amber).
+std::string global_config_dir();
+
 // ---------------------------------------------------------------------------
 // Provider storage — each provider is a key=value file under
 // ~/.config/amber/providers/<name>.conf with fields:

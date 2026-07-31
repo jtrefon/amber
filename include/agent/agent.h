@@ -17,6 +17,7 @@
 #include "agent/context.h"
 #include "agent/experience.h"
 #include "agent/policy.h"
+#include "agent/skill_catalog.h"
 #include "agent/tool_recovery.h"
 
 namespace agent {
@@ -132,6 +133,10 @@ public:
     PolicyStore& policy() { return policy_; }
     const PolicyStore& policy() const { return policy_; }
 
+    // Runtime skill catalog (union view + overrides + body cache).
+    SkillCatalog& skills() { return *skills_; }
+    const SkillCatalog& skills() const { return *skills_; }
+
     // Subscribe to context change events (token count + message count).
     // Fires on every push/pop/clear.
     ContextEventSource& context_events() { return context_events_; }
@@ -204,6 +209,7 @@ private:
     std::unique_ptr<CompressionGate> gate_;
     std::unique_ptr<MemoryStore> memory_store_;
     std::unique_ptr<MemoryRetriever> retriever_;
+    std::unique_ptr<SkillCatalog> skills_;
     ExperienceConfig experience_cfg_;
     PolicyStore policy_;
     size_t turn_counter_ = 0;

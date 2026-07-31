@@ -1,10 +1,10 @@
 
 #include "agent/skill_file.h"
+#include "agent/config.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -202,6 +202,10 @@ std::vector<SkillFile> scan_skill_dir(const std::string& root,
         out.push_back(
             SkillFile{name, entry.path().string(), scope, std::move(*meta)});
     }
+    std::sort(out.begin(), out.end(),
+              [](const SkillFile& a, const SkillFile& b) {
+                  return a.name < b.name;
+              });
     return out;
 }
 
@@ -222,14 +226,6 @@ std::vector<SkillFile> scan_skills(const SkillScanPaths& paths,
         absorb(scan_skill_dir(paths.codex, SkillScope::Interop, warnings));
     }
     return result;
-}
-
-std::string global_config_dir() {
-    const char* xdg = std::getenv("XDG_CONFIG_HOME");
-    if (xdg && *xdg) return std::string(xdg) + "/amber";
-    const char* home = std::getenv("HOME");
-    if (!home) return ".amber";
-    return std::string(home) + "/.config/amber";
 }
 
 SkillScanPaths default_scan_paths() {
