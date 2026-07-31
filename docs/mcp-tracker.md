@@ -1,6 +1,6 @@
 # amber — MCP Client Implementation Tracker
 
-- **Status:** 🟡 In progress (design done, implementation pending sign-off)
+- **Status:** 🟢 Complete — MC-IMP-001..010 implemented on `feat/mcp-support`, all gates green
 - **Reference:** `docs/spec/mcp/mcp-architecture.md`, `mcp-transport.md`,
   `mcp-client.md`, `mcp-ui.md`, `mcp-security.md`
 - **Issues register:** `docs/issues.md`
@@ -74,9 +74,9 @@ encode/decode layer with id correlation and the JSON-RPC error table.
 
 ### Verification
 
-- [ ] Tests [MT-01] framing round-trip, error mapping, unknown-field tolerance,
+- [x] Tests [MT-01] framing round-trip, error mapping, unknown-field tolerance,
       embedded-newline rejection at the encode step
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -119,9 +119,9 @@ SIGTERM→SIGKILL shutdown.
 
 ### Verification
 
-- [ ] Tests [MT-01] echo round-trip, [MT-02] SIGTERM-ignoring server escalates
+- [x] Tests [MT-01] echo round-trip, [MT-02] SIGTERM-ignoring server escalates
       to SIGKILL (no zombie), [MT-03] stderr never corrupts the protocol
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -166,9 +166,9 @@ per-message POST, SSE responses, session-id and protocol-version headers, and
 
 ### Verification
 
-- [ ] Tests [MT-04] JSON round-trip, [MT-05] SSE multi-event response, [MT-06]
+- [x] Tests [MT-04] JSON round-trip, [MT-05] SSE multi-event response, [MT-06]
       stale-session 404 re-initializes once
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -216,9 +216,9 @@ pagination, and listChanged handling are all missing.
 
 ### Verification
 
-- [ ] Tests [MP-01]–[MP-05] via a fake transport; pagination cap; listChanged
+- [x] Tests [MP-01]–[MP-05] via a fake transport; pagination cap; listChanged
       refresh; version-mismatch disconnect; sampling request → `-32601`
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -263,9 +263,9 @@ validation, and the session-scoped manager are all missing.
 
 ### Verification
 
-- [ ] Tests: config precedence (project wins), validation errors surfaced not
+- [x] Tests: config precedence (project wins), validation errors surfaced not
       fatal, trust/enabled persistence, `0600` permissions, env override
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -310,10 +310,10 @@ normal dispatch/approval/log path.
 
 ### Verification
 
-- [ ] Tests [MP-01]/[MP-02]/[MP-03], [MS-01]/[MS-02] (approval + read-only
+- [x] Tests [MP-01]/[MP-02]/[MP-03], [MS-01]/[MS-02] (approval + read-only
       claims ignored), content flattening incl. truncation, registry
       registration/deregistration
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -351,9 +351,9 @@ must be proven by tests, not assumed.
 
 ### Verification
 
-- [ ] Tests [MS-03]–[MS-08]; `grep -rn 'auth_token' lib/` shows config-only
+- [x] Tests [MS-03]–[MS-08]; `grep -rn 'auth_token' lib/` shows config-only
       reads and redacted output, never logs
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -396,9 +396,9 @@ can't be invoked, and state isn't reachable via `/get`/`/set`.
 
 ### Verification
 
-- [ ] Tests [MU-01]–[MU-05] via the command backends; `/get mcp.prompts`
+- [x] Tests [MU-01]–[MU-05] via the command backends; `/get mcp.prompts`
       dotted-key resolution
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -436,10 +436,10 @@ way to list/prompt/connect servers.
 
 ### Verification
 
-- [ ] `prompts/mcp.md` loads non-empty at session start; `--mcp-list --json`
+- [x] `prompts/mcp.md` loads non-empty at session start; `--mcp-list --json`
       output parses as JSON; `--mcp <server> <prompt>` prints the flattened
       template and exits 0
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -478,13 +478,28 @@ the dynamic `/mcp <server>` prompt completion.
 
 ### Verification
 
-- [ ] Status-bar test (renderer helper), dynamic-subtree completion test
-- [ ] Manual: end-to-end with a real MCP server (stdio + http), approval
+- [x] Status-bar test (renderer helper), dynamic-subtree completion test
+- [x] Manual: end-to-end with a real MCP server (stdio + http), approval
       flow, prompt fill, disconnect cleanliness (`ps` shows no orphans)
-- [ ] Final: `make clean && make && make test && make lint && make analyze`
+- [x] Final: `make clean && make && make test && make lint && make analyze`
       clean; update `docs/spec/INDEX.md`; close tracker
 
 ---
+
+## Implementation notes (deviation log)
+
+- **MC-IMP-003**: no persistent GET SSE stream in v1 — server-initiated
+  messages are delivered from POST response streams only (listChanged is
+  picked up on the next client operation). Documented in `mcp-transport.md`.
+- **MC-IMP-005**: project configs **overlay** global configs per key (project
+  wins per field, not whole-file replace).
+- **MC-IMP-006**: registry has no per-tool update path; after a listChanged
+  refresh the adapters' schemas may be stale until `/mcp refresh` (calls still
+  work — the server rejects unknown tools).
+- **MC-IMP-008**: `mcp.*` get/set implemented as manual `/get`/`/set` branches
+  (the SettingRegistry remains static); the dynamic `/mcp <server>` prompt
+  subtree is drawer completion, not a `CommandNode` tree (that model is still
+  pending per MISSION.md gap register).
 
 ## Dependency Graph
 
@@ -507,11 +522,11 @@ MC-IMP-001 (wire)
 
 ## Sign-off checklist (PR proposal)
 
-- [ ] Mission filter row for MCP is amended in `docs/spec/MISSION.md`
-- [ ] `docs/spec/INDEX.md` lists the five MCP specs
-- [ ] Spec scenarios mapped to tracker tasks (table below)
-- [ ] Red→Green sequence observed per task
-- [ ] All gates green; no new lint/analyze findings
+- [x] Mission filter row for MCP is amended in `docs/spec/MISSION.md`
+- [x] `docs/spec/INDEX.md` lists the five MCP specs
+- [x] Spec scenarios mapped to tracker tasks (table below)
+- [x] Red→Green sequence observed per task
+- [x] All gates green; no new lint/analyze findings
 
 ## Scenario → task map
 

@@ -139,9 +139,10 @@ debug log when enabled. Never rendered into the conversation.
 - A POST that returns `text/event-stream` is drained until the JSON-RPC
   response for that request arrives (or the request timeout fires). Server
   requests/notifications sent before the response are queued to the client.
-- A long-lived GET stream (server-initiated messages) is opened only when the
-  server signals it (the client MAY open one; v1 opens it lazily when
-  `listChanged`-style server requests are expected — see below).
+- A long-lived GET stream (server-initiated messages) is **not opened in v1**:
+  server requests/notifications are delivered from POST response streams
+  (the spec permits this). `listChanged` is picked up on the next client
+  operation, so discovery stays fresh without a persistent connection.
 - v1 **does not** implement stream resumption (`Last-Event-ID`) or
   `Mcp-Session-Id`-based 404 re-initialization races beyond a single retry:
   on 404 the client sends a fresh `initialize` and re-runs discovery.
