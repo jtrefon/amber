@@ -2473,3 +2473,104 @@ TEST(learn_store_set_promoted_persists) {
     ASSERT_FALSE(reloaded->set_promoted("zzz", true));
     std::remove(path.c_str());
 }
+
+// ---------------------------------------------------------------------------
+// Learn UI: Agent wrappers ([LU-03], [LU-05], [LU-08])
+// ---------------------------------------------------------------------------
+
+// [LU-03] learn_forget removes the item and persists through the Agent.
+TEST(learn_agent_forget_persists) {
+    std::string path = "/tmp/amber_learn_agent.json";
+    std::remove(path.c_str());
+    agent::Config cfg;
+    cfg.experience_store_path = path;
+    auto store = agent::make_memory_store(agent::load_experience_config(cfg));
+    agent::Memory m;
+    m.name = "keep";
+    m.content = "keep content";
+    m.evidence_count = 2;
+    store->upsert(m);
+    agent::Memory gone;
+    gone.name = "gone";
+    gone.content = "gone content";
+    gone.evidence_count = 2;
+    store->upsert(gone);
+    store->save(path);
+
+    agent::ToolRegistry reg;
+    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    auto* s = agent.memory_store();
+    ASSERT(s != nullptr);
+    ASSERT_TRUE(s->load(path));
+    std::string gone_id;
+    for (const auto& mem : s->all_memories())
+        if (mem.name == "gone") gone_id = mem.id;
+    ASSERT_FALSE(gone_id.empty());
+
+    ASSERT_EQ(agent.learn_forget(gone_id), "");
+    auto reloaded = agent::make_memory_store(agent::load_experience_config(cfg));
+    ASSERT_TRUE(reloaded->load(path));
+    ASSERT_EQ(reloaded->all_memories().size(), 1u);
+    ASSERT_EQ(reloaded->all_memories()[0].name, "keep");
+    std::remove(path.c_str());
+}
+
+// [LU-04] learn_forget with an unknown id errors and leaves the file alone.
+TEST(learn_agent_forget_unknown) {
+    std::string path = "/tmp/amber_learn_agent_unknown.json";
+    std::remove(path.c_str());
+    agent::Config cfg;
+    cfg.experience_store_path = path;
+    auto store = agent::make_memory_store(agent::load_experience_config(cfg));
+    agent::Memory m;
+    m.name = "only";
+    m.content = "only content";
+    store->upsert(m);
+    store->save(path);
+
+    agent::ToolRegistry reg;
+    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    ASSERT_TRUE(agent.memory_store()->load(path));
+    std::string err = agent.learn_forget("zzz");
+    ASSERT_FALSE(err.empty());
+    ASSERT(err.find("no learned item with id") != std::string::npos);
+    auto reloaded = agent::make_memory_store(agent::load_experience_config(cfg));
+    ASSERT_TRUE(reloaded->load(path));
+    ASSERT_EQ(reloaded->all_memories().size(), 1u);
+    std::remove(path.c_str());
+}
+
+// [LU-05] learn_pin flips the promoted flag and persists through the Agent.
+TEST(learn_agent_pin_persists) {
+    std::string path = "/tmp/amber_learn_agent_pin.json";
+    std::remove(path.c_str());
+    agent::Config cfg;
+    cfg.experience_store_path = path;
+    auto store = agent::make_memory_store(agent::load_experience_config(cfg));
+    agent::Skill sk;
+    sk.name = "deploy";
+    sk.content = "deploy steps";
+    store->upsert(sk);
+    store->save(path);
+
+    agent::ToolRegistry reg;
+    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    ASSERT_TRUE(agent.memory_store()->load(path));
+    std::string id = agent.memory_store()->all_skills()[0].id;
+
+    ASSERT_EQ(agent.learn_pin(id, true), "");
+    auto reloaded = agent::make_memory_store(agent::load_experience_config(cfg));
+    ASSERT_TRUE(reloaded->load(path));
+    ASSERT_TRUE(reloaded->all_skills()[0].promoted);
+    std::remove(path.c_str());
+}
+
+// [LU-08] With no store the wrappers report the store as disabled.
+TEST(learn_agent_store_disabled) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    agent::Agent agent(cfg, reg);
+    ASSERT(agent.memory_store() == nullptr);
+    ASSERT_FALSE(agent.learn_forget("x").empty());
+    ASSERT_FALSE(agent.learn_pin("x", true).empty());
+}
