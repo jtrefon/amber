@@ -1,6 +1,6 @@
 # amber — Learn UI Implementation Tracker
 
-- **Status:** 🟡 In progress (design done, implementation pending sign-off)
+- **Status:** 🟢 Complete — LI-IMP-001..005 implemented on `feat/learn-ui`, all gates green
 - **Reference:** `docs/spec/memory/learn-ui.md`
 - **Issues register:** `docs/issues.md`
 
@@ -67,9 +67,9 @@ primitives don't exist.
 
 ### Verification
 
-- [ ] Red tests: `[LU-01]` listing order, `[LU-03]` remove+persist round-trip,
+- [x] Red tests: `[LU-01]` listing order, `[LU-03]` remove+persist round-trip,
       `[LU-04]` unknown-id remove, `[LU-05]` set_promoted persists
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -103,9 +103,9 @@ the core (the UI must never know the store path).
 
 ### Verification
 
-- [ ] Red tests: forget persists via a real Agent round-trip; pin persists;
+- [x] Red tests: forget persists via a real Agent round-trip; pin persists;
       disabled store errors ([LU-08])
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -142,9 +142,9 @@ The TUI needs testable formatting/filtering logic without ncurses.
 
 ### Verification
 
-- [ ] Red tests: [LU-01], [LU-02], [LU-06], [LU-07], [LU-09] line-by-line
+- [x] Red tests: [LU-01], [LU-02], [LU-06], [LU-07], [LU-09] line-by-line
       against the formatting contract
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -181,9 +181,9 @@ No user-facing surface exists.
 
 ### Verification
 
-- [ ] Manual: `/learn show`, `forget`, `pin`, `/get learn` in the TUI with a
+- [x] Manual: `/learn show`, `forget`, `pin`, `/get learn` in the TUI with a
       real store; panel actions
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -201,8 +201,8 @@ No user-facing surface exists.
 
 ### Verification
 
-- [ ] INDEX.md lists `memory/learn-ui.md`; MISSION.md gap row updated
-- [ ] Final: `make clean && make && make test && make lint && make analyze`
+- [x] INDEX.md lists `memory/learn-ui.md`; MISSION.md gap row updated
+- [x] Final: `make clean && make && make test && make lint && make analyze`
       clean; tracker closed
 
 ---
