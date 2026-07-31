@@ -1,5 +1,6 @@
 
 #include "agent/agent.h"
+#include "agent/environment.h"
 #include "agent/prompt.h"
 #include "agent/tool_call_parser.h"
 #include "agent/agent_helpers.h"
@@ -54,6 +55,11 @@ void Agent::ensure_system_prompt() {
     if (system.empty())
         throw std::runtime_error("system prompt file not found or empty: " +
                                  cfg_.system_prompt_path);
+    // Environment card: OS, user, resources, available tools — collected
+    // once at session start, so the agent can act in its environment without
+    // probing. Session-fixed, so the KV prefix stays stable.
+    std::string env_card = render_environment_card(probe_environment());
+    if (!env_card.empty()) system += "\n\n" + env_card;
     if (!cfg_.tools_prompt_path.empty()) {
         std::string tools = load_prompt(cfg_.tools_prompt_path);
         if (tools.empty())
