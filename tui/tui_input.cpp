@@ -3,6 +3,7 @@
 #include "tui/list_panel.h"
 #include "tui/confirm_panel.h"
 #include "agent/model_probe.h"
+#include "agent/skill_commands.h"
 
 #include <algorithm>
 #include <csignal>
@@ -316,6 +317,13 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
+    // skills: interop on|off, refresh, show [name], create <name> [--global],
+    // delete <name> [--global], export <name>, enable|disable|block <name>
+    if (ns == "skills") {
+        cmd_skills_set(rest);
+        return;
+    }
+
     // provider openrouter|kilocode|custom
     if (ns == "provider") {
         cmd_provider(rest);
@@ -373,7 +381,7 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    append_line(P_STATUS, "unknown option: " + ns + " (try: detection, display, toolfold, policy, compression, provider, model, think)");
+    append_line(P_STATUS, "unknown option: " + ns + " (try: detection, display, toolfold, policy, compression, provider, model, think, skills)");
 }
 
 void Tui::cmd_get(const std::string& arg) {
@@ -484,9 +492,145 @@ void Tui::cmd_get(const std::string& arg) {
         append_line(P_STATUS, s->key + ": " + s->getter() + "  —  " + s->help);
         return;
     }
+    // /get skills [name] — scope table for the skill catalog
+    if (arg.rfind("skills", 0) == 0) {
+        std::string sub = (arg.size() > 6) ? arg.substr(6) : "";
+        cmd_skills_get(sub);
+        return;
+    }
     // Default: show all settings via config screen
     config_screen();
     redraw_after_modal();
+}
+
+void Tui::cmd_skills_set(const std::string& rest) {
+    if (!win().agent) {
+        append_line(P_STATUS, "no agent in this window");
+        draw();
+        return;
+    }
+    agent::SkillCatalog& catalog = win().agent->skills();
+    size_t sp = rest.find(' ');
+    std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
+    std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
+    auto trim = [](std::string s) {
+        size_t b = s.find_first_not_of(" \t");
+        size_t e = s.find_last_not_of(" \t");
+        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    };
+
+    if (sub == "interop") {
+        if (args != "on" && args != "off") {
+            append_line(P_STATUS, "usage: /set skills interop on|off");
+            draw();
+            return;
+        }
+        bool on = (args == "on");
+        cfg_.skills_interop = on;
+        catalog.set_interop_enabled(on);
+        catalog.refresh();
+        append_line(P_STATUS, "skills interop: " + args + " — .claude/skills and "
+            ".codex/skills " + (on ? "scanned" : "ignored"));
+        if (!cfg_.save_settings(settings_path_))
+            append_line(P_STATUS, "warning: could not save to " + settings_path_);
+        draw();
+        return;
+    }
+    if (sub == "refresh") {
+        catalog.refresh();
+        append_line(P_STATUS, "skills refreshed: " +
+            std::to_string(catalog.entries().size()) + " union entries");
+        draw();
+        return;
+    }
+    if (sub == "show") {
+        auto lines = agent::skill_show_lines(catalog);
+        if (lines.empty()) append_line(P_STATUS, "(no skills)");
+        for (const auto& l : lines) append_line(P_STATUS, l);
+        draw();
+        return;
+    }
+    if (sub == "create" || sub == "delete") {
+        std::string name = args;
+        std::string scope = "project";
+        size_t gpos = name.find("--global");
+        if (gpos != std::string::npos) {
+            scope = "global";
+            name = name.substr(0, gpos);
+        }
+        name = trim(name);
+        if (name.empty()) {
+            append_line(P_STATUS, "usage: /set skills " + sub +
+                " <name> [--global]");
+            draw();
+            return;
+        }
+        std::string err;
+        if (sub == "create") {
+            err = agent::skill_create(catalog, name, name,
+                "## " + name + "\n\n(instructions)", scope);
+        } else {
+            err = agent::skill_delete(catalog, name, scope);
+        }
+        append_line(P_STATUS, err.empty()
+            ? "skill '" + name + "' " + sub + "d (" + scope + ")"
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "export") {
+        std::string name = trim(args);
+        if (name.empty()) {
+            append_line(P_STATUS, "usage: /set skills export <name>");
+            draw();
+            return;
+        }
+        std::string err = agent::skill_export(catalog, name);
+        append_line(P_STATUS, err.empty()
+            ? "exported '" + name + "' to global authored skills"
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "enable" || sub == "disable" || sub == "block") {
+        std::string name = trim(args);
+        if (name.empty()) {
+            append_line(P_STATUS, "usage: /set skills " + sub + " <name>");
+            draw();
+            return;
+        }
+        std::string err = agent::skill_set_override(catalog, name, sub);
+        append_line(P_STATUS, err.empty()
+            ? "skill '" + name + "' " + sub + "d"
+            : err);
+        draw();
+        return;
+    }
+    append_line(P_STATUS, "usage: /set skills interop on|off | refresh | show "
+        "| create <name> [--global] | delete <name> [--global] | export <name> "
+        "| enable|disable|block <name>");
+    draw();
+}
+
+void Tui::cmd_skills_get(const std::string& sub) {
+    if (!win().agent) {
+        append_line(P_STATUS, "no agent in this window");
+        draw();
+        return;
+    }
+    std::string name = sub;
+    if (!name.empty() && name[0] == ' ') name = name.substr(1);
+    auto lines = agent::skill_show_lines(win().agent->skills());
+    bool any = false;
+    for (const auto& l : lines) {
+        if (!name.empty() && l.find(name) == std::string::npos) continue;
+        any = true;
+        append_line(P_STATUS, l);
+    }
+    if (!any)
+        append_line(P_STATUS, name.empty() ? "(no skills)"
+            : "no skill matching '" + name + "'");
+    draw();
 }
 
 const std::vector<Command>& Tui::commands() {

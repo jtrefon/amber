@@ -207,6 +207,8 @@ private:
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
     void cmd_get(const std::string& arg);
+    void cmd_skills_set(const std::string& rest);
+    void cmd_skills_get(const std::string& sub);
     void cmd_model(const std::string& arg);
     void cmd_provider(const std::string& arg);
     void job_ls();
