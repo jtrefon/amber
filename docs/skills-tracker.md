@@ -1,6 +1,6 @@
 # amber — Skills System Implementation Tracker
 
-- **Status:** 🟡 In progress (design done, implementation pending)
+- **Status:** 🟢 Complete — SK-IMP-001..007 implemented on `feat/skills-system`, all gates green
 - **Reference:** `docs/spec/skills/agent-skills.md`, `docs/spec/skills/skill-files.md`, `docs/spec/skills/skill-catalog.md`
 - **Issues register:** `docs/issues.md`
 
@@ -70,11 +70,11 @@ extraction prompt and `apply_skill_ops` never set them. Dead schema debt.
 
 ### Verification
 
-- [ ] Red test `skill_no_dead_fields`: serialize a `Skill`, assert no
+- [x] Red test `skill_no_dead_fields`: serialize a `Skill`, assert no
       `steps`/`expected_outcome` keys in JSON; loading a legacy JSON that has
       them round-trips without them.
-- [ ] `make clean && make && make test && make lint && make analyze` clean
-- [ ] `grep -rn 'expected_outcome\|\.steps' include/ lib/ tests/` returns nothing
+- [x] `make clean && make && make test && make lint && make analyze` clean
+- [x] `grep -rn 'expected_outcome\|\.steps' include/ lib/ tests/` returns nothing
       for the skill struct (distinguish from `Memory::steps` if any).
 
 ---
@@ -118,11 +118,11 @@ defaults are not project-scoped.
 
 ### Verification
 
-- [ ] Red test `experience_store_project_default`: config empty →
+- [x] Red test `experience_store_project_default`: config empty →
       `load_experience_config` resolves to `<workspace>/.amber/experience.json`
-- [ ] Red test `experience_store_legacy_seed_once`: legacy file + absent project
+- [x] Red test `experience_store_legacy_seed_once`: legacy file + absent project
       store → seeded; legacy untouched; second construction does not re-seed
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -165,12 +165,12 @@ parser and a directory scanner with scope precedence and the interop gate.
 
 ### Verification
 
-- [ ] Tests `[SF-01]`–`[SF-09]` each get a small `TEST` block in
+- [x] Tests `[SF-01]`–`[SF-09]` each get a small `TEST` block in
       `tests/skill_file_test.cpp` (minimal valid, folded description, malformed
       excluded, dir/name mismatch, project shadows global, interop gate,
       unknown keys ignored, non-kebab excluded, missing root empty)
-- [ ] `make clean && make && make test && make lint && make analyze` clean
-- [ ] No `#include "tui/"` or `#include "src/"` from `lib/skill_file.cpp`
+- [x] `make clean && make && make test && make lint && make analyze` clean
+- [x] No `#include "tui/"` or `#include "src/"` from `lib/skill_file.cpp`
 
 ---
 
@@ -217,14 +217,14 @@ No runtime union view, no persisted curation, no discovery-block injection.
 
 ### Verification
 
-- [ ] Tests for [SK-01] (union discovery), [AS-05]/[SK-06] (disable sticky),
+- [x] Tests for [SK-01] (union discovery), [AS-05]/[SK-06] (disable sticky),
       [SK-07] (enable forces shadowed), [SK-08] (block provenance),
       [AS-06] (discovery budget), [AS-07] (oversized body rejected)
-- [ ] Tests for authored-shadows-learned [AS-03] and project-shadows-global
+- [x] Tests for authored-shadows-learned [AS-03] and project-shadows-global
       [AS-04] end-to-end through the catalog
-- [ ] Test [AS-10]: after refresh, discovery block changed; next prompt copy
+- [x] Test [AS-10]: after refresh, discovery block changed; next prompt copy
       contains the new block
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -266,12 +266,12 @@ The model has no way to activate a skill, list them, or author one.
 
 ### Verification
 
-- [ ] Tests: [SK-02] activation + cache, [SK-03] unknown name error,
+- [x] Tests: [SK-02] activation + cache, [SK-03] unknown name error,
       [SK-14] oversized body rejected, [SK-15] filtered list,
       [SK-04]/[SK-05] write + approval/denial
-- [ ] `read_skill` never requests approval; `write_skill` always does
+- [x] `read_skill` never requests approval; `write_skill` always does
       (assert via `requires_approval` in tests)
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -323,14 +323,19 @@ get skills [name]
 
 ### Verification
 
-- [ ] `tests/tui_tests.cpp` covers [NC-22] show, [NC-23] export (incl. unknown
-      learned skill error), [NC-24] create with `--global`, [NC-25] disable
-      persists across refresh
-- [ ] Test [SK-16]: interop off → skills absent; `/set skills interop on` +
-      `refresh` → present
-- [ ] Test [SK-12]: `create --global` writes under `~/.config/amber/skills/`
-- [ ] Manual: `/set skills show` in TUI renders the scope table
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] Command logic covered by `skill_commands_*` tests in
+      `tests/skill_catalog_test.cpp` ([NC-22] show, [NC-23] export incl.
+      unknown learned skill error, [NC-24] create with `--global`, [NC-25]
+      disable persists across refresh). Note: Tui itself needs ncurses and is
+      not unit-testable; the TUI handlers are thin glue over the tested
+      `lib/skill_commands.cpp` functions.
+- [x] Test [SK-16]: interop off → skills absent; enabling + refresh → present
+      (`skill_catalog_interop_gate`)
+- [x] Test [SK-12]: `create --global` writes under `~/.config/amber/skills/`
+      (`skill_commands_create_global`)
+- [~] Manual: `/set skills show` in TUI renders the scope table (needs a
+      terminal; code path is the tested `skill_show_lines`)
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -374,11 +379,14 @@ author; and the security posture must be proven by tests, not assumed.
 
 ### Verification
 
-- [ ] Tests for [SM-09], [SM-10], [SM-11], [SM-12] as above
-- [ ] `prompts/skills.md` loaded at session start (test asserts non-empty)
-- [ ] `make clean && make && make test && make lint && make analyze` clean
-- [ ] `grep -rn 'allowed-tools' lib/ tools/` shows only the parse-and-ignore
-      site, no behavioural use
+- [x] Tests for [SM-09], [SM-10], [SM-11], [SM-12] as above
+      (`skill_trust_*` in `tests/skill_catalog_test.cpp`; [SM-11] covered by
+      `skill_catalog_interop_gate`)
+- [x] `prompts/skills.md` loaded at session start (test asserts non-empty)
+- [x] `make clean && make && make test && make lint && make analyze` clean
+- [x] `grep -rn 'allowed-tools' lib/ tools/` shows only the parse-and-ignore
+      site, no behavioural use (no matches — the parser drops unknown keys
+      generically)
 
 ---
 
