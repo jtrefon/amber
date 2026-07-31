@@ -39,7 +39,7 @@ double compute_freshness(int last_confirm_turn, int current_turn) {
     return 1.0 - (static_cast<double>(age) / 20.0);
 }
 
-double compute_score(const Memory& mem, const std::string& user_msg,
+double compute_score(const KnowledgeItem& mem, const std::string& user_msg,
                      int current_turn) {
     double evidence_w = 0.5;
     double relevance_w = 0.3;
@@ -214,6 +214,49 @@ public:
         if (filtered.size() > k)
             filtered.resize(k);
         return filtered;
+    }
+
+    std::vector<Memory> all_memories() const override {
+        std::vector<Memory> out;
+        out.reserve(memories_.size());
+        for (const auto& [id, mem] : memories_) out.push_back(mem);
+        std::sort(out.begin(), out.end(),
+                  [&](const Memory& a, const Memory& b) {
+                      return compute_score(a, "", current_turn_) >
+                             compute_score(b, "", current_turn_);
+                  });
+        return out;
+    }
+
+    std::vector<Skill> all_skills() const override {
+        std::vector<Skill> out;
+        out.reserve(skills_.size());
+        for (const auto& [id, sk] : skills_) out.push_back(sk);
+        std::sort(out.begin(), out.end(),
+                  [&](const Skill& a, const Skill& b) {
+                      return compute_score(a, "", current_turn_) >
+                             compute_score(b, "", current_turn_);
+                  });
+        return out;
+    }
+
+    bool remove(const std::string& id) override {
+        if (memories_.erase(id) > 0) return true;
+        return skills_.erase(id) > 0;
+    }
+
+    bool set_promoted(const std::string& id, bool pinned) override {
+        auto it = memories_.find(id);
+        if (it != memories_.end()) {
+            it->second.promoted = pinned;
+            return true;
+        }
+        auto sit = skills_.find(id);
+        if (sit != skills_.end()) {
+            sit->second.promoted = pinned;
+            return true;
+        }
+        return false;
     }
 
     const Memory* find_memory(const std::string& name) const override {
