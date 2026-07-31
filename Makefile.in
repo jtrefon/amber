@@ -106,7 +106,8 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/mcp_client_test.o \
                $(BUILD_DIR)/tests/mcp_config_test.o \
                $(BUILD_DIR)/tests/mcp_tools_test.o \
-               $(BUILD_DIR)/tests/learn_commands_test.o
+               $(BUILD_DIR)/tests/learn_commands_test.o \
+               $(BUILD_DIR)/tests/agent_loop_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
@@ -275,6 +276,10 @@ $(BUILD_DIR)/tests/mcp_tools_test.o: $(SRC_DIR)/tests/mcp_tools_test.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/tests/learn_commands_test.o: $(SRC_DIR)/tests/learn_commands_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/agent_loop_test.o: $(SRC_DIR)/tests/agent_loop_test.cpp
 	@mkdir -p $(BUILD_DIR)/tests
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
