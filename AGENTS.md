@@ -24,10 +24,10 @@ C++17 AI agent harness: a core library (`libagent.a`) plus a headless CLI
 
 ## Compilation gotchas
 
-- Header dependency files (`.d`, via `-MMD -MP`) are committed. If you change a
-  struct layout or any header, rebuild — stale `.o` from missing `.d` entries
-  silently causes ABI/heap-corruption bugs at runtime (called out in the
-  Makefile). When in doubt, `make clean && make`.
+- Header dependency files (`.d`, via `-MMD -MP`) are generated, not committed
+  (`*.d` is gitignored). If you change a struct layout or any header, rebuild —
+  stale `.o` from missing `.d` entries silently causes ABI/heap-corruption bugs
+  at runtime (called out in the Makefile). When in doubt, `make clean && make`.
 - `include/agent/version.h` is **generated** by `./configure` from
   `version.h.in`; do not hand-edit it, and don't commit a stale one.
 - `compile_flags.txt` (for clangd/editors) is minimal; the real include paths
