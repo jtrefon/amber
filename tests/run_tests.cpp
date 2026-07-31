@@ -852,7 +852,7 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8911/v1";
     cfg.stream = true;
-    agent::LLMClient client(cfg);
+    agent::HttpLLMClient client(cfg);
 
     std::vector<std::string> tokens;
     agent::Message m = client.chat_stream({}, {},
@@ -887,7 +887,7 @@ TEST(llm_streaming_inline_think_segmentation) {
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8912/v1";
     cfg.stream = true;
-    agent::LLMClient client(cfg);
+    agent::HttpLLMClient client(cfg);
 
     std::string answer, reasoning;
     agent::Message m = client.chat_stream({}, {},
@@ -919,7 +919,7 @@ TEST(llm_streaming_reasoning_content_field) {
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8913/v1";
     cfg.stream = true;
-    agent::LLMClient client(cfg);
+    agent::HttpLLMClient client(cfg);
 
     agent::Message m = client.chat_stream({}, {},
         [](const agent::StreamChunk&) {});
@@ -944,7 +944,7 @@ TEST(llm_streaming_captures_usage_stats) {
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8914/v1";
     cfg.stream = true;
-    agent::LLMClient client(cfg);
+    agent::HttpLLMClient client(cfg);
 
     agent::Stats stats;
     agent::Message m = client.chat_stream({}, {},

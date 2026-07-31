@@ -5,6 +5,15 @@
 #include "agent/process.h"
 
 #include <curl/curl.h>
+
+namespace {
+// libcurl write callback: accumulate the response body into a std::string.
+size_t write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
+    auto* buf = static_cast<std::string*>(user);
+    buf->append(ptr, size * nmemb);
+    return size * nmemb;
+}
+} // namespace
 #include <stdexcept>
 #include <nlohmann/json.hpp>
 
@@ -205,7 +214,7 @@ std::string post_completion(Config& cfg, const std::string& payload,
     long http_code = 0;
     double t0 = 0, t1 = 0;
     curl_exec(cfg, payload, accept_sse, 300L,
-              LLMClient::write_cb, &response,
+              write_cb, &response,
               http_code, t0, t1, "error");
     if (ttfb) *ttfb = t0;
     if (total) *total = t1;
