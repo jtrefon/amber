@@ -3,8 +3,10 @@
 // driven by the scripted FakeLLMClient. No network, no server.
 // Scenarios map to docs/spec/llm-client/agent-loop-reliability.md [AL-xx].
 
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unistd.h>
 
 #include "agent.h"
@@ -253,3 +255,106 @@ TEST(agent_loop_hash_chain_intact) {
 }
 
 
+
+// ---------------------------------------------------------------------------
+// Retry policy ([AL-07]..[AL-10]): the fake throws retryable/non-retryable
+// ApiErrors; chat_with_retry applies backoff, then the loop degrades.
+// ---------------------------------------------------------------------------
+
+// [AL-07] Two transient failures, then success.
+TEST(agent_loop_retry_then_success) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    agent_test::FakeReply f1;
+    f1.error = "server hiccup";
+    f1.retryable = true;
+    fake->script.push_back(std::move(f1));
+    agent_test::FakeReply f2;
+    f2.error = "server hiccup again";
+    f2.retryable = true;
+    fake->script.push_back(std::move(f2));
+    push_text(*fake, "ok after retries");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("hi");
+    ASSERT_EQ(reply, "ok after retries");
+    ASSERT_EQ(raw->chat_calls, 4);  // 3 attempts + confirmation probe
+}
+
+// [AL-08] A non-retryable error fails fast (single attempt).
+TEST(agent_loop_non_retryable_fails_fast) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    agent_test::FakeReply bad;
+    bad.error = "invalid api key";
+    bad.retryable = false;
+    fake->script.push_back(std::move(bad));
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("hi");
+    ASSERT(reply.find("error during") != std::string::npos);
+    ASSERT_EQ(raw->chat_calls, 2);  // 1 attempt + probe; no retries
+}
+
+// [AL-09] Retries exhausted -> graceful error reply, conversation intact.
+TEST(agent_loop_retries_exhausted) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (int i = 0; i < 3; ++i) {
+        agent_test::FakeReply f;
+        f.error = "server down";
+        f.retryable = true;
+        fake->script.push_back(std::move(f));
+    }
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("hi");
+    ASSERT(reply.find("error during") != std::string::npos);
+    ASSERT_EQ(raw->chat_calls, 4);  // 3 attempts + probe
+    // The user prompt is preserved for a manual retry.
+    const auto& ctx = ag.context().get_all();
+    bool saw_user = false;
+    for (const auto& m : ctx)
+        if (m.role == "user" && m.content == "hi") saw_user = true;
+    ASSERT(saw_user);
+}
+
+// [AL-10] Cancellation during the backoff aborts the wait.
+TEST(agent_loop_cancel_during_backoff) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    agent_test::FakeReply f;
+    f.error = "server down";
+    f.retryable = true;
+    fake->script.push_back(std::move(f));
+    push_text(*fake, "done");
+
+    std::thread canceller([&cfg]() {
+        usleep(150 * 1000);
+        cfg.cancel_token.request();
+    });
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    auto t0 = std::chrono::steady_clock::now();
+    std::string reply = ag.run("hi");
+    canceller.join();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0);
+    ASSERT(reply.find("cancelled") != std::string::npos);
+    ASSERT_EQ(raw->chat_calls, 1);  // first attempt only, no backoff retry
+    ASSERT(elapsed.count() < 900);
+}
