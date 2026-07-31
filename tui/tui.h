@@ -3,6 +3,7 @@
 #define AMBER_TUI_TUI_H
 
 #include <agent.h>
+#include <agent/learn_commands.h>
 #include <agent/mcp_config.h>
 
 #include "widgets.h"
@@ -213,6 +214,8 @@ private:
     void cmd_mcp(const std::string& rest);
     void cmd_prompt(const std::string& rest);
     void cmd_prompt_list();
+    void cmd_learn(const std::string& rest);
+    void cmd_learn_panel();
     void cmd_model(const std::string& arg);
     void cmd_provider(const std::string& arg);
     void job_ls();
