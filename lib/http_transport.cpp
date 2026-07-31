@@ -229,9 +229,7 @@ std::string post_completion(Config& cfg, const std::string& payload,
             }
         }
         std::string snippet = response.substr(0, 200);
-        bool retryable = http_code == 429 || http_code == 502 ||
-                         http_code == 503 || http_code == 504 ||
-                         http_code >= 500;
+        bool retryable = http_code == 429 || http_code >= 500;
         throw ApiError(http_code, retryable,
                        "HTTP " + std::to_string(http_code) +
                            " from LLM server: " + snippet);
@@ -249,9 +247,7 @@ void stream_completion(const Config& cfg, const std::string& payload,
               status_out, ttfb, total, "error-stream");
     if (status_out < 200 || status_out >= 300) {
         std::string detail = parser.raw_body_.substr(0, 400);
-        bool retryable = status_out == 429 || status_out == 502 ||
-                         status_out == 503 || status_out == 504 ||
-                         status_out >= 500;
+        bool retryable = status_out == 429 || status_out >= 500;
         throw ApiError(status_out, retryable,
                        "HTTP " + std::to_string(status_out) +
                            " from LLM server: " + detail);
