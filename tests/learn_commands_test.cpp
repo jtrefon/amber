@@ -53,11 +53,12 @@ TEST(learn_show_lines_format) {
     ASSERT(lines[0].find("run-tests") != std::string::npos);
     ASSERT(lines[0].find("skill") != std::string::npos);
     ASSERT(lines[0].find("evidence 5") != std::string::npos);
-    ASSERT(lines[0].find("promoted") != std::string::npos);
+    ASSERT(lines[0].find(" · - · ") != std::string::npos);
     ASSERT(lines[0].find("trigger \"run the tests\"") != std::string::npos);
     ASSERT(lines[1].find("memory") != std::string::npos);
     ASSERT(lines[1].find("evidence 3") != std::string::npos);
-    ASSERT(lines[1].find("turn 12") != std::string::npos);
+    ASSERT(lines[1].find("promoted") != std::string::npos);
+    ASSERT(lines[1].find("turn 20") != std::string::npos);
     std::remove(path.c_str());
 }
 
@@ -72,7 +73,9 @@ TEST(learn_show_lines_filter) {
     ASSERT_EQ(agent::learn_show_lines(store.get(), "memory").size(), 1u);
     ASSERT_EQ(agent::learn_show_lines(store.get(), "skill").size(), 1u);
     ASSERT_EQ(agent::learn_show_lines(store.get(), "make").size(), 1u);
-    ASSERT_EQ(agent::learn_show_lines(store.get(), "zzz").size(), 0u);
+    auto none = agent::learn_show_lines(store.get(), "zzz");
+    ASSERT_EQ(none.size(), 1u);
+    ASSERT_EQ(none[0], "(no learned items)");
     std::remove(path.c_str());
 }
 
@@ -106,15 +109,16 @@ TEST(learn_inspect_lines) {
     std::string err;
     auto lines = agent::learn_inspect_lines(store.get(), id, err);
     ASSERT_EQ(err, "");
-    ASSERT_EQ(lines.size(), 8u);
+    ASSERT_EQ(lines.size(), 9u);
     ASSERT_EQ(lines[0], "id: " + id);
     ASSERT_EQ(lines[1], "type: memory");
     ASSERT_EQ(lines[2], "name: uses make");
     ASSERT_EQ(lines[3], "content: run make test");
     ASSERT_EQ(lines[4], "tags: build, make");
     ASSERT_EQ(lines[5], "evidence: 2");
-    ASSERT_EQ(lines[6], "promoted: yes");
-    ASSERT_EQ(lines[7], "last turn: 12");
+    ASSERT(lines[6].rfind("score: ", 0) == 0);
+    ASSERT_EQ(lines[7], "promoted: yes");
+    ASSERT_EQ(lines[8], "last turn: 20");
 
     auto lines2 = agent::learn_inspect_lines(store.get(), "zzz", err);
     ASSERT_FALSE(err.empty());
@@ -134,8 +138,9 @@ TEST(learn_inspect_lines_skill) {
     std::string err;
     auto lines = agent::learn_inspect_lines(store.get(), id, err);
     ASSERT_EQ(err, "");
+    ASSERT_EQ(lines.size(), 8u);
     ASSERT_EQ(lines[1], "type: skill");
-    ASSERT_EQ(lines[8], "trigger: run the tests");
+    ASSERT_EQ(lines[7], "trigger: run the tests");
     std::remove(path.c_str());
 }
 
