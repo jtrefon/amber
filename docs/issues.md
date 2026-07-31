@@ -1,17 +1,32 @@
-# amber — Historical Issues Register
+# amber — Issues Register
 
-- **Status:** ✅ All resolved
-- **Last updated:** 2026-07-30
+- **Status:** ✅ Historical all resolved; 🆕 Current open section below
+- **Last updated:** 2026-07-31
 - **Owner:** Jacek Trefon
 - **Tolerance:** Zero technical debt — every issue must be refactored, not patched
 
-> **⚠ Historical record only.** All items below have been resolved. See
-> `docs/fix-tracker.md` for fix details.
+> **⚠ Historical record only.** The Classification Key and severity sections
+> below document *resolved* items. Current open work is tracked in the
+> "Current Open Issues" section at the top of the register.
 
-> **🆕 New work — Skills system.** The two-tier Agent Skills feature (authored
-> `SKILL.md` packages + learned procedural memory) is designed but not yet
-> implemented. See `docs/spec/skills/` for the specs and
-> `docs/skills-tracker.md` for the itemized Red→Green implementation tasks.
+> **🆕 Current open issues.** Registered 2026-07-31 during the tool-prompt /
+> agent-empowerment review. Items I-1..I-3 + I-9 form the completed
+> "agent empowerment" workstream (shipped on `feat/agent-empowerment`);
+> I-4..I-8 are follow-ups to be scheduled.
+
+## 🆕 Current Open Issues
+
+| ID | Sev | Issue | Status |
+|----|-----|-------|--------|
+| I-1 | 🟠 High | Tool prompt over-enforcement: `prompts/tools.md` + tool descriptions lectured the agent ("Prefer search…", "do not enumerate", "Use this for ALL file operations"). Editorial pass: envelope + parameter tables kept verbatim; imperatives rewritten as factual capability reference; new "Working style" section with soft, adaptable suggestions. | ✅ Done |
+| I-2 | 🟠 High | Search exclusion overreach: `.git`/`.amber`/`third_party` excluded unconditionally — vendored code was unsearchable even with an explicit `path`. Now default-only: an explicit path inside an excluded dir drops that exclusion. | ✅ Done |
+| I-3 | 🟡 Medium | Search exclusion policy duplicated (grep backend flags + semantic index `find` predicates). Now one shared definition: `default_excluded_dirs()` in `include/agent/search_backend.h`. | ✅ Done |
+| I-9 | 🟡 Medium | No environment grounding: the agent didn't know its OS/distro, user, cwd, resources, or installed tools. New `EnvironmentInfo` probe + `render_environment_card()` (lib/environment.cpp), injected into the system prompt at session start (stable KV prefix). | ✅ Done |
+| I-4 | 🟡 Medium | Confirmation probe doubles LLM round trips: every text turn costs an extra classify/extract call. Make the probe adaptive (skip when the previous turn needed none). | ⏳ Open |
+| I-5 | 🔵 Low | CommandNode tree (P2): string-parsing debt in `tui/tui_input.cpp` (1520 lines of method implementations). Strategic refactor; no behavior change. | ⏳ Open |
+| I-6 | 🔵 Low | Repo hygiene: in-tree test binaries (`command_line_test`, `completions_test`, `e2e_test`) are tracked in git. Add to `.gitignore` / `git rm --cached`. | ⏳ Open |
+| I-7 | 🔵 Low | Config trap: `compression_min_turns` / `cooldown_turns = 0` silently keep defaults instead of disabling. Fix 0 → disable semantics, document. | ⏳ Open |
+| I-8 | 🔵 Low | Skills marketplace installer (optional product feature): browse/install authored `SKILL.md` packages from a remote index. | ⏳ Open |
 
 ---
 
