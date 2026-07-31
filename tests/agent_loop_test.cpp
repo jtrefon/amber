@@ -360,3 +360,48 @@ TEST(agent_loop_cancel_during_backoff) {
     ASSERT_EQ(raw->chat_calls, 2);
     ASSERT(elapsed.count() < 900);
 }
+
+// [AL-11] Unknown n_ctx: the gate falls back to a conservative budget instead
+// of disabling compression entirely.
+TEST(agent_loop_unknown_context_fallback) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 0;  // server never reported n_ctx
+    cfg.compression_threshold = 0.1;
+    cfg.compression_min_turns = 2;
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto gate = agent::make_compression_gate(comp_cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (int i = 0; i < 21; ++i) {
+        push_text(*fake, "warm");
+        push_text(*fake, "done");
+    }
+    {
+        agent_test::FakeReply r;
+        r.content =
+            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+            R"("memories":[],"skills":[]})";
+        fake->script.push_back(std::move(r));
+    }
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+    push_text(*fake, "after fallback compression");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    {}, {}, std::move(fake));
+    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+
+    std::string big_prompt(8000, 'x');
+    std::string reply = ag.run(big_prompt);
+    ASSERT_EQ(reply, "after fallback compression");
+    bool saw_compression = false;
+    for (const auto& req : raw->requests)
+        for (const auto& m : req)
+            if (m.content.find("Classify ALL turn ranges") !=
+                std::string::npos)
+                saw_compression = true;
+    ASSERT(saw_compression);
+    (void)ag.context().get_all();
+}
