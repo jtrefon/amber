@@ -1768,7 +1768,7 @@ TEST(memory_store_upsert_and_retrieve) {
     mem.promoted = true;
     store->upsert(mem);
     auto results = store->top_memories(10, "how to build");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].content == "project uses make");
 }
 
@@ -1798,7 +1798,7 @@ TEST(memory_store_skill_trigger) {
     sk.promoted = true;
     store->upsert(sk);
     auto results = store->top_skills(10, "run the tests");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].content == "run tests");
     auto no_match = store->top_skills(10, "build the project");
     ASSERT(no_match.empty());
@@ -1899,7 +1899,7 @@ TEST(memory_store_decay) {
     store->upsert(mem);
     store->decay_all();
     auto results = store->top_memories(10, "");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].evidence_count == 2);
 }
 
@@ -1994,13 +1994,14 @@ TEST(integration_apply_and_retrieve) {
     std::string suffix = retriever.build_system_prompt_suffix(
         "how do I build this project?");
     ASSERT(!suffix.empty());
-    ASSERT(suffix.find("GNU make") != std::string::npos ||
-           suffix.find("./configure") != std::string::npos);
+    bool found = suffix.find("GNU make") != std::string::npos ||
+                 suffix.find("./configure") != std::string::npos;
+    ASSERT(found);
 
     // Phase 4: Verify decay — evidence 3 → 2 after one decay call
     store->decay_all();
     auto after_decay = store->top_memories(10, "build");
-    ASSERT(after_decay.size() >= 1u);
+    ASSERT(!after_decay.empty());
     ASSERT(after_decay[0].evidence_count == 2);
 }
 

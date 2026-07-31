@@ -128,8 +128,8 @@ struct HttpFixture {
     std::string statefile;
     int pid = -1;
 
-    explicit HttpFixture(const std::string& mode) {
-        statefile = "/tmp/mcp_http_" + mode + ".txt";
+    explicit HttpFixture(const std::string& mode)
+        : statefile("/tmp/mcp_http_" + mode + ".txt") {
         unlink(statefile.c_str());
         std::string cmd = "python3 tests/fixtures/mcp_http_server.py " +
                           statefile + " " + mode + " >/dev/null 2>&1 &";

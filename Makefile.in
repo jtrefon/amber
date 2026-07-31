@@ -140,10 +140,10 @@ lint:
 	@export fail=0; \
 	 printf '%s\0' $(LINT_SRCS) | \
 	 xargs -0 -P$$(nproc) -I{} sh -c \
-	    'out=$$(clang-tidy "{}" -- $(LINT_CXXFLAGS) 2>&1); \
+	    'out=$$(clang-tidy -quiet "{}" -- $(LINT_CXXFLAGS) 2>&1); \
 	     if [ -n "$$out" ]; then \
-	       echo "$$out" | grep -v "^Suppressed\|^Use -header-filter" || true; \
-	       if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter"; then \
+	       echo "$$out" | grep -v "^Suppressed\|^Use -header-filter\|warnings generated" || true; \
+	       if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter\|warnings generated"; then \
 	         exit 1; \
 	       fi; \
 	     fi' _; \

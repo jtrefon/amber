@@ -288,7 +288,7 @@ void Tui::session_browser() {
                 x += static_cast<int>(std::strlen(cnt)) + 1;
                 if (m.file_size > 0) {
                     char sz[16];
-                    if (m.file_size > 1024 * 1024)
+                    if (m.file_size > static_cast<long>(1024) * 1024)
                         std::snprintf(sz, sizeof(sz), "%.1fMB",
                                       m.file_size / (1024.0 * 1024.0));
                     else if (m.file_size > 1024)
@@ -333,6 +333,7 @@ void Tui::session_browser() {
                 case KEY_UP: --sel; break;
                 case KEY_NPAGE: sel += list_h; break;
                 case KEY_PPAGE: sel -= list_h; break;
+                default: break;
                 case '\n': case '\r': case KEY_ENTER:
                     if (sel >= 0)
                         { load_session(all[disp[sel].second].id); done = true; }
@@ -340,7 +341,9 @@ void Tui::session_browser() {
                 case KEY_DC: case 4: {  // Delete or Ctrl+D
                     if (sel >= 0) {
                         int del_idx = disp[sel].second;
-                        std::string msg = "Delete \"" + all[del_idx].title + "\"?";
+                        std::string msg = "Delete \"";
+                        msg += all[del_idx].title;
+                        msg += "\"?";
                         tui::ConfirmPanel confirm("Delete Session", msg);
                         if (confirm.run()) {
                             store_.remove(all[del_idx].id);

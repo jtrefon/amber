@@ -233,7 +233,7 @@ size_t count_tokens(const std::vector<Message>& msgs) {
 std::vector<Message> enforce_headroom(std::vector<Message> compressed,
                                        size_t context_size) {
     if (context_size == 0) return compressed;
-    size_t budget = static_cast<size_t>(
+    auto budget = static_cast<size_t>(
         static_cast<double>(context_size) * 0.75);
     size_t used = count_tokens(compressed);
     if (used <= budget) return compressed;

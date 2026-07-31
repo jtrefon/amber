@@ -43,7 +43,7 @@ public:
 
     int menu_select(const std::string& title,
                     const std::vector<std::string>& items) override {
-        last_menu_title_ = title.size() ? title[0] : 0;
+        last_menu_title_ = !title.empty() ? title[0] : 0;
         last_menu_items_ = items;
         // Default: select first item.
         return items.empty() ? -1 : 0;
@@ -154,7 +154,7 @@ TEST(test_slash_drawer) {
     tui::CommandLine cl;
     view.keys_ = {'/'};
     auto r = simulate(view, cl);
-    ASSERT_EQ(r.dispatched, "");
+    ASSERT(r.dispatched.empty());
     ASSERT_EQ(cl.text(), "/");
     ASSERT(cl.drawer_open());
     PASS;
@@ -278,7 +278,7 @@ TEST(test_shadow_empty_without_completions) {
     tui::CommandLine cl;
     cl.set_completions({});  // empty completions
     cl.set_text("/se");
-    ASSERT_EQ(cl.shadow(), "");
+    ASSERT(cl.shadow().empty());
     PASS;
 }
 
@@ -338,7 +338,7 @@ TEST(test_shadow_sequential_typing) {
     cl.set_completions({"help", "set", "session", "save", "quit", "stop",
                         "system", "files", "provider", "model", "job", "compress"});
     // After '/' and completions: partial is "", no shadow.
-    ASSERT_EQ(cl.shadow(), "");
+    ASSERT(cl.shadow().empty());
 
     // Type 's': partial = "s", should find shadow.
     cl.on_char('s');
@@ -422,7 +422,7 @@ TEST(test_shadow_depth3_no_match) {
     tui::CommandLine cl;
     cl.set_completions({"loop", "duplicate"});
     cl.set_text("/set detection.zz");
-    ASSERT_EQ(cl.shadow(), "");
+    ASSERT(cl.shadow().empty());
     PASS;
 }
 
@@ -434,7 +434,7 @@ TEST(test_shadow_depth2_without_dot_no_shadow) {
     cl.set_completions({"detection", "compression", "policy"});
     cl.set_text("/set loop");
     // "loop" doesn't match any namespace completion.
-    ASSERT_EQ(cl.shadow(), "");
+    ASSERT(cl.shadow().empty());
     PASS;
 }
 
@@ -488,7 +488,7 @@ TEST(test_shadow_depth2_sequential_typing) {
     cl.on_char('o'); cl.on_char('n'); cl.on_char('.');
 
     // At /get detection. → partial = "detection." → suffix = "" → no shadow
-    ASSERT_EQ(cl.shadow(), "");
+    ASSERT(cl.shadow().empty());
 
     // Type 'l' → /get detection.l → suffix "l" → shadow "oop"
     cl.on_char('l');

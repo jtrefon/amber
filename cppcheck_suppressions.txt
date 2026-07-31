@@ -24,3 +24,7 @@ unreachableCode
 constParameterPointer
 # libcurl callback signatures are fixed by the C API; cannot add const.
 constParameterCallback
+# cppcheck 2.19 makes --error-exitcode trigger on style findings; unusedFunction
+# is noisy for library-style code (public API + header accessors "never used"
+# within the checked set) and clang-tidy's lint target is the dead-code gate.
+unusedFunction

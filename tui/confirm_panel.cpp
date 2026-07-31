@@ -60,10 +60,11 @@ void ApprovalPanel::draw() {
 
     // Summary line (truncated if too long)
     std::string disp = summary_;
-    if (static_cast<int>(disp.size()) > cw - 4)
+    if (static_cast<int>(disp.size()) > cw - 4) {
         if (static_cast<int>(disp.size()) > cw - 7)
             disp.resize(static_cast<std::size_t>(cw - 7));
         disp += "...";
+    }
     int sx = (cw - static_cast<int>(disp.size())) / 2;
     if (sx < 0) sx = 0;
     mvwprintw(content(), 1, sx, "%s", disp.c_str());
@@ -106,7 +107,6 @@ agent::Approval ApprovalPanel::run() {
             }
             if (remaining_ == 0) {
                 // Auto-confirm default
-                done = true;
                 break;
             }
         }
@@ -120,6 +120,8 @@ agent::Approval ApprovalPanel::run() {
         case KEY_RIGHT:
             sel_ = (sel_ + 1) % 4;
             draw();
+            break;
+        default:
             break;
         case KEY_LEFT:
             sel_ = (sel_ + 3) % 4;
@@ -196,6 +198,8 @@ bool ConfirmPanel::run() {
             break;
         case 27:
             done = true;
+            break;
+        default:
             break;
         }
     }

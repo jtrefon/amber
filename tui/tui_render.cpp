@@ -155,9 +155,10 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     if (stats_.latency_ms >= 0) {
         char b[32];
         std::snprintf(b, sizeof(b), "  lag %.0fms", stats_.latency_ms);
-        int lag_pair = stats_.latency_ms > 5000 ? P_GAUGE_CRIT
-                     : stats_.latency_ms > 1000 ? P_GAUGE_WARN
-                     : P_BAR_DIM;
+        int lag_pair;
+        if (stats_.latency_ms > 5000) lag_pair = P_GAUGE_CRIT;
+        else if (stats_.latency_ms > 1000) lag_pair = P_GAUGE_WARN;
+        else lag_pair = P_BAR_DIM;
         segs.push_back({b, lag_pair, 6});
     } else {
         segs.push_back({"  lag " + std::string(text::glyph::emdash()), P_BAR_DIM, 6});
@@ -463,19 +464,16 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     }
     decor("]\u2500\u276f ");
 
-    prompt_w = x;  // columns consumed by prompt
-
-    // ── Input text (render after prompt, scroll horizontally) ─────────
     prompt_w = x;  // columns consumed by prompt (x is already in wide-char count)
-    int total_w = prompt_w + static_cast<int>(display_cols(s)) +
-                  static_cast<int>(display_cols(shadow));
+    int total_w = prompt_w + display_cols(s) + display_cols(shadow);
     // Cursor column: prompt width + input text before cursor.
-    int cursor_col = prompt_w + static_cast<int>(display_cols(s.substr(0, cursor)));
+    int cursor_col = prompt_w + display_cols(s.substr(0, cursor));
     int scroll_off = 0;
     if (cursor_col >= w) scroll_off = cursor_col - w + 1;
     if (scroll_off < prompt_w) scroll_off = 0;
-    int vis_w = std::min(total_w - scroll_off, w);
-    if (vis_w <= 0) { scroll_off = std::max(0, total_w - w); vis_w = std::min(total_w, w); }
+    if (total_w - scroll_off <= 0) {
+        scroll_off = std::max(0, total_w - w);
+    }
 
     // Render visible part of input text starting at column prompt_w.
     int input_start = prompt_w - scroll_off;
@@ -483,15 +481,13 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
     if (input_start < w && scroll_off > prompt_w) {
         // Scrolled past prompt — render input only.
         const char* input_visible = s.c_str();
-        int input_len = static_cast<int>(s.size());
-        if (scroll_off > prompt_w) {
-            size_t skip = static_cast<size_t>(scroll_off - prompt_w);
-            if (skip < s.size()) {
-                input_visible += skip;
-                input_len = static_cast<int>(s.size()) - static_cast<int>(skip);
-            } else {
-                input_len = 0;
-            }
+        auto skip = static_cast<size_t>(scroll_off - prompt_w);
+        int input_len;
+        if (skip < s.size()) {
+            input_visible += skip;
+            input_len = static_cast<int>(s.size()) - static_cast<int>(skip);
+        } else {
+            input_len = 0;
         }
         if (input_len > 0) {
             if (input_len > w) input_len = w;
@@ -514,7 +510,7 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
 
     // ── Shadow (faded completion hint after cursor) ────────────────────
     if (!shadow.empty() && cursor == s.size()) {
-        int input_w = prompt_w + static_cast<int>(display_cols(s));
+        int input_w = prompt_w + display_cols(s);
         int shadow_start = input_w - scroll_off;
         if (shadow_start >= 0 && shadow_start < w) {
             attron(A_DIM | COLOR_PAIR(P_GRAY));
@@ -627,12 +623,16 @@ void Tui::draw_drawer(const std::string& input) {
                 auto sub = settings_.children_of(sub_key);
                 if (!sub.empty()) {
                     for (const auto& sk : sub) {
-                        std::string full_key = sub_key + "." + sk;
+                        std::string full_key = sub_key;
+                        full_key += ".";
+                        full_key += sk;
                         std::string h = settings_.help_for(full_key);
-                        std::string line = "  " + sk;
+                        std::string line = "  ";
+                        line += sk;
                         if (!h.empty()) {
                             if (sk.size() < 34) line.append(34 - sk.size(), ' ');
-                            line += "  " + h;
+                            line += "  ";
+                            line += h;
                         }
                         append_choices(line, full_key);
                         rows.push_back(line);
@@ -642,12 +642,18 @@ void Tui::draw_drawer(const std::string& input) {
             }
             for (const auto& k : kids) {
                 if (!partial.empty() && k.rfind(partial, 0) != 0) continue;
-                std::string full_key = is_top_cmd ? k : lookup_key + "." + k;
+                std::string full_key = is_top_cmd ? k : lookup_key;
+                if (!is_top_cmd) {
+                    full_key += ".";
+                    full_key += k;
+                }
                 std::string h = settings_.help_for(full_key);
-                std::string line = "  " + k;
+                std::string line = "  ";
+                line += k;
                 if (!h.empty()) {
                     if (k.size() < 34) line.append(34 - k.size(), ' ');
-                    line += "  " + h;
+                    line += "  ";
+                    line += h;
                 }
                 append_choices(line, full_key);
                 rows.push_back(line);
@@ -671,12 +677,18 @@ void Tui::draw_drawer(const std::string& input) {
         if (!kids.empty()) {
             bool is_top = (token == "get" || token == "set");
             for (const auto& k : kids) {
-                std::string full_key = is_top ? k : token + "." + k;
+                std::string full_key = is_top ? k : token;
+                if (!is_top) {
+                    full_key += ".";
+                    full_key += k;
+                }
                 std::string h = settings_.help_for(full_key);
-                std::string line = "  " + k;
+                std::string line = "  ";
+                line += k;
                 if (!h.empty()) {
                     if (k.size() < 34) line.append(34 - k.size(), ' ');
-                    line += "  " + h;
+                    line += "  ";
+                    line += h;
                 }
                 append_choices(line, full_key);
                 rows.push_back(line);

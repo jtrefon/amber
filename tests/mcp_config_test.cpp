@@ -38,9 +38,9 @@ struct McpEnv {
     std::string global_mcp;
     std::string cwd;
 
-    explicit McpEnv(const std::string& tag) {
-        ws = "/tmp/amber_mcp_" + tag;
-        home = "/tmp/amber_mcp_home_" + tag;
+    explicit McpEnv(const std::string& tag)
+        : ws("/tmp/amber_mcp_" + tag),
+          home("/tmp/amber_mcp_home_" + tag) {
         project_mcp = ws + "/.amber/mcp";
         global_mcp = home + "/.config/amber/mcp";
         run_cmd("rm -rf " + ws + " " + home);

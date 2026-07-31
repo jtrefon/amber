@@ -29,6 +29,23 @@ int map_last_choice(agent::PolicyLevel lc) {
 
 } // namespace
 
+
+namespace {
+
+std::string toolfold_name(ToolFold f) {
+    if (f == ToolFold::Always) return "always";
+    if (f == ToolFold::Never) return "never";
+    return "auto";
+}
+
+std::string mode_name(agent::AgentMode m) {
+    if (m == agent::AgentMode::Read) return "read";
+    if (m == agent::AgentMode::Yolo) return "yolo";
+    return "write";
+}
+
+} // namespace
+
 void Tui::send(const std::string& prompt) {
     agent::AgentHooks hooks;
     win().reason_buf.clear();
@@ -46,7 +63,7 @@ void Tui::send(const std::string& prompt) {
         }
         win().stream_color = P_ASSISTANT;
         win().stream_buf += d;
-        live_ctx_offset_ += static_cast<long>(d.size()) / 4 + 1;
+        live_ctx_offset_ += (static_cast<long>(d.size()) / 4) + 1;
         win().scroll_top = max_scroll();
         draw();
     };
@@ -185,12 +202,8 @@ void Tui::cmd_set(const std::string& arg) {
         append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
         append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
         append_line(P_STATUS, "display markdown: " + std::string(win().markdown_on ? "on" : "off"));
-        std::string tf = (tool_fold_ == ToolFold::Always) ? "always" :
-                         (tool_fold_ == ToolFold::Never) ? "never" : "auto";
-        append_line(P_STATUS, "toolfold: " + tf);
-        std::string pol = (cfg_.mode == agent::AgentMode::Read) ? "read" :
-                          (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
-        append_line(P_STATUS, "policy: " + pol);
+        append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
+        append_line(P_STATUS, "policy: " + mode_name(cfg_.mode));
         append_line(P_STATUS, "compression threshold: " +
             std::to_string(cfg_.compression_threshold > 0.0 ? cfg_.compression_threshold : 0.75));
         append_line(P_STATUS, "compression min_turns: " +
@@ -222,16 +235,22 @@ void Tui::cmd_set(const std::string& arg) {
             return;
         }
         bool* field = (key == "loop") ? &cfg_.detection_loop : &cfg_.detection_duplicate;
-        bool new_val = (val == "on") ? true : (val == "off") ? false : !*field;
+        bool new_val;
+        if (val == "on") new_val = true;
+        else if (val == "off") new_val = false;
+        else new_val = !*field;
         *field = new_val;
         for (auto& w : windows_) {
             if (!w->agent) continue;
             if (key == "loop") w->agent->set_detection_loop(new_val);
             else w->agent->set_detection_duplicate(new_val);
         }
-        std::string hint = (key == "loop")
-            ? (new_val ? "breaks on repeat" : "runs until stop")
-            : (new_val ? "rejects duplicates" : "may repeat calls");
+        std::string hint;
+        if (key == "loop") {
+            hint = new_val ? "breaks on repeat" : "runs until stop";
+        } else {
+            hint = new_val ? "rejects duplicates" : "may repeat calls";
+        }
         append_line(P_STATUS, "detection " + key + ": " + (new_val ? "on" : "off") + " — " + hint);
         if (!cfg_.save_settings(settings_path_))
             append_line(P_STATUS, "warning: could not save to " + settings_path_);
@@ -266,9 +285,9 @@ void Tui::cmd_set(const std::string& arg) {
     if (ns == "policy") {
         // /set policy read|write|yolo — backward compat shortcut for mode
         if (rest == "read" || rest == "write" || rest == "yolo") {
-            cfg_.mode = (rest == "read") ? agent::AgentMode::Read :
-                        (rest == "yolo") ? agent::AgentMode::Yolo :
-                                           agent::AgentMode::Write;
+            if (rest == "read") cfg_.mode = agent::AgentMode::Read;
+            else if (rest == "yolo") cfg_.mode = agent::AgentMode::Yolo;
+            else cfg_.mode = agent::AgentMode::Write;
             append_line(P_STATUS, "policy mode: " + rest);
             draw();
             return;
@@ -426,8 +445,12 @@ void Tui::cmd_get(const std::string& arg) {
     // Also try appending suffixes for namespace-level queries (e.g. "detection" → "detection.loop").
     auto subs = settings_.keys_in(arg);
     if (!subs.empty()) {
-        for (const auto& sub : subs)
-            cmd_get(arg + "." + sub);
+        for (const auto& sub : subs) {
+            std::string key = arg;
+            key += ".";
+            key += sub;
+            cmd_get(key);
+        }
         return;
     }
 
@@ -445,18 +468,14 @@ void Tui::cmd_get(const std::string& arg) {
         return;
     }
     if (arg == "toolfold") {
-        std::string v = (tool_fold_ == ToolFold::Always) ? "always" :
-                        (tool_fold_ == ToolFold::Never) ? "never" : "auto";
-        append_line(P_STATUS, "toolfold: " + v);
+        append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
         return;
     }
     if (arg.rfind("policy", 0) == 0) {
         std::string sub = (arg.size() > 7) ? arg.substr(7) : "";
         if (sub.empty() || sub == " ") {
             // Show mode
-            std::string v = (cfg_.mode == agent::AgentMode::Read) ? "read" :
-                            (cfg_.mode == agent::AgentMode::Yolo) ? "yolo" : "write";
-            append_line(P_STATUS, "policy mode: " + v);
+            append_line(P_STATUS, "policy mode: " + mode_name(cfg_.mode));
             append_line(P_STATUS, "policy timeout: " + std::to_string(policy_timeout_) + "s");
             // List stored rules
             auto* ag = win().agent.get();
@@ -565,7 +584,7 @@ void Tui::cmd_skills_set(const std::string& rest) {
     size_t sp = rest.find(' ');
     std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
     std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
-    auto trim = [](std::string s) {
+    auto trim = [](const std::string& s) {
         size_t b = s.find_first_not_of(" \t");
         size_t e = s.find_last_not_of(" \t");
         return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
@@ -608,7 +627,7 @@ void Tui::cmd_skills_set(const std::string& rest) {
         size_t gpos = name.find("--global");
         if (gpos != std::string::npos) {
             scope = "global";
-            name = name.substr(0, gpos);
+            name.resize(gpos);
         }
         name = trim(name);
         if (name.empty()) {
@@ -689,7 +708,7 @@ void Tui::cmd_mcp(const std::string& rest) {
     size_t sp = rest.find(' ');
     std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
     std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
-    auto trim = [](std::string s) {
+    auto trim = [](const std::string& s) {
         size_t b = s.find_first_not_of(" \t");
         size_t e = s.find_last_not_of(" \t");
         return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
@@ -902,9 +921,9 @@ void Tui::build_commands() {
               return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
                      "  display " + (win().markdown_on ? "on" : "off") +
                      "  toolfold " + (tool_fold_ == ToolFold::Always ? "always" :
-                                      tool_fold_ == ToolFold::Never ? "never" : "auto") +
+                                      toolfold_name(tool_fold_)) +
                      "  policy " + (cfg_.mode == agent::AgentMode::Read ? "read" :
-                                    cfg_.mode == agent::AgentMode::Yolo ? "yolo" : "write") +
+                                    mode_name(cfg_.mode)) +
                      "  provider " + cfg_.provider_name +
                      "  model " + cfg_.model +
                      "  think " + cfg_.thinking;
@@ -1102,11 +1121,10 @@ void Tui::build_commands() {
                  if (!fs::exists(p) || !fs::is_directory(p)) {
                      append_line(P_STATUS, "not a directory: " + rest);
                  } else {
-                     // rest is the search root; we need a pattern
+                     // rest is the search root; no pattern given — show
+                     // directory contents
                      size_t sp2 = a.find(' ', sp + 1);
-                    std::string pattern;
-                    if (sp2 == std::string::npos) {
-                         // no pattern given — show directory contents
+                     if (sp2 == std::string::npos) {
                          for (const auto& e : fs::directory_iterator(p))
                              append_line(P_ASSISTANT, e.path().filename().string());
                      }
@@ -1291,9 +1309,10 @@ void Tui::cmd_model(const std::string& arg) {
 
         // Mark current model
         std::vector<std::string> display;
-        for (size_t i = 0; i < models.size(); ++i) {
-            bool cur = (models[i] == cfg_.model);
-            display.push_back((cur ? "> " : "  ") + models[i]);
+        display.reserve(models.size());
+        for (const auto& m : models) {
+            bool cur = (m == cfg_.model);
+            display.emplace_back((cur ? "> " : "  ") + m);
         }
 
         {
@@ -1623,8 +1642,8 @@ void Tui::settings_screen() {
 
     // Add "Add new..." option at the end
     int add_new_idx = static_cast<int>(prov_id.size());
-    prov_display.push_back("  + Add new provider...");
-    prov_id.push_back("");  // sentinel
+    prov_display.emplace_back("  + Add new provider...");
+    prov_id.emplace_back("");  // sentinel
 
     if (active_idx < 0) active_idx = 2;  // default to custom
 
@@ -1644,12 +1663,16 @@ void Tui::settings_screen() {
             bool active = (id == cfg_.provider_name);
             std::string prefix = active ? "> " : "  ";
             std::string key_hint = cfg_.api_key.empty() ? "no-key" : "key-set";
+            std::string line = prefix;
+            line += id;
+            line += "  (";
             if (id == "openrouter" || id == "kilocode" || id == "custom") {
-                rich_display.push_back(prefix + id + "  (" + key_hint + ")");
+                line += key_hint;
             } else {
-                std::string key = cfg_.api_key.empty() && active ? "no-key" : "key-set";
-                rich_display.push_back(prefix + id + "  (" + key + ")");
+                line += cfg_.api_key.empty() && active ? "no-key" : "key-set";
             }
+            line += ")";
+            rich_display.push_back(line);
         }
         rich_display.back() = "  + Add new provider...";
 
@@ -1706,7 +1729,7 @@ void Tui::settings_screen() {
     bool is_preset = (selected_id == "openrouter" || selected_id == "kilocode" || selected_id == "custom");
     std::vector<std::string> actions = {"Activate & edit", "Test connection"};
     if (!is_preset) {
-        actions.push_back("Delete provider");
+        actions.emplace_back("Delete provider");
     }
     int action = menu_select("Provider: " + selected_id, actions);
     if (action < 0) return;
@@ -1781,7 +1804,8 @@ void Tui::build_settings() {
                    double rmin, double rmax,
                    std::function<std::string()> getter,
                    std::function<void(const std::string&)> setter) {
-        settings_.add({key, help, placeholder, type, choices, rmin, rmax, getter, setter});
+        settings_.add({key, help, placeholder, type, std::move(choices),
+                       rmin, rmax, std::move(getter), std::move(setter)});
     };
     add("detection.loop", "Tool-loop detection", "<on|off|toggle>", Setting::Choice,
         {"on","off","toggle"}, 0, 0,
@@ -1809,10 +1833,7 @@ void Tui::build_settings() {
         });
     add("toolfold", "Tool result folding mode", "<always|auto|never>", Setting::Choice,
         {"always","auto","never"}, 0, 0,
-        [this]() -> std::string {
-            return tool_fold_ == ToolFold::Always ? "always" :
-                   tool_fold_ == ToolFold::Never ? "never" : "auto";
-        },
+        [this]() -> std::string { return toolfold_name(tool_fold_); },
         [this](const std::string& v) {
             if (v == "always") tool_fold_ = ToolFold::Always;
             else if (v == "never") tool_fold_ = ToolFold::Never;
@@ -1821,10 +1842,7 @@ void Tui::build_settings() {
         });
     add("policy.mode", "Agent mode", "<read|write|yolo>", Setting::Choice,
         {"read","write","yolo"}, 0, 0,
-        [this]() -> std::string {
-            return cfg_.mode == agent::AgentMode::Read ? "read" :
-                   cfg_.mode == agent::AgentMode::Yolo ? "yolo" : "write";
-        },
+        [this]() -> std::string { return mode_name(cfg_.mode); },
         [this](const std::string& v) {
             if (v == "read") cfg_.mode = agent::AgentMode::Read;
             else if (v == "yolo") cfg_.mode = agent::AgentMode::Yolo;

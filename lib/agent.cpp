@@ -393,14 +393,16 @@ std::string Agent::confirm_turn(const std::string& candidate,
     emit_context_event(context_events_, context_);
 
     Message check = chat_once(tools, /*display=*/false);
+    json check_tool_calls = check.tool_calls;
+    std::string check_content = check.content;
     context_.push(std::move(check));
     emit_context_event(context_events_, context_);
 
-    if (!check.tool_calls.is_null() && !check.tool_calls.empty()) {
+    if (!check_tool_calls.is_null() && !check_tool_calls.empty()) {
         if (hooks_.on_status) hooks_.on_status("continuing investigation");
-        bool any_ran = dispatch_tool_calls(check.tool_calls, cfg_, registry_,
-                                            hooks_, log_, session_approved_,
-                                            &policy_, &context_);
+        bool any_ran = dispatch_tool_calls(check_tool_calls, cfg_, registry_,
+                                           hooks_, log_, session_approved_,
+                                           &policy_, &context_);
         if (!any_ran) {
             // Scan from the back for the last tool result; if it was denied
             // the loop is broken.
@@ -428,9 +430,9 @@ std::string Agent::confirm_turn(const std::string& candidate,
                flat == "complete" || flat == "alldone";
     };
 
-    if (is_confirmation(check.content) || check.content.empty())
+    if (is_confirmation(check_content) || check_content.empty())
         return candidate;
-    return check.content;
+    return check_content;
 }
 
 void Agent::log_and_push_user_prompt(const std::string& prompt) {

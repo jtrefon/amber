@@ -4,6 +4,9 @@
 # use-after-move, uninitialized reads) and modernization nits worth taking,
 # without noisy style opinions (clang-format owns style) or pedantic
 # identifier checks that clash with this codebase's conventions.
+# Note: no '#' comment lines are allowed inside the folded 'Checks: >' scalar.
+# Struct field reordering for padding is churn with no functional gain
+# (clang-analyzer-optin.performance.Padding is disabled below).
 Checks: >
   -*,
   bugprone-*,
@@ -28,6 +31,7 @@ Checks: >
   -readability-isolate-declaration,
   -readability-use-std-min-max,
   -modernize-avoid-c-arrays,
+  -clang-analyzer-optin.performance.Padding,
   -readability-uppercase-literal-suffix,
   -performance-unnecessary-copy-initialization,
   -bugprone-narrowing-conversions,
