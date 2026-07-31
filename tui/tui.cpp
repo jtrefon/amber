@@ -495,7 +495,7 @@ void Tui::agent_worker(const std::string& prompt) {
 
     // Subscribe to context change events for live token count updates.
     win().agent->context_events().subscribe(
-        [this](size_t tokens, size_t msgs) {
+        [this](size_t tokens, size_t) {
             ctx_used_ = static_cast<long>(tokens);
         });
 
