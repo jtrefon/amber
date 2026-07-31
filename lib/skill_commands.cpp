@@ -105,8 +105,19 @@ std::string skill_set_override(SkillCatalog& catalog, const std::string& name,
                                const std::string& state) {
     if (state != "enable" && state != "disable" && state != "block")
         return "invalid state '" + state + "' (use enable, disable, block)";
-    if (!catalog.apply_override(name, state))
+    std::string note;
+    if (state == "block") {
+        for (const auto& e : catalog.entries()) {
+            if (e.name != name) continue;
+            std::string author = e.meta.metadata.value("author", "");
+            if (!author.empty())
+                note = "blocked by user (author: " + author + ")";
+            break;
+        }
+    }
+    if (!catalog.apply_override(name, state, note))
         return "could not persist override for '" + name + "'";
+    catalog.refresh();
     return "";
 }
 

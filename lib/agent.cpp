@@ -86,6 +86,11 @@ void Agent::ensure_system_prompt() {
     if (!git.empty())
         system += "\n\n" + git;
 
+    // Optional skills prompt (discovery block, authoring rule, trust boundary)
+    std::string skills = load_prompt("prompts/skills.md");
+    if (!skills.empty())
+        system += "\n\n" + skills;
+
     Message sys_msg;
     sys_msg.role = "system";
     sys_msg.content = system;
