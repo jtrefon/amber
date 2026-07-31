@@ -85,8 +85,12 @@ as `mcp_commands.cpp` / `skill_commands.cpp`):
 Formatting contract (stable for tests):
 
 ```
-f3a2c1 · memory · "project uses make" · evidence 3 · score 0.81 · promoted · turn 12
-a9b0d2 · skill  · run-tests · evidence 5 · score 0.74 · pinned · turn 3 · trigger "run the tests"
+f3a2c1 · memory · project uses make · evidence 3 · score 1.62 · promoted · turn 12
+a9b0d2 · skill  · run-tests · evidence 5 · score 2.53 · - · turn 3 · trigger "run the tests"
+
+The state field is `promoted` when set, `-` otherwise. `score` is the store's
+own metric (`MemoryStore::score_of`, evidence/recency-driven) so the shown
+number always matches the listing order.
 ```
 
 ---
