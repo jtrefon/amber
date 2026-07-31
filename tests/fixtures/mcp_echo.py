@@ -28,16 +28,27 @@ def main():
         except ValueError:
             continue
         if "id" in obj and "method" in obj:
-            reply = {
-                "jsonrpc": "2.0",
-                "id": obj["id"],
-                "result": {
-                    "echo": {
-                        "method": obj["method"],
-                        "params": obj.get("params", {}),
-                    }
-                },
-            }
+            if obj["method"] == "initialize":
+                reply = {
+                    "jsonrpc": "2.0",
+                    "id": obj["id"],
+                    "result": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {"tools": {"listChanged": True}},
+                        "serverInfo": {"name": "echo", "version": "1.0"},
+                    },
+                }
+            else:
+                reply = {
+                    "jsonrpc": "2.0",
+                    "id": obj["id"],
+                    "result": {
+                        "echo": {
+                            "method": obj["method"],
+                            "params": obj.get("params", {}),
+                        }
+                    },
+                }
             sys.stdout.write(json.dumps(reply) + "\n")
             sys.stdout.flush()
 
