@@ -199,9 +199,9 @@ private:
 
     std::string description() const noexcept override {
         return "Run a shell command in the workspace directory and return "
-               "combined stdout/stderr and exit code. Use this for ALL file "
-               "operations: cat, ls, grep, find, git, g++ builds, and tests. "
-               "Write operations (rm, mv, sed -i, >) require user approval.";
+               "combined stdout/stderr and exit code. Handles file operations "
+               "(cat, ls, grep, find, git), builds, and tests. Write "
+               "operations (rm, mv, sed -i, >) require user approval.";
     }
 
     json parameters_schema() const override {
