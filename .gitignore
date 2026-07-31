@@ -14,7 +14,15 @@ autom4te.cache/
 # Generated binaries
 amber
 amber-tui
+amber-tui-debug
 run_tests
+run_tests_dbg
+command_line_test
+completions_test
+e2e_test
+run_command_line_test
+run_completions_test
+run_e2e_test
 completion/tests/completion_test
 smoketest
 
