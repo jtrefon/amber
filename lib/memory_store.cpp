@@ -245,6 +245,10 @@ public:
         return skills_.erase(id) > 0;
     }
 
+    double score_of(const KnowledgeItem& item) const override {
+        return compute_score(item, "", current_turn_);
+    }
+
     bool set_promoted(const std::string& id, bool pinned) override {
         auto it = memories_.find(id);
         if (it != memories_.end()) {

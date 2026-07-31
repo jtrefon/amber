@@ -99,6 +99,14 @@ public:
         return false;
     }
 
+    // The item's score (same metric all_* sorts by; relevance to an empty
+    // query, so evidence/recency-driven). Used by the /learn display so the
+    // shown number matches the ordering.
+    virtual double score_of(const KnowledgeItem& item) const {
+        (void)item;
+        return 0.0;
+    }
+
     virtual void decay_all() = 0;
 
     // Total number of items (memories + skills) in the store.
