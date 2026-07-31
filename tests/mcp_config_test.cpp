@@ -2,6 +2,7 @@
 #include <csignal>
 #include <fstream>
 #include <string>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -247,4 +248,25 @@ TEST(mcp_manager_http_connect) {
         waitpid(pid, &st, 0);
     }
     unlink(statefile.c_str());
+}
+
+// [MS-08] Token-bearing configs are written 0600 and never surface in the
+// manager snapshot.
+TEST(mcp_config_token_redaction) {
+    McpEnv env("redact");
+    agent::McpServerConfig cfg;
+    cfg.name = "db";
+    cfg.type = "http";
+    cfg.url = "https://db/mcp";
+    cfg.auth_token = "super-secret-token";
+    ASSERT_TRUE(agent::save_mcp_server(cfg));
+
+    struct stat st;
+    ASSERT_EQ(stat((env.project_mcp + "/db.conf").c_str(), &st), 0);
+    ASSERT_EQ(static_cast<int>(st.st_mode) & 0777, 0600);
+
+    agent::ServerManager mgr(agent::load_mcp_servers());
+    std::string snap_text;
+    for (const auto& s : mgr.snapshot()) snap_text += s.name + s.type;
+    ASSERT(snap_text.find("super-secret-token") == std::string::npos);
 }

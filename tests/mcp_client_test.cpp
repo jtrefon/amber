@@ -1,8 +1,15 @@
 
+#include <chrono>
+#include <csignal>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
 
 #include "agent/mcp_client.h"
+#include "agent/mcp_transport_stdio.h"
 #include "mcp_test_util.h"
 #include "tests/test_util.h"
 
@@ -229,4 +236,53 @@ TEST(mcp_client_flatten_cap) {
         content, static_cast<size_t>(64) * 1024);
     ASSERT(flat.find("[truncated:") != std::string::npos);
     ASSERT(flat.size() <= (static_cast<size_t>(64) * 1024) + 64);
+}
+
+// [MS-06] A pre-cancelled token fails fast without sending anything.
+TEST(mcp_client_cancel_pre_request) {
+    agent::CancellationToken token;
+    token.request();
+    auto ft = std::make_unique<FakeTransport>();
+    FakeTransport* raw = ft.get();
+    agent::MCPClient client("fixture", std::move(ft), "", &token);
+    script_connect(*raw);
+    ASSERT_EQ(client.connect(), "");
+    auto r = client.call_tool("get_issue", json::object());
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("cancelled") != std::string::npos);
+    for (const auto& m : raw->methods)
+        ASSERT(m != "tools/call");
+}
+
+
+// [MS-06] A hung stdio call is interrupted promptly by the shared token.
+TEST(mcp_client_cancel_interrupts_hung_call) {
+    agent::CancellationToken token;
+    std::string pidfile = "/tmp/mcp_cancel_pid.txt";
+    unlink(pidfile.c_str());
+    agent::StdioTransport t(
+        "python3",
+        std::vector<std::string>{"tests/fixtures/mcp_ignore_sigterm.py",
+                                 pidfile},
+        ".", nullptr, 10000, &token);
+    std::thread canceller([&]() {
+        usleep(100 * 1000);
+        token.request();
+    });
+    auto t0 = std::chrono::steady_clock::now();
+    auto r = t.request(1, "initialize", json::object());
+    canceller.join();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0);
+    ASSERT(r.status == agent::McpTransportStatus::Cancelled);
+    ASSERT(elapsed.count() < 5000);
+    std::ifstream f(pidfile);
+    int pid = -1;
+    f >> pid;
+    if (pid > 0) {
+        kill(pid, SIGKILL);
+        int st = 0;
+        waitpid(pid, &st, 0);
+    }
+    unlink(pidfile.c_str());
 }
