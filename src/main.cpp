@@ -3,9 +3,11 @@
 #include <agent/compressor.h>
 #include <agent/experience.h>
 #include <agent/data_path.h>
+#include <agent/mcp_commands.h>
 #include <cctype>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <unistd.h>
 
@@ -32,6 +34,11 @@ int main(int argc, char** argv) {
     std::string prompt;
     std::string config_file;
     bool auto_approve = false;
+    bool mcp_list_only = false;
+    std::string mcp_connect_name;
+    std::string mcp_prompt_server;
+    std::string mcp_prompt_name;
+    std::string mcp_prompt_args;
 
     // Global settings: LLM provider from ~/.config/amber/config
     {
@@ -72,6 +79,14 @@ int main(int argc, char** argv) {
         else if (a == "--config")     config_file = next("");
         else if (a == "--prompt")     prompt = next("");
         else if (a == "--yes" || a == "--yolo") auto_approve = true;
+        else if (a == "--mcp-list")   mcp_list_only = true;
+        else if (a == "--mcp-connect") mcp_connect_name = next("");
+        else if (a == "--mcp") {
+            mcp_prompt_server = next("");
+            mcp_prompt_name = next("");
+            for (; i + 1 < argc && argv[i + 1][0] != '-'; ++i)
+                mcp_prompt_args += std::string(argv[i + 1]) + " ";
+        }
         else if (a == "--version") {
             std::cout << "amber " << agent::kVersion << " (" << agent::kBuildDate
                       << ")\n";
@@ -84,6 +99,46 @@ int main(int argc, char** argv) {
 
     if (!config_file.empty()) cfg.load(config_file);
     cfg.apply_environment();
+
+    // MCP surfaces (headless): --mcp-list, --mcp <server> <prompt> [k=v ...],
+    // --mcp-connect <name>.
+    if (mcp_list_only || !mcp_prompt_server.empty() || !mcp_connect_name.empty()) {
+      try {
+        agent::ToolRegistry mcp_registry;
+        agent::ServerManager mgr(agent::load_mcp_servers(), &cfg.cancel_token);
+        mgr.connect_all();
+        if (!mcp_connect_name.empty()) {
+            std::string err = agent::mcp_connect(mgr, mcp_registry, mcp_connect_name);
+            if (!err.empty()) { std::cerr << "error: " << err << "\n"; return 1; }
+        }
+        if (mcp_list_only) {
+            for (const auto& l : agent::mcp_list_lines(mgr)) std::cout << l << "\n";
+            mgr.shutdown_all();
+            return 0;
+        }
+        if (!mcp_prompt_server.empty()) {
+            json args = json::object();
+            std::stringstream ss(mcp_prompt_args);
+            std::string kv;
+            while (ss >> kv) {
+                size_t eq = kv.find('=');
+                if (eq != std::string::npos && eq > 0)
+                    args[kv.substr(0, eq)] = kv.substr(eq + 1);
+            }
+            std::string text;
+            std::string err = agent::mcp_prompt(mgr, mcp_prompt_server,
+                                                mcp_prompt_name, args, text);
+            mgr.shutdown_all();
+            if (!err.empty()) { std::cerr << "error: " << err << "\n"; return 1; }
+            std::cout << text;
+            return 0;
+        }
+        mgr.shutdown_all();
+      } catch (const std::exception& e) {
+        std::cerr << "error: " << e.what() << "\n";
+        return 1;
+      }
+    }
 
     // Auto-detect model / context window from the server first, filling only
     // values the user did not set explicitly. Done before validation so a blank

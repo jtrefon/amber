@@ -91,6 +91,11 @@ void Agent::ensure_system_prompt() {
     if (!skills.empty())
         system += "\n\n" + skills;
 
+    // Optional MCP prompt (untrusted-server posture, user-only prompts)
+    std::string mcp = load_prompt("prompts/mcp.md");
+    if (!mcp.empty())
+        system += "\n\n" + mcp;
+
     Message sys_msg;
     sys_msg.role = "system";
     sys_msg.content = system;

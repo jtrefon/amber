@@ -4,6 +4,7 @@
 #include "tui/confirm_panel.h"
 #include "agent/model_probe.h"
 #include "agent/skill_commands.h"
+#include "agent/mcp_commands.h"
 
 #include <algorithm>
 #include <csignal>
@@ -324,6 +325,33 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
+    // mcp: trust <server> on|off, enable <server> on|off
+    if (ns == "mcp") {
+        size_t sp2 = rest.find(' ');
+        std::string key = (sp2 == std::string::npos) ? rest : rest.substr(0, sp2);
+        std::string val = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
+        size_t sp3 = val.find(' ');
+        std::string server = (sp3 == std::string::npos) ? "" : val.substr(0, sp3);
+        std::string onoff = (sp3 == std::string::npos) ? "" : val.substr(sp3 + 1);
+        if ((key == "trust" || key == "enable") && !server.empty() &&
+            (onoff == "on" || onoff == "off")) {
+            std::string err;
+            if (key == "trust") {
+                err = agent::mcp_trust(mcp_servers_, server, onoff == "on");
+            } else {
+                err = agent::mcp_enable(mcp_servers_, reg_, server,
+                                        onoff == "on");
+            }
+            append_line(P_STATUS, err.empty()
+                ? ("mcp " + key + " " + server + ": " + onoff)
+                : err);
+        } else {
+            append_line(P_STATUS, "usage: /set mcp trust|enable <server> on|off");
+        }
+        draw();
+        return;
+    }
+
     // provider openrouter|kilocode|custom
     if (ns == "provider") {
         cmd_provider(rest);
@@ -498,6 +526,30 @@ void Tui::cmd_get(const std::string& arg) {
         cmd_skills_get(sub);
         return;
     }
+    // /get mcp — server + prompt state
+    if (arg == "mcp" || arg.rfind("mcp ", 0) == 0) {
+        std::string sub = (arg.size() > 3) ? arg.substr(3) : "";
+        if (sub.empty() || sub == " servers") {
+            for (const auto& l : agent::mcp_list_lines(mcp_servers_))
+                append_line(P_STATUS, l);
+        } else if (sub == " prompts" || sub == ".prompts") {
+            cmd_prompt_list();
+            return;
+        } else if (sub.rfind(" prompts ", 0) == 0 ||
+                   sub.rfind(".prompts ", 0) == 0) {
+            std::string server = sub.substr(sub.find(' ') + 1);
+            const agent::MCPClient* c = mcp_servers_.client(server);
+            if (!c) {
+                append_line(P_STATUS, "server '" + server + "' not connected");
+            } else {
+                for (const auto& p : c->prompts())
+                    append_line(P_STATUS, server + " \u00b7 " + p.name +
+                                " \u00b7 " + p.description);
+            }
+        }
+        draw();
+        return;
+    }
     // Default: show all settings via config screen
     config_screen();
     redraw_after_modal();
@@ -633,6 +685,165 @@ void Tui::cmd_skills_get(const std::string& sub) {
     draw();
 }
 
+void Tui::cmd_mcp(const std::string& rest) {
+    size_t sp = rest.find(' ');
+    std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
+    std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
+    auto trim = [](std::string s) {
+        size_t b = s.find_first_not_of(" \t");
+        size_t e = s.find_last_not_of(" \t");
+        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    };
+    auto usage = [&]() {
+        append_line(P_STATUS, "usage: /mcp list | show <server> | connect <server> | "
+            "disconnect <server> | refresh <server> | prompts <server> | "
+            "enable|disable <server> | trust <server> on|off");
+        draw();
+    };
+    if (sub.empty() || sub == "list") {
+        auto lines = agent::mcp_list_lines(mcp_servers_);
+        if (lines.empty())
+            append_line(P_STATUS, "(no MCP servers configured \u2014 see "
+                        "~/.config/amber/mcp/<name>.conf)");
+        for (const auto& l : lines) append_line(P_STATUS, l);
+        draw();
+        return;
+    }
+    if (sub == "show") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        std::string err;
+        auto lines = agent::mcp_show_lines(mcp_servers_, server, err);
+        if (!err.empty()) append_line(P_STATUS, err);
+        for (const auto& l : lines) append_line(P_STATUS, l);
+        draw();
+        return;
+    }
+    if (sub == "connect") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        std::string err = agent::mcp_connect(mcp_servers_, reg_, server);
+        append_line(P_STATUS, err.empty()
+            ? ("mcp server '" + server + "' connected")
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "disconnect") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        agent::mcp_disconnect(mcp_servers_, reg_, server);
+        append_line(P_STATUS, "mcp server '" + server + "' disconnected");
+        draw();
+        return;
+    }
+    if (sub == "refresh") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        std::string err = agent::mcp_refresh(mcp_servers_, reg_, server);
+        append_line(P_STATUS, err.empty()
+            ? ("mcp server '" + server + "' refreshed")
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "enable" || sub == "disable") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        std::string err = agent::mcp_enable(mcp_servers_, reg_, server,
+                                            sub == "enable");
+        append_line(P_STATUS, err.empty()
+            ? ("mcp server '" + server + "' " + sub + "d")
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "trust") {
+        size_t sp2 = args.find(' ');
+        std::string server = (sp2 == std::string::npos) ? args : args.substr(0, sp2);
+        std::string val = (sp2 == std::string::npos) ? "" : args.substr(sp2 + 1);
+        if (val != "on" && val != "off") {
+            append_line(P_STATUS, "usage: /mcp trust <server> on|off");
+            draw();
+            return;
+        }
+        std::string err = agent::mcp_trust(mcp_servers_, server, val == "on");
+        append_line(P_STATUS, err.empty()
+            ? ("mcp server '" + server + "' trust: " + val)
+            : err);
+        draw();
+        return;
+    }
+    if (sub == "prompts") {
+        std::string server = trim(args);
+        if (server.empty()) { usage(); return; }
+        const agent::MCPClient* c = mcp_servers_.client(server);
+        if (!c) {
+            append_line(P_STATUS, "server '" + server + "' not connected");
+            draw();
+            return;
+        }
+        if (c->prompts().empty()) append_line(P_STATUS, "(no prompts)");
+        for (const auto& p : c->prompts())
+            append_line(P_STATUS, "  " + p.name + " \u00b7 " + p.description);
+        draw();
+        return;
+    }
+    usage();
+}
+
+void Tui::cmd_prompt_list() {
+    bool any = false;
+    for (const auto& st : mcp_servers_.snapshot()) {
+        if (!st.connected) continue;
+        const agent::MCPClient* c = mcp_servers_.client(st.name);
+        if (!c) continue;
+        for (const auto& p : c->prompts()) {
+            any = true;
+            append_line(P_STATUS, st.name + " \u00b7 " + p.name + " \u00b7 " +
+                        p.description);
+        }
+    }
+    if (!any) append_line(P_STATUS, "(no MCP prompts available)");
+    draw();
+}
+
+void Tui::cmd_prompt(const std::string& rest) {
+    if (rest.empty() || rest == "list") {
+        cmd_prompt_list();
+        return;
+    }
+    size_t sp = rest.find(' ');
+    std::string server = (sp == std::string::npos) ? rest : rest.substr(0, sp);
+    std::string tail = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
+    size_t sp2 = tail.find(' ');
+    std::string name = (sp2 == std::string::npos) ? tail : tail.substr(0, sp2);
+    std::string args_str = (sp2 == std::string::npos) ? "" : tail.substr(sp2 + 1);
+    if (server.empty() || name.empty()) {
+        append_line(P_STATUS, "usage: /prompt list | /prompt <server> <name> [k=v ...]");
+        draw();
+        return;
+    }
+    json arguments = json::object();
+    std::stringstream ss(args_str);
+    std::string kv;
+    while (ss >> kv) {
+        size_t eq = kv.find('=');
+        if (eq == std::string::npos || eq == 0) continue;
+        arguments[kv.substr(0, eq)] = kv.substr(eq + 1);
+    }
+    std::string text;
+    std::string err = agent::mcp_prompt(mcp_servers_, server, name,
+                                        arguments, text);
+    if (!err.empty()) {
+        append_line(P_STATUS, err);
+        draw();
+        return;
+    }
+    input_fill_ = text;
+    draw();
+}
+
 const std::vector<Command>& Tui::commands() {
     if (commands_.empty()) build_commands();
     return commands_;
@@ -646,6 +857,12 @@ void Tui::build_commands() {
         {"settings", {"server", "endpoint"}, "",
          "configure provider, model, API key, and connection test",
          [this](const std::string&) { settings_screen(); redraw_after_modal(); }},
+        {"mcp", {}, "[subcommand]",
+         "manage MCP servers (list|show|connect|disconnect|refresh|prompts|enable|disable|trust)",
+         [this](const std::string& a) { cmd_mcp(a); }},
+        {"prompt", {}, "[server name k=v...]",
+         "invoke an MCP prompt template (fills the input line)",
+         [this](const std::string& a) { cmd_prompt(a); }},
         {"new", {"clear", "reset"}, "",
          "clear the current conversation and start fresh",
          [this](const std::string&) {

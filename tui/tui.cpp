@@ -6,6 +6,7 @@
 #include "confirm_panel.h"
 
 #include <agent.h>
+#include <agent/mcp_tools.h>
 #include <agent/compressor.h>
 #include <agent/experience.h>
 #include <agent/tools.h>
@@ -40,6 +41,7 @@ static void signal_handler(int sig) {
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs),
+      mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token),
       settings_path_(agent::Workspace::local_dir() + "/settings"),
       policy_timeout_(60) {
     std::setlocale(LC_ALL, "");
@@ -66,6 +68,12 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
     signal_tui_instance = this;
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
+
+    reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
+    mcp_servers_.connect_all();
+    for (const auto& st : mcp_servers_.snapshot())
+        if (st.connected) agent::register_server_tools(reg_, mcp_servers_,
+                                                       st.name);
 
     // Restore previous workspace: open saved sessions in their own windows.
     // On first launch (no saved workspace) show the welcome mural instead.
@@ -735,6 +743,10 @@ void Tui::run() {
     while (!quit_) {
         bool had_events = drain_events();
         jobs_.check_timeouts();
+        if (!input_fill_.empty()) {
+            cl.set_text(input_fill_);
+            input_fill_.clear();
+        }
 
         int ch = getch();
         if (ch == ERR) {
