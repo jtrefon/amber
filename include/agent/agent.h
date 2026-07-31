@@ -147,6 +147,9 @@ public:
     MemoryStore* memory_store() { return memory_store_.get(); }
     const MemoryStore* memory_store() const { return memory_store_.get(); }
 
+    // The resolved experience configuration (store path, budgets).
+    const ExperienceConfig& experience_config() const { return experience_cfg_; }
+
     // Remove / pin one learned item, persisting to the experience store.
     // Returns "" on success or a typed error string.
     std::string learn_forget(const std::string& id);

@@ -545,6 +545,16 @@ void Tui::cmd_get(const std::string& arg) {
         cmd_skills_get(sub);
         return;
     }
+    // /get learn — learned-knowledge summary
+    if (arg == "learn" || arg == "learn ") {
+        if (win().agent) {
+            auto lines = agent::learn_summary_lines(
+                win().agent->memory_store(), win().agent->experience_config());
+            for (const auto& l : lines) append_line(P_STATUS, l);
+        }
+        draw();
+        return;
+    }
     // /get mcp — server + prompt state
     if (arg == "mcp" || arg.rfind("mcp ", 0) == 0) {
         std::string sub = (arg.size() > 3) ? arg.substr(3) : "";
@@ -860,6 +870,148 @@ void Tui::cmd_prompt(const std::string& rest) {
         return;
     }
     input_fill_ = text;
+    draw();
+}
+
+
+void Tui::cmd_learn(const std::string& rest) {
+    if (!win().agent) {
+        append_line(P_STATUS, "no agent in this window");
+        draw();
+        return;
+    }
+    agent::MemoryStore* store = win().agent->memory_store();
+    auto usage = [&]() {
+        append_line(P_STATUS, "usage: /learn show [memory|skill|tag] | show <id> | "
+            "forget <id> | pin <id> on|off | panel");
+        draw();
+    };
+    size_t sp = rest.find(' ');
+    std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
+    std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
+
+    if (sub.empty() || sub == "show") {
+        if (!store) {
+            append_line(P_STATUS, "experience store disabled");
+            draw();
+            return;
+        }
+        std::string filter = args;
+        if (!filter.empty() && filter != "memory" && filter != "skill") {
+            // "show <id>" inspects when the id exists, otherwise it is a tag.
+            std::string err;
+            auto detail = agent::learn_inspect_lines(store, filter, err);
+            if (err.empty()) {
+                for (const auto& l : detail) append_line(P_STATUS, l);
+                draw();
+                return;
+            }
+        }
+        auto lines = agent::learn_show_lines(store, filter);
+        for (const auto& l : lines) append_line(P_STATUS, l);
+        draw();
+        return;
+    }
+    if (sub == "forget") {
+        std::string id = args;
+        if (id.empty()) { usage(); return; }
+        std::string err = win().agent->learn_forget(id);
+        append_line(P_STATUS, err.empty() ? ("removed " + id) : err);
+        draw();
+        return;
+    }
+    if (sub == "pin") {
+        size_t sp2 = args.find(' ');
+        std::string id = (sp2 == std::string::npos) ? args : args.substr(0, sp2);
+        std::string val = (sp2 == std::string::npos) ? "" : args.substr(sp2 + 1);
+        if (id.empty() || (val != "on" && val != "off")) {
+            append_line(P_STATUS, "usage: /learn pin <id> on|off");
+            draw();
+            return;
+        }
+        std::string err = win().agent->learn_pin(id, val == "on");
+        append_line(P_STATUS, err.empty() ? ("pinned " + id + ": " + val) : err);
+        draw();
+        return;
+    }
+    if (sub == "panel") {
+        cmd_learn_panel();
+        return;
+    }
+    usage();
+}
+
+void Tui::cmd_learn_panel() {
+    if (!win().agent) return;
+    agent::MemoryStore* store = win().agent->memory_store();
+    if (!store) {
+        append_line(P_STATUS, "experience store disabled");
+        draw();
+        return;
+    }
+    ModalScope scope;
+    curs_set(0);
+    std::string filter;
+    size_t sel = 0;
+    size_t scroll = 0;
+    bool done = false;
+    while (!done) {
+        auto items = agent::learn_items(store, filter);
+        if (sel >= items.size()) sel = items.empty() ? 0 : items.size() - 1;
+        int h = height() - 4;
+        if (h < 1) h = 1;
+        if (scroll > sel) scroll = sel;
+        if (sel >= scroll + static_cast<size_t>(h)) scroll = sel - h + 1;
+
+        // Render the panel.
+        int w = width();
+        WINDOW* winp = newwin(h + 4, w, 1, 0);
+        box(winp, 0, 0);
+        mvwprintw(winp, 0, 2, " Learned items ");
+        for (size_t i = 0; i < static_cast<size_t>(h) && scroll + i < items.size(); ++i) {
+            const auto& it = items[scroll + i];
+            std::string line = (scroll + i == sel ? "> " : "  ");
+            line += it.type;
+            line += " · ";
+            line += it.name;
+            line += " · ev ";
+            line += std::to_string(it.evidence);
+            if (it.promoted) line += " · pinned";
+            if (static_cast<int>(line.size()) > w - 4) line.resize(w - 4);
+            if (scroll + i == sel) wattron(winp, A_REVERSE);
+            mvwprintw(winp, static_cast<int>(i) + 1, 1, "%s", line.c_str());
+            if (scroll + i == sel) wattroff(winp, A_REVERSE);
+        }
+        std::string hint = " filter: " + filter + "   [Enter] inspect  [d] forget  [p] pin  [Esc] close";
+        if (static_cast<int>(hint.size()) > w - 4) hint.resize(w - 4);
+        mvwprintw(winp, h + 1, 1, "%s", hint.c_str());
+        wrefresh(winp);
+
+        int ch = getch();
+        delwin(winp);
+        if (ch == 27) done = true;
+        else if (ch == KEY_DOWN || ch == 'j') ++sel;
+        else if (ch == KEY_UP || ch == 'k') sel = sel > 0 ? sel - 1 : 0;
+        else if ((ch == '\n' || ch == '\r') && !items.empty()) {
+            std::string err;
+            auto detail = agent::learn_inspect_lines(store, items[sel].id, err);
+            if (err.empty()) info_dialog(items[sel].name, detail);
+        } else if (ch == 'd' && !items.empty()) {
+            tui::ConfirmPanel confirm("Forget learned item",
+                                      "Forget \"" + items[sel].name + "\"?");
+            if (confirm.run()) {
+                std::string err = win().agent->learn_forget(items[sel].id);
+                if (!err.empty()) append_line(P_STATUS, err);
+            }
+        } else if (ch == 'p' && !items.empty()) {
+            win().agent->learn_pin(items[sel].id, !items[sel].promoted);
+        } else if ((ch == 127 || ch == 8) && !filter.empty()) {
+            filter.pop_back();
+        } else if (ch >= 32 && ch <= 126) {
+            filter += static_cast<char>(ch);
+        }
+    }
+    curs_set(1);
     draw();
 }
 
