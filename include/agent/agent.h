@@ -82,7 +82,8 @@ public:
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
           std::unique_ptr<MemoryStore> memory_store = {},
-          std::unique_ptr<MemoryRetriever> retriever = {});
+          std::unique_ptr<MemoryRetriever> retriever = {},
+          std::unique_ptr<LLMClient> client = {});
 
     // Run one turn to completion, appending to the ongoing conversation.
     // Context from previous turns is retained (the agent is stateful). Returns
@@ -213,7 +214,7 @@ private:
 
     Config cfg_;
     ToolRegistry& registry_;
-    LLMClient client_;
+    std::unique_ptr<LLMClient> client_;
     AgentHooks hooks_;
     ConversationLog log_;
     Context context_;

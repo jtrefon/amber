@@ -26,8 +26,12 @@ Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<CompressionStrategy> compressor,
              std::unique_ptr<CompressionGate> gate,
              std::unique_ptr<MemoryStore> memory_store,
-             std::unique_ptr<MemoryRetriever> retriever)
-    : cfg_(cfg), registry_(registry), client_(cfg), hooks_(std::move(hooks))
+             std::unique_ptr<MemoryRetriever> retriever,
+             std::unique_ptr<LLMClient> client)
+    : cfg_(cfg), registry_(registry),
+      client_(client ? std::move(client)
+                     : std::make_unique<HttpLLMClient>(cfg)),
+      hooks_(std::move(hooks))
     , compression_(std::move(compressor))
     , gate_(std::move(gate))
     , memory_store_(std::move(memory_store))
@@ -173,7 +177,7 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
             size_t before_tok = context_.token_count();
             reporter.set_before(before_msgs, before_tok);
             auto compressed = compression_->compress(
-                context_, cc, client_, &reporter, &cr);
+                context_, cc, *client_, &reporter, &cr);
             // Rebuild the context from the compressed result using stack
             // primitives — no replace/mutation, just clear + push.
             context_.clear();
@@ -239,7 +243,7 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
 
     const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
-        reply = client_.chat_stream(prompt_copy, tools,
+        reply = client_->chat_stream(prompt_copy, tools,
             [&h](const StreamChunk& ch) {
                 if (ch.done) return;
                 if (!ch.reasoning.empty()) {
@@ -252,7 +256,7 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
                 }
             }, &stats);
     } else {
-        reply = client_.chat(prompt_copy, tools, &stats);
+        reply = client_->chat(prompt_copy, tools, &stats);
     }
     if (stats.valid) {
         if (hooks_.on_stats) hooks_.on_stats(stats);
@@ -362,7 +366,7 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     CompressionResponse cr;
     // before was captured at the top; the live context is still the same
     // since compress_now runs synchronously.
-    auto compressed = compression_->compress(context_, cc, client_,
+    auto compressed = compression_->compress(context_, cc, *client_,
                                               &proxy, &cr);
 
     // Rebuild context from compressed result using stack primitives.
