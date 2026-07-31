@@ -10,6 +10,11 @@
 #include <string>
 namespace agent {
 
+// When the server never reported n_ctx (context_size <= 0), the gate falls
+// back to this conservative budget so compression still runs instead of
+// being disabled entirely. Explicit config values and probed n_ctx win.
+constexpr size_t kFallbackContextBudget = 32000;
+
 // =========================================================================
 // DefaultCompressionGate
 // =========================================================================
@@ -42,12 +47,13 @@ public:
 private:
     bool threshold_exceeded(const Context& context,
                              const Config& agent_cfg) const {
-        if (agent_cfg.context_size <= 0) return false;
+        double budget = agent_cfg.context_size > 0
+            ? static_cast<double>(agent_cfg.context_size)
+            : static_cast<double>(kFallbackContextBudget);
         double tokens = agent_cfg.prompt_tokens_used > 0
             ? static_cast<double>(agent_cfg.prompt_tokens_used)
             : static_cast<double>(context.token_count());
-        double utilisation = tokens /
-                             static_cast<double>(agent_cfg.context_size);
+        double utilisation = tokens / budget;
         return utilisation >= cfg_.threshold;
     }
 
