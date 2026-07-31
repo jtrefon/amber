@@ -166,6 +166,12 @@ Using the classification from step 1 and the extraction from step 2:
 auto compressed = apply_classification(snapshot, classify_response);
 compressed = enforce_headroom(std::move(compressed), context_size);
 
+**Unknown context budget:** when `context_size <= 0` (the server never
+reported `n_ctx`), the gate falls back to a conservative 32 000-token budget
+(`kFallbackContextBudget` in `lib/compressor.cpp`) so compression still fires
+instead of being disabled entirely. Explicit config values and probed `n_ctx`
+always win. See `llm-client/agent-loop-reliability.md` [AL-11].
+
 // 2. Apply memory/skill ops to the store.
 apply_compression_result(extract_response);
 
