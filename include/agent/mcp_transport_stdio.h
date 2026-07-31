@@ -30,8 +30,8 @@ public:
                    int request_timeout_ms = 60000);
     ~StdioTransport() override;
 
-    std::optional<McpMessage> request(int id, const std::string& method,
-                                      const json& params) override;
+    McpTransportResult request(int id, const std::string& method,
+                               const json& params) override;
     bool notify(const std::string& method, const json& params) override;
     bool respond(int id, const json& result) override;
     bool respond_error(int id, const McpError& error) override;

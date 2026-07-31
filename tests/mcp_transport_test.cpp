@@ -174,9 +174,8 @@ TEST(mcp_stdio_echo_roundtrip) {
     ASSERT(resp.message->id.has_value());
     ASSERT_EQ(resp.message->id->dump(), "1");
     ASSERT(resp.message->result.has_value());
-    ASSERT_EQ(resp.message->result->value("echo", json::object())
-                 .value("method", ""),
-              "initialize");
+    ASSERT_EQ(resp.message->result->value("protocolVersion", ""),
+              "2025-06-18");
 
     auto r2 = t.request(2, "tools/list", json::object());
     ASSERT(r2.status == agent::McpTransportStatus::Ok);
