@@ -4,8 +4,13 @@
 #include <string>
 
 #include "agent/skill_catalog.h"
+#include "agent/tools.h"
 #include "agent/workspace.h"
 #include "tests/test_util.h"
+
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 namespace {
 
@@ -56,17 +61,15 @@ struct CatalogEnv {
     }
 
     void write_override(const std::string& name, const std::string& state,
-                        const std::string& note) {
-        write_file(ws + "/.amber/skills.json",
-                   "{\"" + name + "\":{\"state\":\"" + state +
-                       "\",\"note\":\"" + note + "\"}}\n");
+                        const std::string& note) const {
+        json root = {{name, {{"state", state}, {"note", note}}}};
+        write_file(ws + "/.amber/skills.json", root.dump() + "\n");
     }
 
     void write_global_override(const std::string& name,
-                               const std::string& state) {
-        write_file(home + "/skills.json",
-                   "{\"" + name + "\":{\"state\":\"" + state +
-                       "\",\"note\":\"global\"}}\n");
+                               const std::string& state) const {
+        json root = {{name, {{"state", state}, {"note", "global"}}}};
+        write_file(home + "/skills.json", root.dump() + "\n");
     }
 };
 
@@ -247,6 +250,7 @@ TEST(skill_catalog_body_budget) {
 
     // Body cache: editing the file on disk does not change a second read.
     auto cached = catalog.read_body("small");
+    ASSERT(cached.has_value());
     ASSERT_EQ(*cached, *small);
 }
 
@@ -291,4 +295,145 @@ TEST(skill_catalog_interop_gate) {
     catalog.discover({});
     ASSERT(catalog.lookup("claude-skill") != nullptr);
     ASSERT(catalog.lookup("claude-skill")->scope == agent::SkillScope::Interop);
+}
+
+// [SK-02] read_skill activates and caches; second call is served from cache.
+TEST(skill_tool_read_skill_activates) {
+    CatalogEnv env("rdact");
+    write_skill(env.project_skills, "checklist", "review checklist");
+
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    auto tool = agent::make_read_skill_tool(catalog);
+
+    auto r1 = tool->execute({{"name", "checklist"}});
+    ASSERT(r1.ok);
+    ASSERT_EQ(catalog.activated_skills().size(), 1u);
+    ASSERT(catalog.activated_skills()[0].body.find("body of checklist") !=
+           std::string::npos);
+
+    auto r2 = tool->execute({{"name", "checklist"}});
+    ASSERT(r2.ok);
+    ASSERT_EQ(catalog.activated_skills().size(), 1u);
+}
+
+// [SK-03] read_skill unknown name -> error, nothing activated.
+TEST(skill_tool_read_skill_unknown) {
+    CatalogEnv env("rdunk");
+    write_skill(env.project_skills, "known", "k");
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    auto tool = agent::make_read_skill_tool(catalog);
+    auto r = tool->execute({{"name", "nope"}});
+    ASSERT_FALSE(r.ok);
+    ASSERT_EQ(r.error, "unknown skill: nope");
+    ASSERT_EQ(catalog.activated_skills().size(), 0u);
+}
+
+// [SK-14] read_skill oversized body -> rejected, nothing activated.
+TEST(skill_tool_read_skill_oversized) {
+    CatalogEnv env("rdbig");
+    write_file(env.project_skills + "/mega/SKILL.md",
+               "---\ndescription: huge\n---\n" + std::string(9000, 'x') +
+                   "\n");
+    agent::Config cfg;
+    cfg.skills_body_budget_tokens = 5000;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    auto tool = agent::make_read_skill_tool(catalog);
+    auto r = tool->execute({{"name", "mega"}});
+    ASSERT_FALSE(r.ok);
+    ASSERT_EQ(r.error, "skill body exceeds skills_body_budget_tokens");
+    ASSERT_EQ(catalog.activated_skills().size(), 0u);
+}
+
+// [SK-15] list_skills filters by origin.
+TEST(skill_tool_list_skills_filtered) {
+    CatalogEnv env("listf");
+    write_skill(env.project_skills, "authored-skill", "authored");
+    std::vector<agent::Skill> learned;
+    agent::Skill sk;
+    sk.name = "learned-skill";
+    sk.content = "learned";
+    learned.push_back(sk);
+
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover(learned);
+    auto tool = agent::make_list_skills_tool(catalog);
+
+    auto all = tool->execute(json::object());
+    ASSERT(all.ok);
+    ASSERT(all.output.find("authored-skill") != std::string::npos);
+    ASSERT(all.output.find("learned-skill") != std::string::npos);
+
+    auto authored = tool->execute({{"origin", "authored"}});
+    ASSERT(authored.ok);
+    ASSERT(authored.output.find("authored-skill") != std::string::npos);
+    ASSERT(authored.output.find("learned-skill") == std::string::npos);
+
+    auto bad = tool->execute({{"origin", "bogus"}});
+    ASSERT_FALSE(bad.ok);
+}
+
+// [SK-04]/[SK-05] write_skill authors a project skill and requires approval;
+// read/list never require approval.
+TEST(skill_tool_write_skill_authors) {
+    CatalogEnv env("wrauth");
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+
+    auto write = agent::make_write_skill_tool(catalog);
+    auto read = agent::make_read_skill_tool(catalog);
+    auto list = agent::make_list_skills_tool(catalog);
+    ASSERT_TRUE(write->requires_approval(json::object()));
+    ASSERT_FALSE(read->requires_approval(json::object()));
+    ASSERT_FALSE(list->requires_approval(json::object()));
+
+    auto r = write->execute({{"name", "run-tests"},
+                             {"description", "run the suite"},
+                             {"body", "make test"},
+                             {"scope", "project"}});
+    ASSERT(r.ok);
+    ASSERT(catalog.lookup("run-tests") != nullptr);
+    std::ifstream f(env.project_skills + "/run-tests/SKILL.md");
+    std::stringstream ss;
+    ss << f.rdbuf();
+    ASSERT(ss.str().find("make test") != std::string::npos);
+}
+
+// write_skill rejects invalid names and bad scopes; global scope lands in the
+// config dir.
+TEST(skill_tool_write_skill_validation) {
+    CatalogEnv env("wrval");
+    setenv("HOME", env.home.c_str(), 1);
+    unsetenv("XDG_CONFIG_HOME");
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    auto write = agent::make_write_skill_tool(catalog);
+
+    auto bad_name = write->execute({{"name", "Bad Name"},
+                                    {"description", "d"},
+                                    {"body", "b"}});
+    ASSERT_FALSE(bad_name.ok);
+
+    auto bad_scope = write->execute({{"name", "valid-name"},
+                                     {"description", "d"},
+                                     {"body", "b"},
+                                     {"scope", "elsewhere"}});
+    ASSERT_FALSE(bad_scope.ok);
+
+    auto global = write->execute({{"name", "global-skill"},
+                                  {"description", "d"},
+                                  {"body", "b"},
+                                  {"scope", "global"}});
+    ASSERT(global.ok);
+    ASSERT(catalog.lookup("global-skill") != nullptr);
+    ASSERT(catalog.lookup("global-skill")->scope == agent::SkillScope::Global);
+    std::ifstream f(env.home + "/skills/global-skill/SKILL.md");
+    ASSERT(f.is_open());
 }
