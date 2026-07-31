@@ -141,6 +141,17 @@ public:
     // Fires on every push/pop/clear.
     ContextEventSource& context_events() { return context_events_; }
 
+    // The session's experience store (nullptr when experience is disabled).
+    // Read-only use by the UI; mutation goes through learn_forget/learn_pin
+    // so persistence stays in the core.
+    MemoryStore* memory_store() { return memory_store_.get(); }
+    const MemoryStore* memory_store() const { return memory_store_.get(); }
+
+    // Remove / pin one learned item, persisting to the experience store.
+    // Returns "" on success or a typed error string.
+    std::string learn_forget(const std::string& id);
+    std::string learn_pin(const std::string& id, bool pinned);
+
 private:
     // Build and push the system message if the conversation is empty. Idempotent.
     void ensure_system_prompt();
