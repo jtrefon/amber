@@ -124,6 +124,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `memory/extraction.md` | Extraction triggers, signal detection, quality gating |
 | `memory/memory-store.md` | Storage, dedup, query, recall-injection into context (project-scoped learned skills) |
 | `memory/skill-operations.md` | Learned skill upsert/deprecate lifecycle (authored skills live in `skills/`) |
+| `memory/learn-ui.md` | `/learn` visibility + management: show/inspect/forget/pin, `/get learn` summary, store list/remove/promote APIs |
 
 ## Session
 
