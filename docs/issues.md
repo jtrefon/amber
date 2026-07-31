@@ -24,7 +24,7 @@
 | I-9 | 🟡 Medium | No environment grounding: the agent didn't know its OS/distro, user, cwd, resources, or installed tools. New `EnvironmentInfo` probe + `render_environment_card()` (lib/environment.cpp), injected into the system prompt at session start (stable KV prefix). | ✅ Done |
 | I-4 | 🟡 Medium | Confirmation probe doubles LLM round trips: every text turn costs an extra classify/extract call. Make the probe adaptive (skip when the previous turn needed none). | ⏳ Open |
 | I-5 | 🔵 Low | CommandNode tree (P2): string-parsing debt in `tui/tui_input.cpp` (1520 lines of method implementations). Strategic refactor; no behavior change. | ⏳ Open |
-| I-6 | 🔵 Low | Repo hygiene: in-tree test binaries (`command_line_test`, `completions_test`, `e2e_test`) are tracked in git. Add to `.gitignore` / `git rm --cached`. | ⏳ Open |
+| I-6 | 🔵 Low | Repo hygiene: in-tree test binaries (`command_line_test`, `completions_test`, `e2e_test`, `run_*` debug variants) were tracked in git. Untracked via `git rm --cached` and added to `.gitignore`; build targets unaffected. | ✅ Done |
 | I-7 | 🔵 Low | Config trap: `compression_min_turns` / `cooldown_turns = 0` silently keep defaults instead of disabling. Fix 0 → disable semantics, document. | ⏳ Open |
 | I-8 | 🔵 Low | Skills marketplace installer (optional product feature): browse/install authored `SKILL.md` packages from a remote index. | ⏳ Open |
 
