@@ -1804,6 +1804,42 @@ TEST(memory_store_skill_trigger) {
     ASSERT(no_match.empty());
 }
 
+TEST(skill_no_dead_fields_in_serialization) {
+    agent::Skill sk;
+    sk.name = "deploy-cmd";
+    sk.content = "make deploy";
+    sk.trigger_phrase = "deploy";
+    sk.evidence_count = 5;
+    sk.promoted = true;
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->upsert(sk);
+    std::string path = "/tmp/amber_skill_no_dead.json";
+    std::remove(path.c_str());
+    ASSERT(store->save(path));
+    std::ifstream f(path);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    std::string txt = ss.str();
+    ASSERT(txt.find("steps") == std::string::npos);
+    ASSERT(txt.find("expected_outcome") == std::string::npos);
+}
+
+TEST(skill_legacy_json_loads_without_dead_fields) {
+    std::string path = "/tmp/amber_skill_legacy.json";
+    {
+        std::ofstream f(path);
+        f << R"({"version":1,"memories":[],"skills":[{"id":"1","name":"deploy","content":"make deploy","trigger_phrase":"deploy","steps":["a","b"],"expected_outcome":"done","tags":["deploy"],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}]})";
+    }
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    ASSERT(store->load(path));
+    auto skills = store->top_skills(10, "deploy");
+    ASSERT(skills.size() == 1u);
+    ASSERT(skills[0].content == "make deploy");
+    ASSERT(skills[0].trigger_phrase == "deploy");
+}
+
 TEST(memory_store_decay) {
     agent::ExperienceConfig ec;
     auto store = agent::make_memory_store(ec);
