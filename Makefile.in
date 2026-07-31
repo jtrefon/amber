@@ -61,6 +61,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/mcp_tools.o \
              $(BUILD_DIR)/lib/mcp_commands.o \
              $(BUILD_DIR)/lib/policy.o \
+             $(BUILD_DIR)/lib/environment.o \
              $(BUILD_DIR)/lib/tools_default.o \
              $(BUILD_DIR)/lib/tool_call_parser.o
 
