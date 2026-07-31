@@ -57,6 +57,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/mcp_transport_http.o \
              $(BUILD_DIR)/lib/mcp_client.o \
              $(BUILD_DIR)/lib/mcp_config.o \
+             $(BUILD_DIR)/lib/mcp_tools.o \
              $(BUILD_DIR)/lib/policy.o \
              $(BUILD_DIR)/lib/tools_default.o \
              $(BUILD_DIR)/lib/tool_call_parser.o
@@ -101,7 +102,8 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \
                $(BUILD_DIR)/tests/mcp_transport_test.o \
                $(BUILD_DIR)/tests/mcp_client_test.o \
-               $(BUILD_DIR)/tests/mcp_config_test.o
+               $(BUILD_DIR)/tests/mcp_config_test.o \
+               $(BUILD_DIR)/tests/mcp_tools_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
@@ -262,6 +264,10 @@ $(BUILD_DIR)/tests/mcp_client_test.o: $(SRC_DIR)/tests/mcp_client_test.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/tests/mcp_config_test.o: $(SRC_DIR)/tests/mcp_config_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_tools_test.o: $(SRC_DIR)/tests/mcp_tools_test.cpp
 	@mkdir -p $(BUILD_DIR)/tests
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
