@@ -53,6 +53,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/skill_catalog.o \
              $(BUILD_DIR)/lib/skill_commands.o \
              $(BUILD_DIR)/lib/mcp_jsonrpc.o \
+             $(BUILD_DIR)/lib/mcp_transport_stdio.o \
+             $(BUILD_DIR)/lib/mcp_transport_http.o \
              $(BUILD_DIR)/lib/policy.o \
              $(BUILD_DIR)/lib/tools_default.o \
              $(BUILD_DIR)/lib/tool_call_parser.o

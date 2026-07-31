@@ -57,26 +57,37 @@ StdioTransport::StdioTransport(std::string command,
 
 StdioTransport::~StdioTransport() { StdioTransport::shutdown(); }
 
-std::optional<McpMessage> StdioTransport::request(int id,
-                                                  const std::string& method,
-                                                  const json& params) {
+McpTransportResult StdioTransport::request(int id, const std::string& method,
+                                           const json& params) {
     McpRequest req;
     req.id = id;
     req.method = method;
     req.params = params;
-    if (!write_line(mcp_encode_request(req))) return std::nullopt;
+    if (!write_line(mcp_encode_request(req))) {
+        McpTransportResult r;
+        r.status = McpTransportStatus::TransportError;
+        return r;
+    }
 
     std::unique_lock<std::mutex> lk(mtx_);
     bool answered = cv_.wait_for(
         lk, std::chrono::milliseconds(request_timeout_ms_), [&] {
             return closed_.load() || pending_.count(id) > 0;
         });
-    if (!answered) return std::nullopt;
+    McpTransportResult r;
+    if (!answered) {
+        r.status = closed_.load() ? McpTransportStatus::TransportError
+                                  : McpTransportStatus::Timeout;
+        return r;
+    }
     auto it = pending_.find(id);
-    if (it == pending_.end()) return std::nullopt;
-    McpMessage m = std::move(it->second);
+    if (it == pending_.end()) {
+        r.status = McpTransportStatus::TransportError;
+        return r;
+    }
+    r.message = std::move(it->second);
     pending_.erase(it);
-    return m;
+    return r;
 }
 
 bool StdioTransport::notify(const std::string& method, const json& params) {

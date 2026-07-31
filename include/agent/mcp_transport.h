@@ -2,6 +2,7 @@
 #ifndef AGENT_MCP_TRANSPORT_H
 #define AGENT_MCP_TRANSPORT_H
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
@@ -63,6 +64,21 @@ std::string mcp_encode_error_response(int id, const McpError& error);
 // with neither a method nor an id (transport failure at the caller).
 std::optional<McpMessage> mcp_decode_line(const std::string& line);
 
+// Outcome of a request: Ok with a message, or a typed failure the client can
+// act on. SessionExpired means the remote session is gone and the client
+// should re-initialize and retry once.
+enum class McpTransportStatus : std::uint8_t {
+    Ok,
+    Timeout,
+    SessionExpired,
+    TransportError,
+};
+
+struct McpTransportResult {
+    std::optional<McpMessage> message;
+    McpTransportStatus status = McpTransportStatus::Ok;
+};
+
 // The transport port: one live connection to one MCP server. Implementations:
 // StdioTransport (spawned subprocess) and HttpTransport (remote endpoint).
 // Server-initiated requests and notifications are delivered through the
@@ -77,9 +93,8 @@ public:
     McpTransport& operator=(const McpTransport&) = delete;
 
     // Send a request and wait for the matching response (or error response).
-    // Returns nullopt on transport failure or timeout.
-    virtual std::optional<McpMessage> request(
-        int id, const std::string& method, const json& params) = 0;
+    virtual McpTransportResult request(int id, const std::string& method,
+                                       const json& params) = 0;
 
     // Send a notification; returns false on transport failure.
     virtual bool notify(const std::string& method, const json& params) = 0;
@@ -87,6 +102,10 @@ public:
     // Respond to a server-initiated request.
     virtual bool respond(int id, const json& result) = 0;
     virtual bool respond_error(int id, const McpError& error) = 0;
+
+    // End the server session gracefully where the transport supports it
+    // (HTTP DELETE). No-op for stdio.
+    virtual void close_session() {}
 
     // Blocking teardown; idempotent. Called by the owning client.
     virtual void shutdown() = 0;

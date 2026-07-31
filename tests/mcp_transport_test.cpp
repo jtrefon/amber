@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "agent/mcp_transport.h"
+#include "agent/mcp_transport_http.h"
 #include "agent/mcp_transport_stdio.h"
 #include "tests/test_util.h"
 
@@ -120,6 +121,44 @@ bool wait_for_file(const std::string& path, int attempts = 100) {
     return false;
 }
 
+// Start the HTTP fixture server; returns "http://127.0.0.1:<port>/mcp".
+// Kills the fixture at scope end.
+struct HttpFixture {
+    std::string url;
+    std::string statefile;
+    int pid = -1;
+
+    explicit HttpFixture(const std::string& mode) {
+        statefile = "/tmp/mcp_http_" + mode + ".txt";
+        unlink(statefile.c_str());
+        std::string cmd = "python3 tests/fixtures/mcp_http_server.py " +
+                          statefile + " " + mode + " >/dev/null 2>&1 &";
+        ASSERT(std::system(cmd.c_str()) == 0);
+        ASSERT(wait_for_file(statefile));
+        std::ifstream f(statefile);
+        std::string line;
+        int port = -1;
+        while (std::getline(f, line)) {
+            if (line.rfind("PORT:", 0) == 0)
+                port = std::stoi(line.substr(5));
+            if (line.rfind("PID:", 0) == 0)
+                pid = std::stoi(line.substr(4));
+        }
+        ASSERT(port > 0);
+        ASSERT(pid > 0);
+        url = "http://127.0.0.1:" + std::to_string(port) + "/mcp";
+    }
+
+    ~HttpFixture() {
+        if (pid > 0) {
+            kill(pid, SIGKILL);
+            int st = 0;
+            waitpid(pid, &st, 0);
+        }
+        unlink(statefile.c_str());
+    }
+};
+
 } // namespace
 
 // [MT-01] Echo round-trip over newline-framed stdio.
@@ -130,17 +169,21 @@ TEST(mcp_stdio_echo_roundtrip) {
 
     auto resp = t.request(1, "initialize",
                           {{"protocolVersion", "2025-06-18"}});
-    ASSERT(resp.has_value());
-    ASSERT(resp->id.has_value());
-    ASSERT_EQ(resp->id->dump(), "1");
-    ASSERT(resp->result.has_value());
-    ASSERT_EQ(resp->result->value("echo", json::object())
+    ASSERT(resp.status == agent::McpTransportStatus::Ok);
+    ASSERT(resp.message.has_value());
+    ASSERT(resp.message->id.has_value());
+    ASSERT_EQ(resp.message->id->dump(), "1");
+    ASSERT(resp.message->result.has_value());
+    ASSERT_EQ(resp.message->result->value("echo", json::object())
                  .value("method", ""),
               "initialize");
 
     auto r2 = t.request(2, "tools/list", json::object());
-    ASSERT(r2.has_value());
-    ASSERT_EQ(r2->id->dump(), "2");
+    ASSERT(r2.status == agent::McpTransportStatus::Ok);
+    ASSERT(r2.message.has_value());
+    const agent::McpMessage& msg2 = *r2.message;
+    ASSERT(msg2.id.has_value());
+    ASSERT_EQ(msg2.id->dump(), "2");
     ASSERT_TRUE(t.notify("notifications/initialized", json::object()));
     t.shutdown();
     ASSERT_FALSE(t.failure_reason().empty());
@@ -173,9 +216,11 @@ TEST(mcp_stdio_stderr_isolated) {
     agent::StdioTransport t(
         "python3", {"tests/fixtures/mcp_echo.py", "stderr"}, ".", {}, 5000);
     auto resp = t.request(1, "ping", json::object());
-    ASSERT(resp.has_value());
-    ASSERT(resp->result.has_value());
-    ASSERT(resp->result->dump().find("hello stderr") == std::string::npos);
+    ASSERT(resp.status == agent::McpTransportStatus::Ok);
+    auto m = resp.message;
+    ASSERT(m.has_value());
+    ASSERT(m->result.has_value());
+    ASSERT(m->result->dump().find("hello stderr") == std::string::npos);
 }
 
 // A server that dies at startup surfaces its stderr in failure_reason().
@@ -202,8 +247,93 @@ TEST(mcp_stdio_spawn_failure_fails_fast) {
         usleep(10 * 1000);
     }
     ASSERT_FALSE(reason.empty());
-    ASSERT(reason.find("spawn") != std::string::npos ||
-           reason.find("closed") != std::string::npos);
-    ASSERT_FALSE(t.request(1, "ping", json::object()).has_value());
+    bool spawn_or_closed = reason.find("spawn") != std::string::npos ||
+                           reason.find("closed") != std::string::npos;
+    ASSERT(spawn_or_closed);
+    auto r = t.request(1, "ping", json::object());
+    ASSERT(r.status == agent::McpTransportStatus::TransportError);
+    ASSERT_FALSE(r.message.has_value());
     ASSERT_FALSE(t.notify("notifications/initialized", json::object()));
+}
+
+// ---------------------------------------------------------------------------
+// Streamable HTTP transport ([MT-04] JSON round-trip, [MT-05] SSE streaming,
+// [MT-06] session expiry)
+// ---------------------------------------------------------------------------
+
+// [MT-04] application/json round-trip with protocol/session headers.
+TEST(mcp_http_json_roundtrip) {
+    HttpFixture fx("echo");
+    agent::HttpTransport t(fx.url, "sekret", 5000);
+    auto r = t.request(1, "initialize",
+                       {{"protocolVersion", "2025-06-18"}});
+    ASSERT(r.status == agent::McpTransportStatus::Ok);
+    ASSERT(r.message.has_value());
+    const agent::McpMessage& m0 = *r.message;
+    ASSERT(m0.id.has_value());
+    ASSERT_EQ(m0.id->dump(), "1");
+    ASSERT(m0.result.has_value());
+    ASSERT_EQ(m0.result->value("protocolVersion", ""), "2025-06-18");
+
+    auto r2 = t.request(2, "tools/list", json::object());
+    ASSERT(r2.status == agent::McpTransportStatus::Ok);
+    ASSERT(r2.message.has_value());
+    const agent::McpMessage& m2 = *r2.message;
+    ASSERT(m2.result.has_value());
+    ASSERT_EQ(m2.result->value("echo", json::object()).value("method", ""),
+              "tools/list");
+    ASSERT_TRUE(t.notify("notifications/initialized", json::object()));
+    t.close_session();
+    t.shutdown();
+    ASSERT_EQ(t.failure_reason(), "");
+}
+
+// [MT-05] SSE responses deliver interleaved server messages, then the reply.
+TEST(mcp_http_sse_streaming_response) {
+    HttpFixture fx("sse");
+    int server_msgs = 0;
+    agent::HttpTransport t(
+        fx.url, "", 5000,
+        [&](const agent::McpMessage& m) {
+            if (m.method == "notifications/progress") ++server_msgs;
+        });
+    auto r = t.request(7, "tools/call",
+                       {{"name", "x"}, {"arguments", json::object()}});
+    ASSERT(r.status == agent::McpTransportStatus::Ok);
+    auto m = r.message;
+    ASSERT(m.has_value());
+    ASSERT(m->result.has_value());
+    ASSERT_EQ(m->result->value("sse", false), true);
+    ASSERT_EQ(server_msgs, 1);
+}
+
+// [MT-06] A stale session surfaces as SessionExpired for the client to retry.
+TEST(mcp_http_session_expiry) {
+    HttpFixture fx("session");
+    agent::HttpTransport t(fx.url, "", 5000);
+    auto init = t.request(1, "initialize", json::object());
+    ASSERT(init.status == agent::McpTransportStatus::Ok);
+    ASSERT_EQ(t.session_id(), "sess-1");
+
+    auto r2 = t.request(2, "tools/list", json::object());
+    ASSERT(r2.status == agent::McpTransportStatus::Ok);
+    ASSERT(r2.message.has_value());
+    const agent::McpMessage& m2 = *r2.message;
+    ASSERT(m2.result.has_value());
+    ASSERT_EQ(m2.result->value("session", ""), "sess-1");
+
+    auto r3 = t.request(3, "tools/call", json::object());
+    ASSERT(r3.status == agent::McpTransportStatus::Ok);
+
+    auto r4 = t.request(4, "ping", json::object());
+    ASSERT(r4.status == agent::McpTransportStatus::SessionExpired);
+    t.close_session();
+}
+
+// A request without a matching response times out with a typed status.
+TEST(mcp_http_bad_url_fails_fast) {
+    agent::HttpTransport t("http://127.0.0.1:1/mcp", "", 2000);
+    auto r = t.request(1, "ping", json::object());
+    ASSERT(r.status == agent::McpTransportStatus::TransportError);
+    ASSERT_FALSE(t.failure_reason().empty());
 }
