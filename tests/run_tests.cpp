@@ -7,6 +7,7 @@
 #include "agent/compressor.h"
 #include "agent/dispatch.h"
 #include "agent/experience.h"
+#include "agent/environment.h"
 #include "tests/test_util.h"
 
 #include <array>
@@ -2690,6 +2691,6 @@ TEST(environment_probe_collects_facts) {
     char buf[4096];
     ASSERT_EQ(info.cwd, std::string(getcwd(buf, sizeof buf) ? buf : ""));
     ASSERT_FALSE(info.resources.empty());
-    ASSERT(info.tools.size() >= 1u);  // git or python3 present in CI
+    ASSERT(!info.tools.empty());  // git or python3 present in CI
     ASSERT_FALSE(agent::render_environment_card(info).empty());
 }
