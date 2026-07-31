@@ -1,6 +1,6 @@
 # amber — Agent Loop Reliability Tracker
 
-- **Status:** 🟡 In progress (design done, implementation pending)
+- **Status:** 🟢 Complete — AL-IMP-001..005 implemented on `feat/agent-loop-hardening`, all gates green
 - **Reference:** `docs/spec/llm-client/agent-loop-reliability.md`
 - **Issues register:** `docs/issues.md`
 
@@ -63,9 +63,9 @@
 
 ### Verification
 
-- [ ] `make clean && make && make test && make lint && make analyze` green
+- [x] `make clean && make && make test && make lint && make analyze` green
       with the port in place and the real client wired
-- [ ] No diff in `include/agent/context.h`; `git diff` on `lib/agent.cpp`
+- [x] No diff in `include/agent/context.h`; `git diff` on `lib/agent.cpp`
       shows only the client-member wiring
 
 ---
@@ -107,10 +107,10 @@ shipped because no test could drive the path).
 
 ### Verification
 
-- [ ] Red first: `[AL-03]` fails against the current concrete-client build
+- [x] Red first: `[AL-03]` fails against the current concrete-client build
       (cannot compile a fake in) — the red is the missing port; after the
       port lands, each scenario test is added and must pass
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -145,10 +145,10 @@ Single retry, no backoff, no discrimination, no cancellation during the wait.
 
 ### Verification
 
-- [ ] Tests [AL-07] backoff→success (attempt counts observed), [AL-08]
+- [x] Tests [AL-07] backoff→success (attempt counts observed), [AL-08]
       non-retryable fails fast, [AL-09] exhaustion degrades gracefully with
       conversation intact, [AL-10] cancellation aborts the backoff promptly
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -182,9 +182,9 @@ that don't report n_ctx).
 
 ### Verification
 
-- [ ] Test [AL-11]: unknown n_ctx + scripted tokens over the fallback →
+- [x] Test [AL-11]: unknown n_ctx + scripted tokens over the fallback →
       compression fires
-- [ ] `make clean && make && make test && make lint && make analyze` clean
+- [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---
 
@@ -202,12 +202,25 @@ that don't report n_ctx).
 
 ### Verification
 
-- [ ] INDEX lists the new spec; error-handling.md invariant 3 reflects the
+- [x] INDEX lists the new spec; error-handling.md invariant 3 reflects the
       new policy; MISSION gap register updated ("agent loop untested")
-- [ ] Final: `make clean && make && make test && make lint && make analyze`
+- [x] Final: `make clean && make && make test && make lint && make analyze`
       clean; tracker closed
 
 ---
+
+## Implementation notes (findings from the hermetic suite)
+
+- **Text-loop hard stop was unreachable.** The recovery steer cleared
+  `last_text`, so `text_loop_count` cycled 0-2 and the `>= 5` hard stop never
+  fired — a stuck model burned the full iteration budget. Fixed: the steer no
+  longer resets the counter ([AL-05] now hard-stops at repeat 6).
+- **Cooldown defaults are sticky.** `compression_min_turns` /
+  `compression_cooldown_turns = 0` keep the defaults (10 / 20 turns); you
+  cannot disable cooldown via config. The compression tests warm up 21 turns
+  to open the gate window.
+- **Compression = two LLM calls** (classify + extract), sharing the KV prefix;
+  both are scripted in the hermetic tests.
 
 ## Dependency Graph
 
