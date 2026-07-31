@@ -2574,3 +2574,71 @@ TEST(learn_agent_store_disabled) {
     ASSERT_FALSE(agent.learn_forget("x").empty());
     ASSERT_FALSE(agent.learn_pin("x", true).empty());
 }
+
+// ---------------------------------------------------------------------------
+// Search exclusions: hidden/vendored dirs are skipped by default, but an
+// explicit path inside one of them is honored (the capability is never
+// removed, only defaulted away). [I-2]/[I-3]
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string make_exclusion_tree() {
+    std::string dir = "/tmp/amber_search_excl";
+    run_cmd("rm -rf " + dir);
+    run_cmd("mkdir -p " + dir + "/.git " + dir + "/.amber " +
+            dir + "/third_party " + dir + "/src");
+    std::ofstream(dir + "/src/a.cpp")
+        << "int the_marker_symbol() { return 1; }\n";
+    std::ofstream(dir + "/.git/x.cpp")
+        << "int the_marker_symbol() { return 2; }\n";
+    std::ofstream(dir + "/.amber/y.json")
+        << "the_marker_symbol\n";
+    std::ofstream(dir + "/third_party/z.cpp")
+        << "int the_marker_symbol() { return 3; }\n";
+    return dir;
+}
+
+} // namespace
+
+TEST(search_default_excludes_hidden_and_vendored) {
+    std::string dir = make_exclusion_tree();
+    auto be = agent::make_grep_backend();
+    auto hits = be->search("the_marker_symbol", dir, "*.cpp", 100);
+    ASSERT_EQ(hits.size(), 1u);
+    ASSERT(hits[0].path.find("/src/a.cpp") != std::string::npos);
+    run_cmd("rm -rf " + dir);
+}
+
+TEST(search_excludes_are_removable) {
+    std::string dir = make_exclusion_tree();
+    auto be = agent::make_grep_backend();
+    // Dropping "third_party" from the excludes makes vendored code searchable.
+    auto hits = be->search("the_marker_symbol", dir, "*.cpp", 100,
+                           {".amber", ".git"});
+    bool saw_vendored = false;
+    for (const auto& h : hits)
+        if (h.path.find("/third_party/z.cpp") != std::string::npos)
+            saw_vendored = true;
+    ASSERT(saw_vendored);
+    run_cmd("rm -rf " + dir);
+}
+
+// Tool-level: an explicit path inside an excluded dir honors the intent.
+TEST(search_tool_explicit_path_inside_excluded) {
+    std::string dir = make_exclusion_tree();
+    agent::Workspace::set_root(dir);
+    auto tool = agent::make_search_tool();
+
+    auto default_run = tool->execute({{"pattern", "the_marker_symbol"},
+                                      {"glob", "*.cpp"}});
+    ASSERT_TRUE(default_run.ok);
+    ASSERT(default_run.output.find("z.cpp") == std::string::npos);
+
+    auto vendored = tool->execute({{"pattern", "the_marker_symbol"},
+                                   {"glob", "*.cpp"},
+                                   {"path", "third_party"}});
+    ASSERT_TRUE(vendored.ok);
+    ASSERT(vendored.output.find("z.cpp") != std::string::npos);
+    run_cmd("rm -rf " + dir);
+}
