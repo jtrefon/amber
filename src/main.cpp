@@ -42,11 +42,11 @@ int main(int argc, char** argv) {
     std::string mcp_prompt_args;
 
     // Global settings: LLM provider from ~/.config/amber/config
+    agent::Config tmp;
     {
         std::string global_path = agent::global_config_path();
         std::ifstream gf(global_path);
         if (gf) {
-            agent::Config tmp;
             tmp.load(global_path);
             if (!tmp.provider_name.empty() && tmp.provider_name != "custom") {
                 cfg.apply_provider(tmp.provider_name);
@@ -64,6 +64,12 @@ int main(int argc, char** argv) {
     {
         std::ifstream def("amber.conf");
         if (def) cfg.load("amber.conf");
+        // A model explicitly saved to the global config (e.g. via the TUI's
+        // /model set) outranks the project default, so user choices persist.
+        if (!tmp.model.empty() && tmp.model_explicit) {
+            cfg.model = tmp.model;
+            cfg.model_explicit = true;
+        }
     }
 
     for (int i = 1; i < argc; ++i) {

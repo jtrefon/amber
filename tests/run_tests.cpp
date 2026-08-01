@@ -10,6 +10,7 @@
 #include "agent/environment.h"
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
+#include "agent/model_probe.h"
 #include "tests/test_util.h"
 
 #include <array>
@@ -2844,4 +2845,21 @@ TEST(bootstrap_validator_requires_completions_when_requested) {
                                                   true);
     ASSERT_EQ(missing.size(), 1u);
     ASSERT(missing[0].find("completions") != std::string::npos);
+}
+
+TEST(parse_model_list_dedupes_ids) {
+    std::string body = R"({"data": [
+        {"id": "qwen35-moe"},
+        {"id": "qwen35-moe"},
+        {"id": "qwopus-27b"},
+        {"id": "qwopus-27b"},
+        {"id": "gemma4-12b-q4"}]})";
+    auto models = agent::parse_model_list(body);
+    ASSERT_EQ(models.size(), 3u);
+    bool saw_qwopus = false, saw_qwen = false;
+    for (const auto& m : models) {
+        if (m == "qwopus-27b") saw_qwopus = true;
+        if (m == "qwen35-moe") saw_qwen = true;
+    }
+    ASSERT(saw_qwopus && saw_qwen);
 }
