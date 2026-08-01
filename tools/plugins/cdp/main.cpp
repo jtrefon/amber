@@ -240,28 +240,42 @@ json dispatch(const std::string& name, const json& args) {
 int main() {
     std::string line;
     while (std::getline(std::cin, line)) {
-        json msg = json::parse(line, nullptr, false);
-        if (msg.is_discarded()) continue;
-        std::string method = msg.value("method", std::string());
-        json resp = json::object();
-        resp["id"] = msg.value("id", json());
-        if (method == "initialize") {
-            endpoint = msg["params"].value("endpoint", endpoint);
-            if (!endpoint.empty() && endpoint[0] != 'w') endpoint = "ws://" + endpoint;
-            workspace = msg["params"].value("workspace", std::string());
-            resp["result"] = {{"protocol_version", 1}, {"ok", true}};
-        } else if (method == "tool.call") {
-            resp["result"] = dispatch(
-                msg["params"].value("name", std::string()),
-                msg["params"].contains("args") ? msg["params"]["args"] : json::object());
-        } else if (method == "shutdown") {
-            ws.close();
-            break;
-        } else {
-            resp["result"] = result(false, "ERROR: unknown method " + method);
+        try {
+            json msg = json::parse(line, nullptr, false);
+            if (msg.is_discarded()) continue;
+            json resp = json::object();
+            std::string method = msg.value("method", std::string());
+            resp["id"] = msg.value("id", json());
+            if (method == "initialize") {
+                endpoint = msg["params"].value("endpoint", endpoint);
+                if (!endpoint.empty() && endpoint[0] != 'w') {
+                    std::string prefixed = "ws://";
+                    prefixed += endpoint;
+                    endpoint = prefixed;
+                }
+                workspace = msg["params"].value("workspace", std::string());
+                resp["result"] = {{"protocol_version", 1}, {"ok", true}};
+            } else if (method == "tool.call") {
+                resp["result"] = dispatch(
+                    msg["params"].value("name", std::string()),
+                    msg["params"].contains("args") ? msg["params"]["args"] : json::object());
+            } else if (method == "shutdown") {
+                ws.close();
+                break;
+            } else {
+                std::string err = "ERROR: unknown method ";
+                err += method;
+                resp["result"] = result(false, err);
+            }
+            std::cout << resp.dump() << "\n";
+            std::cout.flush();
+        } catch (const std::exception& e) {
+            std::string err = "ERROR: ";
+            err += e.what();
+            std::cout << json{{"id", json()}, {"result", result(false, err)}}.dump()
+                      << "\n";
+            std::cout.flush();
         }
-        std::cout << resp.dump() << "\n";
-        std::cout.flush();
     }
     return 0;
 }

@@ -70,7 +70,7 @@ bool WsClient::read_some(int timeout_ms) {
     return true;
 }
 
-void WsClient::send_frame(int opcode, const std::string& payload) {
+void WsClient::send_frame(int opcode, const std::string& payload) const {
     size_t n = payload.size();
     std::string frame;
     frame += static_cast<char>(0x80 | opcode);
@@ -97,8 +97,8 @@ void WsClient::send_frame(int opcode, const std::string& payload) {
 bool WsClient::pump_frame(std::string& out) {
     // Buffer must contain: FIN/opcode + len byte.
     if (buf_.size() < 2) return false;
-    unsigned char b0 = static_cast<unsigned char>(buf_[0]);
-    unsigned char b1 = static_cast<unsigned char>(buf_[1]);
+    auto b0 = static_cast<unsigned char>(buf_[0]);
+    auto b1 = static_cast<unsigned char>(buf_[1]);
     int opcode = b0 & 0x0f;
     bool fin = (b0 & 0x80) != 0;
     size_t len = b1 & 0x7f;
