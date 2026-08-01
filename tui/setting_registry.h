@@ -59,6 +59,10 @@ public:
     // rebuild the index after plugin namespaces are added or removed.
     void reset_completion_index();
 
+    // The merged command tree (top-level keys are command names), used by the
+    // slash-command dispatcher to resolve actions from input tokens.
+    const nlohmann::json& command_tree() const { return tree_; }
+
     // Get help text for a setting key (from JSON).
     std::string help_for(const std::string& key) const { return key_help_.count(key) ? key_help_.at(key) : ""; }
 
@@ -79,6 +83,8 @@ public:
 
 private:
     void index_node(const nlohmann::json& node, const std::string& display_path);
+
+    nlohmann::json tree_;
 
     std::vector<Setting> settings_;
     std::map<std::string, std::string> key_help_;

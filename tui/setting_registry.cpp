@@ -193,6 +193,7 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
     }
 
     if (root.contains("commands") && root["commands"].is_object()) {
+        tree_["commands"] = root["commands"];
         for (auto it = root["commands"].begin(); it != root["commands"].end(); ++it)
             index_node(it.value(), it.key());
     }
@@ -201,12 +202,15 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
 
 bool SettingRegistry::merge_completions_json(const nlohmann::json& subtree) {
     if (!subtree.is_object()) return false;
-    for (auto it = subtree.begin(); it != subtree.end(); ++it)
+    for (auto it = subtree.begin(); it != subtree.end(); ++it) {
         index_node(it.value(), it.key());
+        tree_["commands"][it.key()] = it.value();
+    }
     return true;
 }
 
 void SettingRegistry::reset_completion_index() {
+    tree_ = nlohmann::json::object();
     key_help_.clear();
     key_man_.clear();
     key_children_.clear();
