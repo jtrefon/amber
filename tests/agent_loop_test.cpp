@@ -370,7 +370,9 @@ TEST(agent_loop_unknown_context_fallback) {
     agent::Config cfg = loop_cfg();
     cfg.context_size = 0;  // server never reported n_ctx
     cfg.compression_threshold = 0.1;
+    cfg.compression_threshold_explicit = true;
     cfg.compression_min_turns = 2;
+    cfg.compression_min_turns_explicit = true;
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);

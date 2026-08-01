@@ -119,10 +119,14 @@ struct Config {
     bool detection_loop = false;
     bool detection_duplicate = false;
 
-    // Context compression settings. 0 means "use default".
+    // Context compression settings. An unset field (explicit flag false)
+    // keeps the pipeline default; an explicit 0 disables the gate.
     double compression_threshold = 0.0;
+    bool compression_threshold_explicit = false;
     int compression_min_turns = 0;
+    bool compression_min_turns_explicit = false;
     int compression_cooldown_turns = 0;
+    bool compression_cooldown_turns_explicit = false;
 
     // Current turn counter, updated by Agent after each chat_once.
     // Used by the compression gate for cooldown tracking.
