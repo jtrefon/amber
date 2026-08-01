@@ -148,40 +148,33 @@ void Tui::fold_reasoning() {
 }
 
 
-void Tui::cmd_set(const std::string& arg) {
-    // Try the SettingRegistry first for both dotted AND space-separated keys.
-    // Convert "detection loop on" → try "detection.loop", value "on".
-    auto try_registry = [&](const std::string& dotted_key, const std::string& val) -> bool {
-        const Setting* s = settings_.find(dotted_key);
-        if (s && s->setter && !val.empty()) {
-            s->setter(std::string(val));
-            append_line(P_STATUS, s->key + ": " + s->getter() + "  —  " + s->help);
-            cfg_.save_settings(settings_path_);
-            return true;
-        }
-        return false;
-    };
-    // For space-separated args like "detection loop on", try dotted form "detection.loop".
-    {
-        size_t last_sp = arg.rfind(' ');
-        if (last_sp != std::string::npos) {
-            std::string space_key = arg.substr(0, last_sp);
-            std::string space_val = arg.substr(last_sp + 1);
-            // Convert space-separated key to dotted.
-            std::string dotted;
-            size_t p = 0;
-            while (p < space_key.size()) {
-                size_t sp = space_key.find(' ', p);
-                if (sp == std::string::npos) { dotted += space_key.substr(p); break; }
-                if (!dotted.empty()) dotted += ".";
-                dotted += space_key.substr(p, sp - p);
-                p = sp + 1;
-            }
-            if (!dotted.empty() && try_registry(dotted, space_val))
-                return;
-        }
+void Tui::cmd_set_detection_toggle(const std::string& key, const std::string& val) {
+    if (val != "off" && val != "on" && val != "toggle") {
+        append_line(P_STATUS, "usage: /set detection " + key + " off|on|toggle (got: " + val + ")");
+        return;
     }
-    // Fast path: dotted keys via SettingRegistry (e.g. "compression.threshold 0.8").
+    bool* field = (key == "loop") ? &cfg_.detection_loop : &cfg_.detection_duplicate;
+    bool new_val;
+    if (val == "on") new_val = true;
+    else if (val == "off") new_val = false;
+    else new_val = !*field;
+    *field = new_val;
+    for (auto& w : windows_) {
+        if (!w->agent) continue;
+        if (key == "loop") w->agent->set_detection_loop(new_val);
+        else w->agent->set_detection_duplicate(new_val);
+    }
+    std::string hint;
+    if (key == "loop") hint = new_val ? "breaks on repeat" : "runs until stop";
+    else hint = new_val ? "rejects duplicates" : "may repeat calls";
+    append_line(P_STATUS, "detection " + key + ": " + (new_val ? "on" : "off") + " \u2014 " + hint);
+    if (!cfg_.save_settings(settings_path_))
+        append_line(P_STATUS, "warning: could not save to " + settings_path_);
+    draw();
+}
+
+void Tui::cmd_set(const std::string& arg) {
+    // Dotted keys via SettingRegistry (e.g. "compression.threshold 0.8").
     if (arg.find('.') != std::string::npos) {
         size_t sp = arg.find(' ');
         std::string key = (sp == std::string::npos) ? arg : arg.substr(0, sp);
@@ -189,17 +182,12 @@ void Tui::cmd_set(const std::string& arg) {
         const Setting* s = settings_.find(key);
         if (s && s->setter && !val.empty()) {
             s->setter(std::string(val));
-            append_line(P_STATUS, s->key + ": " + s->getter() + "  —  " + s->help);
+            append_line(P_STATUS, s->key + ": " + s->getter() + "  \u2014  " + s->help);
             cfg_.save_settings(settings_path_);
-            return;
-        }
-        if (s && s->help.empty() && val.empty()) {
-            append_line(P_STATUS, s->help + "  (" + s->placeholder + ")");
             return;
         }
     }
     if (arg.empty()) {
-        // BitchX-style: /set alone shows all settings
         append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
         append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
         append_line(P_STATUS, "display markdown: " + std::string(win().markdown_on ? "on" : "off"));
@@ -208,7 +196,7 @@ void Tui::cmd_set(const std::string& arg) {
         append_line(P_STATUS, "compression threshold: " +
             std::to_string(cfg_.compression_threshold > 0.0 ? cfg_.compression_threshold : 0.75));
         append_line(P_STATUS, "compression min_turns: " +
-            std::to_string(cfg_.compression_min_turns > 0 ? cfg_.compression_min_turns : 10));
+            std::to_string(cfg_.compression_min_turns_explicit ? cfg_.compression_min_turns : 10));
         append_line(P_STATUS, "provider: " + cfg_.provider_name);
         append_line(P_STATUS, "model: " + cfg_.model);
         append_line(P_STATUS, "thinking: " + cfg_.thinking);
@@ -217,74 +205,10 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    // Parse: /set detection loop off
-    size_t sp = arg.find(' ');
-    std::string ns = (sp == std::string::npos) ? arg : arg.substr(0, sp);
-    std::string rest = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
-
-    // detection loop|duplicate off|on|toggle
-    if (ns == "detection") {
-        size_t sp2 = rest.find(' ');
-        std::string key = (sp2 == std::string::npos) ? "" : rest.substr(0, sp2);
-        std::string val = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
-        if (key != "loop" && key != "duplicate") {
-            append_line(P_STATUS, "usage: /set detection loop|duplicate off|on|toggle");
-            return;
-        }
-        if (val != "off" && val != "on" && val != "toggle") {
-            append_line(P_STATUS, "usage: /set detection " + key + " off|on|toggle (got: " + val + ")");
-            return;
-        }
-        bool* field = (key == "loop") ? &cfg_.detection_loop : &cfg_.detection_duplicate;
-        bool new_val;
-        if (val == "on") new_val = true;
-        else if (val == "off") new_val = false;
-        else new_val = !*field;
-        *field = new_val;
-        for (auto& w : windows_) {
-            if (!w->agent) continue;
-            if (key == "loop") w->agent->set_detection_loop(new_val);
-            else w->agent->set_detection_duplicate(new_val);
-        }
-        std::string hint;
-        if (key == "loop") {
-            hint = new_val ? "breaks on repeat" : "runs until stop";
-        } else {
-            hint = new_val ? "rejects duplicates" : "may repeat calls";
-        }
-        append_line(P_STATUS, "detection " + key + ": " + (new_val ? "on" : "off") + " — " + hint);
-        if (!cfg_.save_settings(settings_path_))
-            append_line(P_STATUS, "warning: could not save to " + settings_path_);
-        draw();
-        return;
-    }
-
-    // display markdown on|off
-    if (ns == "display") {
-        if (rest != "markdown on" && rest != "markdown off") {
-            append_line(P_STATUS, "usage: /set display markdown on|off");
-            return;
-        }
-        win().markdown_on = (rest == "markdown on");
-        append_line(P_STATUS, "markdown rendering: " + std::string(rest.substr(9)));
-        draw();
-        return;
-    }
-
-    // toolfold always|auto|never
-    if (ns == "toolfold") {
-        if (rest == "always") tool_fold_ = ToolFold::Always;
-        else if (rest == "auto") tool_fold_ = ToolFold::Auto;
-        else if (rest == "never") tool_fold_ = ToolFold::Never;
-        else { append_line(P_STATUS, "usage: /set toolfold always|auto|never"); return; }
-        append_line(P_STATUS, "tool fold: " + rest);
-        draw();
-        return;
-    }
-
     // policy: mode read|write|yolo, or tool <tool> <level>, or timeout <N>
-    if (ns == "policy") {
-        // /set policy read|write|yolo — backward compat shortcut for mode
+    if (arg.rfind("policy ", 0) == 0 || arg == "policy") {
+        std::string rest = (arg.size() > 7) ? arg.substr(7) : "";
+        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
         if (rest == "read" || rest == "write" || rest == "yolo") {
             if (rest == "read") cfg_.mode = agent::AgentMode::Read;
             else if (rest == "yolo") cfg_.mode = agent::AgentMode::Yolo;
@@ -293,14 +217,11 @@ void Tui::cmd_set(const std::string& arg) {
             draw();
             return;
         }
-        // /set policy rule <name> <allow|deny|ask> — permission rule
-        size_t sp_rule = rest.find(' ');
-        std::string subcmd = (sp_rule == std::string::npos) ? rest : rest.substr(0, sp_rule);
-        std::string subargs = (sp_rule == std::string::npos) ? "" : rest.substr(sp_rule + 1);
-        if (subcmd == "rule") {
-            size_t sp2 = subargs.find(' ');
-            std::string name = (sp2 == std::string::npos) ? subargs : subargs.substr(0, sp2);
-            std::string lvl = (sp2 == std::string::npos) ? "" : subargs.substr(sp2 + 1);
+        if (rest.rfind("rule ", 0) == 0) {
+            std::string name, lvl;
+            size_t sp2 = rest.find(' ', 5);
+            if (sp2 == std::string::npos) { name = rest.substr(5); lvl.clear(); }
+            else { name = rest.substr(5, sp2 - 5); lvl = rest.substr(sp2 + 1); }
             if (name.empty() || lvl.empty()) {
                 append_line(P_STATUS, "usage: /set policy rule <name> <allow|deny|ask>");
                 draw();
@@ -330,120 +251,44 @@ void Tui::cmd_set(const std::string& arg) {
         append_line(P_STATUS, "usage: /set policy mode <read|write|yolo> | /set policy rule <name> <allow|deny|ask> | /set policy timeout <N> | /set policy approval <on|off>");
         draw();
         return;
-        if (win().agent) {
-            std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
-            win().agent->policy().save(policy_path);
-        }
-        draw();
-        return;
     }
 
-    // skills: interop on|off, refresh, show [name], create <name> [--global],
-    // delete <name> [--global], export <name>, enable|disable|block <name>
-    if (ns == "skills") {
+    // skills: export, enable|disable|block (documented verbs go to leaves)
+    if (arg.rfind("skills ", 0) == 0 || arg == "skills") {
+        std::string rest = (arg.size() > 7) ? arg.substr(7) : "";
+        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
         cmd_skills_set(rest);
         return;
     }
 
-    // mcp: trust <server> on|off, enable <server> on|off
-    if (ns == "mcp") {
-        size_t sp2 = rest.find(' ');
-        std::string key = (sp2 == std::string::npos) ? rest : rest.substr(0, sp2);
-        std::string val = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
-        size_t sp3 = val.find(' ');
-        std::string server = (sp3 == std::string::npos) ? "" : val.substr(0, sp3);
-        std::string onoff = (sp3 == std::string::npos) ? "" : val.substr(sp3 + 1);
-        if ((key == "trust" || key == "enable") && !server.empty() &&
-            (onoff == "on" || onoff == "off")) {
-            std::string err;
-            if (key == "trust") {
-                err = agent::mcp_trust(mcp_servers_, server, onoff == "on");
-            } else {
-                err = agent::mcp_enable(mcp_servers_, reg_, server,
-                                        onoff == "on");
-            }
-            append_line(P_STATUS, err.empty()
-                ? ("mcp " + key + " " + server + ": " + onoff)
-                : err);
-        } else {
-            append_line(P_STATUS, "usage: /set mcp trust|enable <server> on|off");
-        }
-        draw();
-        return;
-    }
-
-    // provider openrouter|kilocode|custom
-    if (ns == "provider") {
+    // provider / model switches
+    if (arg.rfind("provider ", 0) == 0 || arg == "provider") {
+        std::string rest = (arg.size() > 9) ? arg.substr(9) : "";
+        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
         cmd_provider(rest);
         return;
     }
-
-    // model <name>
-    if (ns == "model") {
-        cmd_model(rest);
+    if (arg.rfind("model ", 0) == 0 || arg == "model") {
+        std::string rest = (arg.size() > 6) ? arg.substr(6) : "";
+        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
+        cmd_model_set(rest);
         return;
     }
 
-    // think on|off|auto
-    if (ns == "think") {
-        if (rest != "on" && rest != "off" && rest != "auto") {
-            append_line(P_STATUS, "usage: /set think on|off|auto");
-            return;
-        }
-        cfg_.thinking = rest;
-        append_line(P_STATUS, "thinking: " + rest);
-        return;
-    }
-
-    // compression threshold <0.0-1.0> | min_turns <N>
-    if (ns == "compression") {
-        size_t sp2 = rest.find(' ');
-        std::string key = (sp2 == std::string::npos) ? "" : rest.substr(0, sp2);
-        std::string val = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
-        if (key == "threshold") {
-            double t = std::atof(val.c_str());
-            if (t <= 0.0 || t > 1.0 || val.empty()) {
-                append_line(P_STATUS, "usage: /set compression threshold <0.1-1.0>");
-                return;
-            }
-            cfg_.compression_threshold = t;
-            for (auto& w : windows_)
-                if (w->agent) w->agent->set_compression_threshold(t);
-            append_line(P_STATUS, "compression threshold: " + std::to_string(t));
-        } else if (key == "min_turns") {
-            int n = std::atoi(val.c_str());
-            if (val.empty()) {
-                append_line(P_STATUS, "usage: /set compression min_turns <0-999> (0 = disabled)");
-                return;
-            }
-            cfg_.compression_min_turns = n;
-            for (auto& w : windows_)
-                if (w->agent) w->agent->set_compression_min_turns(n);
-            append_line(P_STATUS, "compression min_turns: " + std::to_string(n));
-        } else {
-            append_line(P_STATUS, "usage: /set compression threshold|min_turns <value>");
-        }
-        if (!cfg_.save_settings(settings_path_))
-            append_line(P_STATUS, "warning: could not save to " + settings_path_);
-        draw();
-        return;
-    }
-
-    append_line(P_STATUS, "unknown option: " + ns + " (try: detection, display, toolfold, policy, compression, provider, model, think, skills)");
+    append_line(P_STATUS, "unknown option: " + arg + " (try: detection, display, toolfold, policy, compression, provider, model, think, skills)");
 }
 
 void Tui::cmd_get(const std::string& arg) {
-    // Try the SettingRegistry first — it handles dotted keys (detection.loop)
-    // AND any key registered in build_settings() (model, provider, toolfold, etc.).
+    // Namespace fallback: dotted keys, namespace expansions, learn/mcp
+    // summaries, and the config screen.
     const Setting* reg = settings_.find(arg);
     if (reg && reg->getter) {
         std::string help_text = settings_.help_for(arg);
         std::string msg = arg + ": " + reg->getter();
-        if (!help_text.empty()) msg += "  —  " + help_text;
+        if (!help_text.empty()) msg += "  \u2014  " + help_text;
         append_line(P_STATUS, msg);
         return;
     }
-    // Also try appending suffixes for namespace-level queries (e.g. "detection" → "detection.loop").
     auto subs = settings_.keys_in(arg);
     if (!subs.empty()) {
         for (const auto& sub : subs) {
@@ -454,99 +299,6 @@ void Tui::cmd_get(const std::string& arg) {
         }
         return;
     }
-
-    if (arg == "config" || arg.empty()) {
-        config_screen();
-        redraw_after_modal();
-        return;
-    }
-    if (arg == "model") {
-        append_line(P_STATUS, "model: " + cfg_.model + " (provider: " + cfg_.provider_name + ")");
-        return;
-    }
-    if (arg == "provider") {
-        append_line(P_STATUS, "provider: " + cfg_.provider_name + " (" + cfg_.api_base + ")");
-        return;
-    }
-    if (arg == "toolfold") {
-        append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
-        return;
-    }
-    if (arg.rfind("policy", 0) == 0) {
-        std::string sub = (arg.size() > 7) ? arg.substr(7) : "";
-        if (sub.empty() || sub == " ") {
-            // Show mode
-            append_line(P_STATUS, "policy mode: " + mode_name(cfg_.mode));
-            append_line(P_STATUS, "policy timeout: " + std::to_string(policy_timeout_) + "s");
-            // List stored rules
-            auto* ag = win().agent.get();
-            if (ag) {
-                for (const auto& r : ag->policy().rules()) {
-                    if (r.level == agent::PolicyLevel::Ask) continue;
-                    append_line(P_STATUS, "  " + r.tool + " → " +
-                        agent::policy_level_name(r.level) +
-                        " (used " + std::to_string(r.count) + "x)");
-                }
-            }
-            return;
-        }
-        // /get policy rule <name> — show specific rule
-        std::string name = sub;
-        if (!name.empty() && name[0] == ' ') name = name.substr(1);
-        if (name.rfind("rule ", 0) == 0) name = name.substr(5);
-        if (!name.empty()) {
-            if (auto* ag = win().agent.get()) {
-                const auto* r = ag->policy().find(name);
-                if (r) {
-                    append_line(P_STATUS, "rule " + r->tool + ": " +
-                        agent::policy_level_name(r->level) +
-                        " (last: " + agent::policy_level_name(r->last_choice) +
-                        ", used " + std::to_string(r->count) + "x)");
-                } else {
-                    append_line(P_STATUS, "rule " + name + ": ask (no stored rule)");
-                }
-            }
-            return;
-        }
-    }
-    if (arg == "display") {
-        append_line(P_STATUS, "markdown: " + std::string(win().markdown_on ? "on" : "off"));
-        return;
-    }
-    if (arg == "think") {
-        append_line(P_STATUS, "thinking: " + cfg_.thinking);
-        return;
-    }
-    if (arg.rfind("detection", 0) == 0) {
-        std::string sub = (arg.size() > 10) ? arg.substr(10) : "";
-        if (sub.empty() || sub == " loop") {
-            append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
-        }
-        if (sub.empty() || sub == " duplicate") {
-            append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
-        }
-        return;
-    }
-    if (arg.rfind("compression", 0) == 0) {
-        double t = (cfg_.compression_threshold > 0.0) ? cfg_.compression_threshold : 0.75;
-        int mt = (cfg_.compression_min_turns > 0) ? cfg_.compression_min_turns : 10;
-        append_line(P_STATUS, "compression threshold: " + std::to_string(t));
-        append_line(P_STATUS, "compression min_turns: " + std::to_string(mt));
-        return;
-    }
-    // Look up dotted keys via the SettingRegistry (e.g. "compression.threshold").
-    const Setting* s = settings_.find(arg);
-    if (s && s->getter) {
-        append_line(P_STATUS, s->key + ": " + s->getter() + "  —  " + s->help);
-        return;
-    }
-    // /get skills [name] — scope table for the skill catalog
-    if (arg.rfind("skills", 0) == 0) {
-        std::string sub = (arg.size() > 6) ? arg.substr(6) : "";
-        cmd_skills_get(sub);
-        return;
-    }
-    // /get learn — learned-knowledge summary
     if (arg == "learn" || arg == "learn ") {
         if (win().agent) {
             auto lines = agent::learn_summary_lines(
@@ -556,7 +308,6 @@ void Tui::cmd_get(const std::string& arg) {
         draw();
         return;
     }
-    // /get mcp — server + prompt state
     if (arg == "mcp" || arg.rfind("mcp ", 0) == 0) {
         std::string sub = (arg.size() > 3) ? arg.substr(3) : "";
         if (sub.empty() || sub == " servers") {
@@ -580,9 +331,91 @@ void Tui::cmd_get(const std::string& arg) {
         draw();
         return;
     }
-    // Default: show all settings via config screen
     config_screen();
     redraw_after_modal();
+}
+
+void Tui::cmd_get_config() {
+    config_screen();
+    redraw_after_modal();
+}
+
+void Tui::cmd_get_model() {
+    append_line(P_STATUS, "model: " + cfg_.model + " (provider: " + cfg_.provider_name + ")");
+}
+
+void Tui::cmd_get_provider() {
+    append_line(P_STATUS, "provider: " + cfg_.provider_name + " (" + cfg_.api_base + ")");
+}
+
+void Tui::cmd_get_toolfold() {
+    append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
+}
+
+void Tui::cmd_get_policy(const std::string& arg) {
+    // Namespace: summary, or "rule <name>" lookup.
+    std::string name = arg;
+    if (!name.empty() && name[0] == ' ') name = name.substr(1);
+    if (name.rfind("rule ", 0) == 0) name = name.substr(5);
+    if (name.empty()) {
+        append_line(P_STATUS, "policy mode: " + mode_name(cfg_.mode));
+        append_line(P_STATUS, "policy timeout: " + std::to_string(policy_timeout_) + "s");
+        auto* ag = win().agent.get();
+        if (ag) {
+            for (const auto& r : ag->policy().rules()) {
+                if (r.level == agent::PolicyLevel::Ask) continue;
+                append_line(P_STATUS, "  " + r.tool + " \u2192 " +
+                    agent::policy_level_name(r.level) +
+                    " (used " + std::to_string(r.count) + "x)");
+            }
+        }
+        return;
+    }
+    if (auto* ag = win().agent.get()) {
+        const auto* r = ag->policy().find(name);
+        if (r) {
+            append_line(P_STATUS, "rule " + r->tool + ": " +
+                agent::policy_level_name(r->level) +
+                " (last: " + agent::policy_level_name(r->last_choice) +
+                ", used " + std::to_string(r->count) + "x)");
+        } else {
+            append_line(P_STATUS, "rule " + name + ": ask (no stored rule)");
+        }
+    }
+}
+
+void Tui::cmd_get_policy_mode() {
+    append_line(P_STATUS, "policy mode: " + mode_name(cfg_.mode));
+}
+
+void Tui::cmd_get_policy_approval() {
+    append_line(P_STATUS, "policy approval: " + std::string(cfg_.policy_approval ? "on" : "off"));
+}
+
+void Tui::cmd_get_policy_timeout() {
+    append_line(P_STATUS, "policy timeout: " + std::to_string(policy_timeout_) + "s");
+}
+
+void Tui::cmd_get_display() {
+    append_line(P_STATUS, "markdown: " + std::string(win().markdown_on ? "on" : "off"));
+}
+
+void Tui::cmd_get_think() {
+    append_line(P_STATUS, "thinking: " + cfg_.thinking);
+}
+
+void Tui::cmd_get_detection(const std::string& sub) {
+    if (sub.empty() || sub == "loop")
+        append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
+    if (sub.empty() || sub == "duplicate")
+        append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
+}
+
+void Tui::cmd_get_compression() {
+    double t = (cfg_.compression_threshold > 0.0) ? cfg_.compression_threshold : 0.75;
+    int mt = cfg_.compression_min_turns_explicit ? cfg_.compression_min_turns : 10;
+    append_line(P_STATUS, "compression threshold: " + std::to_string(t));
+    append_line(P_STATUS, "compression min_turns: " + std::to_string(mt));
 }
 
 void Tui::cmd_skills_set(const std::string& rest) {
@@ -592,130 +425,36 @@ void Tui::cmd_skills_set(const std::string& rest) {
         return;
     }
     agent::SkillCatalog& catalog = win().agent->skills();
-    size_t sp = rest.find(' ');
-    std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
-    std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
     auto trim = [](const std::string& s) {
         size_t b = s.find_first_not_of(" \t");
         size_t e = s.find_last_not_of(" \t");
         return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
     };
-
-    if (sub == "interop") {
-        if (args != "on" && args != "off") {
-            append_line(P_STATUS, "usage: /set skills interop on|off");
-            draw();
-            return;
-        }
-        bool on = (args == "on");
-        cfg_.skills_interop = on;
-        catalog.set_interop_enabled(on);
-        catalog.refresh();
-        append_line(P_STATUS, "skills interop: " + args + " — .claude/skills and "
-            ".codex/skills " + (on ? "scanned" : "ignored"));
-        if (!cfg_.save_settings(settings_path_))
-            append_line(P_STATUS, "warning: could not save to " + settings_path_);
-        draw();
-        return;
-    }
-    if (sub == "refresh") {
-        catalog.refresh();
-        append_line(P_STATUS, "skills refreshed: " +
-            std::to_string(catalog.entries().size()) + " union entries");
-        draw();
-        return;
-    }
-    if (sub == "show") {
-        auto lines = agent::skill_show_lines(catalog);
-        if (lines.empty()) append_line(P_STATUS, "(no skills)");
-        for (const auto& l : lines) append_line(P_STATUS, l);
-        draw();
-        return;
-    }
-    if (sub == "create" || sub == "delete") {
-        std::string name = args;
-        std::string scope = "project";
-        size_t gpos = name.find("--global");
-        if (gpos != std::string::npos) {
-            scope = "global";
-            name.resize(gpos);
-        }
-        name = trim(name);
-        if (name.empty()) {
-            append_line(P_STATUS, "usage: /set skills " + sub +
-                " <name> [--global]");
-            draw();
-            return;
-        }
-        std::string err;
-        if (sub == "create") {
-            err = agent::skill_create(catalog, name, name,
-                "## " + name + "\n\n(instructions)", scope);
-        } else {
-            err = agent::skill_delete(catalog, name, scope);
-        }
-        append_line(P_STATUS, err.empty()
-            ? "skill '" + name + "' " + sub + "d (" + scope + ")"
-            : err);
-        draw();
-        return;
-    }
+    // Namespace fallback: export / enable / disable / block + usage.
+    std::string sub = trim(rest.substr(0, rest.find(' ')));
+    std::string args = (rest.find(' ') == std::string::npos) ? "" : trim(rest.substr(rest.find(' ') + 1));
     if (sub == "export") {
-        std::string name = trim(args);
-        if (name.empty()) {
+        if (args.empty()) {
             append_line(P_STATUS, "usage: /set skills export <name>");
             draw();
             return;
         }
-        std::string err = agent::skill_export(catalog, name);
+        std::string err = agent::skill_export(catalog, args);
         append_line(P_STATUS, err.empty()
-            ? "exported '" + name + "' to global authored skills"
+            ? "exported '" + args + "' to global authored skills"
             : err);
         draw();
         return;
     }
-    if (sub == "install" || sub == "uninstall") {
-        std::string arg = trim(args);
-        if (arg.empty()) {
-            append_line(P_STATUS,
-                        "usage: /set skills " + sub + " <path|url>|<name>");
-            draw();
-            return;
-        }
-        std::string err;
-        if (sub == "install") {
-            std::string global = agent::default_scan_paths().global;
-            err = agent::install_skill_pack(arg, global);
-            if (err.empty()) {
-                catalog.refresh();
-                append_line(P_STATUS, "skill installed to " + global);
-                draw();
-                return;
-            }
-        } else {
-            std::string global = agent::default_scan_paths().global;
-            err = agent::uninstall_skill(arg, global);
-            if (err.empty()) {
-                catalog.refresh();
-                append_line(P_STATUS, "skill removed: " + arg);
-                draw();
-                return;
-            }
-        }
-        append_line(P_STATUS, "install failed: " + err);
-        draw();
-        return;
-    }
     if (sub == "enable" || sub == "disable" || sub == "block") {
-        std::string name = trim(args);
-        if (name.empty()) {
+        if (args.empty()) {
             append_line(P_STATUS, "usage: /set skills " + sub + " <name>");
             draw();
             return;
         }
-        std::string err = agent::skill_set_override(catalog, name, sub);
+        std::string err = agent::skill_set_override(catalog, args, sub);
         append_line(P_STATUS, err.empty()
-            ? "skill '" + name + "' " + sub + "d"
+            ? "skill '" + args + "' " + sub + "d"
             : err);
         draw();
         return;
@@ -723,6 +462,102 @@ void Tui::cmd_skills_set(const std::string& rest) {
     append_line(P_STATUS, "usage: /set skills interop on|off | refresh | show "
         "| create <name> [--global] | delete <name> [--global] | export <name> "
         "| install <path|url> | uninstall <name> | enable|disable|block <name>");
+    draw();
+}
+
+void Tui::cmd_skills_interop(const std::string& val) {
+    if (!win().agent) { append_line(P_STATUS, "no agent in this window"); return; }
+    if (val != "on" && val != "off") {
+        append_line(P_STATUS, "usage: /set skills interop on|off");
+        return;
+    }
+    agent::SkillCatalog& catalog = win().agent->skills();
+    cfg_.skills_interop = (val == "on");
+    catalog.set_interop_enabled(val == "on");
+    catalog.refresh();
+    append_line(P_STATUS, "skills interop: " + val + " \u2014 .claude/skills and "
+        ".codex/skills " + (val == "on" ? "scanned" : "ignored"));
+    if (!cfg_.save_settings(settings_path_))
+        append_line(P_STATUS, "warning: could not save to " + settings_path_);
+    draw();
+}
+
+void Tui::cmd_skills_refresh() {
+    if (!win().agent) { append_line(P_STATUS, "no agent in this window"); return; }
+    win().agent->skills().refresh();
+    append_line(P_STATUS, "skills refreshed");
+    draw();
+}
+
+void Tui::cmd_skills_create(const std::string& args) {
+    if (!win().agent) { append_line(P_STATUS, "no agent in this window"); return; }
+    auto trim = [](const std::string& s) {
+        size_t b = s.find_first_not_of(" \t");
+        size_t e = s.find_last_not_of(" \t");
+        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    };
+    std::string name = trim(args);
+    std::string scope = "project";
+    if (name.rfind("--global", 0) == 0) { scope = "global"; name.clear(); }
+    else if (name.find(" --global") != std::string::npos) {
+        scope = "global";
+        name = trim(name.substr(0, name.find(" --global")));
+    }
+    if (name.empty()) {
+        append_line(P_STATUS, "usage: /set skills create <name> [--global]");
+        return;
+    }
+    std::string err = agent::skill_create(win().agent->skills(), name, name,
+        "## " + name + "\n\n(instructions)", scope);
+    append_line(P_STATUS, err.empty() ? ("skill '" + name + "' created (" + scope + ")") : err);
+    draw();
+}
+
+void Tui::cmd_skills_delete(const std::string& args) {
+    if (!win().agent) { append_line(P_STATUS, "no agent in this window"); return; }
+    auto trim = [](const std::string& s) {
+        size_t b = s.find_first_not_of(" \t");
+        size_t e = s.find_last_not_of(" \t");
+        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    };
+    std::string name = trim(args);
+    std::string scope = "project";
+    if (name.find(" --global") != std::string::npos) {
+        scope = "global";
+        name = trim(name.substr(0, name.find(" --global")));
+    }
+    if (name.empty()) {
+        append_line(P_STATUS, "usage: /set skills delete <name> [--global]");
+        return;
+    }
+    std::string err = agent::skill_delete(win().agent->skills(), name, scope);
+    append_line(P_STATUS, err.empty() ? ("skill '" + name + "' deleted (" + scope + ")") : err);
+    draw();
+}
+
+void Tui::cmd_skills_install(const std::string& source) {
+    if (source.empty()) {
+        append_line(P_STATUS, "usage: /set skills install <path|url>");
+        return;
+    }
+    std::string global = agent::default_scan_paths().global;
+    std::string err = agent::install_skill_pack(source, global);
+    if (!err.empty()) { append_line(P_STATUS, "install failed: " + err); return; }
+    if (win().agent) win().agent->skills().refresh();
+    append_line(P_STATUS, "skill installed to " + global);
+    draw();
+}
+
+void Tui::cmd_skills_uninstall(const std::string& name) {
+    if (name.empty()) {
+        append_line(P_STATUS, "usage: /set skills uninstall <name>");
+        return;
+    }
+    std::string global = agent::default_scan_paths().global;
+    std::string err = agent::uninstall_skill(name, global);
+    if (!err.empty()) { append_line(P_STATUS, "uninstall failed: " + err); return; }
+    if (win().agent) win().agent->skills().refresh();
+    append_line(P_STATUS, "skill removed: " + name);
     draw();
 }
 
@@ -755,228 +590,205 @@ std::string Tui::plugin_state_name(agent::PluginState st) const {
     }
 }
 
-void Tui::cmd_plugin(const std::string& rest) {
-    std::string sub, arg;
-    size_t sp = rest.find(' ');
-    if (sp == std::string::npos) { sub = rest; arg.clear(); }
-    else { sub = rest.substr(0, sp); arg = rest.substr(sp + 1); }
+void Tui::cmd_plugin_list() {
+    std::string msg;
+    for (const auto& p : plugins_.plugins()) {
+        msg += p.id + " v" + p.version + " [" + plugin_state_name(p.state) + "] ";
+        if (!p.error.empty()) msg += "(" + p.error + ") ";
+    }
+    append_line(P_STATUS, "plugins: " + (msg.empty() ? "(none)" : msg));
+}
 
-    if (sub.empty() || sub == "list") {
-        std::string msg;
-        for (const auto& p : plugins_.plugins()) {
-            msg += p.id + " v" + p.version + " [" + plugin_state_name(p.state) + "] ";
-            if (!p.error.empty()) msg += "(" + p.error + ") ";
-        }
-        append_line(P_STATUS, "plugins: " + (msg.empty() ? "(none)" : msg));
-        return;
-    }
-    if (sub == "status") {
-        const agent::PluginInfo* p = plugins_.find(arg);
-        if (!p) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
-        append_line(P_STATUS, arg + " v" + p->version + " [" +
-                                  plugin_state_name(p->state) + "] dir " + p->dir);
-        if (!p->error.empty()) append_line(P_STATUS, "  error: " + p->error);
-        return;
-    }
-    if (sub == "info") {
-        const agent::PluginInfo* p = plugins_.find(arg);
-        if (!p) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
-        append_line(P_STATUS, arg + " — " + p->manifest.name + " (" +
-                                  p->manifest.author + ")");
-        append_line(P_STATUS, "  url: " + p->manifest.url);
-        append_line(P_STATUS, "  license: " + p->manifest.license);
-        append_line(P_STATUS, "  tools: " +
-                                  std::to_string(p->manifest.tools.size()));
-        return;
-    }
-    if (sub == "enable") {
-        agent::PluginInfo* p = plugins_.find(arg);
-        if (!p) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
-        if (plugins_.enable(arg, reg_)) {
-            refresh_completions();
-            append_line(P_STATUS, "plugin enabled: " + arg +
-                                      " — tools are advertised in new conversations");
-        } else {
-            append_line(P_STATUS, "enable failed: " +
-                                      (p->error.empty() ? std::string("unknown error") : p->error));
-        }
-        return;
-    }
-    if (sub == "disable") {
-        if (!plugins_.find(arg)) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
-        if (plugins_.disable(arg, reg_)) {
-            refresh_completions();
-            append_line(P_STATUS, "plugin disabled: " + arg);
-        }
-        return;
-    }
-    if (sub == "get") {
-        const agent::PluginInfo* p = plugins_.find(arg);
-        if (!p) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
-        std::string key;
-        size_t sp2 = arg.find(' ');
-        if (sp2 != std::string::npos) { key = arg.substr(sp2 + 1); arg.resize(sp2); }
-        if (key.empty()) {
-            std::string all;
-            for (auto it = p->settings.begin(); it != p->settings.end(); ++it)
-                all += it.key() + "=" + it.value().dump() + " ";
-            append_line(P_STATUS, "settings " + arg + ": " + all);
-            return;
-        }
-        append_line(P_STATUS, arg + " " + key + " = " + plugins_.get_setting(arg, key));
-        return;
-    }
-    if (sub == "set") {
-        size_t sp2 = arg.find(' ');
-        if (sp2 == std::string::npos) {
-            append_line(P_STATUS, "usage: /plugin set <id> <key>=<value>");
-            return;
-        }
-        std::string id = arg.substr(0, sp2);
-        std::string kv = arg.substr(sp2 + 1);
-        size_t eq = kv.find('=');
-        if (eq == std::string::npos) {
-            append_line(P_STATUS, "usage: /plugin set <id> <key>=<value>");
-            return;
-        }
-        if (plugins_.set_setting(id, kv.substr(0, eq), kv.substr(eq + 1)))
-            append_line(P_STATUS, "set " + id + " " + kv);
-        else
-            append_line(P_STATUS, "unknown plugin: " + id);
-        return;
-    }
-    if (sub == "install") {
-        if (arg.empty()) { append_line(P_STATUS, "usage: /plugin install <path|url>"); return; }
-        append_line(P_STATUS, "installing " + arg + " ...");
-        std::string err = plugins_.install(arg);
-        if (!err.empty()) { append_line(P_STATUS, "install failed: " + err); return; }
-        plugins_.discover();
+void Tui::cmd_plugin_status(const std::string& id) {
+    if (id.empty()) { append_line(P_STATUS, "usage: /plugin status <id>"); return; }
+    const agent::PluginInfo* p = plugins_.find(id);
+    if (!p) { append_line(P_STATUS, "unknown plugin: " + id); return; }
+    append_line(P_STATUS, id + " v" + p->version + " [" +
+                              plugin_state_name(p->state) + "] dir " + p->dir);
+    if (!p->error.empty()) append_line(P_STATUS, "  error: " + p->error);
+}
+
+void Tui::cmd_plugin_info(const std::string& id) {
+    if (id.empty()) { append_line(P_STATUS, "usage: /plugin info <id>"); return; }
+    const agent::PluginInfo* p = plugins_.find(id);
+    if (!p) { append_line(P_STATUS, "unknown plugin: " + id); return; }
+    append_line(P_STATUS, id + " \u2014 " + p->manifest.name + " (" +
+                              p->manifest.author + ")");
+    append_line(P_STATUS, "  url: " + p->manifest.url);
+    append_line(P_STATUS, "  license: " + p->manifest.license);
+    append_line(P_STATUS, "  tools: " +
+                              std::to_string(p->manifest.tools.size()));
+}
+
+void Tui::cmd_plugin_enable(const std::string& id) {
+    if (id.empty()) { append_line(P_STATUS, "usage: /plugin enable <id>"); return; }
+    agent::PluginInfo* p = plugins_.find(id);
+    if (!p) { append_line(P_STATUS, "unknown plugin: " + id); return; }
+    if (plugins_.enable(id, reg_)) {
         refresh_completions();
-        append_line(P_STATUS, "installed — /plugin enable <id> to activate");
-        return;
+        append_line(P_STATUS, "plugin enabled: " + id +
+                                  " \u2014 tools are advertised in new conversations");
+    } else {
+        append_line(P_STATUS, "enable failed: " +
+                                  (p->error.empty() ? std::string("unknown error") : p->error));
     }
-    if (sub == "uninstall") {
-        if (arg.empty()) { append_line(P_STATUS, "usage: /plugin uninstall <id>"); return; }
-        std::string err = plugins_.uninstall(arg);
-        if (!err.empty()) { append_line(P_STATUS, "uninstall failed: " + err); return; }
-        plugins_.discover();
+}
+
+void Tui::cmd_plugin_disable(const std::string& id) {
+    if (id.empty()) { append_line(P_STATUS, "usage: /plugin disable <id>"); return; }
+    if (!plugins_.find(id)) { append_line(P_STATUS, "unknown plugin: " + id); return; }
+    if (plugins_.disable(id, reg_)) {
         refresh_completions();
-        append_line(P_STATUS, "uninstalled: " + arg);
+        append_line(P_STATUS, "plugin disabled: " + id);
+    }
+}
+
+void Tui::cmd_plugin_get(const std::string& args) {
+    size_t sp = args.find(' ');
+    std::string id = (sp == std::string::npos) ? args : args.substr(0, sp);
+    std::string key = (sp == std::string::npos) ? "" : args.substr(sp + 1);
+    const agent::PluginInfo* p = plugins_.find(id);
+    if (!p) { append_line(P_STATUS, "unknown plugin: " + id); return; }
+    if (key.empty()) {
+        std::string all;
+        for (auto it = p->settings.begin(); it != p->settings.end(); ++it)
+            all += it.key() + "=" + it.value().dump() + " ";
+        append_line(P_STATUS, "settings " + id + ": " + all);
         return;
     }
-    append_line(P_STATUS,
-                "usage: /plugin list|status|enable|disable|get|set|info|install|uninstall");
+    append_line(P_STATUS, id + " " + key + " = " + plugins_.get_setting(id, key));
+}
+
+void Tui::cmd_plugin_set(const std::string& args) {
+    size_t sp = args.find(' ');
+    if (sp == std::string::npos) {
+        append_line(P_STATUS, "usage: /plugin set <id> <key>=<value>");
+        return;
+    }
+    std::string id = args.substr(0, sp);
+    std::string kv = args.substr(sp + 1);
+    size_t eq = kv.find('=');
+    if (eq == std::string::npos) {
+        append_line(P_STATUS, "usage: /plugin set <id> <key>=<value>");
+        return;
+    }
+    if (plugins_.set_setting(id, kv.substr(0, eq), kv.substr(eq + 1)))
+        append_line(P_STATUS, "set " + id + " " + kv);
+    else
+        append_line(P_STATUS, "unknown plugin: " + id);
+}
+
+void Tui::cmd_plugin_install(const std::string& source) {
+    if (source.empty()) { append_line(P_STATUS, "usage: /plugin install <path|url>"); return; }
+    append_line(P_STATUS, "installing " + source + " ...");
+    std::string err = plugins_.install(source);
+    if (!err.empty()) { append_line(P_STATUS, "install failed: " + err); return; }
+    plugins_.discover();
+    refresh_completions();
+    append_line(P_STATUS, "installed \u2014 /plugin enable <id> to activate");
+}
+
+void Tui::cmd_plugin_uninstall(const std::string& id) {
+    if (id.empty()) { append_line(P_STATUS, "usage: /plugin uninstall <id>"); return; }
+    std::string err = plugins_.uninstall(id);
+    if (!err.empty()) { append_line(P_STATUS, "uninstall failed: " + err); return; }
+    plugins_.discover();
+    refresh_completions();
+    append_line(P_STATUS, "uninstalled: " + id);
 }
 
 void Tui::cmd_mcp(const std::string& rest) {
-    size_t sp = rest.find(' ');
-    std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
-    std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
-    auto trim = [](const std::string& s) {
-        size_t b = s.find_first_not_of(" \t");
-        size_t e = s.find_last_not_of(" \t");
-        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
-    };
-    auto usage = [&]() {
+    // Namespace fallback: no documented verb matched (or empty).
+    auto lines = agent::mcp_list_lines(mcp_servers_);
+    if (lines.empty())
+        append_line(P_STATUS, "(no MCP servers configured \u2014 see "
+                    "~/.config/amber/mcp/<name>.conf)");
+    for (const auto& l : lines) append_line(P_STATUS, l);
+    if (!rest.empty())
         append_line(P_STATUS, "usage: /mcp list | show <server> | connect <server> | "
             "disconnect <server> | refresh <server> | prompts <server> | "
             "enable|disable <server> | trust <server> on|off");
-        draw();
-    };
-    if (sub.empty() || sub == "list") {
-        auto lines = agent::mcp_list_lines(mcp_servers_);
-        if (lines.empty())
-            append_line(P_STATUS, "(no MCP servers configured \u2014 see "
-                        "~/.config/amber/mcp/<name>.conf)");
-        for (const auto& l : lines) append_line(P_STATUS, l);
-        draw();
-        return;
-    }
-    if (sub == "show") {
-        std::string server = trim(args);
-        if (server.empty()) { usage(); return; }
-        std::string err;
-        auto lines = agent::mcp_show_lines(mcp_servers_, server, err);
-        if (!err.empty()) append_line(P_STATUS, err);
-        for (const auto& l : lines) append_line(P_STATUS, l);
-        draw();
-        return;
-    }
-    if (sub == "connect") {
-        std::string server = trim(args);
-        if (server.empty()) { usage(); return; }
-        std::string err = agent::mcp_connect(mcp_servers_, reg_, server);
-        append_line(P_STATUS, err.empty()
-            ? ("mcp server '" + server + "' connected")
-            : err);
-        refresh_completions();
-        draw();
-        return;
-    }
-    if (sub == "disconnect") {
-        std::string server = trim(args);
-        if (server.empty()) { usage(); return; }
-        agent::mcp_disconnect(mcp_servers_, reg_, server);
-        append_line(P_STATUS, "mcp server '" + server + "' disconnected");
-        refresh_completions();
-        draw();
-        return;
-    }
-    if (sub == "refresh") {
-        std::string server = trim(args);
-        if (server.empty()) { usage(); return; }
-        std::string err = agent::mcp_refresh(mcp_servers_, reg_, server);
-        append_line(P_STATUS, err.empty()
-            ? ("mcp server '" + server + "' refreshed")
-            : err);
-        refresh_completions();
-        draw();
-        return;
-    }
-    if (sub == "enable" || sub == "disable") {
-        std::string server = trim(args);
-        if (server.empty()) { usage(); return; }
-        std::string err = agent::mcp_enable(mcp_servers_, reg_, server,
-                                            sub == "enable");
-        append_line(P_STATUS, err.empty()
-            ? ("mcp server '" + server + "' " + sub + "d")
-            : err);
-        refresh_completions();
-        draw();
-        return;
-    }
-    if (sub == "trust") {
-        size_t sp2 = args.find(' ');
-        std::string server = (sp2 == std::string::npos) ? args : args.substr(0, sp2);
-        std::string val = (sp2 == std::string::npos) ? "" : args.substr(sp2 + 1);
-        if (val != "on" && val != "off") {
-            append_line(P_STATUS, "usage: /mcp trust <server> on|off");
-            draw();
-            return;
-        }
-        std::string err = agent::mcp_trust(mcp_servers_, server, val == "on");
-        append_line(P_STATUS, err.empty()
-            ? ("mcp server '" + server + "' trust: " + val)
-            : err);
-        draw();
-        return;
-    }
-    if (sub == "prompts") {
-        std::string server = trim(args);
-        if (server.empty()) { usage(); return; }
-        const agent::MCPClient* c = mcp_servers_.client(server);
-        if (!c) {
-            append_line(P_STATUS, "server '" + server + "' not connected");
-            draw();
-            return;
-        }
-        if (c->prompts().empty()) append_line(P_STATUS, "(no prompts)");
+    draw();
+}
+
+void Tui::cmd_mcp_show(const std::string& server) {
+    if (server.empty()) { append_line(P_STATUS, "usage: /mcp show <server>"); draw(); return; }
+    std::string err;
+    auto lines = agent::mcp_show_lines(mcp_servers_, server, err);
+    if (!err.empty()) append_line(P_STATUS, err);
+    for (const auto& l : lines) append_line(P_STATUS, l);
+    draw();
+}
+
+void Tui::cmd_mcp_connect(const std::string& server) {
+    if (server.empty()) { append_line(P_STATUS, "usage: /mcp connect <server>"); draw(); return; }
+    std::string err = agent::mcp_connect(mcp_servers_, reg_, server);
+    append_line(P_STATUS, err.empty()
+        ? ("mcp server '" + server + "' connected")
+        : err);
+    refresh_completions();
+    draw();
+}
+
+void Tui::cmd_mcp_disconnect(const std::string& server) {
+    if (server.empty()) { append_line(P_STATUS, "usage: /mcp disconnect <server>"); draw(); return; }
+    agent::mcp_disconnect(mcp_servers_, reg_, server);
+    append_line(P_STATUS, "mcp server '" + server + "' disconnected");
+    refresh_completions();
+    draw();
+}
+
+void Tui::cmd_mcp_refresh(const std::string& server) {
+    if (server.empty()) { append_line(P_STATUS, "usage: /mcp refresh <server>"); draw(); return; }
+    std::string err = agent::mcp_refresh(mcp_servers_, reg_, server);
+    append_line(P_STATUS, err.empty()
+        ? ("mcp server '" + server + "' refreshed")
+        : err);
+    refresh_completions();
+    draw();
+}
+
+void Tui::cmd_mcp_prompts(const std::string& server) {
+    if (server.empty()) { append_line(P_STATUS, "usage: /mcp prompts <server>"); draw(); return; }
+    const agent::MCPClient* c = mcp_servers_.client(server);
+    if (!c) {
+        append_line(P_STATUS, "server '" + server + "' not connected");
+    } else {
         for (const auto& p : c->prompts())
-            append_line(P_STATUS, "  " + p.name + " \u00b7 " + p.description);
+            append_line(P_STATUS, server + " \u00b7 " + p.name +
+                        " \u00b7 " + p.description);
+    }
+    draw();
+}
+
+void Tui::cmd_mcp_set_enabled(const std::string& server, bool on) {
+    if (server.empty()) {
+        append_line(P_STATUS, "usage: /mcp " + std::string(on ? "enable" : "disable") + " <server>");
         draw();
         return;
     }
-    usage();
+    std::string err = agent::mcp_enable(mcp_servers_, reg_, server, on);
+    append_line(P_STATUS, err.empty()
+        ? ("mcp server '" + server + "' " + (on ? "enabled" : "disabled"))
+        : err);
+    refresh_completions();
+    draw();
+}
+
+void Tui::cmd_mcp_trust(const std::string& args) {
+    size_t sp = args.find(' ');
+    std::string server = (sp == std::string::npos) ? args : args.substr(0, sp);
+    std::string val = (sp == std::string::npos) ? "" : args.substr(sp + 1);
+    if (server.empty() || (val != "on" && val != "off")) {
+        append_line(P_STATUS, "usage: /mcp trust <server> on|off");
+        draw();
+        return;
+    }
+    std::string err = agent::mcp_trust(mcp_servers_, server, val == "on");
+    append_line(P_STATUS, err.empty()
+        ? ("mcp server '" + server + "' trust: " + val)
+        : err);
+    draw();
 }
 
 void Tui::cmd_prompt_list() {
@@ -1032,147 +844,6 @@ void Tui::cmd_prompt(const std::string& rest) {
 }
 
 
-void Tui::cmd_learn(const std::string& rest) {
-    if (!win().agent) {
-        append_line(P_STATUS, "no agent in this window");
-        draw();
-        return;
-    }
-    agent::MemoryStore* store = win().agent->memory_store();
-    auto usage = [&]() {
-        append_line(P_STATUS, "usage: /learn show [memory|skill|tag] | show <id> | "
-            "forget <id> | pin <id> on|off | panel");
-        draw();
-    };
-    size_t sp = rest.find(' ');
-    std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
-    std::string args = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
-
-    if (sub.empty() || sub == "show") {
-        if (!store) {
-            append_line(P_STATUS, "experience store disabled");
-            draw();
-            return;
-        }
-        std::string filter = args;
-        if (!filter.empty() && filter != "memory" && filter != "skill") {
-            // "show <id>" inspects when the id exists, otherwise it is a tag.
-            std::string err;
-            auto detail = agent::learn_inspect_lines(store, filter, err);
-            if (err.empty()) {
-                for (const auto& l : detail) append_line(P_STATUS, l);
-                draw();
-                return;
-            }
-        }
-        auto lines = agent::learn_show_lines(store, filter);
-        for (const auto& l : lines) append_line(P_STATUS, l);
-        draw();
-        return;
-    }
-    if (sub == "forget") {
-        std::string id = args;
-        if (id.empty()) { usage(); return; }
-        std::string err = win().agent->learn_forget(id);
-        append_line(P_STATUS, err.empty() ? ("removed " + id) : err);
-        draw();
-        return;
-    }
-    if (sub == "pin") {
-        size_t sp2 = args.find(' ');
-        std::string id = (sp2 == std::string::npos) ? args : args.substr(0, sp2);
-        std::string val = (sp2 == std::string::npos) ? "" : args.substr(sp2 + 1);
-        if (id.empty() || (val != "on" && val != "off")) {
-            append_line(P_STATUS, "usage: /learn pin <id> on|off");
-            draw();
-            return;
-        }
-        std::string err = win().agent->learn_pin(id, val == "on");
-        append_line(P_STATUS, err.empty() ? ("pinned " + id + ": " + val) : err);
-        draw();
-        return;
-    }
-    if (sub == "panel") {
-        cmd_learn_panel();
-        return;
-    }
-    usage();
-}
-
-void Tui::cmd_learn_panel() {
-    if (!win().agent) return;
-    agent::MemoryStore* store = win().agent->memory_store();
-    if (!store) {
-        append_line(P_STATUS, "experience store disabled");
-        draw();
-        return;
-    }
-    ModalScope scope;
-    curs_set(0);
-    std::string filter;
-    size_t sel = 0;
-    size_t scroll = 0;
-    bool done = false;
-    while (!done) {
-        auto items = agent::learn_items(store, filter);
-        if (sel >= items.size()) sel = items.empty() ? 0 : items.size() - 1;
-        int h = height() - 4;
-        if (h < 1) h = 1;
-        if (scroll > sel) scroll = sel;
-        if (sel >= scroll + static_cast<size_t>(h)) scroll = sel - h + 1;
-
-        // Render the panel.
-        int w = width();
-        WINDOW* winp = newwin(h + 4, w, 1, 0);
-        box(winp, 0, 0);
-        mvwprintw(winp, 0, 2, " Learned items ");
-        for (size_t i = 0; i < static_cast<size_t>(h) && scroll + i < items.size(); ++i) {
-            const auto& it = items[scroll + i];
-            std::string line = (scroll + i == sel ? "> " : "  ");
-            line += it.type;
-            line += " · ";
-            line += it.name;
-            line += " · ev ";
-            line += std::to_string(it.evidence);
-            if (it.promoted) line += " · pinned";
-            if (static_cast<int>(line.size()) > w - 4) line.resize(w - 4);
-            if (scroll + i == sel) wattron(winp, A_REVERSE);
-            mvwprintw(winp, static_cast<int>(i) + 1, 1, "%s", line.c_str());
-            if (scroll + i == sel) wattroff(winp, A_REVERSE);
-        }
-        std::string hint = " filter: " + filter + "   [Enter] inspect  [d] forget  [p] pin  [Esc] close";
-        if (static_cast<int>(hint.size()) > w - 4) hint.resize(w - 4);
-        mvwprintw(winp, h + 1, 1, "%s", hint.c_str());
-        wrefresh(winp);
-
-        int ch = getch();
-        delwin(winp);
-        if (ch == 27) done = true;
-        else if (ch == KEY_DOWN || ch == 'j') ++sel;
-        else if (ch == KEY_UP || ch == 'k') sel = sel > 0 ? sel - 1 : 0;
-        else if ((ch == '\n' || ch == '\r') && !items.empty()) {
-            std::string err;
-            auto detail = agent::learn_inspect_lines(store, items[sel].id, err);
-            if (err.empty()) info_dialog(items[sel].name, detail);
-        } else if (ch == 'd' && !items.empty()) {
-            tui::ConfirmPanel confirm("Forget learned item",
-                                      "Forget \"" + items[sel].name + "\"?");
-            if (confirm.run()) {
-                std::string err = win().agent->learn_forget(items[sel].id);
-                if (!err.empty()) append_line(P_STATUS, err);
-            }
-        } else if (ch == 'p' && !items.empty()) {
-            win().agent->learn_pin(items[sel].id, !items[sel].promoted);
-        } else if ((ch == 127 || ch == 8) && !filter.empty()) {
-            filter.pop_back();
-        } else if (ch >= 32 && ch <= 126) {
-            filter += static_cast<char>(ch);
-        }
-    }
-    curs_set(1);
-    draw();
-}
-
 const std::vector<Command>& Tui::commands() {
     if (commands_.empty()) build_commands();
     return commands_;
@@ -1180,377 +851,414 @@ const std::vector<Command>& Tui::commands() {
 
 void Tui::build_commands() {
     commands_ = {
-        {"help", {"?", "h"}, "[command]",
-         "list commands, or show detail for one",
-         [this](const std::string& a) { cmd_help(a); }},
-        {"settings", {"server", "endpoint"}, "",
-         "configure provider, model, API key, and connection test",
-         [this](const std::string&) { settings_screen(); redraw_after_modal(); }},
-        {"mcp", {}, "[subcommand]",
-         "manage MCP servers (list|show|connect|disconnect|refresh|prompts|enable|disable|trust)",
-         [this](const std::string& a) { cmd_mcp(a); }},
-        {"prompt", {}, "[server name k=v...]",
-         "invoke an MCP prompt template (fills the input line)",
-         [this](const std::string& a) { cmd_prompt(a); }},
-        {"plugin", {}, "[subcommand]",
-         "manage plugins (list|status|enable|disable|get|set|info|install|uninstall)",
-         [this](const std::string& a) { cmd_plugin(a); }},
-        {"new", {"clear", "reset"}, "",
-         "clear the current conversation and start fresh",
-         [this](const std::string&) {
-             if (win().agent) {
-                 win().agent->set_context({});
-                 win().agent->policy().clear_session();
-             }
-             win().stream_buf.clear();
-             win().stream_ts.clear();
-             win().reason_buf.clear();
-             win().reason_folded = false;
-             win().scroll_top = 0;
-             ctx_used_ = -1;
-             live_ctx_offset_ = 0;
-             append_line(P_STATUS, "conversation cleared — next message starts fresh");
-             drawer_open_ = false;
-             draw();
-         }},
-        {"close", {}, "",
-         "close the current window",
-         [this](const std::string&) { close_window(); }},
-        {"window", {"win", "w"}, "new|close|list|rename <name>",
-         "manage chat windows",
-         [this](const std::string& a) { cmd_window(a); }},
-        {"stop", {"cancel", "kill"}, "",
-         "terminate the current tool and agent loop",
-          [this](const std::string&) {
-              cfg_.cancel_token.request();
-              agent_cancel_.store(true);
-              append_line(P_STATUS, "stop requested");
-          }},
-        {"set", {}, "<option> <value>",
+        {"help", "core.help", {"?", "h"}, "[command]",
+         "list commands, or show detail for one"},
+        {"settings", "core.settings", {"server", "endpoint"}, "",
+         "configure provider, model, API key, and connection test"},
+        {"mcp", "core.mcp", {}, "[subcommand]",
+         "manage MCP servers (list|show|connect|disconnect|refresh|prompts|enable|disable|trust)"},
+        {"prompt", "core.prompt", {}, "[server name k=v...]",
+         "invoke an MCP prompt template (fills the input line)"},
+        {"plugin", "core.plugin", {}, "[subcommand]",
+         "manage plugins (list|status|enable|disable|get|set|info|install|uninstall)"},
+        {"new", "core.session.reset", {"clear", "reset"}, "",
+         "clear the current conversation and start fresh"},
+        {"close", "core.window.close", {}, "",
+         "close the current window"},
+        {"window", "core.window", {"win", "w"}, "new|close|list|rename <name>",
+         "manage chat windows"},
+        {"stop", "core.stop", {"cancel", "kill"}, "",
+         "terminate the current tool and agent loop"},
+        {"set", "core.config.set", {}, "<option> <value>",
          "set runtime options: detection, display, toolfold, policy (mode|tool <name> <level>|timeout <N>), compression, provider, model, think",
-          [this](const std::string& a) { cmd_set(a); },
-          nullptr,
-          [this]() -> std::string {
-              return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
-                     "  display " + (win().markdown_on ? "on" : "off") +
-                     "  toolfold " + (tool_fold_ == ToolFold::Always ? "always" :
-                                      toolfold_name(tool_fold_)) +
-                     "  policy " + (cfg_.mode == agent::AgentMode::Read ? "read" :
-                                    mode_name(cfg_.mode)) +
-                     "  provider " + cfg_.provider_name +
-                     "  model " + cfg_.model +
-                     "  think " + cfg_.thinking;
-          }},
-        {"get", {}, "<option>",
-         "show current setting: config, model, provider, toolfold, policy (mode|timeout|<tool>), display, compression, detection",
-          [this](const std::string& a) { cmd_get(a); }},
-        {"compress", {"compact"}, "",
-         "compress conversation history to free context space",
-          [this](const std::string&) { cmd_compress(""); }},
-        {"job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
+         nullptr,
+         nullptr,
+         [this]() -> std::string {
+             return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
+                    "  display " + (win().markdown_on ? "on" : "off") +
+                    "  toolfold " + (tool_fold_ == ToolFold::Always ? "always" :
+                                    toolfold_name(tool_fold_)) +
+                    "  policy " + (cfg_.mode == agent::AgentMode::Read ? "read" :
+                                   mode_name(cfg_.mode)) +
+                    "  provider " + cfg_.provider_name +
+                    "  model " + cfg_.model +
+                    "  think " + cfg_.thinking;
+         }},
+        {"get", "core.config.get", {}, "<option>",
+         "show current setting: config, model, provider, toolfold, policy (mode|timeout|<tool>), display, compression, detection"},
+        {"compress", "core.compress", {"compact"}, "",
+         "compress conversation history to free context space"},
+                {"job", "core.job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
          "manage background processes (servers, builds) started by the agent",
-          [this](const std::string& a) { cmd_job(a); },
-          [this](const std::string& partial) {
-              std::string sub, rest;
-              size_t sp = partial.find(' ');
-              if (sp == std::string::npos) { sub = partial; rest.clear(); }
-              else { sub = partial.substr(0, sp); rest = partial.substr(sp + 1); }
-              if (sub.empty())
-                  return std::vector<std::string>{"ls", "kill", "read", "start"};
-              if (sub == "kill") {
-                  std::vector<std::string> out;
-                  for (const auto& j : jobs_.list())
-                      if ((j.state == agent::JobState::Running ||
-                           j.state == agent::JobState::Starting) &&
-                          (rest.empty() || j.id.rfind(rest, 0) == 0))
-                          out.push_back("kill " + j.id);
-                  return out;
-              }
-              if (sub == "read") {
-                  std::vector<std::string> out;
-                  for (const auto& j : jobs_.list())
-                      if (rest.empty() || j.id.rfind(rest, 0) == 0)
-                          out.push_back("read " + j.id);
-                  return out;
-              }
-              return std::vector<std::string>{};
-          },
+         nullptr,
+         [this](const std::string& partial) {
+             std::string sub, rest;
+             size_t sp = partial.find(' ');
+             if (sp == std::string::npos) { sub = partial; rest.clear(); }
+             else { sub = partial.substr(0, sp); rest = partial.substr(sp + 1); }
+             if (sub.empty())
+                 return std::vector<std::string>{"ls", "kill", "read", "start"};
+             if (sub == "kill") {
+                 std::vector<std::string> out;
+                 for (const auto& j : jobs_.list())
+                     if ((j.state == agent::JobState::Running ||
+                          j.state == agent::JobState::Starting) &&
+                         (rest.empty() || j.id.rfind(rest, 0) == 0))
+                         out.push_back("kill " + j.id);
+                 return out;
+             }
+             if (sub == "read") {
+                 std::vector<std::string> out;
+                 for (const auto& j : jobs_.list())
+                     if (rest.empty() || j.id.rfind(rest, 0) == 0)
+                         out.push_back("read " + j.id);
+                 return out;
+             }
+             return std::vector<std::string>{};
+         },
          [this]() -> std::string {
              return std::to_string(jobs_.running_count()) + " running";
          }},
-        {"save", {}, "",
-         "persist the current conversation",
-         [this](const std::string&) { save_session(); }},
-        {"sessions", {"load", "open"}, "",
-         "browse and load a saved session",
-         [this](const std::string&) { session_browser(); }},
-        {"quit", {"exit", "q"}, "",
-         "save all windows and exit",
-         [this](const std::string&) { request_quit(); }},
-
-        // Provider management (CRUD)
-        {"provider", {"p"}, "list|add|edit|delete|test",
-         "manage API providers",
-         [this](const std::string& a) {
-             if (a.empty()) { settings_screen(); redraw_after_modal(); return; }
-             std::string sub, rest; size_t sp = a.find(' ');
-             if (sp == std::string::npos) { sub = a; rest.clear(); }
-             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
-             if (sub == "list") {
-                 auto providers = agent::list_saved_providers();
-                 std::string msg;
-                 for (auto& p : providers) msg += p + " ";
-                 append_line(P_STATUS, "providers: " + (msg.empty() ? "(none)" : msg));
-             } else if (sub == "add" || sub == "edit") {
-                 append_line(P_STATUS, "use /settings to add/edit providers");
-             } else if (sub == "delete") {
-                 agent::delete_provider(rest);
-                 append_line(P_STATUS, "deleted provider: " + rest);
-             } else if (sub == "test") {
-                 append_line(P_STATUS, "testing " + rest + "...");
-                 agent::Config test_cfg = cfg_;
-                 agent::load_provider(rest, test_cfg);
-                 agent::ServerInfo info = agent::probe_server(test_cfg);
-                 append_line(P_STATUS, rest + ": " + (info.ok ? "OK" : "FAILED"));
-             } else {
-                 // Set active provider by name.
-                    cfg_.apply_provider(a);
-                    cfg_.save_global(agent::global_config_path());
-                 append_line(P_STATUS, "provider: " + a);
-             }
-         }},
-
-        // Model management (CRUD)
-        {"model", {"m"}, "list|set|probe",
-         "manage AI models",
-         [this](const std::string& a) {
-             std::string sub, rest; size_t sp = a.find(' ');
-             if (sp == std::string::npos) { sub = a; rest.clear(); }
-             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
-             if (sub == "list" || sub.empty()) {
-                 auto models = agent::list_models(cfg_);
-                 std::string msg;
-                 for (auto& m : models) msg += m + " ";
-                 if (msg.size() > 200) msg.resize(200);
-                 append_line(P_STATUS, "models: " + (msg.empty() ? "(none)" : msg));
-             } else if (sub == "probe") {
-                 auto info = agent::probe_server(cfg_);
-                 if (info.ok)
-                     append_line(P_STATUS, "model: " + info.model + " ctx: " + std::to_string(info.context_size));
-                 else
-                     append_line(P_STATUS, "probe failed");
-             } else {
-                    cfg_.model = a; cfg_.model_explicit = true;
-                cfg_.save_global(agent::global_config_path());
-                 append_line(P_STATUS, "model: " + a);
-             }
-         }},
-
-        // Session management (expanded CRUD)
-        {"session", {}, "list|save|load|delete|rename <id> <title>",
-         "manage saved sessions",
-         [this](const std::string& a) {
-             std::string sub, rest; size_t sp = a.find(' ');
-             if (sp == std::string::npos) { sub = a; rest.clear(); }
-             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
-             if (sub == "list" || sub.empty()) {
-                 session_browser();
-             } else if (sub == "save") {
-                 save_session();
-             } else if (sub == "load") {
-                 if (!rest.empty()) {
-                     agent::Session s;
-                     store_.load(rest, s);
-                     if (s.id.empty())
-                         append_line(P_STATUS, "session not found: " + rest);
-                     else
-                         load_session(rest);
-                 } else {
-                     session_browser();
-                 }
-             } else if (sub == "delete") {
-                 if (!rest.empty()) {
-                     store_.remove(rest);
-                     append_line(P_STATUS, "deleted session: " + rest);
-                 }
-             } else if (sub == "rename") {
-                 append_line(P_STATUS, "rename not yet implemented");
-             }
-         }},
-
-        // Job aliases and expanded management
-        // (job already exists above — aliases are in the alias list)
-
-        // File browsing
-        {"files", {"f"}, "ls|tree|open|find <path>",
-         "browse and view files in the workspace",
-         [this](const std::string& a) {
-             std::string sub, rest; size_t sp = a.find(' ');
-             if (sp == std::string::npos) { sub = a; rest.clear(); }
-             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
-             namespace fs = std::filesystem;
-             std::string root = agent::Workspace::root();
-             if (rest.empty()) rest = ".";
-             if (rest[0] != '/') rest = root + "/" + rest;
-             fs::path p(rest);
-             if (sub == "ls" || sub.empty()) {
-                 if (!fs::exists(p)) { append_line(P_STATUS, "not found: " + rest); return; }
-                 if (fs::is_directory(p)) {
-                     std::string out;
-                     for (const auto& e : fs::directory_iterator(p))
-                         out += e.path().filename().string() + "  ";
-                     if (out.empty()) out = "(empty)";
-                     append_line(P_ASSISTANT, out);
-                 } else {
-                     append_line(P_ASSISTANT, p.filename().string());
-                 }
-             } else if (sub == "tree") {
-                 std::string out;
-                 if (fs::exists(p) && fs::is_directory(p)) {
-                     std::function<void(const fs::path&, int)> walk;
-                     walk = [&](const fs::path& dir, int depth) {
-                         if (depth > 3) return;
-                         for (const auto& e : fs::directory_iterator(dir)) {
-                             for (int i = 0; i < depth; ++i) out += "  ";
-                             out += e.path().filename().string() + "\n";
-                             if (fs::is_directory(e)) walk(e.path(), depth + 1);
-                         }
-                     };
-                     walk(p, 0);
-                 }
-                 if (out.empty()) out = "(empty)";
-                 append_line(P_ASSISTANT, out);
-             } else if (sub == "open") {
-                 if (!fs::exists(p) || fs::is_directory(p)) {
-                     append_line(P_STATUS, "not a file: " + rest);
-                 } else {
-                     std::ifstream f(p);
-                     std::string content((std::istreambuf_iterator<char>(f)),
-                                          std::istreambuf_iterator<char>());
-                     if (content.size() > 4096) content.resize(4096);
-                     append_line(P_ASSISTANT, p.filename().string() + ":\n" + content);
-                 }
-             } else if (sub == "find") {
-                 if (!fs::exists(p) || !fs::is_directory(p)) {
-                     append_line(P_STATUS, "not a directory: " + rest);
-                 } else {
-                     // rest is the search root; no pattern given — show
-                     // directory contents
-                     size_t sp2 = a.find(' ', sp + 1);
-                     if (sp2 == std::string::npos) {
-                         for (const auto& e : fs::directory_iterator(p))
-                             append_line(P_ASSISTANT, e.path().filename().string());
-                     }
-                 }
-             }
-         }},
-
-        // System operations
-        {"system", {"sy"}, "exec|delete|rmdir|mkdir|mv|cp|info|ps|kill|df|uptime|uname",
-         "system operations (file mgmt, processes, disk)",
-         [this](const std::string& a) {
-             std::string sub, rest; size_t sp = a.find(' ');
-             if (sp == std::string::npos) { sub = a; rest.clear(); }
-             else { sub = a.substr(0, sp); rest = a.substr(sp + 1); }
-
-             auto run_cmd = [&](const std::string& cmd) -> std::string {
-                 FILE* f = popen(cmd.c_str(), "r");
-                 if (!f) return "(popen failed)";
-                 std::string out;
-                 char buf[4096];
-                 while (fgets(buf, sizeof(buf), f)) out += buf;
-                 pclose(f);
-                 return out;
-             };
-
-             namespace fs = std::filesystem;
-
-             if (sub == "exec") {
-                 if (rest.empty()) { append_line(P_STATUS, "usage: /system exec <command>"); return; }
-                 std::string out = run_cmd(rest);
-                 if (!out.empty() && out.back() == '\n') out.pop_back();
-                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
-             } else if (sub == "delete") {
-                 if (rest.empty()) { append_line(P_STATUS, "usage: /system delete <path>"); return; }
-                 std::error_code ec;
-                 if (fs::remove(fs::path(rest), ec))
-                     append_line(P_STATUS, "deleted: " + rest);
-                 else
-                     append_line(P_STATUS, "delete failed: " + ec.message());
-             } else if (sub == "rmdir") {
-                 if (rest.empty()) { append_line(P_STATUS, "usage: /system rmdir <path>"); return; }
-                 std::error_code ec;
-                 if (fs::remove_all(fs::path(rest), ec) > 0)
-                     append_line(P_STATUS, "removed: " + rest);
-                 else
-                     append_line(P_STATUS, "remove failed: " + ec.message());
-             } else if (sub == "mkdir") {
-                 if (rest.empty()) { append_line(P_STATUS, "usage: /system mkdir <path>"); return; }
-                 std::error_code ec;
-                 if (fs::create_directories(fs::path(rest), ec))
-                     append_line(P_STATUS, "created: " + rest);
-                 else
-                     append_line(P_STATUS, "mkdir failed: " + ec.message());
-             } else if (sub == "mv") {
-                 size_t sp2 = rest.find(' ');
-                 if (sp2 == std::string::npos) { append_line(P_STATUS, "usage: /system mv <src> <dst>"); return; }
-                 std::string src = rest.substr(0, sp2), dst = rest.substr(sp2 + 1);
-                 std::error_code ec;
-                 fs::rename(fs::path(src), fs::path(dst), ec);
-                 if (!ec)
-                     append_line(P_STATUS, "moved: " + src + " -> " + dst);
-                 else
-                     append_line(P_STATUS, "mv failed: " + ec.message());
-             } else if (sub == "cp") {
-                 size_t sp2 = rest.find(' ');
-                 if (sp2 == std::string::npos) { append_line(P_STATUS, "usage: /system cp <src> <dst>"); return; }
-                 std::string src = rest.substr(0, sp2), dst = rest.substr(sp2 + 1);
-                 std::error_code ec;
-                 fs::copy(fs::path(src), fs::path(dst), fs::copy_options::recursive, ec);
-                 if (!ec)
-                     append_line(P_STATUS, "copied: " + src + " -> " + dst);
-                 else
-                     append_line(P_STATUS, "cp failed: " + ec.message());
-             } else if (sub == "info") {
-                 if (rest.empty()) { append_line(P_STATUS, "usage: /system info <path>"); return; }
-                 std::error_code ec;
-                 auto s = fs::status(fs::path(rest), ec);
-                 if (ec) { append_line(P_STATUS, "stat failed: " + ec.message()); return; }
-                 std::string type;
-                 if (fs::is_directory(s)) type = "directory";
-                 else if (fs::is_regular_file(s)) type = "file";
-                 else if (fs::is_symlink(s)) type = "symlink";
-                 else type = "other";
-                 auto size = fs::file_size(fs::path(rest), ec);
-                 append_line(P_STATUS, rest + ": " + type + " " + std::to_string(size) + " bytes");
-             } else if (sub == "ps") {
-                 std::string out = run_cmd("ps aux --sort=-%mem 2>/dev/null | head -20 || ps aux 2>/dev/null | head -20");
-                 if (!out.empty() && out.back() == '\n') out.pop_back();
-                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
-             } else if (sub == "kill") {
-                 if (rest.empty()) { append_line(P_STATUS, "usage: /system kill <pid>"); return; }
-                 int pid = std::atoi(rest.c_str());
-                 if (pid > 0 && ::kill(pid, SIGTERM) == 0)
-                     append_line(P_STATUS, "killed: " + rest);
-                 else
-                     append_line(P_STATUS, "kill failed");
-             } else if (sub == "df") {
-                 std::string out = run_cmd("df -h " + rest + " 2>/dev/null || df -h . 2>/dev/null");
-                 if (!out.empty() && out.back() == '\n') out.pop_back();
-                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
-             } else if (sub == "uptime") {
-                 std::string out = run_cmd("uptime 2>/dev/null");
-                 if (!out.empty() && out.back() == '\n') out.pop_back();
-                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
-             } else if (sub == "uname") {
-                 std::string out = run_cmd("uname -a 2>/dev/null");
-                 if (!out.empty() && out.back() == '\n') out.pop_back();
-                 append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
-             } else {
-                 append_line(P_STATUS, "unknown system command: " + sub);
-             }
-         }},
+{"save", "core.session.save", {}, "",
+         "persist the current conversation"},
+        {"sessions", "core.session.list", {"load", "open"}, "",
+         "browse and load a saved session"},
+        {"quit", "core.quit", {"exit", "q"}, "",
+         "save all windows and exit"},
+        {"provider", "core.provider", {"p"}, "list|add|edit|delete|test",
+         "manage API providers"},
+        {"model", "core.model", {"m"}, "list|set|probe",
+         "manage AI models"},
+        {"session", "core.session", {}, "list|save|load|delete|rename <id> <title>",
+         "manage saved sessions"},
+        {"files", "core.files", {"f"}, "ls|tree|open|find <path>",
+         "browse and view files in the workspace"},
+        {"system", "core.system", {"sy"}, "exec|delete|rmdir|mkdir|mv|cp|info|ps|kill|df|uptime|uname",
+         "system operations (file mgmt, processes, disk)"},
     };
+    register_builtin_actions();
+}
+
+void Tui::register_action(const std::string& action,
+                          std::function<void(const std::string&)> handler) {
+    action_handlers_[action] = std::move(handler);
+}
+
+void Tui::register_builtin_actions() {
+    register_action("core.help",
+        [this](const std::string& a) { cmd_help(a); });
+    register_action("core.settings", [this](const std::string&) {
+        settings_screen(); redraw_after_modal(); });
+    register_action("core.prompt", [this](const std::string& a) { cmd_prompt(a); });
+    register_action("core.session.reset", [this](const std::string&) {
+        if (win().agent) {
+            win().agent->set_context({});
+            win().agent->policy().clear_session();
+        }
+        win().stream_buf.clear();
+        win().stream_ts.clear();
+        win().reason_buf.clear();
+        win().reason_folded = false;
+        win().scroll_top = 0;
+        ctx_used_ = -1;
+        live_ctx_offset_ = 0;
+        append_line(P_STATUS, "conversation cleared \u2014 next message starts fresh");
+        drawer_open_ = false;
+        draw();
+    });
+    register_action("core.window.close", [this](const std::string&) { close_window(); });
+    register_action("core.window.new", [this](const std::string&) { cmd_window_new(); });
+    register_action("core.window.list", [this](const std::string&) { cmd_window_list(); });
+    register_action("core.window.rename",
+        [this](const std::string& a) { cmd_window_rename(a); });
+    register_action("core.window", [this](const std::string& a) {
+        if (!a.empty()) append_line(P_STATUS, "usage: /window new|close|list|rename <name>");
+        cmd_window_list();
+    });
+    register_action("core.stop", [this](const std::string&) {
+        cfg_.cancel_token.request();
+        agent_cancel_.store(true);
+        append_line(P_STATUS, "stop requested");
+    });
+    register_action("core.compress",
+        [this](const std::string&) { cmd_compress(""); });
+    register_action("core.job", [this](const std::string& a) { cmd_job(a); });
+    register_action("core.job.list", [this](const std::string&) { job_ls(); });
+    register_action("core.job.kill", [this](const std::string& a) { job_kill(a); });
+    register_action("core.job.read", [this](const std::string& a) { job_read(a); });
+    register_action("core.job.start", [this](const std::string& a) { job_start(a); });
+    register_action("core.session.save",
+        [this](const std::string&) { save_session(); });
+    register_action("core.session.list",
+        [this](const std::string&) { session_browser(); });
+    register_action("core.session.load",
+        [this](const std::string& a) { cmd_session_load(a); });
+    register_action("core.session.delete",
+        [this](const std::string& a) { cmd_session_delete(a); });
+    register_action("core.session.rename", [this](const std::string&) {
+        append_line(P_STATUS, "rename not yet implemented");
+    });
+    register_action("core.session", [this](const std::string& a) {
+        if (!a.empty())
+            append_line(P_STATUS, "usage: /session list|save|load|delete|rename <id> <title>");
+        session_browser();
+    });
+    register_action("core.quit",
+        [this](const std::string&) { request_quit(); });
+    // provider
+    register_action("core.provider",
+        [this](const std::string& a) { cmd_provider(a); });
+    register_action("core.provider.list",
+        [this](const std::string&) { cmd_provider_list(); });
+    register_action("core.provider.add", [this](const std::string&) {
+        append_line(P_STATUS, "use /settings to add/edit providers");
+    });
+    register_action("core.provider.edit", [this](const std::string&) {
+        append_line(P_STATUS, "use /settings to add/edit providers");
+    });
+    register_action("core.provider.delete",
+        [this](const std::string& a) { cmd_provider_delete(a); });
+    register_action("core.provider.test",
+        [this](const std::string& a) { cmd_provider_test(a); });
+    // model
+    register_action("core.model", [this](const std::string& a) {
+        if (!a.empty())
+            append_line(P_STATUS, "usage: /model list|set|probe");
+        cmd_model_panel();
+    });
+    register_action("core.model.list",
+        [this](const std::string&) { cmd_model_list(); });
+    register_action("core.model.set",
+        [this](const std::string& a) { cmd_model_set(a); });
+    register_action("core.model.probe",
+        [this](const std::string&) { cmd_model_probe(); });
+    // files
+    register_action("core.files", [this](const std::string& a) {
+        if (!a.empty())
+            append_line(P_STATUS, "usage: /files ls|tree|open|find <path>");
+        cmd_files_ls("");
+    });
+    register_action("core.files.ls",
+        [this](const std::string& a) { cmd_files_ls(a); });
+    register_action("core.files.tree",
+        [this](const std::string& a) { cmd_files_tree(a); });
+    register_action("core.files.open",
+        [this](const std::string& a) { cmd_files_open(a); });
+    register_action("core.files.find",
+        [this](const std::string& a) { cmd_files_find(a); });
+    // system
+    register_action("core.system", [this](const std::string& a) {
+        if (!a.empty())
+            append_line(P_STATUS, "usage: /system exec|delete|rmdir|mkdir|mv|cp|info|ps|kill|df|uptime|uname");
+        append_line(P_STATUS, "system operations: /system exec <cmd> | ps | df | uptime | uname | kill <pid> | info <path>");
+    });
+    register_action("core.system.exec",
+        [this](const std::string& a) { cmd_system_exec(a); });
+    register_action("core.system.delete",
+        [this](const std::string& a) { cmd_system_delete(a); });
+    register_action("core.system.rmdir",
+        [this](const std::string& a) { cmd_system_rmdir(a); });
+    register_action("core.system.mkdir",
+        [this](const std::string& a) { cmd_system_mkdir(a); });
+    register_action("core.system.mv",
+        [this](const std::string& a) { cmd_system_mv(a); });
+    register_action("core.system.cp",
+        [this](const std::string& a) { cmd_system_cp(a); });
+    register_action("core.system.info",
+        [this](const std::string& a) { cmd_system_info(a); });
+    register_action("core.system.ps",
+        [this](const std::string&) { cmd_system_ps(); });
+    register_action("core.system.kill",
+        [this](const std::string& a) { cmd_system_kill(a); });
+    register_action("core.system.df",
+        [this](const std::string&) { cmd_system_df(); });
+    register_action("core.system.uptime",
+        [this](const std::string&) { cmd_system_uptime(); });
+    register_action("core.system.uname",
+        [this](const std::string&) { cmd_system_uname(); });
+    // set namespace + children
+    register_action("core.config.set", [this](const std::string& a) { cmd_set(a); });
+    register_action("core.config.set.detection.loop", [this](const std::string& v) {
+        cmd_set_detection_toggle("loop", v);
+    });
+    register_action("core.config.set.detection.duplicate", [this](const std::string& v) {
+        cmd_set_detection_toggle("duplicate", v);
+    });
+    register_action("core.config.set.display.markdown", [this](const std::string& v) {
+        if (v != "on" && v != "off") {
+            append_line(P_STATUS, "usage: /set display markdown on|off");
+            return;
+        }
+        win().markdown_on = (v == "on");
+        append_line(P_STATUS, "markdown rendering: " + v);
+        draw();
+    });
+    register_action("core.config.set.toolfold", [this](const std::string& v) {
+        if (v == "always") tool_fold_ = ToolFold::Always;
+        else if (v == "auto") tool_fold_ = ToolFold::Auto;
+        else if (v == "never") tool_fold_ = ToolFold::Never;
+        else { append_line(P_STATUS, "usage: /set toolfold always|auto|never"); return; }
+        append_line(P_STATUS, "tool fold: " + v);
+        draw();
+    });
+    register_action("core.config.set.policy.mode", [this](const std::string& v) {
+        if (v != "read" && v != "write" && v != "yolo") {
+            append_line(P_STATUS, "usage: /set policy mode read|write|yolo");
+            return;
+        }
+        if (v == "read") cfg_.mode = agent::AgentMode::Read;
+        else if (v == "yolo") cfg_.mode = agent::AgentMode::Yolo;
+        else cfg_.mode = agent::AgentMode::Write;
+        append_line(P_STATUS, "policy mode: " + v);
+        draw();
+    });
+    register_action("core.config.set.policy.approval", [this](const std::string& v) {
+        if (v != "on" && v != "off") {
+            append_line(P_STATUS, "usage: /set policy approval on|off");
+            return;
+        }
+        cfg_.policy_approval = (v == "on");
+        append_line(P_STATUS, "policy approval: " + v);
+    });
+    register_action("core.config.set.policy.timeout", [this](const std::string& v) {
+        int n = std::atoi(v.c_str());
+        if (v.empty() || n < 0) {
+            append_line(P_STATUS, "usage: /set policy timeout <N>");
+            return;
+        }
+        policy_timeout_ = n;
+        append_line(P_STATUS, "policy timeout: " + std::to_string(n) + "s");
+    });
+    register_action("core.config.set.policy", [this](const std::string& a) { cmd_set(a); });
+    register_action("core.config.set.compression.threshold", [this](const std::string& v) {
+        double t = std::atof(v.c_str());
+        if (t <= 0.0 || t > 1.0 || v.empty()) {
+            append_line(P_STATUS, "usage: /set compression threshold <0.1-1.0>");
+            return;
+        }
+        cfg_.compression_threshold = t;
+        cfg_.compression_threshold_explicit = true;
+        for (auto& w : windows_)
+            if (w->agent) w->agent->set_compression_threshold(t);
+        append_line(P_STATUS, "compression threshold: " + std::to_string(t));
+        if (!cfg_.save_settings(settings_path_))
+            append_line(P_STATUS, "warning: could not save to " + settings_path_);
+        draw();
+    });
+    register_action("core.config.set.compression.min_turns", [this](const std::string& v) {
+        int n = std::atoi(v.c_str());
+        if (v.empty()) {
+            append_line(P_STATUS, "usage: /set compression min_turns <0-999> (0 = disabled)");
+            return;
+        }
+        cfg_.compression_min_turns = n;
+        cfg_.compression_min_turns_explicit = true;
+        for (auto& w : windows_)
+            if (w->agent) w->agent->set_compression_min_turns(n);
+        append_line(P_STATUS, "compression min_turns: " + std::to_string(n));
+        if (!cfg_.save_settings(settings_path_))
+            append_line(P_STATUS, "warning: could not save to " + settings_path_);
+        draw();
+    });
+    register_action("core.config.set.compression", [this](const std::string& a) { cmd_set(a); });
+    register_action("core.config.set.think", [this](const std::string& v) {
+        if (v != "on" && v != "off" && v != "auto") {
+            append_line(P_STATUS, "usage: /set think on|off|auto");
+            return;
+        }
+        cfg_.thinking = v;
+        append_line(P_STATUS, "thinking: " + v);
+    });
+    register_action("core.config.set.skills", [this](const std::string& a) { cmd_skills_set(a); });
+    register_action("core.config.set.skills.interop",
+        [this](const std::string& v) { cmd_skills_interop(v); });
+    register_action("core.config.set.skills.refresh",
+        [this](const std::string&) { cmd_skills_refresh(); });
+    register_action("core.config.set.skills.create",
+        [this](const std::string& a) { cmd_skills_create(a); });
+    register_action("core.config.set.skills.delete",
+        [this](const std::string& a) { cmd_skills_delete(a); });
+    register_action("core.config.set.skills.install",
+        [this](const std::string& a) { cmd_skills_install(a); });
+    register_action("core.config.set.skills.uninstall",
+        [this](const std::string& a) { cmd_skills_uninstall(a); });
+    // get namespace + children
+    register_action("core.config.get", [this](const std::string& a) { cmd_get(a); });
+    register_action("core.config.get.config",
+        [this](const std::string&) { cmd_get_config(); });
+    register_action("core.config.get.model",
+        [this](const std::string&) { cmd_get_model(); });
+    register_action("core.config.get.provider",
+        [this](const std::string&) { cmd_get_provider(); });
+    register_action("core.config.get.toolfold",
+        [this](const std::string&) { cmd_get_toolfold(); });
+    register_action("core.config.get.policy",
+        [this](const std::string& a) { cmd_get_policy(a); });
+    register_action("core.config.get.policy.mode",
+        [this](const std::string&) { cmd_get_policy_mode(); });
+    register_action("core.config.get.policy.approval",
+        [this](const std::string&) { cmd_get_policy_approval(); });
+    register_action("core.config.get.policy.timeout",
+        [this](const std::string&) { cmd_get_policy_timeout(); });
+    register_action("core.config.get.display",
+        [this](const std::string&) { cmd_get_display(); });
+    register_action("core.config.get.think",
+        [this](const std::string&) { cmd_get_think(); });
+    register_action("core.config.get.detection",
+        [this](const std::string& a) { cmd_get_detection(a); });
+    register_action("core.config.get.detection.loop",
+        [this](const std::string&) { cmd_get_detection("loop"); });
+    register_action("core.config.get.detection.duplicate",
+        [this](const std::string&) { cmd_get_detection("duplicate"); });
+    register_action("core.config.get.compression",
+        [this](const std::string&) { cmd_get_compression(); });
+    register_action("core.config.get.skills",
+        [this](const std::string& a) { cmd_skills_get(a); });
+    register_action("core.config.get.skills.show",
+        [this](const std::string&) { cmd_skills_get("show"); });
+    // mcp
+    register_action("core.mcp", [this](const std::string& a) { cmd_mcp(a); });
+    register_action("core.mcp.list", [this](const std::string&) { cmd_mcp(""); });
+    register_action("core.mcp.show",
+        [this](const std::string& a) { cmd_mcp_show(a); });
+    register_action("core.mcp.connect",
+        [this](const std::string& a) { cmd_mcp_connect(a); });
+    register_action("core.mcp.disconnect",
+        [this](const std::string& a) { cmd_mcp_disconnect(a); });
+    register_action("core.mcp.refresh",
+        [this](const std::string& a) { cmd_mcp_refresh(a); });
+    register_action("core.mcp.prompts",
+        [this](const std::string& a) { cmd_mcp_prompts(a); });
+    register_action("core.mcp.enable",
+        [this](const std::string& a) { cmd_mcp_set_enabled(a, true); });
+    register_action("core.mcp.disable",
+        [this](const std::string& a) { cmd_mcp_set_enabled(a, false); });
+    register_action("core.mcp.trust",
+        [this](const std::string& a) { cmd_mcp_trust(a); });
+    // plugin
+    register_action("core.plugin", [this](const std::string& a) {
+        if (!a.empty())
+            append_line(P_STATUS, "usage: /plugin list|status|enable|disable|get|set|info|install|uninstall");
+        cmd_plugin_list();
+    });
+    register_action("core.plugin.list",
+        [this](const std::string&) { cmd_plugin_list(); });
+    register_action("core.plugin.status",
+        [this](const std::string& a) { cmd_plugin_status(a); });
+    register_action("core.plugin.enable",
+        [this](const std::string& a) { cmd_plugin_enable(a); });
+    register_action("core.plugin.disable",
+        [this](const std::string& a) { cmd_plugin_disable(a); });
+    register_action("core.plugin.get",
+        [this](const std::string& a) { cmd_plugin_get(a); });
+    register_action("core.plugin.set",
+        [this](const std::string& a) { cmd_plugin_set(a); });
+    register_action("core.plugin.info",
+        [this](const std::string& a) { cmd_plugin_info(a); });
+    register_action("core.plugin.install",
+        [this](const std::string& a) { cmd_plugin_install(a); });
+    register_action("core.plugin.uninstall",
+        [this](const std::string& a) { cmd_plugin_uninstall(a); });
 }
 
 const Command* Tui::find_command(const std::string& name) {
@@ -1563,26 +1271,78 @@ bool Tui::handle_slash(const std::string& line) {
     while (!trimmed.empty() && (trimmed.back() == ' ' || trimmed.back() == '\t'))
         trimmed.pop_back();
     std::string rest = trimmed.substr(1);
-    std::string name, arg;
-    size_t sp = rest.find(' ');
-    if (sp == std::string::npos) name = rest;
-    else { name = rest.substr(0, sp); arg = rest.substr(sp + 1); }
 
-    const Command* c = find_command(name);
-    if (!c) {
+    // Tokenize.
+    std::vector<std::string> tokens;
+    {
+        std::string cur;
+        for (char c : rest) {
+            if (c == ' ' || c == '\t') {
+                if (!cur.empty()) { tokens.push_back(cur); cur.clear(); }
+            } else {
+                cur += c;
+            }
+        }
+        if (!cur.empty()) tokens.push_back(cur);
+    }
+    if (tokens.empty()) return true;
+
+    // Walk the command tree, consuming every token that names a documented
+    // child. The deepest node with a registered action handler receives the
+    // remaining text — command structure lives in the tree, not in handlers.
+    const json& tree = settings_.command_tree();
+    const json* node = nullptr;
+    const json* children = nullptr;
+    if (tree.contains("commands") && tree["commands"].is_object())
+        children = &tree["commands"];
+    size_t consumed = 0;
+    while (consumed < tokens.size() && children && children->is_object()) {
+        auto it = children->find(tokens[consumed]);
+        if (it == children->end() || !it->is_object()) break;
+        node = &*it;
+        ++consumed;
+        children = (node->contains("children") && (*node)["children"].is_object())
+                       ? &(*node)["children"]
+                       : nullptr;
+    }
+    if (!node) {
         append_line(P_STATUS,
-                    "unknown command: /" + name + "  (try /help)");
+                    "unknown command: /" + tokens[0] + "  (try /help)");
         return true;
     }
-    // Invoked with no argument but the command expects a fixed option: show a
-    // BitchX-style help frame with description, current value and options.
-    if (arg.empty() && c->complete_arg && !c->args.empty()) {
-        show_command_frame(*c);
+    std::string action;
+    if (node->contains("action") && (*node)["action"].is_string())
+        action = (*node)["action"].get<std::string>();
+    std::string arg;
+    for (size_t i = consumed; i < tokens.size(); ++i) {
+        if (!arg.empty()) arg += " ";
+        arg += tokens[i];
+    }
+
+    auto it = action_handlers_.find(action);
+    if (it == action_handlers_.end()) {
+        // Documented in the tree but no handler: show the node's manual page.
+        if (node->contains("man") && (*node)["man"].is_string()) {
+            append_line(P_STATUS, "/" + tokens[0] + ": " +
+                                      (*node)["man"].get<std::string>());
+        } else {
+            append_line(P_STATUS, "/" + tokens[0] + ": no handler for this action");
+        }
         return true;
     }
-    c->run(arg);
+    // No argument but the command expects a fixed option: show the current
+    // value frame (BitchX-style), as before.
+    if (arg.empty()) {
+        if (const Command* c = find_command(tokens[0]);
+            c && c->complete_arg && !c->args.empty()) {
+            show_command_frame(*c);
+            return true;
+        }
+    }
+    it->second(arg);
     return true;
 }
+
 
 std::string Tui::usage(const Command& c) const {
     return palette::usage(c);
@@ -1609,49 +1369,11 @@ void Tui::show_command_frame(const Command& c) {
     draw();
 }
 
-void Tui::cmd_model(const std::string& arg) {
+void Tui::cmd_model_set(const std::string& arg) {
     if (arg.empty()) {
-        // Spawn a ListPanel with all available models (with filter/search)
-        append_line(P_STATUS, "querying " + cfg_.models_url() + " ...");
-        draw();
-        auto models = agent::list_models(cfg_);
-        if (models.empty()) {
-            append_line(P_STATUS, "no models available or server unreachable");
-            return;
-        }
-
-        // Mark current model
-        std::vector<std::string> display;
-        display.reserve(models.size());
-        for (const auto& m : models) {
-            bool cur = (m == cfg_.model);
-            display.emplace_back((cur ? "> " : "  ") + m);
-        }
-
-        {
-            ModalScope scope;
-            curs_set(0);
-            ListPanel lp("Select Model (" + std::to_string(models.size()) + " available)",
-                         display);
-            int sel = lp.run();
-            if (sel < 0) return;
-            // Map back to original model name (the UI string has "> " or "  " prefix)
-            std::string chosen = display[sel].substr(2);
-            cfg_.model = chosen;
-            cfg_.model_explicit = true;
-        }
-
-        for (auto& w : windows_) {
-            if (!w->agent) continue;
-            w->agent->set_detection_loop(cfg_.detection_loop);
-        }
-        std::string global = agent::global_config_path();
-        cfg_.save_global(global);
-        append_line(P_STATUS, "model set to " + cfg_.model + " (saved to " + global + ")");
+        append_line(P_STATUS, "usage: /model set <name> | /model list | /model probe");
         return;
     }
-
-    // Set model by name (direct)
     auto models = agent::list_models(cfg_);
     bool found = false;
     for (const auto& m : models)
@@ -1671,29 +1393,330 @@ void Tui::cmd_model(const std::string& arg) {
     append_line(P_STATUS, "model set to " + arg + " (saved to " + global + ")");
 }
 
-void Tui::cmd_provider(const std::string& arg) {
-    if (arg.empty()) {
+void Tui::cmd_model_list() {
+    auto models = agent::list_models(cfg_);
+    std::string msg;
+    for (auto& m : models) msg += m + " ";
+    if (msg.size() > 200) msg.resize(200);
+    append_line(P_STATUS, "models: " + (msg.empty() ? "(none)" : msg));
+}
+
+void Tui::cmd_model_probe() {
+    auto info = agent::probe_server(cfg_);
+    if (info.ok)
+        append_line(P_STATUS, "model: " + info.model + " ctx: " + std::to_string(info.context_size));
+    else
+        append_line(P_STATUS, "probe failed");
+}
+
+void Tui::cmd_model_panel() {
+    append_line(P_STATUS, "querying " + cfg_.models_url() + " ...");
+    draw();
+    auto models = agent::list_models(cfg_);
+    if (models.empty()) {
+        append_line(P_STATUS, "no models available or server unreachable");
+        return;
+    }
+    std::vector<std::string> display;
+    display.reserve(models.size());
+    for (const auto& m : models) {
+        bool cur = (m == cfg_.model);
+        display.emplace_back((cur ? "> " : "  ") + m);
+    }
+    {
+        ModalScope scope;
+        curs_set(0);
+        ListPanel lp("Select Model (" + std::to_string(models.size()) + " available)",
+                     display);
+        int sel = lp.run();
+        if (sel < 0) return;
+        std::string chosen = display[sel].substr(2);
+        cfg_.model = chosen;
+        cfg_.model_explicit = true;
+    }
+    for (auto& w : windows_) {
+        if (!w->agent) continue;
+        w->agent->set_detection_loop(cfg_.detection_loop);
+    }
+    std::string global = agent::global_config_path();
+    cfg_.save_global(global);
+    append_line(P_STATUS, "model set to " + cfg_.model + " (saved to " + global + ")");
+}
+
+void Tui::cmd_provider(const std::string& a) {
+    if (a.empty()) {
         append_line(P_STATUS, "current provider: " + cfg_.provider_name +
                      " (" + cfg_.api_base + ")");
         return;
     }
-    auto* prov = agent::provider::find(arg);
-    if (!prov || (prov->name == "custom" && arg != "custom")) {
-        append_line(P_STATUS, "unknown provider: " + arg +
+    auto* prov = agent::provider::find(a);
+    if (!prov || (prov->name == "custom" && a != "custom")) {
+        append_line(P_STATUS, "unknown provider: " + a +
                      " (try: openrouter, kilocode, custom)");
         return;
     }
-    if (arg == "custom") {
+    if (a == "custom") {
         append_line(P_STATUS, "provider set to custom (use /set or amber.conf to configure)");
         return;
     }
-    cfg_.apply_provider(arg);
+    cfg_.apply_provider(a);
     if (prov->requires_key && cfg_.api_key.empty()) {
-        append_line(P_STATUS, "warning: " + arg + " requires an API key (set AMBER_API_KEY)");
+        append_line(P_STATUS, "warning: " + a + " requires an API key (set AMBER_API_KEY)");
     }
     std::string global = agent::global_config_path();
     cfg_.save_global(global);
-    append_line(P_STATUS, "provider switched to " + arg + " (saved to " + global + ")");
+    append_line(P_STATUS, "provider switched to " + a + " (saved to " + global + ")");
+}
+
+void Tui::cmd_provider_list() {
+    auto providers = agent::list_saved_providers();
+    std::string msg;
+    for (auto& p : providers) msg += p + " ";
+    append_line(P_STATUS, "providers: " + (msg.empty() ? "(none)" : msg));
+}
+
+void Tui::cmd_provider_delete(const std::string& name) {
+    if (name.empty()) { append_line(P_STATUS, "usage: /provider delete <name>"); return; }
+    agent::delete_provider(name);
+    append_line(P_STATUS, "deleted provider: " + name);
+}
+
+void Tui::cmd_provider_test(const std::string& name) {
+    if (name.empty()) { append_line(P_STATUS, "usage: /provider test <name>"); return; }
+    append_line(P_STATUS, "testing " + name + "...");
+    agent::Config test_cfg = cfg_;
+    agent::load_provider(name, test_cfg);
+    agent::ServerInfo info = agent::probe_server(test_cfg);
+    append_line(P_STATUS, name + ": " + (info.ok ? "OK" : "FAILED"));
+}
+
+void Tui::cmd_session_load(const std::string& id) {
+    if (id.empty()) { session_browser(); return; }
+    agent::Session sess;
+    store_.load(id, sess);
+    if (sess.id.empty())
+        append_line(P_STATUS, "session not found: " + id);
+    else
+        load_session(id);
+}
+
+void Tui::cmd_session_delete(const std::string& id) {
+    if (id.empty()) { append_line(P_STATUS, "usage: /session delete <id>"); return; }
+    store_.remove(id);
+    append_line(P_STATUS, "deleted session: " + id);
+}
+
+void Tui::cmd_files_ls(const std::string& rest) {
+    namespace fs = std::filesystem;
+    std::string root = agent::Workspace::root();
+    std::string path = rest.empty() ? "." : rest;
+    if (path[0] != '/') path = root + "/" + path;
+    fs::path p(path);
+    if (!fs::exists(p)) { append_line(P_STATUS, "not found: " + path); return; }
+    if (fs::is_directory(p)) {
+        std::string out;
+        for (const auto& e : fs::directory_iterator(p))
+            out += e.path().filename().string() + "  ";
+        if (out.empty()) out = "(empty)";
+        append_line(P_ASSISTANT, out);
+    } else {
+        append_line(P_ASSISTANT, p.filename().string());
+    }
+}
+
+void Tui::cmd_files_tree(const std::string& rest) {
+    namespace fs = std::filesystem;
+    std::string root = agent::Workspace::root();
+    std::string path = rest.empty() ? "." : rest;
+    if (path[0] != '/') path = root + "/" + path;
+    fs::path p(path);
+    std::string out;
+    if (fs::exists(p) && fs::is_directory(p)) {
+        std::function<void(const fs::path&, int)> walk;
+        walk = [&](const fs::path& dir, int depth) {
+            if (depth > 3) return;
+            for (const auto& e : fs::directory_iterator(dir)) {
+                for (int i = 0; i < depth; ++i) out += "  ";
+                out += e.path().filename().string() + "\n";
+                if (fs::is_directory(e)) walk(e.path(), depth + 1);
+            }
+        };
+        walk(p, 0);
+    }
+    if (out.empty()) out = "(empty)";
+    append_line(P_ASSISTANT, out);
+}
+
+void Tui::cmd_files_open(const std::string& rest) {
+    namespace fs = std::filesystem;
+    std::string root = agent::Workspace::root();
+    std::string path = rest.empty() ? "." : rest;
+    if (path[0] != '/') path = root + "/" + path;
+    fs::path p(path);
+    if (!fs::exists(p) || fs::is_directory(p)) {
+        append_line(P_STATUS, "not a file: " + path);
+        return;
+    }
+    std::ifstream f(p);
+    std::string content((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    if (content.size() > 4096) content.resize(4096);
+    append_line(P_ASSISTANT, p.filename().string() + ":\n" + content);
+}
+
+void Tui::cmd_files_find(const std::string& rest) {
+    namespace fs = std::filesystem;
+    std::string root = agent::Workspace::root();
+    std::string path = rest.empty() ? "." : rest;
+    if (path[0] != '/') path = root + "/" + path;
+    fs::path p(path);
+    if (!fs::exists(p) || !fs::is_directory(p)) {
+        append_line(P_STATUS, "not a directory: " + path);
+        return;
+    }
+    for (const auto& e : fs::directory_iterator(p))
+        append_line(P_ASSISTANT, e.path().filename().string());
+}
+
+void Tui::cmd_system_exec(const std::string& rest) {
+    if (rest.empty()) { append_line(P_STATUS, "usage: /system exec <command>"); return; }
+    auto run_cmd = [&](const std::string& cmd) -> std::string {
+        FILE* f = popen(cmd.c_str(), "r");
+        if (!f) return "(popen failed)";
+        std::string out;
+        char buf[4096];
+        while (fgets(buf, sizeof buf, f)) out += buf;
+        pclose(f);
+        if (out.size() > 4096) out.resize(4096);
+        return out;
+    };
+    append_line(P_ASSISTANT, run_cmd(rest));
+}
+
+void Tui::cmd_system_delete(const std::string& rest) {
+    if (rest.empty()) { append_line(P_STATUS, "usage: /system delete <path>"); return; }
+    std::string resolved, err;
+    if (!agent::Workspace::confine(rest, resolved, err)) {
+        append_line(P_STATUS, "delete denied: " + err);
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::remove_all(resolved, ec);
+    append_line(P_STATUS, ec ? ("delete failed: " + ec.message()) : ("deleted: " + rest));
+}
+
+void Tui::cmd_system_rmdir(const std::string& rest) {
+    if (rest.empty()) { append_line(P_STATUS, "usage: /system rmdir <path>"); return; }
+    std::string resolved, err;
+    if (!agent::Workspace::confine(rest, resolved, err)) {
+        append_line(P_STATUS, "rmdir denied: " + err);
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::remove(resolved, ec);
+    append_line(P_STATUS, ec ? ("rmdir failed: " + ec.message()) : ("removed dir: " + rest));
+}
+
+void Tui::cmd_system_mkdir(const std::string& rest) {
+    if (rest.empty()) { append_line(P_STATUS, "usage: /system mkdir <path>"); return; }
+    std::string resolved, err;
+    if (!agent::Workspace::confine(rest, resolved, err)) {
+        append_line(P_STATUS, "mkdir denied: " + err);
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(resolved, ec);
+    append_line(P_STATUS, ec ? ("mkdir failed: " + ec.message()) : ("created: " + rest));
+}
+
+void Tui::cmd_system_mv(const std::string& rest) {
+    if (rest.empty()) { append_line(P_STATUS, "usage: /system mv <src> <dst>"); return; }
+    size_t sp = rest.find(' ');
+    if (sp == std::string::npos) { append_line(P_STATUS, "usage: /system mv <src> <dst>"); return; }
+    std::string src, dst, err;
+    if (!agent::Workspace::confine(rest.substr(0, sp), src, err) ||
+        !agent::Workspace::confine(rest.substr(sp + 1), dst, err)) {
+        append_line(P_STATUS, "mv denied: " + err);
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::rename(src, dst, ec);
+    append_line(P_STATUS, ec ? ("mv failed: " + ec.message()) : "moved");
+}
+
+void Tui::cmd_system_cp(const std::string& rest) {
+    if (rest.empty()) { append_line(P_STATUS, "usage: /system cp <src> <dst>"); return; }
+    size_t sp = rest.find(' ');
+    if (sp == std::string::npos) { append_line(P_STATUS, "usage: /system cp <src> <dst>"); return; }
+    std::string src, dst, err;
+    if (!agent::Workspace::confine(rest.substr(0, sp), src, err) ||
+        !agent::Workspace::confine(rest.substr(sp + 1), dst, err)) {
+        append_line(P_STATUS, "cp denied: " + err);
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::copy(src, dst, std::filesystem::copy_options::recursive, ec);
+    append_line(P_STATUS, ec ? ("cp failed: " + ec.message()) : "copied");
+}
+
+void Tui::cmd_system_info(const std::string& rest) {
+    if (rest.empty()) { append_line(P_STATUS, "usage: /system info <path>"); return; }
+    std::string resolved, err;
+    if (!agent::Workspace::confine(rest, resolved, err)) {
+        append_line(P_STATUS, "info denied: " + err);
+        return;
+    }
+    std::error_code ec;
+    auto st = std::filesystem::status(resolved, ec);
+    if (ec) { append_line(P_STATUS, "info failed: " + ec.message()); return; }
+    append_line(P_STATUS, rest + ": " + (std::filesystem::is_directory(st) ? "dir" : "file"));
+}
+
+void Tui::cmd_system_ps() {
+    FILE* f = popen("ps -eo pid,comm,args --no-headers | head -30", "r");
+    if (!f) return;
+    std::string out;
+    char buf[4096];
+    while (fgets(buf, sizeof buf, f)) out += buf;
+    pclose(f);
+    append_line(P_ASSISTANT, out.empty() ? "(no processes)" : out);
+}
+
+void Tui::cmd_system_kill(const std::string& rest) {
+    if (rest.empty()) { append_line(P_STATUS, "usage: /system kill <pid>"); return; }
+    auto pid = static_cast<pid_t>(std::atoi(rest.c_str()));
+    if (pid <= 0) { append_line(P_STATUS, "invalid pid: " + rest); return; }
+    append_line(P_STATUS, kill(pid, SIGKILL) == 0 ? ("killed " + rest) : "kill failed");
+}
+
+void Tui::cmd_system_df() {
+    FILE* f = popen("df -h | head -20", "r");
+    if (!f) return;
+    std::string out;
+    char buf[4096];
+    while (fgets(buf, sizeof buf, f)) out += buf;
+    pclose(f);
+    append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+}
+
+void Tui::cmd_system_uptime() {
+    FILE* f = popen("uptime", "r");
+    if (!f) return;
+    std::string out;
+    char buf[4096];
+    while (fgets(buf, sizeof buf, f)) out += buf;
+    pclose(f);
+    append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+}
+
+void Tui::cmd_system_uname() {
+    FILE* f = popen("uname -a", "r");
+    if (!f) return;
+    std::string out;
+    char buf[4096];
+    while (fgets(buf, sizeof buf, f)) out += buf;
+    pclose(f);
+    append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
 }
 
 void Tui::cmd_help(const std::string& arg) {
@@ -1730,22 +1753,20 @@ void Tui::cmd_help(const std::string& arg) {
     draw();
 }
 
-void Tui::cmd_window(const std::string& arg) {
-    if (arg == "new") { new_window("chat"); draw(); }
-    else if (arg == "close") { close_window(); }
-    else if (arg == "list") {
-        std::string s = "windows:";
-        for (size_t i = 0; i < windows_.size(); ++i)
-            s += " " + std::to_string(i + 1) + ":" + windows_[i]->title +
-                 (i == active_ ? "*" : "");
-        append_line(P_STATUS, s);
-    } else if (arg.rfind("rename ", 0) == 0) {
-        win().title = arg.substr(7);
-        append_line(P_STATUS, "renamed window to " + win().title);
-        draw();
-    } else {
-        append_line(P_STATUS, "usage: /window new|close|list|rename <name>");
-    }
+void Tui::cmd_window_new() { new_window("chat"); draw(); }
+void Tui::cmd_window_close() { close_window(); }
+void Tui::cmd_window_list() {
+    std::string s = "windows:";
+    for (size_t i = 0; i < windows_.size(); ++i)
+        s += " " + std::to_string(i + 1) + ":" + windows_[i]->title +
+             (i == active_ ? "*" : "");
+    append_line(P_STATUS, s);
+}
+void Tui::cmd_window_rename(const std::string& name) {
+    if (name.empty()) { append_line(P_STATUS, "usage: /window rename <name>"); return; }
+    win().title = name;
+    append_line(P_STATUS, "renamed window to " + win().title);
+    draw();
 }
 
 namespace {
@@ -1792,17 +1813,10 @@ void Tui::cmd_compress(const std::string&) {
     t.detach();
 }
 
-void Tui::cmd_job(const std::string& arg) {
-    std::string cmd, rest;
-    size_t sp = arg.find(' ');
-    if (sp == std::string::npos) cmd = arg;
-    else { cmd = arg.substr(0, sp); rest = arg.substr(sp + 1); }
-    if (cmd.empty() || cmd == "ls") job_ls();
-    else if (cmd == "kill") job_kill(rest);
-    else if (cmd == "read") job_read(rest);
-    else if (cmd == "start") job_start(rest);
-    else append_line(P_STATUS,
-                     "usage: /job [ls|kill <id>|read <id>|start <cmd>]");
+void Tui::cmd_job(const std::string& rest) {
+    if (!rest.empty())
+        append_line(P_STATUS, "usage: /job [ls|kill <id>|read <id>|start <cmd>]");
+    job_ls();
 }
 
 void Tui::job_ls() {

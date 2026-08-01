@@ -14,10 +14,11 @@ namespace tui::palette {
 
 struct Command {
     std::string name;
+    std::string action;  // JSON tree action path (core.job.kill, ...)
     std::vector<std::string> aliases;
     std::string args;
     std::string help;
-    std::function<void(const std::string& arg)> run;
+    std::function<void(const std::string& arg)> run = nullptr;
     std::function<std::vector<std::string>(const std::string&)> complete_arg = nullptr;
     std::function<std::string()> current_value = nullptr;
 };

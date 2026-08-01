@@ -18,6 +18,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
+#include <map>
 #include <set>
 #include <future>
 #include <memory>
@@ -202,13 +204,82 @@ private:
     void build_commands();
     ToolFold tool_fold_ = ToolFold::Auto;  // global tool-call display mode
     const tui::Command* find_command(const std::string& name);
+    std::map<std::string, std::function<void(const std::string&)>> action_handlers_;
     std::string plugin_state_name(agent::PluginState st) const;
     bool handle_slash(const std::string& line);
+    // Action-driven dispatch: handlers register per JSON tree action path.
+    void register_action(const std::string& action,
+                         std::function<void(const std::string&)> handler);
+    void register_builtin_actions();
+    void cmd_set_detection_toggle(const std::string& key, const std::string& val);
+    void cmd_model_set(const std::string& arg);
+    void cmd_model_list();
+    void cmd_model_probe();
+    void cmd_model_panel();
+    void cmd_provider_list();
+    void cmd_provider_delete(const std::string& name);
+    void cmd_provider_test(const std::string& name);
+    void cmd_session_load(const std::string& id);
+    void cmd_session_delete(const std::string& id);
+    void cmd_files_ls(const std::string& rest);
+    void cmd_files_tree(const std::string& rest);
+    void cmd_files_open(const std::string& rest);
+    void cmd_files_find(const std::string& rest);
+    void cmd_system_exec(const std::string& rest);
+    void cmd_system_delete(const std::string& rest);
+    void cmd_system_rmdir(const std::string& rest);
+    void cmd_system_mkdir(const std::string& rest);
+    void cmd_system_mv(const std::string& rest);
+    void cmd_system_cp(const std::string& rest);
+    void cmd_system_info(const std::string& rest);
+    void cmd_system_ps();
+    void cmd_system_kill(const std::string& rest);
+    void cmd_system_df();
+    void cmd_system_uptime();
+    void cmd_system_uname();
+    void cmd_skills_interop(const std::string& val);
+    void cmd_skills_refresh();
+    void cmd_skills_create(const std::string& args);
+    void cmd_skills_delete(const std::string& args);
+    void cmd_skills_install(const std::string& source);
+    void cmd_skills_uninstall(const std::string& name);
+    void cmd_get_config();
+    void cmd_get_model();
+    void cmd_get_provider();
+    void cmd_get_toolfold();
+    void cmd_get_policy(const std::string& arg);
+    void cmd_get_policy_mode();
+    void cmd_get_policy_approval();
+    void cmd_get_policy_timeout();
+    void cmd_get_display();
+    void cmd_get_think();
+    void cmd_get_detection(const std::string& sub);
+    void cmd_get_compression();
+    void cmd_window_new();
+    void cmd_window_close();
+    void cmd_window_list();
+    void cmd_window_rename(const std::string& name);
+    void cmd_mcp_show(const std::string& server);
+    void cmd_mcp_connect(const std::string& server);
+    void cmd_mcp_disconnect(const std::string& server);
+    void cmd_mcp_refresh(const std::string& server);
+    void cmd_mcp_prompts(const std::string& server);
+    void cmd_mcp_set_enabled(const std::string& server, bool on);
+    void cmd_mcp_trust(const std::string& args);
+    void cmd_plugin_list();
+    void cmd_plugin_status(const std::string& id);
+    void cmd_plugin_info(const std::string& id);
+    void cmd_plugin_enable(const std::string& id);
+    void cmd_plugin_disable(const std::string& id);
+    void cmd_plugin_get(const std::string& args);
+    void cmd_plugin_set(const std::string& args);
+    void cmd_plugin_install(const std::string& source);
+    void cmd_plugin_uninstall(const std::string& id);
     std::string usage(const tui::Command& c) const;
     void show_command_frame(const tui::Command& c);
     void cmd_help(const std::string& arg);
     void cmd_window(const std::string& arg);
-    void cmd_job(const std::string& arg);
+    void cmd_job(const std::string& rest);
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
     void cmd_get(const std::string& arg);
@@ -219,8 +290,6 @@ private:
     void refresh_completions();
     void cmd_prompt(const std::string& rest);
     void cmd_prompt_list();
-    void cmd_learn(const std::string& rest);
-    void cmd_learn_panel();
     void cmd_model(const std::string& arg);
     void cmd_provider(const std::string& arg);
     void job_ls();
