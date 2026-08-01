@@ -10,6 +10,7 @@
 #include <agent/compressor.h>
 #include <agent/experience.h>
 #include <agent/tools.h>
+#include <agent/data_path.h>
 
 #include <array>
 #include <cstdio>
@@ -607,7 +608,9 @@ void Tui::run() {
     // Load completion metadata from JSON (help text, choices, ranges).
     // This is the single source of truth for completion metadata — code edits
     // cannot break completion unless the JSON file is damaged.
-    // Search order: binary dir, workspace root, user config dir.
+    // Search order: CWD, binary dir, workspace, user data dirs, system data
+    // dirs — shared with prompt resolution so packaged installs work from any
+    // working directory.
     {
         auto try_load = [&](const std::string& path) {
             if (path.empty()) return false;
@@ -615,35 +618,11 @@ void Tui::run() {
             if (ok) append_line(P_DEBUG, "loaded completions from " + path);
             return ok;
         };
-        // 1. Next to the amber binary (/proc/self/exe).
-        std::string bin_dir;
-        {
-            std::array<char, 4096> buf;
-            ssize_t len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
-            if (len > 0) {
-                buf[len] = '\0';
-                std::string exe(buf.data());
-                size_t slash = exe.rfind('/');
-                if (slash != std::string::npos) {
-                    bin_dir = exe.substr(0, slash);
-                    if (try_load(bin_dir + "/completions.json"))
-                        goto json_loaded;
-                }
-            }
-        }
-        // 2. Workspace root (project directory).
-        {
-            std::string ws = agent::Workspace::root();
-            if (!ws.empty() && try_load(ws + "/completions.json"))
-                goto json_loaded;
-        }
-        // 3. User config directory.
-        {
-            const char* home = std::getenv("HOME");
-            if (home)
-                try_load(std::string(home) + "/.config/amber/completions.json");
-        }
-        json_loaded:;
+        std::string exed = agent::exe_dir();
+        for (const auto& c :
+             agent::data_file_candidates("completions.json",
+                                         exed.empty() ? nullptr : exed.c_str()))
+            if (try_load(c)) break;
     }
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.

@@ -2,6 +2,7 @@
 #include <agent.h>
 
 #include "agent/workspace.h"
+#include "agent/bootstrap.h"
 #include "agent/data_path.h"
 
 #include "tui.h"
@@ -88,6 +89,14 @@ int main(int argc, char** argv) {
         cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", argv[0]);
     else
         cfg.tools_prompt_path = agent::resolve_data_path(cfg.tools_prompt_path, argv[0]);
+
+    // Fail fast before the UI: prompts and the command tree are critical.
+    if (auto missing = agent::missing_bootstrap_files(cfg, argv[0], true);
+        !missing.empty()) {
+        std::fprintf(stderr, "error: critical data files missing:\n");
+        for (const auto& m : missing) std::fprintf(stderr, "  - %s\n", m.c_str());
+        return 2;
+    }
 
     agent::ToolRegistry registry;
     agent::JobService jobs;

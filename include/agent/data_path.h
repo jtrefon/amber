@@ -1,27 +1,39 @@
 #ifndef AGENT_DATA_PATH_H
 #define AGENT_DATA_PATH_H
 
+#include <cstdlib>
 #include <string>
+#include <vector>
 #include <sys/stat.h>
-#include <libgen.h>
 
 namespace agent {
 
-// Resolve a path that may be relative to the binary's directory. If the path
-// exists as-is it is returned unchanged. Otherwise, if it is a relative path
-// that does not exist in CWD but does exist relative to argv[0]'s directory,
-// the binary-relative path is returned. This lets users run the binary from
-// any working directory and still find data files bundled next to the binary.
-inline std::string resolve_data_path(const std::string& path, const char* argv0) {
-    struct stat st;
-    if (stat(path.c_str(), &st) == 0) return path;
-    if (path.empty() || path[0] == '/' || !argv0) return path;
-    std::string argv0_copy(argv0);
-    char* dir = ::dirname(argv0_copy.data());
-    std::string candidate = std::string(dir) + "/" + path;
-    if (stat(candidate.c_str(), &st) == 0) return candidate;
-    return path;
+// Ordered candidate locations for a data file, best first. The explicit path
+// (CWD when relative), the binary's directory, the workspace root, user data
+// dirs (XDG_DATA_HOME/amber, ~/.local/share/amber, legacy ~/.config/amber),
+// and system data dirs (/usr/local/share/amber, /usr/share/amber). This keeps
+// dev workflows (files next to the binary or in the project) working while
+// letting packaged installs find system data from any working directory.
+std::vector<std::string> data_file_candidates(const std::string& path,
+                                              const char* argv0);
+
+// First existing candidate, or "" when the file exists nowhere.
+inline std::string resolve_data_path(const std::string& path,
+                                     const char* argv0) {
+    for (const auto& c : data_file_candidates(path, argv0)) {
+        struct stat st;
+        if (stat(c.c_str(), &st) == 0) return c;
+    }
+    return "";
 }
+
+inline bool file_exists(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0;
+}
+
+// Full path of the running binary (via /proc/self/exe), or "" if unknown.
+std::string exe_dir();
 
 } // namespace agent
 
