@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -2896,4 +2897,74 @@ TEST(compression_gate_min_turns_zero_passes_immediately) {
     for (int i = 0; i < 3; ++i)
         ctx.push(msg("user", std::string(200, 'a')));
     ASSERT(gate->should_compress(ctx, cfg));
+}
+
+// ---------------------------------------------------------------------------
+// [I-8] Skills archive installer: a tar.gz pack (local path or URL) with a
+// SKILL.md at its root installs into a skill directory and becomes
+// discoverable; archives without a valid SKILL.md are rejected.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string make_skill_archive(const std::string& base) {
+    run_cmd("mkdir -p " + base + "/src/skilltest");
+    std::ofstream(base + "/src/skilltest/SKILL.md")
+        << "---\nname: skilltest\ndescription: test skill\n---\n\n# skilltest\n\nDo the thing.\n";
+    std::ofstream(base + "/src/skilltest/helper.txt") << "auxiliary data\n";
+    std::string archive = base + "/pack.tar.gz";
+    run_cmd("tar -czf " + archive + " -C " + base + "/src .");
+    return archive;
+}
+
+} // namespace
+
+TEST(skill_install_from_archive) {
+    std::string base = "/tmp/amber_skill_install";
+    run_cmd("rm -rf " + base);
+    std::string archive = make_skill_archive(base);
+    std::string dest = base + "/dest";
+
+    std::string err = agent::install_skill_pack(archive, dest);
+    ASSERT(err.empty());
+    ASSERT(std::filesystem::exists(dest + "/skilltest/SKILL.md"));
+    ASSERT(std::filesystem::exists(dest + "/skilltest/helper.txt"));
+
+    auto files = agent::scan_skill_dir(dest, agent::SkillScope::Global);
+    bool found = false;
+    for (const auto& f : files)
+        if (f.name == "skilltest") found = true;
+    ASSERT(found);
+
+    err = agent::uninstall_skill("skilltest", dest);
+    ASSERT(err.empty());
+    ASSERT(!std::filesystem::exists(dest + "/skilltest"));
+    run_cmd("rm -rf " + base);
+}
+
+TEST(skill_install_rejects_non_skill_archive) {
+    std::string base = "/tmp/amber_skill_install";
+    run_cmd("rm -rf " + base);
+    run_cmd("mkdir -p " + base + "/src/notaskill");
+    std::ofstream(base + "/src/notaskill/README.md") << "no skill here\n";
+    std::string archive = base + "/pack.tar.gz";
+    run_cmd("tar -czf " + archive + " -C " + base + "/src .");
+
+    std::string err = agent::install_skill_pack(archive, base + "/dest");
+    ASSERT(!err.empty());
+    ASSERT(err.find("SKILL.md") != std::string::npos);
+    run_cmd("rm -rf " + base);
+}
+
+TEST(skill_install_rejects_malformed_skill) {
+    std::string base = "/tmp/amber_skill_install";
+    run_cmd("rm -rf " + base);
+    run_cmd("mkdir -p " + base + "/src/skilltest");
+    std::ofstream(base + "/src/skilltest/SKILL.md") << "no frontmatter at all\n";
+    std::string archive = base + "/pack.tar.gz";
+    run_cmd("tar -czf " + archive + " -C " + base + "/src .");
+
+    std::string err = agent::install_skill_pack(archive, base + "/dest");
+    ASSERT(!err.empty());
+    run_cmd("rm -rf " + base);
 }
