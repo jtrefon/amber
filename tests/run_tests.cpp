@@ -13,6 +13,7 @@
 #include "agent/model_probe.h"
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
+#include "agent/mcp_tools.h"
 #include "tests/test_util.h"
 
 #include <array>
@@ -2969,4 +2970,39 @@ TEST(skill_install_rejects_malformed_skill) {
     std::string err = agent::install_skill_pack(archive, base + "/dest");
     ASSERT(!err.empty());
     run_cmd("rm -rf " + base);
+}
+
+// [I-5 residual ③] Live MCP tools reflect into the completion tree.
+TEST(mcp_completion_subtree_reflects_live_tools) {
+    agent::ToolRegistry reg;
+    // Minimal fake tools named like registered MCP adapters.
+    struct FakeMcpTool : agent::Tool {
+        std::string id;
+        std::string name() const noexcept override { return id; }
+        std::string description() const noexcept override {
+            return "desc of " + id;
+        }
+        agent::json parameters_schema() const override {
+            return agent::json::object();
+        }
+        agent::ToolResult execute(const agent::json&) const override {
+            return {};
+        }
+    };
+    auto add = [&](const std::string& n) {
+        auto t = std::make_unique<FakeMcpTool>();
+        t->id = n;
+        reg.register_tool(std::move(t));
+    };
+    add("mcp_github_list_issues");
+    add("mcp_github_get_issue");
+    add("read");  // non-mcp tool must be ignored
+
+    auto subtree = agent::mcp_completion_subtree(reg);
+    ASSERT(subtree.contains("mcp"));
+    const auto& srv = subtree["mcp"]["children"]["github"];
+    ASSERT(srv.contains("children"));
+    ASSERT(srv["children"].contains("list_issues"));
+    ASSERT(srv["children"]["list_issues"]["help"] == "desc of mcp_github_list_issues");
+    ASSERT_EQ(srv["children"].size(), 2u);
 }

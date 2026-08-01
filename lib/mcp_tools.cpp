@@ -178,4 +178,34 @@ std::unique_ptr<Tool> make_read_resource_tool(ServerManager& mgr) {
     return std::make_unique<ReadResourceTool>(mgr);
 }
 
+json mcp_completion_subtree(const ToolRegistry& reg) {
+    json mcp_node = {
+        {"action", "core.mcp"},
+        {"help", "Manage MCP servers."},
+        {"man", "The mcp command manages MCP servers and the tools they "
+                "expose. Live server tools appear under their server name."},
+        {"children", json::object()}};
+    json& children = mcp_node["children"];
+    for (const auto& t : reg.tools()) {
+        std::string n = t->name();
+        if (n.rfind("mcp_", 0) != 0) continue;
+        std::string rest = n.substr(4);
+        size_t dot = rest.find('_');
+        if (dot == std::string::npos) continue;
+        std::string server = rest.substr(0, dot);
+        std::string tool = rest.substr(dot + 1);
+        if (!children.contains(server)) {
+            children[server] = {{"action", "mcp." + server},
+                                {"help", "Tools exposed by " + server + "."},
+                                {"man", "Live tools of the MCP server " + server + "."},
+                                {"children", json::object()}};
+        }
+        children[server]["children"][tool] = {
+            {"action", "mcp." + server + "." + tool},
+            {"help", t->description()},
+            {"man", t->description()}};
+    }
+    return {{"mcp", mcp_node}};
+}
 } // namespace agent
+

@@ -617,6 +617,8 @@ void Tui::refresh_completions() {
     for (const auto& p : plugins_.plugins())
         if (p.state == agent::PluginState::Enabled)
             settings_.merge_completions_json(p.manifest.completion);
+    // Live MCP tools get their own <server> branches under the mcp command.
+    settings_.merge_completions_json(agent::mcp_completion_subtree(reg_));
 }
 
 void Tui::run() {

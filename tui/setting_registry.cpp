@@ -148,19 +148,26 @@ void SettingRegistry::index_node(const nlohmann::json& node,
          !node.contains("children") || !help_text.empty()))
         idx(key_path, help_text, man_text, choices, rlo, rhi, has_range);
 
+    auto union_into = [](std::vector<std::string>& dst,
+                         const std::vector<std::string>& src) {
+        for (const auto& k : src)
+            if (std::find(dst.begin(), dst.end(), k) == dst.end())
+                dst.push_back(k);
+    };
+
     if (!display_path.empty() && display_path.find('.') == std::string::npos &&
         node.contains("children") && node["children"].is_object()) {
         std::vector<std::string> subs;
         for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
             subs.push_back(it.key());
-        command_subcommands_[display_path] = subs;
+        union_into(command_subcommands_[display_path], subs);
     }
 
     if (!key_path.empty() && node.contains("children") && node["children"].is_object()) {
         std::vector<std::string> kids;
         for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
             kids.push_back(it.key());
-        key_children_[key_path] = kids;
+        union_into(key_children_[key_path], kids);
     }
 
     if (node.contains("children") && node["children"].is_object()) {
