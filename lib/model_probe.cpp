@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/model_probe.h"
 #include "agent/debug_log.h"
 
 #include <curl/curl.h>
+#include <set>
 #include <nlohmann/json.hpp>
 
 namespace agent {
@@ -92,15 +91,84 @@ void merge_server_info(Config& cfg, const ServerInfo& info) {
     if (!info.ok) return;
     if (!cfg.model_explicit && !info.model.empty())
         cfg.model = info.model;
-    if (!cfg.context_explicit && info.context_size > 0)
-        cfg.context_size = info.context_size;
+    if (!cfg.context_explicit) {
+        if (info.context_size > 0) {
+            cfg.context_size = info.context_size;
+        } else if (cfg.context_size <= 0) {
+            // Fallback: server didn't report n_ctx — use 128K as a generous
+            // minimum. This keeps the compression gate active and the context
+            // gauge visible. If the actual limit is smaller, the HTTP 400
+            // error learner (http_transport.cpp) will correct it downward.
+            cfg.context_size = 131072;
+        }
+    }
 }
 
 ServerInfo apply_server_autodetect(Config& cfg) {
-    LLMClient client(cfg);
+    HttpLLMClient client(cfg);
     ServerInfo info = client.probe_server();
     merge_server_info(cfg, info);
+    // If still unknown after merge, apply the system fallback so the
+    // compression gate and context gauge always have a budget to work with.
+    if (!cfg.context_explicit && cfg.context_size <= 0)
+        cfg.context_size = 131072;
     return info;
+}
+
+std::vector<std::string> parse_model_list(const std::string& body) {
+    std::vector<std::string> out;
+    json j = json::parse(body, nullptr, false);
+    if (j.is_discarded()) return out;
+
+    const json* arr = nullptr;
+    if (j.contains("data") && j["data"].is_array())
+        arr = &j["data"];
+    else if (j.contains("models") && j["models"].is_array())
+        arr = &j["models"];
+    if (!arr) return out;
+
+    // Servers sometimes list the same model multiple times (aliases, quant
+    // variants with the same id); the UI and model-set validation expect a
+    // unique list.
+    std::set<std::string> seen;
+    for (const auto& e : *arr) {
+        std::string id;
+        if (e.contains("id") && e["id"].is_string())
+            id = e["id"].get<std::string>();
+        else if (e.contains("model") && e["model"].is_string())
+            id = e["model"].get<std::string>();
+        else if (e.contains("name") && e["name"].is_string())
+            id = e["name"].get<std::string>();
+        if (!id.empty() && seen.insert(id).second)
+            out.push_back(std::move(id));
+    }
+    return out;
+}
+
+std::vector<std::string> list_models(const Config& cfg) {
+    std::string response;
+    CURL* c = curl_easy_init();
+    if (!c) return {};
+
+    struct curl_slist* headers = nullptr;
+    if (!cfg.api_key.empty()) {
+        std::string auth = "Authorization: Bearer " + cfg.api_key;
+        headers = curl_slist_append(headers, auth.c_str());
+    }
+
+    curl_easy_setopt(c, CURLOPT_URL, cfg.models_url().c_str());
+    if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
+    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
+
+    CURLcode rc = curl_easy_perform(c);
+    if (headers) curl_slist_free_all(headers);
+    curl_easy_cleanup(c);
+    if (rc != CURLE_OK) return {};
+    return parse_model_list(response);
 }
 
 } // namespace agent

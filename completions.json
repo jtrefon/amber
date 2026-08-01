@@ -1,0 +1,692 @@
+{
+  "commands": {
+    "help": {
+      "action": "core.help",
+      "help": "Show command help. Use '/help <command>' for details, or type '?' at the end of any command path.",
+      "man": "The help command lists all available slash commands and their usage. Pass a command name to get detailed help for that specific command. You can also type '?' at the end of any command path to see the manual page for that namespace or setting."
+    },
+    "settings": {
+      "action": "core.settings",
+      "help": "Open the settings screen to configure provider, model, API key, and connection test.",
+      "man": "Opens a full-screen configuration dialog where you can manage API providers, change the active model, set API keys, and test server connectivity. All changes are persisted to ~/.config/amber/."
+    },
+    "new": {
+      "action": "core.session.reset",
+      "help": "Clear the current conversation and start fresh.",
+      "man": "Resets the current chat window: clears all conversation history, stream buffers, and session-level tool approvals. The next message you send starts a brand new conversation. Use '/window new' if you want to open an additional window instead."
+    },
+    "close": {
+      "action": "core.window.close",
+      "help": "Close the current chat window.",
+      "man": "Closes the currently active chat window. If only one window remains it is cleared rather than closed. Unsaved conversation history is lost."
+    },
+    "stop": {
+      "action": "core.stop",
+      "help": "Terminate the running agent and cancel any in-flight tool calls.",
+      "man": "Sends a cancellation signal to the running agent. Any in-flight HTTP request or tool execution is aborted cooperatively. The agent stops sending new tool calls and returns control to the prompt."
+    },
+    "compress": {
+      "action": "core.compress",
+      "help": "Compress conversation history to free context space while preserving task state.",
+      "man": "Runs the LLM-based conversation compressor which collapses loops, archives older turns into summaries, and prunes redundant tool output. This frees token space in the context window while preserving task context and decisions. The compressed history replaces the current conversation."
+    },
+    "save": {
+      "action": "core.session.save",
+      "help": "Save the current conversation session to disk.",
+      "man": "Persists the current conversation history and metadata to the session store. Sessions are saved to .amber/sessions/ and can be browsed and reloaded via '/sessions' or '/session load'."
+    },
+    "quit": {
+      "action": "core.quit",
+      "help": "Save all windows and exit.",
+      "man": "Saves all open windows to the session store, cleans up background jobs, and exits the application. Unsaved conversation data is persisted before shutdown."
+    },
+    "window": {
+      "action": "core.window",
+      "help": "Manage chat windows.",
+      "man": "IRC-style multi-window chat management. Each window has its own conversation, agent instance, and scrollback. Switching between windows preserves state. Use '/window new' to open additional windows, '/window close' to close the active one, '/window list' to see all open windows, and '/window rename' to give the current window a custom title.",
+      "children": {
+        "new": {
+          "action": "core.window.new",
+          "help": "Open a new chat window.",
+          "man": "Opens an additional chat window with its own agent, conversation history, and scrollback. Each window operates independently."
+        },
+        "close": {
+          "action": "core.window.close",
+          "help": "Close the current window.",
+          "man": "Closes the active window. The last window is cleared rather than closed. Use '/close' as a shortcut."
+        },
+        "list": {
+          "action": "core.window.list",
+          "help": "List all open windows.",
+          "man": "Displays a numbered list of all open windows with their titles and session state. Switch to a window by number or clicking."
+        },
+        "rename": {
+          "action": "core.window.rename",
+          "help": "Rename the current window.",
+          "man": "Prompts for a new title for the current chat window. The title is displayed in the window tab bar."
+        }
+      }
+    },
+    "get": {
+      "action": "core.config.get",
+      "help": "Retrieve system and app state information.",
+      "man": "The get command retrieves current values of runtime settings across all namespaces. It is the read counterpart of 'set'. Use '/get <namespace>' to see all values under that namespace, or '/get <namespace>.<key>' for a specific value. Get never modifies state.",
+      "children": {
+        "config": {
+          "action": "core.config.get.config",
+          "help": "Open the settings configuration screen.",
+          "man": "Opens the full-screen settings dialog where you can configure the provider, model, API key, and test the server connection."
+        },
+        "model": {
+          "action": "core.config.get.model",
+          "help": "Show the active model name.",
+          "man": "Displays the currently active model name and the provider it belongs to. The model is set via '/set model' or during provider setup."
+        },
+        "provider": {
+          "action": "core.config.get.provider",
+          "help": "Show the active provider name and API base URL.",
+          "man": "Shows the currently selected provider name and its API endpoint URL. Providers are managed via '/provider' commands."
+        },
+        "toolfold": {
+          "action": "core.config.get.toolfold",
+          "help": "Show the current tool result folding mode.",
+          "man": "Displays the current tool-fold mode (always/auto/never). Tool folding controls whether long tool outputs are collapsed in the scrollback."
+        },
+        "policy": {
+          "action": "core.config.get.policy",
+          "help": "Permission and approval settings.",
+          "man": "The policy namespace controls all aspects of the permission system: access mode (read/write/yolo), the master approval switch, and the dialog countdown timeout.",
+          "children": {
+            "mode": {
+              "action": "core.config.get.policy.mode",
+              "help": "Agent access mode (read/write/yolo).",
+              "man": "Displays the current agent mode. Read mode restricts tools to observation only. Write mode enables all tools with approval gating. Yolo mode bypasses all restrictions."
+            },
+            "approval": {
+              "action": "core.config.get.policy.approval",
+              "help": "Master switch for permission gating.",
+              "man": "Shows whether policy-based approval gating is enabled in Write mode. When off, gated tools run without prompting (legacy behavior)."
+            },
+            "timeout": {
+              "action": "core.config.get.policy.timeout",
+              "help": "Approval dialog timeout in seconds.",
+              "man": "The countdown timer for the approval dialog. When the timer expires the default choice is auto-selected. Set to 0 to disable the timeout (wait indefinitely for user input)."
+            }
+          }
+        },
+        "display": {
+          "action": "core.config.get.display",
+          "help": "Show display rendering settings.",
+          "man": "Shows the current markdown rendering toggle. When on, assistant responses are rendered as formatted markdown. When off, raw text is shown."
+        },
+        "think": {
+          "action": "core.config.get.think",
+          "help": "Show the thinking/reasoning display mode.",
+          "man": "Displays the current thinking mode (on/off/auto). Thinking/reasoning tokens from the model are shown or hidden based on this setting."
+        },
+        "detection": {
+          "action": "core.config.get.detection",
+          "help": "Detection settings.",
+          "man": "The detection namespace controls heuristic safeguards that prevent the agent from repeating itself. Loop detection stops the agent when the same tool is called 3+ times. Duplicate detection skips exact repeat tool calls.",
+          "children": {
+            "loop": {
+              "action": "core.config.get.detection.loop",
+              "help": "Tool-loop detection.",
+              "man": "When enabled, the agent is stopped if it calls the exact same tool with the same arguments 3 consecutive times. This prevents infinite tool-call loops.",
+              "choices": [
+                "on",
+                "off",
+                "toggle"
+              ]
+            },
+            "duplicate": {
+              "action": "core.config.get.detection.duplicate",
+              "help": "Duplicate call detection.",
+              "man": "When enabled, duplicate tool calls (same name and arguments as a previous call in the same or prior turn) are blocked and reported to the model so it can adjust its approach.",
+              "choices": [
+                "on",
+                "off",
+                "toggle"
+              ]
+            }
+          }
+        },
+        "compression": {
+          "action": "core.config.get.compression",
+          "help": "Compression settings.",
+          "man": "The compression namespace controls when and how conversation history is compressed. Compression collapses loops, archives older context, and prunes redundant output to free token space.",
+          "children": {
+            "threshold": {
+              "action": "core.config.get.compression.threshold",
+              "help": "Context utilisation threshold that triggers compression.",
+              "man": "When the context window reaches this utilisation ratio (0.1-1.0), compression activates automatically. Higher values mean less frequent compression but tighter context.",
+              "type": "float",
+              "range": [
+                0.1,
+                1.0
+              ]
+            },
+            "min_turns": {
+              "action": "core.config.get.compression.min_turns",
+              "help": "Minimum conversation turns before compression activates.",
+              "man": "Compression will not activate until the conversation has at least this many turns. Prevents premature compression of short conversations.",
+              "type": "int",
+              "range": [
+                1,
+                999
+              ]
+            }
+          }
+        },
+        "skills": {
+          "action": "core.config.get.skills",
+          "help": "Show skills information.",
+          "man": "Shows the current skill catalog: loaded skill packages, interop state, and available skill tools (read/list/write).",
+          "children": {
+            "show": {
+              "action": "core.config.get.skills.show",
+              "help": "List loaded skills.",
+              "man": "Lists all skill packages currently loaded into the catalog with their descriptions."
+            }
+          }
+        }
+      }
+    },
+    "set": {
+      "action": "core.config.set",
+      "help": "Modify runtime settings and configuration.",
+      "man": "The set command changes runtime settings across all configurable namespaces. It is the write counterpart of 'get'. Use '/set <namespace> <key> <value>' to change a specific setting. Changes are persisted to the project-local settings file (.amber/settings).",
+      "children": {
+        "display": {
+          "action": "core.config.set.display",
+          "help": "Display settings.",
+          "man": "Controls how information is rendered in the chat window.",
+          "children": {
+            "markdown": {
+              "action": "core.config.set.display.markdown",
+              "help": "Toggle markdown rendering of agent responses.",
+              "man": "When on, assistant messages are rendered as formatted markdown with syntax highlighting, tables, and lists. When off, raw text is shown without formatting.",
+              "choices": [
+                "on",
+                "off"
+              ]
+            }
+          }
+        },
+        "toolfold": {
+          "action": "core.config.set.toolfold",
+          "help": "Tool result folding mode.",
+          "man": "Controls how tool execution results are displayed. 'always' folds all results, 'auto' folds only long outputs, 'never' shows everything unfolded.",
+          "choices": [
+            "always",
+            "auto",
+            "never"
+          ]
+        },
+        "policy": {
+          "action": "core.config.set.policy",
+          "help": "Permission and approval settings.",
+          "man": "The policy namespace controls all aspects of the permission system. Mode switches between read/write/yolo access levels. Approval toggles the master permission gate. Timeout sets the countdown for the approval dialog.",
+          "children": {
+            "mode": {
+              "action": "core.config.set.policy.mode",
+              "help": "Agent access mode.",
+              "man": "Read mode restricts tools to read-only operations (no writes). Write mode enables all tools with configurable approval gating. Yolo mode bypasses all restrictions and runs everything without prompting.",
+              "choices": [
+                "read",
+                "write",
+                "yolo"
+              ]
+            },
+            "approval": {
+              "action": "core.config.set.policy.approval",
+              "help": "Master switch for permission gating.",
+              "man": "When on, gated tools in Write mode show an approval dialog before executing. When off, the pre-policy legacy behavior is restored and tools run without prompting. Has no effect in Read or Yolo modes.",
+              "choices": [
+                "on",
+                "off",
+                "toggle"
+              ]
+            },
+            "timeout": {
+              "action": "core.config.set.policy.timeout",
+              "help": "Approval dialog timeout in seconds.",
+              "man": "Sets how many seconds the approval dialog waits before auto-selecting the default choice. 0 means no timeout — the dialog waits indefinitely for user input.",
+              "type": "int",
+              "range": [
+                0,
+                999
+              ]
+            }
+          }
+        },
+        "think": {
+          "action": "core.config.set.think",
+          "help": "Thinking/reasoning display mode.",
+          "man": "Controls whether the model's reasoning/thinking tokens are displayed. 'on' shows them, 'off' hides them, 'auto' lets the server decide based on the model's capabilities.",
+          "choices": [
+            "on",
+            "off",
+            "auto"
+          ]
+        },
+        "detection": {
+          "action": "core.config.set.detection",
+          "help": "Detection settings.",
+          "man": "Heuristic safeguards that prevent the agent from repeating itself. Loop detection halts on 3x same-tool loops. Duplicate detection skips exact repeat calls across turns.",
+          "children": {
+            "loop": {
+              "action": "core.config.set.detection.loop",
+              "help": "Tool-loop detection.",
+              "man": "When on, the agent is stopped after 3 consecutive identical tool calls. When off, the agent runs until max_tool_iterations or a natural stop.",
+              "choices": [
+                "on",
+                "off",
+                "toggle"
+              ]
+            },
+            "duplicate": {
+              "action": "core.config.set.detection.duplicate",
+              "help": "Duplicate call detection.",
+              "man": "When on, exact duplicate tool calls (same name and args) across turns are blocked. The model is informed of the duplicate and asked to adjust its approach.",
+              "choices": [
+                "on",
+                "off",
+                "toggle"
+              ]
+            }
+          }
+        },
+        "compression": {
+          "action": "core.config.set.compression",
+          "help": "Compression settings.",
+          "man": "Controls when conversation compression activates. Threshold sets the context utilisation ratio that triggers compression. Min_turns prevents premature compression of short conversations.",
+          "children": {
+            "threshold": {
+              "action": "core.config.set.compression.threshold",
+              "help": "Context utilisation threshold.",
+              "man": "Compression triggers when prompt_tokens / context_size reaches this ratio. Range 0.1-1.0. Lower values compress more aggressively.",
+              "type": "float",
+              "range": [
+                0.1,
+                1.0
+              ]
+            },
+            "min_turns": {
+              "action": "core.config.set.compression.min_turns",
+              "help": "Minimum turns before compression.",
+              "man": "Compression will not activate until the conversation has at least this many turns. Prevents compression of short conversations where context is not yet scarce.",
+              "type": "int",
+              "range": [
+                1,
+                999
+              ]
+            }
+          }
+        },
+        "skills": {
+          "action": "core.config.set.skills",
+          "help": "Skills settings.",
+          "man": "The skills namespace manages agent skills: authored SKILL.md packages and learned procedural memory. Use '/set skills refresh' to reload the catalog, '/set skills interop on|off' to enable .claude/skills interop, and '/set skills create|delete' to manage skill packages.",
+          "children": {
+            "interop": {
+              "action": "core.config.set.skills.interop",
+              "help": "Toggle .claude/skills interop.",
+              "man": "When on, skill packages from .claude/skills directories are loaded into the catalog.",
+              "choices": [
+                "on",
+                "off"
+              ]
+            },
+            "refresh": {
+              "action": "core.config.set.skills.refresh",
+              "help": "Reload the skill catalog from disk.",
+              "man": "Rescans the skill directories and rebuilds the catalog index."
+            },
+            "create": {
+              "action": "core.config.set.skills.create",
+              "help": "Create a new skill package.",
+              "man": "Creates a new SKILL.md package in the user skills directory."
+            },
+            "delete": {
+              "action": "core.config.set.skills.delete",
+              "help": "Delete a skill package.",
+              "man": "Removes a skill package from disk after confirmation."
+            },
+            "install": {
+              "action": "core.config.set.skills.install",
+              "help": "Install a skill pack from a tar.gz archive (local path or URL).",
+              "man": "Downloads or reads a tar.gz skill pack containing SKILL.md inside a single top-level directory, validates it, and stages it into the global skills directory (~/.config/amber/skills). The catalog refreshes immediately."
+            },
+            "uninstall": {
+              "action": "core.config.set.skills.uninstall",
+              "help": "Remove an installed skill pack.",
+              "man": "Deletes the skill directory from the global skills directory and refreshes the catalog."
+            }
+          }
+        }
+      }
+    },
+    "files": {
+      "action": "os.files",
+      "help": "Browse and view files in the workspace.",
+      "man": "The files command provides read-only filesystem operations within the workspace. All paths are confined to the workspace root. Use '/files ls' to list directories, '/files open' to view file contents, '/files find' to search by glob pattern, and '/files tree' for a recursive directory view.",
+      "children": {
+        "ls": {
+          "action": "os.files.ls",
+          "help": "List directory contents with file sizes and modification times.",
+          "man": "Lists all entries in a directory showing file type, size, and modification time. Hidden files (dotfiles) are included."
+        },
+        "tree": {
+          "action": "os.files.tree",
+          "help": "Show directory tree (recursive, max depth 4).",
+          "man": "Displays a recursive directory tree view with a maximum depth of 4 levels. Useful for understanding project structure."
+        },
+        "open": {
+          "action": "os.files.open",
+          "help": "View file content inline (first 4 KiB shown).",
+          "man": "Opens a file and displays its contents inline in the chat window. The display is limited to the first 4 KiB to prevent scrollback flooding."
+        },
+        "find": {
+          "action": "os.files.find",
+          "help": "Find files by glob pattern in the given directory.",
+          "man": "Recursively searches for files matching a glob pattern (e.g. '**/*.cpp') starting from the given directory. Results are displayed with relative paths."
+        }
+      }
+    },
+    "system": {
+      "action": "os.system",
+      "help": "System operations: file management, process inspection, disk usage, etc.",
+      "man": "The system command provides filesystem and process management operations. Use '/system exec' to run a shell command, '/system ps' to list processes, and the various file operations for CRUD on files and directories.",
+      "children": {
+        "exec": {
+          "action": "os.system.exec",
+          "help": "Execute a shell command and capture output.",
+          "man": "Runs a shell command and captures its stdout/stderr. Output is displayed inline. Long-running commands may time out."
+        },
+        "delete": {
+          "action": "os.system.delete",
+          "help": "Delete a file or empty directory.",
+          "man": "Permanently deletes a file or an empty directory. Use '/system rmdir' for recursive directory deletion."
+        },
+        "rmdir": {
+          "action": "os.system.rmdir",
+          "help": "Recursively delete a directory tree.",
+          "man": "Recursively deletes a directory and all its contents. Use with caution as this operation cannot be undone."
+        },
+        "mkdir": {
+          "action": "os.system.mkdir",
+          "help": "Create a directory (including parents).",
+          "man": "Creates a directory, including any necessary parent directories (mkdir -p behavior)."
+        },
+        "mv": {
+          "action": "os.system.mv",
+          "help": "Move or rename a file or directory.",
+          "man": "Moves or renames a file or directory within the workspace. Both source and destination must be within the workspace root."
+        },
+        "cp": {
+          "action": "os.system.cp",
+          "help": "Copy a file or directory (recursive).",
+          "man": "Copies a file or directory. Directory copies are recursive. The destination must be within the workspace root."
+        },
+        "info": {
+          "action": "os.system.info",
+          "help": "Show file/directory metadata: type, size, permissions.",
+          "man": "Displays metadata for a file or directory including type, size in bytes, permissions, and modification time."
+        },
+        "ps": {
+          "action": "os.system.ps",
+          "help": "List running processes (top 20 by memory usage).",
+          "man": "Lists the top 20 processes sorted by memory usage, showing PID, memory, and command name."
+        },
+        "kill": {
+          "action": "os.system.kill",
+          "help": "Send SIGTERM to a process by PID.",
+          "man": "Sends a SIGTERM signal to a process identified by its PID. The process may handle or ignore the signal."
+        },
+        "df": {
+          "action": "os.system.df",
+          "help": "Show disk usage for a path or current directory.",
+          "man": "Shows disk usage information (total, used, available, capacity) for the filesystem containing the given path."
+        },
+        "uptime": {
+          "action": "os.system.uptime",
+          "help": "Show system uptime and load averages.",
+          "man": "Displays system uptime and load averages for the past 1, 5, and 15 minutes."
+        },
+        "uname": {
+          "action": "os.system.uname",
+          "help": "Show system information (kernel, architecture, hostname).",
+          "man": "Displays system information including kernel name, hostname, kernel release, and hardware architecture."
+        }
+      }
+    },
+    "provider": {
+      "action": "core.provider",
+      "help": "Manage API providers.",
+      "man": "The provider command manages LLM API provider configurations. Providers are stored globally in ~/.config/amber/providers/ and can be shared across projects. Built-in providers include OpenRouter, Kilo Code, and Custom. Use '/provider add' to configure a new endpoint.",
+      "children": {
+        "list": {
+          "action": "core.provider.list",
+          "help": "List all saved API providers.",
+          "man": "Lists all saved provider configurations with their names, API base URLs, and whether they require an API key."
+        },
+        "add": {
+          "action": "core.provider.add",
+          "help": "Add a new provider (opens settings form).",
+          "man": "Opens a form to add a new provider configuration including name, API base URL, default model, and API key."
+        },
+        "edit": {
+          "action": "core.provider.edit",
+          "help": "Edit an existing provider's configuration.",
+          "man": "Opens a form pre-filled with the selected provider's configuration for editing."
+        },
+        "delete": {
+          "action": "core.provider.delete",
+          "help": "Delete a saved provider configuration.",
+          "man": "Permanently removes a provider configuration from disk after confirmation."
+        },
+        "test": {
+          "action": "core.provider.test",
+          "help": "Test the provider connection by probing the API endpoint.",
+          "man": "Sends a probe request to the provider's API endpoint to verify connectivity and reports the server's model info."
+        }
+      }
+    },
+    "model": {
+      "action": "core.model",
+      "help": "Manage AI models.",
+      "man": "The model command manages the active AI model. Use '/model list' to discover available models from the server, '/model set' to switch models, and '/model probe' to inspect a model's capabilities.",
+      "children": {
+        "list": {
+          "action": "core.model.list",
+          "help": "Fetch and list all models available from the current server.",
+          "man": "Queries the server's /v1/models endpoint and lists all available models with their IDs."
+        },
+        "set": {
+          "action": "core.model.set",
+          "help": "Set the active model by name.",
+          "man": "Changes the active model to the specified model name. The model must be available from the configured provider."
+        },
+        "probe": {
+          "action": "core.model.probe",
+          "help": "Probe the server for model info (name, context window size).",
+          "man": "Queries the server for model metadata including native context window size (n_ctx_train) and loaded context size (n_ctx)."
+        }
+      }
+    },
+    "session": {
+      "action": "core.session",
+      "help": "Manage saved sessions.",
+      "man": "The session command manages conversation persistence. Sessions are saved to .amber/sessions/ and store the full conversation history plus metadata. Use '/session save' to persist, '/session load' to restore, and '/session delete' to remove.",
+      "children": {
+        "list": {
+          "action": "core.session.list",
+          "help": "Browse saved sessions in the session browser.",
+          "man": "Opens a session browser dialog showing all saved sessions with their titles, timestamps, and message counts."
+        },
+        "save": {
+          "action": "core.session.save",
+          "help": "Save the current conversation as a named session.",
+          "man": "Saves the current conversation to the session store with an optional title. Uses '/save' as a shortcut."
+        },
+        "load": {
+          "action": "core.session.load",
+          "help": "Load a session by ID.",
+          "man": "Restores a previously saved session by its ID, replacing the current conversation."
+        },
+        "delete": {
+          "action": "core.session.delete",
+          "help": "Delete a saved session by ID.",
+          "man": "Permanently removes a saved session from disk after confirmation."
+        },
+        "rename": {
+          "action": "core.session.rename",
+          "help": "Rename a saved session.",
+          "man": "Changes the display title of a saved session without modifying its content."
+        }
+      }
+    },
+    "job": {
+      "action": "core.job",
+      "help": "Manage background jobs.",
+      "man": "The job command manages long-running background processes started by the agent (e.g. dev servers, builds). Jobs run independently of the agent and can be monitored via '/job read'. Use '/job kill' to stop a running job and '/job list' to see all jobs.",
+      "children": {
+        "list": {
+          "action": "core.job.list",
+          "help": "List all running and finished background jobs.",
+          "man": "Lists all jobs with their ID, command, state (running/done/killed/failed), and timeout information."
+        },
+        "start": {
+          "action": "core.job.start",
+          "help": "Start a new background job with a shell command.",
+          "man": "Starts a new background process from a shell command. The job runs independently with configurable hard and idle timeouts."
+        },
+        "read": {
+          "action": "core.job.read",
+          "help": "Read a job's output (all output or since last read).",
+          "man": "Reads the output of a running or finished job. Returns all output since the last read call."
+        },
+        "kill": {
+          "action": "core.job.kill",
+          "help": "Stop a running job by ID.",
+          "man": "Sends SIGKILL to a running job's process group and cleans up its resources."
+        }
+      }
+    },
+    "mcp": {
+      "action": "core.mcp",
+      "help": "Manage MCP servers.",
+      "man": "The mcp command manages MCP (Model Context Protocol) servers. Servers are configured globally and expose their tools to the agent as mcp_<server>_<tool>. Use '/mcp list' to see configured servers, '/mcp connect' to attach a server's tools, '/mcp trust' to approve its capabilities, and '/mcp prompts' to list its prompt templates.",
+      "children": {
+        "list": {
+          "action": "core.mcp.list",
+          "help": "List configured MCP servers and their connection state.",
+          "man": "Lists all configured MCP servers with their transport (http/command), URL, enabled state, and connection status."
+        },
+        "show": {
+          "action": "core.mcp.show",
+          "help": "Show details for one MCP server.",
+          "man": "Displays a server's full configuration: transport, endpoint, enabled flag, trust level, and the tools it exposes."
+        },
+        "connect": {
+          "action": "core.mcp.connect",
+          "help": "Connect to an MCP server and register its tools.",
+          "man": "Establishes the connection to the server and registers its tools in the agent's tool registry as mcp_<server>_<tool>."
+        },
+        "disconnect": {
+          "action": "core.mcp.disconnect",
+          "help": "Disconnect from an MCP server and unregister its tools.",
+          "man": "Closes the connection and unregisters all tools that server exposed."
+        },
+        "refresh": {
+          "action": "core.mcp.refresh",
+          "help": "Reconnect all enabled MCP servers.",
+          "man": "Disconnects and reconnects every enabled server, picking up configuration changes."
+        },
+        "prompts": {
+          "action": "core.mcp.prompts",
+          "help": "List prompt templates exposed by a server.",
+          "man": "Lists the prompt templates a server advertises. Templates are invoked with '/prompt <server> <name> k=v...'."
+        },
+        "enable": {
+          "action": "core.mcp.enable",
+          "help": "Enable a configured MCP server.",
+          "man": "Marks the server as enabled so its tools load on the next connect."
+        },
+        "disable": {
+          "action": "core.mcp.disable",
+          "help": "Disable a configured MCP server.",
+          "man": "Marks the server as disabled; its tools are unregistered until re-enabled."
+        },
+        "trust": {
+          "action": "core.mcp.trust",
+          "help": "Mark a server as trusted.",
+          "man": "Raises a server's trust level, affecting which of its tools run without approval."
+        }
+      }
+    },
+    "prompt": {
+      "action": "core.prompt",
+      "help": "Invoke an MCP prompt template (fills the input line).",
+      "man": "The prompt command invokes a prompt template exposed by an MCP server. The template's arguments are filled with the provided key=value pairs and the resulting prompt is placed into the input line for review before sending."
+    },
+    "plugin": {
+      "action": "core.plugin",
+      "help": "Manage plugins.",
+      "man": "The plugin command administers plugins: standalone programs that expose tools and command namespaces to the harness over a stdio JSON-RPC protocol. Plugins are packaged as a directory with manifest.json and are discovered in ~/.config/amber/plugins/, .amber/plugins/, and the system data dir. Use '/plugin list' to see installed plugins, '/plugin enable' / '/plugin disable' to toggle them, and '/plugin install <path|url>' to install a plugin archive.",
+      "children": {
+        "list": {
+          "action": "core.plugin.list",
+          "help": "List installed plugins and their state.",
+          "man": "Lists every discovered plugin with its id, version, author, and state (available/enabled/disabled/incompatible)."
+        },
+        "status": {
+          "action": "core.plugin.status",
+          "help": "Show the status of one plugin.",
+          "man": "Shows a plugin's manifest metadata, protocol version, enabled state, and settings."
+        },
+        "enable": {
+          "action": "core.plugin.enable",
+          "help": "Enable a plugin (loads its tools and namespaces).",
+          "man": "Activates the plugin: its tools register in the agent's tool registry and its command namespaces merge into the completion tree."
+        },
+        "disable": {
+          "action": "core.plugin.disable",
+          "help": "Disable a plugin.",
+          "man": "Deactivates the plugin: its tools unregister and its namespaces leave the completion tree."
+        },
+        "get": {
+          "action": "core.plugin.get",
+          "help": "Read a plugin setting.",
+          "man": "Shows the value of a plugin's persisted setting, or all settings when no key is given."
+        },
+        "set": {
+          "action": "core.plugin.set",
+          "help": "Set a plugin setting.",
+          "man": "Persists a key=value setting for the plugin, which it reads at startup."
+        },
+        "info": {
+          "action": "core.plugin.info",
+          "help": "Show plugin manifest details.",
+          "man": "Displays the full manifest: author, url, license, description, protocol version, exposed tools and namespaces."
+        },
+        "install": {
+          "action": "core.plugin.install",
+          "help": "Install a plugin from a local archive or URL.",
+          "man": "Downloads or reads a tar.gz plugin archive, validates its manifest, and stages it into the user plugin directory."
+        },
+        "uninstall": {
+          "action": "core.plugin.uninstall",
+          "help": "Remove an installed plugin.",
+          "man": "Deactivates and deletes the plugin from the user plugin directory."
+        }
+      }
+    },
+    "sessions": {
+      "action": "core.session.list",
+      "help": "Browse and load a saved session.",
+      "man": "Alias for '/session list': opens the session browser showing all saved conversations with titles, timestamps, and message counts."
+    }
+  }
+}

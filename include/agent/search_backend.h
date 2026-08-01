@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_SEARCH_BACKEND_H
 #define AGENT_SEARCH_BACKEND_H
@@ -9,6 +7,16 @@
 #include <memory>
 
 namespace agent {
+
+// Directory names skipped by default when searching the workspace root:
+// hidden metadata dirs and vendored code. The SearchTool drops an entry when
+// the agent explicitly targets a path inside one of them — hidden/vendored
+// content stays searchable on purpose, the default just keeps scans clean.
+inline const std::vector<std::string>& default_excluded_dirs() {
+    static const std::vector<std::string> dirs = {".amber", ".git",
+                                                  "third_party"};
+    return dirs;
+}
 
 // A single search hit. `line` is the matched/ranked line (or snippet); `score`
 // is backend-specific (grep uses match order, semantic uses cosine distance).
@@ -28,10 +36,13 @@ public:
 
     // `query` is the user/model pattern. `root` is the path to search. `glob`
     // optionally restricts files. `max` caps the number of returned hits.
-    virtual std::vector<SearchHit> search(const std::string& query,
-                                          const std::string& root,
-                                          const std::string& glob,
-                                          long max) const = 0;
+    // `exclude_dirs` lists directory names to skip (default: the standard
+    // hidden/vendored set); pass an empty vector to search everything.
+    virtual std::vector<SearchHit> search(
+        const std::string& query, const std::string& root,
+        const std::string& glob, long max,
+        const std::vector<std::string>& exclude_dirs =
+            default_excluded_dirs()) const = 0;
 
     virtual std::string name() const noexcept = 0;
 };

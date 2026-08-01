@@ -1,21 +1,25 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui/list_panel.h"
 
 namespace tui {
 
 ListPanel::ListPanel(const std::string& title,
+                     const std::vector<std::string>& items)
+    : Panel(std::min(static_cast<int>(items.size()) + 2, 20),
+            std::max(static_cast<int>(title.size()) + 8, 50),
+            title,
+            {{"Up/Down", "navigate"},
+             {"Enter", "select"},
+             {"/", "filter"},
+             {"Esc", "cancel"}}),
+      items_(items) {}
+
+ListPanel::ListPanel(const std::string& title,
                      const std::vector<std::string>& items,
                      std::vector<FooterKey> footer)
     : Panel(std::min(static_cast<int>(items.size()) + 2, 20),
             std::max(static_cast<int>(title.size()) + 8, 50),
-            title, footer.empty()
-                ? std::vector<FooterKey>{{"Up/Down", "navigate"},
-                                         {"Enter", "select"},
-                                         {"/", "filter"},
-                                         {"Esc", "cancel"}}
-                : std::move(footer)),
+            title, std::move(footer)),
       items_(items) {}
 
 std::vector<std::string> ListPanel::filtered() const {

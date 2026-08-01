@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/search_backend.h"
 #include <array>
@@ -16,17 +14,24 @@ class GrepBackend : public SearchBackend {
 public:
     std::string name() const noexcept override { return "grep"; }
 
-    std::vector<SearchHit> search(const std::string& query,
-                                  const std::string& root,
-                                  const std::string& glob,
-                                  long max) const override {
+    std::vector<SearchHit> search(
+        const std::string& query, const std::string& root,
+        const std::string& glob, long max,
+        const std::vector<std::string>& exclude_dirs =
+            default_excluded_dirs()) const override {
         std::vector<SearchHit> hits;
-        // Exclude our own data dir and vendored code — searching them returns
-        // escaped JSON blobs that inflate the conversation past any server's
-        // max payload (~440MB in practice), triggering HTTP 413.
+        // Exclude hidden metadata dirs and vendored code by default; searching
+        // them returns escaped JSON blobs that inflate the conversation past
+        // any server's max payload (~440MB in practice), triggering HTTP 413.
+        // The tool may pass a reduced list when the agent explicitly targets
+        // one of these dirs.
         std::string cmd =
-            "grep -rnIE --line-number --max-count=10000 "
-            "--exclude-dir=.amber --exclude-dir=.git --exclude-dir=third_party ";
+            "grep -rnIE --line-number --max-count=10000 ";
+        for (const auto& d : exclude_dirs) {
+            cmd += "--exclude-dir=";
+            cmd += shell_quote(d);
+            cmd += " ";
+        }
         if (!glob.empty()) {
             cmd += "--include=";
             cmd += shell_quote(glob);

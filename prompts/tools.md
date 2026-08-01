@@ -1,5 +1,20 @@
 # Tools
 
+## Working style
+
+A few suggestions — adapt them to the task:
+
+- Get oriented before searching: a quick `ls -loha` (and `tree -a -I
+  'node_modules|.git|.amber'` when available) tells you what kind of project
+  this is and what vendors it uses. The Environment section lists the OS,
+  the user, and which tools are installed.
+- `search` is good for quick symbol/string lookup; `bash` pipelines
+  (`grep`, `find`, `sed`, `awk`) are just as valid when you need more
+  control. Use whichever fits the task.
+- Short commands belong in `bash`; long-running or streaming ones in
+  `process_start`.
+- Reads are paginated — request the ranges you need.
+
 ## Result envelope
 
 Every tool result — regardless of which tool, regardless of success or
@@ -25,12 +40,12 @@ is always identical. This lets you parse any result the same way.
 
 ### Status values
 
-| Status | Meaning | What to do |
-|--------|---------|------------|
+| Status | Meaning | What to expect |
+|--------|---------|----------------|
 | `ok` | The tool completed successfully | Read the content for the result |
-| `error` | The tool failed | Read the content for the error message. Do not retry with the same arguments — adjust your approach |
-| `denied` | The tool was not approved (e.g. bash requires interactive approval) | The content explains why. Do not retry — report to the user or use an alternative tool |
-| `timeout` | The tool exceeded its time limit | The content may contain partial output. Adjust your parameters (timeout, scope) and retry if needed |
+| `error` | The tool failed | The content explains the failure; the same arguments will fail the same way |
+| `denied` | The tool was not approved (e.g. bash in READ mode) | Retrying will fail again — report to the user or use an alternative tool |
+| `timeout` | The tool exceeded its time limit | The content may contain partial output; retry with adjusted parameters (timeout, scope) |
 
 ### Content section
 
@@ -54,15 +69,20 @@ The content is always followed by `[end]` on its own line.
 
 ## search
 
-Query the filesystem. Use first to locate anything before reading.
+Query the filesystem. Locates matches by regex (`mode="grep"`, default) or
+meaning-based ranking (`mode="semantic"`).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `pattern` | string | yes | — | Short regex or query (max 256 chars) |
+| `pattern` | string | yes | — | Short regex or query (max 256 chars; longer patterns are rejected) |
 | `path` | string | no | workspace root | Directory to search |
 | `glob` | string | no | — | File filter, e.g. `"*.cpp"` or `"*.md"` |
 | `mode` | string | no | `"grep"` | `"grep"` for regex, `"semantic"` for meaning-based ranking |
 | `max` | integer | no | 200 | Maximum matches to return |
+
+Hidden dirs (`.git`, `.amber`) and vendored code (`third_party`) are skipped
+by default. To search inside them, set `path` explicitly to a directory
+within one — the default exclusion is dropped for that directory.
 
 **Content**: matching lines with file paths and line numbers.
 **Meta**: `{"hits": <count>, "mode": "<grep|semantic>"}`
@@ -95,9 +115,9 @@ an empty string as `old`.
 
 ## bash
 
-Execute a shell command. Requires user approval (TTY prompt or TUI
-dialog). Denied automatically when input is not interactive and `--yes`
-was not passed.
+Execute a shell command. Approval required only in READ mode (where
+bash is blocked entirely); in WRITE and YOLO modes commands run
+immediately.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -110,7 +130,6 @@ was not passed.
 ## process_start
 
 Launch a command in the background. Returns immediately with a `job_id`.
-Use this instead of `bash` for long-running or streaming commands.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|

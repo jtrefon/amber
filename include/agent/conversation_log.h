@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_CONVERSATION_LOG_H
 #define AGENT_CONVERSATION_LOG_H
@@ -20,7 +18,7 @@ public:
     // path may contain "{ts}", replaced with the session start timestamp.
     void open(const std::string& path);
     bool enabled() const { return out_.is_open(); }
-    const std::string& session() const { return session_; }
+
 
     // event: "session_start", "user", "assistant", "reasoning",
     //        "tool_call", "tool_result", "error", "session_end".

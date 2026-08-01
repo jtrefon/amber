@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "canvas.h"
 
@@ -38,11 +36,6 @@ void Canvas::set_lines(const std::vector<rich::Line>& lines) {
     rewrap();
 }
 
-void Canvas::clear_lines() {
-    lines_.clear();
-    wrapped_.clear();
-    top_ = 0;
-}
 
 void Canvas::rewrap() {
     wrapped_.clear();

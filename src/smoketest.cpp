@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include <agent.h>
 #include <cassert>
@@ -20,12 +18,12 @@ int main() {
                   << (!r.output.empty()) << "\n";
     }
 
-    // write tool (create temp file)
+    // write tool (create file within workspace root)
     {
         agent::Tool* wr = reg.find("write");
         assert(wr);
         auto r = wr->execute({
-            {"path", "/tmp/amber-smoke.txt"},
+            {"path", "amber-smoke.txt"},
             {"edits", {{{"old", ""}, {"new", "line one\nline two\n"}}}}
         });
         assert(r.ok);
@@ -33,11 +31,12 @@ int main() {
 
         // patch it
         auto r2 = wr->execute({
-            {"path", "/tmp/amber-smoke.txt"},
+            {"path", "amber-smoke.txt"},
             {"edits", {{{"old", "line two"}, {"new", "line 2"}}}}
         });
         assert(r2.ok);
         std::cout << "[write-patch] " << r2.output << "\n";
+        std::remove("amber-smoke.txt");
     }
 
     // search tool

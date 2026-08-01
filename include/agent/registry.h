@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_REGISTRY_H
 #define AGENT_REGISTRY_H
@@ -24,6 +22,10 @@ public:
     json schema() const;
 
     const std::vector<std::unique_ptr<Tool>>& tools() const { return tools_; }
+
+    // Remove every tool whose name starts with `prefix` (e.g. "mcp_github_").
+    // Returns the number removed.
+    size_t unregister_tools_with_prefix(const std::string& prefix);
 
 private:
     std::vector<std::unique_ptr<Tool>> tools_;

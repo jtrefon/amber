@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AMBER_TUI_PANEL_H
 #define AMBER_TUI_PANEL_H
@@ -42,7 +40,7 @@ struct FooterKey {
 // title, footer, shadow, and centered layout.
 class Panel {
 public:
-    Panel(int h, int w, const std::string& title,
+    Panel(int h, int w, std::string title,
           std::vector<FooterKey> footer = {});
     virtual ~Panel();
 
@@ -68,7 +66,7 @@ public:
 
     // Top-left position (computed for centering)
     int top() const { return top_; }
-    int left() const { return left_; }
+
 
     // Draw the border, title, and footer
     void draw_frame();

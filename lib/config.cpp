@@ -1,8 +1,7 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/config.h"
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -30,6 +29,7 @@ void Config::load(const std::string& path) {
         }
         else if (key == "system_prompt") system_prompt_path = val;
         else if (key == "tools_prompt") tools_prompt_path = val;
+        else if (key == "git_prompt") git_prompt_path = val;
         else if (key == "max_tool_iterations") max_tool_iterations = std::stoi(val);
         else if (key == "temperature") temperature = std::stod(val);
         else if (key == "max_tokens") max_tokens = std::stoul(val);
@@ -42,23 +42,48 @@ void Config::load(const std::string& path) {
             context_size = std::stoi(val);
             context_explicit = context_size > 0;
         }
+        else if (key == "default_context_size") {
+            // Provider-level default; does NOT set context_explicit so
+            // server auto-detect and user-override can still win.
+            if (!val.empty()) default_context_size = std::stoi(val);
+        }
         else if (key == "log_path") log_path = val;
         else if (key == "debug_log") debug_log = val;
         else if (key == "reasoning_effort") reasoning_effort = val;
         else if (key == "show_reasoning")
             show_reasoning = (val == "1" || val == "true" || val == "yes");
-        else if (key == "compression_threshold")
+        else if (key == "compression_threshold") {
             compression_threshold = std::stod(val);
-        else if (key == "compression_min_turns")
+            compression_threshold_explicit = true;
+        } else if (key == "compression_min_turns") {
             compression_min_turns = std::stoi(val);
-        else if (key == "compression_cooldown_turns")
+            compression_min_turns_explicit = true;
+        } else if (key == "compression_cooldown_turns") {
             compression_cooldown_turns = std::stoi(val);
+            compression_cooldown_turns_explicit = true;
+        }
         else if (key == "experience_enabled")
             experience_enabled = (val == "1" || val == "true" || val == "yes");
+        else if (key == "experience_store_path")
+            experience_store_path = val;
         else if (key == "experience_max_memories")
             experience_max_memories = std::stoi(val);
         else if (key == "experience_max_skills")
             experience_max_skills = std::stoi(val);
+        else if (key == "experience_decay_rate")
+            experience_decay_rate = std::stod(val);
+        else if (key == "experience_promote_threshold")
+            experience_promote_threshold = std::stoi(val);
+        else if (key == "skills_interop")
+            skills_interop = (val == "1" || val == "true" || val == "yes");
+        else if (key == "skills_max_discovery")
+            skills_max_discovery = std::stoi(val);
+        else if (key == "skills_body_budget_tokens")
+            skills_body_budget_tokens = std::stoi(val);
+        else if (key == "provider")
+            provider_name = val;
+        else if (key == "policy_approval")
+            policy_approval = (val == "1" || val == "true" || val == "yes");
         else if (key == "detection_loop")
             detection_loop = (val == "1" || val == "true" || val == "yes");
         else if (key == "detection_duplicate")
@@ -66,23 +91,109 @@ void Config::load(const std::string& path) {
     }
 }
 
-bool Config::save(const std::string& path) const {
+std::string global_config_dir() {
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg && *xdg) return std::string(xdg) + "/amber";
+    const char* home = std::getenv("HOME");
+    if (!home) return ".amber";
+    return std::string(home) + "/.config/amber";
+}
+
+std::string global_config_path() {
+    return global_config_dir() + "/config";
+}
+
+std::string providers_dir() {
+    std::string dir = global_config_dir() + "/providers";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
+
+std::vector<std::string> list_saved_providers() {
+    std::vector<std::string> out;
+    std::string dir = providers_dir();
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        std::string name = entry.path().filename().string();
+        if (name.size() < 5 || name.substr(name.size() - 5) != ".conf")
+            continue;
+        out.push_back(name.substr(0, name.size() - 5));
+    }
+    return out;
+}
+
+bool load_provider(const std::string& name, Config& out) {
+    std::string path = providers_dir() + "/" + name + ".conf";
+    std::ifstream f(path);
+    if (!f) return false;
+    out.load(path);
+    return !out.api_base.empty();
+}
+
+bool save_provider(const Config& cfg) {
+    std::string dir = providers_dir();
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::string path = dir + "/" + cfg.provider_name + ".conf";
     std::ofstream f(path, std::ios::trunc);
     if (!f) return false;
-    f << "# amber settings\n";
+    f << "# amber provider: " << cfg.provider_name << "\n";
+    f << "provider=" << cfg.provider_name << "\n";
+    f << "api_base=" << cfg.api_base << "\n";
+    f << "api_key=" << cfg.api_key << "\n";
+    f << "default_model=" << cfg.model << "\n";
+    f << "requires_key=" << (cfg.api_key.empty() ? "0" : "1") << "\n";
+    if (cfg.context_size > 0)
+        f << "default_context_size=" << cfg.context_size << "\n";
+    return static_cast<bool>(f);
+}
+
+bool delete_provider(const std::string& name) {
+    std::string path = providers_dir() + "/" + name + ".conf";
+    return std::filesystem::remove(path);
+}
+
+void Config::apply_provider(const std::string& name) {
+    // First, try loading a saved provider file; its fields (including
+    // default_context_size) take precedence over built-in presets.
+    Config saved;
+    if (load_provider(name, saved)) {
+        provider_name = saved.provider_name;
+        if (!saved.api_base.empty()) api_base = saved.api_base;
+        if (!saved.model.empty()) { model = saved.model; model_explicit = saved.model_explicit; }
+        if (saved.default_context_size > 0 && !context_explicit)
+            context_size = saved.default_context_size;
+        return;
+    }
+    auto* p = provider::find(name);
+    if (!p || p->name == "custom") return;
+    provider_name = p->name;
+    api_base = p->api_base;
+    if (model.empty() || model == "gpt-4o-mini")
+        model = p->default_model;
+}
+
+bool Config::save_global(const std::string& path) const {
+    std::error_code ec;
+    std::filesystem::path p(path);
+    std::filesystem::create_directories(p.parent_path(), ec);
+    std::ofstream f(path, std::ios::trunc);
+    if (!f) return false;
+    f << "# amber global settings (LLM provider)\n";
+    f << "provider=" << provider_name << "\n";
     f << "api_base=" << api_base << "\n";
     f << "api_key=" << api_key << "\n";
-    // Persist intent, not the auto-detected value: only write a concrete model /
-    // context_size when the user set one explicitly. Otherwise write the
-    // sentinels (empty / 0) so the next load() auto-detects again.
-    f << "model=" << (model_explicit ? model : "") << "\n";
-    f << "context_size=" << (context_explicit ? context_size : 0) << "\n";
-    f << "system_prompt=" << system_prompt_path << "\n";
-    f << "tools_prompt=" << tools_prompt_path << "\n";
+    f << "model=" << model << "\n";
+    f << "context_size=" << context_size << "\n";
     return static_cast<bool>(f);
 }
 
 bool Config::save_settings(const std::string& path) const {
+    // Ensure the parent directory exists (e.g. .amber/ for .amber/settings)
+    std::error_code ec;
+    std::filesystem::path p(path);
+    std::filesystem::create_directories(p.parent_path(), ec);
     std::ofstream f(path, std::ios::trunc);
     if (!f) return false;
     f << "# amber project settings (local)\n";
@@ -96,10 +207,15 @@ bool Config::save_settings(const std::string& path) const {
     f << "show_reasoning=" << (show_reasoning ? 1 : 0) << "\n";
     f << "system_prompt=" << system_prompt_path << "\n";
     f << "tools_prompt=" << tools_prompt_path << "\n";
+    f << "git_prompt=" << git_prompt_path << "\n";
     f << "log_path=" << log_path << "\n";
     f << "debug_log=" << debug_log << "\n";
+    f << "policy_approval=" << (policy_approval ? 1 : 0) << "\n";
     f << "detection_loop=" << (detection_loop ? 1 : 0) << "\n";
     f << "detection_duplicate=" << (detection_duplicate ? 1 : 0) << "\n";
+    f << "skills_interop=" << (skills_interop ? 1 : 0) << "\n";
+    f << "skills_max_discovery=" << skills_max_discovery << "\n";
+    f << "skills_body_budget_tokens=" << skills_body_budget_tokens << "\n";
     return static_cast<bool>(f);
 }
 
@@ -112,6 +228,7 @@ void Config::apply_environment() {
     get("AMBER_API_KEY", api_key);
     { std::string prev = model; get("AMBER_MODEL", model);
       if (model != prev) model_explicit = true; }
+    get("AMBER_GIT_PROMPT", git_prompt_path);
     get("AMBER_SYSTEM_PROMPT", system_prompt_path);
     get("AMBER_TOOLS_PROMPT", tools_prompt_path);
     const char* s = std::getenv("AMBER_STREAM");
@@ -144,6 +261,17 @@ std::vector<std::string> Config::validate() const {
 
     if (model.empty())
         errs.emplace_back("model is empty");
+
+    // Managed providers (OpenRouter, Kilo Code) require an API key UNLESS
+    // the user has overridden api_base (e.g. to a local endpoint). In that
+    // case the provider name is just a label and the key is not needed.
+    auto* prov = provider::find(provider_name);
+    if (prov && prov->requires_key && api_key.empty()) {
+        bool base_overridden = (api_base != prov->api_base);
+        if (!base_overridden)
+            errs.emplace_back("api_key is required for " + provider_name +
+                              " (set via AMBER_API_KEY env or save_global)");
+    }
 
     if (max_tool_iterations < 1)
         errs.push_back("max_tool_iterations must be >= 1 (got: " +

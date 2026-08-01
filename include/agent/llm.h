@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_LLM_H
 #define AGENT_LLM_H
@@ -50,45 +48,63 @@ struct Stats {
     bool valid = false;                  // true once a request populated it
 };
 
-// Thin client over an OpenAI-compatible /chat/completions endpoint using
-// libcurl. The library does not own the conversation state; callers pass the
-// full message list each turn. Supports both buffered (chat) and streamed
-// (chat_stream) modes.
+// Port: a chat backend over an OpenAI-compatible endpoint. The library does
+// not own conversation state; callers pass the full message list each turn.
+// Implementations: HttpLLMClient (libcurl) and FakeLLMClient (tests).
+// A typed transport failure for the retry policy: `retryable` errors (curl
+// failures, timeouts, empty bodies, HTTP 429/5xx) may be retried with
+// backoff; non-retryable ones (auth/misconfig 4xx) must fail fast.
+struct ApiError : std::runtime_error {
+    long status = 0;
+    bool retryable = true;
+    ApiError(long s, bool r, const std::string& msg)
+        : std::runtime_error(msg), status(s), retryable(r) {}
+};
+
 class LLMClient {
 public:
-    explicit LLMClient(Config  cfg);
-
-    // Update the debug-log path at runtime (used by the TUI /debug toggle so
-    // raw HTTP tracing can be enabled without reconstructing the client).
-    void set_debug_log(const std::string& path) { cfg_.debug_log = path; }
+    virtual ~LLMClient() = default;
 
     // Query the server's GET /v1/models endpoint and report the first model's
     // id and context window (n_ctx). Never throws: on any transport/parse
     // failure it returns a ServerInfo with ok == false.
-    ServerInfo probe_server() const;
-
-    // Parse a /v1/models JSON body into ServerInfo. Exposed (and static) so the
-    // extraction logic can be unit-tested without a live server.
-    static ServerInfo parse_models(const std::string& body);
+    virtual ServerInfo probe_server() const = 0;
 
     // Buffered request: returns the full assistant message (may include
     // tool_calls). Throws std::runtime_error on transport/API failure. When
     // `stats` is non-null it is filled with per-request telemetry.
-    Message chat(const std::vector<Message>& messages,
-                 const std::vector<Tool*>& tools,
-                 Stats* stats = nullptr);
+    virtual Message chat(const std::vector<Message>& messages,
+                         const std::vector<Tool*>& tools,
+                         Stats* stats = nullptr) = 0;
 
     // Streaming request: invokes `on_chunk` for every parsed SSE event and
     // returns the assembled assistant message. The callback receives partial
     // text as it arrives, enabling live TUI rendering. When `stats` is non-null
     // it is filled with per-request telemetry after completion.
-    Message chat_stream(const std::vector<Message>& messages,
-                        const std::vector<Tool*>& tools,
-                        const std::function<void(const StreamChunk&)>& on_chunk,
-                        Stats* stats = nullptr);
+    virtual Message chat_stream(
+        const std::vector<Message>& messages, const std::vector<Tool*>& tools,
+        const std::function<void(const StreamChunk&)>& on_chunk,
+        Stats* stats = nullptr) = 0;
 
-    // libcurl write callback: accumulates the response body into a std::string.
-    static size_t write_cb(void* ptr, size_t size, size_t nmemb, void* user);
+    // Parse a /v1/models JSON body into ServerInfo. Exposed (and static) so the
+    // extraction logic can be unit-tested without a live server.
+    static ServerInfo parse_models(const std::string& body);
+};
+
+// Real libcurl implementation over an OpenAI-compatible /chat/completions
+// endpoint. Supports both buffered (chat) and streamed (chat_stream) modes.
+class HttpLLMClient : public LLMClient {
+public:
+    explicit HttpLLMClient(Config cfg);
+
+    ServerInfo probe_server() const override;
+    Message chat(const std::vector<Message>& messages,
+                 const std::vector<Tool*>& tools,
+                 Stats* stats = nullptr) override;
+    Message chat_stream(
+        const std::vector<Message>& messages, const std::vector<Tool*>& tools,
+        const std::function<void(const StreamChunk&)>& on_chunk,
+        Stats* stats = nullptr) override;
 
 private:
     Config cfg_;

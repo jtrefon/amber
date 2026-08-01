@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 // Markdown -> RichLine renderer backed by the vendored md4c library
 // (see third_party/md4c). md4c parses CommonMark (plus GitHub-flavored

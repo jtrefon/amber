@@ -1,0 +1,39 @@
+{
+  "id": "cdp",
+  "name": "CDP Browser",
+  "version": "1.0.0",
+  "protocol_version": 1,
+  "author": "amber",
+  "license": "Apache-2.0",
+  "url": "https://developer.chrome.com/docs/devtools/protocol",
+  "description": "Controls a real Chrome browser through the Chrome DevTools Protocol. Use it when the task needs a live web page: navigate to URLs, read the page, evaluate JavaScript, click at coordinates, type text, take screenshots, and inspect the DOM. Requires Chrome running with --remote-debugging-port=9222; the endpoint is configurable via /plugin set cdp endpoint=ws://host:port.",
+  "main": "cdp-plugin",
+  "settings": {"endpoint": "ws://127.0.0.1:9222"},
+  "completion": {
+    "cdp": {
+      "action": "plugin.cdp",
+      "help": "Control a Chrome browser via CDP.",
+      "man": "The cdp namespace drives a real Chrome browser through the DevTools Protocol (WebSocket to the endpoint in settings, default ws://127.0.0.1:9222). The plugin attaches to the first page target. Children: '/cdp list_targets' to enumerate open tabs, '/cdp navigate <url>' to go to a page, '/cdp eval <js>' to run JavaScript, '/cdp click <x> <y>' to click at page coordinates, '/cdp type <text>' to type into the focused element, '/cdp screenshot' to save a PNG into the workspace, '/cdp snapshot' for the page HTML, '/cdp url' for the current address.",
+      "children": {
+        "list_targets": {"action": "plugin.cdp.list_targets", "help": "List open browser targets (tabs).", "man": "Queries the CDP HTTP endpoint /json and lists every target with its type, title, and URL."},
+        "navigate":     {"action": "plugin.cdp.navigate", "help": "Navigate the active tab to a URL.", "man": "Sends Page.navigate to the attached page target and reports the frame id."},
+        "eval":         {"action": "plugin.cdp.eval", "help": "Evaluate JavaScript in the page.", "man": "Runs an expression via Runtime.evaluate with returnByValue; returns the value (or 'undefined')."},
+        "url":          {"action": "plugin.cdp.url", "help": "Show the current page URL.", "man": "Evaluates location.href in the attached target."},
+        "click":        {"action": "plugin.cdp.click", "help": "Click at page coordinates.", "man": "Dispatches mousePressed/mouseReleased at (x, y) in CSS pixels via Input.dispatchMouseEvent."},
+        "type":         {"action": "plugin.cdp.type", "help": "Type text into the focused element.", "man": "Inserts text via Input.insertText into the currently focused element."},
+        "screenshot":   {"action": "plugin.cdp.screenshot", "help": "Capture a PNG screenshot to the workspace.", "man": "Uses Page.captureScreenshot (fromSurface, PNG) and writes the decoded image to .amber/cdp_<ts>.png; returns the path."},
+        "snapshot":     {"action": "plugin.cdp.snapshot", "help": "Dump the page HTML.", "man": "Returns document.documentElement.outerHTML, truncated to 12 KiB."}
+      }
+    }
+  },
+  "tools": [
+    {"name": "list_targets", "description": "List open browser tabs (type, title, url) from the CDP endpoint.", "schema": {"type": "object", "properties": {}}},
+    {"name": "navigate", "description": "Navigate the active tab to a URL.", "schema": {"type": "object", "properties": {"url": {"type": "string", "description": "Absolute URL to load"}}, "required": ["url"]}},
+    {"name": "eval", "description": "Evaluate a JavaScript expression in the page and return its value.", "schema": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}},
+    {"name": "url", "description": "Report the current page URL.", "schema": {"type": "object", "properties": {}}},
+    {"name": "click", "description": "Click at (x, y) page coordinates with the left button.", "schema": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}},
+    {"name": "type", "description": "Type text into the focused element.", "schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "screenshot", "description": "Save a PNG screenshot of the page to the workspace and return its path.", "schema": {"type": "object", "properties": {"width": {"type": "integer"}, "height": {"type": "integer"}}}},
+    {"name": "snapshot", "description": "Return the page HTML (truncated to 12 KiB).", "schema": {"type": "object", "properties": {}}}
+  ]
+}

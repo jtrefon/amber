@@ -1,7 +1,6 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/compressor.h"
+#include "agent/agent_helpers.h"
 
 #include <algorithm>
 #include <string>
@@ -18,8 +17,6 @@ void collapse_loops(std::vector<Message>& history) {
     std::vector<size_t> to_remove;
     std::vector<std::string> collapse_notes;
 
-    // Only examine assistant messages with tool_calls.
-    // Non-tool-call messages are skipped so they don't break sequence tracking.
     for (size_t i = 0; i < history.size(); ++i) {
         const auto& msg = history[i];
 
@@ -28,12 +25,7 @@ void collapse_loops(std::vector<Message>& history) {
                              !msg.tool_calls.empty());
         if (!is_tool_call) continue;
 
-        std::string key;
-        for (const auto& tc : msg.tool_calls) {
-            auto fn = tc.value("function", json::object());
-            key += fn.value("name", "") + ":";
-            key += fn.value("arguments", "") + "|";
-        }
+        std::string key = fingerprint_tool_calls(msg.tool_calls);
 
         if (key == last_key && !key.empty()) {
             ++count;

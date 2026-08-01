@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/tool.h"
 #include "agent/tools.h"
@@ -30,12 +28,11 @@ public:
     bool is_read_only() const noexcept override { return true; }
 
     std::string description() const noexcept override {
-        return "Search the codebase. The default mode runs a regex search "
-                "(grep). Set mode=\"semantic\" for meaning-based ranking over an "
-                "indexed view of the tree (useful for paraphrased queries). "
-                "Prefer search over reading whole trees to locate symbols. "
-                "Keep `pattern` short and specific (a word or simple regex); do "
-                "not enumerate every symbol in one giant alternation.";
+        return "Search the codebase. Locates matches by regex "
+                "(mode=\"grep\", default) or meaning-based ranking "
+                "(mode=\"semantic\"). Useful for finding where a symbol is "
+                "referenced before reading the file. Patterns longer than 256 "
+                "characters are rejected; results are capped by `max`.";
     }
 
     json parameters_schema() const override {
@@ -43,10 +40,13 @@ public:
             {"type", "object"},
             {"properties", {
                 {"pattern", {{"type", "string"},
-                             {"description", "Short regular expression or query to search for (keep it concise)"},
+                             {"description", "Regular expression or query (max 256 chars)"},
                              {"maxLength", 256}}},
                 {"path", {{"type", "string"},
-                          {"description", "Directory or file (default '.')"}}},
+                          {"description", "Directory or file (default workspace root). "
+                                          "Hidden dirs and vendored code are skipped "
+                                          "by default; set a path inside one to "
+                                          "search it explicitly."}}},
                 {"glob", {{"type", "string"},
                           {"description", "Optional glob filter, e.g. '*.cpp'"}}},
                 {"mode", {{"type", "string"},
@@ -84,6 +84,20 @@ public:
                        ? confined
                        : req_path;
         }
+        // Hidden/vendored dirs are skipped by default; an explicit path
+        // inside one of them means the agent deliberately wants it, so that
+        // exclusion is dropped.
+        std::vector<std::string> excludes = agent::default_excluded_dirs();
+        if (!req_path.empty()) {
+            std::string rel = agent::Workspace::relative(path);
+            std::string first = rel.substr(0, rel.find('/'));
+            excludes.erase(
+                std::remove_if(excludes.begin(), excludes.end(),
+                               [&](const std::string& d) {
+                                   return d == first;
+                               }),
+                excludes.end());
+        }
         std::string glob = a.value("glob", std::string(""));
         std::string mode = a.value("mode", std::string("grep"));
         long max = a.value("max", 200L);
@@ -93,7 +107,7 @@ public:
         if (mode == "semantic") backend = make_semantic_backend();
         else backend = make_grep_backend();
 
-        auto hits = backend->search(pattern, path, glob, max);
+        auto hits = backend->search(pattern, path, glob, max, excludes);
 
         std::stringstream out;
         if (hits.empty()) {
@@ -101,11 +115,12 @@ public:
         } else {
             out << "[" << backend->name() << "] " << hits.size() << " hit(s):\n";
             for (const auto& h : hits) {
+                std::string rel = Workspace::relative(h.path);
                 if (mode == "semantic")
-                    out << h.path << ":" << h.line_no << " (score=" << h.score
+                    out << rel << ":" << h.line_no << " (score=" << h.score
                         << ") " << h.line << "\n";
                 else
-                    out << h.path << ":" << h.line_no << ":" << h.line << "\n";
+                    out << rel << ":" << h.line_no << ":" << h.line << "\n";
             }
         }
         r.output = out.str();

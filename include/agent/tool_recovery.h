@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_TOOL_RECOVERY_H
 #define AGENT_TOOL_RECOVERY_H
@@ -10,7 +8,7 @@
 #include "agent/conversation_log.h"
 #include "agent/llm.h"  // Message, json
 
-namespace agent { struct AgentHooks; }
+namespace agent { class Context; struct AgentHooks; }
 
 namespace agent {
 
@@ -32,7 +30,7 @@ private:
 
 // The model is stuck retrying a tool that keeps failing. Inject steering
 // guidance into history so the model sees it on the next chat call.
-void inject_tool_recovery_steer(std::vector<Message>& history,
+void inject_tool_recovery_steer(Context* context,
                                 const AgentHooks& hooks, ConversationLog& log);
 
 } // namespace agent

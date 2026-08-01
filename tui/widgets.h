@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AMBER_TUI_WIDGETS_H
 #define AMBER_TUI_WIDGETS_H
@@ -37,6 +35,8 @@ enum Pair {
     P_GAUGE_WARN,   // context gauge, mid pressure    (yellow on blue)
     P_GAUGE_CRIT,   // context gauge, high pressure   (red on blue)
     P_BAR_DIM,      // dim gauge track / faint labels (cyan on blue)
+    P_GIT_PLUS,     // git added lines (green)
+    P_GIT_MINUS,    // git deleted lines (red)
     // Markdown rendering pairs (chat canvas).
     P_MD_HEAD,      // headings
     P_MD_QUOTE,     // block quote

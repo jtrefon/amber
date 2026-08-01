@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui/panel.h"
 #include "tui/textutil.h"
@@ -12,9 +10,8 @@ static int center(int parent, int child) {
     return parent > child ? (parent - child) / 2 : 0;
 }
 
-Panel::Panel(int h, int w, const std::string& title,
-             std::vector<FooterKey> footer)
-    : h_(h), w_(w), title_(title), footer_(std::move(footer)) {
+Panel::Panel(int h, int w, std::string title, std::vector<FooterKey> footer)
+    : h_(h), w_(w), title_(std::move(title)), footer_(std::move(footer)) {
     top_ = center(LINES, h_);
     left_ = center(COLS, w_);
 
@@ -67,7 +64,9 @@ void Panel::draw_frame() {
         mvwaddch(win_, 0, t, ACS_VLINE);
     }
 
-    // Footer with keyboard shortcuts
+    // Footer with keyboard shortcuts — clear the entire bottom line first
+    // to avoid rendering artifacts from previous panels with longer footers.
+    mvwhline(win_, h_ - 1, 1, ' ', w_ - 2);
     if (!footer_.empty()) {
         int pos = 2;
         for (const auto& f : footer_) {
@@ -90,8 +89,11 @@ void Panel::draw_frame() {
 }
 
 void Panel::show() {
-    if (panel_) show_panel(panel_);
+    // Show shadow first so it stays BENEATH the main window.
+    // show_panel() places the panel on top of the stack; showing
+    // the shadow before the window keeps the window on top.
     if (shadow_panel_) show_panel(shadow_panel_);
+    if (panel_) show_panel(panel_);
     draw_frame();
     update_panels();
     doupdate();
@@ -116,17 +118,17 @@ bool Panel::handle_key(int ch) {
 void Panel::show_help() {
     // Build help text from footer keys
     std::vector<std::string> help_lines;
-    help_lines.push_back(" Available keys:");
-    help_lines.push_back("");
+    help_lines.emplace_back(" Available keys:");
+    help_lines.emplace_back("");
     for (const auto& f : footer_) {
-        help_lines.push_back("  [" + f.key + "] " + f.action);
+        help_lines.emplace_back("  [" + f.key + "] " + f.action);
     }
     if (footer_.empty()) {
-        help_lines.push_back("  [Esc] Close");
+        help_lines.emplace_back("  [Esc] Close");
     }
-    help_lines.push_back("");
-    help_lines.push_back("  [F1] This help");
-    help_lines.push_back("  [Esc] Close");
+    help_lines.emplace_back("");
+    help_lines.emplace_back("  [F1] This help");
+    help_lines.emplace_back("  [Esc] Close");
 
     int h = static_cast<int>(help_lines.size()) + 2;
     int w = 40;

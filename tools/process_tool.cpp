@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/tool.h"
 #include "agent/tools.h"
@@ -67,7 +65,7 @@ public:
         p["required"] = json::array({"command"});
         return p;
     }
-    bool requires_approval() const noexcept override { return true; }
+    bool requires_approval(const json&) const noexcept override { return true; }
     bool is_read_only() const noexcept override { return false; }
     std::string summarize(const json& a) const override {
         std::string c = a.contains("command") && a["command"].is_string()
@@ -130,7 +128,7 @@ public:
         p["required"] = json::array({"id"});
         return p;
     }
-    bool requires_approval() const noexcept override { return false; }
+    bool requires_approval(const json&) const noexcept override { return false; }
     bool is_read_only() const noexcept override { return true; }
     std::string summarize(const json& a) const override {
         std::string id = a.contains("id") && a["id"].is_string()
@@ -192,7 +190,7 @@ public:
         p["required"] = json::array({"id"});
         return p;
     }
-    bool requires_approval() const noexcept override { return true; }
+    bool requires_approval(const json&) const noexcept override { return true; }
     bool is_read_only() const noexcept override { return false; }
     std::string summarize(const json& a) const override {
         std::string id = a.contains("id") && a["id"].is_string()

@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include <agent.h>
 
 #include "agent/workspace.h"
+#include "agent/bootstrap.h"
+#include "agent/data_path.h"
 
 #include "tui.h"
 
@@ -36,10 +36,41 @@ int main(int argc, char** argv) {
         else if (a == "--no-stream") cfg.stream = false;
     }
     if (!config_file.empty()) cfg.load(config_file);
+
+    // Global settings: LLM provider config lives in ~/.config/amber/config.
+    // This is loaded first so project-level and env overrides can layer on top.
+    agent::Config tmp;
     {
-        std::ifstream sf("amber.conf");
-        if (sf) cfg.load("amber.conf");
+        std::string global_path = agent::global_config_path();
+        std::ifstream sf(global_path);
+        if (sf) tmp.load(global_path);
+        // Apply provider preset if one was saved
+        if (!tmp.provider_name.empty() && tmp.provider_name != "custom") {
+            cfg.apply_provider(tmp.provider_name);
+            cfg.api_key = tmp.api_key;
+            if (!tmp.model.empty()) { cfg.model = tmp.model; cfg.model_explicit = true; }
+            if (tmp.context_size > 0) { cfg.context_size = tmp.context_size; cfg.context_explicit = true; }
+        }
+        // Always load api_key from global config, even for custom providers
+        if (!tmp.api_key.empty()) cfg.api_key = tmp.api_key;
+        if (!tmp.model.empty() && !cfg.model_explicit) { cfg.model = tmp.model; }
+        if (tmp.context_size > 0 && !cfg.context_explicit) { cfg.context_size = tmp.context_size; }
+
+        // Load project-level amber.conf unconditionally (like the CLI does).
+        // This overlays on top of the global config so api_base, api_key, and
+        // context from amber.conf take effect even when a managed provider is
+        // configured globally. A model explicitly saved via /model set (global
+        // config) is re-asserted afterwards: the user's explicit choice must
+        // survive restarts instead of being clobbered by a stale project
+        // default.
+        std::ifstream sf2("amber.conf");
+        if (sf2) cfg.load("amber.conf");
+        if (!tmp.model.empty() && tmp.model_explicit) {
+            cfg.model = tmp.model;
+            cfg.model_explicit = true;
+        }
     }
+
     // Project-local overrides (non-LLM settings) live in .amber/settings so they
     // stay with the project while provider config remains global.
     {
@@ -57,14 +88,31 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    if (cfg.system_prompt_path.empty()) cfg.system_prompt_path = "prompts/system.md";
-    if (cfg.tools_prompt_path.empty()) cfg.tools_prompt_path = "prompts/tools.md";
+    if (cfg.system_prompt_path.empty())
+        cfg.system_prompt_path = agent::resolve_data_path("prompts/system.md", argv[0]);
+    else
+        cfg.system_prompt_path = agent::resolve_data_path(cfg.system_prompt_path, argv[0]);
+    if (cfg.tools_prompt_path.empty())
+        cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", argv[0]);
+    else
+        cfg.tools_prompt_path = agent::resolve_data_path(cfg.tools_prompt_path, argv[0]);
+
+    // Fail fast before the UI: prompts and the command tree are critical.
+    if (auto missing = agent::missing_bootstrap_files(cfg, argv[0], true);
+        !missing.empty()) {
+        std::fprintf(stderr, "error: critical data files missing:\n");
+        for (const auto& m : missing) std::fprintf(stderr, "  - %s\n", m.c_str());
+        return 2;
+    }
 
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::register_default_tools(registry, jobs, cfg.cancel_token);
 
-    tui::Tui tui(cfg, registry, jobs);
+    agent::PluginManager plugins;
+    plugins.discover();
+
+    tui::Tui tui(cfg, registry, jobs, plugins);
     tui.run();
     return 0;
 }

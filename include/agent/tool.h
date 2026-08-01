@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_TOOL_H
 #define AGENT_TOOL_H
@@ -17,7 +15,7 @@ struct ToolResult {
     bool ok = true;
     std::string output;   // human/model readable payload
     std::string error;    // populated when ok == false
-    json meta;            // structured metadata (lines, exit, duration, etc.)
+    json meta = nullptr;  // structured metadata (lines, exit, duration, etc.)
 };
 
 // A tool advertised to the LLM. The schema field is the JSON object placed
@@ -36,12 +34,13 @@ public:
     // top-level "description" are filled by the registry from name()/description().
     virtual json parameters_schema() const = 0;
 
-    // Whether invoking this tool requires explicit user approval before it runs.
-    // Side-effecting or dangerous tools (e.g. running shell commands) return
-    // true so the host can gate them behind a confirmation prompt. Read-only
-    // tools stay false. The agent loop consults AgentHooks::on_approval only for
-    // tools that opt in here.
-    virtual bool requires_approval() const noexcept { return false; }
+    // Whether invoking this tool with the given arguments requires explicit
+    // user approval before it runs. Side-effecting tools return true so the host
+    // can gate them behind a confirmation prompt. Arguments are provided so a
+    // tool can distinguish read-only invocations (e.g. "cat foo") from writes
+    // (e.g. "rm -rf /"). The agent loop consults AgentHooks::on_approval only
+    // for tools that opt in here.
+    virtual bool requires_approval(const json& /*arguments*/) const noexcept { return false; }
 
     // Whether this tool is read-only (safe to run in read mode).
     // Read tools (search, grep, read) return true; write tools (write, edit,

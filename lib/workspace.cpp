@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/workspace.h"
 
@@ -49,8 +47,6 @@ bool is_within(const std::string& base, const std::string& child) {
 
 std::string Workspace::root() { return ensure_root(); }
 
-void Workspace::reset_root() { root_storage().clear(); }
-
 void Workspace::set_root(const std::string& path) {
     root_storage() = normalize(fs::absolute(fs::path(path)));
 }
@@ -78,6 +74,17 @@ bool Workspace::confine(const std::string& path, std::string& resolved,
     }
     resolved = norm;
     return true;
+}
+
+std::string Workspace::relative(const std::string& path) {
+    std::string base = ensure_root();
+    if (path.compare(0, base.size(), base) == 0 &&
+        (path.size() == base.size() || path[base.size()] == '/')) {
+        std::string rel = path.substr(base.size());
+        if (!rel.empty() && rel[0] == '/') rel.erase(0, 1);
+        return rel.empty() ? "." : rel;
+    }
+    return path;
 }
 
 } // namespace agent

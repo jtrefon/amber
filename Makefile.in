@@ -47,20 +47,39 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/compressor_request.o \
             $(BUILD_DIR)/lib/compressor_parser.o \
             $(BUILD_DIR)/lib/compressor_apply.o \
-            $(BUILD_DIR)/lib/experience.o \
-            $(BUILD_DIR)/lib/memory_store.o \
-            $(BUILD_DIR)/lib/memory_retriever.o \
-            $(BUILD_DIR)/lib/tools_default.o \
-            $(BUILD_DIR)/lib/tool_call_parser.o
+             $(BUILD_DIR)/lib/memory_store.o \
+             $(BUILD_DIR)/lib/memory_retriever.o \
+             $(BUILD_DIR)/lib/skill_file.o \
+             $(BUILD_DIR)/lib/skill_catalog.o \
+             $(BUILD_DIR)/lib/skill_commands.o \
+             $(BUILD_DIR)/lib/learn_commands.o \
+             $(BUILD_DIR)/lib/mcp_jsonrpc.o \
+             $(BUILD_DIR)/lib/mcp_transport_stdio.o \
+             $(BUILD_DIR)/lib/mcp_transport_http.o \
+             $(BUILD_DIR)/lib/mcp_client.o \
+             $(BUILD_DIR)/lib/mcp_config.o \
+             $(BUILD_DIR)/lib/mcp_tools.o \
+             $(BUILD_DIR)/lib/mcp_commands.o \
+             $(BUILD_DIR)/lib/policy.o \
+             $(BUILD_DIR)/lib/environment.o \
+             $(BUILD_DIR)/lib/data_path.o \
+             $(BUILD_DIR)/lib/bootstrap.o \
+             $(BUILD_DIR)/lib/plugin.o \
+             $(BUILD_DIR)/lib/archive_util.o \
+             $(BUILD_DIR)/lib/skill_install.o \
+             $(BUILD_DIR)/lib/tools_default.o \
+             $(BUILD_DIR)/lib/tool_call_parser.o
 
 TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/write_tool.o \
              $(BUILD_DIR)/tools/search_tool.o \
              $(BUILD_DIR)/tools/bash_tool.o \
              $(BUILD_DIR)/tools/process_tool.o \
+             $(BUILD_DIR)/tools/skill_tools.o \
              $(BUILD_DIR)/tools/search/grep_backend.o \
              $(BUILD_DIR)/tools/search/semantic_backend.o \
              $(BUILD_DIR)/tools/search/semantic_index.o
+
 
 CLI_OBJ   = $(BUILD_DIR)/src/main.o
 TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
@@ -68,12 +87,8 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/tui_input.o \
             $(BUILD_DIR)/tui/tui_session.o \
             $(BUILD_DIR)/tui/tui_main.o \
-            $(BUILD_DIR)/tui/app.o \
-            $(BUILD_DIR)/tui/renderer.o \
-            $(BUILD_DIR)/tui/input_handler.o \
-            $(BUILD_DIR)/tui/agent_service.o \
-            $(BUILD_DIR)/tui/chat_view.o \
-            $(BUILD_DIR)/tui/status_bar.o \
+            $(BUILD_DIR)/tui/command_line.o \
+            $(BUILD_DIR)/tui/setting_registry.o \
             $(BUILD_DIR)/tui/dialog.o \
             $(BUILD_DIR)/tui/form_edit.o \
             $(BUILD_DIR)/tui/info_dialog.o \
@@ -90,8 +105,20 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/canvas.o \
             $(BUILD_DIR)/third_party/md4c/md4c.o
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
-UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o
+UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
+               $(BUILD_DIR)/tests/skill_file_test.o \
+               $(BUILD_DIR)/tests/skill_catalog_test.o \
+               $(BUILD_DIR)/tests/mcp_transport_test.o \
+               $(BUILD_DIR)/tests/mcp_client_test.o \
+               $(BUILD_DIR)/tests/mcp_config_test.o \
+               $(BUILD_DIR)/tests/mcp_tools_test.o \
+               $(BUILD_DIR)/tests/learn_commands_test.o \
+               $(BUILD_DIR)/tests/agent_loop_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
+CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
+E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
+COMP_TEST_OBJ = $(BUILD_DIR)/tests/completions_test.o
+PLUGIN_TEST_OBJ = $(BUILD_DIR)/tests/plugin_test.o
 
 CORE_LIB  = libagent_core.a
 TOOLS_LIB = libagent_tools.a
@@ -102,7 +129,7 @@ TUI_BIN   = amber-tui
 NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
-.PHONY: all lib cli tui check test lint analyze clean install uninstall
+.PHONY: all lib cli tui check test lint analyze duplicates clean install uninstall
 
 # Lint sources: every project translation unit, third_party excluded.
 LINT_SRCS = $(wildcard $(SRC_DIR)/lib/*.cpp) \
@@ -114,46 +141,85 @@ LINT_SRCS = $(wildcard $(SRC_DIR)/lib/*.cpp) \
 
 # Flags shared by the lint tools: same include roots the build uses, plus
 # the auto-detected curl/ncurses cflags so headers resolve.
-LINT_CXXFLAGS = -std=c++17 $(CPPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS)
+LINT_CXXFLAGS = $(CXXFLAGS) $(CPPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS)
 
 # clang-tidy: per-file static analysis using the project's .clang-tidy config.
-# We pass flags inline (no compile_commands.json) so the target works without
-# bear/compiledb; .o artifacts are not produced (run in analysis-only mode).
+# Runs in parallel (one job per CPU core) via xargs -P.
 lint:
 	@echo "clang-tidy..."
-	@fail=0; for f in $(LINT_SRCS); do \
-	    clang-tidy "$$f" -- $(LINT_CXXFLAGS) >/tmp/ct_$$.log 2>&1 || fail=1; \
-	    if [ -s /tmp/ct_$$.log ]; then cat /tmp/ct_$$.log; fi; \
-	done; rm -f /tmp/ct_$$.log; \
-	if [ $$fail -ne 0 ]; then echo "clang-tidy reported findings"; exit 1; fi; \
-	echo "  clean"
+	@export fail=0; \
+	 printf '%s\0' $(LINT_SRCS) | \
+	 xargs -0 -P$$(nproc) -I{} sh -c \
+	    'out=$$(clang-tidy -quiet "{}" -- $(LINT_CXXFLAGS) 2>&1); \
+	     if [ -n "$$out" ]; then \
+	       echo "$$out" | grep -v "^Suppressed\|^Use -header-filter\|warnings generated" || true; \
+	       if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter\|warnings generated"; then \
+	         exit 1; \
+	       fi; \
+	     fi' _; \
+	 rc=$$?; \
+	 if [ $$rc -ne 0 ]; then echo "clang-tidy reported findings"; exit 1; fi; \
+	 echo "  clean"
 
 # cppcheck: a second, independent static analyzer for defense-in-depth. Runs
 # in parallel and ignores the vendored nlohmann/json header (known-good, slow to
 # parse). Slower than lint; run explicitly rather than on every build.
 ANALYZE_JOBS = $(shell nproc 2>/dev/null || echo 4)
+ANALYZE_BUILD_DIR = /tmp/cppcheck_amber
 analyze:
-	@echo "cppcheck..."
-	@cppcheck --enable=warning,style,performance,portability --std=c++17 \
+	@echo "cppcheck (warning/style/performance/portability/unusedFunction)..."
+	@mkdir -p $(ANALYZE_BUILD_DIR)
+	@cppcheck --enable=warning,style,performance,portability,unusedFunction --std=c++17 \
+	    --cppcheck-build-dir=$(ANALYZE_BUILD_DIR) \
 	    --max-ctu-depth=0 -j$(ANALYZE_JOBS) \
 	    --suppressions-list=$(SRC_DIR)/cppcheck_suppressions.txt \
 	    --suppress=missingIncludeSystem --error-exitcode=1 \
 	    -I$(SRC_DIR)/include -I$(SRC_DIR)/src -I$(SRC_DIR)/tools -I$(SRC_DIR) \
-	    $(SRC_DIR)/lib $(SRC_DIR)/src $(SRC_DIR)/tools $(SRC_DIR)/tui \
-	    $(SRC_DIR)/tests 2>/tmp/cp_$$.log; rc=$$?; \
-	grep -v "^Checking" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
+	    $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/tests 2>/tmp/cp_$$.log; rc=$$?; \
+	grep -v "^Checking\|^nofile\|^cppcheck: progress" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
+	rm -rf $(ANALYZE_BUILD_DIR); \
 	exit $$rc
 
-all: lib cli tui
+DUPLICATE_MIN_LINES ?= 6
+duplicates:
+	@echo "python3 duplicate block detector (min $(DUPLICATE_MIN_LINES) lines)..."
+	@python3 "$(SRC_DIR)/tools/duplicate_detector.py" --min-lines=$(DUPLICATE_MIN_LINES) $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/tests $(SRC_DIR)/src
+	@echo "  clean"
+
+SYSINFO_PLUGIN = $(BUILD_DIR)/tools/plugins/sysinfo/sysinfo-plugin
+CDP_PLUGIN = $(BUILD_DIR)/tools/plugins/cdp/cdp-plugin
+
+all: lib cli tui $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
+
+$(SYSINFO_PLUGIN): tools/plugins/sysinfo/main.cpp
+	$(CXX) $(CXXFLAGS) -I$(SRC_DIR)/include -o $@ tools/plugins/sysinfo/main.cpp
+
+$(CDP_PLUGIN): tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp tools/plugins/cdp/ws_client.h
+	$(CXX) $(CXXFLAGS) -I$(SRC_DIR)/include -Itools/plugins/cdp -o $@ tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp
 
 check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 
-test: $(BUILD_DIR)/run_tests
-	$(BUILD_DIR)/run_tests
+test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test
+	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test
 
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+
+$(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
+	$(CXX) $(CXXFLAGS) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
+
+$(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
+	$(CXX) $(CXXFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
+
+$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/setting_registry.o
+	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/setting_registry.o
+
+$(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+
+$(BUILD_DIR)/ws_test: tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp tools/plugins/cdp/ws_client.h
+	$(CXX) $(CXXFLAGS) -Itools/plugins/cdp -o $@ tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
@@ -202,7 +268,40 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 	@mkdir -p $(BUILD_DIR)/tools/search
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
+
 $(BUILD_DIR)/tests/run_tests.o: $(SRC_DIR)/tests/run_tests.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/skill_file_test.o: $(SRC_DIR)/tests/skill_file_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/skill_catalog_test.o: $(SRC_DIR)/tests/skill_catalog_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_transport_test.o: $(SRC_DIR)/tests/mcp_transport_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_client_test.o: $(SRC_DIR)/tests/mcp_client_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_config_test.o: $(SRC_DIR)/tests/mcp_config_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/mcp_tools_test.o: $(SRC_DIR)/tests/mcp_tools_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/learn_commands_test.o: $(SRC_DIR)/tests/learn_commands_test.cpp
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/agent_loop_test.o: $(SRC_DIR)/tests/agent_loop_test.cpp
 	@mkdir -p $(BUILD_DIR)/tests
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
@@ -217,6 +316,11 @@ $(BUILD_DIR)/tests/tui_tests.o: $(SRC_DIR)/tests/tui_tests.cpp
 -include $(TUI_OBJS:.o=.d)
 -include $(UNITTEST_OBJ:.o=.d)
 -include $(TEST_OBJ:.o=.d)
+-include $(CL_TEST_OBJ:.o=.d)
+-include $(E2E_TEST_OBJ:.o=.d)
+-include $(COMP_TEST_OBJ:.o=.d)
+
+datadir    = $(datarootdir)/amber
 
 install: all
 	install -d $(DESTDIR)$(bindir)
@@ -228,6 +332,12 @@ install: all
 	install -d $(DESTDIR)$(includedir)/agent
 	install -d $(DESTDIR)$(includedir)/nlohmann
 	install -m 644 $(SRC_DIR)/include/agent/*.h $(DESTDIR)$(includedir)/agent/
+	install -d $(DESTDIR)$(datadir)/prompts
+	install -m 644 prompts/*.md $(DESTDIR)$(datadir)/prompts/
+	install -m 644 completions.json $(DESTDIR)$(datadir)/
+	install -d $(DESTDIR)$(datadir)/plugins/sysinfo
+	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(datadir)/plugins/sysinfo/
+	install -m 644 tools/plugins/sysinfo/manifest.json $(DESTDIR)$(datadir)/plugins/sysinfo/
 	install -m 644 $(SRC_DIR)/include/nlohmann/json.hpp $(DESTDIR)$(includedir)/nlohmann/
 	install -d $(DESTDIR)$(docdir)
 	install -m 644 $(SRC_DIR)/LICENSE $(DESTDIR)$(docdir)/
@@ -247,6 +357,7 @@ clean:
 	rm -f $(BUILD_DIR)/lib/*.o $(BUILD_DIR)/src/*.o $(BUILD_DIR)/tui/*.o $(BUILD_DIR)/tests/*.o
 	rm -f $(BUILD_DIR)/tools/*.o $(BUILD_DIR)/tools/search/*.o
 	rm -f $(BUILD_DIR)/lib/*.d $(BUILD_DIR)/src/*.d $(BUILD_DIR)/tui/*.d \
-	      $(BUILD_DIR)/tests/*.d $(BUILD_DIR)/tools/*.d $(BUILD_DIR)/tools/search/*.d
+	      $(BUILD_DIR)/tui/setting_registry.o \
+	      $(BUILD_DIR)/tui/setting_registry.d \
+	      $(BUILD_DIR)/tests/*.d $(BUILD_DIR)/tools/*.d $(BUILD_DIR)/tools/search/*.d \
 	rm -f $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/libagent.a
-	rm -f $(BUILD_DIR)/smoketest $(BUILD_DIR)/run_tests

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "textutil.h"
 
@@ -44,6 +42,41 @@ const char* glyph::down()     { return utf8() ? "\u2193" : "v"; }
 const char* glyph::block_l()  { return utf8() ? "\u2590" : "|"; }
 const char* glyph::block_r()  { return utf8() ? "\u258c" : "|"; }
 const char* glyph::ellipsis() { return utf8() ? "\u2026" : "..."; }
+const char* glyph::check()    { return utf8() ? "\u2713" : "+"; }
+
+std::string git_prompt(const std::string& project, const std::string& branch,
+                       int ins, int del) {
+    bool u = glyph::utf8();
+    std::string p;
+    p += u ? "\u250c " : "+ ";
+    p += project;
+    p += " ";
+    p += branch;
+    if (ins > 0 || del > 0) {
+        p += " ";
+        if (ins > 0) { p += "+"; p += std::to_string(ins); }
+        p += "/";
+        if (del > 0) { p += "-"; p += std::to_string(del); }
+    }
+    p += u ? " \u276f " : " > ";
+    return p;
+}
+
+size_t col_to_byte(const std::string& s, int col) {
+    if (col <= 0) return 0;
+    size_t byte_pos = 0;
+    int cur_col = 0;
+    while (byte_pos < s.size()) {
+        size_t advance = utf8_len(s, byte_pos);
+        if (advance == 0) advance = 1;
+        std::string cp = s.substr(byte_pos, advance);
+        int w = display_cols(cp);
+        if (cur_col + w > col) return byte_pos;
+        cur_col += w;
+        byte_pos += advance;
+    }
+    return s.size();
+}
 
 std::size_t utf8_len(const std::string& s, std::size_t i) {
     auto c = static_cast<unsigned char>(s[i]);
