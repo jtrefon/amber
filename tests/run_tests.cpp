@@ -2863,3 +2863,37 @@ TEST(parse_model_list_dedupes_ids) {
     }
     ASSERT(saw_qwopus && saw_qwen);
 }
+
+// [I-7] Explicit 0 must disable the turn gates instead of silently keeping
+// the pipeline defaults (min_turns=10, cooldown=20).
+TEST(compression_config_explicit_zero_disables_gates) {
+    agent::Config cfg;
+    cfg.compression_min_turns_explicit = true;
+    cfg.compression_min_turns = 0;
+    cfg.compression_cooldown_turns_explicit = true;
+    cfg.compression_cooldown_turns = 0;
+    auto cc = agent::load_compression_config(cfg);
+    ASSERT_EQ(cc.min_turns, 0);
+    ASSERT_EQ(cc.cooldown_turns, 0);
+}
+
+TEST(compression_config_unset_keeps_defaults) {
+    agent::Config cfg;
+    auto cc = agent::load_compression_config(cfg);
+    ASSERT_EQ(cc.min_turns, 10);
+    ASSERT_EQ(cc.cooldown_turns, 20);
+}
+
+TEST(compression_gate_min_turns_zero_passes_immediately) {
+    agent::CompressionConfig cc;
+    cc.threshold = 0.01;
+    cc.min_turns = 0;
+    cc.cooldown_turns = 0;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 1000;
+    agent::Context ctx;
+    for (int i = 0; i < 3; ++i)
+        ctx.push(msg("user", std::string(200, 'a')));
+    ASSERT(gate->should_compress(ctx, cfg));
+}
