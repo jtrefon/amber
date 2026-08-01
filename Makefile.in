@@ -62,6 +62,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/mcp_commands.o \
              $(BUILD_DIR)/lib/policy.o \
              $(BUILD_DIR)/lib/environment.o \
+             $(BUILD_DIR)/lib/data_path.o \
+             $(BUILD_DIR)/lib/bootstrap.o \
              $(BUILD_DIR)/lib/tools_default.o \
              $(BUILD_DIR)/lib/tool_call_parser.o
 
@@ -299,6 +301,8 @@ $(BUILD_DIR)/tests/tui_tests.o: $(SRC_DIR)/tests/tui_tests.cpp
 -include $(E2E_TEST_OBJ:.o=.d)
 -include $(COMP_TEST_OBJ:.o=.d)
 
+datadir    = $(datarootdir)/amber
+
 install: all
 	install -d $(DESTDIR)$(bindir)
 	install -m 755 $(BUILD_DIR)/$(CLI_BIN) $(DESTDIR)$(bindir)/
@@ -309,6 +313,9 @@ install: all
 	install -d $(DESTDIR)$(includedir)/agent
 	install -d $(DESTDIR)$(includedir)/nlohmann
 	install -m 644 $(SRC_DIR)/include/agent/*.h $(DESTDIR)$(includedir)/agent/
+	install -d $(DESTDIR)$(datadir)
+	install -m 644 prompts/*.md $(DESTDIR)$(datadir)/
+	install -m 644 completions.json $(DESTDIR)$(datadir)/
 	install -m 644 $(SRC_DIR)/include/nlohmann/json.hpp $(DESTDIR)$(includedir)/nlohmann/
 	install -d $(DESTDIR)$(docdir)
 	install -m 644 $(SRC_DIR)/LICENSE $(DESTDIR)$(docdir)/

@@ -2760,21 +2760,29 @@ TEST(data_path_priority_cwd_bin_xdg) {
     std::ofstream(t.cwd + "/prompts/system.md") << "cwd";
     std::ofstream(t.bin + "/prompts/system.md") << "bin";
     std::ofstream(t.xdg + "/amber/prompts/system.md") << "xdg";
-    const char* argv0 = dp_argv0(t.bin).c_str();
+    std::string argv0s = dp_argv0(t.bin);
+    const char* argv0 = argv0s.c_str();
+
+    auto read_marker = [](const std::string& p) {
+        std::ifstream f(p);
+        std::string line;
+        std::getline(f, line);
+        return line;
+    };
 
     // CWD wins while present.
     std::string got = agent::resolve_data_path("prompts/system.md", argv0);
-    ASSERT_EQ(got, t.cwd + "/prompts/system.md");
+    ASSERT_EQ(read_marker(got), "cwd");
 
     // Remove CWD copy: binary dir wins.
     std::remove((t.cwd + "/prompts/system.md").c_str());
     got = agent::resolve_data_path("prompts/system.md", argv0);
-    ASSERT_EQ(got, t.bin + "/prompts/system.md");
+    ASSERT_EQ(read_marker(got), "bin");
 
     // Remove binary copy: XDG data dir wins.
     std::remove((t.bin + "/prompts/system.md").c_str());
     got = agent::resolve_data_path("prompts/system.md", argv0);
-    ASSERT_EQ(got, t.xdg + "/amber/prompts/system.md");
+    ASSERT_EQ(read_marker(got), "xdg");
 }
 
 TEST(data_path_returns_empty_when_missing) {
