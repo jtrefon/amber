@@ -27,6 +27,8 @@ completion/tests/completion_test
 smoketest
 plugin_test
 sysinfo-plugin
+cdp-plugin
+ws_test
 
 # Release packaging output
 stage/

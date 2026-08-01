@@ -232,6 +232,41 @@ TEST(sysinfo_plugin_reports_host_facts) {
     ASSERT(mgr.disable("sysinfo", reg));
 }
 
+// The CDP plugin must load and answer the protocol even when no browser is
+// reachable; with the framebuffer Chrome up (localhost:9222) it reports real
+// targets. Either outcome is a valid, non-crashing response.
+TEST(cdp_plugin_protocol_roundtrip) {
+    std::string base = "/tmp/amber_plugin_test";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+
+    std::string dir = base + "/plugins/cdp";
+    std::filesystem::create_directories(dir);
+    REQUIRE(std::filesystem::exists("tools/plugins/cdp/cdp-plugin"));
+    std::filesystem::copy_file("tools/plugins/cdp/manifest.json", dir + "/manifest.json",
+                               std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file("tools/plugins/cdp/cdp-plugin", dir + "/cdp-plugin",
+                               std::filesystem::copy_options::overwrite_existing);
+    chmod((dir + "/cdp-plugin").c_str(), 0755);
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    REQUIRE(mgr.enable("cdp", reg));
+
+    agent::Tool* targets = reg.find("plugin_cdp_list_targets");
+    REQUIRE(targets != nullptr);
+    auto r = targets->execute({});
+    // Either a live list (Chrome running) or a clean connection error.
+    if (!r.ok) {
+        bool clean_err = r.output.find("CDP") != std::string::npos ||
+                         r.output.find("connect") != std::string::npos;
+        ASSERT(clean_err);
+    }
+    ASSERT(mgr.disable("cdp", reg));
+}
+
 int main() {
     plugin_discover_loads_valid_and_flags_invalid();
     plugin_enable_registers_and_runs_tools();
@@ -239,8 +274,10 @@ int main() {
     plugin_install_stages_archive();
     plugin_advertisement_lists_enabled_tools();
     sysinfo_plugin_reports_host_facts();
+    cdp_plugin_protocol_roundtrip();
     if (failed) std::cerr << failed << " FAILED\n";
     std::cout << (failed ? "FAILED" : "ALL PASSED") << " (0 failures)\n";
     return failed ? 1 : 0;
 }
+
 

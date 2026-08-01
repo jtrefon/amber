@@ -185,17 +185,21 @@ duplicates:
 	@echo "  clean"
 
 SYSINFO_PLUGIN = $(BUILD_DIR)/tools/plugins/sysinfo/sysinfo-plugin
+CDP_PLUGIN = $(BUILD_DIR)/tools/plugins/cdp/cdp-plugin
 
-all: lib cli tui $(SYSINFO_PLUGIN)
+all: lib cli tui $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
 
 $(SYSINFO_PLUGIN): tools/plugins/sysinfo/main.cpp
 	$(CXX) $(CXXFLAGS) -I$(SRC_DIR)/include -o $@ tools/plugins/sysinfo/main.cpp
 
+$(CDP_PLUGIN): tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp tools/plugins/cdp/ws_client.h
+	$(CXX) $(CXXFLAGS) -I$(SRC_DIR)/include -Itools/plugins/cdp -o $@ tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp
+
 check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 
-test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test
-	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test
+test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test
+	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test
 
 $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
@@ -211,6 +215,9 @@ $(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/setting_registr
 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+
+$(BUILD_DIR)/ws_test: tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp tools/plugins/cdp/ws_client.h
+	$(CXX) $(CXXFLAGS) -Itools/plugins/cdp -o $@ tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
