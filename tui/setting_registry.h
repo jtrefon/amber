@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <map>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,6 +51,10 @@ public:
     // this only adds/overlays metadata.
     bool load_completions_json(const std::string& path);
 
+    // Merge a completions.json-shaped subtree (top-level keys are command
+    // names). Used to inject plugin namespaces at runtime.
+    bool merge_completions_json(const nlohmann::json& subtree);
+
     // Get help text for a setting key (from JSON).
     std::string help_for(const std::string& key) const { return key_help_.count(key) ? key_help_.at(key) : ""; }
 
@@ -69,6 +74,8 @@ public:
     const std::vector<std::string>& subcommands_for(const std::string& cmd) const;
 
 private:
+    void index_node(const nlohmann::json& node, const std::string& display_path);
+
     std::vector<Setting> settings_;
     std::map<std::string, std::string> key_help_;
     std::map<std::string, std::string> key_man_;

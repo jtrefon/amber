@@ -39,8 +39,8 @@ int main(int argc, char** argv) {
 
     // Global settings: LLM provider config lives in ~/.config/amber/config.
     // This is loaded first so project-level and env overrides can layer on top.
+    agent::Config tmp;
     {
-        agent::Config tmp;
         std::string global_path = agent::global_config_path();
         std::ifstream sf(global_path);
         if (sf) tmp.load(global_path);
@@ -57,11 +57,18 @@ int main(int argc, char** argv) {
         if (tmp.context_size > 0 && !cfg.context_explicit) { cfg.context_size = tmp.context_size; }
 
         // Load project-level amber.conf unconditionally (like the CLI does).
-        // This overlays on top of the global config so api_base, model, etc.
-        // from amber.conf take effect even when a managed provider is configured
-        // globally.
+        // This overlays on top of the global config so api_base, api_key, and
+        // context from amber.conf take effect even when a managed provider is
+        // configured globally. A model explicitly saved via /model set (global
+        // config) is re-asserted afterwards: the user's explicit choice must
+        // survive restarts instead of being clobbered by a stale project
+        // default.
         std::ifstream sf2("amber.conf");
         if (sf2) cfg.load("amber.conf");
+        if (!tmp.model.empty() && tmp.model_explicit) {
+            cfg.model = tmp.model;
+            cfg.model_explicit = true;
+        }
     }
 
     // Project-local overrides (non-LLM settings) live in .amber/settings so they

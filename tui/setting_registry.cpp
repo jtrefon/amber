@@ -98,6 +98,81 @@ std::vector<std::string> SettingRegistry::children_of(const std::string& key) co
     return (it != key_children_.end()) ? it->second : std::vector<std::string>();
 }
 
+void SettingRegistry::index_node(const nlohmann::json& node,
+                                    const std::string& display_path) {
+    if (!node.is_object()) return;
+
+    auto idx = [&](const std::string& key, const std::string& help,
+                   const std::string& man,
+                   const std::vector<std::string>& choices,
+                   double rlo, double rhi, bool has_range) {
+        if (!help.empty()) key_help_[key] = help;
+        if (!man.empty()) key_man_[key] = man;
+        if (!choices.empty()) command_choices_[key] = choices;
+        if (has_range) command_ranges_[key] = {rlo, rhi};
+    };
+
+    std::string help_text, man_text, action;
+    std::vector<std::string> choices;
+    double rlo = 0, rhi = 0;
+    bool has_range = false;
+
+    if (node.contains("help") && node["help"].is_string())
+        help_text = node["help"].get<std::string>();
+    if (node.contains("man") && node["man"].is_string())
+        man_text = node["man"].get<std::string>();
+    if (node.contains("action") && node["action"].is_string())
+        action = node["action"].get<std::string>();
+    if (node.contains("choices") && node["choices"].is_array())
+        for (const auto& c : node["choices"])
+            choices.push_back(c.get<std::string>());
+    if (node.contains("range") && node["range"].is_array() && node["range"].size() == 2) {
+        rlo = node["range"][0].get<double>();
+        rhi = node["range"][1].get<double>();
+        has_range = true;
+    }
+
+    if (!action.empty())
+        idx(action, help_text, man_text, choices, rlo, rhi, has_range);
+
+    std::string key_path;
+    if (!display_path.empty()) {
+        size_t first_dot = display_path.find('.');
+        if (first_dot != std::string::npos && first_dot + 1 < display_path.size())
+            key_path = display_path.substr(first_dot + 1);
+        else if (first_dot == std::string::npos)
+            key_path = display_path;
+    }
+    if (!key_path.empty() &&
+        (key_path.find('.') != std::string::npos ||
+         !node.contains("children") || !help_text.empty()))
+        idx(key_path, help_text, man_text, choices, rlo, rhi, has_range);
+
+    if (!display_path.empty() && display_path.find('.') == std::string::npos &&
+        node.contains("children") && node["children"].is_object()) {
+        std::vector<std::string> subs;
+        for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
+            subs.push_back(it.key());
+        command_subcommands_[display_path] = subs;
+    }
+
+    if (!key_path.empty() && node.contains("children") && node["children"].is_object()) {
+        std::vector<std::string> kids;
+        for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
+            kids.push_back(it.key());
+        key_children_[key_path] = kids;
+    }
+
+    if (node.contains("children") && node["children"].is_object()) {
+        for (auto it = node["children"].begin(); it != node["children"].end(); ++it) {
+            std::string child_display = display_path.empty()
+                ? it.key()
+                : display_path + "." + it.key();
+            index_node(it.value(), child_display);
+        }
+    }
+}
+
 bool SettingRegistry::load_completions_json(const std::string& path) {
     std::ifstream f(path);
     if (!f) return false;
@@ -110,99 +185,17 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
         return false;
     }
 
-    // Walk the tree: index metadata by display path (dotted config key)
-    // and by action path (core.* / os.*).
-    std::function<void(const json&, const std::string&)> walk;
-    walk = [&](const json& node, const std::string& display_path) {
-        if (!node.is_object()) return;
-
-        auto idx = [&](const std::string& key, const std::string& help,
-                       const std::string& man,
-                       const std::vector<std::string>& choices,
-                       double rlo, double rhi, bool has_range) {
-            if (!help.empty()) key_help_[key] = help;
-            if (!man.empty()) key_man_[key] = man;
-            if (!choices.empty()) command_choices_[key] = choices;
-            if (has_range) command_ranges_[key] = {rlo, rhi};
-        };
-
-        // Extract metadata from this node.
-        std::string help_text, man_text, action;
-        std::vector<std::string> choices;
-        double rlo = 0, rhi = 0;
-        bool has_range = false;
-
-        if (node.contains("help") && node["help"].is_string())
-            help_text = node["help"].get<std::string>();
-        if (node.contains("man") && node["man"].is_string())
-            man_text = node["man"].get<std::string>();
-        if (node.contains("action") && node["action"].is_string())
-            action = node["action"].get<std::string>();
-        if (node.contains("choices") && node["choices"].is_array())
-            for (const auto& c : node["choices"])
-                choices.push_back(c.get<std::string>());
-        if (node.contains("range") && node["range"].is_array() && node["range"].size() == 2) {
-            rlo = node["range"][0].get<double>();
-            rhi = node["range"][1].get<double>();
-            has_range = true;
-        }
-
-        // Index by action path (core.*, os.*).
-        if (!action.empty())
-            idx(action, help_text, man_text, choices, rlo, rhi, has_range);
-
-        // Index by the config KEY path (strip command prefix from display path).
-        // e.g. display_path = "get.detection.loop" → key_path = "detection.loop"
-        //      display_path = "set.toolfold"       → key_path = "toolfold"
-        // This matches the dotted keys used by the SettingRegistry.
-        std::string key_path;
-        if (!display_path.empty()) {
-            size_t first_dot = display_path.find('.');
-            if (first_dot != std::string::npos && first_dot + 1 < display_path.size())
-                key_path = display_path.substr(first_dot + 1);
-            else if (first_dot == std::string::npos)
-                key_path = display_path;  // single-level, no prefix to strip
-        }
-        if (!key_path.empty() &&
-            (key_path.find('.') != std::string::npos ||
-             !node.contains("children") || !help_text.empty()))
-            idx(key_path, help_text, man_text, choices, rlo, rhi, has_range);
-
-        // Store subcommand names for commands that have children.
-        // This is used by update_completions to provide subcommand completions.
-        if (!display_path.empty() && display_path.find('.') == std::string::npos &&
-            node.contains("children") && node["children"].is_object()) {
-            std::vector<std::string> subs;
-            for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
-                subs.push_back(it.key());
-            command_subcommands_[display_path] = subs;
-        }
-
-        // Index child keys for namespace nodes at ALL levels (not just depth 1).
-        if (!key_path.empty() && node.contains("children") && node["children"].is_object()) {
-            std::vector<std::string> kids;
-            for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
-                kids.push_back(it.key());
-            key_children_[key_path] = kids;
-        }
-
-        // Recurse into children.
-        if (node.contains("children") && node["children"].is_object()) {
-            for (auto it = node["children"].begin(); it != node["children"].end(); ++it) {
-                std::string child_display = display_path.empty()
-                    ? it.key()
-                    : display_path + "." + it.key();
-                walk(it.value(), child_display);
-            }
-        }
-    };
-
     if (root.contains("commands") && root["commands"].is_object()) {
-        for (auto it = root["commands"].begin(); it != root["commands"].end(); ++it) {
-            walk(it.value(), it.key());  // pass command name as display path
-        }
+        for (auto it = root["commands"].begin(); it != root["commands"].end(); ++it)
+            index_node(it.value(), it.key());
     }
+    return true;
+}
 
+bool SettingRegistry::merge_completions_json(const nlohmann::json& subtree) {
+    if (!subtree.is_object()) return false;
+    for (auto it = subtree.begin(); it != subtree.end(); ++it)
+        index_node(it.value(), it.key());
     return true;
 }
 

@@ -3,6 +3,7 @@
 #include "agent/debug_log.h"
 
 #include <curl/curl.h>
+#include <set>
 #include <nlohmann/json.hpp>
 
 namespace agent {
@@ -126,13 +127,20 @@ std::vector<std::string> parse_model_list(const std::string& body) {
         arr = &j["models"];
     if (!arr) return out;
 
+    // Servers sometimes list the same model multiple times (aliases, quant
+    // variants with the same id); the UI and model-set validation expect a
+    // unique list.
+    std::set<std::string> seen;
     for (const auto& e : *arr) {
+        std::string id;
         if (e.contains("id") && e["id"].is_string())
-            out.push_back(e["id"].get<std::string>());
+            id = e["id"].get<std::string>();
         else if (e.contains("model") && e["model"].is_string())
-            out.push_back(e["model"].get<std::string>());
+            id = e["model"].get<std::string>();
         else if (e.contains("name") && e["name"].is_string())
-            out.push_back(e["name"].get<std::string>());
+            id = e["name"].get<std::string>();
+        if (!id.empty() && seen.insert(id).second)
+            out.push_back(std::move(id));
     }
     return out;
 }
