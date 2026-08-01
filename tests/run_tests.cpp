@@ -8,6 +8,8 @@
 #include "agent/dispatch.h"
 #include "agent/experience.h"
 #include "agent/environment.h"
+#include "agent/data_path.h"
+#include "agent/bootstrap.h"
 #include "tests/test_util.h"
 
 #include <array>
@@ -2693,4 +2695,145 @@ TEST(environment_probe_collects_facts) {
     ASSERT_FALSE(info.resources.empty());
     ASSERT(!info.tools.empty());  // git or python3 present in CI
     ASSERT_FALSE(agent::render_environment_card(info).empty());
+}
+
+// ---------------------------------------------------------------------------
+// WS-A: deployable data paths. Data files must resolve from a system data
+// directory (XDG /usr/share) so the packaged app works from any CWD, while
+// dev workflows (CWD / binary dir) keep precedence.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct DataTree {
+    std::string base;
+    std::string cwd;
+    std::string bin;
+    std::string xdg;
+    std::string saved_cwd;
+    std::string saved_xdg;
+    bool xdg_was_set = false;
+
+    ~DataTree() {
+        run_cmd("rm -rf " + base);
+        if (!saved_cwd.empty()) chdir(saved_cwd.c_str());
+        if (xdg_was_set)
+            setenv("XDG_DATA_HOME", saved_xdg.c_str(), 1);
+        else
+            unsetenv("XDG_DATA_HOME");
+    }
+};
+
+DataTree make_data_tree() {
+    DataTree t;
+    t.base = "/tmp/amber_dp_tree";
+    t.cwd = t.base + "/cwd";
+    t.bin = t.base + "/bin";
+    t.xdg = t.base + "/xdg";
+    run_cmd("rm -rf " + t.base);
+    run_cmd("mkdir -p " + t.cwd + " " + t.bin + " " + t.xdg + "/amber/prompts");
+    char buf[4096];
+    if (getcwd(buf, sizeof buf)) t.saved_cwd = buf;
+    t.saved_xdg = std::getenv("XDG_DATA_HOME") ? std::getenv("XDG_DATA_HOME") : "";
+    t.xdg_was_set = std::getenv("XDG_DATA_HOME") != nullptr;
+    setenv("XDG_DATA_HOME", t.xdg.c_str(), 1);
+    chdir(t.cwd.c_str());
+    return t;
+}
+
+std::string dp_argv0(const std::string& bin_dir) { return bin_dir + "/amber"; }
+
+} // namespace
+
+TEST(data_path_resolves_from_xdg_data_home) {
+    DataTree t = make_data_tree();
+    std::ofstream(t.xdg + "/amber/prompts/system.md") << "xdg";
+    // Not in CWD, not next to the binary — must come from XDG_DATA_HOME.
+    std::string got =
+        agent::resolve_data_path("prompts/system.md", dp_argv0(t.bin).c_str());
+    ASSERT_EQ(got, t.xdg + "/amber/prompts/system.md");
+}
+
+TEST(data_path_priority_cwd_bin_xdg) {
+    DataTree t = make_data_tree();
+    run_cmd("mkdir -p " + t.cwd + "/prompts " + t.bin + "/prompts");
+    std::ofstream(t.cwd + "/prompts/system.md") << "cwd";
+    std::ofstream(t.bin + "/prompts/system.md") << "bin";
+    std::ofstream(t.xdg + "/amber/prompts/system.md") << "xdg";
+    const char* argv0 = dp_argv0(t.bin).c_str();
+
+    // CWD wins while present.
+    std::string got = agent::resolve_data_path("prompts/system.md", argv0);
+    ASSERT_EQ(got, t.cwd + "/prompts/system.md");
+
+    // Remove CWD copy: binary dir wins.
+    std::remove((t.cwd + "/prompts/system.md").c_str());
+    got = agent::resolve_data_path("prompts/system.md", argv0);
+    ASSERT_EQ(got, t.bin + "/prompts/system.md");
+
+    // Remove binary copy: XDG data dir wins.
+    std::remove((t.bin + "/prompts/system.md").c_str());
+    got = agent::resolve_data_path("prompts/system.md", argv0);
+    ASSERT_EQ(got, t.xdg + "/amber/prompts/system.md");
+}
+
+TEST(data_path_returns_empty_when_missing) {
+    DataTree t = make_data_tree();
+    std::string got =
+        agent::resolve_data_path("prompts/definitely_not_here.md",
+                                 dp_argv0(t.bin).c_str());
+    ASSERT_EQ(got, "");
+}
+
+// ---------------------------------------------------------------------------
+// WS-A: fail-fast bootstrap. The app must not start when critical data files
+// are missing; the validator reports each missing file and the locations
+// searched.
+// ---------------------------------------------------------------------------
+
+TEST(bootstrap_validator_reports_missing_files) {
+    DataTree t = make_data_tree();
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
+                                                  false);
+    ASSERT_EQ(missing.size(), 2u);
+    ASSERT(missing[0].find("system") != std::string::npos);
+    ASSERT(missing[1].find("tools") != std::string::npos);
+}
+
+TEST(bootstrap_validator_passes_when_files_exist) {
+    DataTree t = make_data_tree();
+    run_cmd("mkdir -p " + t.cwd + "/prompts " + t.xdg + "/amber");
+    std::ofstream(t.cwd + "/prompts/system.md") << "x";
+    std::ofstream(t.cwd + "/prompts/tools.md") << "x";
+    std::ofstream(t.xdg + "/amber/completions.json") << "{}";
+
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+
+    // Prompts found in CWD; completions.json must come from XDG.
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
+                                                  true);
+    ASSERT_EQ(missing.size(), 0u);
+}
+
+TEST(bootstrap_validator_requires_completions_when_requested) {
+    DataTree t = make_data_tree();
+    run_cmd("mkdir -p " + t.cwd + "/prompts");
+    std::ofstream(t.cwd + "/prompts/system.md") << "x";
+    std::ofstream(t.cwd + "/prompts/tools.md") << "x";
+
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+
+    // completions.json exists nowhere; TUI requires it.
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
+                                                  true);
+    ASSERT_EQ(missing.size(), 1u);
+    ASSERT(missing[0].find("completions") != std::string::npos);
 }
