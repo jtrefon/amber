@@ -40,9 +40,7 @@ public:
         if (t > 0.0) cfg_.threshold = t;
     }
 
-    void set_min_turns(int n) override {
-        if (n > 0) cfg_.min_turns = n;
-    }
+    void set_min_turns(int n) override { cfg_.min_turns = n; }
 
 private:
     bool threshold_exceeded(const Context& context,
@@ -286,11 +284,11 @@ std::unique_ptr<CompressionGate> make_compression_gate(
 
 CompressionConfig load_compression_config(const Config& cfg) {
     CompressionConfig cc;
-    if (cfg.compression_threshold > 0.0)
+    if (cfg.compression_threshold_explicit)
         cc.threshold = cfg.compression_threshold;
-    if (cfg.compression_min_turns > 0)
+    if (cfg.compression_min_turns_explicit)
         cc.min_turns = cfg.compression_min_turns;
-    if (cfg.compression_cooldown_turns > 0)
+    if (cfg.compression_cooldown_turns_explicit)
         cc.cooldown_turns = cfg.compression_cooldown_turns;
     cc.context_size = cfg.context_size;
     return cc;

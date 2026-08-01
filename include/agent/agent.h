@@ -123,10 +123,12 @@ public:
 
     void set_compression_threshold(double t) {
         cfg_.compression_threshold = t;
+        cfg_.compression_threshold_explicit = true;
         if (gate_) gate_->set_threshold(t);
     }
     void set_compression_min_turns(int n) {
         cfg_.compression_min_turns = n;
+        cfg_.compression_min_turns_explicit = true;
         if (gate_) gate_->set_min_turns(n);
     }
 

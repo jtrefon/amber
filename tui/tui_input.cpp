@@ -411,8 +411,8 @@ void Tui::cmd_set(const std::string& arg) {
             append_line(P_STATUS, "compression threshold: " + std::to_string(t));
         } else if (key == "min_turns") {
             int n = std::atoi(val.c_str());
-            if (n < 1 || val.empty()) {
-                append_line(P_STATUS, "usage: /set compression min_turns <1-999>");
+            if (val.empty()) {
+                append_line(P_STATUS, "usage: /set compression min_turns <0-999> (0 = disabled)");
                 return;
             }
             cfg_.compression_min_turns = n;
