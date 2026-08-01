@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_SEMANTIC_HELPERS_H
 #define AGENT_SEMANTIC_HELPERS_H
@@ -29,6 +27,7 @@ bool matches_glob(const std::string& name, const std::string& glob);
 
 // Recursive file discovery (via `find`) honoring a glob on the basename.
 void walk(const std::string& dir, const std::string& glob,
+          const std::vector<std::string>& exclude_dirs,
           std::vector<std::string>& files);
 
 } // namespace agent

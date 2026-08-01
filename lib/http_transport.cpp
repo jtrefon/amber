@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "http_transport.h"
 #include "agent/agent_helpers.h"
@@ -7,6 +5,15 @@
 #include "agent/process.h"
 
 #include <curl/curl.h>
+
+namespace {
+// libcurl write callback: accumulate the response body into a std::string.
+size_t write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
+    auto* buf = static_cast<std::string*>(user);
+    buf->append(ptr, size * nmemb);
+    return size * nmemb;
+}
+} // namespace
 #include <stdexcept>
 #include <nlohmann/json.hpp>
 
@@ -26,9 +33,8 @@ int cancel_check_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_
 
 // libcurl write callback shim: variadic_setopt cannot convert a lambda to a
 // function pointer, so we need a named function. Forwards to StreamParser.
-size_t stream_write_cb(void* ptr, size_t size, size_t nmemb, void* user) {
-    return static_cast<StreamParser*>(user)->on_write(
-        static_cast<char*>(ptr), size, nmemb);
+size_t stream_write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
+    return static_cast<StreamParser*>(user)->on_write(ptr, size, nmemb);
 }
 
 long read_usage_token(const json& usage, const char* key) {
@@ -40,6 +46,42 @@ void apply_tps(Stats& stats, double ttfb, double total) {
     double gen = total - ttfb;
     if (stats.completion_tokens > 0 && gen > 0.0)
         stats.tps = stats.completion_tokens / gen;
+}
+
+// Try to extract context_size from an HTTP 400 error body.
+// Returns > 0 if a pattern like "maximum context length is NNNN" is found,
+// or 0 if no known pattern matches.
+int parse_context_size_from_error(const std::string& body) {
+    // Common error patterns across providers:
+    // "maximum context length is 8192 tokens"
+    // "max context length: 4096"
+    // "n_ctx is 2048"
+    // "context length exceeds 16384"
+    // "model's maximum context length is 128K"
+    // "Request exceeds maximum context length (4096 tokens)"
+    const char* patterns[] = {
+        "maximum context length is ",
+        "max context length: ",
+        "max context length is ",
+        "n_ctx is ",
+        "n_ctx = ",
+        "context length exceeds ",
+        "maximum context length (",
+        "context length of ",
+    };
+    for (const char* pat : patterns) {
+        auto pos = body.find(pat);
+        if (pos == std::string::npos) continue;
+        pos += strlen(pat);
+        // Skip past any non-digit prefix (e.g. open paren)
+        while (pos < body.size() && !std::isdigit(static_cast<unsigned char>(body[pos])))
+            ++pos;
+        if (pos >= body.size()) continue;
+        long val = std::atol(body.c_str() + pos);
+        if (val > 0 && val < 10000000) // sanity: 1M tokens is generous max
+            return static_cast<int>(val);
+    }
+    return 0;
 }
 
 } // namespace
@@ -82,8 +124,20 @@ Message message_from_completion(const std::string& response) {
     out.content = strip_think(str_or_raw(msg, "content", ""));
     for (const char* key : {"reasoning_content", "reasoning"})
         out.reasoning += str_or_raw(msg, key, "");
-    if (msg.contains("tool_calls") && !msg["tool_calls"].is_null())
+    if (msg.contains("tool_calls") && !msg["tool_calls"].is_null()) {
         out.tool_calls = msg["tool_calls"];
+        // Discard tool calls with non-JSON arguments — they poison history.
+        bool valid = true;
+        for (const auto& tc : out.tool_calls) {
+            auto fn = tc.value("function", json::object());
+            std::string raw = fn.value("arguments", "");
+            if (!raw.empty()) {
+                auto parsed = json::parse(raw, nullptr, false);
+                if (parsed.is_discarded()) { valid = false; break; }
+            }
+        }
+        if (!valid) out.tool_calls = json::value_t::null;
+    }
     return out;
 }
 
@@ -101,53 +155,84 @@ void fill_buffered_stats(Stats& stats, const std::string& response, double ttfb,
     apply_tps(stats, ttfb, total);
 }
 
-// POST `payload` to the chat endpoint and return the raw response body, setting
-// up auth/JSON headers and throwing on any transport error. `accept_sse` adds
-// the text/event-stream Accept header for streaming requests. When non-null,
-// `ttfb`/`total` receive transfer timings in seconds.
-std::string post_completion(const Config& cfg, const std::string& payload,
-                            bool accept_sse, double* ttfb, double* total) {
-    CURL* c = curl_easy_init();
+namespace {
+
+// Shared curl request execution: sets up headers, URL, POST body, write
+// callback, timeout, and cancel wiring, then performs the request and
+// collects timing + status. Throws on transport or HTTP error.
+void curl_exec(const Config& cfg, const std::string& payload,
+               bool accept_sse, long timeout_s,
+               curl_write_callback write_fn, void* write_data,
+               long& http_code, double& ttfb, double& total,
+               const char* debug_tag) {
+    auto c = make_curl();
     if (!c) throw std::runtime_error("curl_easy_init failed");
     HeaderList headers;
     headers.add("Content-Type: application/json");
     if (accept_sse) headers.add("Accept: text/event-stream");
     apply_auth(headers, cfg);
 
-    curl_easy_setopt(c, CURLOPT_URL, cfg.api_url().c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers.list);
-    curl_easy_setopt(c, CURLOPT_POSTFIELDS, payload.c_str());
-    std::string response;
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, LLMClient::write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, accept_sse ? 900L : 300L);
-    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
-    curl_easy_setopt(c, CURLOPT_XFERINFODATA, &cfg.cancel_token);
+    curl_easy_setopt(c.get(), CURLOPT_URL, cfg.api_url().c_str());
+    curl_easy_setopt(c.get(), CURLOPT_HTTPHEADER, headers.list);
+    curl_easy_setopt(c.get(), CURLOPT_POSTFIELDS, payload.c_str());
+    curl_easy_setopt(c.get(), CURLOPT_WRITEFUNCTION, write_fn);
+    curl_easy_setopt(c.get(), CURLOPT_WRITEDATA, write_data);
+    curl_easy_setopt(c.get(), CURLOPT_TIMEOUT, timeout_s);
+    // Small buffer for SSE streaming — surface reasoning/delta chunks
+    // promptly instead of buffering 16KB+ at the transport layer.
+    if (accept_sse) {
+        curl_easy_setopt(c.get(), CURLOPT_BUFFERSIZE, 1024L);
+        // Abort if no data arrives for 60s (detects hung server quickly
+        // without interfering with legitimate long generations).
+        curl_easy_setopt(c.get(), CURLOPT_LOW_SPEED_LIMIT, 1L);
+        curl_easy_setopt(c.get(), CURLOPT_LOW_SPEED_TIME, 60L);
+    }
+    curl_easy_setopt(c.get(), CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(c.get(), CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
+    curl_easy_setopt(c.get(), CURLOPT_XFERINFODATA, &cfg.cancel_token);
 
-    CURLcode rc = curl_easy_perform(c);
-    long http_code = 0;
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http_code);
-    if (ttfb) {
-        double v = 0;
-        curl_easy_getinfo(c, CURLINFO_STARTTRANSFER_TIME, &v);
-        *ttfb = v;
-    }
-    if (total) {
-        double v = 0;
-        curl_easy_getinfo(c, CURLINFO_TOTAL_TIME, &v);
-        *total = v;
-    }
-    curl_easy_cleanup(c);
+    CURLcode rc = curl_easy_perform(c.get());
+    curl_easy_getinfo(c.get(), CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_getinfo(c.get(), CURLINFO_STARTTRANSFER_TIME, &ttfb);
+    curl_easy_getinfo(c.get(), CURLINFO_TOTAL_TIME, &total);
     if (rc != CURLE_OK) {
-        debug_log(cfg.debug_log, "error", std::string(curl_easy_strerror(rc)));
+        debug_log(cfg.debug_log, debug_tag, std::string(curl_easy_strerror(rc)));
         throw std::runtime_error(std::string("curl error: ") +
                                  curl_easy_strerror(rc));
     }
+}
+
+} // namespace
+
+// POST `payload` to the chat endpoint and return the raw response body, setting
+// up auth/JSON headers and throwing on any transport error. `accept_sse` adds
+// the text/event-stream Accept header for streaming requests. When non-null,
+// `ttfb`/`total` receive transfer timings in seconds.
+std::string post_completion(Config& cfg, const std::string& payload,
+                            bool accept_sse, double* ttfb, double* total) {
+    std::string response;
+    long http_code = 0;
+    double t0 = 0, t1 = 0;
+    curl_exec(cfg, payload, accept_sse, 300L,
+              write_cb, &response,
+              http_code, t0, t1, "error");
+    if (ttfb) *ttfb = t0;
+    if (total) *total = t1;
     if (http_code < 200 || http_code >= 300) {
+        // Try to learn context_size from HTTP 400 overflow errors.
+        // This lets an unknown-context server teach us its limit.
+        if (http_code == 400 && (!cfg.context_explicit || cfg.context_size <= 0)) {
+            int learned = parse_context_size_from_error(response);
+            if (learned > 0) {
+                cfg.context_size = learned;
+                cfg.context_explicit = true;
+            }
+        }
         std::string snippet = response.substr(0, 200);
-        throw std::runtime_error("HTTP " + std::to_string(http_code) +
-                                 " from LLM server: " + snippet);
+        bool retryable = http_code == 429 || http_code >= 500;
+        throw ApiError(http_code, retryable,
+                       "HTTP " + std::to_string(http_code) +
+                           " from LLM server: " + snippet);
     }
     return response;
 }
@@ -156,40 +241,16 @@ std::string post_completion(const Config& cfg, const std::string& payload,
 // finalize. Fills `stats` (timings + token counts). Throws on transport error.
 void stream_completion(const Config& cfg, const std::string& payload,
                        StreamParser& parser, Stats* stats, long& status_out) {
-    CURL* c = curl_easy_init();
-    if (!c) throw std::runtime_error("curl_easy_init failed");
-
-    HeaderList headers;
-    headers.add("Content-Type: application/json");
-    headers.add("Accept: text/event-stream");
-    apply_auth(headers, cfg);
-
-    curl_easy_setopt(c, CURLOPT_URL, cfg.api_url().c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers.list);
-    curl_easy_setopt(c, CURLOPT_POSTFIELDS, payload.c_str());
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, stream_write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &parser);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 900L);
-    curl_easy_setopt(c, CURLOPT_BUFFERSIZE, 1024L);  // surface deltas promptly
-    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, cancel_check_cb);
-    curl_easy_setopt(c, CURLOPT_XFERINFODATA, &cfg.cancel_token);
-
-    CURLcode rc = curl_easy_perform(c);
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status_out);
     double ttfb = 0, total = 0;
-    curl_easy_getinfo(c, CURLINFO_STARTTRANSFER_TIME, &ttfb);
-    curl_easy_getinfo(c, CURLINFO_TOTAL_TIME, &total);
-    curl_easy_cleanup(c);
-    if (rc != CURLE_OK) {
-        debug_log(cfg.debug_log, "error-stream",
-                  std::string(curl_easy_strerror(rc)));
-        throw std::runtime_error(std::string("curl error: ") +
-                                 curl_easy_strerror(rc));
-    }
+    curl_exec(cfg, payload, true, 300L,
+              stream_write_cb, &parser,
+              status_out, ttfb, total, "error-stream");
     if (status_out < 200 || status_out >= 300) {
-        throw std::runtime_error("HTTP " + std::to_string(status_out) +
-                                 " from LLM server");
+        std::string detail = parser.raw_body_.substr(0, 400);
+        bool retryable = status_out == 429 || status_out >= 500;
+        throw ApiError(status_out, retryable,
+                       "HTTP " + std::to_string(status_out) +
+                           " from LLM server: " + detail);
     }
     parser.finalize();
     if (stats) {

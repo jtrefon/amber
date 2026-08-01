@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent.h"
 #include "agent/tools.h"
@@ -9,10 +7,18 @@
 #include "agent/compressor.h"
 #include "agent/dispatch.h"
 #include "agent/experience.h"
+#include "agent/environment.h"
+#include "agent/data_path.h"
+#include "agent/bootstrap.h"
+#include "agent/model_probe.h"
+#include "agent/skill_file.h"
+#include "agent/skill_install.h"
+#include "agent/mcp_tools.h"
 #include "tests/test_util.h"
 
 #include <array>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -197,52 +203,99 @@ TEST(config_explicit_model_and_context_are_flagged) {
     std::remove(path.c_str());
 }
 
-// Regression guard for the actual save path (Config::save, used by the TUI F10
-// "save settings"). Auto-detected model/context must be written as sentinels so
-// a reload re-enables auto-detection instead of pinning the probed value. This
-// exercises the real serializer, not a hand-written file.
-TEST(config_save_preserves_autodetect_intent) {
-    std::string path = "/tmp/amber_save_auto.conf";
-    agent::Config src;
-    src.api_base = "http://localhost:8081/v1";
-    src.api_key = "";
-    // Simulate a probe having filled these, WITHOUT the user setting them.
-    src.model = "qwen-probed";  src.model_explicit = false;
-    src.context_size = 8192;    src.context_explicit = false;
-    ASSERT_TRUE(src.save(path));
-
-    agent::Config back;
-    back.load(path);
-    ASSERT_EQ(back.api_base, "http://localhost:8081/v1");
-    ASSERT_TRUE(back.model.empty());       // sentinel, not the probed value
-    ASSERT_FALSE(back.model_explicit);     // auto-detect stays enabled
-    ASSERT_EQ(back.context_size, 0);       // sentinel, not 8192
-    ASSERT_FALSE(back.context_explicit);
-    std::remove(path.c_str());
-}
-
-// The mirror case: user-set model/context must survive save->load as explicit.
-TEST(config_save_preserves_explicit_values) {
-    std::string path = "/tmp/amber_save_explicit.conf";
-    agent::Config src;
-    src.model = "my-model";   src.model_explicit = true;
-    src.context_size = 32768; src.context_explicit = true;
-    ASSERT_TRUE(src.save(path));
-
-    agent::Config back;
-    back.load(path);
-    ASSERT_EQ(back.model, "my-model");
-    ASSERT_TRUE(back.model_explicit);
-    ASSERT_EQ(back.context_size, 32768);
-    ASSERT_TRUE(back.context_explicit);
-    std::remove(path.c_str());
-}
-
 // Context size defaults to 0 (auto) so the gauge hides and probing is allowed.
 TEST(config_context_default_is_auto) {
     agent::Config c;
     ASSERT_EQ(c.context_size, 0);
     ASSERT_FALSE(c.context_explicit);
+}
+
+// ---------------------------------------------------------------------------
+// Provider presets and global/project settings tiers
+// ---------------------------------------------------------------------------
+
+TEST(config_provider_openrouter_preset) {
+    agent::Config c;
+    c.apply_provider("openrouter");
+    ASSERT_EQ(c.provider_name, "openrouter");
+    ASSERT_EQ(c.api_base, "https://openrouter.ai/api/v1");
+    ASSERT(!c.model.empty());
+}
+
+TEST(config_provider_kilocode_preset) {
+    agent::Config c;
+    c.apply_provider("kilocode");
+    ASSERT_EQ(c.provider_name, "kilocode");
+    ASSERT_EQ(c.api_base, "https://api.kilocode.ai/v1");
+    ASSERT(!c.model.empty());
+}
+
+TEST(config_provider_unknown_falls_back_to_custom) {
+    agent::Config c;
+    c.api_base = "http://my-server:8080/v1";
+    c.apply_provider("nonexistent");
+    ASSERT_EQ(c.provider_name, "custom");  // unchanged
+    ASSERT_EQ(c.api_base, "http://my-server:8080/v1");
+}
+
+TEST(config_global_save_roundtrip_preserves_provider) {
+    std::string path = "/tmp/amber_global_test.conf";
+    agent::Config c;
+    c.apply_provider("openrouter");
+    c.api_key = "sk-test-123";
+    ASSERT_TRUE(c.save_global(path));
+
+    agent::Config d;
+    d.load(path);
+    ASSERT_EQ(d.provider_name, "openrouter");
+    ASSERT_EQ(d.api_base, "https://openrouter.ai/api/v1");
+    ASSERT_EQ(d.api_key, "sk-test-123");
+    std::remove(path.c_str());
+}
+
+TEST(config_validate_requires_api_key_for_openrouter) {
+    agent::Config c;
+    c.apply_provider("openrouter");
+    c.api_key.clear();
+    auto errs = c.validate();
+    bool found = false;
+    for (const auto& e : errs)
+        if (e.find("api_key") != std::string::npos) found = true;
+    ASSERT(found);
+}
+
+TEST(config_validate_skips_api_key_for_custom) {
+    agent::Config c;
+    c.api_key.clear();
+    auto errs = c.validate();
+    bool found = false;
+    for (const auto& e : errs)
+        if (e.find("api_key") != std::string::npos) found = true;
+    ASSERT_FALSE(found);
+}
+
+TEST(config_project_settings_omits_provider_fields) {
+    // save_settings() must NOT write api_base / api_key / model / provider
+    agent::Config c;
+    c.api_base = "http://localhost:8080/v1";
+    c.api_key = "sk-secret";
+    c.model = "llama-3.2-3b";
+    c.provider_name = "openrouter";
+    c.temperature = 0.7;
+
+    std::string path = "/tmp/amber_project_test.conf";
+    ASSERT_TRUE(c.save_settings(path));
+
+    // Load into a fresh config
+    agent::Config d;
+    d.load(path);
+    // Provider fields should still be defaults (not overwritten by project file)
+    ASSERT(d.api_base != "http://localhost:8080/v1");
+    ASSERT(d.api_key != "sk-secret");
+    ASSERT(d.provider_name != "openrouter");
+    // Project fields should be loaded
+    ASSERT_EQ(d.temperature, 0.7);
+    std::remove(path.c_str());
 }
 
 // ---------------------------------------------------------------------------
@@ -807,7 +860,7 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8911/v1";
     cfg.stream = true;
-    agent::LLMClient client(cfg);
+    agent::HttpLLMClient client(cfg);
 
     std::vector<std::string> tokens;
     agent::Message m = client.chat_stream({}, {},
@@ -842,7 +895,7 @@ TEST(llm_streaming_inline_think_segmentation) {
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8912/v1";
     cfg.stream = true;
-    agent::LLMClient client(cfg);
+    agent::HttpLLMClient client(cfg);
 
     std::string answer, reasoning;
     agent::Message m = client.chat_stream({}, {},
@@ -874,7 +927,7 @@ TEST(llm_streaming_reasoning_content_field) {
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8913/v1";
     cfg.stream = true;
-    agent::LLMClient client(cfg);
+    agent::HttpLLMClient client(cfg);
 
     agent::Message m = client.chat_stream({}, {},
         [](const agent::StreamChunk&) {});
@@ -899,7 +952,7 @@ TEST(llm_streaming_captures_usage_stats) {
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8914/v1";
     cfg.stream = true;
-    agent::LLMClient client(cfg);
+    agent::HttpLLMClient client(cfg);
 
     agent::Stats stats;
     agent::Message m = client.chat_stream({}, {},
@@ -977,33 +1030,13 @@ TEST(session_store_save_load_list_delete) {
 }
 
 // ---------------------------------------------------------------------------
-// Agent conversation memory (stateful across run() calls)
-// ---------------------------------------------------------------------------
-
-TEST(agent_retains_history_across_turns) {
-    agent::Config cfg;
-    agent::ToolRegistry reg;
-    agent::Agent ag(cfg, reg);
-
-    // Seed a prior conversation as if loaded from a session.
-    agent::Message sys; sys.role = "system"; sys.content = "sys";
-    agent::Message u;   u.role = "user";     u.content = "earlier";
-    agent::Message a;   a.role = "assistant"; a.content = "reply";
-    ag.set_history({sys, u, a});
-    ASSERT_EQ(ag.history().size(), 3u);
-    ASSERT_EQ(ag.history().front().role, "system");
-
-    ag.reset();
-    ASSERT_EQ(ag.history().size(), 0u);
-}
-
-// ---------------------------------------------------------------------------
 // bash tool
 // ---------------------------------------------------------------------------
 
 TEST(bash_tool_runs_and_reports_exit) {
     auto tool = agent::make_bash_tool();
-    ASSERT_TRUE(tool->requires_approval());
+    ASSERT_TRUE(tool->requires_approval({{"command", "rm -rf /tmp/test"}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "echo hello"}}));
 
     auto ok = tool->execute({{"command", "echo hello"}});
     ASSERT_TRUE(ok.ok);
@@ -1112,7 +1145,8 @@ TEST(agent_denies_gated_tool_without_handler) {
     ag.set_hooks(hooks);
     auto* t = reg.find("bash");
     ASSERT_TRUE(t != nullptr);
-    ASSERT_TRUE(t->requires_approval());
+    ASSERT_TRUE(t->requires_approval({{"command", "rm -rf /tmp/test"}}));
+    ASSERT_FALSE(t->requires_approval({{"command", "ls"}}));
     agent::Approval d = hooks.on_approval("bash", {{"command", "ls"}},
                                           t->summarize({{"command", "ls"}}));
     ASSERT_TRUE(called);
@@ -1167,6 +1201,8 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     cfg.stream = true;
     cfg.mode = agent::AgentMode::Yolo;
     cfg.max_tool_iterations = 32;   // default; the loop must NOT reach this
+    cfg.detection_loop = true;       // enable loop detection for this test
+    cfg.system_prompt_path = "prompts/system.md";
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::register_default_tools(reg, jobs);
@@ -1181,9 +1217,9 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     ag.set_hooks(hooks);
 
     std::string out = ag.run("review ncurses usage");
-    // Must terminate well before max_tool_iterations (bounded by fail_streak).
+    // Must terminate well before max_tool_iterations (bounded by loop detector).
     ASSERT(tool_results < 10);
-    ASSERT(out.find("kept failing") != std::string::npos);
+    ASSERT(out.find("loop detected") != std::string::npos);
     close(fd);
 }
 
@@ -1295,12 +1331,11 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     reg.register_tool(agent::make_bash_tool());
     agent::ConversationLog log;
     std::set<std::string> approved;
-    std::vector<agent::Message> history;
 
     int tool_results = 0;
     agent::ToolResult captured;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string& n, const agent::ToolResult& r) {
+    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& r) {
         ++tool_results;
         captured = r;
     };
@@ -1313,16 +1348,17 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
                       {"arguments", {{"command", "echo hello"}}}};
     calls.push_back(tc);
 
+    agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, history);
+                                         approved, nullptr, &dctx);
     ASSERT(ok);
     ASSERT(tool_results == 1);
     ASSERT(captured.ok);
     ASSERT(!captured.output.empty());
     ASSERT(captured.output.find("hello") != std::string::npos);
-    // Tool result must be recorded in history
+    // Tool result must be recorded in context
     bool found = false;
-    for (const auto& m : history)
+    for (const auto& m : dctx.get_all())
         if (m.role == "tool" && m.name == "bash")
             { found = true; break; }
     ASSERT(found);
@@ -1331,13 +1367,14 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
 TEST(dispatch_rejects_duplicate_tool_call) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
+    cfg.detection_duplicate = true;
     agent::ToolRegistry reg;
     reg.register_tool(agent::make_bash_tool());
     agent::ConversationLog log;
     std::set<std::string> approved;
-    std::vector<agent::Message> history;
+    agent::Context dctx;
 
-    // Pre-populate history with an assistant message that already made this call.
+    // Pre-populate context with an assistant message that already made this call.
     // This simulates a model repeating a tool call from a prior turn.
     agent::json prior_tc = agent::json::array();
     agent::json tc1;
@@ -1350,7 +1387,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     prior.role = "assistant";
     prior.content = "";
     prior.tool_calls = prior_tc;
-    history.push_back(prior);
+    dctx.push(std::move(prior));
 
     int tool_results = 0;
     std::vector<agent::ToolResult> results;
@@ -1370,7 +1407,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     calls.push_back(tc2);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, history);
+                                         approved, nullptr, &dctx);
     // Should be rejected as duplicate
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
@@ -1378,22 +1415,21 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     ASSERT(results[0].error.find("already ran") != std::string::npos);
 }
 
-TEST(dispatch_approval_required_grants_session_access) {
+TEST(dispatch_auto_approves_in_write_mode) {
     agent::Config cfg;
-    // NOT yolo mode — approval handler will be consulted
     agent::ToolRegistry reg;
-    reg.register_tool(agent::make_bash_tool());
     agent::ConversationLog log;
+    reg.register_tool(agent::make_bash_tool());
+
     std::set<std::string> approved;
-    std::vector<agent::Message> history;
 
     int tool_results = 0;
     bool approval_called = false;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult& r) {
+    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& /*r*/) {
         ++tool_results;
     };
-    hooks.on_approval = [&](const std::string& n, const agent::json&,
+    hooks.on_approval = [&](const std::string& /*n*/, const agent::json&,
                             const std::string&) -> agent::Approval {
         approval_called = true;
         return agent::Approval::AllowSession;
@@ -1404,16 +1440,18 @@ TEST(dispatch_approval_required_grants_session_access) {
     tc["id"] = "c1";
     tc["type"] = "function";
     tc["function"] = {{"name", "bash"},
-                      {"arguments", {{"command", "echo hello"}}}};
+                      {"arguments", {{"command", "rm -rf /tmp/amber_test_dispatch"}}}};
     calls.push_back(tc);
 
+    agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, history);
+                                         approved, nullptr, &dctx);
     ASSERT(ok);
+    // Write mode consults the approval callback for gated tools
     ASSERT(approval_called);
     ASSERT(tool_results == 1);
-    // Session approval should be recorded for auto-approval of same tool
-    ASSERT(approved.count("bash") == 1u);
+    // AllowSession stores the grant
+    ASSERT(approved.count("bash") == 1);
 }
 
 TEST(dispatch_missing_tool_reports_unknown) {
@@ -1421,7 +1459,6 @@ TEST(dispatch_missing_tool_reports_unknown) {
     agent::ToolRegistry reg;
     agent::ConversationLog log;
     std::set<std::string> approved;
-    std::vector<agent::Message> history;
 
     int tool_results = 0;
     agent::ToolResult captured;
@@ -1439,8 +1476,9 @@ TEST(dispatch_missing_tool_reports_unknown) {
                       {"arguments", "{}"}};
     calls.push_back(tc);
 
+    agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, history);
+                                         approved, nullptr, &dctx);
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
     ASSERT_FALSE(captured.ok);
@@ -1624,6 +1662,43 @@ TEST(apply_classification_context_creates_archive_entry) {
     ASSERT(has_archive);
 }
 
+TEST(apply_classification_preserves_system_when_classifier_tags_as_prune) {
+    std::vector<agent::Message> hist = {
+        msg("system", "Your name is Amber."),
+        msg("user", "hello"),
+        msg("assistant", "hi"),
+    };
+    // The LLM classifies turn 0 (index 0, the system prompt) as "prune" —
+    // the old code would remove it outright.
+    agent::CompressionResponse cr;
+    cr.segments.push_back({0, 0, agent::Classification::prune, ""});
+    cr.segments.push_back({1, 1, agent::Classification::core, ""});
+    cr.segments.push_back({2, 2, agent::Classification::core, ""});
+    auto result = agent::apply_classification(hist, cr);
+    // System prompt must survive at index 0
+    ASSERT(!result.empty());
+    ASSERT(result[0].role == "system");
+    ASSERT(result[0].content.find("Amber") != std::string::npos);
+}
+
+TEST(apply_classification_preserves_system_when_classifier_tags_as_context) {
+    std::vector<agent::Message> hist = {
+        msg("system", "Your name is Amber."),
+        msg("user", "hello"),
+        msg("assistant", "hi"),
+    };
+    // The LLM classifies turn 0 (index 0, the system prompt) as "context" —
+    // the old code would archive it, losing the identity.
+    agent::CompressionResponse cr;
+    cr.segments.push_back({0, 0, agent::Classification::context, "first turn"});
+    cr.segments.push_back({1, 2, agent::Classification::core, ""});
+    auto result = agent::apply_classification(hist, cr);
+    // System prompt must survive at index 0
+    ASSERT(!result.empty());
+    ASSERT(result[0].role == "system");
+    ASSERT(result[0].content.find("Amber") != std::string::npos);
+}
+
 // =========================================================================
 // Compression gate tests (unchanged)
 // =========================================================================
@@ -1634,11 +1709,10 @@ TEST(compression_gate_below_threshold) {
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 100000;
-    std::vector<agent::Message> hist = {
-        msg("system", "short"),
-        msg("user", "hi"),
-    };
-    ASSERT_FALSE(gate->should_compress(hist, cfg));
+    agent::Context ctx;
+    ctx.push(msg("system", "short"));
+    ctx.push(msg("user", "hi"));
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
 }
 
 TEST(compression_gate_above_threshold) {
@@ -1647,10 +1721,11 @@ TEST(compression_gate_above_threshold) {
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 1000;
-    std::vector<agent::Message> hist;
+    agent::Context ctx;
     for (int i = 0; i < 10; ++i)
-        hist.push_back(msg("user", std::string(100, 'a')));
-    ASSERT(gate->should_compress(hist, cfg));
+        ctx.push(msg("user", std::string(100, 'a')));
+    cfg.turn_counter = 25;  // past the 20-turn cooldown
+    ASSERT(gate->should_compress(ctx, cfg));
 }
 
 TEST(compression_gate_min_turns) {
@@ -1660,16 +1735,13 @@ TEST(compression_gate_min_turns) {
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 100000;
-    std::vector<agent::Message> hist = {msg("user", "hello")};
-    ASSERT_FALSE(gate->should_compress(hist, cfg));
+    agent::Context ctx;
+    ctx.push(msg("user", "hello"));
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
 }
 
 TEST(request_builder_returns_message) {
-    std::vector<agent::Message> hist = {
-        msg("system", "prompt"),
-        msg("user", "hello"),
-    };
-    auto req = agent::build_compression_request(hist);
+    auto req = agent::build_compression_request();
     ASSERT(req.role == "user");
     ASSERT(!req.content.empty());
 }
@@ -1704,7 +1776,7 @@ TEST(memory_store_upsert_and_retrieve) {
     mem.promoted = true;
     store->upsert(mem);
     auto results = store->top_memories(10, "how to build");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].content == "project uses make");
 }
 
@@ -1734,10 +1806,94 @@ TEST(memory_store_skill_trigger) {
     sk.promoted = true;
     store->upsert(sk);
     auto results = store->top_skills(10, "run the tests");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].content == "run tests");
     auto no_match = store->top_skills(10, "build the project");
     ASSERT(no_match.empty());
+}
+
+TEST(skill_no_dead_fields_in_serialization) {
+    agent::Skill sk;
+    sk.name = "deploy-cmd";
+    sk.content = "make deploy";
+    sk.trigger_phrase = "deploy";
+    sk.evidence_count = 5;
+    sk.promoted = true;
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->upsert(sk);
+    std::string path = "/tmp/amber_skill_no_dead.json";
+    std::remove(path.c_str());
+    ASSERT(store->save(path));
+    std::ifstream f(path);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    std::string txt = ss.str();
+    ASSERT(txt.find("steps") == std::string::npos);
+    ASSERT(txt.find("expected_outcome") == std::string::npos);
+}
+
+TEST(skill_legacy_json_loads_without_dead_fields) {
+    std::string path = "/tmp/amber_skill_legacy.json";
+    {
+        std::ofstream f(path);
+        f << R"({"version":1,"memories":[],"skills":[{"id":"1","name":"deploy","content":"make deploy","trigger_phrase":"deploy","steps":["a","b"],"expected_outcome":"done","tags":["deploy"],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}]})";
+    }
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    ASSERT(store->load(path));
+    auto skills = store->top_skills(10, "deploy");
+    ASSERT(skills.size() == 1u);
+    ASSERT(skills[0].content == "make deploy");
+    ASSERT(skills[0].trigger_phrase == "deploy");
+}
+
+TEST(experience_store_project_default) {
+    agent::Workspace::set_root("/tmp/amber_sk2_ws");
+    agent::Config cfg;
+    auto ec = agent::load_experience_config(cfg);
+    ASSERT_EQ(ec.store_path, "/tmp/amber_sk2_ws/.amber/experience.json");
+}
+
+TEST(experience_store_legacy_seed_once) {
+    agent::Workspace::set_root("/tmp/amber_sk2_ws2");
+    std::string legacy_dir = "/tmp/amber_sk2_home/.amber";
+    std::string legacy = legacy_dir + "/memories.json";
+    run_cmd("rm -rf /tmp/amber_sk2_home /tmp/amber_sk2_ws2");
+    run_cmd("mkdir -p " + legacy_dir);
+    {
+        std::ofstream f(legacy);
+        f << R"({"version":1,"memories":[{"id":"m1","name":"proj","content":"uses make","tags":[],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}],"skills":[]})";
+    }
+    setenv("HOME", "/tmp/amber_sk2_home", 1);
+
+    agent::Config cfg;
+    auto ec = agent::load_experience_config(cfg);
+    ASSERT_EQ(ec.store_path, "/tmp/amber_sk2_ws2/.amber/experience.json");
+    {
+        std::ifstream f(ec.store_path);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("\"memories\"") != std::string::npos);
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
+    {
+        std::ifstream f(legacy);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
+    {
+        std::ofstream f(legacy);
+        f << "changed-after-seed";
+    }
+    auto ec2 = agent::load_experience_config(cfg);
+    {
+        std::ifstream f(ec2.store_path);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        ASSERT(ss.str().find("uses make") != std::string::npos);
+    }
 }
 
 TEST(memory_store_decay) {
@@ -1751,7 +1907,7 @@ TEST(memory_store_decay) {
     store->upsert(mem);
     store->decay_all();
     auto results = store->top_memories(10, "");
-    ASSERT(results.size() >= 1u);
+    ASSERT(!results.empty());
     ASSERT(results[0].evidence_count == 2);
 }
 
@@ -1832,9 +1988,9 @@ TEST(integration_apply_and_retrieve) {
     store->set_current_turn(1);
 
     cr.memory_ops.push_back(
-        {"project uses GNU make with ./configure", {"build", "make"}, "upsert", ""});
+        {"build system", "project uses GNU make with ./configure", {"build", "make"}, "upsert", ""});
     cr.memory_ops.push_back(
-        {"103 tests passed", {"tests", "testing"}, "upsert", ""});
+        {"test results", "103 tests passed", {"tests", "testing"}, "upsert", ""});
 
     // Single compression cycle — memories are now promoted immediately
     // (evidence=3, promoted=true) since the LLM confirmed them.
@@ -1846,13 +2002,14 @@ TEST(integration_apply_and_retrieve) {
     std::string suffix = retriever.build_system_prompt_suffix(
         "how do I build this project?");
     ASSERT(!suffix.empty());
-    ASSERT(suffix.find("GNU make") != std::string::npos ||
-           suffix.find("./configure") != std::string::npos);
+    bool found = suffix.find("GNU make") != std::string::npos ||
+                 suffix.find("./configure") != std::string::npos;
+    ASSERT(found);
 
     // Phase 4: Verify decay — evidence 3 → 2 after one decay call
     store->decay_all();
     auto after_decay = store->top_memories(10, "build");
-    ASSERT(after_decay.size() >= 1u);
+    ASSERT(!after_decay.empty());
     ASSERT(after_decay[0].evidence_count == 2);
 }
 
@@ -1896,34 +2053,12 @@ TEST(agent_text_only_reply) {
     agent::Message sys; sys.role = "system"; sys.content = "test";
     agent::Message u;   u.role = "user";     u.content = "say hello";
     agent::Message a;   a.role = "assistant"; a.content = "Hello world";
-    ag.set_history({sys, u, a});
+    ag.set_context({sys, u, a});
 
-    ASSERT(ag.history().size() >= 3u);
-    ASSERT_EQ(ag.history().back().role, "assistant");
-    ASSERT(ag.history().back().content.find("Hello") != std::string::npos);
+    ASSERT(ag.context().size() >= 3u);
+    ASSERT(ag.context().get_all().back().role == "assistant");
+    ASSERT(ag.context().get_all().back().content.find("Hello") != std::string::npos);
 
-}
-
-TEST(agent_loop_behavioral_spec) {
-    // Verify the core agent loop invariants: history management, tool resolution,
-    // and state transitions. This test does NOT make HTTP requests — it operates
-    // on pre-seeded histories to verify that set_history/reset round-trip and
-    // that the loop infrastructure is wired correctly.
-    agent::Config cfg;
-    cfg.max_tool_iterations = 1;
-    agent::ToolRegistry reg;
-    agent::Agent ag(cfg, reg);
-
-    agent::Message sys; sys.role = "system"; sys.content = "test system";
-    agent::Message u;   u.role = "user";     u.content = "first message";
-    agent::Message a;   a.role = "assistant"; a.content = "first reply";
-    ag.set_history({sys, u, a});
-    ASSERT_EQ(ag.history().size(), 3u);
-    ASSERT_EQ(ag.history().front().role, "system");
-    ASSERT_EQ(ag.history().back().content, "first reply");
-
-    ag.reset();
-    ASSERT_EQ(ag.history().size(), 0u);
 }
 
 // ---------------------------------------------------------------------------
@@ -1973,8 +2108,9 @@ TEST(build_system_separates_core_and_tools) {
     std::string core_contents;
     {
         std::array<char, 128> buf;
-        std::unique_ptr<FILE, decltype(&pclose)> pipe(
-            popen(("ar t " + core_archive).c_str(), "r"), pclose);
+        auto deleter = [](FILE* f) { if (f) pclose(f); };
+        std::unique_ptr<FILE, decltype(deleter)> pipe(
+            popen(("ar t " + core_archive).c_str(), "r"), deleter);
         if (pipe) while (fgets(buf.data(), buf.size(), pipe.get())) core_contents += buf.data();
     }
     if (core_contents.find("tools/") != std::string::npos) {
@@ -2029,5 +2165,844 @@ TEST(cancel_token_copies_share_state) {
 }
 
 // ---------------------------------------------------------------------------
+// Context immutable stack + event source
+// ---------------------------------------------------------------------------
+
+TEST(context_push_seals_message) {
+    agent::Context ctx;
+    agent::Message m;
+    m.role = "user";
+    m.content = "hello";
+    m.tool_calls = agent::json::array({agent::json::object({{"id", "1"}})});
+
+    ctx.push(std::move(m));
+    // After push the original reference is moved-from; the message is sealed.
+    ASSERT_EQ(ctx.size(), 1u);
+    ASSERT_EQ(ctx.get_all().back().role, "user");
+    ASSERT_EQ(ctx.get_all().back().content, "hello");
+
+    // get_all() returns const& — compiler enforces read-only.
+    const auto& ref = ctx.get_all();
+    ASSERT_EQ(ref.back().content, "hello");
+    // Attempting ref.back().content = "x" would fail at compile time.
+}
+
+TEST(context_token_count_tracks_content) {
+    agent::Context ctx;
+    ASSERT_EQ(ctx.token_count(), 0u);
+
+    agent::Message m;
+    m.role = "user";
+    m.content = "hello world";               // 11 chars / 4 = 2 + 4 overhead = 6
+    ctx.push(std::move(m));
+    ASSERT_EQ(ctx.token_count(), 6u);
+
+    agent::Message m2;
+    m2.role = "assistant";
+    m2.content = std::string(100, 'x');      // 100/4 = 25 + 4 = 29
+    ctx.push(std::move(m2));
+    ASSERT_EQ(ctx.token_count(), 35u);       // 6 + 29
+
+    ctx.clear();
+    ASSERT_EQ(ctx.token_count(), 0u);
+    ASSERT_EQ(ctx.size(), 0u);
+}
+
+TEST(context_lifo_pop) {
+    agent::Context ctx;
+    for (int i = 0; i < 5; ++i) {
+        agent::Message m;
+        m.role = "user";
+        m.content = "msg" + std::to_string(i);
+        ctx.push(std::move(m));
+    }
+    ASSERT_EQ(ctx.size(), 5u);
+
+    // Pop is LIFO — removes the most recently pushed message.
+    auto top = ctx.pop();
+    ASSERT_EQ(top.content, "msg4");
+    ASSERT_EQ(ctx.size(), 4u);
+
+    top = ctx.pop();
+    ASSERT_EQ(top.content, "msg3");
+    ASSERT_EQ(ctx.size(), 3u);
+
+    ctx.clear();
+    ASSERT_EQ(ctx.size(), 0u);
+    ASSERT_EQ(ctx.token_count(), 0u);
+}
+
+TEST(context_hash_chain_integrity) {
+    // The hash chain asserts on every get_all(). If any mutation method
+    // corrupts the chain (or if someone modifies a sealed message via
+    // const_cast or a rogue method), get_all() crashes with assert failure.
+    // This test exercises every mutation path to ensure the chain survives.
+
+    agent::Context ctx;
+
+    // Push the system prompt.
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "You are a helpful assistant.";
+    ctx.push(std::move(sys));
+    ASSERT_EQ(ctx.size(), 1u);
+    // get_all() verifies the hash chain internally.
+    ASSERT_EQ(ctx.get_all().size(), 1u);
+
+    // Push user and assistant turns.
+    agent::Message u1, a1, u2, a2;
+    u1.role = "user";      u1.content = "hello";
+    a1.role = "assistant"; a1.content = "hi there";
+    u2.role = "user";      u2.content = "what is c++";
+    a2.role = "assistant"; a2.content = "a language";
+    ctx.push(std::move(u1)); ctx.get_all();
+    ctx.push(std::move(a1)); ctx.get_all();
+    ctx.push(std::move(u2)); ctx.get_all();
+    ctx.push(std::move(a2)); ctx.get_all();
+    ASSERT_EQ(ctx.size(), 5u);
+
+    // Pop the last assistant reply (LIFO).
+    auto popped = ctx.pop();
+    ASSERT_EQ(popped.content, "a language");
+    ctx.get_all();  // chain must survive pop
+    ASSERT_EQ(ctx.size(), 4u);
+
+    // Pop again.
+    popped = ctx.pop();
+    ASSERT_EQ(popped.content, "what is c++");
+    ctx.get_all();  // chain must survive second pop
+    ASSERT_EQ(ctx.size(), 3u);
+
+    // Clear and re-push from scratch.
+    ctx.clear();
+    ctx.get_all();  // chain must survive clear
+    ASSERT_EQ(ctx.size(), 0u);
+
+    agent::Message m;
+    m.role = "user";
+    m.content = "fresh start";
+    ctx.push(std::move(m));
+    ctx.get_all();  // chain must survive rebuild
+    ASSERT_EQ(ctx.size(), 1u);
+    ASSERT_EQ(ctx.get_all().back().content, "fresh start");
+}
+
+TEST(context_event_source_delivers_to_all_subscribers) {
+    agent::Context ctx;
+    agent::ContextEventSource src;
+
+    int sub1_count = 0, sub2_count = 0;
+    size_t sub1_tokens = 0, sub2_tokens = 0;
+
+    src.subscribe([&](size_t t, size_t) { ++sub1_count; sub1_tokens = t; });
+    src.subscribe([&](size_t t, size_t) { ++sub2_count; sub2_tokens = t; });
+
+    // Publish initial event.
+    src.publish(ctx.token_count(), ctx.size());
+    ASSERT_EQ(sub1_count, 1);
+    ASSERT_EQ(sub2_count, 1);
+
+    // Push a message and publish again.
+    agent::Message m;
+    m.role = "user";
+    m.content = "test";
+    ctx.push(std::move(m));
+    src.publish(ctx.token_count(), ctx.size());
+
+    ASSERT_EQ(sub1_count, 2);
+    ASSERT_EQ(sub2_count, 2);
+    ASSERT(sub1_tokens > 0u);
+    ASSERT_EQ(sub1_tokens, sub2_tokens);
+}
+
+TEST(context_event_integration_with_agent) {
+    // Verify that Agent's context mutations fire events to subscribers
+    // without requiring a live LLM server.
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg);
+
+    int events_fired = 0;
+    size_t last_tokens = 0;
+    size_t last_msgs = 0;
+    ag.context_events().subscribe([&](size_t t, size_t m) {
+        ++events_fired;
+        last_tokens = t;
+        last_msgs = m;
+    });
+
+    // Initially empty — no events yet (system prompt is pushed in run()).
+    ASSERT_EQ(events_fired, 0);
+
+    // set_context fires one bulk event after clearing + pushing.
+    agent::Message msg;
+    msg.role = "user";
+    msg.content = "test";
+    ag.set_context({msg});
+    ASSERT_EQ(events_fired, 1);
+    ASSERT(last_tokens > 0u);
+    ASSERT_EQ(last_msgs, 1u);
+
+    // Replace with two messages: one bulk event.
+    agent::Message msg2;
+    msg2.role = "assistant";
+    msg2.content = "reply";
+    ag.set_context({msg, msg2});
+    ASSERT_EQ(events_fired, 2);
+    ASSERT_EQ(last_msgs, 2u);
+}
+
+// ---------------------------------------------------------------------------
 
 int main() { return agent::test::run_all(); }
+
+// ---------------------------------------------------------------------------
+// Learn UI: store listing / remove / promote APIs ([LU-01], [LU-03], [LU-04],
+// [LU-05])
+// ---------------------------------------------------------------------------
+
+namespace {
+
+agent::ExperienceConfig learn_ec(const std::string& path) {
+    agent::ExperienceConfig ec;
+    ec.store_path = path;
+    return ec;
+}
+
+} // namespace
+
+// [LU-01] all_memories/all_skills return every item, score-sorted desc.
+TEST(learn_store_listing_order) {
+    std::string path = "/tmp/amber_learn_list.json";
+    auto store = agent::make_memory_store(learn_ec(path));
+    store->set_current_turn(5);
+    agent::Memory low;
+    low.name = "low";
+    low.content = "low content";
+    low.evidence_count = 1;
+    low.last_confirm_turn = 5;
+    agent::Memory high;
+    high.name = "high";
+    high.content = "high content";
+    high.evidence_count = 4;
+    high.last_confirm_turn = 5;
+    high.promoted = true;
+    store->upsert(low);
+    store->upsert(high);
+
+    auto mems = store->all_memories();
+    ASSERT_EQ(mems.size(), 2u);
+    ASSERT_EQ(mems[0].name, "high");
+    ASSERT_EQ(mems[1].name, "low");
+
+    agent::Skill sk;
+    sk.name = "deploy";
+    sk.content = "deploy steps";
+    sk.evidence_count = 3;
+    sk.last_confirm_turn = 5;
+    store->upsert(sk);
+    auto sks = store->all_skills();
+    ASSERT_EQ(sks.size(), 1u);
+    ASSERT_EQ(sks[0].name, "deploy");
+    ASSERT(sks[0].promoted == false);
+    std::remove(path.c_str());
+}
+
+// [LU-03] remove erases the item and persists across save/load.
+TEST(learn_store_remove_persists) {
+    std::string path = "/tmp/amber_learn_remove.json";
+    auto store = agent::make_memory_store(learn_ec(path));
+    agent::Memory m;
+    m.name = "keep";
+    m.content = "keep content";
+    m.evidence_count = 2;
+    store->upsert(m);
+    agent::Memory gone;
+    gone.name = "gone";
+    gone.content = "gone content";
+    gone.evidence_count = 2;
+    store->upsert(gone);
+
+    std::string gone_id;
+    for (const auto& mem : store->all_memories())
+        if (mem.name == "gone") gone_id = mem.id;
+    ASSERT_FALSE(gone_id.empty());
+
+    ASSERT_TRUE(store->remove(gone_id));
+    ASSERT_TRUE(store->save(path));
+    ASSERT_EQ(store->all_memories().size(), 1u);
+
+    auto reloaded = agent::make_memory_store(learn_ec(path));
+    ASSERT_TRUE(reloaded->load(path));
+    auto mems = reloaded->all_memories();
+    ASSERT_EQ(mems.size(), 1u);
+    ASSERT_EQ(mems[0].name, "keep");
+    std::remove(path.c_str());
+}
+
+// [LU-04] remove with an unknown id returns false and changes nothing.
+TEST(learn_store_remove_unknown) {
+    std::string path = "/tmp/amber_learn_remove_unknown.json";
+    auto store = agent::make_memory_store(learn_ec(path));
+    agent::Memory m;
+    m.name = "only";
+    m.content = "only content";
+    store->upsert(m);
+    ASSERT_FALSE(store->remove("zzz"));
+    ASSERT_EQ(store->all_memories().size(), 1u);
+    ASSERT_TRUE(store->save(path));
+    auto reloaded = agent::make_memory_store(learn_ec(path));
+    ASSERT_TRUE(reloaded->load(path));
+    ASSERT_EQ(reloaded->all_memories().size(), 1u);
+    std::remove(path.c_str());
+}
+
+// [LU-05] set_promoted flips the flag and persists; unknown id returns false.
+TEST(learn_store_set_promoted_persists) {
+    std::string path = "/tmp/amber_learn_pin.json";
+    auto store = agent::make_memory_store(learn_ec(path));
+    agent::Skill sk;
+    sk.name = "deploy";
+    sk.content = "deploy steps";
+    store->upsert(sk);
+    std::string id = store->all_skills()[0].id;
+
+    ASSERT_TRUE(store->set_promoted(id, true));
+    ASSERT_TRUE(store->all_skills()[0].promoted);
+    ASSERT_TRUE(store->save(path));
+
+    auto reloaded = agent::make_memory_store(learn_ec(path));
+    ASSERT_TRUE(reloaded->load(path));
+    ASSERT_TRUE(reloaded->all_skills()[0].promoted);
+
+    ASSERT_TRUE(reloaded->set_promoted(id, false));
+    ASSERT_FALSE(reloaded->all_skills()[0].promoted);
+    ASSERT_FALSE(reloaded->set_promoted("zzz", true));
+    std::remove(path.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// Learn UI: Agent wrappers ([LU-03], [LU-05], [LU-08])
+// ---------------------------------------------------------------------------
+
+// [LU-03] learn_forget removes the item and persists through the Agent.
+TEST(learn_agent_forget_persists) {
+    std::string path = "/tmp/amber_learn_agent.json";
+    std::remove(path.c_str());
+    agent::Config cfg;
+    cfg.experience_store_path = path;
+    auto store = agent::make_memory_store(agent::load_experience_config(cfg));
+    agent::Memory m;
+    m.name = "keep";
+    m.content = "keep content";
+    m.evidence_count = 2;
+    store->upsert(m);
+    agent::Memory gone;
+    gone.name = "gone";
+    gone.content = "gone content";
+    gone.evidence_count = 2;
+    store->upsert(gone);
+    store->save(path);
+
+    agent::ToolRegistry reg;
+    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    auto* s = agent.memory_store();
+    ASSERT(s != nullptr);
+    ASSERT_TRUE(s->load(path));
+    std::string gone_id;
+    for (const auto& mem : s->all_memories())
+        if (mem.name == "gone") gone_id = mem.id;
+    ASSERT_FALSE(gone_id.empty());
+
+    ASSERT_EQ(agent.learn_forget(gone_id), "");
+    auto reloaded = agent::make_memory_store(agent::load_experience_config(cfg));
+    ASSERT_TRUE(reloaded->load(path));
+    ASSERT_EQ(reloaded->all_memories().size(), 1u);
+    ASSERT_EQ(reloaded->all_memories()[0].name, "keep");
+    std::remove(path.c_str());
+}
+
+// [LU-04] learn_forget with an unknown id errors and leaves the file alone.
+TEST(learn_agent_forget_unknown) {
+    std::string path = "/tmp/amber_learn_agent_unknown.json";
+    std::remove(path.c_str());
+    agent::Config cfg;
+    cfg.experience_store_path = path;
+    auto store = agent::make_memory_store(agent::load_experience_config(cfg));
+    agent::Memory m;
+    m.name = "only";
+    m.content = "only content";
+    store->upsert(m);
+    store->save(path);
+
+    agent::ToolRegistry reg;
+    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    ASSERT_TRUE(agent.memory_store()->load(path));
+    std::string err = agent.learn_forget("zzz");
+    ASSERT_FALSE(err.empty());
+    ASSERT(err.find("no learned item with id") != std::string::npos);
+    auto reloaded = agent::make_memory_store(agent::load_experience_config(cfg));
+    ASSERT_TRUE(reloaded->load(path));
+    ASSERT_EQ(reloaded->all_memories().size(), 1u);
+    std::remove(path.c_str());
+}
+
+// [LU-05] learn_pin flips the promoted flag and persists through the Agent.
+TEST(learn_agent_pin_persists) {
+    std::string path = "/tmp/amber_learn_agent_pin.json";
+    std::remove(path.c_str());
+    agent::Config cfg;
+    cfg.experience_store_path = path;
+    auto store = agent::make_memory_store(agent::load_experience_config(cfg));
+    agent::Skill sk;
+    sk.name = "deploy";
+    sk.content = "deploy steps";
+    store->upsert(sk);
+    store->save(path);
+
+    agent::ToolRegistry reg;
+    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    ASSERT_TRUE(agent.memory_store()->load(path));
+    std::string id = agent.memory_store()->all_skills()[0].id;
+
+    ASSERT_EQ(agent.learn_pin(id, true), "");
+    auto reloaded = agent::make_memory_store(agent::load_experience_config(cfg));
+    ASSERT_TRUE(reloaded->load(path));
+    ASSERT_TRUE(reloaded->all_skills()[0].promoted);
+    std::remove(path.c_str());
+}
+
+// [LU-08] With no store the wrappers report the store as disabled.
+TEST(learn_agent_store_disabled) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    agent::Agent agent(cfg, reg);
+    ASSERT(agent.memory_store() == nullptr);
+    ASSERT_FALSE(agent.learn_forget("x").empty());
+    ASSERT_FALSE(agent.learn_pin("x", true).empty());
+}
+
+// ---------------------------------------------------------------------------
+// Search exclusions: hidden/vendored dirs are skipped by default, but an
+// explicit path inside one of them is honored (the capability is never
+// removed, only defaulted away). [I-2]/[I-3]
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string make_exclusion_tree() {
+    std::string dir = "/tmp/amber_search_excl";
+    run_cmd("rm -rf " + dir);
+    run_cmd("mkdir -p " + dir + "/.git " + dir + "/.amber " +
+            dir + "/third_party " + dir + "/src");
+    std::ofstream(dir + "/src/a.cpp")
+        << "int the_marker_symbol() { return 1; }\n";
+    std::ofstream(dir + "/.git/x.cpp")
+        << "int the_marker_symbol() { return 2; }\n";
+    std::ofstream(dir + "/.amber/y.json")
+        << "the_marker_symbol\n";
+    std::ofstream(dir + "/third_party/z.cpp")
+        << "int the_marker_symbol() { return 3; }\n";
+    return dir;
+}
+
+} // namespace
+
+TEST(search_default_excludes_hidden_and_vendored) {
+    std::string dir = make_exclusion_tree();
+    auto be = agent::make_grep_backend();
+    auto hits = be->search("the_marker_symbol", dir, "*.cpp", 100);
+    ASSERT_EQ(hits.size(), 1u);
+    ASSERT(hits[0].path.find("/src/a.cpp") != std::string::npos);
+    run_cmd("rm -rf " + dir);
+}
+
+TEST(search_excludes_are_removable) {
+    std::string dir = make_exclusion_tree();
+    auto be = agent::make_grep_backend();
+    // Dropping "third_party" from the excludes makes vendored code searchable.
+    auto hits = be->search("the_marker_symbol", dir, "*.cpp", 100,
+                           {".amber", ".git"});
+    bool saw_vendored = false;
+    for (const auto& h : hits)
+        if (h.path.find("/third_party/z.cpp") != std::string::npos)
+            saw_vendored = true;
+    ASSERT(saw_vendored);
+    run_cmd("rm -rf " + dir);
+}
+
+// Tool-level: an explicit path inside an excluded dir honors the intent.
+TEST(search_tool_explicit_path_inside_excluded) {
+    std::string dir = make_exclusion_tree();
+    agent::Workspace::set_root(dir);
+    auto tool = agent::make_search_tool();
+
+    auto default_run = tool->execute({{"pattern", "the_marker_symbol"},
+                                      {"glob", "*.cpp"}});
+    ASSERT_TRUE(default_run.ok);
+    ASSERT(default_run.output.find("z.cpp") == std::string::npos);
+
+    auto vendored = tool->execute({{"pattern", "the_marker_symbol"},
+                                   {"glob", "*.cpp"},
+                                   {"path", "third_party"}});
+    ASSERT_TRUE(vendored.ok);
+    ASSERT(vendored.output.find("z.cpp") != std::string::npos);
+    run_cmd("rm -rf " + dir);
+}
+
+// ---------------------------------------------------------------------------
+// Environment card ([I-9]): a compact session-fixed system-prompt section
+// telling the agent its OS, user, working directory, resources, and which
+// tools exist — so it can act in its environment without probing.
+// ---------------------------------------------------------------------------
+
+TEST(environment_card_renders_compact) {
+    agent::EnvironmentInfo info;
+    info.os = "Ubuntu 24.04 (Linux 6.8.0-45-generic x86_64)";
+    info.user_host = "jack@box";
+    info.cwd = "/home/jack/project";
+    info.resources = "8 cores \u00b7 16 GB RAM";
+    info.tools = {"git", "python3", "make", "g++"};
+
+    std::string card = agent::render_environment_card(info);
+    ASSERT_FALSE(card.empty());
+    ASSERT(card.find("## Environment") == 0);
+    ASSERT(card.find("OS: Ubuntu 24.04") != std::string::npos);
+    ASSERT(card.find("User: jack@box") != std::string::npos);
+    ASSERT(card.find("Working directory: /home/jack/project") !=
+           std::string::npos);
+    ASSERT(card.find("8 cores") != std::string::npos);
+    ASSERT(card.find("Tools available: git, python3, make, g++") !=
+           std::string::npos);
+    // Compact: well under a couple of hundred tokens.
+    ASSERT(card.size() < 600u);
+}
+
+TEST(environment_card_omits_unknown_fields) {
+    agent::EnvironmentInfo info;
+    std::string card = agent::render_environment_card(info);
+    ASSERT_EQ(card, "");
+    info.os = "Linux";
+    card = agent::render_environment_card(info);
+    ASSERT(card.find("User:") == std::string::npos);
+    ASSERT(card.find("Tools") == std::string::npos);
+}
+
+// On the test machine the probe must find the basics.
+TEST(environment_probe_collects_facts) {
+    auto info = agent::probe_environment();
+    ASSERT_FALSE(info.os.empty());
+    ASSERT(info.os.find("Linux") != std::string::npos);
+    ASSERT_FALSE(info.user_host.empty());
+    char buf[4096];
+    ASSERT_EQ(info.cwd, std::string(getcwd(buf, sizeof buf) ? buf : ""));
+    ASSERT_FALSE(info.resources.empty());
+    ASSERT(!info.tools.empty());  // git or python3 present in CI
+    ASSERT_FALSE(agent::render_environment_card(info).empty());
+}
+
+// ---------------------------------------------------------------------------
+// WS-A: deployable data paths. Data files must resolve from a system data
+// directory (XDG /usr/share) so the packaged app works from any CWD, while
+// dev workflows (CWD / binary dir) keep precedence.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct DataTree {
+    std::string base;
+    std::string cwd;
+    std::string bin;
+    std::string xdg;
+    std::string saved_cwd;
+    std::string saved_xdg;
+    bool xdg_was_set = false;
+
+    ~DataTree() {
+        run_cmd("rm -rf " + base);
+        if (!saved_cwd.empty()) chdir(saved_cwd.c_str());
+        if (xdg_was_set)
+            setenv("XDG_DATA_HOME", saved_xdg.c_str(), 1);
+        else
+            unsetenv("XDG_DATA_HOME");
+    }
+};
+
+DataTree make_data_tree() {
+    DataTree t;
+    t.base = "/tmp/amber_dp_tree";
+    t.cwd = t.base + "/cwd";
+    t.bin = t.base + "/bin";
+    t.xdg = t.base + "/xdg";
+    run_cmd("rm -rf " + t.base);
+    run_cmd("mkdir -p " + t.cwd + " " + t.bin + " " + t.xdg + "/amber/prompts");
+    char buf[4096];
+    if (getcwd(buf, sizeof buf)) t.saved_cwd = buf;
+    t.saved_xdg = std::getenv("XDG_DATA_HOME") ? std::getenv("XDG_DATA_HOME") : "";
+    t.xdg_was_set = std::getenv("XDG_DATA_HOME") != nullptr;
+    setenv("XDG_DATA_HOME", t.xdg.c_str(), 1);
+    chdir(t.cwd.c_str());
+    return t;
+}
+
+std::string dp_argv0(const std::string& bin_dir) { return bin_dir + "/amber"; }
+
+} // namespace
+
+TEST(data_path_resolves_from_xdg_data_home) {
+    DataTree t = make_data_tree();
+    std::ofstream(t.xdg + "/amber/prompts/system.md") << "xdg";
+    // Not in CWD, not next to the binary — must come from XDG_DATA_HOME.
+    std::string got =
+        agent::resolve_data_path("prompts/system.md", dp_argv0(t.bin).c_str());
+    ASSERT_EQ(got, t.xdg + "/amber/prompts/system.md");
+}
+
+TEST(data_path_priority_cwd_bin_xdg) {
+    DataTree t = make_data_tree();
+    run_cmd("mkdir -p " + t.cwd + "/prompts " + t.bin + "/prompts");
+    std::ofstream(t.cwd + "/prompts/system.md") << "cwd";
+    std::ofstream(t.bin + "/prompts/system.md") << "bin";
+    std::ofstream(t.xdg + "/amber/prompts/system.md") << "xdg";
+    std::string argv0s = dp_argv0(t.bin);
+    const char* argv0 = argv0s.c_str();
+
+    auto read_marker = [](const std::string& p) {
+        std::ifstream f(p);
+        std::string line;
+        std::getline(f, line);
+        return line;
+    };
+
+    // CWD wins while present.
+    std::string got = agent::resolve_data_path("prompts/system.md", argv0);
+    ASSERT_EQ(read_marker(got), "cwd");
+
+    // Remove CWD copy: binary dir wins.
+    std::remove((t.cwd + "/prompts/system.md").c_str());
+    got = agent::resolve_data_path("prompts/system.md", argv0);
+    ASSERT_EQ(read_marker(got), "bin");
+
+    // Remove binary copy: XDG data dir wins.
+    std::remove((t.bin + "/prompts/system.md").c_str());
+    got = agent::resolve_data_path("prompts/system.md", argv0);
+    ASSERT_EQ(read_marker(got), "xdg");
+}
+
+TEST(data_path_returns_empty_when_missing) {
+    DataTree t = make_data_tree();
+    std::string got =
+        agent::resolve_data_path("prompts/definitely_not_here.md",
+                                 dp_argv0(t.bin).c_str());
+    ASSERT_EQ(got, "");
+}
+
+// ---------------------------------------------------------------------------
+// WS-A: fail-fast bootstrap. The app must not start when critical data files
+// are missing; the validator reports each missing file and the locations
+// searched.
+// ---------------------------------------------------------------------------
+
+TEST(bootstrap_validator_reports_missing_files) {
+    DataTree t = make_data_tree();
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
+                                                  false);
+    ASSERT_EQ(missing.size(), 2u);
+    ASSERT(missing[0].find("system") != std::string::npos);
+    ASSERT(missing[1].find("tools") != std::string::npos);
+}
+
+TEST(bootstrap_validator_passes_when_files_exist) {
+    DataTree t = make_data_tree();
+    run_cmd("mkdir -p " + t.cwd + "/prompts " + t.xdg + "/amber");
+    std::ofstream(t.cwd + "/prompts/system.md") << "x";
+    std::ofstream(t.cwd + "/prompts/tools.md") << "x";
+    std::ofstream(t.xdg + "/amber/completions.json") << "{}";
+
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+
+    // Prompts found in CWD; completions.json must come from XDG.
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
+                                                  true);
+    ASSERT_EQ(missing.size(), 0u);
+}
+
+TEST(bootstrap_validator_requires_completions_when_requested) {
+    DataTree t = make_data_tree();
+    run_cmd("mkdir -p " + t.cwd + "/prompts");
+    std::ofstream(t.cwd + "/prompts/system.md") << "x";
+    std::ofstream(t.cwd + "/prompts/tools.md") << "x";
+
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+
+    // completions.json exists nowhere; TUI requires it.
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
+                                                  true);
+    ASSERT_EQ(missing.size(), 1u);
+    ASSERT(missing[0].find("completions") != std::string::npos);
+}
+
+TEST(parse_model_list_dedupes_ids) {
+    std::string body = R"({"data": [
+        {"id": "qwen35-moe"},
+        {"id": "qwen35-moe"},
+        {"id": "qwopus-27b"},
+        {"id": "qwopus-27b"},
+        {"id": "gemma4-12b-q4"}]})";
+    auto models = agent::parse_model_list(body);
+    ASSERT_EQ(models.size(), 3u);
+    bool saw_qwopus = false, saw_qwen = false;
+    for (const auto& m : models) {
+        if (m == "qwopus-27b") saw_qwopus = true;
+        if (m == "qwen35-moe") saw_qwen = true;
+    }
+    ASSERT(saw_qwopus && saw_qwen);
+}
+
+// [I-7] Explicit 0 must disable the turn gates instead of silently keeping
+// the pipeline defaults (min_turns=10, cooldown=20).
+TEST(compression_config_explicit_zero_disables_gates) {
+    agent::Config cfg;
+    cfg.compression_min_turns_explicit = true;
+    cfg.compression_min_turns = 0;
+    cfg.compression_cooldown_turns_explicit = true;
+    cfg.compression_cooldown_turns = 0;
+    auto cc = agent::load_compression_config(cfg);
+    ASSERT_EQ(cc.min_turns, 0);
+    ASSERT_EQ(cc.cooldown_turns, 0);
+}
+
+TEST(compression_config_unset_keeps_defaults) {
+    agent::Config cfg;
+    auto cc = agent::load_compression_config(cfg);
+    ASSERT_EQ(cc.min_turns, 10);
+    ASSERT_EQ(cc.cooldown_turns, 20);
+}
+
+TEST(compression_gate_min_turns_zero_passes_immediately) {
+    agent::CompressionConfig cc;
+    cc.threshold = 0.01;
+    cc.min_turns = 0;
+    cc.cooldown_turns = 0;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 1000;
+    agent::Context ctx;
+    for (int i = 0; i < 3; ++i)
+        ctx.push(msg("user", std::string(200, 'a')));
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+// ---------------------------------------------------------------------------
+// [I-8] Skills archive installer: a tar.gz pack (local path or URL) with a
+// SKILL.md at its root installs into a skill directory and becomes
+// discoverable; archives without a valid SKILL.md are rejected.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string make_skill_archive(const std::string& base) {
+    run_cmd("mkdir -p " + base + "/src/skilltest");
+    std::ofstream(base + "/src/skilltest/SKILL.md")
+        << "---\nname: skilltest\ndescription: test skill\n---\n\n# skilltest\n\nDo the thing.\n";
+    std::ofstream(base + "/src/skilltest/helper.txt") << "auxiliary data\n";
+    std::string archive = base + "/pack.tar.gz";
+    run_cmd("tar -czf " + archive + " -C " + base + "/src .");
+    return archive;
+}
+
+} // namespace
+
+TEST(skill_install_from_archive) {
+    std::string base = "/tmp/amber_skill_install";
+    run_cmd("rm -rf " + base);
+    std::string archive = make_skill_archive(base);
+    std::string dest = base + "/dest";
+
+    std::string err = agent::install_skill_pack(archive, dest);
+    ASSERT(err.empty());
+    ASSERT(std::filesystem::exists(dest + "/skilltest/SKILL.md"));
+    ASSERT(std::filesystem::exists(dest + "/skilltest/helper.txt"));
+
+    auto files = agent::scan_skill_dir(dest, agent::SkillScope::Global);
+    bool found = false;
+    for (const auto& f : files)
+        if (f.name == "skilltest") found = true;
+    ASSERT(found);
+
+    err = agent::uninstall_skill("skilltest", dest);
+    ASSERT(err.empty());
+    ASSERT(!std::filesystem::exists(dest + "/skilltest"));
+    run_cmd("rm -rf " + base);
+}
+
+TEST(skill_install_rejects_non_skill_archive) {
+    std::string base = "/tmp/amber_skill_install";
+    run_cmd("rm -rf " + base);
+    run_cmd("mkdir -p " + base + "/src/notaskill");
+    std::ofstream(base + "/src/notaskill/README.md") << "no skill here\n";
+    std::string archive = base + "/pack.tar.gz";
+    run_cmd("tar -czf " + archive + " -C " + base + "/src .");
+
+    std::string err = agent::install_skill_pack(archive, base + "/dest");
+    ASSERT(!err.empty());
+    ASSERT(err.find("SKILL.md") != std::string::npos);
+    run_cmd("rm -rf " + base);
+}
+
+TEST(skill_install_rejects_malformed_skill) {
+    std::string base = "/tmp/amber_skill_install";
+    run_cmd("rm -rf " + base);
+    run_cmd("mkdir -p " + base + "/src/skilltest");
+    std::ofstream(base + "/src/skilltest/SKILL.md") << "no frontmatter at all\n";
+    std::string archive = base + "/pack.tar.gz";
+    run_cmd("tar -czf " + archive + " -C " + base + "/src .");
+
+    std::string err = agent::install_skill_pack(archive, base + "/dest");
+    ASSERT(!err.empty());
+    run_cmd("rm -rf " + base);
+}
+
+// [I-5 residual ③] Live MCP tools reflect into the completion tree.
+TEST(mcp_completion_subtree_reflects_live_tools) {
+    agent::ToolRegistry reg;
+    // Minimal fake tools named like registered MCP adapters.
+    struct FakeMcpTool : agent::Tool {
+        std::string id;
+        std::string name() const noexcept override { return id; }
+        std::string description() const noexcept override {
+            return "desc of " + id;
+        }
+        agent::json parameters_schema() const override {
+            return agent::json::object();
+        }
+        agent::ToolResult execute(const agent::json&) const override {
+            return {};
+        }
+    };
+    auto add = [&](const std::string& n) {
+        auto t = std::make_unique<FakeMcpTool>();
+        t->id = n;
+        reg.register_tool(std::move(t));
+    };
+    add("mcp_github_list_issues");
+    add("mcp_github_get_issue");
+    add("read");  // non-mcp tool must be ignored
+
+    auto subtree = agent::mcp_completion_subtree(reg);
+    ASSERT(subtree.contains("mcp"));
+    const auto& srv = subtree["mcp"]["children"]["github"];
+    ASSERT(srv.contains("children"));
+    ASSERT(srv["children"].contains("list_issues"));
+    ASSERT(srv["children"]["list_issues"]["help"] == "desc of mcp_github_list_issues");
+    ASSERT_EQ(srv["children"].size(), 2u);
+}

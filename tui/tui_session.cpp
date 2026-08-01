@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui.h"
 #include "tui/dialog.h"
@@ -17,8 +15,18 @@ agent::Session Tui::snapshot(Window& w) const {
     s.id = w.session_id;
     s.model = cfg_.model;
     if (w.agent) {
-        s.messages = w.agent->history();
+        const auto& ctx = w.agent->context().get_all();
+        s.messages.assign(ctx.begin(), ctx.end());
         s.meta = w.agent->meta_;
+    }
+    // Persist UI state so it survives exit/reload.
+    s.meta["ctx_used"] = ctx_used_;
+    s.meta["ctx_size"] = cfg_.context_size;
+    if (stats_.valid) {
+        s.meta["latency_ms"] = stats_.latency_ms;
+        s.meta["tps"] = stats_.tps;
+        s.meta["prompt_tokens"] = stats_.prompt_tokens;
+        s.meta["completion_tokens"] = stats_.completion_tokens;
     }
     s.derive_title();
     if (w.title != "chat" && !w.title.empty()) s.title = w.title;
@@ -27,9 +35,7 @@ agent::Session Tui::snapshot(Window& w) const {
 
 void Tui::autosave() {
     Window& w = win();
-    if (!w.dirty || !w.agent || w.agent->history().empty()) return;
-    append_line(P_STATUS, "saving session...");
-    draw();
+    if (!w.dirty || !w.agent || w.agent->context().empty()) return;
     agent::Session s = snapshot(w);
     if (store_.save(s)) {
         w.session_id = s.id;
@@ -40,7 +46,7 @@ void Tui::autosave() {
 
 void Tui::save_session() {
     Window& w = win();
-    if (!w.agent || w.agent->history().empty()) {
+    if (!w.agent || w.agent->context().empty()) {
         append_line(P_STATUS, "nothing to save (empty conversation)");
         return;
     }
@@ -62,9 +68,35 @@ void Tui::load_session(const std::string& id) {
     }
     Window& w = new_window(s.title.empty() ? "chat" : s.title);
     w.session_id = s.id;
-    w.agent->set_history(s.messages);
+    w.agent->set_context(s.messages);
+    // Large context on load?  Compress asynchronously so the first turn uses a
+    // smaller prefill.  We check utilisation directly (not the per-turn gate)
+    // because this is a one-time load reduction, not an inline compression that
+    // would break tail-injection.
+    double utilisation = s.messages.empty() ? 0.0
+        : static_cast<double>(w.agent->context().token_count())
+          / std::max(1, cfg_.context_size);
+    if (utilisation > 0.40) {
+        append_line(P_STATUS, "large session — background compression started");
+        switch_to(windows_.size() - 1);
+        compress_worker();
+    }
     if (!s.meta.empty())
         w.agent->meta_ = s.meta;
+    // Restore UI state from saved session meta.
+    auto get_num = [&](const char* key, long def) -> long {
+        return (s.meta.contains(key) && s.meta[key].is_number())
+                   ? s.meta[key].get<long>() : def;
+    };
+    ctx_used_ = get_num("ctx_used", -1);
+    cfg_.context_size = static_cast<int>(get_num("ctx_size", 0));
+    if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
+        stats_.latency_ms = s.meta["latency_ms"].get<double>();
+        stats_.tps = static_cast<double>(get_num("tps", -1));
+        stats_.prompt_tokens = get_num("prompt_tokens", -1);
+        stats_.completion_tokens = get_num("completion_tokens", -1);
+        stats_.valid = true;
+    }
     for (const auto& m : s.messages) {
         if (m.role == "user") {
             append_line(P_USER, "> " + m.content);
@@ -93,9 +125,6 @@ void Tui::load_session(const std::string& id) {
     draw();
 }
 
-void Tui::pick_session() {
-    session_browser();
-}
 
 namespace {
 
@@ -259,7 +288,7 @@ void Tui::session_browser() {
                 x += static_cast<int>(std::strlen(cnt)) + 1;
                 if (m.file_size > 0) {
                     char sz[16];
-                    if (m.file_size > 1024 * 1024)
+                    if (m.file_size > static_cast<long>(1024) * 1024)
                         std::snprintf(sz, sizeof(sz), "%.1fMB",
                                       m.file_size / (1024.0 * 1024.0));
                     else if (m.file_size > 1024)
@@ -304,6 +333,7 @@ void Tui::session_browser() {
                 case KEY_UP: --sel; break;
                 case KEY_NPAGE: sel += list_h; break;
                 case KEY_PPAGE: sel -= list_h; break;
+                default: break;
                 case '\n': case '\r': case KEY_ENTER:
                     if (sel >= 0)
                         { load_session(all[disp[sel].second].id); done = true; }
@@ -311,7 +341,9 @@ void Tui::session_browser() {
                 case KEY_DC: case 4: {  // Delete or Ctrl+D
                     if (sel >= 0) {
                         int del_idx = disp[sel].second;
-                        std::string msg = "Delete \"" + all[del_idx].title + "\"?";
+                        std::string msg = "Delete \"";
+                        msg += all[del_idx].title;
+                        msg += "\"?";
                         tui::ConfirmPanel confirm("Delete Session", msg);
                         if (confirm.run()) {
                             store_.remove(all[del_idx].id);
@@ -345,13 +377,29 @@ void Tui::session_browser() {
 
 void Tui::lazy_load_active() {
     auto& w = win();
-    if (!w.agent || !w.agent->history().empty() || w.session_id.empty()) return;
+    if (!w.agent || !w.agent->context().empty() || w.session_id.empty()) return;
     agent::Session s;
     if (!store_.load(w.session_id, s)) {
         w.session_id.clear();
         return;
     }
-    w.agent->set_history(s.messages);
+    w.agent->set_context(s.messages);
+    // Restore meta and UI state (same logic as load_session).
+    if (!s.meta.empty())
+        w.agent->meta_ = s.meta;
+    auto get_num = [&](const char* key, long def) -> long {
+        return (s.meta.contains(key) && s.meta[key].is_number())
+                   ? s.meta[key].get<long>() : def;
+    };
+    ctx_used_ = get_num("ctx_used", -1);
+    cfg_.context_size = static_cast<int>(get_num("ctx_size", 0));
+    if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
+        stats_.latency_ms = s.meta["latency_ms"].get<double>();
+        stats_.tps = static_cast<double>(get_num("tps", -1));
+        stats_.prompt_tokens = get_num("prompt_tokens", -1);
+        stats_.completion_tokens = get_num("completion_tokens", -1);
+        stats_.valid = true;
+    }
     w.lines.clear();
     for (const auto& m : s.messages) {
         if (m.role == "user")
@@ -398,8 +446,6 @@ void Tui::close_window() {
 void Tui::request_quit() { quit_ = true; }
 
 void Tui::save_workspace_now() {
-    std::fprintf(stderr, "\rsaving workspace...");
-    std::fflush(stderr);
     agent::WorkspaceState ws;
     for (const auto& w : windows_) {
         agent::WorkspaceState::WindowEntry we;
@@ -410,7 +456,6 @@ void Tui::save_workspace_now() {
     }
     ws.active = active_;
     store_.save_workspace(ws);
-    std::fprintf(stderr, "\rworkspace saved\n");
 }
 void Tui::redraw_after_modal() {
     modal_open_ = false;

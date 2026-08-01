@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "tui.h"
 #include "welcome.h"
@@ -29,14 +27,6 @@ int Tui::max_scroll() const {
     total += stream_lines();
     int m = total - chat_height();
     return m < 0 ? 0 : m;
-}
-
-void Tui::redraw(const std::string& input) {
-    touchwin(stdscr);
-    draw();
-    draw_input(input);
-    flush();
-    dirty_ = true;
 }
 
 size_t Tui::utf8_len(const std::string& s, size_t i) {
@@ -158,12 +148,17 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     }
     segs.push_back({mode_txt, mode_pair, 2});
 
+    if (scroll_mode_) {
+        segs.push_back({" S ", P_GAUGE_OK, 0});
+    }
+
     if (stats_.latency_ms >= 0) {
         char b[32];
         std::snprintf(b, sizeof(b), "  lag %.0fms", stats_.latency_ms);
-        int lag_pair = stats_.latency_ms > 5000 ? P_GAUGE_CRIT
-                     : stats_.latency_ms > 1000 ? P_GAUGE_WARN
-                     : P_BAR_DIM;
+        int lag_pair;
+        if (stats_.latency_ms > 5000) lag_pair = P_GAUGE_CRIT;
+        else if (stats_.latency_ms > 1000) lag_pair = P_GAUGE_WARN;
+        else lag_pair = P_BAR_DIM;
         segs.push_back({b, lag_pair, 6});
     } else {
         segs.push_back({"  lag " + std::string(text::glyph::emdash()), P_BAR_DIM, 6});
@@ -197,6 +192,16 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
         // running here rather than the bar looking idle.
         segs.push_back({"  " + running_tool_ + "…", P_GAUGE_WARN, 1});
     }
+
+    // Connected MCP servers; a failed one is flagged with '!'.
+    std::string mcp_txt;
+    for (const auto& st : mcp_servers_.snapshot()) {
+        if (!st.connected && st.error.empty()) continue;
+        if (!mcp_txt.empty()) mcp_txt += "·";
+        mcp_txt += (st.connected ? "" : "!") + st.name;
+    }
+    if (!mcp_txt.empty())
+        segs.push_back({"  mcp: " + mcp_txt, P_BAR_DIM, 8});
     return segs;
 }
 
@@ -257,14 +262,10 @@ void Tui::draw() {
         int pos = win().scroll_top;
         int vis = chat_height();
         std::string scroll_glyph;
-        if (pos > 0 && total > vis) {
-            int bar_cells = 5;
-            double frac = static_cast<double>(pos) / (total - vis);
-            int fill = static_cast<int>(frac * bar_cells);
-            scroll_glyph = " [" + std::string(fill, '#')
-                         + std::string(bar_cells - fill, '.') + "]";
-            scroll_glyph += " ln " + std::to_string(pos + 1) + "/"
-                          + std::to_string(total);
+        if (total > vis) {
+            int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis)
+                                             / (total - vis));
+            scroll_glyph = " P:" + std::to_string(pct) + "%";
         }
         draw_status_bar(scroll_glyph);
     }
@@ -403,53 +404,129 @@ void Tui::draw_status_bar(const std::string& tail) {
 
 void Tui::tick_clock() {
     dirty_ = true;
-    int total = static_cast<int>(win().lines.size());
-    if (!win().stream_buf.empty()) total += stream_lines();
-    int start = std::min(win().scroll_top,
-                         std::max(0, total - chat_height()));
-    draw_status_bar("ln " + std::to_string(start + 1) + "/" +
-                     std::to_string(total));
+    int total = max_scroll() + chat_height();
+    int vis = chat_height();
+    int pos = win().scroll_top;
+    std::string tail;
+    if (total > vis) {
+        int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis)
+                                         / (total - vis));
+        tail = " P:" + std::to_string(pct) + "%";
+    }
+    draw_status_bar(tail);
     wnoutrefresh(stdscr);
 }
 
-void Tui::draw_input(const std::string& s) {
+void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
     dirty_ = true;
-    last_input_ = s;
     draw_drawer(s);
     int y = height() - 1;
     int w = width();
+    int x = 0;
+    int prompt_w = 0;
+
     move(y, 0);
     clrtoeol();
-    attron(COLOR_PAIR(P_USER));
-    const std::string kPrompt = "amber> ";
-    std::string shown = kPrompt + s;
-    int prompt_w = static_cast<int>(kPrompt.size());
-    int total_w = display_cols(shown);
-    // Horizontal scrolling: if the input exceeds the terminal width, keep
-    // the cursor (end of input) visible by shifting the visible window.
-    int scroll_off = std::max(0, total_w - w);
-    int vis_w = std::min(total_w, w);
-    std::string visible;
-    if (scroll_off > 0 && scroll_off < prompt_w)
-        scroll_off = 0;  // keep prompt visible if possible
-    visible = shown.substr(static_cast<size_t>(scroll_off),
-                           static_cast<size_t>(vis_w));
-    // Mark overflow with a leading ellipsis
-    if (scroll_off > 0 && !visible.empty())
-        visible[0] = '~';  // overflow indicator (TODO: use \u2026 when UTF-8 support is unified)
-    mvaddnstr(y, 0, visible.c_str(), vis_w);
-    attroff(COLOR_PAIR(P_USER));
-    int cx = std::min(total_w - scroll_off, w - 1);
+
+    // ── Prompt segments (colored, same pattern as bar_segments) ────────
+    auto put = [&](const std::string& text, int pair, int attrs = 0) {
+        if (x >= w) return;
+        std::wstring ws = to_wide(text);
+        int room = w - x;
+        if (static_cast<int>(ws.size()) > room) ws.resize(room);
+        if (attrs)
+            attron(COLOR_PAIR(pair) | attrs);
+        else
+            attron(COLOR_PAIR(pair));
+        mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
+        if (attrs)
+            attroff(COLOR_PAIR(pair) | attrs);
+        else
+            attroff(COLOR_PAIR(pair));
+        x += static_cast<int>(ws.size());
+    };
+
+    // Always show project name. Git branch and diff stats when available.
+    auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
+    decor("\u250c\u2500[");
+    put(git_project_, P_USER);
+    if (!git_branch_.empty()) {
+        decor("]\u2500[");
+        put(git_branch_, P_ASSISTANT);
+        if (git_ins_ > 0 || git_del_ > 0) {
+            decor("]\u2500[");
+            if (git_ins_ > 0)
+                put("+" + std::to_string(git_ins_), P_GIT_PLUS);
+            decor("/");
+            if (git_del_ > 0)
+                put("-" + std::to_string(git_del_), P_GIT_MINUS);
+        }
+    }
+    decor("]\u2500\u276f ");
+
+    prompt_w = x;  // columns consumed by prompt (x is already in wide-char count)
+    int total_w = prompt_w + display_cols(s) + display_cols(shadow);
+    // Cursor column: prompt width + input text before cursor.
+    int cursor_col = prompt_w + display_cols(s.substr(0, cursor));
+    int scroll_off = 0;
+    if (cursor_col >= w) scroll_off = cursor_col - w + 1;
+    if (scroll_off < prompt_w) scroll_off = 0;
+    if (total_w - scroll_off <= 0) {
+        scroll_off = std::max(0, total_w - w);
+    }
+
+    // Render visible part of input text starting at column prompt_w.
+    int input_start = prompt_w - scroll_off;
+    if (input_start < 0) input_start = 0;
+    if (input_start < w && scroll_off > prompt_w) {
+        // Scrolled past prompt — render input only.
+        const char* input_visible = s.c_str();
+        auto skip = static_cast<size_t>(scroll_off - prompt_w);
+        int input_len;
+        if (skip < s.size()) {
+            input_visible += skip;
+            input_len = static_cast<int>(s.size()) - static_cast<int>(skip);
+        } else {
+            input_len = 0;
+        }
+        if (input_len > 0) {
+            if (input_len > w) input_len = w;
+            attron(COLOR_PAIR(P_USER));
+            mvaddnstr(y, input_start, input_visible, input_len);
+            attroff(COLOR_PAIR(P_USER));
+        }
+    } else if (input_start < w && scroll_off <= prompt_w) {
+        // Input starts after prompt on same line.
+        const char* input_visible = s.c_str();
+        int input_len = static_cast<int>(s.size());
+        if (input_len > w - input_start)
+            input_len = w - input_start;
+        if (input_len > 0) {
+            attron(COLOR_PAIR(P_USER));
+            mvaddnstr(y, input_start, input_visible, input_len);
+            attroff(COLOR_PAIR(P_USER));
+        }
+    }
+
+    // ── Shadow (faded completion hint after cursor) ────────────────────
+    if (!shadow.empty() && cursor == s.size()) {
+        int input_w = prompt_w + display_cols(s);
+        int shadow_start = input_w - scroll_off;
+        if (shadow_start >= 0 && shadow_start < w) {
+            attron(A_DIM | COLOR_PAIR(P_GRAY));
+            mvaddnstr(y, shadow_start, shadow.c_str(),
+                       std::min(static_cast<int>(shadow.size()), w - shadow_start));
+            attroff(A_DIM | COLOR_PAIR(P_GRAY));
+        }
+    }
+
+    // ── Cursor ─────────────────────────────────────────────────────────
+    int cx = cursor_col - scroll_off;
     if (cx < 0) cx = 0;
+    if (cx >= w) cx = w - 1;
     curs_set(1);
     move(y, cx);
     wnoutrefresh(stdscr);
-}
-
-void Tui::update_drawer(const std::string& input) {
-    bool want = drawer_wants_open(input);
-    if (want && !drawer_open_) drawer_sel_ = 0;
-    drawer_open_ = want;
 }
 
 std::string Tui::drawer_token(const std::string& input) {
@@ -461,25 +538,167 @@ bool Tui::drawer_has_arg(const std::string& input) {
 std::vector<const Command*> Tui::filter_commands(const std::string& token) {
     return palette::filter(commands(), token);
 }
-bool Tui::drawer_wants_open(const std::string& input) const {
-    return palette::wants_open(input);
-}
 
 void Tui::draw_drawer(const std::string& input) {
     if (!drawer_open_) return;
+    // Don't draw the drawer when a modal dialog is active — it uses raw
+    // move/addch which bypasses the panel system and paints on top of
+    // modal dialogs (approval, info, menu_select). Clear the area to
+    // remove any stale text that would peek through the modal.
+    if (modal_open_) {
+        int bar_row = height() - 2;
+        for (int row = std::max(0, bar_row - 8); row < bar_row; ++row) {
+            move(row, 0); clrtoeol();
+        }
+        return;
+    }
 
     int bar_row = height() - 2;
     std::string token = drawer_token(input);
-
-    std::vector<std::string> rows;
     bool arg_mode = drawer_has_arg(input);
+    std::vector<std::string> rows;
 
-    std::vector<const Command*> matches = filter_commands(token);
-    if (arg_mode) {
-        const Command* c = matches.empty() ? nullptr : matches.front();
+    auto append_choices = [&](std::string& line, const std::string& key) {
+        const auto& ch = settings_.choices_for(key);
+        if (!ch.empty()) {
+            line += "  [";
+            for (size_t i = 0; i < ch.size(); ++i) {
+                if (i > 0) line += "|";
+                line += ch[i];
+            }
+            line += "]";
+        } else {
+            double rlo, rhi;
+            if (settings_.range_for(key, rlo, rhi))
+                line += "  [" + std::to_string((int)rlo) + "-" + std::to_string((int)rhi) + "]";
+        }
+    };
+
+    // Check if we're inside a command namespace.
+    // Extract the namespace path: "/get policy mode" → "get.policy"
+    std::string ns_path;
+    size_t sp = input.find(' ', 1);
+    if (sp != std::string::npos) {
+        ns_path = input.substr(1);  // skip /
+        // Strip trailing spaces so rfind finds the real word boundary.
+        while (!ns_path.empty() && ns_path.back() == ' ')
+            ns_path.pop_back();
+        std::string partial;
+        size_t last_sp = ns_path.rfind(' ');
+        if (last_sp != std::string::npos) {
+            partial = ns_path.substr(last_sp + 1);
+            ns_path.resize(last_sp);
+        }
+        // Convert space-separated to dotted: "get policy" → "get.policy"
+        std::string dotted;
+        size_t p = 0;
+        while (p < ns_path.size()) {
+            size_t spc = ns_path.find(' ', p);
+            if (spc == std::string::npos) { dotted += ns_path.substr(p); break; }
+            if (!dotted.empty()) dotted += ".";
+            dotted += ns_path.substr(p, spc - p);
+            p = spc + 1;
+        }
+        // Strip command prefix (get/set) for registry lookup.
+        // The JSON loader strips the first display-path component, so
+        // "get.policy" is stored as "policy"; "get.detection.loop" as
+        // "detection.loop".
+        std::string lookup_key;
+        size_t first_dot = dotted.find('.');
+        if (first_dot != std::string::npos)
+            lookup_key = dotted.substr(first_dot + 1);
+        else
+            lookup_key = dotted;
+        // Children stored bare only when lookup_key matches the top-level
+        // command name (e.g. "get" → children stored as "policy", not
+        // "get.policy"). Nested namespaces include the full dotted path.
+        bool is_top_cmd = (lookup_key == token);
+        auto kids = settings_.children_of(lookup_key);
+        if (!kids.empty()) {
+            // If partial exactly matches a child that has its own children,
+            // descend into that child's namespace.
+            if (!partial.empty()) {
+                std::string sub_key = is_top_cmd ? partial
+                                                 : lookup_key + "." + partial;
+                auto sub = settings_.children_of(sub_key);
+                if (!sub.empty()) {
+                    for (const auto& sk : sub) {
+                        std::string full_key = sub_key;
+                        full_key += ".";
+                        full_key += sk;
+                        std::string h = settings_.help_for(full_key);
+                        std::string line = "  ";
+                        line += sk;
+                        if (!h.empty()) {
+                            if (sk.size() < 34) line.append(34 - sk.size(), ' ');
+                            line += "  ";
+                            line += h;
+                        }
+                        append_choices(line, full_key);
+                        rows.push_back(line);
+                    }
+                    goto render;
+                }
+            }
+            for (const auto& k : kids) {
+                if (!partial.empty() && k.rfind(partial, 0) != 0) continue;
+                std::string full_key = is_top_cmd ? k : lookup_key;
+                if (!is_top_cmd) {
+                    full_key += ".";
+                    full_key += k;
+                }
+                std::string h = settings_.help_for(full_key);
+                std::string line = "  ";
+                line += k;
+                if (!h.empty()) {
+                    if (k.size() < 34) line.append(34 - k.size(), ' ');
+                    line += "  ";
+                    line += h;
+                }
+                append_choices(line, full_key);
+                rows.push_back(line);
+            }
+            if (rows.empty())
+                rows.emplace_back("  (no matching option  -  Esc to cancel)");
+            goto render;
+        }
+        // Check if we're at a non-namespace command with args (show usage).
+        std::vector<const Command*> cmds = filter_commands(token);
+        const Command* c = cmds.empty() ? nullptr : cmds.front();
         if (c) rows.push_back("  " + usage(*c) + "   " + c->help);
         else rows.emplace_back("  (no such command)");
-    } else {
+        goto render;
+    }
+
+    // No space yet: show flat command list, or namespace children if the
+    // token itself is a command with children in the JSON.
+    {
+        auto kids = settings_.children_of(token);
+        if (!kids.empty()) {
+            bool is_top = (token == "get" || token == "set");
+            for (const auto& k : kids) {
+                std::string full_key = is_top ? k : token;
+                if (!is_top) {
+                    full_key += ".";
+                    full_key += k;
+                }
+                std::string h = settings_.help_for(full_key);
+                std::string line = "  ";
+                line += k;
+                if (!h.empty()) {
+                    if (k.size() < 34) line.append(34 - k.size(), ' ');
+                    line += "  ";
+                    line += h;
+                }
+                append_choices(line, full_key);
+                rows.push_back(line);
+            }
+            if (rows.empty())
+                rows.emplace_back("  (no matching option  -  Esc to cancel)");
+            goto render;
+        }
+        // Fall back to flat command list.
+        auto matches = filter_commands(token);
         for (auto* c : matches) {
             std::string u = usage(*c);
             if (u.size() < 34) u.append(34 - u.size(), ' ');
@@ -488,7 +707,8 @@ void Tui::draw_drawer(const std::string& input) {
         if (rows.empty()) rows.emplace_back("  (no matching command  -  Esc to cancel)");
     }
 
-    int nsel = arg_mode ? 0 : static_cast<int>(matches.size());
+render:
+    int nsel = arg_mode ? 0 : static_cast<int>(rows.size());
     if (drawer_sel_ >= nsel) drawer_sel_ = std::max(0, nsel - 1);
     if (drawer_sel_ < 0) drawer_sel_ = 0;
 
@@ -497,9 +717,12 @@ void Tui::draw_drawer(const std::string& input) {
     int shown = std::min<int>(rows.size(), max_rows - header);
     int top = bar_row - header - shown;
 
-    std::string hdr = arg_mode
-        ? " command usage "
-        : " commands  (Tab complete  Up/Down select  Enter run  Esc cancel) ";
+    for (int row = top; row < bar_row; ++row) {
+        move(row, 0);
+        clrtoeol();
+    }
+
+    std::string hdr = " options  (Tab complete  Up/Down select  Enter run  ? help  Esc cancel) ";
     move(top, 0);
     attron(COLOR_PAIR(P_STATUS) | A_BOLD);
     for (int i = 0; i < width(); ++i) addch(' ');
@@ -508,8 +731,6 @@ void Tui::draw_drawer(const std::string& input) {
 
     for (int i = 0; i < shown; ++i) {
         int y = top + header + i;
-        move(y, 0);
-        clrtoeol();
         bool sel = (!arg_mode && i == drawer_sel_);
         if (sel) {
             attron(A_REVERSE);
@@ -520,55 +741,6 @@ void Tui::draw_drawer(const std::string& input) {
             mvaddnstr(y, 0, rows[i].c_str(), width());
             attroff(COLOR_PAIR(P_ASSISTANT));
         }
-    }
-}
-
-int Tui::drawer_menu(const std::string& title,
-                     const std::vector<std::string>& items) {
-    if (items.empty()) return -1;
-    int sel = 0, off = 0;
-    for (;;) {
-        int bar_row = height() - 2;
-        int max_rows = std::max(1, bar_row - chat_top());
-        int header = 1;
-        int visible = std::min<int>(items.size(), max_rows - header);
-        if (sel < off) off = sel;
-        if (sel >= off + visible) off = sel - visible + 1;
-        int top = bar_row - header - visible;
-
-        draw();
-        std::string hdr = " " + title +
-            "  (Up/Down select  Enter open  Esc cancel) ";
-        move(top, 0);
-        attron(COLOR_PAIR(P_STATUS) | A_BOLD);
-        for (int i = 0; i < width(); ++i) addch(' ');
-        mvaddnstr(top, 0, hdr.c_str(), width());
-        attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
-        for (int i = 0; i < visible; ++i) {
-            int idx = off + i;
-            int y = top + header + i;
-            move(y, 0); clrtoeol();
-            bool cur = (idx == sel);
-            if (cur) {
-                attron(A_REVERSE);
-                mvaddnstr(y, 0, ("  " + items[idx]).c_str(), width());
-                attroff(A_REVERSE);
-            } else {
-                attron(COLOR_PAIR(P_ASSISTANT));
-                mvaddnstr(y, 0, ("  " + items[idx]).c_str(), width());
-                attroff(COLOR_PAIR(P_ASSISTANT));
-            }
-        }
-        doupdate();
-
-        int c = getch();
-        int n = static_cast<int>(items.size());
-        if (c == KEY_DOWN) sel = (sel + 1) % n;
-        else if (c == KEY_UP) sel = (sel + n - 1) % n;
-        else if (c == KEY_NPAGE) sel = std::min(n - 1, sel + visible);
-        else if (c == KEY_PPAGE) sel = std::max(0, sel - visible);
-        else if (c == 10 || c == 13 || c == KEY_ENTER) return sel;
-        else if (c == 27 || c == 'q') return -1;
     }
 }
 

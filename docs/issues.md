@@ -1,13 +1,45 @@
-# amber — Current Issues Register
+# amber — Issues Register
 
-- **Status:** ✅ All resolved
-- **Last updated:** 2026-07-24
+- **Status:** ✅ Historical all resolved; 🆕 Current open section below
+- **Last updated:** 2026-07-31
 - **Owner:** Jacek Trefon
 - **Tolerance:** Zero technical debt — every issue must be refactored, not patched
 
+> **⚠ Historical record only.** The Classification Key and severity sections
+> below document *resolved* items. Current open work is tracked in the
+> "Current Open Issues" section at the top of the register.
+
+> **🆕 Current open issues.** Registered 2026-07-31 during the tool-prompt /
+> agent-empowerment review. Items I-1..I-3 + I-6 + I-9 are completed;
+> I-4 closed as by design (loop-stability guard). Plugin/packaging
+> workstream (I-10..I-14) landed 2026-08-01. I-5 residuals, I-7, I-8
+> closed 2026-08-01 (action-driven dispatch, dynamic MCP reflection,
+> retired orphaned completion/ lib, 0-turn gates, skills archive
+> installer). Remaining open: I-7-style follow-ups only — none; register
+> is fully resolved.
+
+## 🆕 Current Open Issues
+
+| ID | Sev | Issue | Status |
+|----|-----|-------|--------|
+| I-1 | 🟠 High | Tool prompt over-enforcement: `prompts/tools.md` + tool descriptions lectured the agent ("Prefer search…", "do not enumerate", "Use this for ALL file operations"). Editorial pass: envelope + parameter tables kept verbatim; imperatives rewritten as factual capability reference; new "Working style" section with soft, adaptable suggestions. | ✅ Done |
+| I-2 | 🟠 High | Search exclusion overreach: `.git`/`.amber`/`third_party` excluded unconditionally — vendored code was unsearchable even with an explicit `path`. Now default-only: an explicit path inside an excluded dir drops that exclusion. | ✅ Done |
+| I-3 | 🟡 Medium | Search exclusion policy duplicated (grep backend flags + semantic index `find` predicates). Now one shared definition: `default_excluded_dirs()` in `include/agent/search_backend.h`. | ✅ Done |
+| I-9 | 🟡 Medium | No environment grounding: the agent didn't know its OS/distro, user, cwd, resources, or installed tools. New `EnvironmentInfo` probe + `render_environment_card()` (lib/environment.cpp), injected into the system prompt at session start (stable KV prefix). | ✅ Done |
+| I-4 | 🟡 Medium | Confirmation probe doubles LLM round trips (generation + probe per turn). **Closed as by design**: the probe is the guard that keeps the agent in the agentic loop — it prevents loop dropout and task abandonment, so the per-turn cost is intentional. Do NOT remove; re-evaluate only with an alternative loop-stability mechanism in place. | ✅ By design |
+| I-5 | 🟡 Medium | **Command-namespace architecture — DONE (review correction 2026-07-31)**: the JSON tree system is fully implemented, tested, and deployed. **All residuals closed 2026-08-01:** ① action-driven dispatch — `handle_slash` walks the tree tokens and resolves the deepest node's `action` to a registered handler; per-action handlers replaced the hand-rolled `/set`, `/job`, `/mcp` splitting; dispatch/completion/help all derive from one structure; e2e slash suite stays green. ② orphaned `completion/` library retired (superseded by SettingRegistry+CommandLine). ③ live MCP tools reflect into the tree on connect/disconnect (`mcp_completion_subtree`, union child merges). | ✅ Done |
+| I-6 | 🔵 Low | Repo hygiene: in-tree test binaries (`command_line_test`, `completions_test`, `e2e_test`, `run_*` debug variants) were tracked in git. Untracked via `git rm --cached` and added to `.gitignore`; build targets unaffected. | ✅ Done |
+| I-7 | 🔵 Low | Config trap: `compression_min_turns` / `cooldown_turns = 0` silently keep defaults instead of disabling. Fixed 2026-08-01: explicit-flag semantics (`*_explicit` set on load/TUI-set); explicit 0 disables the gates; unset keeps pipeline defaults; TUI allows 0 with "(0 = disabled)" usage. | ✅ Done |
+| I-8 | 🔵 Low | Skills marketplace installer. **Fixed 2026-08-01:** `/set skills install <path|url>` + `/set skills uninstall <name>` via the shared archive engine (`lib/archive_util.{h,cpp}` extracted from the plugin installer — DRY); validates SKILL.md + frontmatter + kebab name, stages to the global skills dir, refreshes the catalog; completions.json documents the verbs. Central repo index deferred (token-free static JSON index design stands). | ✅ Done |
+| I-10 | 🔴 Critical | Deployment: prompts/ + completions.json were project-linked (`resolve_data_path` CWD/binary-dir only; `make install` shipped no data files) — packaged app could not bootstrap. Fixed: ordered candidate search (CWD → binary → workspace → XDG/`~/.local/share` → `/usr/local/share` → `/usr/share/amber`), `make install` ships `prompts/`, `completions.json`, bundled plugins to `$(datadir)/amber`; release matrix now builds deb + rpm + separate `amber-plugin-cdp` packages and runs an installed-package bootstrap smoke in CI. | ✅ Done |
+| I-11 | 🟠 High | No fail-fast: TUI booted, then threw mid-session on missing system.md; tools.md/completions.json failures were silent. Fixed: `missing_bootstrap_files()` validator runs pre-UI in both hosts (stderr lists each missing file + searched locations, exit 2); runtime throw kept as backstop. | ✅ Done |
+| I-12 | 🟠 High | Plugin framework: plugins as separate executables (stdio JSON-RPC protocol v1, versioned handshake), manifest.json (completion subtree + tool defs + advertisement + metadata), `PluginManager` (discover/spawn/handshake/register as `plugin_<id>_<name>`, install from archive local/URL, state persistence), completion merge into the command tree, tool-prompt advertisement section. `/plugin` admin (list/status/enable/disable/get/set/info/install/uninstall). Bundled `sysinfo` plugin (mem/cpu/partitions/net); `cdp` plugin (Chrome DevTools Protocol: targets/navigate/eval/url/click/type/screenshot/snapshot) shipped as its own package. Spec: docs/spec/plugins/README.md. | ✅ Done |
+| I-13 | 🟡 Medium | completions.json lagged the TUI command set (no mcp/skills/git/prompt). Fixed: `mcp`, `prompt`, `plugin`, `sessions` top-level namespaces + `skills` under set/get, each with help/man/action + tests. Residual: dynamic reflection of live `mcp.<server>.<tool>` leaves (uses the I-12 merge mechanism). | ✅ Partly |
+| I-14 | 🟡 Medium | ws_client (RFC 6455, dependency-free) for the CDP plugin + echo-server hermetic test; plugin protocol tests (fake plugin, sysinfo, cdp roundtrip) in `tests/plugin_test.cpp`. | ✅ Done |
+
 ---
 
-## Classification Key
+## Classification Key (Historical)
 
 | Severity | Colour | Meaning |
 |----------|--------|---------|

@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_AGENT_HELPERS_H
 #define AGENT_AGENT_HELPERS_H
 
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -13,6 +12,12 @@
 namespace agent { class MemoryStore; }
 
 namespace agent {
+
+// Build a canonical fingerprint for a set of tool calls. Uses the same
+// parse_tool_call logic as dispatch so comparisons are consistent: arguments
+// are normalized to parsed JSON, then dump()-ed for ordering/stability.
+// Returns "name1|args1|name2|args2|..." or empty string for null/empty input.
+std::string fingerprint_tool_calls(const json& calls);
 
 // Replace invalid UTF-8 sequences with U+FFFD so model/tool text can never
 // carry bytes that make nlohmann throw on json::dump (type_error.316). Tool
@@ -33,20 +38,34 @@ std::string strip_think(std::string s);
 void parse_tool_call(const json& call, std::string& id, std::string& fn,
                      json& args, bool& ok);
 
-// Extract XML-embedded tool calls from reply content (Jinja-style chat
-// templates that emit XML instead of JSON tool_calls). On success it rewrites
-// `tool_calls`/`content`/`stored` and returns true.
-bool maybe_extract_text_tool_calls(json& tool_calls, std::string& content,
-                                   Message& stored, const AgentHooks& hooks);
-
+// Extract XML-embedded tool calls from reply content or reasoning
+// (Jinja-style chat templates that emit XML instead of JSON tool_calls).
+// When `content` is empty, falls back to `stored.reasoning` — some models
+// (Qwen/Jinja) emit <tool_call> XML in their thinking block and leave
+// content blank. On success it rewrites `tool_calls`, clears the source
+// field (`content` or `stored.reasoning`), clears `content`, and returns
+// true.
 // One model round-trip that never aborts the turn: calls `chat`, sanitizes the
 // reply text, and on any failure returns a recovered assistant error message so
 // the loop can retry on the next iteration instead of crashing.
 Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
                        const std::function<Message()>& chat, const char* stage);
 
+// Chat with retry/backoff for transient failures: up to `max_attempts`
+// attempts with 1s->2s exponential backoff, sleeping in 100 ms slices that
+// poll `cancel_token` (a request aborts the wait). Retryable errors are
+// ApiError{retryable=true} (429/5xx/timeouts) or plain transport exceptions;
+// non-retryable ApiErrors (auth/misconfig 4xx) fail fast after one attempt.
+// On exhaustion returns the standard "[error during ...]" message so the loop
+// degrades gracefully and the conversation stays intact.
+Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
+                        const std::function<Message()>& chat,
+                        const char* stage,
+                        const CancellationToken& cancel_token,
+                        int max_attempts = 3);
+
 // Build the final-reply fallback when the loop ended without a usable answer.
-std::string empty_turn_reply(const std::vector<Message>& history);
+std::string empty_turn_reply(const std::deque<Message>& history);
 
 // Format a tool result into the standard immutable envelope. Every tool output
 // follows the exact same form regardless of status:

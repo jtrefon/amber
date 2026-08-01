@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/agent_helpers.h"
 #include "agent/tool_call_parser.h"
@@ -9,16 +7,43 @@
 #include <cctype>
 #include <functional>
 #include <stdexcept>
+#include <unistd.h>
 
 namespace agent {
 
+std::string fingerprint_tool_calls(const json& calls) {
+    if (calls.is_null() || !calls.is_array() || calls.empty())
+        return {};
+    std::string key;
+    for (const auto& tc : calls) {
+        std::string id, fn;
+        json args;
+        bool ok = true;
+        parse_tool_call(tc, id, fn, args, ok);
+        if (!key.empty()) key += '|';
+        key += fn;
+        key += '|';
+        key += args.dump();
+    }
+    return key;
+}
+
 std::string format_tool_envelope(const std::string& name, const json& args,
                                   const ToolResult& result) {
-    std::string status = result.ok ? "ok" : "error";
-
     // Ensure meta is always an object, never null (tools that return early
     // on error may leave meta uninitialized).
     json meta = result.meta.is_null() ? json::object() : result.meta;
+
+    std::string status;
+    if (result.ok) {
+        status = "ok";
+    } else if (meta.value("denied", false)) {
+        status = "denied";
+    } else if (meta.value("timeout", false)) {
+        status = "timeout";
+    } else {
+        status = "error";
+    }
 
     std::string header = "[tool=" + name +
         " args=" + args.dump() +
@@ -95,20 +120,6 @@ void parse_tool_call(const json& call, std::string& id, std::string& fn,
     }
 }
 
-bool maybe_extract_text_tool_calls(json& tool_calls, std::string& content,
-                                   Message& stored, const AgentHooks& hooks) {
-    bool has_json = !tool_calls.is_null() && !tool_calls.empty();
-    if (has_json || content.empty()) return false;
-    auto extracted = extract_tool_calls_from_text(content);
-    if (extracted.is_null()) return false;
-    tool_calls = std::move(extracted);
-    content.clear();
-    stored.content.clear();
-    stored.tool_calls = tool_calls;
-    if (hooks.on_status) hooks.on_status("parsed tool calls from text");
-    return true;
-}
-
 Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
                        const std::function<Message()>& chat, const char* stage) {
     try {
@@ -131,7 +142,63 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
     }
 }
 
-std::string empty_turn_reply(const std::vector<Message>& history) {
+namespace {
+bool retryable_error(const std::exception& e) {
+    const auto* api = dynamic_cast<const ApiError*>(&e);
+    return api == nullptr || api->retryable;
+}
+int backoff_ms(int attempt) { return attempt <= 1 ? 1000 : 2000; }
+bool wait_cancellable(const CancellationToken& token, int ms) {
+    for (int waited = 0; waited < ms; waited += 100) {
+        if (token.is_requested()) return true;
+        usleep(100 * 1000);
+    }
+    return false;
+}
+} // namespace
+
+Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
+                        const std::function<Message()>& chat,
+                        const char* stage,
+                        const CancellationToken& cancel_token,
+                        int max_attempts) {
+    std::string last_error;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        try {
+            Message m = chat();
+            m.content = utf8_sanitize(m.content);
+            m.reasoning = utf8_sanitize(m.reasoning);
+            return m;
+        } catch (const std::exception& e) {
+            last_error = e.what();
+            log.event("chat_error", {{"stage", stage},
+                                     {"error", last_error},
+                                     {"attempt", attempt}});
+            if (hooks.on_debug)
+                hooks.on_debug("chat error (attempt " +
+                               std::to_string(attempt) + "): " + last_error);
+            if (attempt >= max_attempts || !retryable_error(e)) break;
+            if (hooks.on_status)
+                hooks.on_status("LLM error - retrying (" +
+                                std::to_string(attempt) + "/" +
+                                std::to_string(max_attempts) + ") in " +
+                                std::to_string(backoff_ms(attempt) / 1000) +
+                                "s");
+            if (wait_cancellable(cancel_token, backoff_ms(attempt))) {
+                last_error = "cancelled by user";
+                break;
+            }
+        }
+    }
+    Message err;
+    err.role = "assistant";
+    err.content = "[error during " + std::string(stage) + ": " +
+                  last_error + "] Please retry or adjust your approach.";
+    return err;
+}
+
+
+std::string empty_turn_reply(const std::deque<Message>& history) {
     bool had_tool = false;
     for (const auto& m : history)
         if (m.role == "tool") { had_tool = true; break; }

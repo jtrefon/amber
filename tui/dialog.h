@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AMBER_TUI_DIALOG_H
 #define AMBER_TUI_DIALOG_H
@@ -14,7 +12,7 @@ namespace tui {
 class Dialog : private Panel {
 public:
     Dialog(int h, int w, const std::string& title);
-    ~Dialog() = default;
+    ~Dialog() override = default;
 
     using Panel::win;
     using Panel::content;

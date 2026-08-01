@@ -1,11 +1,11 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/experience.h"
+#include "agent/workspace.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <unordered_set>
 
@@ -39,7 +39,7 @@ double compute_freshness(int last_confirm_turn, int current_turn) {
     return 1.0 - (static_cast<double>(age) / 20.0);
 }
 
-double compute_score(const Memory& mem, const std::string& user_msg,
+double compute_score(const KnowledgeItem& mem, const std::string& user_msg,
                      int current_turn) {
     double evidence_w = 0.5;
     double relevance_w = 0.3;
@@ -53,6 +53,7 @@ double compute_score(const Memory& mem, const std::string& user_msg,
 json memory_to_json(const Memory& mem) {
     return {
         {"id", mem.id},
+        {"name", mem.name},
         {"content", mem.content},
         {"tags", mem.tags},
         {"evidence", mem.evidence_count},
@@ -65,6 +66,7 @@ json memory_to_json(const Memory& mem) {
 Memory json_to_memory(const json& j) {
     Memory mem;
     mem.id = j.value("id", "");
+    mem.name = j.value("name", "");
     mem.content = j.value("content", "");
     for (const auto& t : j.value("tags", json::array()))
         mem.tags.push_back(t.get<std::string>());
@@ -78,10 +80,9 @@ Memory json_to_memory(const json& j) {
 json skill_to_json(const Skill& sk) {
     return {
         {"id", sk.id},
+        {"name", sk.name},
         {"content", sk.content},
         {"trigger_phrase", sk.trigger_phrase},
-        {"steps", sk.steps},
-        {"expected_outcome", sk.expected_outcome},
         {"tags", sk.tags},
         {"evidence", sk.evidence_count},
         {"last_confirm_turn", sk.last_confirm_turn},
@@ -93,11 +94,9 @@ json skill_to_json(const Skill& sk) {
 Skill json_to_skill(const json& j) {
     Skill sk;
     sk.id = j.value("id", "");
+    sk.name = j.value("name", "");
     sk.content = j.value("content", "");
     sk.trigger_phrase = j.value("trigger_phrase", "");
-    for (const auto& s : j.value("steps", json::array()))
-        sk.steps.push_back(s.get<std::string>());
-    sk.expected_outcome = j.value("expected_outcome", "");
     for (const auto& t : j.value("tags", json::array()))
         sk.tags.push_back(t.get<std::string>());
     sk.evidence_count = j.value("evidence", 0);
@@ -118,7 +117,7 @@ public:
     explicit JsonMemoryStore(ExperienceConfig cfg)
         : cfg_(std::move(cfg)) {
         if (!cfg_.store_path.empty())
-            load(cfg_.store_path);
+            JsonMemoryStore::load(cfg_.store_path);  // NOLINT: final class — no further dispatch
     }
 
     void set_current_turn(size_t turn) override {
@@ -217,19 +216,94 @@ public:
         return filtered;
     }
 
+    std::vector<Memory> all_memories() const override {
+        std::vector<Memory> out;
+        out.reserve(memories_.size());
+        for (const auto& [id, mem] : memories_) out.push_back(mem);
+        std::sort(out.begin(), out.end(),
+                  [&](const Memory& a, const Memory& b) {
+                      return compute_score(a, "", current_turn_) >
+                             compute_score(b, "", current_turn_);
+                  });
+        return out;
+    }
+
+    std::vector<Skill> all_skills() const override {
+        std::vector<Skill> out;
+        out.reserve(skills_.size());
+        for (const auto& [id, sk] : skills_) out.push_back(sk);
+        std::sort(out.begin(), out.end(),
+                  [&](const Skill& a, const Skill& b) {
+                      return compute_score(a, "", current_turn_) >
+                             compute_score(b, "", current_turn_);
+                  });
+        return out;
+    }
+
+    bool remove(const std::string& id) override {
+        if (memories_.erase(id) > 0) return true;
+        return skills_.erase(id) > 0;
+    }
+
+    double score_of(const KnowledgeItem& item) const override {
+        return compute_score(item, "", current_turn_);
+    }
+
+    bool set_promoted(const std::string& id, bool pinned) override {
+        auto it = memories_.find(id);
+        if (it != memories_.end()) {
+            it->second.promoted = pinned;
+            return true;
+        }
+        auto sit = skills_.find(id);
+        if (sit != skills_.end()) {
+            sit->second.promoted = pinned;
+            return true;
+        }
+        return false;
+    }
+
+    const Memory* find_memory(const std::string& name) const override {
+        for (const auto& [id, mem] : memories_)
+            if (mem.name == name) return &mem;
+        return nullptr;
+    }
+
+    const Skill* find_skill(const std::string& name) const override {
+        for (const auto& [id, sk] : skills_)
+            if (sk.name == name) return &sk;
+        return nullptr;
+    }
+
     void decay_all() override {
-        for (auto& [id, mem] : memories_) {
-            if (mem.evidence_count > 0)
-                mem.evidence_count -= 1;
-            if (mem.evidence_count <= 0)
-                mem.promoted = false;
+        for (auto it = memories_.begin(); it != memories_.end(); ) {
+            if (it->second.evidence_count <= 0) {
+                it = memories_.erase(it);
+            } else {
+                int decay = std::max(1, static_cast<int>(
+                    it->second.evidence_count * cfg_.decay_rate));
+                it->second.evidence_count -= decay;
+                if (it->second.evidence_count <= 0)
+                    it->second.promoted = false;
+                ++it;
+            }
         }
-        for (auto& [id, sk] : skills_) {
-            if (sk.evidence_count > 0)
-                sk.evidence_count -= 1;
-            if (sk.evidence_count <= 0)
-                sk.promoted = false;
+        for (auto it = skills_.begin(); it != skills_.end(); ) {
+            if (it->second.evidence_count <= 0) {
+                it = skills_.erase(it);
+            } else {
+                int decay = std::max(1, static_cast<int>(
+                    it->second.evidence_count * cfg_.decay_rate));
+                it->second.evidence_count -= decay;
+                if (it->second.evidence_count <= 0)
+                    it->second.promoted = false;
+                ++it;
+            }
         }
+    }
+
+    size_t store_size() const override {
+        return memories_.size() + skills_.size();
     }
 
     bool load(const std::string& path) override {
@@ -253,6 +327,13 @@ public:
     }
 
     bool save(const std::string& path) const override {
+        // Ensure parent directory exists
+        auto slash = path.find_last_of('/');
+        if (slash != std::string::npos) {
+            std::string dir = path.substr(0, slash);
+            std::string cmd = "mkdir -p " + dir;
+            if (std::system(cmd.c_str()) < 0) { /* ignore */ }
+        }
         json j;
         j["version"] = 1;
         json mems = json::array();
@@ -288,17 +369,42 @@ std::unique_ptr<MemoryStore> make_memory_store(const ExperienceConfig& cfg) {
     return std::make_unique<JsonMemoryStore>(cfg);
 }
 
+namespace {
+namespace fs = std::filesystem;
+
+// One-time migration: seed the project store from the legacy global store
+// (~/.amber/memories.json) so existing learned knowledge is not lost. Runs only
+// when the project store is absent and the resolved path is the default
+// project path (not a user override). The legacy file is never modified.
+void seed_from_legacy(const std::string& store_path) {
+    std::error_code ec;
+    if (fs::exists(store_path, ec)) return;
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+    std::string legacy = std::string(home) + "/.amber/memories.json";
+    if (legacy == store_path || !fs::exists(legacy, ec)) return;
+    fs::create_directories(fs::path(store_path).parent_path(), ec);
+    fs::copy_file(legacy, store_path, fs::copy_options::none, ec);
+}
+} // namespace
+
 ExperienceConfig load_experience_config(const Config& cfg) {
     ExperienceConfig ec;
     if (!cfg.experience_enabled)
         ec.enabled = false;
+    if (!cfg.experience_store_path.empty())
+        ec.store_path = cfg.experience_store_path;
     if (cfg.experience_max_memories > 0)
         ec.max_memories = static_cast<size_t>(cfg.experience_max_memories);
     if (cfg.experience_max_skills > 0)
         ec.max_skills = static_cast<size_t>(cfg.experience_max_skills);
+    if (cfg.experience_decay_rate > 0.0)
+        ec.decay_rate = cfg.experience_decay_rate;
+    if (cfg.experience_promote_threshold > 0)
+        ec.memory_promote_threshold = cfg.experience_promote_threshold;
     if (ec.store_path.empty()) {
-        const char* home = std::getenv("HOME");
-        if (home) ec.store_path = std::string(home) + "/.amber/memories.json";
+        ec.store_path = Workspace::local_dir() + "/experience.json";
+        seed_from_legacy(ec.store_path);
     }
     return ec;
 }

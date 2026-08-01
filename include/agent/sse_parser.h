@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_SSE_PARSER_H
 #define AGENT_SSE_PARSER_H
@@ -51,6 +49,7 @@ public:
     const ChunkSink& on_chunk_;
     std::string debug_path_;
     SseState st_;
+    std::string raw_body_;  // all bytes received; used for error diagnostics
 };
 
 } // namespace agent

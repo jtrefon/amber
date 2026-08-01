@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AMBER_TUI_CANVAS_H
 #define AMBER_TUI_CANVAS_H
@@ -30,7 +28,6 @@ public:
     void resize(int y, int h, int w);
 
     void set_lines(const std::vector<rich::Line>& lines);
-    void clear_lines();
 
     // Viewport (first wrapped row shown).
     int top() const { return top_; }
@@ -39,8 +36,7 @@ public:
     int rows() const { return rows_; }
     int cols() const { return cols_; }
     int max_top() const { return std::max(0, wrapped_count() - rows_); }
-    // Visible wrapped lines (for tests/debug capture without a live terminal).
-    const std::vector<rich::Line>& wrapped() const { return wrapped_; }
+
 
     // Paint the current viewport into the window and refresh it.
     void render();

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AGENT_SESSION_H
 #define AGENT_SESSION_H
@@ -83,7 +81,7 @@ public:
     // Call rebuild_index() after any session save/remove to keep it fresh.
     std::vector<SessionMeta> list() const;
     void rebuild_index() const;
-    bool list_contains(const std::string& id) const;
+
 
     // Workspace state: persist / restore open windows and their sessions.
     bool save_workspace(const WorkspaceState& ws) const;
@@ -96,6 +94,9 @@ private:
     std::string path_for(const std::string& id) const;
     std::string index_path() const;
     std::string workspace_path() const;
+    // Scan the session directory (without index cache). Never calls rebuild_index()
+    // or list(), breaking the recursion hazard between list() and rebuild_index().
+    std::vector<SessionMeta> scan_directory() const;
 };
 
 } // namespace agent

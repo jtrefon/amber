@@ -1,12 +1,14 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include <agent.h>
 #include <agent/compressor.h>
 #include <agent/experience.h>
+#include <agent/data_path.h>
+#include <agent/bootstrap.h>
+#include <agent/mcp_commands.h>
 #include <cctype>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <unistd.h>
 
@@ -33,12 +35,41 @@ int main(int argc, char** argv) {
     std::string prompt;
     std::string config_file;
     bool auto_approve = false;
+    bool mcp_list_only = false;
+    std::string mcp_connect_name;
+    std::string mcp_prompt_server;
+    std::string mcp_prompt_name;
+    std::string mcp_prompt_args;
+
+    // Global settings: LLM provider from ~/.config/amber/config
+    agent::Config tmp;
+    {
+        std::string global_path = agent::global_config_path();
+        std::ifstream gf(global_path);
+        if (gf) {
+            tmp.load(global_path);
+            if (!tmp.provider_name.empty() && tmp.provider_name != "custom") {
+                cfg.apply_provider(tmp.provider_name);
+                cfg.api_key = tmp.api_key;
+                if (!tmp.model.empty()) { cfg.model = tmp.model; cfg.model_explicit = true; }
+                if (tmp.context_size > 0) { cfg.context_size = tmp.context_size; cfg.context_explicit = true; }
+            }
+            // Always load api_key from global config, even for custom providers
+            if (!tmp.api_key.empty()) cfg.api_key = tmp.api_key;
+        }
+    }
 
     // Load the project config by default so `amber` works without --config.
     // Explicit flags and --config override these; the file is only a base.
     {
         std::ifstream def("amber.conf");
         if (def) cfg.load("amber.conf");
+        // A model explicitly saved to the global config (e.g. via the TUI's
+        // /model set) outranks the project default, so user choices persist.
+        if (!tmp.model.empty() && tmp.model_explicit) {
+            cfg.model = tmp.model;
+            cfg.model_explicit = true;
+        }
     }
 
     for (int i = 1; i < argc; ++i) {
@@ -55,6 +86,14 @@ int main(int argc, char** argv) {
         else if (a == "--config")     config_file = next("");
         else if (a == "--prompt")     prompt = next("");
         else if (a == "--yes" || a == "--yolo") auto_approve = true;
+        else if (a == "--mcp-list")   mcp_list_only = true;
+        else if (a == "--mcp-connect") mcp_connect_name = next("");
+        else if (a == "--mcp") {
+            mcp_prompt_server = next("");
+            mcp_prompt_name = next("");
+            for (; i + 1 < argc && argv[i + 1][0] != '-'; ++i)
+                mcp_prompt_args += std::string(argv[i + 1]) + " ";
+        }
         else if (a == "--version") {
             std::cout << "amber " << agent::kVersion << " (" << agent::kBuildDate
                       << ")\n";
@@ -67,6 +106,46 @@ int main(int argc, char** argv) {
 
     if (!config_file.empty()) cfg.load(config_file);
     cfg.apply_environment();
+
+    // MCP surfaces (headless): --mcp-list, --mcp <server> <prompt> [k=v ...],
+    // --mcp-connect <name>.
+    if (mcp_list_only || !mcp_prompt_server.empty() || !mcp_connect_name.empty()) {
+      try {
+        agent::ToolRegistry mcp_registry;
+        agent::ServerManager mgr(agent::load_mcp_servers(), &cfg.cancel_token);
+        mgr.connect_all();
+        if (!mcp_connect_name.empty()) {
+            std::string err = agent::mcp_connect(mgr, mcp_registry, mcp_connect_name);
+            if (!err.empty()) { std::cerr << "error: " << err << "\n"; return 1; }
+        }
+        if (mcp_list_only) {
+            for (const auto& l : agent::mcp_list_lines(mgr)) std::cout << l << "\n";
+            mgr.shutdown_all();
+            return 0;
+        }
+        if (!mcp_prompt_server.empty()) {
+            json args = json::object();
+            std::stringstream ss(mcp_prompt_args);
+            std::string kv;
+            while (ss >> kv) {
+                size_t eq = kv.find('=');
+                if (eq != std::string::npos && eq > 0)
+                    args[kv.substr(0, eq)] = kv.substr(eq + 1);
+            }
+            std::string text;
+            std::string err = agent::mcp_prompt(mgr, mcp_prompt_server,
+                                                mcp_prompt_name, args, text);
+            mgr.shutdown_all();
+            if (!err.empty()) { std::cerr << "error: " << err << "\n"; return 1; }
+            std::cout << text;
+            return 0;
+        }
+        mgr.shutdown_all();
+      } catch (const std::exception& e) {
+        std::cerr << "error: " << e.what() << "\n";
+        return 1;
+      }
+    }
 
     // Auto-detect model / context window from the server first, filling only
     // values the user did not set explicitly. Done before validation so a blank
@@ -93,9 +172,21 @@ int main(int argc, char** argv) {
     }
 
     if (cfg.system_prompt_path.empty())
-        cfg.system_prompt_path = "prompts/system.md";
+        cfg.system_prompt_path = agent::resolve_data_path("prompts/system.md", argv[0]);
+    else
+        cfg.system_prompt_path = agent::resolve_data_path(cfg.system_prompt_path, argv[0]);
     if (cfg.tools_prompt_path.empty())
-        cfg.tools_prompt_path = "prompts/tools.md";
+        cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", argv[0]);
+    else
+        cfg.tools_prompt_path = agent::resolve_data_path(cfg.tools_prompt_path, argv[0]);
+
+    // Fail fast: the agent cannot work without its critical data files.
+    if (auto missing = agent::missing_bootstrap_files(cfg, argv[0], false);
+        !missing.empty()) {
+        std::fprintf(stderr, "error: critical data files missing:\n");
+        for (const auto& m : missing) std::fprintf(stderr, "  - %s\n", m.c_str());
+        return 2;
+    }
 
     agent::ToolRegistry registry;
     agent::JobService jobs;
@@ -112,12 +203,32 @@ int main(int argc, char** argv) {
         std::cerr << "[think] " << t;
     };
     hooks.on_tool_call = [](const std::string& n, const agent::json& args) {
-        std::cout.flush();
-        std::cerr << "[tool] " << n << " " << args.dump() << "\n";
+        (void)n; (void)args;
     };
     hooks.on_tool_result = [](const std::string& n, const agent::ToolResult& r) {
-        std::cerr << "[result:" << n << "] "
-                  << (r.ok ? r.output : r.error) << "\n";
+        std::string s = "[tool] " + n + " ";
+        if (!r.ok) {
+            std::string err = r.error;
+            if (err.size() > 80) { err.resize(77); err += "..."; }
+            s += "\u2716 " + err;
+            std::cerr << s << "\n";
+            return;
+        }
+        // Build compact summary from meta if available
+        if (r.meta.count("path") && r.meta["path"].is_string()) {
+            std::string p = r.meta["path"].get<std::string>();
+            long start = r.meta.value("start", 1L);
+            long lines = r.meta.value("lines", 1L);
+            if (p.size() > 30) p = "..." + p.substr(p.size() - 27);
+            s += "\u2713 " + p + ":" + std::to_string(start) + "-" +
+                 std::to_string(start + lines - 1) + " (" +
+                 std::to_string(lines) + " lines)";
+        } else {
+            int lines = 1;
+            for (char c : r.output) if (c == '\n') ++lines;
+            s += "\u2713 (" + std::to_string(lines) + " lines)";
+        }
+        std::cerr << s << "\n";
     };
     // Approval gate for side-effecting tools (bash). With --yes, grant for the
     // session. Otherwise prompt on a TTY; if stdin is not interactive, deny
@@ -156,6 +267,7 @@ int main(int argc, char** argv) {
         agent::Agent agent(cfg, registry, hooks,
                            std::move(compressor), std::move(gate),
                            std::move(mem_store), std::move(retriever));
+        agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
         std::string reply = agent.run(prompt);
         std::cout << "\n" << reply << "\n";
     } catch (const std::exception& e) {

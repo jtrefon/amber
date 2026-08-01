@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #ifndef AMBER_TUI_TEXTUTIL_H
 #define AMBER_TUI_TEXTUTIL_H
@@ -42,7 +40,7 @@ bool utf8();
 // Sparkle bullet used to prefix tool-call / tool-result lines.
 const char* tool();
 
-// Right arrow used in tool-result summaries ("→ exit 0").
+// Right arrow used in tool-result summaries ("→ ✓").
 const char* arrow();
 
 // Middle dot used as a separator in the welcome banner.
@@ -62,7 +60,20 @@ const char* block_r();
 // Horizontal ellipsis used for truncation in lists.
 const char* ellipsis();
 
+// Checkmark used for tool-result success indicators.
+const char* check();
+
 } // namespace glyph
+
+// Build the git-aware decorated prompt string.
+// Project is the folder basename, branch is git branch, ins/del from diff.
+// Returns e.g. "┌ project branch +3/-1 ❯ " or ASCII fallback.
+std::string git_prompt(const std::string& project, const std::string& branch,
+                       int ins, int del);
+
+// Convert a display-column offset to a byte offset in a UTF-8 string.
+// Returns the byte position (npos if col exceeds the string's display width).
+size_t col_to_byte(const std::string& s, int col);
 
 } // namespace text
 } // namespace tui

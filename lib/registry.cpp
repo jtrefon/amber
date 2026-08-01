@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/registry.h"
 
@@ -13,6 +11,19 @@ Tool* ToolRegistry::find(const std::string& name) const {
     for (const auto& t : tools_)
         if (t->name() == name) return t.get();
     return nullptr;
+}
+
+size_t ToolRegistry::unregister_tools_with_prefix(const std::string& prefix) {
+    size_t removed = 0;
+    for (auto it = tools_.begin(); it != tools_.end();) {
+        if ((*it)->name().rfind(prefix, 0) == 0) {
+            it = tools_.erase(it);
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+    return removed;
 }
 
 json ToolRegistry::schema() const {

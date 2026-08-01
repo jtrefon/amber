@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
 
 #include "agent/llm.h"
 #include "agent/debug_log.h"
@@ -13,25 +11,19 @@
 
 namespace agent {
 
-LLMClient::LLMClient(Config  cfg) : cfg_(std::move(cfg)) {
+HttpLLMClient::HttpLLMClient(Config cfg) : cfg_(std::move(cfg)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
-}
-
-size_t LLMClient::write_cb(void* ptr, size_t size, size_t nmemb, void* user) {
-    auto* buf = static_cast<std::string*>(user);
-    buf->append(static_cast<char*>(ptr), size * nmemb);
-    return size * nmemb;
 }
 
 ServerInfo LLMClient::parse_models(const std::string& body) {
     return agent::parse_models(body);
 }
 
-ServerInfo LLMClient::probe_server() const {
+ServerInfo HttpLLMClient::probe_server() const {
     return agent::probe_server(cfg_);
 }
 
-Message LLMClient::chat(const std::vector<Message>& messages,
+Message HttpLLMClient::chat(const std::vector<Message>& messages,
                         const std::vector<Tool*>& tools, Stats* stats) {
     json body = build_chat_body(cfg_, messages, tools, false);
     // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
@@ -48,7 +40,7 @@ Message LLMClient::chat(const std::vector<Message>& messages,
     return out;
 }
 
-Message LLMClient::chat_stream(const std::vector<Message>& messages,
+Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
                                const std::vector<Tool*>& tools,
                                const std::function<void(const StreamChunk&)>& on_chunk,
                                Stats* stats) {
@@ -66,6 +58,27 @@ Message LLMClient::chat_stream(const std::vector<Message>& messages,
               "http=" + std::to_string(status) +
                   " content=" + out.content +
                   "\n---reasoning---\n" + out.reasoning);
+
+    // Validate tool call arguments: if any tool call has non-JSON arguments,
+    // discard ALL tool calls and keep only text.  Malformed tool calls in
+    // history poison subsequent requests (the server rejects them).
+    if (!out.tool_calls.is_null() && out.tool_calls.is_array()) {
+        bool valid = true;
+        for (const auto& tc : out.tool_calls) {
+            auto fn = tc.value("function", json::object());
+            std::string raw = fn.value("arguments", "");
+            if (!raw.empty()) {
+                auto parsed = json::parse(raw, nullptr, false);
+                if (parsed.is_discarded()) { valid = false; break; }
+            }
+        }
+        if (!valid) {
+            debug_log(cfg_.debug_log, "response-stream",
+                      "discarding malformed tool calls");
+            out.tool_calls = json::value_t::null;
+        }
+    }
+
     return out;
 }
 
