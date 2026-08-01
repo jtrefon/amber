@@ -45,7 +45,7 @@ private:
                   std::string& body, std::string& err);
     bool read_some(int timeout_ms);
     bool pump_frame(std::string& out);
-    void send_frame(int opcode, const std::string& payload);
+    void send_frame(int opcode, const std::string& payload) const;
 
     int fd_ = -1;
     std::string buf_;  // raw bytes read but not yet framed
