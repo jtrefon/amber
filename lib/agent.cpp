@@ -1,6 +1,7 @@
 
 #include "agent/agent.h"
 #include "agent/environment.h"
+#include "agent/plugin.h"
 #include "agent/prompt.h"
 #include "agent/tool_call_parser.h"
 #include "agent/agent_helpers.h"
@@ -69,6 +70,11 @@ void Agent::ensure_system_prompt() {
     } else if (!registry_.empty()) {
         system += "\n\n" + render_tools_markdown(registry_);
     }
+    // Plugins: enabled plugin tools (registered as plugin_<id>_<name>) get
+    // their own reference section so the agent knows they exist and how to
+    // use them without touching the static tools.md.
+    std::string plugins = plugin_tools_advertisement(registry_);
+    if (!plugins.empty()) system += "\n\n" + plugins;
 
     switch (cfg_.mode) {
     case agent::AgentMode::Read:
