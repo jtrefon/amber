@@ -199,6 +199,15 @@ bool SettingRegistry::merge_completions_json(const nlohmann::json& subtree) {
     return true;
 }
 
+void SettingRegistry::reset_completion_index() {
+    key_help_.clear();
+    key_man_.clear();
+    key_children_.clear();
+    command_choices_.clear();
+    command_ranges_.clear();
+    command_subcommands_.clear();
+}
+
 const std::vector<std::string>& SettingRegistry::choices_for(const std::string& key) const {
     static const std::vector<std::string> empty;
     auto it = command_choices_.find(key);

@@ -189,13 +189,58 @@ TEST(plugin_advertisement_lists_enabled_tools) {
     ASSERT(ad.find("Echo text back.") != std::string::npos);
 }
 
+// The bundled sysinfo plugin (built by make) must load and report real host
+// facts through the same protocol as any other plugin.
+TEST(sysinfo_plugin_reports_host_facts) {
+    std::string base = "/tmp/amber_plugin_test";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+
+    std::string dir = base + "/plugins/sysinfo";
+    std::filesystem::create_directories(dir);
+    REQUIRE(std::filesystem::exists("tools/plugins/sysinfo/sysinfo-plugin"));
+    std::filesystem::copy_file("tools/plugins/sysinfo/manifest.json", dir + "/manifest.json",
+                               std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file("tools/plugins/sysinfo/sysinfo-plugin", dir + "/sysinfo-plugin",
+                               std::filesystem::copy_options::overwrite_existing);
+    chmod((dir + "/sysinfo-plugin").c_str(), 0755);
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    REQUIRE(mgr.enable("sysinfo", reg));
+
+    agent::Tool* mem = reg.find("plugin_sysinfo_mem");
+    REQUIRE(mem != nullptr);
+    auto r = mem->execute({});
+    ASSERT(r.ok);
+    ASSERT(r.output.find("MB") != std::string::npos);
+
+    agent::Tool* cpu = reg.find("plugin_sysinfo_cpu");
+    REQUIRE(cpu != nullptr);
+    auto rc = cpu->execute({});
+    ASSERT(rc.ok);
+    ASSERT(rc.output.find("load") != std::string::npos);
+
+    agent::Tool* net = reg.find("plugin_sysinfo_net");
+    REQUIRE(net != nullptr);
+    auto rn = net->execute({});
+    ASSERT(rn.ok);
+    ASSERT(!rn.output.empty());
+
+    ASSERT(mgr.disable("sysinfo", reg));
+}
+
 int main() {
     plugin_discover_loads_valid_and_flags_invalid();
     plugin_enable_registers_and_runs_tools();
     plugin_state_persists_across_manager_instances();
     plugin_install_stages_archive();
     plugin_advertisement_lists_enabled_tools();
+    sysinfo_plugin_reports_host_facts();
     if (failed) std::cerr << failed << " FAILED\n";
     std::cout << (failed ? "FAILED" : "ALL PASSED") << " (0 failures)\n";
     return failed ? 1 : 0;
 }
+

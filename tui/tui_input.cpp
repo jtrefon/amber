@@ -714,6 +714,127 @@ void Tui::cmd_skills_get(const std::string& sub) {
     draw();
 }
 
+std::string Tui::plugin_state_name(agent::PluginState st) const {
+    switch (st) {
+    case agent::PluginState::Enabled: return "enabled";
+    case agent::PluginState::Incompatible: return "incompatible";
+    default: return "disabled";
+    }
+}
+
+void Tui::cmd_plugin(const std::string& rest) {
+    std::string sub, arg;
+    size_t sp = rest.find(' ');
+    if (sp == std::string::npos) { sub = rest; arg.clear(); }
+    else { sub = rest.substr(0, sp); arg = rest.substr(sp + 1); }
+
+    if (sub.empty() || sub == "list") {
+        std::string msg;
+        for (const auto& p : plugins_.plugins()) {
+            msg += p.id + " v" + p.version + " [" + plugin_state_name(p.state) + "] ";
+            if (!p.error.empty()) msg += "(" + p.error + ") ";
+        }
+        append_line(P_STATUS, "plugins: " + (msg.empty() ? "(none)" : msg));
+        return;
+    }
+    if (sub == "status") {
+        const agent::PluginInfo* p = plugins_.find(arg);
+        if (!p) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
+        append_line(P_STATUS, arg + " v" + p->version + " [" +
+                                  plugin_state_name(p->state) + "] dir " + p->dir);
+        if (!p->error.empty()) append_line(P_STATUS, "  error: " + p->error);
+        return;
+    }
+    if (sub == "info") {
+        const agent::PluginInfo* p = plugins_.find(arg);
+        if (!p) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
+        append_line(P_STATUS, arg + " — " + p->manifest.name + " (" +
+                                  p->manifest.author + ")");
+        append_line(P_STATUS, "  url: " + p->manifest.url);
+        append_line(P_STATUS, "  license: " + p->manifest.license);
+        append_line(P_STATUS, "  tools: " +
+                                  std::to_string(p->manifest.tools.size()));
+        return;
+    }
+    if (sub == "enable") {
+        agent::PluginInfo* p = plugins_.find(arg);
+        if (!p) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
+        if (plugins_.enable(arg, reg_)) {
+            refresh_completions();
+            append_line(P_STATUS, "plugin enabled: " + arg +
+                                      " — tools are advertised in new conversations");
+        } else {
+            append_line(P_STATUS, "enable failed: " +
+                                      (p->error.empty() ? std::string("unknown error") : p->error));
+        }
+        return;
+    }
+    if (sub == "disable") {
+        if (!plugins_.find(arg)) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
+        if (plugins_.disable(arg, reg_)) {
+            refresh_completions();
+            append_line(P_STATUS, "plugin disabled: " + arg);
+        }
+        return;
+    }
+    if (sub == "get") {
+        const agent::PluginInfo* p = plugins_.find(arg);
+        if (!p) { append_line(P_STATUS, "unknown plugin: " + arg); return; }
+        std::string key;
+        size_t sp2 = arg.find(' ');
+        if (sp2 != std::string::npos) { key = arg.substr(sp2 + 1); arg.resize(sp2); }
+        if (key.empty()) {
+            std::string all;
+            for (auto it = p->settings.begin(); it != p->settings.end(); ++it)
+                all += it.key() + "=" + it.value().dump() + " ";
+            append_line(P_STATUS, "settings " + arg + ": " + all);
+            return;
+        }
+        append_line(P_STATUS, arg + " " + key + " = " + plugins_.get_setting(arg, key));
+        return;
+    }
+    if (sub == "set") {
+        size_t sp2 = arg.find(' ');
+        if (sp2 == std::string::npos) {
+            append_line(P_STATUS, "usage: /plugin set <id> <key>=<value>");
+            return;
+        }
+        std::string id = arg.substr(0, sp2);
+        std::string kv = arg.substr(sp2 + 1);
+        size_t eq = kv.find('=');
+        if (eq == std::string::npos) {
+            append_line(P_STATUS, "usage: /plugin set <id> <key>=<value>");
+            return;
+        }
+        if (plugins_.set_setting(id, kv.substr(0, eq), kv.substr(eq + 1)))
+            append_line(P_STATUS, "set " + id + " " + kv);
+        else
+            append_line(P_STATUS, "unknown plugin: " + id);
+        return;
+    }
+    if (sub == "install") {
+        if (arg.empty()) { append_line(P_STATUS, "usage: /plugin install <path|url>"); return; }
+        append_line(P_STATUS, "installing " + arg + " ...");
+        std::string err = plugins_.install(arg);
+        if (!err.empty()) { append_line(P_STATUS, "install failed: " + err); return; }
+        plugins_.discover();
+        refresh_completions();
+        append_line(P_STATUS, "installed — /plugin enable <id> to activate");
+        return;
+    }
+    if (sub == "uninstall") {
+        if (arg.empty()) { append_line(P_STATUS, "usage: /plugin uninstall <id>"); return; }
+        std::string err = plugins_.uninstall(arg);
+        if (!err.empty()) { append_line(P_STATUS, "uninstall failed: " + err); return; }
+        plugins_.discover();
+        refresh_completions();
+        append_line(P_STATUS, "uninstalled: " + arg);
+        return;
+    }
+    append_line(P_STATUS,
+                "usage: /plugin list|status|enable|disable|get|set|info|install|uninstall");
+}
+
 void Tui::cmd_mcp(const std::string& rest) {
     size_t sp = rest.find(' ');
     std::string sub = (sp == std::string::npos) ? rest : rest.substr(0, sp);
@@ -1034,6 +1155,9 @@ void Tui::build_commands() {
         {"prompt", {}, "[server name k=v...]",
          "invoke an MCP prompt template (fills the input line)",
          [this](const std::string& a) { cmd_prompt(a); }},
+        {"plugin", {}, "[subcommand]",
+         "manage plugins (list|status|enable|disable|get|set|info|install|uninstall)",
+         [this](const std::string& a) { cmd_plugin(a); }},
         {"new", {"clear", "reset"}, "",
          "clear the current conversation and start fresh",
          [this](const std::string&) {

@@ -184,7 +184,12 @@ duplicates:
 	@python3 "$(SRC_DIR)/tools/duplicate_detector.py" --min-lines=$(DUPLICATE_MIN_LINES) $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/tests $(SRC_DIR)/src
 	@echo "  clean"
 
-all: lib cli tui
+SYSINFO_PLUGIN = $(BUILD_DIR)/tools/plugins/sysinfo/sysinfo-plugin
+
+all: lib cli tui $(SYSINFO_PLUGIN)
+
+$(SYSINFO_PLUGIN): tools/plugins/sysinfo/main.cpp
+	$(CXX) $(CXXFLAGS) -I$(SRC_DIR)/include -o $@ tools/plugins/sysinfo/main.cpp
 
 check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
@@ -321,6 +326,9 @@ install: all
 	install -d $(DESTDIR)$(datadir)
 	install -m 644 prompts/*.md $(DESTDIR)$(datadir)/
 	install -m 644 completions.json $(DESTDIR)$(datadir)/
+	install -d $(DESTDIR)$(datadir)/plugins/sysinfo
+	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(datadir)/plugins/sysinfo/
+	install -m 644 tools/plugins/sysinfo/manifest.json $(DESTDIR)$(datadir)/plugins/sysinfo/
 	install -m 644 $(SRC_DIR)/include/nlohmann/json.hpp $(DESTDIR)$(includedir)/nlohmann/
 	install -d $(DESTDIR)$(docdir)
 	install -m 644 $(SRC_DIR)/LICENSE $(DESTDIR)$(docdir)/
