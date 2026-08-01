@@ -195,13 +195,24 @@ json mcp_completion_subtree(const ToolRegistry& reg) {
         std::string server = rest.substr(0, dot);
         std::string tool = rest.substr(dot + 1);
         if (!children.contains(server)) {
-            children[server] = {{"action", "mcp." + server},
-                                {"help", "Tools exposed by " + server + "."},
-                                {"man", "Live tools of the MCP server " + server + "."},
+            std::string action = "mcp." + server;
+            std::string help = "Tools exposed by ";
+            help += server;
+            help += ".";
+            std::string man = "Live tools of the MCP server ";
+            man += server;
+            man += ".";
+            children[server] = {{"action", action},
+                                {"help", help},
+                                {"man", man},
                                 {"children", json::object()}};
         }
+        std::string tool_action = "mcp.";
+        tool_action += server;
+        tool_action += ".";
+        tool_action += tool;
         children[server]["children"][tool] = {
-            {"action", "mcp." + server + "." + tool},
+            {"action", tool_action},
             {"help", t->description()},
             {"man", t->description()}};
     }
