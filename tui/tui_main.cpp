@@ -109,7 +109,10 @@ int main(int argc, char** argv) {
     agent::JobService jobs;
     agent::register_default_tools(registry, jobs, cfg.cancel_token);
 
-    tui::Tui tui(cfg, registry, jobs);
+    agent::PluginManager plugins;
+    plugins.discover();
+
+    tui::Tui tui(cfg, registry, jobs, plugins);
     tui.run();
     return 0;
 }

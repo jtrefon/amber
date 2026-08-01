@@ -55,6 +55,10 @@ public:
     // names). Used to inject plugin namespaces at runtime.
     bool merge_completions_json(const nlohmann::json& subtree);
 
+    // Clear all JSON-derived metadata (help/man/choices/children). Used to
+    // rebuild the index after plugin namespaces are added or removed.
+    void reset_completion_index();
+
     // Get help text for a setting key (from JSON).
     std::string help_for(const std::string& key) const { return key_help_.count(key) ? key_help_.at(key) : ""; }
 

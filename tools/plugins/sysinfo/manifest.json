@@ -1,0 +1,29 @@
+{
+  "id": "sysinfo",
+  "name": "Host Info",
+  "version": "1.0.0",
+  "protocol_version": 1,
+  "author": "amber",
+  "license": "Apache-2.0",
+  "description": "Reports host facts the agent needs before making resource-aware decisions: memory and swap usage, CPU load, block devices, and network interfaces with addresses. Use it to answer 'how much memory is free', 'is the machine loaded', 'what disks exist', or 'what IPs are up' without guessing.",
+  "main": "sysinfo-plugin",
+  "completion": {
+    "sysinfo": {
+      "action": "plugin.sysinfo",
+      "help": "Host facts: memory, CPU, partitions, network.",
+      "man": "The sysinfo namespace exposes read-only host telemetry. Each child returns a plain-text report: '/sysinfo mem' for memory and swap, '/sysinfo cpu' for load averages and core count, '/sysinfo partitions' for block devices, '/sysinfo net' for interface traffic counters and IP addresses. All reads come from /proc and getifaddrs; nothing is modified.",
+      "children": {
+        "mem":        {"action": "plugin.sysinfo.mem", "help": "Memory and swap usage.", "man": "Reports total, used, free, and available memory in MB plus swap totals, from /proc/meminfo."},
+        "cpu":        {"action": "plugin.sysinfo.cpu", "help": "CPU load averages and core count.", "man": "Reports the 1/5/15-minute load averages and the number of online cores, from /proc/loadavg and /proc/stat."},
+        "partitions": {"action": "plugin.sysinfo.partitions", "help": "Block devices and their sizes.", "man": "Lists block devices with sizes in GB from /proc/partitions."},
+        "net":        {"action": "plugin.sysinfo.net", "help": "Network interfaces, traffic, addresses.", "man": "Reports per-interface rx/tx byte counters from /proc/net/dev and IPv4/IPv6 addresses via getifaddrs. The loopback interface is skipped."}
+      }
+    }
+  },
+  "tools": [
+    {"name": "mem", "description": "Report memory and swap usage in MB.", "schema": {"type": "object", "properties": {}}},
+    {"name": "cpu", "description": "Report CPU load averages (1/5/15 min) and core count.", "schema": {"type": "object", "properties": {}}},
+    {"name": "partitions", "description": "List block devices with sizes.", "schema": {"type": "object", "properties": {}}},
+    {"name": "net", "description": "Report network interfaces with traffic counters and IP addresses.", "schema": {"type": "object", "properties": {}}}
+  ]
+}

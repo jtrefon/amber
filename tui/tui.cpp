@@ -11,6 +11,7 @@
 #include <agent/experience.h>
 #include <agent/tools.h>
 #include <agent/data_path.h>
+#include <agent/plugin.h>
 
 #include <array>
 #include <cstdio>
@@ -39,8 +40,9 @@ static void signal_handler(int sig) {
     _Exit(1);
 }
 
-Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs)
-    : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs),
+Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
+          agent::PluginManager& plugins)
+    : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs), plugins_(plugins),
       mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token),
       settings_path_(agent::Workspace::local_dir() + "/settings") {
     std::setlocale(LC_ALL, "");
@@ -595,6 +597,28 @@ void Tui::git_refresh() {
     }
 }
 
+void Tui::refresh_completions() {
+    settings_.reset_completion_index();
+    auto try_load = [&](const std::string& path) {
+        if (path.empty()) return false;
+        bool ok = settings_.load_completions_json(path);
+        if (ok) append_line(P_DEBUG, "loaded completions from " + path);
+        return ok;
+    };
+    // Search order: CWD, binary dir, workspace, user data dirs, system data
+    // dirs — shared with prompt resolution so packaged installs work from any
+    // working directory.
+    std::string exed = agent::exe_dir();
+    for (const auto& c : agent::data_file_candidates(
+             "completions.json", exed.empty() ? nullptr : exed.c_str()))
+        if (try_load(c)) break;
+    // Plugin namespaces merge on top so their commands complete and show help
+    // like core ones.
+    for (const auto& p : plugins_.plugins())
+        if (p.state == agent::PluginState::Enabled)
+            settings_.merge_completions_json(p.manifest.completion);
+}
+
 void Tui::run() {
     draw();
     draw_input("");
@@ -608,22 +632,7 @@ void Tui::run() {
     // Load completion metadata from JSON (help text, choices, ranges).
     // This is the single source of truth for completion metadata — code edits
     // cannot break completion unless the JSON file is damaged.
-    // Search order: CWD, binary dir, workspace, user data dirs, system data
-    // dirs — shared with prompt resolution so packaged installs work from any
-    // working directory.
-    {
-        auto try_load = [&](const std::string& path) {
-            if (path.empty()) return false;
-            bool ok = settings_.load_completions_json(path);
-            if (ok) append_line(P_DEBUG, "loaded completions from " + path);
-            return ok;
-        };
-        std::string exed = agent::exe_dir();
-        for (const auto& c :
-             agent::data_file_candidates("completions.json",
-                                         exed.empty() ? nullptr : exed.c_str()))
-            if (try_load(c)) break;
-    }
+    refresh_completions();
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
     CommandLine cl;

@@ -5,6 +5,7 @@
 #include <agent.h>
 #include <agent/learn_commands.h>
 #include <agent/mcp_config.h>
+#include <agent/plugin.h>
 
 #include "widgets.h"
 #include "textutil.h"
@@ -70,7 +71,8 @@ struct AgentEvent {
 // function creates it and calls run().
 class Tui {
 public:
-    Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs);
+    Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
+        agent::PluginManager& plugins);
     ~Tui();
 
     Tui(const Tui&) = delete;
@@ -200,6 +202,7 @@ private:
     void build_commands();
     ToolFold tool_fold_ = ToolFold::Auto;  // global tool-call display mode
     const tui::Command* find_command(const std::string& name);
+    std::string plugin_state_name(agent::PluginState st) const;
     bool handle_slash(const std::string& line);
     std::string usage(const tui::Command& c) const;
     void show_command_frame(const tui::Command& c);
@@ -212,6 +215,8 @@ private:
     void cmd_skills_set(const std::string& rest);
     void cmd_skills_get(const std::string& sub);
     void cmd_mcp(const std::string& rest);
+    void cmd_plugin(const std::string& rest);
+    void refresh_completions();
     void cmd_prompt(const std::string& rest);
     void cmd_prompt_list();
     void cmd_learn(const std::string& rest);
@@ -237,6 +242,7 @@ public:
     agent::Config cfg_;
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;       // host-owned; shared with process_* tools
+    agent::PluginManager& plugins_; // host-owned; plugin lifecycle + tools
     agent::ServerManager mcp_servers_;  // session-scoped MCP manager
     std::string input_fill_;            // /prompt result applied to the input line
     agent::SessionStore store_;
