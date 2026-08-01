@@ -1,0 +1,23 @@
+{
+  "id": "fake",
+  "name": "Fake Test Plugin",
+  "version": "1.0.0",
+  "protocol_version": 1,
+  "author": "amber tests",
+  "description": "Echoes text back; used by the plugin framework unit tests.",
+  "main": "fake_plugin.py",
+  "completion": {
+    "fake": {
+      "action": "plugin.fake",
+      "help": "Fake test plugin.",
+      "man": "Test plugin used by the unit suite. Echoes text back verbatim.",
+      "children": {
+        "echo": {"action": "plugin.fake.echo", "help": "Echo text.", "man": "Echoes the given text."}
+      }
+    }
+  },
+  "tools": [
+    {"name": "echo", "description": "Echo text back.", "schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "fail", "description": "Always fails.", "schema": {"type": "object", "properties": {}}}
+  ]
+}
