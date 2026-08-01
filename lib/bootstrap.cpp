@@ -28,7 +28,7 @@ std::vector<std::string> missing_bootstrap_files(const Config& cfg,
                                                  const char* argv0,
                                                  bool require_completions) {
     std::vector<std::string> out;
-    if (!cfg.system_prompt_path.empty() &&
+    if (cfg.system_prompt_path.empty() ||
         resolve_data_path(cfg.system_prompt_path, argv0).empty())
         out.push_back(describe_missing("system prompt", cfg.system_prompt_path,
                                        argv0));
