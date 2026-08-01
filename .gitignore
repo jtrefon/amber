@@ -26,6 +26,7 @@ run_e2e_test
 completion/tests/completion_test
 smoketest
 plugin_test
+sysinfo-plugin
 
 # Release packaging output
 stage/
