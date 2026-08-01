@@ -89,6 +89,74 @@ jobs:
             usr
           ( cd dist && sha256sum "amber_${version}_amd64.deb" > "amber_${version}_amd64.deb.sha256" )
 
+      - name: Build .rpm (fpm)
+        id: rpm
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          fpm -s dir -t rpm \
+            -n amber \
+            -v "${version}" \
+            --license "Apache-2.0" \
+            --maintainer "Jacek Trefon <hello@trefon.com>" \
+            --url "https://github.com/jtrefon/amber" \
+            --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
+            --depends "libcurl4" \
+            --depends "libncursesw6" \
+            -C stage \
+            -p "dist/amber_${version}.x86_64.rpm" \
+            usr
+          ( cd dist && sha256sum "amber_${version}.x86_64.rpm" > "amber_${version}.x86_64.rpm.sha256" )
+
+      - name: Build CDP plugin packages (deb + rpm)
+        id: cdp-pkg
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          rm -rf stage-cdp
+          mkdir -p stage-cdp/usr/share/amber/plugins/cdp
+          install -m 755 tools/plugins/cdp/cdp-plugin stage-cdp/usr/share/amber/plugins/cdp/
+          install -m 644 tools/plugins/cdp/manifest.json stage-cdp/usr/share/amber/plugins/cdp/
+          fpm -s dir -t deb \
+            -n amber-plugin-cdp \
+            -v "${version}" \
+            --license "Apache-2.0" \
+            --maintainer "Jacek Trefon <hello@trefon.com>" \
+            --url "https://github.com/jtrefon/amber" \
+            --description "CDP browser plugin for amber (Chrome DevTools Protocol)." \
+            --depends "amber" \
+            --deb-no-default-config-files \
+            -C stage-cdp \
+            -p "dist/amber-plugin-cdp_${version}_amd64.deb" \
+            usr
+          fpm -s dir -t rpm \
+            -n amber-plugin-cdp \
+            -v "${version}" \
+            --license "Apache-2.0" \
+            --maintainer "Jacek Trefon <hello@trefon.com>" \
+            --url "https://github.com/jtrefon/amber" \
+            --description "CDP browser plugin for amber (Chrome DevTools Protocol)." \
+            --depends "amber" \
+            -C stage-cdp \
+            -p "dist/amber-plugin-cdp_${version}.x86_64.rpm" \
+            usr
+          ( cd dist && sha256sum amber-plugin-cdp_${version}_amd64.deb amber-plugin-cdp_${version}.x86_64.rpm > amber-plugin-cdp_${version}.sha256 )
+
+      - name: Bootstrap smoke (installed package, empty CWD)
+        run: |
+          # The installed app must find prompts and completions.json from the
+          # system data dir — no project files, no user config.
+          sudo dpkg -i dist/amber_${{"{{ steps.ver.outputs.version }}"}}_amd64.deb
+          rm -rf /tmp/smoke && mkdir -p /tmp/smoke
+          cd /tmp/smoke
+          set +e
+          HOME=/tmp/smoke/home /usr/bin/amber -p "hi" >/tmp/smoke/out.txt 2>&1
+          rc=$?
+          set -e
+          if grep -q "critical data files missing" /tmp/smoke/out.txt; then
+            echo "FAIL: packaged app could not find its data files"; cat /tmp/smoke/out.txt; exit 1
+          fi
+          echo "bootstrap OK (exit $rc — server connection expected to fail)"
+          sudo dpkg -r amber >/dev/null
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -101,3 +169,6 @@ jobs:
             dist/*.tar.gz.sha256
             dist/*.deb
             dist/*.deb.sha256
+            dist/*.rpm
+            dist/*.rpm.sha256
+            dist/amber-plugin-cdp*
