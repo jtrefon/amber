@@ -37,7 +37,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential libcurl4-openssl-dev libncursesw5-dev \
-            pkg-config ruby ruby-dev
+            pkg-config ruby ruby-dev rpm
           sudo gem install --no-document fpm
 
       - name: Sync VERSION to tag
@@ -144,7 +144,7 @@ jobs:
         run: |
           # The installed app must find prompts and completions.json from the
           # system data dir — no project files, no user config.
-          sudo dpkg -i dist/amber_${{"{{ steps.ver.outputs.version }}"}}_amd64.deb
+          sudo dpkg -i dist/amber_${{ steps.ver.outputs.version }}_amd64.deb
           rm -rf /tmp/smoke && mkdir -p /tmp/smoke
           cd /tmp/smoke
           set +e
