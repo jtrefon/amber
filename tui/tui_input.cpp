@@ -909,6 +909,7 @@ void Tui::cmd_mcp(const std::string& rest) {
         append_line(P_STATUS, err.empty()
             ? ("mcp server '" + server + "' connected")
             : err);
+        refresh_completions();
         draw();
         return;
     }
@@ -917,6 +918,7 @@ void Tui::cmd_mcp(const std::string& rest) {
         if (server.empty()) { usage(); return; }
         agent::mcp_disconnect(mcp_servers_, reg_, server);
         append_line(P_STATUS, "mcp server '" + server + "' disconnected");
+        refresh_completions();
         draw();
         return;
     }
@@ -927,6 +929,7 @@ void Tui::cmd_mcp(const std::string& rest) {
         append_line(P_STATUS, err.empty()
             ? ("mcp server '" + server + "' refreshed")
             : err);
+        refresh_completions();
         draw();
         return;
     }
@@ -938,6 +941,7 @@ void Tui::cmd_mcp(const std::string& rest) {
         append_line(P_STATUS, err.empty()
             ? ("mcp server '" + server + "' " + sub + "d")
             : err);
+        refresh_completions();
         draw();
         return;
     }

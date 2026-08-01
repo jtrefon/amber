@@ -355,3 +355,30 @@ TEST(test_json_documents_plugin_and_prompt) {
     ASSERT(saw_install && saw_uninstall && saw_status);
     ASSERT(!reg.help_for("prompt").empty());
 }
+
+// ── Test: merging subtrees unions children instead of replacing them ──
+
+TEST(test_json_merge_unions_children) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    // A live MCP server branch lands under the existing mcp command.
+    nlohmann::json subtree = {
+        {"mcp", {{"action", "core.mcp"},
+                 {"children",
+                  {{"live_srv", {{"action", "mcp.live_srv"},
+                                 {"children", {{"do_thing",
+                                                {{"action", "mcp.live_srv.do_thing"},
+                                                 {"help", "does the thing"}}}}}}}}}}}};
+    reg.merge_completions_json(subtree);
+
+    auto subs = reg.children_of("mcp");
+    bool has_list = false, has_live = false;
+    for (const auto& s : subs) {
+        if (s == "list") has_list = true;
+        if (s == "live_srv") has_live = true;
+    }
+    // Static children survive the merge alongside the live branch.
+    ASSERT(has_list && has_live);
+    ASSERT(!reg.help_for("live_srv.do_thing").empty());
+}

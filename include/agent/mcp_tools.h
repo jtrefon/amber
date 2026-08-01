@@ -10,6 +10,8 @@
 #include "agent/registry.h"
 #include "agent/tool.h"
 
+#include <nlohmann/json.hpp>
+
 namespace agent {
 
 // Adapter exposing one server tool to the model as an ordinary amber Tool:
@@ -56,6 +58,12 @@ size_t register_server_tools(ToolRegistry& reg, ServerManager& mgr,
 
 // Unregister every adapter of a server (disconnect/disable).
 size_t unregister_server_tools(ToolRegistry& reg, const std::string& server);
+
+// Build a completions.json subtree documenting the live MCP tools currently
+// registered as mcp_<server>_<tool> (children of the `mcp` command, one
+// <server> branch per connected server). Merged into the command tree on
+// connect/disconnect so completion and ? help reflect live tools.
+json mcp_completion_subtree(const ToolRegistry& reg);
 
 } // namespace agent
 
