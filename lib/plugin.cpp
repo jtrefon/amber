@@ -3,6 +3,7 @@
 
 #include "agent/data_path.h"
 #include "agent/workspace.h"
+#include "agent/archive_util.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -84,51 +85,6 @@ std::string read_file(const std::string& path) {
     std::ostringstream ss;
     ss << f.rdbuf();
     return ss.str();
-}
-
-size_t download_write_cb(void* ptr, size_t size, size_t nmemb, void* user) {
-    auto* out = static_cast<std::string*>(user);
-    out->append(static_cast<char*>(ptr), size * nmemb);
-    return size * nmemb;
-}
-
-std::string download(const std::string& url, std::string& err) {
-    std::string body;
-    CURL* c = curl_easy_init();
-    if (!c) {
-        err = "curl init failed";
-        return "";
-    }
-    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, download_write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &body);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 60L);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 10L);
-    CURLcode rc = curl_easy_perform(c);
-    auto http = 0L;
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http);
-    curl_easy_cleanup(c);
-    if (rc != CURLE_OK) {
-        err = std::string("download failed: ") + curl_easy_strerror(rc);
-        return "";
-    }
-    if (http >= 400) {
-        err = "download failed: HTTP " + std::to_string(http);
-        return "";
-    }
-    return body;
-}
-
-std::string run_capture(const std::string& cmd) {
-    FILE* p = popen(cmd.c_str(), "r");
-    if (!p) return "";
-    std::string out;
-    std::array<char, 512> buf{};
-    while (fgets(buf.data(), static_cast<int>(buf.size()), p))
-        out += buf.data();
-    pclose(p);
-    return out;
 }
 
 } // namespace
@@ -515,15 +471,9 @@ bool PluginManager::set_setting(const std::string& id, const std::string& key,
 // ---------------------------------------------------------------------------
 
 std::string PluginManager::install(const std::string& source) {
-    std::string archive;
-    if (source.rfind("http://", 0) == 0 || source.rfind("https://", 0) == 0) {
-        std::string err;
-        archive = download(source, err);
-        if (archive.empty()) return err;
-    } else {
-        archive = read_file(source);
-        if (archive.empty()) return "cannot read archive: " + source;
-    }
+    std::string err;
+    std::string archive = fetch_bytes(source, err);
+    if (archive.empty()) return err;
 
     std::string tmp = std::string("/tmp/amber-plugin-install-") +
                       std::to_string(getpid());
@@ -535,25 +485,28 @@ std::string PluginManager::install(const std::string& source) {
         std::ofstream f(tgz, std::ios::binary);
         f << archive;
     }
-    std::string list = run_capture("tar -tzf " + tgz + " 2>&1");
+    std::string list = list_tar_gz(tgz);
     if (list.find("manifest.json") == std::string::npos)
         return "archive does not contain manifest.json";
-    std::string extract = run_capture("tar -xzf " + tgz + " -C " + tmp + " 2>&1");
-    if (!extract.empty()) return "cannot unpack archive";
+    if (!unpack_tar_gz(tgz, tmp).empty()) return "cannot unpack archive";
 
     // Manifest may live at the archive root or in a single top-level dir.
     std::string dir = tmp;
     PluginManifest m;
-    std::string err;
-    if (!parse_manifest(dir, m, err))
+    std::string perr;
+    if (!parse_manifest(dir, m, perr))
         dir = tmp + "/" + m.id;
-    if (!parse_manifest(dir, m, err)) return err;
+    if (!parse_manifest(dir, m, perr)) return perr;
     std::string dest = user_plugin_dir() + "/" + m.id;
     std::filesystem::remove_all(dest, ec);
     std::error_code ec2;
     std::filesystem::create_directories(dest, ec2);
-    std::string mv = run_capture("cp -a " + dir + "/. " + dest + " 2>&1");
-    if (!mv.empty()) return "cannot stage plugin: " + mv;
+    std::error_code ec3;
+    std::filesystem::copy(dir, dest,
+                          std::filesystem::copy_options::recursive |
+                              std::filesystem::copy_options::copy_symlinks,
+                          ec3);
+    if (ec3) return "cannot stage plugin: " + ec3.message();
     std::filesystem::remove_all(tmp, ec);
     std::filesystem::remove(tgz, ec);
     return "";

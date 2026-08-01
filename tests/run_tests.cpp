@@ -11,6 +11,8 @@
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
+#include "agent/skill_file.h"
+#include "agent/skill_install.h"
 #include "tests/test_util.h"
 
 #include <array>

@@ -4,6 +4,7 @@
 #include "tui/confirm_panel.h"
 #include "agent/model_probe.h"
 #include "agent/skill_commands.h"
+#include "agent/skill_install.h"
 #include "agent/mcp_commands.h"
 
 #include <algorithm>
@@ -673,6 +674,38 @@ void Tui::cmd_skills_set(const std::string& rest) {
         draw();
         return;
     }
+    if (sub == "install" || sub == "uninstall") {
+        std::string arg = trim(args);
+        if (arg.empty()) {
+            append_line(P_STATUS,
+                        "usage: /set skills " + sub + " <path|url>|<name>");
+            draw();
+            return;
+        }
+        std::string err;
+        if (sub == "install") {
+            std::string global = agent::default_scan_paths().global;
+            err = agent::install_skill_pack(arg, global);
+            if (err.empty()) {
+                catalog.refresh();
+                append_line(P_STATUS, "skill installed to " + global);
+                draw();
+                return;
+            }
+        } else {
+            std::string global = agent::default_scan_paths().global;
+            err = agent::uninstall_skill(arg, global);
+            if (err.empty()) {
+                catalog.refresh();
+                append_line(P_STATUS, "skill removed: " + arg);
+                draw();
+                return;
+            }
+        }
+        append_line(P_STATUS, "install failed: " + err);
+        draw();
+        return;
+    }
     if (sub == "enable" || sub == "disable" || sub == "block") {
         std::string name = trim(args);
         if (name.empty()) {
@@ -689,7 +722,7 @@ void Tui::cmd_skills_set(const std::string& rest) {
     }
     append_line(P_STATUS, "usage: /set skills interop on|off | refresh | show "
         "| create <name> [--global] | delete <name> [--global] | export <name> "
-        "| enable|disable|block <name>");
+        "| install <path|url> | uninstall <name> | enable|disable|block <name>");
     draw();
 }
 

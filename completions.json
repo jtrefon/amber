@@ -352,6 +352,16 @@
               "action": "core.config.set.skills.delete",
               "help": "Delete a skill package.",
               "man": "Removes a skill package from disk after confirmation."
+            },
+            "install": {
+              "action": "core.config.set.skills.install",
+              "help": "Install a skill pack from a tar.gz archive (local path or URL).",
+              "man": "Downloads or reads a tar.gz skill pack containing SKILL.md inside a single top-level directory, validates it, and stages it into the global skills directory (~/.config/amber/skills). The catalog refreshes immediately."
+            },
+            "uninstall": {
+              "action": "core.config.set.skills.uninstall",
+              "help": "Remove an installed skill pack.",
+              "man": "Deletes the skill directory from the global skills directory and refreshes the catalog."
             }
           }
         }
