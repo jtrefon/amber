@@ -5,4 +5,12 @@ CompileFlags:
     - -Isrc
     - -Itools
     - -I.
+    - -I/usr/include/c++/15
+    - -I/usr/include/x86_64-linux-gnu/c++/15
+    - -I/usr/include/c++/15/backward
+    - -I/usr/lib/gcc/x86_64-linux-gnu/15/include
+    - -I/usr/local/include
+    - -I/usr/include/x86_64-linux-gnu
+    - -I/usr/include
+    - -std=c++17
     - -Wall
