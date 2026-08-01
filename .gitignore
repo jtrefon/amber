@@ -25,6 +25,7 @@ run_completions_test
 run_e2e_test
 completion/tests/completion_test
 smoketest
+plugin_test
 
 # Release packaging output
 stage/
