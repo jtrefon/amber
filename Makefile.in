@@ -332,8 +332,8 @@ install: all
 	install -d $(DESTDIR)$(includedir)/agent
 	install -d $(DESTDIR)$(includedir)/nlohmann
 	install -m 644 $(SRC_DIR)/include/agent/*.h $(DESTDIR)$(includedir)/agent/
-	install -d $(DESTDIR)$(datadir)
-	install -m 644 prompts/*.md $(DESTDIR)$(datadir)/
+	install -d $(DESTDIR)$(datadir)/prompts
+	install -m 644 prompts/*.md $(DESTDIR)$(datadir)/prompts/
 	install -m 644 completions.json $(DESTDIR)$(datadir)/
 	install -d $(DESTDIR)$(datadir)/plugins/sysinfo
 	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(datadir)/plugins/sysinfo/
