@@ -305,3 +305,53 @@ int main() {
               << " (" << failed << " failures)\n";
     return failed;
 }
+
+// ── Test: mcp / skills / plugin / prompt namespaces are documented ──
+
+TEST(test_json_documents_mcp_namespace) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    ASSERT(!reg.help_for("mcp.list").empty());
+    ASSERT(!reg.man_for("mcp.connect").empty());
+    ASSERT(!reg.help_for("core.mcp.trust").empty());  // action-path index
+    auto subs = reg.children_of("mcp");
+    bool saw_connect = false, saw_trust = false;
+    for (const auto& s : subs) {
+        if (s == "connect") saw_connect = true;
+        if (s == "trust") saw_trust = true;
+    }
+    ASSERT(saw_connect && saw_trust);
+}
+
+TEST(test_json_documents_skills_under_set_and_get) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    ASSERT(!reg.help_for("skills.interop").empty());
+    ASSERT(!reg.man_for("skills.refresh").empty());
+    ASSERT(!reg.help_for("core.config.set.skills.delete").empty());
+    // interop has documented choices.
+    auto c = reg.choices_for("skills.interop");
+    ASSERT(c.size() == 2u);
+    ASSERT(c[0] == "on");
+    ASSERT(c[1] == "off");
+}
+
+TEST(test_json_documents_plugin_and_prompt) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    ASSERT(!reg.help_for("plugin.list").empty());
+    ASSERT(!reg.man_for("plugin.install").empty());
+    ASSERT(!reg.help_for("core.plugin.uninstall").empty());
+    auto subs = reg.children_of("plugin");
+    bool saw_install = false, saw_uninstall = false, saw_status = false;
+    for (const auto& s : subs) {
+        if (s == "install") saw_install = true;
+        if (s == "uninstall") saw_uninstall = true;
+        if (s == "status") saw_status = true;
+    }
+    ASSERT(saw_install && saw_uninstall && saw_status);
+    ASSERT(!reg.help_for("prompt").empty());
+}
