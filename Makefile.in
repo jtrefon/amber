@@ -65,6 +65,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/data_path.o \
              $(BUILD_DIR)/lib/bootstrap.o \
              $(BUILD_DIR)/lib/plugin.o \
+             $(BUILD_DIR)/lib/archive_util.o \
+             $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \
              $(BUILD_DIR)/lib/tool_call_parser.o
 
