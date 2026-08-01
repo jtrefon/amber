@@ -10,11 +10,11 @@
 > "Current Open Issues" section at the top of the register.
 
 > **🆕 Current open issues.** Registered 2026-07-31 during the tool-prompt /
-> agent-empowerment review. Items I-1..I-3 + I-6 + I-9 are completed
-> (shipped on `feat/agent-loop-hardening`); I-4 closed as by design
-> (loop-stability guard, per-turn probe cost is intentional). Open:
-> I-5 (CommandNode tree), I-7 (cooldown config trap), I-8 (skills
-> marketplace installer, token/dependency-free).
+> agent-empowerment review. Items I-1..I-3 + I-6 + I-9 are completed;
+> I-4 closed as by design (loop-stability guard). Plugin/packaging
+> workstream (I-10..I-14) landed 2026-08-01. Open: I-5 (JSON tree
+> residual: dispatch off flat table, orphaned completion/ lib, dynamic
+> mcp reflection), I-7 (cooldown config trap), I-8 (skills installer).
 
 ## 🆕 Current Open Issues
 
@@ -28,7 +28,12 @@
 | I-5 | 🟡 Medium | **Command-namespace architecture — DONE (review correction 2026-07-31)**: the JSON tree system is fully implemented, tested, and deployed. `completions.json` defines nested namespaces with `help` (short desc, shown left/desc-right in the drawer), `man` (manual page via `?`), `action` command map, `choices`/`range`; loaded via `SettingRegistry::load_completions_json` (tui/setting_registry.cpp:101) from bin/workspace/home (tui/tui.cpp:614-644); consumed by the drawer (tui_render.cpp:629-685) and help frames (tui.cpp:956-1014). Tree-based `completion/` library (command.h/completer.h/filter.h) built and tested. **Residual (new, from 2026-07-31 review):** ① dispatch still runs through the flat legacy `palette::Command` table — JSON `action` paths are help lookup keys, not handlers; sub-command parsing (`/set policy`, `/job`, `/mcp`) hand-rolled in handlers; ② `completion/` library not linked into the TUI (orphaned vs live SettingRegistry+CommandLine path) — retire or adopt; ③ no dynamic namespace reflection: MCP (`mcp_<server>_<tool>` in `ToolRegistry`) and skills were built after this system and don't feed the tree — the new-product part. | ⏳ Open (residual) |
 | I-6 | 🔵 Low | Repo hygiene: in-tree test binaries (`command_line_test`, `completions_test`, `e2e_test`, `run_*` debug variants) were tracked in git. Untracked via `git rm --cached` and added to `.gitignore`; build targets unaffected. | ✅ Done |
 | I-7 | 🔵 Low | Config trap: `compression_min_turns` / `cooldown_turns = 0` silently keep defaults instead of disabling. Fix 0 → disable semantics, document. | ⏳ Open |
-| I-8 | 🔵 Low | Skills marketplace installer (optional product feature): browse/install authored `SKILL.md` packages. **Re-scoped: token-free and dependency-free** — no API auth/keys; a static HTTPS JSON index fetched with plain GET via libcurl (already a hard dependency); packages are plain `SKILL.md` tarballs. | ⏳ Open |
+| I-8 | 🔵 Low | Skills marketplace installer (optional product feature): browse/install authored `SKILL.md` packages. **Re-scoped: token-free and dependency-free** — no API auth/keys; a static HTTPS JSON index fetched with plain GET via libcurl (already a hard dependency); packages are plain `SKILL.md` tarballs. The `/plugin install` archive engine (I-12) is the shared plumbing. | ⏳ Open |
+| I-10 | 🔴 Critical | Deployment: prompts/ + completions.json were project-linked (`resolve_data_path` CWD/binary-dir only; `make install` shipped no data files) — packaged app could not bootstrap. Fixed: ordered candidate search (CWD → binary → workspace → XDG/`~/.local/share` → `/usr/local/share` → `/usr/share/amber`), `make install` ships `prompts/`, `completions.json`, bundled plugins to `$(datadir)/amber`; release matrix now builds deb + rpm + separate `amber-plugin-cdp` packages and runs an installed-package bootstrap smoke in CI. | ✅ Done |
+| I-11 | 🟠 High | No fail-fast: TUI booted, then threw mid-session on missing system.md; tools.md/completions.json failures were silent. Fixed: `missing_bootstrap_files()` validator runs pre-UI in both hosts (stderr lists each missing file + searched locations, exit 2); runtime throw kept as backstop. | ✅ Done |
+| I-12 | 🟠 High | Plugin framework: plugins as separate executables (stdio JSON-RPC protocol v1, versioned handshake), manifest.json (completion subtree + tool defs + advertisement + metadata), `PluginManager` (discover/spawn/handshake/register as `plugin_<id>_<name>`, install from archive local/URL, state persistence), completion merge into the command tree, tool-prompt advertisement section. `/plugin` admin (list/status/enable/disable/get/set/info/install/uninstall). Bundled `sysinfo` plugin (mem/cpu/partitions/net); `cdp` plugin (Chrome DevTools Protocol: targets/navigate/eval/url/click/type/screenshot/snapshot) shipped as its own package. Spec: docs/spec/plugins/README.md. | ✅ Done |
+| I-13 | 🟡 Medium | completions.json lagged the TUI command set (no mcp/skills/git/prompt). Fixed: `mcp`, `prompt`, `plugin`, `sessions` top-level namespaces + `skills` under set/get, each with help/man/action + tests. Residual: dynamic reflection of live `mcp.<server>.<tool>` leaves (uses the I-12 merge mechanism). | ✅ Partly |
+| I-14 | 🟡 Medium | ws_client (RFC 6455, dependency-free) for the CDP plugin + echo-server hermetic test; plugin protocol tests (fake plugin, sysinfo, cdp roundtrip) in `tests/plugin_test.cpp`. | ✅ Done |
 
 ---
 
