@@ -198,21 +198,23 @@ bool Tui::drain_events() {
             running_tool_ = ev.tool_name;
             flush_stream();
             ToolFold fold = tool_fold_;
-            if (fold == ToolFold::Never) break;
-            // One "open" line per call: animated spinner + name + args.
+            // One "open" line per advertised call, all animated together.
             // never = always closed: compact (name only, no args).
             bool round = (ev.tool_name == "bash");
             std::string args = ev.tool_args.dump();
             if (args.size() > 60) { args.resize(57); args += "..."; }
-            std::string tail = " " + ev.tool_name;
-            if (fold != ToolFold::Never) tail += " " + args;
-            tool_spinner_frame_ = 0;
-            tool_line_style_ = round ? 1 : 0;
-            tool_line_tail_ = tail;
+            PendingToolLine pt;
+            pt.name = ev.tool_name;
+            pt.fingerprint = ev.tool_args.dump();
+            pt.style = round ? 1 : 0;
+            pt.frame = 0;
+            pt.tail = " " + ev.tool_name;
+            if (fold != ToolFold::Never) pt.tail += " " + args;
             const char* frame = round ? text::glyph::spinner_round(0)
                                       : text::glyph::spinner_square(0);
-            append_line(P_STATUS, std::string(frame) + tail);
-            tool_line_ = win().lines.size() - 1;
+            append_line(P_STATUS, std::string(frame) + pt.tail);
+            pt.index = win().lines.size() - 1;
+            pending_tools_.push_back(std::move(pt));
             break;
         }
         case AgentEvent::ToolResult: {
@@ -246,24 +248,39 @@ bool Tui::drain_events() {
                 return ln;
             };
             rich::Line summary = build_result(ev.tool_name, ev.tool_result);
-            bool tracking = tool_line_ != std::string::npos &&
-                            tool_line_ < win().lines.size();
-            if (fold == ToolFold::Always) {
-                // always = always open: freeze the running line (static tool
-                // bullet) and append the summary as a second line.
-                if (tracking) {
-                    auto& runs = win().lines[tool_line_].runs;
-                    if (!runs.empty()) runs[0].text = text::glyph::tool();
+            // Match the pending line for this call (name + args, FIFO).
+            std::string fp = ev.tool_args.dump();
+            size_t match = std::string::npos;
+            for (size_t i = 0; i < pending_tools_.size(); ++i)
+                if (pending_tools_[i].name == ev.tool_name &&
+                    pending_tools_[i].fingerprint == fp) {
+                    match = i; break;
                 }
-                append_rich(summary);
-            } else if (tracking) {
-                // auto/never: the single line closes — spinner is replaced
-                // by the success/failure icon and the summary text.
-                win().lines[tool_line_] = std::move(summary);
+            if (match == std::string::npos)
+                for (size_t i = 0; i < pending_tools_.size(); ++i)
+                    if (pending_tools_[i].name == ev.tool_name) {
+                        match = i; break;
+                    }
+            if (match != std::string::npos &&
+                pending_tools_[match].index < win().lines.size()) {
+                size_t li = pending_tools_[match].index;
+                if (fold == ToolFold::Always) {
+                    // always = always open: freeze the open line (static tool
+                    // bullet) and append the summary as a second line.
+                    auto& runs = win().lines[li].runs;
+                    if (!runs.empty())
+                        runs.back().text = std::string(text::glyph::tool()) +
+                                           pending_tools_[match].tail;
+                    append_rich(summary);
+                } else {
+                    // auto/never: the single line closes — the spinner icon is
+                    // replaced by the success/failure icon and the summary.
+                    win().lines[li] = std::move(summary);
+                }
+                pending_tools_.erase(pending_tools_.begin() + match);
             } else {
                 append_rich(summary);
             }
-            tool_line_ = std::string::npos;
             // Tool may have modified files — refresh git state for prompt.
             git_refresh();
             break;
@@ -727,7 +744,7 @@ void Tui::run() {
                 auto now = std::chrono::steady_clock::now();
                 if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
                     last_status_tick_ = now;
-                    advance_tool_spinner();
+                    advance_tool_spinners();
                     tick_clock();
                 }
             }

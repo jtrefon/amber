@@ -401,7 +401,7 @@ void Tui::lazy_load_active() {
         stats_.valid = true;
     }
     w.lines.clear();
-    tool_line_ = std::string::npos;  // spinner tracked a line that is gone
+    pending_tools_.clear();  // spinner lines belong to the old scrollback
     for (const auto& m : s.messages) {
         if (m.role == "user")
             append_line(P_USER, "> " + m.content);
@@ -429,7 +429,7 @@ void Tui::lazy_load_active() {
 void Tui::switch_to(size_t idx) {
     if (idx >= windows_.size() || idx == active_) return;
     active_ = idx;
-    tool_line_ = std::string::npos;  // spinner index belongs to the old window
+    pending_tools_.clear();  // spinner indices belong to the old window
     lazy_load_active();
     draw();
 }
@@ -442,7 +442,7 @@ void Tui::close_window() {
     autosave();
     windows_.erase(windows_.begin() + active_);
     if (active_ >= windows_.size()) active_ = windows_.size() - 1;
-    tool_line_ = std::string::npos;
+    pending_tools_.clear();
     draw();
 }
 

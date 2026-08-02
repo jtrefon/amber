@@ -107,16 +107,20 @@ private:
     // not a JobService background job is still visible while it runs.
     std::string running_tool_;
 
-    // Active tool-line animation (scrollback only; the agent context stays
-    // sealed). tool_line_ indexes the current window's lines; each 150ms tick
-    // swaps the spinner frame in-place until the ToolResult event seals the
-    // line with the success/failure icon. Style: 0 = square corners (core
-    // tools), 1 = round (bash), so the tool class is visible at a glance.
-    size_t tool_line_ = std::string::npos;
-    int tool_spinner_frame_ = 0;
-    int tool_line_style_ = 0;
-    std::string tool_line_tail_;
-    void advance_tool_spinner();
+    // One advertised tool call = one pending scrollback line. All advertised
+    // calls animate together (the spinner glyph is swapped in-place each
+    // 150ms tick); each line's icon flips to success/failure when its result
+    // lands. Scrollback-only — the agent's immutable context stays sealed.
+    struct PendingToolLine {
+        size_t index = std::string::npos;  // index into win().lines
+        std::string name;
+        std::string fingerprint;  // args dump — identity for result matching
+        int style = 0;            // 0 square corners (core), 1 round (bash)
+        std::string tail;         // " name args" after the spinner glyph
+        int frame = 0;
+    };
+    std::vector<PendingToolLine> pending_tools_;
+    void advance_tool_spinners();
     // A prompt the user typed (and submitted with Enter) while the agent was
     // busy; auto-sent once the agent returns to idle so typing never feels
     // blocked.

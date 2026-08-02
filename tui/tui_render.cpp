@@ -417,20 +417,30 @@ void Tui::tick_clock() {
     wnoutrefresh(stdscr);
 }
 
-void Tui::advance_tool_spinner() {
-    if (tool_line_ == std::string::npos ||
-        tool_line_ >= win().lines.size()) {
-        tool_line_ = std::string::npos;
-        return;
+void Tui::advance_tool_spinners() {
+    if (pending_tools_.empty()) return;
+    bool changed = false;
+    for (auto& pt : pending_tools_) {
+        if (pt.index >= win().lines.size()) {
+            pt.index = std::string::npos;
+            continue;
+        }
+        ++pt.frame;
+        auto& runs = win().lines[pt.index].runs;
+        if (runs.empty()) continue;
+        // The body run is the LAST run (runs[0] is the timestamp).
+        const char* frame = pt.style ? text::glyph::spinner_round(pt.frame)
+                                     : text::glyph::spinner_square(pt.frame);
+        runs.back().text = std::string(frame) + pt.tail;
+        changed = true;
     }
-    ++tool_spinner_frame_;
-    auto& runs = win().lines[tool_line_].runs;
-    if (runs.empty()) return;
-    const char* frame =
-        tool_line_style_ ? text::glyph::spinner_round(tool_spinner_frame_)
-                         : text::glyph::spinner_square(tool_spinner_frame_);
-    runs[0].text = std::string(frame) + tool_line_tail_;
-    draw();
+    pending_tools_.erase(
+        std::remove_if(pending_tools_.begin(), pending_tools_.end(),
+                       [](const PendingToolLine& pt) {
+                           return pt.index == std::string::npos;
+                       }),
+        pending_tools_.end());
+    if (changed) draw();
 }
 
 void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
