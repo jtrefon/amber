@@ -409,3 +409,24 @@ TEST(agent_loop_unknown_context_fallback) {
     ASSERT(saw_compression);
     (void)ag.context().get_all();
 }
+
+// [FIX-015 residual] /set model must reach the RUNNING agent. The LLM client
+// holds a config snapshot (HttpLLMClient copies cfg at construction), so a
+// model switch has to rebuild the client — otherwise the conversation keeps
+// talking to the old model while the config file says otherwise.
+TEST(agent_set_model_swaps_client) {
+    agent::Config cfg = loop_cfg();
+    cfg.model = "old-model";
+    agent::ToolRegistry reg;
+    std::vector<std::string> seen_models;
+    auto factory = [&](const agent::Config& c) {
+        seen_models.push_back(c.model);
+        return std::make_unique<agent_test::FakeLLMClient>();
+    };
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, {}, factory);
+    ASSERT_EQ(seen_models.size(), 1u);
+    ASSERT_EQ(seen_models[0], "old-model");
+    ag.set_model("ornith-35b");
+    ASSERT_EQ(seen_models.size(), 2u);
+    ASSERT_EQ(seen_models[1], "ornith-35b");
+}
