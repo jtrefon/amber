@@ -15,8 +15,9 @@
 > workstream (I-10..I-14) landed 2026-08-01. I-5 residuals, I-7, I-8
 > closed 2026-08-01 (action-driven dispatch, dynamic MCP reflection,
 > retired orphaned completion/ lib, 0-turn gates, skills archive
-> installer). Remaining open: I-7-style follow-ups only — none; register
-> is fully resolved.
+> installer). I-15 (JSON-driven command engine, zero hardcoded
+> completion) registered and closed 2026-08-02 — see fix-tracker FIX-015.
+> Register is fully resolved.
 
 ## 🆕 Current Open Issues
 
@@ -28,6 +29,7 @@
 | I-9 | 🟡 Medium | No environment grounding: the agent didn't know its OS/distro, user, cwd, resources, or installed tools. New `EnvironmentInfo` probe + `render_environment_card()` (lib/environment.cpp), injected into the system prompt at session start (stable KV prefix). | ✅ Done |
 | I-4 | 🟡 Medium | Confirmation probe doubles LLM round trips (generation + probe per turn). **Closed as by design**: the probe is the guard that keeps the agent in the agentic loop — it prevents loop dropout and task abandonment, so the per-turn cost is intentional. Do NOT remove; re-evaluate only with an alternative loop-stability mechanism in place. | ✅ By design |
 | I-5 | 🟡 Medium | **Command-namespace architecture — DONE (review correction 2026-07-31)**: the JSON tree system is fully implemented, tested, and deployed. **All residuals closed 2026-08-01:** ① action-driven dispatch — `handle_slash` walks the tree tokens and resolves the deepest node's `action` to a registered handler; per-action handlers replaced the hand-rolled `/set`, `/job`, `/mcp` splitting; dispatch/completion/help all derive from one structure; e2e slash suite stays green. ② orphaned `completion/` library retired (superseded by SettingRegistry+CommandLine). ③ live MCP tools reflect into the tree on connect/disconnect (`mcp_completion_subtree`, union child merges). | ✅ Done |
+| I-15 | 🟡 Medium | **JSON-driven command engine — zero hardcoded completion (registered 2026-08-02)**: completions.json is the single source of command structure; four escapes remained (dynamic values via C++ `complete_arg` lambdas, `cmd_get_model` verb parsing, `/set policy rule` arg-parsing, compensation hacks in `update_completions`/`draw_drawer`) and two registry defects blocked the target (get/set namespace collision in `index_node`, tree-clobbering `merge_completions_json`). **Done 2026-08-02 (fix-tracker FIX-015)**: leaves-as-values with generated actions (MCP pattern), feeds for models/policy-rules/jobs, full-path registry keys, deep merge; policy (permission) system unchanged but surfaced in the tree; `?` popup and aliases unchanged. | ✅ Done |
 | I-6 | 🔵 Low | Repo hygiene: in-tree test binaries (`command_line_test`, `completions_test`, `e2e_test`, `run_*` debug variants) were tracked in git. Untracked via `git rm --cached` and added to `.gitignore`; build targets unaffected. | ✅ Done |
 | I-7 | 🔵 Low | Config trap: `compression_min_turns` / `cooldown_turns = 0` silently keep defaults instead of disabling. Fixed 2026-08-01: explicit-flag semantics (`*_explicit` set on load/TUI-set); explicit 0 disables the gates; unset keeps pipeline defaults; TUI allows 0 with "(0 = disabled)" usage. | ✅ Done |
 | I-8 | 🔵 Low | Skills marketplace installer. **Fixed 2026-08-01:** `/set skills install <path|url>` + `/set skills uninstall <name>` via the shared archive engine (`lib/archive_util.{h,cpp}` extracted from the plugin installer — DRY); validates SKILL.md + frontmatter + kebab name, stages to the global skills dir, refreshes the catalog; completions.json documents the verbs. Central repo index deferred (token-free static JSON index design stands). | ✅ Done |
