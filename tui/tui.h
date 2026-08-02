@@ -5,6 +5,7 @@
 #include <agent.h>
 #include <agent/learn_commands.h>
 #include <agent/mcp_config.h>
+#include <agent/model_probe.h>
 #include <agent/plugin.h>
 
 #include "widgets.h"
@@ -213,11 +214,7 @@ private:
     void register_builtin_actions();
     void cmd_set_detection_toggle(const std::string& key, const std::string& val);
     void cmd_model_set(const std::string& arg);
-    void cmd_model_list();
-    void cmd_model_probe();
-    void cmd_model_panel();
-    void cmd_provider_list();
-    void cmd_provider_delete(const std::string& name);
+    void cmd_provider_list();    void cmd_provider_delete(const std::string& name);
     void cmd_provider_test(const std::string& name);
     void cmd_session_load(const std::string& id);
     void cmd_session_delete(const std::string& id);
@@ -245,6 +242,8 @@ private:
     void cmd_skills_uninstall(const std::string& name);
     void cmd_get_config();
     void cmd_get_model();
+    void cmd_get_model_list();
+    void cmd_get_model_context();
     void cmd_get_provider();
     void cmd_get_toolfold();
     void cmd_get_policy(const std::string& arg);
@@ -290,8 +289,13 @@ private:
     void refresh_completions();
     void cmd_prompt(const std::string& rest);
     void cmd_prompt_list();
-    void cmd_model(const std::string& arg);
     void cmd_provider(const std::string& arg);
+    // Model picker data: cached /v1/models list with context info, refreshed
+    // at startup and by /get model list. refresh_model_list() merges model
+    // ids as value leaves under set.model (each with a generated action) so
+    // the drawer, Tab completion, and dispatch all flow through the tree.
+    std::vector<agent::ModelInfo> model_info_;
+    void refresh_model_list();
     void job_ls();
     void job_kill(const std::string& id);
     void job_read(const std::string& id);

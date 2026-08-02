@@ -44,29 +44,52 @@ std::vector<std::string> SettingRegistry::keys_in(const std::string& ns) const {
 
 std::vector<std::string> SettingRegistry::complete(const std::string& prefix) const {
     std::vector<std::string> out;
-    // Completion content lives in the JSON-derived index only, keyed by FULL
-    // display paths ("get.policy.mode", top-level "model"). Query semantics:
-    //   complete("")            → top-level keys (no dots)
-    //   complete("set")         → children paths of "set"
-    //   complete("set.policy")  → children paths of "set.policy"
-    auto add_keys = [&](const std::map<std::string, std::string>& index) {
-        for (const auto& [key, _] : index) {
-            if (key.rfind("core.", 0) == 0 || key.rfind("os.", 0) == 0)
-                continue;
-            if (prefix.empty()) {
-                if (key.find('.') == std::string::npos &&
-                    std::find(out.begin(), out.end(), key) == out.end())
-                    out.push_back(key);
-                continue;
-            }
-            std::string expected = prefix + ".";
-            if (key.rfind(expected, 0) == 0 &&
-                std::find(out.begin(), out.end(), key) == out.end())
-                out.push_back(key);
-        }
+    // The command tree is the authoritative structure. Query semantics:
+    //   complete("")            → top-level keys
+    //   complete("set")         → direct children paths of "set"
+    //   complete("set.policy")  → direct children paths of "set.policy"
+    // Direct children only — the drawer rows and the completion list must
+    // stay 1:1 aligned for Enter dispatch.
+    auto add = [&](const std::string& key) {
+        if (std::find(out.begin(), out.end(), key) == out.end())
+            out.push_back(key);
     };
-    add_keys(key_help_);
-    add_keys(key_man_);
+    if (!tree_.contains("commands") || !tree_["commands"].is_object())
+        return out;
+    const nlohmann::json* node = &tree_["commands"];
+    if (!prefix.empty()) {
+        // Walk to the namespace node: first token is a top-level command,
+        // every following token descends through a "children" map.
+        size_t p = 0;
+        while (p < prefix.size()) {
+            size_t dot = prefix.find('.', p);
+            std::string tok = (dot == std::string::npos)
+                                  ? prefix.substr(p)
+                                  : prefix.substr(p, dot - p);
+            if (p == 0) {
+                if (!node->contains(tok)) return out;
+                node = &(*node)[tok];
+            } else {
+                if (!node->is_object() || !node->contains("children") ||
+                    !(*node)["children"].is_object() ||
+                    !(*node)["children"].contains(tok))
+                    return out;
+                node = &(*node)["children"][tok];
+            }
+            if (dot == std::string::npos) break;
+            p = dot + 1;
+        }
+    }
+    const nlohmann::json* kids = node;
+    if (!prefix.empty()) {
+        if (!node->contains("children") || !(*node)["children"].is_object())
+            return out;
+        kids = &(*node)["children"];
+    }
+    for (auto it = kids->begin(); it != kids->end(); ++it) {
+        std::string child = prefix.empty() ? it.key() : prefix + "." + it.key();
+        add(child);
+    }
     return out;
 }
 

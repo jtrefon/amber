@@ -156,12 +156,6 @@ TEST(test_json_only_key_in_completions) {
     ASSERT(found_provider);
     ASSERT(found_model);
     ASSERT(found_config);
-
-    // "model" is also a top-level command.
-    bool top_model = false;
-    for (const auto& k : reg.complete(""))
-        if (k == "model") top_model = true;
-    ASSERT(top_model);
 }
 
 // ── Test: missing JSON file ────────────────────────────────────────
@@ -298,10 +292,9 @@ TEST(test_drawer_namespace_levels) {
     ASSERT(!reg.help_for("set.policy.approval").empty());
 }
 
-// ── Test: /model is a pure switch command (no list|set|probe children) ──
-// Model discovery/context moved under /get model; switching is /model <name>
-// or the /set model drawer. Neither the tree nor the subcommand index may
-// still advertise the old list|set|probe verbs.
+// ── Test: no root /model command remains (FIX-015) ──
+// The old root /model node with list|set|probe children is gone; model
+// lives under get/set (see test_model_lives_under_get_set).
 
 TEST(test_model_command_is_leaf) {
     tui::SettingRegistry reg;
@@ -309,9 +302,11 @@ TEST(test_model_command_is_leaf) {
     ASSERT(ok);
     auto subs = reg.subcommands_for("model");
     ASSERT(subs.empty());
-    ASSERT(reg.children_of("model").empty());
-    // The command is still documented (help text for switching).
-    ASSERT(!reg.help_for("model").empty());
+    // The root command is no longer in the tree.
+    bool root_model = false;
+    for (const auto& k : reg.complete(""))
+        if (k == "model") root_model = true;
+    ASSERT(!root_model);
 }
 
 // ── Test: model lives under get/set, not at the root (FIX-015 P2) ──
@@ -391,8 +386,10 @@ TEST(test_full_path_namespaces_are_distinct) {
     ASSERT_EQ(set_kids.size(), 1u);
     ASSERT_EQ(set_kids.front(), "m1");
     ASSERT(!reg.help_for("set.model.m1").empty());
-    // ...while the get side of the same namespace stays untouched.
-    ASSERT(reg.children_of("get.model").empty());
+    // ...while the get side of the same namespace stays untouched (its static
+    // list/context children are not joined by the set-side feed leaves).
+    auto get_kids = reg.children_of("get.model");
+    ASSERT_EQ(get_kids.size(), 2u);
     ASSERT(!reg.help_for("get.model").empty());
 }
 

@@ -685,14 +685,6 @@ void Tui::run() {
                     if (std::find(stripped.begin(), stripped.end(), tail) == stripped.end())
                         stripped.push_back(tail);
                 }
-                // Also include single-level keys from the legacy complete_arg.
-                const Command* cmd = find_command(cmd_name);
-                if (cmd && cmd->complete_arg) {
-                    auto legacy = cmd->complete_arg(partial);
-                    for (const auto& l : legacy)
-                        if (std::find(stripped.begin(), stripped.end(), l) == stripped.end())
-                            stripped.push_back(l);
-                }
                 cl.set_completions(stripped);
                 return;
             }

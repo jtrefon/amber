@@ -261,17 +261,11 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    // provider / model switches
+    // provider switch
     if (arg.rfind("provider ", 0) == 0 || arg == "provider") {
         std::string rest = (arg.size() > 9) ? arg.substr(9) : "";
         if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
         cmd_provider(rest);
-        return;
-    }
-    if (arg.rfind("model ", 0) == 0 || arg == "model") {
-        std::string rest = (arg.size() > 6) ? arg.substr(6) : "";
-        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
-        cmd_model_set(rest);
         return;
     }
 
@@ -338,10 +332,6 @@ void Tui::cmd_get(const std::string& arg) {
 void Tui::cmd_get_config() {
     config_screen();
     redraw_after_modal();
-}
-
-void Tui::cmd_get_model() {
-    append_line(P_STATUS, "model: " + cfg_.model + " (provider: " + cfg_.provider_name + ")");
 }
 
 void Tui::cmd_get_provider() {
@@ -927,8 +917,6 @@ void Tui::build_commands() {
          "save all windows and exit"},
         {"provider", "core.provider", {"p"}, "list|add|edit|delete|test",
          "manage API providers"},
-        {"model", "core.model", {"m"}, "list|set|probe",
-         "manage AI models"},
         {"session", "core.session", {}, "list|save|load|delete|rename <id> <title>",
          "manage saved sessions"},
         {"files", "core.files", {"f"}, "ls|tree|open|find <path>",
@@ -1020,18 +1008,7 @@ void Tui::register_builtin_actions() {
         [this](const std::string& a) { cmd_provider_delete(a); });
     register_action("core.provider.test",
         [this](const std::string& a) { cmd_provider_test(a); });
-    // model
-    register_action("core.model", [this](const std::string& a) {
-        if (!a.empty())
-            append_line(P_STATUS, "usage: /model list|set|probe");
-        cmd_model_panel();
-    });
-    register_action("core.model.list",
-        [this](const std::string&) { cmd_model_list(); });
-    register_action("core.model.set",
-        [this](const std::string& a) { cmd_model_set(a); });
-    register_action("core.model.probe",
-        [this](const std::string&) { cmd_model_probe(); });
+    // model (get/set accessor — see completions.json get.model/set.model)
     // files
     register_action("core.files", [this](const std::string& a) {
         if (!a.empty())
@@ -1188,6 +1165,12 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_config(); });
     register_action("core.config.get.model",
         [this](const std::string&) { cmd_get_model(); });
+    register_action("core.config.get.model.list",
+        [this](const std::string&) { cmd_get_model_list(); });
+    register_action("core.config.get.model.context",
+        [this](const std::string&) { cmd_get_model_context(); });
+    register_action("core.config.set.model",
+        [this](const std::string& a) { cmd_model_set(a); });
     register_action("core.config.get.provider",
         [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.toolfold",
@@ -1371,7 +1354,7 @@ void Tui::show_command_frame(const Command& c) {
 
 void Tui::cmd_model_set(const std::string& arg) {
     if (arg.empty()) {
-        append_line(P_STATUS, "usage: /model set <name> | /model list | /model probe");
+        append_line(P_STATUS, "model: " + cfg_.model + " \u2014 /model <name> or /set model to switch");
         return;
     }
     auto models = agent::list_models(cfg_);
@@ -1393,54 +1376,55 @@ void Tui::cmd_model_set(const std::string& arg) {
     append_line(P_STATUS, "model set to " + arg + " (saved to " + global + ")");
 }
 
-void Tui::cmd_model_list() {
-    auto models = agent::list_models(cfg_);
-    std::string msg;
-    for (auto& m : models) msg += m + " ";
-    if (msg.size() > 200) msg.resize(200);
-    append_line(P_STATUS, "models: " + (msg.empty() ? "(none)" : msg));
+void Tui::cmd_get_model() {
+    append_line(P_STATUS, "model: " + cfg_.model + " (provider: " + cfg_.provider_name + ")");
 }
 
-void Tui::cmd_model_probe() {
-    auto info = agent::probe_server(cfg_);
-    if (info.ok)
-        append_line(P_STATUS, "model: " + info.model + " ctx: " + std::to_string(info.context_size));
-    else
-        append_line(P_STATUS, "probe failed");
-}
-
-void Tui::cmd_model_panel() {
-    append_line(P_STATUS, "querying " + cfg_.models_url() + " ...");
-    draw();
-    auto models = agent::list_models(cfg_);
-    if (models.empty()) {
+void Tui::cmd_get_model_list() {
+    refresh_model_list();
+    if (model_info_.empty()) {
         append_line(P_STATUS, "no models available or server unreachable");
         return;
     }
-    std::vector<std::string> display;
-    display.reserve(models.size());
-    for (const auto& m : models) {
-        bool cur = (m == cfg_.model);
-        display.emplace_back((cur ? "> " : "  ") + m);
+    for (const auto& m : model_info_) {
+        int ctx = m.context ? m.context : m.context_train;
+        std::string line = "  " + m.id;
+        if (ctx > 0) line += "  (ctx " + std::to_string(ctx) + ")";
+        append_line(P_ASSISTANT, line);
     }
-    {
-        ModalScope scope;
-        curs_set(0);
-        ListPanel lp("Select Model (" + std::to_string(models.size()) + " available)",
-                     display);
-        int sel = lp.run();
-        if (sel < 0) return;
-        std::string chosen = display[sel].substr(2);
-        cfg_.model = chosen;
-        cfg_.model_explicit = true;
+}
+
+void Tui::cmd_get_model_context() {
+    agent::ServerInfo info = agent::probe_server(cfg_);
+    std::string line = "model: " + cfg_.model;
+    if (info.ok && info.context_size > 0) {
+        line += "  ctx: " + std::to_string(info.context_size);
+        if (info.context_train > 0 && info.context_train != info.context_size)
+            line += " (max " + std::to_string(info.context_train) + ")";
+    } else if (cfg_.context_size > 0) {
+        line += "  ctx: " + std::to_string(cfg_.context_size) + " (cached)";
+    } else {
+        line += "  ctx: unknown";
     }
-    for (auto& w : windows_) {
-        if (!w->agent) continue;
-        w->agent->set_detection_loop(cfg_.detection_loop);
+    append_line(P_STATUS, line);
+}
+
+void Tui::refresh_model_list() {
+    model_info_ = agent::list_model_info(cfg_);
+    // Feed: model ids become value leaves under set.model. Each leaf carries a
+    // generated action (core.config.set.model.<id>) so the tree walk resolves
+    // the exact model; the closure runs the shared set/validate/save path.
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& m : model_info_) {
+        std::string id = m.id;
+        nlohmann::json& leaf = subtree["set"]["children"]["model"]["children"][id];
+        leaf["action"] = "core.config.set.model." + id;
+        int ctx = m.context ? m.context : m.context_train;
+        if (ctx > 0) leaf["help"] = "ctx " + std::to_string(ctx);
+        register_action(leaf["action"].get<std::string>(),
+                        [this, id](const std::string&) { cmd_model_set(id); });
     }
-    std::string global = agent::global_config_path();
-    cfg_.save_global(global);
-    append_line(P_STATUS, "model set to " + cfg_.model + " (saved to " + global + ")");
+    settings_.merge_completions_json(subtree);
 }
 
 void Tui::cmd_provider(const std::string& a) {

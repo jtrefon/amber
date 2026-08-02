@@ -80,7 +80,19 @@
         "model": {
           "action": "core.config.get.model",
           "help": "Show the active model name.",
-          "man": "Displays the currently active model name and the provider it belongs to. The model is set via '/set model' or during provider setup."
+          "man": "The get-model namespace queries model state: the active model, every model the server offers, and the active model's context window size. The model is switched via '/set model'.",
+          "children": {
+            "list": {
+              "action": "core.config.get.model.list",
+              "help": "List all models the server offers.",
+              "man": "Queries the server's /v1/models endpoint and lists every available model with its context window size when the server reports it."
+            },
+            "context": {
+              "action": "core.config.get.model.context",
+              "help": "Show the active model's context window size.",
+              "man": "Probes the server for the active model's loaded context window (n_ctx) and native maximum (n_ctx_train) and reports both."
+            }
+          }
         },
         "provider": {
           "action": "core.config.get.provider",
@@ -364,6 +376,11 @@
               "man": "Deletes the skill directory from the global skills directory and refreshes the catalog."
             }
           }
+        },
+        "model": {
+          "action": "core.config.set.model",
+          "help": "Switch the active AI model.",
+          "man": "The set-model branch switches the active model. Type '/set model' followed by a model id from the provider's model list, or Tab/space to open the picker drawer — every model the server offers is listed with its context window size, selectable with Up/Down and Enter. Bare '/set model' reports the current model."
         }
       }
     },
@@ -490,28 +507,6 @@
           "action": "core.provider.test",
           "help": "Test the provider connection by probing the API endpoint.",
           "man": "Sends a probe request to the provider's API endpoint to verify connectivity and reports the server's model info."
-        }
-      }
-    },
-    "model": {
-      "action": "core.model",
-      "help": "Manage AI models.",
-      "man": "The model command manages the active AI model. Use '/model list' to discover available models from the server, '/model set' to switch models, and '/model probe' to inspect a model's capabilities.",
-      "children": {
-        "list": {
-          "action": "core.model.list",
-          "help": "Fetch and list all models available from the current server.",
-          "man": "Queries the server's /v1/models endpoint and lists all available models with their IDs."
-        },
-        "set": {
-          "action": "core.model.set",
-          "help": "Set the active model by name.",
-          "man": "Changes the active model to the specified model name. The model must be available from the configured provider."
-        },
-        "probe": {
-          "action": "core.model.probe",
-          "help": "Probe the server for model info (name, context window size).",
-          "man": "Queries the server for model metadata including native context window size (n_ctx_train) and loaded context size (n_ctx)."
         }
       }
     },
