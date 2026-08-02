@@ -21,6 +21,12 @@ void sanitize_node(json& node) {
     auto t = node.find("type");
     if (t == node.end() || !t->is_string())
         node["type"] = "object";
+    // The nlohmann {"required", {}} gotcha produces "required": null, which
+    // makes llama.cpp's grammar generator throw "type must be array, but is
+    // null". Repair any non-array required to an empty array.
+    auto req = node.find("required");
+    if (req != node.end() && !req->is_array())
+        node["required"] = json::array();
     if (node["type"] == "array") {
         auto items = node.find("items");
         if (items == node.end() || !items->is_object())

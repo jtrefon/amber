@@ -141,7 +141,7 @@ public:
               {"origin", {{"type", "string"},
                           {"description", "Optional origin filter: 'authored' "
                                           "or 'learned'"}}}}},
-            {"required", {}}};
+            {"required", nlohmann::json::array()}};
     }
 
     ToolResult execute(const json& a) const override {
