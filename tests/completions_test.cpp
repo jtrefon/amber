@@ -422,6 +422,41 @@ TEST(test_policy_rule_feed_leaves) {
     ASSERT_EQ(get_kids.front(), "bash");
 }
 
+// ── Test: job kill/read complete from feed leaves (FIX-015 P4) ──
+// Job ids become value leaves under job.kill and job.read (state as help),
+// replacing the last hardcoded complete_arg lambda.
+
+TEST(test_job_feed_leaves) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["job"]["children"]["kill"]["children"]["42"]["action"] =
+        "core.job.kill.42";
+    subtree["job"]["children"]["kill"]["children"]["42"]["help"] = "running";
+    subtree["job"]["children"]["kill"]["children"]["43"]["action"] =
+        "core.job.kill.43";
+    subtree["job"]["children"]["read"]["children"]["42"]["action"] =
+        "core.job.read.42";
+    reg.merge_completions_json(subtree);
+
+    // /job kill <Tab> completes running jobs...
+    auto kill_kids = reg.complete("job.kill");
+    REQUIRE_NONEMPTY(kill_kids);
+    ASSERT_EQ(kill_kids.size(), 2u);
+    bool has_42 = false, has_43 = false;
+    for (const auto& k : kill_kids) {
+        if (k == "job.kill.42") has_42 = true;
+        if (k == "job.kill.43") has_43 = true;
+    }
+    ASSERT(has_42 && has_43);
+    ASSERT_EQ(reg.help_for("job.kill.42"), "running");
+    // ...and /job read offers the same job ids.
+    auto read_kids = reg.children_of("job.read");
+    REQUIRE_NONEMPTY(read_kids);
+    ASSERT_EQ(read_kids.front(), "42");
+}
+
 // ── Test: get/set namespaces are indexed by FULL path (FIX-015 P1) ──
 // The stripped-key scheme collapses get.model and set.model into one key, so
 // the two sides of the same namespace can never carry different children.
@@ -509,6 +544,7 @@ int main() {
     test_set_model_feed_leaves_complete();
     test_policy_rule_branches_documented();
     test_policy_rule_feed_leaves();
+    test_job_feed_leaves();
     test_full_path_namespaces_are_distinct();
     test_merge_preserves_static_tree_children();
     } catch (const std::exception& e) {
