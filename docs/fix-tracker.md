@@ -883,6 +883,11 @@ Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is deri
   tree-driven path for every command; `palette::Command` shrunk to display
   metadata (`run`/`complete_arg`/`current_value`/`show_command_frame` deleted);
   redundant read-only registry entries removed.
+- Residual (2026-08-02): `/set model` persisted to disk but never reached the
+  RUNNING agent — `Agent` holds its own `Config` copy and the `LLMClient` keeps
+  a snapshot from construction. `Agent::set_model()` now rebuilds the client
+  through an injectable `LLMClientFactory` (default: `HttpLLMClient`), and
+  `cmd_model_set` propagates the switch to every window's agent.
 
 ---
 

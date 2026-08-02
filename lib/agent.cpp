@@ -22,22 +22,34 @@ void emit_context_event(ContextEventSource& src, const Context& ctx) {
     src.publish(ctx.token_count(), ctx.size());
 }
 
+// Build an LLM client for `cfg` through the injected factory, falling back
+// to the real HttpLLMClient when no factory was provided.
+std::unique_ptr<LLMClient> make_client(const Config& cfg,
+                                       const LLMClientFactory& factory) {
+    return factory ? factory(cfg) : std::make_unique<HttpLLMClient>(cfg);
+}
+
 } // namespace
 
-Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
+Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<CompressionStrategy> compressor,
              std::unique_ptr<CompressionGate> gate,
              std::unique_ptr<MemoryStore> memory_store,
              std::unique_ptr<MemoryRetriever> retriever,
-             std::unique_ptr<LLMClient> client)
-    : cfg_(cfg), registry_(registry),
-      client_(client ? std::move(client)
-                     : std::make_unique<HttpLLMClient>(cfg)),
+             std::unique_ptr<LLMClient> client,
+             LLMClientFactory client_factory)
+    : cfg_(std::move(cfg)), registry_(registry),
+      client_factory_(std::move(client_factory)),
+      client_(nullptr),
       hooks_(std::move(hooks))
     , compression_(std::move(compressor))
     , gate_(std::move(gate))
     , memory_store_(std::move(memory_store))
     , retriever_(std::move(retriever)) {
+    if (client)
+        client_ = std::move(client);
+    else
+        client_ = make_client(cfg_, client_factory_);
     experience_cfg_ = load_experience_config(cfg_);
     skills_ = std::make_unique<SkillCatalog>(cfg_);
     std::vector<Skill> learned;
@@ -47,6 +59,12 @@ Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
     }
     skills_->discover(learned);
     register_skill_tools(registry_, *skills_);
+}
+
+void Agent::set_model(const std::string& model) {
+    cfg_.model = model;
+    cfg_.model_explicit = true;
+    client_ = make_client(cfg_, client_factory_);
 }
 
 void Agent::ensure_system_prompt() {

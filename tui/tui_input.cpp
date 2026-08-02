@@ -1374,7 +1374,9 @@ void Tui::cmd_model_set(const std::string& arg) {
     cfg_.model_explicit = true;
     for (auto& w : windows_) {
         if (!w->agent) continue;
-        w->agent->set_detection_loop(cfg_.detection_loop);
+        // The running agent's LLM client holds a config snapshot — rebuild it
+        // so the next turn actually talks to the new model.
+        w->agent->set_model(arg);
     }
     std::string global = agent::global_config_path();
     cfg_.save_global(global);

@@ -43,6 +43,12 @@ enum class Approval : std::uint8_t {
     AlwaysDeny      // persist — always block this tool
 };
 
+// Builds an LLM client for a given Config. The default factory wires the real
+// HttpLLMClient; tests inject a factory returning a fake so runtime config
+// changes (Agent::set_model) stay observable and network-free.
+using LLMClientFactory =
+    std::function<std::unique_ptr<LLMClient>(const Config&)>;
+
 // A hook invoked on each significant event so UIs can render progress without
 // the library knowing about them. The default no-op is used by headless runs.
 struct AgentHooks {
@@ -78,12 +84,13 @@ struct AgentHooks {
 //      or max_tool_iterations is reached.
 class Agent {
 public:
-    Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks = {},
+    Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
           std::unique_ptr<MemoryStore> memory_store = {},
           std::unique_ptr<MemoryRetriever> retriever = {},
-          std::unique_ptr<LLMClient> client = {});
+          std::unique_ptr<LLMClient> client = {},
+          LLMClientFactory client_factory = {});
 
     // Run one turn to completion, appending to the ongoing conversation.
     // Context from previous turns is retained (the agent is stateful). Returns
@@ -120,6 +127,11 @@ public:
     // Enable or disable detection subsystems at runtime (/set detection namespace).
     void set_detection_loop(bool on) { cfg_.detection_loop = on; }
     void set_detection_duplicate(bool on) { cfg_.detection_duplicate = on; }
+
+    // Switch the active model at runtime (/set model). LLM clients hold a
+    // Config snapshot from construction, so the client is rebuilt through the
+    // injected factory — the next turn talks to the new model.
+    void set_model(const std::string& model);
 
     void set_compression_threshold(double t) {
         cfg_.compression_threshold = t;
@@ -216,6 +228,7 @@ private:
 
     Config cfg_;
     ToolRegistry& registry_;
+    LLMClientFactory client_factory_;
     std::unique_ptr<LLMClient> client_;
     AgentHooks hooks_;
     ConversationLog log_;
