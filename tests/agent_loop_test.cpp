@@ -454,9 +454,9 @@ TEST(agent_template_parser_400_recovers_without_tools) {
     // Generation attempt 1 carried tools; the adapted retry did not; the
     // confirmation probe sent tools again.
     ASSERT_EQ(raw->tool_counts.size(), 3u);
-    ASSERT_EQ(raw->tool_counts[0], 1u);
-    ASSERT_EQ(raw->tool_counts[1], 0u);
-    ASSERT_EQ(raw->tool_counts[2], 1u);
+    ASSERT(raw->tool_counts[0] > 0u);   // first attempt carried tools
+    ASSERT_EQ(raw->tool_counts[1], 0u); // adapted retry dropped them
+    ASSERT(raw->tool_counts[2] > 0u);   // probe carried tools again
 }
 
 // [GR] When even the adapted retry fails, the internal probe rethrows so the

@@ -8,6 +8,7 @@
 #include "agent/tool_recovery.h"
 #include "agent/dispatch.h"
 #include "agent/tools.h"
+#include "agent/model_probe.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -444,7 +445,8 @@ std::string Agent::confirm_turn(const std::string& candidate,
     context_.push(std::move(done_msg));
     emit_context_event(context_events_, context_);
 
-    Message check = chat_once(tools, /*display=*/false);
+    Message check = chat_with_recovery(tools, "probe", /*display=*/false,
+                                       /*strict=*/true);
     json check_tool_calls = check.tool_calls;
     std::string check_content = check.content;
     context_.push(std::move(check));
@@ -593,8 +595,52 @@ std::vector<Tool*> Agent::resolve_tools() {
     return tools;
 }
 
-std::function<Message()> Agent::make_chat_fn(const std::vector<Tool*>& tools) {
-    return [this, &tools]() { return chat_once(tools); };
+// One LLM round-trip with graceful recovery for request-side 4xx failures:
+// the retry loop can REPAIR the request once (drop tools when the server
+// cannot parse the tool grammar for the loaded template; swap to a
+// server-known model id when the configured one is rejected) and retry.
+// `display` controls whether the exchange paints into the scrollback;
+// `strict` makes internal exchanges rethrow instead of faking a reply.
+Message Agent::chat_with_recovery(const std::vector<Tool*>& tools,
+                                  const char* stage, bool display,
+                                  bool strict) {
+    auto chat = [this, &tools, display]() {
+        return chat_once(tools, display);
+    };
+    auto chat_no_tools = [this, display]() {
+        return chat_once({}, display);
+    };
+    ChatAdapter adapt =
+        [this, &tools, &chat_no_tools, display](const std::string& err)
+        -> std::function<Message()> {
+        switch (classify_request_failure(err)) {
+        case RequestFailure::TemplateParser:
+            if (!tools.empty()) return chat_no_tools;
+            break;
+        case RequestFailure::ModelName: {
+            auto models = list_models(cfg_);
+            if (!models.empty() && models[0] != cfg_.model) {
+                set_model(models[0]);
+                if (hooks_.on_status)
+                    hooks_.on_status("server rejected model \"" + cfg_.model +
+                                     "\" - retrying with \"" + models[0] +
+                                     "\"");
+                return [this, &tools, display]() {
+                    return chat_once(tools, display);
+                };
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        return {};
+    };
+    if (strict)
+        return chat_with_retry_strict(hooks_, log_, chat, stage,
+                                      cfg_.cancel_token, 3, adapt);
+    return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3,
+                           adapt);
 }
 
 std::string Agent::finish_turn(std::string final_reply) {
@@ -613,7 +659,6 @@ std::string Agent::run(const std::string& user_prompt) {
     log_and_push_user_prompt(user_prompt);
 
     auto tools = resolve_tools();
-    auto chat = make_chat_fn(tools);
 
     FailStreak fail_streak;
     int loop_count = 0, text_loop_count = 0, tool_recovery_attempts = 0;
@@ -623,8 +668,9 @@ std::string Agent::run(const std::string& user_prompt) {
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
-        Message reply = chat_with_retry(hooks_, log_, chat, "generation",
-                                        cfg_.cancel_token);
+        Message reply = chat_with_recovery(tools, "generation",
+                                           /*display=*/true,
+                                           /*strict=*/false);
 
         // Extract tool_calls and content before push_reply (which moves reply).
         json tc = reply.tool_calls;

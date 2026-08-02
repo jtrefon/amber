@@ -213,7 +213,13 @@ private:
 
     // Build the tools vector and the chat lambda for the run loop.
     std::vector<Tool*> resolve_tools();
-    std::function<Message()> make_chat_fn(const std::vector<Tool*>& tools);
+
+    // One LLM round-trip with graceful recovery for request-side 4xx: the
+    // retry loop repairs the request once (drop tools on template-parser
+    // rejection, swap to a server-known model on name rejection). `strict`
+    // makes internal exchanges rethrow instead of faking a reply.
+    Message chat_with_recovery(const std::vector<Tool*>& tools,
+                               const char* stage, bool display, bool strict);
 
     // Push a generated reply into context, log, and fire context event.
     void push_reply(Message reply);
