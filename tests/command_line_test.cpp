@@ -233,6 +233,43 @@ static int test_yank() {
     return 0;
 }
 
+// ── Test: drawer Enter dispatch preserves the typed prefix ──
+// "/set model llama" + Enter on a drawer row must become
+// "/set model llama3-8b", never "/llama3-8b" (the completion replaces only
+// the trailing partial token).
+static int test_enter_drawer_preserves_prefix() {
+    tui::CommandLine cl;
+    cl.set_text("/set model llama");
+    cl.set_completions({"llama3-8b", "llama2-7b"});
+    auto r = cl.on_enter();
+    ASSERT_EQ(r.action, tui::CommandLine::Result::Dispatch);
+    ASSERT_EQ(r.dispatch_text, "/set model llama3-8b");
+    return 0;
+}
+
+// ── Test: Tab does not append when the partial matches no completion ──
+// "/set model" must not become "/set modelllama3-8b" when no model id
+// starts with "model".
+static int test_tab_no_match_no_append() {
+    tui::CommandLine cl;
+    cl.set_text("/set model");
+    cl.set_completions({"llama3-8b"});
+    auto r = cl.on_tab();
+    ASSERT_EQ(r.action, tui::CommandLine::Result::None);
+    ASSERT_EQ(cl.text(), "/set model");
+    return 0;
+}
+
+// ── Test: Tab appends for dotted suffixes (namespace leaf completion) ──
+static int test_tab_dotted_suffix_appends() {
+    tui::CommandLine cl;
+    cl.set_text("/set detection.");
+    cl.set_completions({"loop", "duplicate"});
+    cl.on_tab();
+    ASSERT_EQ(cl.text(), "/set detection.loop");
+    return 0;
+}
+
 int main() {
     int failed = 0;
     failed += run_test("basic insertion", test_basic_insertion);
@@ -254,6 +291,9 @@ int main() {
     failed += run_test("long input", test_long_input);
     failed += run_test("empty input", test_empty_input);
     failed += run_test("Ctrl-Y yank", test_yank);
+    failed += run_test("drawer enter preserves prefix", test_enter_drawer_preserves_prefix);
+    failed += run_test("tab no-match no append", test_tab_no_match_no_append);
+    failed += run_test("tab dotted suffix appends", test_tab_dotted_suffix_appends);
 
     std::cout << "\n" << (failed ? "FAILED" : "ALL PASSED")
               << " (" << failed << " failures)\n";

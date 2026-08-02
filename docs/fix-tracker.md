@@ -1,6 +1,6 @@
 # amber — Issue Fix Tracker
 
-- **Status:** ✅ Complete (all tasks done)
+- **Status:** ✅ Complete (all tasks done, incl. FIX-015 2026-08-02)
 - **Target:** Zero technical debt
 - **Rule:** No patches. Every fix is a **refactor** that leaves the code in a strictly better state than found.
 - **Reference:** Issues register at `docs/issues.md`
@@ -784,6 +784,119 @@ Prefer Option A for now (minimal change, solves the test problem). Option B is t
 
 ---
 
+## Task 15: JSON-driven command engine — zero hardcoded completion (I-15)
+
+**Status: ✅ Done 2026-08-02** — all phases shipped on `feat/agent-loop-hardening`
+(red+green commits per phase; final gate `make clean && make && make test &&
+make lint && make analyze` green).
+
+| Field | Value |
+|---|---|
+| **ID** | `FIX-015` |
+| **Severity** | 🟡 Medium (architecture hardening; no user-facing breakage today) |
+| **Depends on** | None |
+| **Blocks** | I-15 residuals (policy-rule curation, jobs feed, skills content) |
+| **Estimated effort** | 6-8 hours across 4 phases |
+| **Files touched** | `completions.json`, `tui/setting_registry.{h,cpp}`, `tui/tui.cpp`, `tui/tui_input.cpp`, `tui/tui_render.cpp`, `tui/tui.h`, `tui/palette.h`, `tests/completions_test.cpp`, `tests/tui_tests.cpp` |
+
+### Problem
+
+The command tree (`completions.json` → `SettingRegistry`) is the declared single source of truth for slash-command structure, but four hardcoded escapes and two registry defects block the target state:
+
+1. **Dynamic values have no tree path.** Model ids, policy-rule names, and job ids are completed by C++ lambdas (`complete_arg` on the legacy `set`/`model`/`job` commands in `build_commands()`), and `cmd_get_model` parses `list|context` verbs in C++ — `/get model list` is not a tree branch. The original design doc flags the gap: `set policy rule ` → "N/A (dynamic names, can't enumerate)" (docs/help-system-scope.md).
+2. **Get/set namespace collision.** `index_node` strips the first display-path component (setting_registry.cpp:138-145), so `get.model` and `set.model` both index as `model` — the get and set sides of the same namespace cannot carry different children/help/man.
+3. **Live merges clobber the tree.** `merge_completions_json` replaces `tree_["commands"][key]` wholesale while the index unions children — after a live MCP/plugin merge the static children are lost to tree-walk dispatch (`/mcp list` degrades to the raw-arg fallback).
+4. **Compensation hacks.** The `/set` read-only-leaf filter in `update_completions` (tui.cpp), the `complete_arg` fallback + ctx decoration in `draw_drawer` (tui_render.cpp), and the `on_tab` guard in CommandLine exist only to keep two parallel completion systems aligned.
+
+The permission (policy) system itself exists and is documented (`PolicyStore`, approval gating) and partially in the tree (`get/set policy mode|approval|timeout`), but the dangerous-command rules curation (`/set policy rule <tool> <allow|deny|ask>`) is hardcoded arg-parsing in `cmd_set` (tui_input.cpp:220-250) — it never became tree branches. No new permission engine is built; the existing one is surfaced in the tree.
+
+### Refactor spec (target architecture)
+
+**Core principle.** `completions.json` is the single source of command structure: namespace branches (unlimited nesting), short help (drawer ahead-list), man pages (`?` popup — unchanged behavior, Esc to exit), and leaf `action`s (internal command mapping — what the branch executes). Runtime state and external integrations contribute content through the same tree mechanism: merge-generated leaf subtrees ("feeds"). No C++ code defines command structure, completion, or argument parsing.
+
+**Schema (unchanged — no new fields).**
+
+```json
+"<branch>": {
+  "help": "short inline description",
+  "man": "manual page for '?'",
+  "action": "core.<ns>.<leaf>",
+  "children": { "<child>": { ... } }
+}
+```
+
+Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is derived from tree structure (children / leaf values).
+
+**Leaves-as-values — the dynamic-value mechanism.** A feed generates leaf children for a branch; each leaf carries a **generated action** `"<parent action>.<leaf key>"` (the established MCP pattern — `mcp_completion_subtree` in lib/mcp_tools.cpp), and the feed registers the matching handler closure at merge time. Tree-walk dispatch is unchanged: the deepest node's `action` resolves to a registered handler; remaining tokens are the arg. The leaf key lives in the internal command mapping, so the handler knows which value was selected. Examples:
+
+- `/set model llama3-8b` → walk consumes the merged leaf → `core.config.set.model.llama3-8b` → closure runs the existing set/validate/save logic.
+- `/set policy rule bash allow` → leaf `bash` → `core.config.set.policy.rule.bash` → closure sets the rule; `allow` arrives as the arg.
+- Bare `/set model` / `/set policy rule` → walk stops at the branch → parent action handler shows current state + usage.
+
+**Registry (`setting_registry.{h,cpp}`).**
+
+1. **Full-path indexing** — `children_of`/`help_for`/`man_for`/`complete` key by the complete display path (`get.model` ≠ `set.model`; top-level `model` stays `model`). Dotted `/get` fallbacks resolve: try key → `get.<key>` → `set.<key>`.
+2. **Deep merge** — `merge_completions_json` recursively unions children and preserves static action/help/man, so live MCP/plugin/feed merges never clobber documented nodes.
+3. **Feed contract** — a feed produces a subtree (leaves + actions) for a branch and registers the leaf-action closures; consumers (drawer, completions, dispatch) stay uniform.
+
+**Command surface (target).**
+
+- `get model` (current readout), `get model list`, `get model context` — static JSON children with split action handlers (`core.config.get.model.list/.context`).
+- `set model` — JSON branch (`action: core.config.set.model`; bare = current model + usage); children fed from the model cache (`id` + `help: "ctx N"`; actions `core.config.set.model.<id>`).
+- Root `/model` removed — model is a state-modifying accessor; canonical home is `get`/`set`. Nothing is lost: switching lives at `/set model`, queries at `/get model`.
+- `get policy` / `set policy` — existing `mode`/`approval`/`timeout` plus new `rule` branches fed from `PolicyStore` + `ToolRegistry`; the dangerous-command curation becomes visible in the drawer and dispatches through the tree.
+- `job kill|read` — leaves fed from `JobService` (kills the last `complete_arg` lambda).
+
+**Host-layer deletions.** `Tui::complete_models`; `complete_arg` lambdas on `set`/`model`/`job`; the `/set` read-only-leaf filter; drawer `complete_arg` fallback + ctx decoration; `cmd_get_model` verb parsing; redundant `model`/`provider`/`config` registry entries. `update_completions` and `draw_drawer` collapse to a single path: branch children (or root names) → rows; feed leaves carry their own help text.
+
+**Unchanged.** Tree-walk dispatch semantics; CommandLine shadow/Tab/Enter contracts (including the committed prefix-preserving Enter dispatch and Tab guard); the policy engine and approval gating (no permission-system changes — it moves under one roof only); security model; `?` popup behavior; aliases.
+
+### Phases (each Red → Green → commit on the current branch)
+
+| Phase | Scope | Red tests |
+|---|---|---|
+| 1 | Registry: full-path keys + deep merge | completions_test: `get.model` vs `set.model` distinct children/help; merge preserves static fields and static children survive in the tree |
+| 2 | Feeds + model: JSON content (`set.model`, `get.model list/context`), model feed + leaf-action registration, handler split; delete `complete_models`, lambdas, filter, drawer fallback | run_tests: feed subtree generation hermetic; command_line/e2e: generated leaf actions dispatch |
+| 3 | Policy-rule feed (permission in the tree) | run_tests: rule feed subtree (names + levels); `/set policy rule` completion |
+| 4 | Job feed; delete remaining `complete_arg`; single-path `update_completions`/`draw_drawer`; remove redundant registry entries | command_line/completions green; `job kill|read` completion |
+| 5 | Docs: AGENTS.md engine note; issues.md register closed | — |
+
+### Verification
+
+- [x] `make clean && make && make test && make lint && make analyze` — zero warnings
+- [x] `/set model` drawer lists models with `(ctx N)`; Tab/Enter switch; `/get model list|context` dispatch through the tree
+- [x] `/set policy rule <tool> <level>` and `/get policy rule <tool>` dispatch through the tree; rules visible in the drawer
+- [x] `/job kill|read` complete from the feed
+- [x] e2e slash suite + command_line suite green (no CommandLine contract change)
+
+### Shipped
+
+- P1: registry indexes namespaces by full display path (`get.model` ≠ `set.model`);
+  `merge_completions_json` deep-merges (children unioned, static fields preserved);
+  `complete()` walks the tree and returns direct children (drawer/completions 1:1).
+- P2: root `/model` removed; `get.model list|context` static children; `set.model`
+  fed by `refresh_model_list()` (model ids as value leaves, generated actions
+  `core.config.set.model.<id>`, ctx as help).
+- P3: `get/set policy rule` branches; `refresh_policy_feed()` feeds tool names
+  (set side: all tools; get side: stored rules only, level + usage as help).
+- P4: `refresh_job_feed()` feeds `job.kill|read`; `update_completions` is one
+  tree-driven path for every command; `palette::Command` shrunk to display
+  metadata (`run`/`complete_arg`/`current_value`/`show_command_frame` deleted);
+  redundant read-only registry entries removed.
+- Residual (2026-08-02): `/set model` persisted to disk but never reached the
+  RUNNING agent — `Agent` holds its own `Config` copy and the `LLMClient` keeps
+  a snapshot from construction. `Agent::set_model()` now rebuilds the client
+  through an injectable `LLMClientFactory` (default: `HttpLLMClient`), and
+  `cmd_model_set` propagates the switch to every window's agent.
+- Residual (2026-08-02): tool UI + read hardening. Fold semantics implemented
+  as specified (always = 2 lines; auto = single animated line that closes on
+  finish; never = always-closed single line), spinner animation (square for
+  core tools, round for bash), the two-line regression fixed (extraction no
+  longer double-fires on_tool_call), and `read` refuses binary files (NUL
+  sniff) with a hard line-based limit ceiling.
+
+---
+
 ## Dependency Graph
 
 ```
@@ -806,6 +919,7 @@ FIX-009  (review + error conventions) — independent
 FIX-012  (noexcept) — independent
 FIX-013  (opendir → filesystem) — independent
 FIX-014  (Workspace isolation) — independent
+FIX-015  (JSON-driven command engine) — independent
 ```
 
 **Recommended execution order:**
@@ -816,4 +930,5 @@ FIX-014  (Workspace isolation) — independent
 4. FIX-003 + FIX-004 (decomposition, in sequence)
 5. FIX-011 (heuristic cleanup, needs FIX-002)
 6. FIX-005, FIX-006, FIX-012, FIX-013, FIX-014 (parallel friendly)
-7. FIX-007, FIX-008, FIX-009 (documentation, any time)
+7. FIX-015 (JSON-driven command engine; phases 1-5, red→green per phase)
+8. FIX-007, FIX-008, FIX-009 (documentation, any time)

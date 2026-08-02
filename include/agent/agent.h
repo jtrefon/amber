@@ -43,6 +43,12 @@ enum class Approval : std::uint8_t {
     AlwaysDeny      // persist — always block this tool
 };
 
+// Builds an LLM client for a given Config. The default factory wires the real
+// HttpLLMClient; tests inject a factory returning a fake so runtime config
+// changes (Agent::set_model) stay observable and network-free.
+using LLMClientFactory =
+    std::function<std::unique_ptr<LLMClient>(const Config&)>;
+
 // A hook invoked on each significant event so UIs can render progress without
 // the library knowing about them. The default no-op is used by headless runs.
 struct AgentHooks {
@@ -78,12 +84,13 @@ struct AgentHooks {
 //      or max_tool_iterations is reached.
 class Agent {
 public:
-    Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks = {},
+    Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
           std::unique_ptr<MemoryStore> memory_store = {},
           std::unique_ptr<MemoryRetriever> retriever = {},
-          std::unique_ptr<LLMClient> client = {});
+          std::unique_ptr<LLMClient> client = {},
+          LLMClientFactory client_factory = {});
 
     // Run one turn to completion, appending to the ongoing conversation.
     // Context from previous turns is retained (the agent is stateful). Returns
@@ -120,6 +127,11 @@ public:
     // Enable or disable detection subsystems at runtime (/set detection namespace).
     void set_detection_loop(bool on) { cfg_.detection_loop = on; }
     void set_detection_duplicate(bool on) { cfg_.detection_duplicate = on; }
+
+    // Switch the active model at runtime (/set model). LLM clients hold a
+    // Config snapshot from construction, so the client is rebuilt through the
+    // injected factory — the next turn talks to the new model.
+    void set_model(const std::string& model);
 
     void set_compression_threshold(double t) {
         cfg_.compression_threshold = t;
@@ -201,10 +213,22 @@ private:
 
     // Build the tools vector and the chat lambda for the run loop.
     std::vector<Tool*> resolve_tools();
-    std::function<Message()> make_chat_fn(const std::vector<Tool*>& tools);
+
+    // One LLM round-trip with graceful recovery for request-side 4xx: the
+    // retry loop repairs the request once (drop tools on template-parser
+    // rejection, swap to a server-known model on name rejection). `strict`
+    // makes internal exchanges rethrow instead of faking a reply.
+    Message chat_with_recovery(const std::vector<Tool*>& tools,
+                               const char* stage, bool display, bool strict);
 
     // Push a generated reply into context, log, and fire context event.
     void push_reply(Message reply);
+
+    // Extract text-embedded XML tool calls (attribute or name/arguments
+    // style) from a reply's content into the structured tool_calls field.
+    // Clears content when calls were found. Used by push_reply and the
+    // confirmation probe so both paths execute template-style tool calls.
+    bool extract_embedded_tool_calls(Message& reply) const;
 
     // Finalize a turn: fallback on empty, log, update state.
     std::string finish_turn(std::string final_reply);
@@ -216,6 +240,7 @@ private:
 
     Config cfg_;
     ToolRegistry& registry_;
+    LLMClientFactory client_factory_;
     std::unique_ptr<LLMClient> client_;
     AgentHooks hooks_;
     ConversationLog log_;

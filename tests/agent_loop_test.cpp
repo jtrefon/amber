@@ -409,3 +409,134 @@ TEST(agent_loop_unknown_context_fallback) {
     ASSERT(saw_compression);
     (void)ag.context().get_all();
 }
+
+// [FIX-015 residual] /set model must reach the RUNNING agent. The LLM client
+// holds a config snapshot (HttpLLMClient copies cfg at construction), so a
+// model switch has to rebuild the client — otherwise the conversation keeps
+// talking to the old model while the config file says otherwise.
+TEST(agent_set_model_swaps_client) {
+    agent::Config cfg = loop_cfg();
+    cfg.model = "old-model";
+    agent::ToolRegistry reg;
+    std::vector<std::string> seen_models;
+    auto factory = [&](const agent::Config& c) {
+        seen_models.push_back(c.model);
+        return std::make_unique<agent_test::FakeLLMClient>();
+    };
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, {}, factory);
+    ASSERT_EQ(seen_models.size(), 1u);
+    ASSERT_EQ(seen_models[0], "old-model");
+    ag.set_model("ornith-35b");
+    ASSERT_EQ(seen_models.size(), 2u);
+    ASSERT_EQ(seen_models[1], "ornith-35b");
+}
+
+// [GR] A template-parser 400 (the server cannot parse the tool grammar for
+// the loaded model) must not kill the turn: the request is retried once
+// WITHOUT tools and the conversation continues on the same agent.
+TEST(agent_template_parser_400_recovers_without_tools) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    agent_test::FakeReply fail;
+    fail.error = "HTTP 400 from LLM server: Unable to generate parser for "
+                 "this template";
+    fail.retryable = false;
+    fake->script.push_back(std::move(fail));
+    push_text(*fake, "hello there");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    std::string reply = ag.run("hi");
+    ASSERT_EQ(reply, "hello there");
+    // Generation attempt 1 carried tools; the adapted retry did not; the
+    // confirmation probe sent tools again.
+    ASSERT_EQ(raw->tool_counts.size(), 3u);
+    ASSERT(raw->tool_counts[0] > 0u);   // first attempt carried tools
+    ASSERT_EQ(raw->tool_counts[1], 0u); // adapted retry dropped them
+    ASSERT(raw->tool_counts[2] > 0u);   // probe carried tools again
+}
+
+// [GR] When even the adapted retry fails, the internal probe rethrows so the
+// turn ends with a real error instead of faking a reply into the context.
+TEST(agent_probe_failure_throws_after_recovery) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    for (int i = 0; i < 4; ++i) {
+        agent_test::FakeReply fail;
+        fail.error = "HTTP 400 from LLM server: Unable to generate parser "
+                     "for this template";
+        fail.retryable = false;
+        fake->script.push_back(std::move(fail));
+    }
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    bool threw = false;
+    try {
+        ag.run("hi");
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    ASSERT(threw);
+}
+
+// [TC] Ornith attribute-style XML tool calls inside the reply content are
+// extracted and executed — the regression from the session where
+// <tool_call><function=bash><parameter=command> was emitted, never ran, and
+// the model repeated it.
+TEST(agent_loop_attribute_xml_tool_call_executes) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply r;
+    r.content =
+        "Let me check.\n"
+        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+        "</parameter>\n</function>\n</tool_call>";
+    fake->script.push_back(std::move(r));
+    push_text(*fake, "done reading");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    std::string reply = ag.run("read the Makefile");
+    ASSERT_EQ(reply, "done reading");
+    const auto& ctx = ag.context().get_all();
+    bool saw_tool_result = false;
+    for (const auto& m : ctx)
+        if (m.role == "tool" &&
+            m.content.find("Makefile") != std::string::npos)
+            saw_tool_result = true;
+    ASSERT(saw_tool_result);
+}
+
+// [GR] XML tool calls fire on_tool_call exactly once per dispatched call.
+// The extraction path used to fire the hook AND dispatch fired it again,
+// producing two "running" lines in the TUI (the fold replace only collapsed
+// the last one).
+TEST(agent_xml_tool_call_fires_hook_once) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply r;
+    r.content =
+        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+        "</parameter>\n</function>\n</tool_call>";
+    fake->script.push_back(std::move(r));
+    push_text(*fake, "done reading");
+    push_text(*fake, "done");
+    int tool_call_hook_count = 0;
+    agent::AgentHooks hooks;
+    hooks.on_tool_call = [&](const std::string&, const agent::json&) {
+        ++tool_call_hook_count;
+    };
+    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(fake));
+    ag.run("read the Makefile");
+    ASSERT_EQ(tool_call_hook_count, 1);
+}

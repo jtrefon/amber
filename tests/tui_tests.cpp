@@ -311,10 +311,10 @@ TEST(markdown_task_list_items_render) {
 
 static std::vector<tui::palette::Command> palette_fixture() {
     return {
-        {"help", "core.help", {"?", "h"}, "[command]", "list commands", nullptr},
-        {"window", "core.window", {"win", "w"}, "new|close", "manage windows", nullptr},
-        {"save", "core.session.save", {}, "", "persist conversation", nullptr},
-        {"quit", "core.quit", {"exit", "q"}, "", "exit", nullptr},
+        {"help", "core.help", {"?", "h"}, "[command]", "list commands",},
+        {"window", "core.window", {"win", "w"}, "new|close", "manage windows",},
+        {"save", "core.session.save", {}, "", "persist conversation",},
+        {"quit", "core.quit", {"exit", "q"}, "", "exit",},
     };
 }
 
@@ -347,9 +347,9 @@ TEST(palette_find_by_name_or_alias) {
 
 
 TEST(palette_usage_and_common_prefix) {
-    tui::palette::Command c{"window", "core.window", {}, "new|close", "manage", nullptr};
+    tui::palette::Command c{"window", "core.window", {}, "new|close", "manage",};
     ASSERT_EQ(tui::palette::usage(c), "/window new|close");
-    tui::palette::Command bare{"save", "core.session.save", {}, "", "persist", nullptr};
+    tui::palette::Command bare{"save", "core.session.save", {}, "", "persist",};
     ASSERT_EQ(tui::palette::usage(bare), "/save");
     ASSERT_EQ(tui::palette::common_prefix({"send", "set", "sever"}), "se");
     ASSERT_EQ(tui::palette::common_prefix({}), "");
@@ -429,3 +429,14 @@ TEST(col_to_byte_git_prompt) {
     ASSERT(tui::text::col_to_byte(p, total) <= p.size());
 }
 
+
+TEST(textutil_spinner_frames) {
+    // Square corners (core tools) and round (bash) spinner cycles; the ASCII
+    // fallback must also yield a full frame cycle so animation never stalls.
+    for (int i = 0; i < 4; ++i) {
+        ASSERT(!std::string(tui::text::glyph::spinner_square(i)).empty());
+        ASSERT(!std::string(tui::text::glyph::spinner_round(i)).empty());
+    }
+    ASSERT(std::string(tui::text::glyph::spinner_square(0)) !=
+           std::string(tui::text::glyph::spinner_square(1)));
+}

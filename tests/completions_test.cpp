@@ -63,11 +63,17 @@ TEST(test_namespace_children) {
     for (const auto& k : get_kids)
         if (k == "think") found_think = true;
     ASSERT(found_think);
-    auto policy_kids = reg.children_of("policy");
-    REQUIRE_NONEMPTY(policy_kids);
-    ASSERT_EQ(policy_kids.size(), 3u);
-    // JSON object keys are sorted alphabetically by nlohmann::json (std::map).
-    ASSERT_EQ(policy_kids.front(), "approval");
+    // Full-path namespaces: the set side is queried separately from get.
+    auto set_kids = reg.children_of("set.policy");
+    REQUIRE_NONEMPTY(set_kids);
+    ASSERT_EQ(set_kids.size(), 4u);
+    ASSERT_EQ(set_kids.front(), "approval");
+    auto get_kids2 = reg.children_of("get.policy");
+    REQUIRE_NONEMPTY(get_kids2);
+    ASSERT_EQ(get_kids2.size(), 4u);
+    // Dotted key resolution keeps /get <dotted> lookups working.
+    ASSERT(!reg.help_for("policy.mode").empty());
+    ASSERT(!reg.man_for("policy.mode").empty());
 }
 
 // ── Test: choices are loaded from JSON ─────────────────────────────
@@ -95,70 +101,60 @@ TEST(test_ranges_loaded) {
     ASSERT_EQ(hi, 1.0);
 }
 
-// ── Test: completions from registry ────────────────────────────────
+// ── Test: completions from registry (full-path namespace queries) ──
 
 TEST(test_completions_work) {
     tui::SettingRegistry reg;
-    reg.add({"detection.loop", "", "", tui::Setting::Choice, {"on","off","toggle"}});
-    reg.add({"detection.duplicate", "", "", tui::Setting::Choice, {"on","off","toggle"}});
-    reg.add({"compression.threshold", "", "", tui::Setting::Float, {}, 0.1, 1.0});
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
 
-    // Empty prefix → namespaces only (marked with trailing /)
+    // Empty prefix → top-level command keys only.
     auto all = reg.complete("");
-    bool has_detection = false, has_compression = false;
+    bool has_get = false, has_set = false;
     for (const auto& s : all) {
-        if (s == "detection") has_detection = true;
-        if (s == "compression") has_compression = true;
+        if (s == "get") has_get = true;
+        if (s == "set") has_set = true;
+        ASSERT(s.find('.') == std::string::npos);
     }
-    ASSERT(has_detection);
-    ASSERT(has_compression);
+    ASSERT(has_get);
+    ASSERT(has_set);
 
-    // "det" → detection only
-    auto det = reg.complete("det");
-    ASSERT_EQ(det.size(), 1u);
-    ASSERT_EQ(det.front(), "detection");
+    // "get" → its children paths.
+    auto get_kids = reg.complete("get");
+    bool has_model = false;
+    for (const auto& s : get_kids)
+        if (s == "get.model") has_model = true;
+    ASSERT(has_model);
 
-    // "detection." → loop duplicate
-    auto sub = reg.complete("detection.");
+    // "get.detection" → the two leaf paths.
+    auto sub = reg.complete("get.detection");
     ASSERT_EQ(sub.size(), 2u);
     bool has_loop = false, has_dup = false;
     for (const auto& s : sub) {
-        if (s == "loop") has_loop = true;
-        if (s == "duplicate") has_dup = true;
+        if (s == "get.detection.loop") has_loop = true;
+        if (s == "get.detection.duplicate") has_dup = true;
     }
     ASSERT(has_loop);
     ASSERT(has_dup);
 }
 
-// ── Test: JSON-only keys appear in completions (no build_settings entry) ─
+// ── Test: JSON-only keys appear in completions (no build_settings entry) ──
 
 TEST(test_json_only_key_in_completions) {
     tui::SettingRegistry reg;
-    // Add only ONE setting that's in build_settings.
-    reg.add({"detection.loop", "", "", tui::Setting::Choice, {"on","off","toggle"}});
-    // Load JSON — this adds keys like "provider", "config", "model" to key_help_.
     bool json_ok = reg.load_completions_json("completions.json");
     ASSERT(json_ok);
 
-    // "prov" should match "provider" from JSON even though it's not in settings_.
-    auto prov = reg.complete("prov");
-    bool found_provider = false;
-    for (const auto& k : prov)
-        if (k == "provider" || k == "provider/") found_provider = true;
+    // "provider", "model", "config" are get-namespace children from JSON.
+    auto get_kids = reg.complete("get");
+    bool found_provider = false, found_model = false, found_config = false;
+    for (const auto& k : get_kids) {
+        if (k == "get.provider") found_provider = true;
+        if (k == "get.model") found_model = true;
+        if (k == "get.config") found_config = true;
+    }
     ASSERT(found_provider);
-
-    // "mod" should match "model" from JSON.
-    auto mod = reg.complete("mod");
-    bool found_model = false;
-    for (const auto& k : mod)
-        if (k == "model" || k == "model/") found_model = true;
     ASSERT(found_model);
-
-    // "conf" should match "config" from JSON.
-    auto conf = reg.complete("conf");
-    bool found_config = false;
-    for (const auto& k : conf)
-        if (k == "config" || k == "config/") found_config = true;
     ASSERT(found_config);
 }
 
@@ -170,73 +166,88 @@ TEST(test_missing_json_is_ok) {
     ASSERT(!ok);  // should return false, not crash
 }
 
-// ── 3-level deep completions ────────────────────────────────────────
+// ── 3-level deep completions (full-path namespace queries) ─────────
 
 TEST(test_complete_depth1_prefix) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("detec");
+    // "/get dete" → children of "get", filtered to the "detection" leaf.
+    auto r = reg.complete("get");
+    bool found = false;
+    for (const auto& k : r)
+        if (k == "get.detection") found = true;
     REQUIRE_NONEMPTY(r);
-    ASSERT_EQ(r.size(), 1u);
-    ASSERT_EQ(r.front(), "detection");
+    ASSERT(found);
 }
 
 TEST(test_complete_depth2_with_dot) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("detection.");
+    auto r = reg.complete("get.detection");
     REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 2u);
-    ASSERT_EQ(r.front(), "duplicate");
-    ASSERT_EQ(r[1], "loop");
+    ASSERT_EQ(r.front(), "get.detection.duplicate");
+    ASSERT_EQ(r[1], "get.detection.loop");
 }
 
 TEST(test_complete_depth2_prefix) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("detection.d");
+    // "/get detection.d" → children of "get.detection" filtered to "duplicate".
+    auto r = reg.complete("get.detection");
     REQUIRE_NONEMPTY(r);
-    ASSERT_EQ(r.size(), 1u);
-    ASSERT_EQ(r.front(), "duplicate");
+    bool found = false;
+    for (const auto& k : r)
+        if (k == "get.detection.duplicate") found = true;
+    ASSERT(found);
 }
 
 TEST(test_complete_depth2_policy) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("policy.");
+    // "/set policy" → children of "set.policy" (full-path: distinct from get).
+    auto r = reg.complete("set.policy");
     REQUIRE_NONEMPTY(r);
-    ASSERT_EQ(r.size(), 3u);
-    ASSERT_EQ(r.front(), "approval");
-    ASSERT_EQ(r[1], "mode");
-    ASSERT_EQ(r[2], "timeout");
+    ASSERT_EQ(r.size(), 4u);
+    ASSERT_EQ(r.front(), "set.policy.approval");
+    ASSERT_EQ(r[1], "set.policy.mode");
+    ASSERT_EQ(r[2], "set.policy.rule");
+    ASSERT_EQ(r[3], "set.policy.timeout");
 }
 
 TEST(test_complete_depth1_compression_namespace) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("compression.");
+    auto r = reg.complete("get.compression");
     REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 2u);
-    ASSERT_EQ(r.front(), "min_turns");
-    ASSERT_EQ(r[1], "threshold");
+    ASSERT_EQ(r.front(), "get.compression.min_turns");
+    ASSERT_EQ(r[1], "get.compression.threshold");
 }
 
 TEST(test_complete_nonexistent_namespace) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("nonexistent.");
+    auto r = reg.complete("nonexistent");
     ASSERT(r.empty());
+    auto r2 = reg.complete("nonexistent.");
+    ASSERT(r2.empty());
 }
 
 TEST(test_complete_depth1_namespace_matches_at_top) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("comp");
-    REQUIRE_NONEMPTY(r);
-    // "compression" should appear as a top-level namespace match
+    // Top-level "compress" command is a root key...
+    auto top = reg.complete("");
+    bool found_compress = false;
+    for (const auto& s : top)
+        if (s == "compress") found_compress = true;
+    ASSERT(found_compress);
+    // ...and the compression namespace lives under get/set.
+    auto get_kids = reg.complete("get");
     bool found_compression = false;
-    for (const auto& s : r)
-        if (s == "compression") found_compression = true;
+    for (const auto& s : get_kids)
+        if (s == "get.compression") found_compression = true;
     ASSERT(found_compression);
 }
 
@@ -266,23 +277,251 @@ TEST(test_drawer_namespace_levels) {
         if (k == "policy") has_policy = true;
     ASSERT(has_policy);
 
-    // Level 3: /set policy <TAB> → children of "policy"
-    auto policy_kids = reg.children_of("policy");
+    // Level 3: /set policy <TAB> → children of "set.policy" (full path)
+    auto policy_kids = reg.children_of("set.policy");
     REQUIRE_NONEMPTY(policy_kids);
-    ASSERT_EQ(policy_kids.size(), 3u);
+    ASSERT_EQ(policy_kids.size(), 4u);
     ASSERT_EQ(policy_kids.front(), "approval");
 
-    // Level 4: /set policy mode <TAB> → children of "policy.mode"
-    auto mode_kids = reg.children_of("policy.mode");
+    // Level 4: /set policy mode <TAB> → children of "set.policy.mode"
+    auto mode_kids = reg.children_of("set.policy.mode");
     ASSERT(mode_kids.empty());  // mode is a leaf node, no children
 
-    // Verify help text at each level
-    ASSERT(!reg.help_for("policy").empty());
-    ASSERT(!reg.help_for("policy.mode").empty());
-    ASSERT(!reg.help_for("policy.approval").empty());
+    // Verify help text at each level (full paths).
+    ASSERT(!reg.help_for("set.policy").empty());
+    ASSERT(!reg.help_for("set.policy.mode").empty());
+    ASSERT(!reg.help_for("set.policy.approval").empty());
+}
+
+// ── Test: no root /model command remains (FIX-015) ──
+// The old root /model node with list|set|probe children is gone; model
+// lives under get/set (see test_model_lives_under_get_set).
+
+TEST(test_model_command_is_leaf) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    auto subs = reg.subcommands_for("model");
+    ASSERT(subs.empty());
+    // The root command is no longer in the tree.
+    bool root_model = false;
+    for (const auto& k : reg.complete(""))
+        if (k == "model") root_model = true;
+    ASSERT(!root_model);
+}
+
+// ── Test: model lives under get/set, not at the root (FIX-015 P2) ──
+// Model is a state-modifying accessor: queries at /get model (current, list,
+// context), switching at /set model. There is no root /model command.
+
+TEST(test_model_lives_under_get_set) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    bool root_model = false;
+    for (const auto& k : reg.complete(""))
+        if (k == "model") root_model = true;
+    ASSERT(!root_model);
+    // /get model list|context are documented children.
+    auto get_kids = reg.children_of("get.model");
+    REQUIRE_NONEMPTY(get_kids);
+    ASSERT_EQ(get_kids.size(), 2u);
+    bool has_list = false, has_context = false;
+    for (const auto& k : get_kids) {
+        if (k == "list") has_list = true;
+        if (k == "context") has_context = true;
+    }
+    ASSERT(has_list && has_context);
+    // /set model is a documented branch (bare = current model).
+    ASSERT(!reg.help_for("set.model").empty());
+    ASSERT(!reg.man_for("set.model").empty());
+}
+
+// ── Test: /set model completes from feed leaves (FIX-015 P2) ──
+// refresh_model_list() merges model ids as value leaves under set.model;
+// completion must surface them (the drawer rows and Tab share this path).
+
+TEST(test_set_model_feed_leaves_complete) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["set"]["children"]["model"]["children"]["llama3"]["action"] =
+        "core.config.set.model.llama3";
+    subtree["set"]["children"]["model"]["children"]["llama3"]["help"] = "ctx 8192";
+    subtree["set"]["children"]["model"]["children"]["qwen2"]["action"] =
+        "core.config.set.model.qwen2";
+    reg.merge_completions_json(subtree);
+    auto kids = reg.complete("set.model");
+    REQUIRE_NONEMPTY(kids);
+    ASSERT_EQ(kids.size(), 2u);
+    bool has_llama = false, has_qwen = false;
+    for (const auto& k : kids) {
+        if (k == "set.model.llama3") has_llama = true;
+        if (k == "set.model.qwen2") has_qwen = true;
+    }
+    ASSERT(has_llama && has_qwen);
+    ASSERT_EQ(reg.help_for("set.model.llama3"), "ctx 8192");
+}
+
+// ── Test: policy rule curation lives in the tree (FIX-015 P3) ──
+// The dangerous-command rules are fed into get/set policy rule as value
+// leaves (tool names + current level as help), so the permission system is
+// visible and editable through the drawer.
+
+TEST(test_policy_rule_branches_documented) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    ASSERT(!reg.help_for("get.policy.rule").empty());
+    ASSERT(!reg.man_for("set.policy.rule").empty());
+    // get.policy and set.policy both document the rule branch.
+    bool get_has_rule = false, set_has_rule = false;
+    for (const auto& k : reg.children_of("get.policy"))
+        if (k == "rule") get_has_rule = true;
+    for (const auto& k : reg.children_of("set.policy"))
+        if (k == "rule") set_has_rule = true;
+    ASSERT(get_has_rule && set_has_rule);
+}
+
+TEST(test_policy_rule_feed_leaves) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    // The policy feed shape (refresh_policy_feed): tool leaves under both
+    // get.policy.rule and set.policy.rule, level info as help text.
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
+        ["action"] = "core.config.get.policy.rule.bash";
+    subtree["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
+        ["help"] = "allow (used 3x)";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
+        ["action"] = "core.config.set.policy.rule.bash";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
+        ["help"] = "allow (used 3x)";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["search"]
+        ["action"] = "core.config.set.policy.rule.search";
+    reg.merge_completions_json(subtree);
+
+    // /set policy rule <Tab> completes tool names...
+    auto set_kids = reg.complete("set.policy.rule");
+    REQUIRE_NONEMPTY(set_kids);
+    ASSERT_EQ(set_kids.size(), 2u);
+    bool has_bash = false, has_search = false;
+    for (const auto& k : set_kids) {
+        if (k == "set.policy.rule.bash") has_bash = true;
+        if (k == "set.policy.rule.search") has_search = true;
+    }
+    ASSERT(has_bash && has_search);
+    // ...with the current level as inline help.
+    ASSERT_EQ(reg.help_for("set.policy.rule.bash"), "allow (used 3x)");
+    // /get policy rule shows only tools that have rules.
+    auto get_kids = reg.children_of("get.policy.rule");
+    REQUIRE_NONEMPTY(get_kids);
+    ASSERT_EQ(get_kids.size(), 1u);
+    ASSERT_EQ(get_kids.front(), "bash");
+}
+
+// ── Test: job kill/read complete from feed leaves (FIX-015 P4) ──
+// Job ids become value leaves under job.kill and job.read (state as help),
+// replacing the last hardcoded complete_arg lambda.
+
+TEST(test_job_feed_leaves) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["job"]["children"]["kill"]["children"]["42"]["action"] =
+        "core.job.kill.42";
+    subtree["job"]["children"]["kill"]["children"]["42"]["help"] = "running";
+    subtree["job"]["children"]["kill"]["children"]["43"]["action"] =
+        "core.job.kill.43";
+    subtree["job"]["children"]["read"]["children"]["42"]["action"] =
+        "core.job.read.42";
+    reg.merge_completions_json(subtree);
+
+    // /job kill <Tab> completes running jobs...
+    auto kill_kids = reg.complete("job.kill");
+    REQUIRE_NONEMPTY(kill_kids);
+    ASSERT_EQ(kill_kids.size(), 2u);
+    bool has_42 = false, has_43 = false;
+    for (const auto& k : kill_kids) {
+        if (k == "job.kill.42") has_42 = true;
+        if (k == "job.kill.43") has_43 = true;
+    }
+    ASSERT(has_42 && has_43);
+    ASSERT_EQ(reg.help_for("job.kill.42"), "running");
+    // ...and /job read offers the same job ids.
+    auto read_kids = reg.children_of("job.read");
+    REQUIRE_NONEMPTY(read_kids);
+    ASSERT_EQ(read_kids.front(), "42");
+}
+
+// ── Test: get/set namespaces are indexed by FULL path (FIX-015 P1) ──
+// The stripped-key scheme collapses get.model and set.model into one key, so
+// the two sides of the same namespace can never carry different children.
+// A feed merge into set.model must not pollute the get side.
+
+TEST(test_full_path_namespaces_are_distinct) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+
+    // A feed-style merge: set.model gains dynamic value children.
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["set"]["children"]["model"]["action"] = "core.config.set.model";
+    subtree["set"]["children"]["model"]["children"]["m1"]["action"] =
+        "core.config.set.model.m1";
+    subtree["set"]["children"]["model"]["children"]["m1"]["help"] = "ctx 8192";
+    reg.merge_completions_json(subtree);
+
+    // The set side sees the merged leaves...
+    auto set_kids = reg.children_of("set.model");
+    ASSERT_EQ(set_kids.size(), 1u);
+    ASSERT_EQ(set_kids.front(), "m1");
+    ASSERT(!reg.help_for("set.model.m1").empty());
+    // ...while the get side of the same namespace stays untouched (its static
+    // list/context children are not joined by the set-side feed leaves).
+    auto get_kids = reg.children_of("get.model");
+    ASSERT_EQ(get_kids.size(), 2u);
+    ASSERT(!reg.help_for("get.model").empty());
+}
+
+// ── Test: merge preserves static fields + children in the TREE (FIX-015 P1) ──
+// merge_completions_json replaced tree_["commands"][key] wholesale while the
+// index unioned children — a live MCP/plugin merge lost the static children
+// from tree-walk dispatch (/mcp list degraded to the raw-arg fallback).
+
+TEST(test_merge_preserves_static_tree_children) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+
+    // Same shape mcp_completion_subtree() produces.
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["mcp"]["action"] = "core.mcp";
+    subtree["mcp"]["help"] = "Manage MCP servers.";
+    subtree["mcp"]["man"] = "Live MCP tools appear under their server name.";
+    subtree["mcp"]["children"]["live_srv"]["action"] = "mcp.live_srv";
+    subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["action"] =
+        "mcp.live_srv.do_thing";
+    subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["help"] =
+        "does the thing";
+    reg.merge_completions_json(subtree);
+
+    // Static children survive in the tree alongside the live branch.
+    auto tree = reg.command_tree();  // mutable copy: operator[] never throws
+    const auto& mcp = tree["commands"]["mcp"];
+    ASSERT(mcp["action"] == "core.mcp");
+    ASSERT(mcp.contains("children"));
+    const auto& children = mcp["children"];
+    ASSERT(children.contains("list"));
+    ASSERT(children.contains("live_srv"));
+    ASSERT(children["live_srv"]["children"].contains("do_thing"));
 }
 
 int main() {
+    try {
     test_json_loads_all_commands();
     test_core_actions_have_help();
     test_choices_loaded();
@@ -300,6 +539,18 @@ int main() {
     test_complete_nonexistent_namespace();
     test_complete_depth1_namespace_matches_at_top();
     test_drawer_namespace_levels();
+    test_model_command_is_leaf();
+    test_model_lives_under_get_set();
+    test_set_model_feed_leaves_complete();
+    test_policy_rule_branches_documented();
+    test_policy_rule_feed_leaves();
+    test_job_feed_leaves();
+    test_full_path_namespaces_are_distinct();
+    test_merge_preserves_static_tree_children();
+    } catch (const std::exception& e) {
+        std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
+        failed++;
+    }
 
     std::cout << (failed ? "FAILED" : "ALL PASSED")
               << " (" << failed << " failures)\n";

@@ -204,15 +204,27 @@ CommandLine::Result CommandLine::on_tab() {
     }
 
     // No shadow, but completions exist (e.g. empty suffix after dot).
+    // Only append when the partial token could match: an unrelated partial
+    // (e.g. "/set model" with model-id completions) must not concatenate.
     if (!completions_.empty()) {
-        input_ += completions_[0];
-        cursor_ = input_.size();
-        cycle_matches_ = completions_;
-        cycle_index_ = 0;
-        consecutive_tabs_ = 1;
-        last_tab_input_ = input_;
-        recompute();
-        return r;
+        size_t tok_start = input_.rfind(' ');
+        tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
+        std::string partial = input_.substr(tok_start);
+        bool can_complete = partial.empty() || partial.back() == '.';
+        if (!can_complete) {
+            for (const auto& n : completions_)
+                if (n.rfind(partial, 0) == 0) { can_complete = true; break; }
+        }
+        if (can_complete) {
+            input_ += completions_[0];
+            cursor_ = input_.size();
+            cycle_matches_ = completions_;
+            cycle_index_ = 0;
+            consecutive_tabs_ = 1;
+            last_tab_input_ = input_;
+            recompute();
+            return r;
+        }
     }
 
     // Nothing to complete.
@@ -257,7 +269,9 @@ CommandLine::Result CommandLine::on_enter() {
         }
         if (drawer_sel_ < static_cast<int>(filtered.size())) {
             r.action = Result::Dispatch;
-            r.dispatch_text = "/" + filtered[drawer_sel_];
+            // Preserve the typed prefix ("/set model " + "llama3-8b"); only
+            // the trailing partial token is replaced by the completion.
+            r.dispatch_text = input_.substr(0, tok_start) + filtered[drawer_sel_];
             r.drawer_open = false;
             input_.clear();
             cursor_ = 0;

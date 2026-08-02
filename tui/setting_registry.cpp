@@ -44,57 +44,84 @@ std::vector<std::string> SettingRegistry::keys_in(const std::string& ns) const {
 
 std::vector<std::string> SettingRegistry::complete(const std::string& prefix) const {
     std::vector<std::string> out;
-
-    // If the prefix contains a dot, we're completing WITHIN a namespace.
-    size_t dot = prefix.find('.');
-    if (dot != std::string::npos) {
-        std::string ns = prefix.substr(0, dot);
-        std::string sub = prefix.substr(dot + 1);
-        auto match = [&](const std::string& key) {
-            std::string expected = ns + ".";
-            if (key.rfind(expected, 0) == 0) {
-                std::string tail = key.substr(expected.size());
-                if (tail.rfind(sub, 0) == 0)
-                    out.push_back(tail);
-            }
-        };
-        for (const auto& s : settings_)
-            match(s.key);
-        for (const auto& [key, _] : key_help_) {
-            if (key.rfind("core.", 0) != 0 && key.rfind("os.", 0) != 0)
-                match(key);
-        }
-        return out;
-    }
-
-    // No dot: show namespace-level completions first.
-    for (const auto& ns : namespaces()) {
-        if (ns.rfind(prefix, 0) == 0)
-            out.push_back(ns);  // namespace name — drawer adds visual marker
-    }
-
-    // Also match full dotted keys whose last path component starts with prefix.
-    // Scan both code-registered settings_ AND JSON-derived key_help_.
-    auto add_if_missing = [&](const std::string& key) {
-        // Extract the leaf (last component).
-        size_t last_dot = key.rfind('.');
-        std::string leaf = (last_dot == std::string::npos) ? key : key.substr(last_dot + 1);
-        if (!leaf.empty() && leaf.rfind(prefix, 0) == 0) {
-            if (std::find(out.begin(), out.end(), key) == out.end())
-                out.push_back(key);
-        }
+    // The command tree is the authoritative structure. Query semantics:
+    //   complete("")            → top-level keys
+    //   complete("set")         → direct children paths of "set"
+    //   complete("set.policy")  → direct children paths of "set.policy"
+    // Direct children only — the drawer rows and the completion list must
+    // stay 1:1 aligned for Enter dispatch.
+    auto add = [&](const std::string& key) {
+        if (std::find(out.begin(), out.end(), key) == out.end())
+            out.push_back(key);
     };
-    for (const auto& s : settings_)
-        add_if_missing(s.key);
-    for (const auto& [key, _] : key_help_)
-        if (key.rfind("core.", 0) != 0 && key.rfind("os.", 0) != 0)
-            add_if_missing(key);
-
+    if (!tree_.contains("commands") || !tree_["commands"].is_object())
+        return out;
+    const nlohmann::json* node = &tree_["commands"];
+    if (!prefix.empty()) {
+        // Walk to the namespace node: first token is a top-level command,
+        // every following token descends through a "children" map.
+        size_t p = 0;
+        while (p < prefix.size()) {
+            size_t dot = prefix.find('.', p);
+            std::string tok = (dot == std::string::npos)
+                                  ? prefix.substr(p)
+                                  : prefix.substr(p, dot - p);
+            if (p == 0) {
+                if (!node->contains(tok)) return out;
+                node = &(*node)[tok];
+            } else {
+                if (!node->is_object() || !node->contains("children") ||
+                    !(*node)["children"].is_object() ||
+                    !(*node)["children"].contains(tok))
+                    return out;
+                node = &(*node)["children"][tok];
+            }
+            if (dot == std::string::npos) break;
+            p = dot + 1;
+        }
+    }
+    const nlohmann::json* kids = node;
+    if (!prefix.empty()) {
+        if (!node->contains("children") || !(*node)["children"].is_object())
+            return out;
+        kids = &(*node)["children"];
+    }
+    for (auto it = kids->begin(); it != kids->end(); ++it) {
+        std::string child = prefix.empty() ? it.key() : prefix + "." + it.key();
+        add(child);
+    }
     return out;
 }
 
+std::string SettingRegistry::resolve_key(const std::string& key) const {
+    auto indexed = [&](const std::string& k) {
+        return key_help_.count(k) || key_man_.count(k) ||
+               key_children_.count(k) || command_choices_.count(k) ||
+               command_ranges_.count(k);
+    };
+    if (indexed(key)) return key;
+    std::string g = "get." + key;
+    if (indexed(g)) return g;
+    std::string s = "set." + key;
+    if (indexed(s)) return s;
+    return "";
+}
+
+std::string SettingRegistry::help_for(const std::string& key) const {
+    std::string rk = resolve_key(key);
+    if (rk.empty() || !key_help_.count(rk)) return "";
+    return key_help_.at(rk);
+}
+
+std::string SettingRegistry::man_for(const std::string& key) const {
+    std::string rk = resolve_key(key);
+    if (rk.empty() || !key_man_.count(rk)) return "";
+    return key_man_.at(rk);
+}
+
 std::vector<std::string> SettingRegistry::children_of(const std::string& key) const {
-    auto it = key_children_.find(key);
+    std::string rk = resolve_key(key);
+    auto it = key_children_.find(rk);
     return (it != key_children_.end()) ? it->second : std::vector<std::string>();
 }
 
@@ -135,14 +162,10 @@ void SettingRegistry::index_node(const nlohmann::json& node,
     if (!action.empty())
         idx(action, help_text, man_text, choices, rlo, rhi, has_range);
 
-    std::string key_path;
-    if (!display_path.empty()) {
-        size_t first_dot = display_path.find('.');
-        if (first_dot != std::string::npos && first_dot + 1 < display_path.size())
-            key_path = display_path.substr(first_dot + 1);
-        else if (first_dot == std::string::npos)
-            key_path = display_path;
-    }
+    // Namespaces are indexed by their FULL display path so get.<ns> and
+    // set.<ns> never collide ("set.model" != "get.model"). Top-level
+    // commands keep their bare name ("model", "policy").
+    std::string key_path = display_path;
     if (!key_path.empty() &&
         (key_path.find('.') != std::string::npos ||
          !node.contains("children") || !help_text.empty()))
@@ -200,11 +223,35 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
     return true;
 }
 
+namespace {
+
+// Deep-merge a subtree into the command tree: "children" objects are merged
+// recursively (union), every other field is taken from the source. This keeps
+// documented nodes (action/help/man + static children) alive when a live
+// integration (MCP server, plugin, value feed) merges its branches in.
+void merge_tree_node(nlohmann::json& dst, const nlohmann::json& src) {
+    if (!dst.is_object()) { dst = src; return; }
+    for (auto it = src.begin(); it != src.end(); ++it) {
+        if (it.key() == "children" && it.value().is_object()) {
+            if (!dst.contains("children") || !dst["children"].is_object())
+                dst["children"] = nlohmann::json::object();
+            for (auto cit = it.value().begin(); cit != it.value().end(); ++cit)
+                merge_tree_node(dst["children"][cit.key()], cit.value());
+        } else {
+            dst[it.key()] = it.value();
+        }
+    }
+}
+
+} // namespace
+
 bool SettingRegistry::merge_completions_json(const nlohmann::json& subtree) {
     if (!subtree.is_object()) return false;
     for (auto it = subtree.begin(); it != subtree.end(); ++it) {
         index_node(it.value(), it.key());
-        tree_["commands"][it.key()] = it.value();
+        nlohmann::json& node = tree_["commands"][it.key()];
+        if (!node.is_object()) node = nlohmann::json::object();
+        merge_tree_node(node, it.value());
     }
     return true;
 }
@@ -221,7 +268,8 @@ void SettingRegistry::reset_completion_index() {
 
 const std::vector<std::string>& SettingRegistry::choices_for(const std::string& key) const {
     static const std::vector<std::string> empty;
-    auto it = command_choices_.find(key);
+    std::string rk = resolve_key(key);
+    auto it = command_choices_.find(rk);
     return (it != command_choices_.end()) ? it->second : empty;
 }
 
@@ -232,7 +280,8 @@ const std::vector<std::string>& SettingRegistry::subcommands_for(const std::stri
 }
 
 bool SettingRegistry::range_for(const std::string& key, double& lo, double& hi) const {
-    auto it = command_ranges_.find(key);
+    std::string rk = resolve_key(key);
+    auto it = command_ranges_.find(rk);
     if (it != command_ranges_.end()) {
         lo = it->second.first; hi = it->second.second;
         return true;

@@ -63,14 +63,18 @@ public:
     // slash-command dispatcher to resolve actions from input tokens.
     const nlohmann::json& command_tree() const { return tree_; }
 
-    // Get help text for a setting key (from JSON).
-    std::string help_for(const std::string& key) const { return key_help_.count(key) ? key_help_.at(key) : ""; }
+    // Get help text for a setting key (from JSON). Dotted keys resolve to the
+    // canonical full path: exact match, then "get.<key>", then "set.<key>"
+    // (e.g. "policy.mode" → "set.policy.mode").
+    std::string help_for(const std::string& key) const;
 
     // Get full manual text for a setting key (from JSON "man" field).
-    std::string man_for(const std::string& key) const { return key_man_.count(key) ? key_man_.at(key) : ""; }
+    std::string man_for(const std::string& key) const;
 
     // Child keys of a namespace node loaded from JSON "children" keys.
-    // e.g. children_of("policy") → ["mode", "approval", "timeout"]
+    // Namespaces are indexed by their FULL display path ("set.model" and
+    // "get.model" are distinct); dotted keys resolve as in help_for().
+    // e.g. children_of("set.policy") → ["approval", "mode", "timeout"]
     std::vector<std::string> children_of(const std::string& key) const;
 
     // Access choices and ranges loaded from JSON (for help display).
@@ -83,6 +87,10 @@ public:
 
 private:
     void index_node(const nlohmann::json& node, const std::string& display_path);
+
+    // Canonical full-path key for a possibly-dotted key: exact match, then
+    // the "get.<key>" / "set.<key>" namespace probes. Empty when not indexed.
+    std::string resolve_key(const std::string& key) const;
 
     nlohmann::json tree_;
 

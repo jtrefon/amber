@@ -204,6 +204,20 @@ void curl_exec(const Config& cfg, const std::string& payload,
 
 } // namespace
 
+std::string describe_http_error(long http_code, const std::string& body) {
+    std::string msg = "HTTP " + std::to_string(http_code) +
+                      " from LLM server: " + body.substr(0, 200);
+    // llama.cpp "automatic parser generation" failures mean the loaded
+    // model's chat template cannot be auto-parsed for tool calling — a
+    // server/model problem, not a request problem. Say so instead of
+    // leaving the user to decode the raw nlohmann error.
+    if (body.find("Unable to generate parser for this template") !=
+        std::string::npos)
+        msg += "  (server chat-template parser failure: reload the model "
+               "on the server or check its template)";
+    return msg;
+}
+
 // POST `payload` to the chat endpoint and return the raw response body, setting
 // up auth/JSON headers and throwing on any transport error. `accept_sse` adds
 // the text/event-stream Accept header for streaming requests. When non-null,
@@ -228,11 +242,8 @@ std::string post_completion(Config& cfg, const std::string& payload,
                 cfg.context_explicit = true;
             }
         }
-        std::string snippet = response.substr(0, 200);
         bool retryable = http_code == 429 || http_code >= 500;
-        throw ApiError(http_code, retryable,
-                       "HTTP " + std::to_string(http_code) +
-                           " from LLM server: " + snippet);
+        throw ApiError(http_code, retryable, describe_http_error(http_code, response));
     }
     return response;
 }
@@ -246,11 +257,9 @@ void stream_completion(const Config& cfg, const std::string& payload,
               stream_write_cb, &parser,
               status_out, ttfb, total, "error-stream");
     if (status_out < 200 || status_out >= 300) {
-        std::string detail = parser.raw_body_.substr(0, 400);
         bool retryable = status_out == 429 || status_out >= 500;
         throw ApiError(status_out, retryable,
-                       "HTTP " + std::to_string(status_out) +
-                           " from LLM server: " + detail);
+                       describe_http_error(status_out, parser.raw_body_));
     }
     parser.finalize();
     if (stats) {
