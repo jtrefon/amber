@@ -430,3 +430,56 @@ TEST(agent_set_model_swaps_client) {
     ASSERT_EQ(seen_models.size(), 2u);
     ASSERT_EQ(seen_models[1], "ornith-35b");
 }
+
+// [GR] A template-parser 400 (the server cannot parse the tool grammar for
+// the loaded model) must not kill the turn: the request is retried once
+// WITHOUT tools and the conversation continues on the same agent.
+TEST(agent_template_parser_400_recovers_without_tools) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    agent_test::FakeReply fail;
+    fail.error = "HTTP 400 from LLM server: Unable to generate parser for "
+                 "this template";
+    fail.retryable = false;
+    fake->script.push_back(std::move(fail));
+    push_text(*fake, "hello there");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    std::string reply = ag.run("hi");
+    ASSERT_EQ(reply, "hello there");
+    // Generation attempt 1 carried tools; the adapted retry did not; the
+    // confirmation probe sent tools again.
+    ASSERT_EQ(raw->tool_counts.size(), 3u);
+    ASSERT_EQ(raw->tool_counts[0], 1u);
+    ASSERT_EQ(raw->tool_counts[1], 0u);
+    ASSERT_EQ(raw->tool_counts[2], 1u);
+}
+
+// [GR] When even the adapted retry fails, the internal probe rethrows so the
+// turn ends with a real error instead of faking a reply into the context.
+TEST(agent_probe_failure_throws_after_recovery) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    for (int i = 0; i < 4; ++i) {
+        agent_test::FakeReply fail;
+        fail.error = "HTTP 400 from LLM server: Unable to generate parser "
+                     "for this template";
+        fail.retryable = false;
+        fake->script.push_back(std::move(fail));
+    }
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    bool threw = false;
+    try {
+        ag.run("hi");
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    ASSERT(threw);
+}

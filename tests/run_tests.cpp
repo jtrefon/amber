@@ -3059,3 +3059,40 @@ TEST(mcp_completion_subtree_reflects_live_tools) {
     ASSERT(srv["children"]["list_issues"]["help"] == "desc of mcp_github_list_issues");
     ASSERT_EQ(srv["children"].size(), 2u);
 }
+
+// [GR] Graceful recovery for request-side 400s: classify what the server
+// rejected so the turn can adapt instead of dying.
+TEST(request_failure_classifier) {
+    using agent::RequestFailure;
+    ASSERT(agent::classify_request_failure(
+        "HTTP 400 from LLM server: {\"error\":{\"code\":400,\"message\":"
+        "\"Unable to generate parser for this template. Automatic parser "
+        "generation failed\"}}") == RequestFailure::TemplateParser);
+    ASSERT(agent::classify_request_failure(
+        "HTTP 400 from LLM server: {\"error\":\"The model ornith-35b does "
+        "not exist\"}") == RequestFailure::ModelName);
+    ASSERT(agent::classify_request_failure(
+        "HTTP 401 from LLM server: bad key") == RequestFailure::None);
+    ASSERT(agent::classify_request_failure(
+        "HTTP 400 from LLM server: context overflow") == RequestFailure::None);
+}
+
+// [GR] Tool schemas are sanitized before they reach the server so its grammar
+// builder never sees null types or arrays without items (llama.cpp 400s with
+// "type must be array, but is null").
+TEST(tool_schema_sanitizer) {
+    using agent::json;
+    json s = {{"type", "object"},
+              {"properties",
+               {{"tags", {{"type", "array"}, {"items", nullptr}}},
+                {"count", {{"type", "array"}}},
+                {"nested", {{"type", "object"},
+                            {"properties",
+                             {{"x", {{"type", nullptr}}}}}}},
+                {"bare", nullptr}}}};
+    agent::sanitize_tool_schema(s);
+    ASSERT(s["properties"]["tags"]["items"].is_object());
+    ASSERT(s["properties"]["count"]["items"].is_object());
+    ASSERT(s["properties"]["nested"]["properties"]["x"]["type"] == "object");
+    ASSERT(s["properties"]["bare"]["type"] == "object");
+}
