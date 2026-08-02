@@ -8,6 +8,7 @@
 #include "agent/tool_recovery.h"
 #include "agent/dispatch.h"
 #include "agent/tools.h"
+#include "agent/model_probe.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -22,22 +23,34 @@ void emit_context_event(ContextEventSource& src, const Context& ctx) {
     src.publish(ctx.token_count(), ctx.size());
 }
 
+// Build an LLM client for `cfg` through the injected factory, falling back
+// to the real HttpLLMClient when no factory was provided.
+std::unique_ptr<LLMClient> make_client(const Config& cfg,
+                                       const LLMClientFactory& factory) {
+    return factory ? factory(cfg) : std::make_unique<HttpLLMClient>(cfg);
+}
+
 } // namespace
 
-Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
+Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<CompressionStrategy> compressor,
              std::unique_ptr<CompressionGate> gate,
              std::unique_ptr<MemoryStore> memory_store,
              std::unique_ptr<MemoryRetriever> retriever,
-             std::unique_ptr<LLMClient> client)
-    : cfg_(cfg), registry_(registry),
-      client_(client ? std::move(client)
-                     : std::make_unique<HttpLLMClient>(cfg)),
+             std::unique_ptr<LLMClient> client,
+             LLMClientFactory client_factory)
+    : cfg_(std::move(cfg)), registry_(registry),
+      client_factory_(std::move(client_factory)),
+      client_(nullptr),
       hooks_(std::move(hooks))
     , compression_(std::move(compressor))
     , gate_(std::move(gate))
     , memory_store_(std::move(memory_store))
     , retriever_(std::move(retriever)) {
+    if (client)
+        client_ = std::move(client);
+    else
+        client_ = make_client(cfg_, client_factory_);
     experience_cfg_ = load_experience_config(cfg_);
     skills_ = std::make_unique<SkillCatalog>(cfg_);
     std::vector<Skill> learned;
@@ -47,6 +60,12 @@ Agent::Agent(const Config& cfg, ToolRegistry& registry, AgentHooks hooks,
     }
     skills_->discover(learned);
     register_skill_tools(registry_, *skills_);
+}
+
+void Agent::set_model(const std::string& model) {
+    cfg_.model = model;
+    cfg_.model_explicit = true;
+    client_ = make_client(cfg_, client_factory_);
 }
 
 void Agent::ensure_system_prompt() {
@@ -290,28 +309,26 @@ const AgentHooks& Agent::silent_hooks() const {
 }
 
 void Agent::push_reply(Message reply) {
-    // Extract text-embedded tool calls into the structured field BEFORE push.
-    // This was previously done in-place on history_.back() after push, which
-    // violated immutability. Now we modify the reply before sealing it.
-    if ((reply.tool_calls.is_null() || reply.tool_calls.empty()) &&
-        !reply.content.empty()) {
-        auto extracted = extract_tool_calls_from_text(reply.content);
-        if (!extracted.is_null() && !extracted.empty()) {
-            reply.tool_calls = std::move(extracted);
-            reply.reasoning.clear();
-            reply.content.clear();
-            if (hooks_.on_tool_call && !reply.tool_calls.is_null()) {
-                for (const auto& tc : reply.tool_calls) {
-                    const auto& fn = tc.value("function", json::object());
-                    hooks_.on_tool_call(fn.value("name", ""), fn.value("arguments", json::object()));
-                }
-            }
-        }
-    }
+    // The caller extracts text-embedded tool calls before the dispatch
+    // snapshot; here the (already structured) reply is sealed.
     if (!reply.reasoning.empty())
         log_.event("reasoning", {{"content", reply.reasoning}});
     context_.push(std::move(reply));
     emit_context_event(context_events_, context_);
+}
+
+bool Agent::extract_embedded_tool_calls(Message& reply) const {
+    if (!(reply.tool_calls.is_null() || reply.tool_calls.empty()) ||
+        reply.content.empty())
+        return false;
+    auto extracted = extract_tool_calls_from_text(reply.content);
+    if (extracted.is_null() || extracted.empty()) return false;
+    reply.tool_calls = std::move(extracted);
+    reply.reasoning.clear();
+    reply.content.clear();
+    // NOTE: no on_tool_call here — dispatch fires it once per executed call
+    // (dispatch.cpp); firing it here too doubles the UI's "running" lines.
+    return true;
 }
 
 CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
@@ -426,7 +443,12 @@ std::string Agent::confirm_turn(const std::string& candidate,
     context_.push(std::move(done_msg));
     emit_context_event(context_events_, context_);
 
-    Message check = chat_once(tools, /*display=*/false);
+    Message check = chat_with_recovery(tools, "probe", /*display=*/false,
+                                       /*strict=*/true);
+    // Template-style tool calls arrive embedded in the content (e.g. ornith's
+    // <tool_call><function=...><parameter=...>) — extract them so the probe
+    // dispatches them like the main loop does.
+    extract_embedded_tool_calls(check);
     json check_tool_calls = check.tool_calls;
     std::string check_content = check.content;
     context_.push(std::move(check));
@@ -575,8 +597,52 @@ std::vector<Tool*> Agent::resolve_tools() {
     return tools;
 }
 
-std::function<Message()> Agent::make_chat_fn(const std::vector<Tool*>& tools) {
-    return [this, &tools]() { return chat_once(tools); };
+// One LLM round-trip with graceful recovery for request-side 4xx failures:
+// the retry loop can REPAIR the request once (drop tools when the server
+// cannot parse the tool grammar for the loaded template; swap to a
+// server-known model id when the configured one is rejected) and retry.
+// `display` controls whether the exchange paints into the scrollback;
+// `strict` makes internal exchanges rethrow instead of faking a reply.
+Message Agent::chat_with_recovery(const std::vector<Tool*>& tools,
+                                  const char* stage, bool display,
+                                  bool strict) {
+    auto chat = [this, &tools, display]() {
+        return chat_once(tools, display);
+    };
+    auto chat_no_tools = [this, display]() {
+        return chat_once({}, display);
+    };
+    ChatAdapter adapt =
+        [this, &tools, &chat_no_tools, display](const std::string& err)
+        -> std::function<Message()> {
+        switch (classify_request_failure(err)) {
+        case RequestFailure::TemplateParser:
+            if (!tools.empty()) return chat_no_tools;
+            break;
+        case RequestFailure::ModelName: {
+            auto models = list_models(cfg_);
+            if (!models.empty() && models[0] != cfg_.model) {
+                set_model(models[0]);
+                if (hooks_.on_status)
+                    hooks_.on_status("server rejected model \"" + cfg_.model +
+                                     "\" - retrying with \"" + models[0] +
+                                     "\"");
+                return [this, &tools, display]() {
+                    return chat_once(tools, display);
+                };
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        return {};
+    };
+    if (strict)
+        return chat_with_retry_strict(hooks_, log_, chat, stage,
+                                      cfg_.cancel_token, 3, adapt);
+    return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3,
+                           adapt);
 }
 
 std::string Agent::finish_turn(std::string final_reply) {
@@ -595,7 +661,6 @@ std::string Agent::run(const std::string& user_prompt) {
     log_and_push_user_prompt(user_prompt);
 
     auto tools = resolve_tools();
-    auto chat = make_chat_fn(tools);
 
     FailStreak fail_streak;
     int loop_count = 0, text_loop_count = 0, tool_recovery_attempts = 0;
@@ -605,10 +670,15 @@ std::string Agent::run(const std::string& user_prompt) {
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
-        Message reply = chat_with_retry(hooks_, log_, chat, "generation",
-                                        cfg_.cancel_token);
+        Message reply = chat_with_recovery(tools, "generation",
+                                           /*display=*/true,
+                                           /*strict=*/false);
 
         // Extract tool_calls and content before push_reply (which moves reply).
+        // Template-style tool calls arrive embedded in the content (e.g.
+        // ornith's <tool_call><function=...><parameter=...>) — extract them
+        // BEFORE the dispatch snapshot so they actually execute.
+        extract_embedded_tool_calls(reply);
         json tc = reply.tool_calls;
         std::string content = reply.content;
         push_reply(std::move(reply));

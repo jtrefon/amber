@@ -271,43 +271,7 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
 
-$(BUILD_DIR)/tests/run_tests.o: $(SRC_DIR)/tests/run_tests.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/skill_file_test.o: $(SRC_DIR)/tests/skill_file_test.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/skill_catalog_test.o: $(SRC_DIR)/tests/skill_catalog_test.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/mcp_transport_test.o: $(SRC_DIR)/tests/mcp_transport_test.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/mcp_client_test.o: $(SRC_DIR)/tests/mcp_client_test.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/mcp_config_test.o: $(SRC_DIR)/tests/mcp_config_test.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/mcp_tools_test.o: $(SRC_DIR)/tests/mcp_tools_test.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/learn_commands_test.o: $(SRC_DIR)/tests/learn_commands_test.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/agent_loop_test.o: $(SRC_DIR)/tests/agent_loop_test.cpp
-	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/tests/tui_tests.o: $(SRC_DIR)/tests/tui_tests.cpp
+$(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 	@mkdir -p $(BUILD_DIR)/tests
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS) -c $< -o $@
 

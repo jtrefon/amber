@@ -43,6 +43,12 @@ void stream_completion(const Config& cfg, const std::string& payload,
 // malformed or error response.
 Message message_from_completion(const std::string& response);
 
+// Build the human-readable HTTP error message. When the body carries a known
+// server-side failure mode, an actionable hint is appended (e.g. llama.cpp
+// chat-template parser generation failures, which are a server/model problem,
+// not a request problem).
+std::string describe_http_error(long http_code, const std::string& body);
+
 // Fill `stats` from a buffered response body and its transfer timings (seconds).
 // Mirrors the telemetry that stream_completion() produces for the streamed path.
 void fill_buffered_stats(Stats& stats, const std::string& response, double ttfb,

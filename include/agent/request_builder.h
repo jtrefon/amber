@@ -15,6 +15,11 @@ namespace agent {
 json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
                      const std::vector<Tool*>& tools, bool stream);
 
+// Repair a tool parameters_schema in place so the server's grammar builder
+// never sees null types or arrays without items (llama.cpp 400s with "type
+// must be array, but is null"). Applied to every tool before sending.
+void sanitize_tool_schema(json& schema);
+
 } // namespace agent
 
 #endif // AGENT_REQUEST_BUILDER_H

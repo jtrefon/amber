@@ -205,50 +205,10 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    // policy: mode read|write|yolo, or tool <tool> <level>, or timeout <N>
+    // policy: mode/approval/timeout/rule dispatch through the tree leaves
+    // (core.config.set.policy.*); this branch only sees the bare namespace.
     if (arg.rfind("policy ", 0) == 0 || arg == "policy") {
-        std::string rest = (arg.size() > 7) ? arg.substr(7) : "";
-        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
-        if (rest == "read" || rest == "write" || rest == "yolo") {
-            if (rest == "read") cfg_.mode = agent::AgentMode::Read;
-            else if (rest == "yolo") cfg_.mode = agent::AgentMode::Yolo;
-            else cfg_.mode = agent::AgentMode::Write;
-            append_line(P_STATUS, "policy mode: " + rest);
-            draw();
-            return;
-        }
-        if (rest.rfind("rule ", 0) == 0) {
-            std::string name, lvl;
-            size_t sp2 = rest.find(' ', 5);
-            if (sp2 == std::string::npos) { name = rest.substr(5); lvl.clear(); }
-            else { name = rest.substr(5, sp2 - 5); lvl = rest.substr(sp2 + 1); }
-            if (name.empty() || lvl.empty()) {
-                append_line(P_STATUS, "usage: /set policy rule <name> <allow|deny|ask>");
-                draw();
-                return;
-            }
-            agent::PolicyLevel pl = agent::policy_level_from_name(lvl);
-            if (pl == agent::PolicyLevel::Ask) {
-                for (auto& w : windows_)
-                    if (w->agent) w->agent->policy().revoke(name);
-                append_line(P_STATUS, "policy rule revoked for " + name);
-            } else if (pl == agent::PolicyLevel::AlwaysAllow || pl == agent::PolicyLevel::AlwaysDeny) {
-                for (auto& w : windows_)
-                    if (w->agent) w->agent->policy().set_rule(name, pl);
-                append_line(P_STATUS, "policy rule " + lvl + " for " + name);
-            } else {
-                append_line(P_STATUS, "invalid level: " + lvl + " (use allow, deny, or ask)");
-                draw();
-                return;
-            }
-            if (win().agent) {
-                std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
-                win().agent->policy().save(policy_path);
-            }
-            draw();
-            return;
-        }
-        append_line(P_STATUS, "usage: /set policy mode <read|write|yolo> | /set policy rule <name> <allow|deny|ask> | /set policy timeout <N> | /set policy approval <on|off>");
+        append_line(P_STATUS, "usage: /set policy mode <read|write|yolo> | /set policy rule <tool> <allow|deny|ask> | /set policy timeout <N> | /set policy approval <on|off>");
         draw();
         return;
     }
@@ -261,17 +221,11 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    // provider / model switches
+    // provider switch
     if (arg.rfind("provider ", 0) == 0 || arg == "provider") {
         std::string rest = (arg.size() > 9) ? arg.substr(9) : "";
         if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
         cmd_provider(rest);
-        return;
-    }
-    if (arg.rfind("model ", 0) == 0 || arg == "model") {
-        std::string rest = (arg.size() > 6) ? arg.substr(6) : "";
-        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
-        cmd_model_set(rest);
         return;
     }
 
@@ -340,10 +294,6 @@ void Tui::cmd_get_config() {
     redraw_after_modal();
 }
 
-void Tui::cmd_get_model() {
-    append_line(P_STATUS, "model: " + cfg_.model + " (provider: " + cfg_.provider_name + ")");
-}
-
 void Tui::cmd_get_provider() {
     append_line(P_STATUS, "provider: " + cfg_.provider_name + " (" + cfg_.api_base + ")");
 }
@@ -353,11 +303,7 @@ void Tui::cmd_get_toolfold() {
 }
 
 void Tui::cmd_get_policy(const std::string& arg) {
-    // Namespace: summary, or "rule <name>" lookup.
-    std::string name = arg;
-    if (!name.empty() && name[0] == ' ') name = name.substr(1);
-    if (name.rfind("rule ", 0) == 0) name = name.substr(5);
-    if (name.empty()) {
+    if (arg.empty()) {
         append_line(P_STATUS, "policy mode: " + mode_name(cfg_.mode));
         append_line(P_STATUS, "policy timeout: " + std::to_string(policy_timeout_) + "s");
         auto* ag = win().agent.get();
@@ -371,6 +317,19 @@ void Tui::cmd_get_policy(const std::string& arg) {
         }
         return;
     }
+    // Dotted or fallback form: "/get policy rule <tool>" arrives here only
+    // when the tool is not a feed leaf.
+    if (arg.rfind("rule", 0) == 0) {
+        std::string name = arg;
+        if (name.size() > 4 && name[4] == ' ') name = name.substr(5);
+        else if (name.size() > 4) name = name.substr(4);
+        cmd_get_policy_rule(name);
+        return;
+    }
+    show_policy_rule(arg);
+}
+
+void Tui::show_policy_rule(const std::string& name) {
     if (auto* ag = win().agent.get()) {
         const auto* r = ag->policy().find(name);
         if (r) {
@@ -382,6 +341,110 @@ void Tui::cmd_get_policy(const std::string& arg) {
             append_line(P_STATUS, "rule " + name + ": ask (no stored rule)");
         }
     }
+}
+
+void Tui::cmd_get_policy_rule(const std::string& arg) {
+    if (arg.empty()) {
+        auto* ag = win().agent.get();
+        if (!ag) return;
+        bool any = false;
+        for (const auto& r : ag->policy().rules()) {
+            if (r.level == agent::PolicyLevel::Ask) continue;
+            any = true;
+            std::string line = "  " + r.tool + " \u2192 " +
+                agent::policy_level_name(r.level);
+            if (r.count > 0)
+                line += " (used " + std::to_string(r.count) + "x)";
+            append_line(P_STATUS, line);
+        }
+        if (!any)
+            append_line(P_STATUS, "no stored rules \u2014 everything asks for approval");
+        return;
+    }
+    show_policy_rule(arg);
+}
+
+void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) {
+    if (lvl.empty()) {
+        show_policy_rule(name);
+        return;
+    }
+    agent::PolicyLevel pl = agent::policy_level_from_name(lvl);
+    if (pl == agent::PolicyLevel::Ask) {
+        for (auto& w : windows_)
+            if (w->agent) w->agent->policy().revoke(name);
+        append_line(P_STATUS, "policy rule revoked for " + name);
+    } else if (pl == agent::PolicyLevel::AlwaysAllow ||
+               pl == agent::PolicyLevel::AlwaysDeny) {
+        for (auto& w : windows_)
+            if (w->agent) w->agent->policy().set_rule(name, pl);
+        append_line(P_STATUS, "policy rule " + lvl + " for " + name);
+    } else {
+        append_line(P_STATUS, "invalid level: " + lvl + " (use allow, deny, or ask)");
+        return;
+    }
+    if (win().agent) {
+        std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
+        win().agent->policy().save(policy_path);
+    }
+    refresh_policy_feed();
+    draw();
+}
+
+void Tui::cmd_set_policy_rule(const std::string& arg) {
+    if (arg.empty()) {
+        append_line(P_STATUS, "usage: /set policy rule <tool> <allow|deny|ask>");
+        return;
+    }
+    size_t sp = arg.find(' ');
+    std::string name = (sp == std::string::npos) ? arg : arg.substr(0, sp);
+    std::string lvl = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
+    apply_policy_rule(name, lvl);
+}
+
+void Tui::refresh_policy_feed() {
+    // Existing rules (union across windows): tool -> level info.
+    std::map<std::string, std::string> rule_help;
+    for (auto& w : windows_) {
+        if (!w->agent) continue;
+        for (const auto& r : w->agent->policy().rules()) {
+            if (r.level == agent::PolicyLevel::Ask) continue;
+            std::string info = agent::policy_level_name(r.level);
+            if (r.count > 0)
+                info += " (used " + std::to_string(r.count) + "x)";
+            rule_help[r.tool] = info;
+        }
+    }
+    // Set side: every registered tool (rule or not) is a value leaf; the
+    // get side shows only tools that have a stored rule.
+    std::set<std::string> tools;
+    for (const auto& t : reg_.tools()) tools.insert(t->name());
+    for (const auto& [tool, _] : rule_help) tools.insert(tool);
+
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& tool : tools) {
+        std::string info = rule_help.count(tool) ? rule_help.at(tool)
+                                                 : "no rule (ask)";
+        std::string action = "core.config.set.policy.rule." + tool;
+        nlohmann::json& leaf =
+            subtree["set"]["children"]["policy"]["children"]["rule"]["children"][tool];
+        leaf["action"] = action;
+        leaf["help"] = info;
+        register_action(action, [this, tool](const std::string& a) {
+            apply_policy_rule(tool, a);
+        });
+        if (rule_help.count(tool)) {
+            std::string gaction = "core.config.get.policy.rule." + tool;
+            nlohmann::json& g =
+                subtree["get"]["children"]["policy"]["children"]["rule"]["children"][tool];
+            g["action"] = gaction;
+            g["help"] = info;
+            register_action(gaction, [this, tool](const std::string&) {
+                show_policy_rule(tool);
+            });
+        }
+    }
+    settings_.merge_completions_json(subtree);
 }
 
 void Tui::cmd_get_policy_mode() {
@@ -870,55 +933,13 @@ void Tui::build_commands() {
         {"stop", "core.stop", {"cancel", "kill"}, "",
          "terminate the current tool and agent loop"},
         {"set", "core.config.set", {}, "<option> <value>",
-         "set runtime options: detection, display, toolfold, policy (mode|tool <name> <level>|timeout <N>), compression, provider, model, think",
-         nullptr,
-         nullptr,
-         [this]() -> std::string {
-             return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
-                    "  display " + (win().markdown_on ? "on" : "off") +
-                    "  toolfold " + (tool_fold_ == ToolFold::Always ? "always" :
-                                    toolfold_name(tool_fold_)) +
-                    "  policy " + (cfg_.mode == agent::AgentMode::Read ? "read" :
-                                   mode_name(cfg_.mode)) +
-                    "  provider " + cfg_.provider_name +
-                    "  model " + cfg_.model +
-                    "  think " + cfg_.thinking;
-         }},
+         "set runtime options: detection, display, toolfold, policy (mode|tool <name> <level>|timeout <N>), compression, provider, model, think"},
         {"get", "core.config.get", {}, "<option>",
          "show current setting: config, model, provider, toolfold, policy (mode|timeout|<tool>), display, compression, detection"},
         {"compress", "core.compress", {"compact"}, "",
          "compress conversation history to free context space"},
-                {"job", "core.job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
-         "manage background processes (servers, builds) started by the agent",
-         nullptr,
-         [this](const std::string& partial) {
-             std::string sub, rest;
-             size_t sp = partial.find(' ');
-             if (sp == std::string::npos) { sub = partial; rest.clear(); }
-             else { sub = partial.substr(0, sp); rest = partial.substr(sp + 1); }
-             if (sub.empty())
-                 return std::vector<std::string>{"ls", "kill", "read", "start"};
-             if (sub == "kill") {
-                 std::vector<std::string> out;
-                 for (const auto& j : jobs_.list())
-                     if ((j.state == agent::JobState::Running ||
-                          j.state == agent::JobState::Starting) &&
-                         (rest.empty() || j.id.rfind(rest, 0) == 0))
-                         out.push_back("kill " + j.id);
-                 return out;
-             }
-             if (sub == "read") {
-                 std::vector<std::string> out;
-                 for (const auto& j : jobs_.list())
-                     if (rest.empty() || j.id.rfind(rest, 0) == 0)
-                         out.push_back("read " + j.id);
-                 return out;
-             }
-             return std::vector<std::string>{};
-         },
-         [this]() -> std::string {
-             return std::to_string(jobs_.running_count()) + " running";
-         }},
+        {"job", "core.job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
+         "manage background processes (servers, builds) started by the agent"},
 {"save", "core.session.save", {}, "",
          "persist the current conversation"},
         {"sessions", "core.session.list", {"load", "open"}, "",
@@ -927,8 +948,6 @@ void Tui::build_commands() {
          "save all windows and exit"},
         {"provider", "core.provider", {"p"}, "list|add|edit|delete|test",
          "manage API providers"},
-        {"model", "core.model", {"m"}, "list|set|probe",
-         "manage AI models"},
         {"session", "core.session", {}, "list|save|load|delete|rename <id> <title>",
          "manage saved sessions"},
         {"files", "core.files", {"f"}, "ls|tree|open|find <path>",
@@ -1020,18 +1039,7 @@ void Tui::register_builtin_actions() {
         [this](const std::string& a) { cmd_provider_delete(a); });
     register_action("core.provider.test",
         [this](const std::string& a) { cmd_provider_test(a); });
-    // model
-    register_action("core.model", [this](const std::string& a) {
-        if (!a.empty())
-            append_line(P_STATUS, "usage: /model list|set|probe");
-        cmd_model_panel();
-    });
-    register_action("core.model.list",
-        [this](const std::string&) { cmd_model_list(); });
-    register_action("core.model.set",
-        [this](const std::string& a) { cmd_model_set(a); });
-    register_action("core.model.probe",
-        [this](const std::string&) { cmd_model_probe(); });
+    // model (get/set accessor — see completions.json get.model/set.model)
     // files
     register_action("core.files", [this](const std::string& a) {
         if (!a.empty())
@@ -1130,6 +1138,8 @@ void Tui::register_builtin_actions() {
         append_line(P_STATUS, "policy timeout: " + std::to_string(n) + "s");
     });
     register_action("core.config.set.policy", [this](const std::string& a) { cmd_set(a); });
+    register_action("core.config.set.policy.rule",
+        [this](const std::string& a) { cmd_set_policy_rule(a); });
     register_action("core.config.set.compression.threshold", [this](const std::string& v) {
         double t = std::atof(v.c_str());
         if (t <= 0.0 || t > 1.0 || v.empty()) {
@@ -1188,6 +1198,12 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_config(); });
     register_action("core.config.get.model",
         [this](const std::string&) { cmd_get_model(); });
+    register_action("core.config.get.model.list",
+        [this](const std::string&) { cmd_get_model_list(); });
+    register_action("core.config.get.model.context",
+        [this](const std::string&) { cmd_get_model_context(); });
+    register_action("core.config.set.model",
+        [this](const std::string& a) { cmd_model_set(a); });
     register_action("core.config.get.provider",
         [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.toolfold",
@@ -1200,6 +1216,8 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_policy_approval(); });
     register_action("core.config.get.policy.timeout",
         [this](const std::string&) { cmd_get_policy_timeout(); });
+    register_action("core.config.get.policy.rule",
+        [this](const std::string& a) { cmd_get_policy_rule(a); });
     register_action("core.config.get.display",
         [this](const std::string&) { cmd_get_display(); });
     register_action("core.config.get.think",
@@ -1330,15 +1348,6 @@ bool Tui::handle_slash(const std::string& line) {
         }
         return true;
     }
-    // No argument but the command expects a fixed option: show the current
-    // value frame (BitchX-style), as before.
-    if (arg.empty()) {
-        if (const Command* c = find_command(tokens[0]);
-            c && c->complete_arg && !c->args.empty()) {
-            show_command_frame(*c);
-            return true;
-        }
-    }
     it->second(arg);
     return true;
 }
@@ -1348,30 +1357,9 @@ std::string Tui::usage(const Command& c) const {
     return palette::usage(c);
 }
 
-void Tui::show_command_frame(const Command& c) {
-    // Invoked with no argument: report the current setting neutrally (never a
-    // modal dialog, so it can't stall the agent worker). Providing a value is a
-    // separate path that confirms the change; this is just a status read-out.
-    std::string cur = c.current_value ? c.current_value() : "";
-    if (!cur.empty())
-        append_line(P_STATUS,
-                    "/" + c.name + " is currently: " + cur);
-    else
-        append_line(P_STATUS, "/" + c.name + ": " + c.help);
-    if (c.complete_arg) {
-        auto opts = c.complete_arg("");
-        if (!opts.empty()) {
-            std::string line = "  choices:";
-            for (auto& o : opts) line += "  " + o;
-            append_line(P_STATUS, line);
-        }
-    }
-    draw();
-}
-
 void Tui::cmd_model_set(const std::string& arg) {
     if (arg.empty()) {
-        append_line(P_STATUS, "usage: /model set <name> | /model list | /model probe");
+        append_line(P_STATUS, "model: " + cfg_.model + " \u2014 /model <name> or /set model to switch");
         return;
     }
     auto models = agent::list_models(cfg_);
@@ -1386,61 +1374,64 @@ void Tui::cmd_model_set(const std::string& arg) {
     cfg_.model_explicit = true;
     for (auto& w : windows_) {
         if (!w->agent) continue;
-        w->agent->set_detection_loop(cfg_.detection_loop);
+        // The running agent's LLM client holds a config snapshot — rebuild it
+        // so the next turn actually talks to the new model.
+        w->agent->set_model(arg);
     }
     std::string global = agent::global_config_path();
     cfg_.save_global(global);
     append_line(P_STATUS, "model set to " + arg + " (saved to " + global + ")");
 }
 
-void Tui::cmd_model_list() {
-    auto models = agent::list_models(cfg_);
-    std::string msg;
-    for (auto& m : models) msg += m + " ";
-    if (msg.size() > 200) msg.resize(200);
-    append_line(P_STATUS, "models: " + (msg.empty() ? "(none)" : msg));
+void Tui::cmd_get_model() {
+    append_line(P_STATUS, "model: " + cfg_.model + " (provider: " + cfg_.provider_name + ")");
 }
 
-void Tui::cmd_model_probe() {
-    auto info = agent::probe_server(cfg_);
-    if (info.ok)
-        append_line(P_STATUS, "model: " + info.model + " ctx: " + std::to_string(info.context_size));
-    else
-        append_line(P_STATUS, "probe failed");
-}
-
-void Tui::cmd_model_panel() {
-    append_line(P_STATUS, "querying " + cfg_.models_url() + " ...");
-    draw();
-    auto models = agent::list_models(cfg_);
-    if (models.empty()) {
+void Tui::cmd_get_model_list() {
+    refresh_model_list();
+    if (model_info_.empty()) {
         append_line(P_STATUS, "no models available or server unreachable");
         return;
     }
-    std::vector<std::string> display;
-    display.reserve(models.size());
-    for (const auto& m : models) {
-        bool cur = (m == cfg_.model);
-        display.emplace_back((cur ? "> " : "  ") + m);
+    for (const auto& m : model_info_) {
+        int ctx = m.context ? m.context : m.context_train;
+        std::string line = "  " + m.id;
+        if (ctx > 0) line += "  (ctx " + std::to_string(ctx) + ")";
+        append_line(P_ASSISTANT, line);
     }
-    {
-        ModalScope scope;
-        curs_set(0);
-        ListPanel lp("Select Model (" + std::to_string(models.size()) + " available)",
-                     display);
-        int sel = lp.run();
-        if (sel < 0) return;
-        std::string chosen = display[sel].substr(2);
-        cfg_.model = chosen;
-        cfg_.model_explicit = true;
+}
+
+void Tui::cmd_get_model_context() {
+    agent::ServerInfo info = agent::probe_server(cfg_);
+    std::string line = "model: " + cfg_.model;
+    if (info.ok && info.context_size > 0) {
+        line += "  ctx: " + std::to_string(info.context_size);
+        if (info.context_train > 0 && info.context_train != info.context_size)
+            line += " (max " + std::to_string(info.context_train) + ")";
+    } else if (cfg_.context_size > 0) {
+        line += "  ctx: " + std::to_string(cfg_.context_size) + " (cached)";
+    } else {
+        line += "  ctx: unknown";
     }
-    for (auto& w : windows_) {
-        if (!w->agent) continue;
-        w->agent->set_detection_loop(cfg_.detection_loop);
+    append_line(P_STATUS, line);
+}
+
+void Tui::refresh_model_list() {
+    model_info_ = agent::list_model_info(cfg_);
+    // Feed: model ids become value leaves under set.model. Each leaf carries a
+    // generated action (core.config.set.model.<id>) so the tree walk resolves
+    // the exact model; the closure runs the shared set/validate/save path.
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& m : model_info_) {
+        std::string id = m.id;
+        nlohmann::json& leaf = subtree["set"]["children"]["model"]["children"][id];
+        leaf["action"] = "core.config.set.model." + id;
+        int ctx = m.context ? m.context : m.context_train;
+        if (ctx > 0) leaf["help"] = "ctx " + std::to_string(ctx);
+        register_action(leaf["action"].get<std::string>(),
+                        [this, id](const std::string&) { cmd_model_set(id); });
     }
-    std::string global = agent::global_config_path();
-    cfg_.save_global(global);
-    append_line(P_STATUS, "model set to " + cfg_.model + " (saved to " + global + ")");
+    settings_.merge_completions_json(subtree);
 }
 
 void Tui::cmd_provider(const std::string& a) {
@@ -1825,10 +1816,33 @@ void Tui::job_ls() {
     for (const auto& j : jobs) append_line(P_STATUS, job_list_line(j));
 }
 
+void Tui::refresh_job_feed() {
+    // Job ids become value leaves under job.kill / job.read (state as help),
+    // so /job kill|read complete through the tree like every other branch.
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& j : jobs_.list()) {
+        std::string id = j.id;
+        nlohmann::json& kill_leaf =
+            subtree["job"]["children"]["kill"]["children"][id];
+        kill_leaf["action"] = "core.job.kill." + id;
+        kill_leaf["help"] = job_state_name(j.state);
+        nlohmann::json& read_leaf =
+            subtree["job"]["children"]["read"]["children"][id];
+        read_leaf["action"] = "core.job.read." + id;
+        read_leaf["help"] = job_state_name(j.state);
+        register_action("core.job.kill." + id,
+                        [this, id](const std::string&) { job_kill(id); });
+        register_action("core.job.read." + id,
+                        [this, id](const std::string&) { job_read(id); });
+    }
+    settings_.merge_completions_json(subtree);
+}
+
 void Tui::job_kill(const std::string& id) {
     if (id.empty()) { append_line(P_STATUS, "usage: /job kill <id>"); return; }
     bool ok = jobs_.stop(id);
     append_line(P_STATUS, ok ? ("killed " + id) : ("no such job: " + id));
+    refresh_job_feed();
     draw();
 }
 
@@ -1849,6 +1863,7 @@ void Tui::job_start(const std::string& cmd) {
     std::string id = jobs_.start(cmd, agent::Workspace::root());
     if (id.empty()) { append_line(P_STATUS, "failed to start: " + cmd); return; }
     append_line(P_STATUS, "started " + id + ": " + cmd);
+    refresh_job_feed();
     draw();
 }
 
@@ -2193,13 +2208,6 @@ void Tui::build_settings() {
     // Namespace root for /get policy (no setter — children handle values).
     add("policy", "Permission rules and approval settings", "", Setting::String, {}, 0, 0,
         []() -> std::string { return ""; }, nullptr);
-    // Simple display-only keys (read-only, for /get completion).
-    add("config", "Open the settings configuration screen", "", Setting::String, {}, 0, 0,
-        []() -> std::string { return ""; }, nullptr);
-    add("model", "Active model name", "", Setting::String, {}, 0, 0,
-        [this]() -> std::string { return cfg_.model + " (" + cfg_.provider_name + ")"; }, nullptr);
-    add("provider", "Active provider name and API base URL", "", Setting::String, {}, 0, 0,
-        [this]() -> std::string { return cfg_.provider_name + " (" + cfg_.api_base + ")"; }, nullptr);
 
     add("think", "Thinking mode", "<on|off|auto>", Setting::Choice,
         {"on","off","auto"}, 0, 0,

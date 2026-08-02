@@ -10,7 +10,41 @@ auto read_int = [](const json& o, const char* k) -> int {
     return (it != o.end() && it->is_number_integer()) ? it->get<int>() : 0;
 };
 
+// Repair a tool parameters_schema so the server's grammar builder never sees
+// null types or arrays without items (llama.cpp 400s with "type must be
+// array, but is null"). Applied to every tool before the request is sent.
+void sanitize_node(json& node) {
+    if (!node.is_object()) {
+        node = json{{"type", "object"}};
+        return;
+    }
+    auto t = node.find("type");
+    if (t == node.end() || !t->is_string())
+        node["type"] = "object";
+    // The nlohmann {"required", {}} gotcha produces "required": null, which
+    // makes llama.cpp's grammar generator throw "type must be array, but is
+    // null". Repair any non-array required to an empty array.
+    auto req = node.find("required");
+    if (req != node.end() && !req->is_array())
+        node["required"] = json::array();
+    if (node["type"] == "array") {
+        auto items = node.find("items");
+        if (items == node.end() || !items->is_object())
+            node["items"] = json::object();
+        else
+            sanitize_node(node["items"]);
+    }
+    auto props = node.find("properties");
+    if (props != node.end() && props->is_object())
+        for (auto& [_, v] : props->items())
+            sanitize_node(v);
+}
+
 } // namespace
+
+void sanitize_tool_schema(json& schema) {
+    sanitize_node(schema);
+}
 
 json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
                      const std::vector<Tool*>& tools, bool stream) {
@@ -67,11 +101,13 @@ json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
     if (!tools.empty()) {
         json tarr = json::array();
         for (auto* t : tools) {
+            json params = t->parameters_schema();
+            sanitize_tool_schema(params);
             tarr.push_back({{"type", "function"},
                             {"function",
                              {{"name", t->name()},
                               {"description", t->description()},
-                              {"parameters", t->parameters_schema()}}}});
+                              {"parameters", params}}}});
         }
         body["tools"] = tarr;
         body["tool_choice"] = "auto";

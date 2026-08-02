@@ -43,6 +43,19 @@ const char* glyph::block_l()  { return utf8() ? "\u2590" : "|"; }
 const char* glyph::block_r()  { return utf8() ? "\u258c" : "|"; }
 const char* glyph::ellipsis() { return utf8() ? "\u2026" : "..."; }
 const char* glyph::check()    { return utf8() ? "\u2713" : "+"; }
+const char* glyph::cross()    { return utf8() ? "\u2717" : "x"; }
+
+const char* glyph::spinner_square(int frame) {
+    static const char* k[4] = {"\u2599", "\u259b", "\u259c", "\u259f"};  // ▙▛▜▟
+    static const char* a[4] = {"|", "/", "-", "\\"};
+    return utf8() ? k[((frame % 4) + 4) % 4] : a[((frame % 4) + 4) % 4];
+}
+
+const char* glyph::spinner_round(int frame) {
+    static const char* k[4] = {"\u25d0", "\u25d3", "\u25d1", "\u25d2"};  // ◐◓◑◒
+    static const char* a[4] = {"|", "/", "-", "\\"};
+    return utf8() ? k[((frame % 4) + 4) % 4] : a[((frame % 4) + 4) % 4];
+}
 
 std::string git_prompt(const std::string& project, const std::string& branch,
                        int ins, int del) {

@@ -8,9 +8,11 @@
 #include "agent/dispatch.h"
 #include "agent/experience.h"
 #include "agent/environment.h"
+#include "../lib/http_transport.h"
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
+#include "agent/tool_call_parser.h"
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
@@ -655,6 +657,58 @@ TEST(probe_parse_models_malformed_is_not_ok) {
     ASSERT_FALSE(agent::LLMClient::parse_models("not json").ok);
     ASSERT_FALSE(agent::LLMClient::parse_models("{}").ok);
     ASSERT_FALSE(agent::LLMClient::parse_models(R"({"data":[]})").ok);
+}
+
+// The model LIST parser keeps per-model context info so the /set model drawer
+// can show "id (ctx N)" inline instead of bare ids.
+TEST(probe_parse_model_list_with_ctx) {
+    std::string body =
+        R"({"data":[{"id":"alpha","meta":{"n_ctx":8192,"n_ctx_train":32768}},)"
+        R"({"id":"beta"}]})";
+    auto models = agent::parse_model_list_info(body);
+    ASSERT_EQ(models.size(), 2u);
+    ASSERT_EQ(models[0].id, "alpha");
+    ASSERT_EQ(models[0].context, 8192);
+    ASSERT_EQ(models[0].context_train, 32768);
+    ASSERT_EQ(models[1].id, "beta");
+    ASSERT_EQ(models[1].context, 0);
+    ASSERT_EQ(models[1].context_train, 0);
+}
+
+TEST(probe_parse_model_list_malformed) {
+    ASSERT(agent::parse_model_list_info("not json").empty());
+    ASSERT(agent::parse_model_list_info("{}").empty());
+    ASSERT(agent::parse_model_list_info(R"({"data":[]})").empty());
+}
+
+TEST(probe_parse_model_list_ollama_shape) {
+    // Ollama-ish {"models":[{name, n_ctx}]} fallback shape, two entries.
+    std::string body =
+        R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192},)"
+        R"({"name":"qwen-7b"}]})";
+    auto models = agent::parse_model_list_info(body);
+    ASSERT_EQ(models.size(), 2u);
+    ASSERT_EQ(models[0].id, "llama-3.2-3b");
+    ASSERT_EQ(models[0].context, 8192);
+    ASSERT_EQ(models[1].id, "qwen-7b");
+}
+
+// llama.cpp "automatic parser generation" failures are a server/model problem
+// (the loaded chat template cannot be auto-parsed for tool calling). The error
+// message must say so instead of dumping the raw body.
+TEST(http_error_describes_parser_generation_failure) {
+    std::string body =
+        R"({"error":{"code":400,"message":"Unable to generate parser for this )"
+        R"(template. Automatic parser generation failed: [json.exception.)"
+        R"(type_error.302] type must be array, but is null","type":")"
+        R"(invalid_request_error"}})";
+    std::string msg = agent::describe_http_error(400, body);
+    ASSERT(msg.find("chat-template parser failure") != std::string::npos);
+    ASSERT(msg.find("reload the model") != std::string::npos);
+    // Unrelated 400s keep the plain message (no misleading hint).
+    std::string plain = agent::describe_http_error(400, R"({"error":"nope"})");
+    ASSERT(plain.find("chat-template") == std::string::npos);
+    ASSERT(plain.find("HTTP 400 from LLM server") != std::string::npos);
 }
 
 // The auto-detect merge policy: probe results fill only fields the user left on
@@ -3005,4 +3059,140 @@ TEST(mcp_completion_subtree_reflects_live_tools) {
     ASSERT(srv["children"].contains("list_issues"));
     ASSERT(srv["children"]["list_issues"]["help"] == "desc of mcp_github_list_issues");
     ASSERT_EQ(srv["children"].size(), 2u);
+}
+
+// [GR] Graceful recovery for request-side 400s: classify what the server
+// rejected so the turn can adapt instead of dying.
+TEST(request_failure_classifier) {
+    using agent::RequestFailure;
+    ASSERT(agent::classify_request_failure(
+        "HTTP 400 from LLM server: {\"error\":{\"code\":400,\"message\":"
+        "\"Unable to generate parser for this template. Automatic parser "
+        "generation failed\"}}") == RequestFailure::TemplateParser);
+    ASSERT(agent::classify_request_failure(
+        "HTTP 400 from LLM server: {\"error\":\"The model ornith-35b does "
+        "not exist\"}") == RequestFailure::ModelName);
+    ASSERT(agent::classify_request_failure(
+        "HTTP 401 from LLM server: bad key") == RequestFailure::None);
+    ASSERT(agent::classify_request_failure(
+        "HTTP 400 from LLM server: context overflow") == RequestFailure::None);
+}
+
+// [GR] Tool schemas are sanitized before they reach the server so its grammar
+// builder never sees null types or arrays without items (llama.cpp 400s with
+// "type must be array, but is null").
+TEST(tool_schema_sanitizer) {
+    using agent::json;
+    json s = {{"type", "object"},
+              {"properties",
+               {{"tags", {{"type", "array"}, {"items", nullptr}}},
+                {"count", {{"type", "array"}}},
+                {"nested", {{"type", "object"},
+                            {"properties",
+                             {{"x", {{"type", nullptr}}}}}}},
+                {"bare", nullptr}}}};
+    agent::sanitize_tool_schema(s);
+    ASSERT(s["properties"]["tags"]["items"].is_object());
+    ASSERT(s["properties"]["count"]["items"].is_object());
+    ASSERT(s["properties"]["nested"]["properties"]["x"]["type"] == "object");
+    ASSERT(s["properties"]["bare"]["type"] == "object");
+}
+
+// The nlohmann {"required", {}} gotcha emits "required": null, which breaks
+// llama.cpp's grammar generator ("type must be array, but is null" 400).
+// Sanitizing must repair it before the request leaves the client.
+TEST(tool_schema_sanitizer_repairs_null_required) {
+    agent::json s = {{"type", "object"},
+                     {"properties", {{"name", {{"type", "string"}}}}},
+                     {"required", nullptr}};
+    agent::sanitize_tool_schema(s);
+    ASSERT(s["required"].is_array());
+    ASSERT_EQ(s["required"].size(), 0u);
+}
+
+// [TC] Attribute-style XML tool calls (ornith template):
+//   <tool_call>
+//   <function=bash>
+//   <parameter=command>
+//   find . -type f
+//   </parameter>
+//   </function>
+//   </tool_call>
+TEST(tool_call_parser_attribute_style) {
+    std::string text =
+        "I'll review the app.\n"
+        "<tool_call>\n"
+        "<function=bash>\n"
+        "<parameter=command>\n"
+        "find . -type f | head\n"
+        "</parameter>\n"
+        "</function>\n"
+        "</tool_call>";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "bash");
+    ASSERT_EQ(calls[0]["function"]["arguments"]["command"].get<std::string>(),
+              "find . -type f | head");
+}
+
+TEST(tool_call_parser_attribute_style_multiple) {
+    std::string text =
+        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+        "</parameter>\n</function>\n</tool_call>\n"
+        "<tool_call>\n<function=search>\n<parameter=pattern>\nTODO\n"
+        "</parameter>\n</function>\n</tool_call>";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 2u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
+    ASSERT_EQ(calls[1]["function"]["name"].get<std::string>(), "search");
+    ASSERT_EQ(calls[1]["function"]["arguments"]["pattern"].get<std::string>(),
+              "TODO");
+}
+
+TEST(tool_call_parser_attribute_style_unclosed) {
+    // Model cut off mid-call: no closing </tool_call>.
+    std::string text =
+        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
+    ASSERT_EQ(calls[0]["function"]["arguments"]["path"].get<std::string>(),
+              "Makefile");
+}
+
+// Binary files must be refused, not dumped as garbage lines (a NUL-byte
+// binary read once produced 32k lines in the conversation).
+TEST(read_tool_refuses_binary) {
+    agent::Workspace::set_root(".");
+    std::string dir = "read_bin_" + std::to_string(getpid());
+    std::filesystem::create_directories(dir);
+    std::ofstream f(dir + "/bin.dat", std::ios::binary);
+    // strlen() stops at the first NUL - build the fixture with an explicit
+    // length so the NUL bytes actually land in the file.
+    f.write(std::string("\x00\x01\x02hello\n\x00world\n", 16).data(), 16);
+    f.close();
+    auto tool = agent::make_read_tool();
+    auto r = tool->execute({{"path", dir + "/bin.dat"}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("binary") != std::string::npos);
+    std::filesystem::remove_all(dir);
+}
+
+// The read limit is line-based and hard-capped so a request can never pull
+// tens of thousands of lines into the conversation.
+TEST(read_tool_clamps_limit) {
+    agent::Workspace::set_root(".");
+    std::string dir = "read_big_" + std::to_string(getpid());
+    std::filesystem::create_directories(dir);
+    std::ofstream f(dir + "/big.txt");
+    for (int i = 0; i < 5000; ++i) f << "line " << i << "\n";
+    f.close();
+    auto tool = agent::make_read_tool();
+    auto r = tool->execute({{"path", dir + "/big.txt"}, {"limit", 100000}});
+    ASSERT_TRUE(r.ok);
+    ASSERT(r.meta["lines"].get<long>() <= 2000);
+    std::filesystem::remove_all(dir);
 }

@@ -63,6 +63,34 @@ C++17 AI agent harness: a core library (`libagent.a`) plus a headless CLI
   Default timeout 60s, output capped 64 KiB.
 - Keep the agent unprivileged (container / dedicated dir).
 
+## Command tree architecture (JSON-driven, zero hardcoded completion)
+
+`completions.json` is the **single source of truth** for slash-command
+structure: namespace branches (unlimited nesting), short help (drawer),
+man pages (`?` popup), and leaf `action`s (internal command mapping — what
+the branch executes). Dispatch (`handle_slash`), completion
+(`update_completions`), and the drawer (`draw_drawer`) all derive from the
+tree in `SettingRegistry`; C++ handlers are pure `(action, arg)` closures.
+
+- **Schema**: every node is `{help, man, action?, children{...}}`; the last
+  leaf of a branch carries the `action` (e.g. `core.config.get.model.list`).
+- **Namespaces are keyed by their full display path** (`get.model` ≠
+  `set.model`); dotted `/get` lookups resolve exact → `get.<key>` →
+  `set.<key>` (`resolve_key` in setting_registry.cpp).
+- **Dynamic values are feed leaves**: runtime state and external
+  integrations merge leaf subtrees via `merge_completions_json` (deep merge —
+  static fields preserved, children unioned; MCP/plugin/feeds never clobber
+  documented nodes). Each leaf carries a **generated action**
+  (`<parent action>.<leaf key>`) and the feed registers the handler closure.
+  Existing feeds: `refresh_model_list` (set.model), `refresh_policy_feed`
+  (get/set policy rule — the permission system, unchanged, surfaced in the
+  tree), `refresh_job_feed` (job kill/read), plus `mcp_completion_subtree`.
+  New dynamic content = a new feed, never a C++ completion lambda.
+- `SettingRegistry::complete(ns)` returns the **direct children** of a
+  namespace (tree-walked) so drawer rows and completions stay 1:1 for Enter
+  dispatch. The legacy flat `palette::Command` carries display metadata only
+  (name/aliases/usage/help); there is no `complete_arg`/`current_value`.
+
 ## Context stack architecture (immutable, hash-chained)
 
 The `Context` class (`include/agent/context.h`) is a **pure stack** — messages are

@@ -157,12 +157,31 @@ bool wait_cancellable(const CancellationToken& token, int ms) {
 }
 } // namespace
 
-Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
-                        const std::function<Message()>& chat,
-                        const char* stage,
-                        const CancellationToken& cancel_token,
-                        int max_attempts) {
+RequestFailure classify_request_failure(const std::string& error_text) {
+    if (error_text.find("Unable to generate parser for this template") !=
+        std::string::npos)
+        return RequestFailure::TemplateParser;
+    if (error_text.find("does not exist") != std::string::npos ||
+        error_text.find("model not found") != std::string::npos ||
+        error_text.find("unknown model") != std::string::npos)
+        return RequestFailure::ModelName;
+    return RequestFailure::None;
+}
+
+namespace {
+
+// Shared retry loop: retries retryable errors with backoff; on a
+// non-retryable error, asks `adapt` for a repaired request and runs ONE
+// adapted attempt with full retry semantics. When `strict` is set the last
+// error is rethrown on exhaustion instead of being returned as a message.
+Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
+                             std::function<Message()> chat,
+                             const char* stage,
+                             const CancellationToken& cancel_token,
+                             int max_attempts, const ChatAdapter& adapt,
+                             bool strict) {
     std::string last_error;
+    bool adapted = false;
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
         try {
             Message m = chat();
@@ -177,6 +196,20 @@ Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
             if (hooks.on_debug)
                 hooks.on_debug("chat error (attempt " +
                                std::to_string(attempt) + "): " + last_error);
+            if (!adapted && !retryable_error(e) && adapt) {
+                std::function<Message()> repaired = adapt(last_error);
+                if (repaired) {
+                    adapted = true;
+                    chat = std::move(repaired);
+                    if (hooks.on_status)
+                        hooks.on_status(
+                            "LLM request repaired, retrying (" +
+                            std::string(stage) + ")");
+                    log.event("chat_recovery",
+                              {{"stage", stage}, {"error", last_error}});
+                    continue;
+                }
+            }
             if (attempt >= max_attempts || !retryable_error(e)) break;
             if (hooks.on_status)
                 hooks.on_status("LLM error - retrying (" +
@@ -190,11 +223,34 @@ Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
             }
         }
     }
+    if (strict)
+        throw std::runtime_error("chat " + std::string(stage) + " failed: " +
+                                 last_error);
     Message err;
     err.role = "assistant";
     err.content = "[error during " + std::string(stage) + ": " +
                   last_error + "] Please retry or adjust your approach.";
     return err;
+}
+
+} // namespace
+
+Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
+                        const std::function<Message()>& chat,
+                        const char* stage,
+                        const CancellationToken& cancel_token,
+                        int max_attempts, const ChatAdapter& adapt) {
+    return chat_with_retry_impl(hooks, log, chat, stage, cancel_token,
+                                max_attempts, adapt, false);
+}
+
+Message chat_with_retry_strict(const AgentHooks& hooks, ConversationLog& log,
+                               const std::function<Message()>& chat,
+                               const char* stage,
+                               const CancellationToken& cancel_token,
+                               int max_attempts, const ChatAdapter& adapt) {
+    return chat_with_retry_impl(hooks, log, chat, stage, cancel_token,
+                                max_attempts, adapt, true);
 }
 
 

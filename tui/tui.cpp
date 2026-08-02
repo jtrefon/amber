@@ -198,61 +198,88 @@ bool Tui::drain_events() {
             running_tool_ = ev.tool_name;
             flush_stream();
             ToolFold fold = tool_fold_;
-            if (fold != ToolFold::Never) {
-                std::string args = ev.tool_args.dump();
-                if (args.size() > 60) { args.resize(57); args += "..."; }
-                if (fold == ToolFold::Auto)
-                    append_line(P_STATUS, std::string(text::glyph::tool()) + " " +
-                                ev.tool_name + " " + args);
-                else
-                    append_line(P_STATUS, "tool: " + ev.tool_name + " " + args);
-            }
+            // One "open" line per advertised call, all animated together.
+            // never = always closed: compact (name only, no args).
+            bool round = (ev.tool_name == "bash");
+            std::string args = ev.tool_args.dump();
+            if (args.size() > 60) { args.resize(57); args += "..."; }
+            PendingToolLine pt;
+            pt.name = ev.tool_name;
+            pt.fingerprint = ev.tool_args.dump();
+            pt.style = round ? 1 : 0;
+            pt.frame = 0;
+            pt.tail = " " + ev.tool_name;
+            if (fold != ToolFold::Never) pt.tail += " " + args;
+            const char* frame = round ? text::glyph::spinner_round(0)
+                                      : text::glyph::spinner_square(0);
+            append_line(P_STATUS, std::string(frame) + pt.tail);
+            pt.index = win().lines.size() - 1;
+            pending_tools_.push_back(std::move(pt));
             break;
         }
         case AgentEvent::ToolResult: {
             running_tool_.clear();
             ToolFold fold = tool_fold_;
-            if (fold == ToolFold::Never) break;
-            // Build a compact summary line.
-            auto summarize = [](const std::string& name,
-                                const agent::ToolResult& r) -> std::string {
-                const char* sp = text::glyph::tool();
-                const char* ar = text::glyph::arrow();
-                if (!r.ok) return std::string(sp) + " " + name + "  " +
-                                   ar + " error: " + r.error;
-                // Count lines in output.
-                int lines = 1;
-                for (char c : r.output) if (c == '\n') ++lines;
-                std::string preview = r.output;
-                size_t nl = preview.find('\n');
-                if (nl != std::string::npos) preview.resize(nl);
-                if (preview.size() > 60) { preview.resize(57); preview += "..."; }
-                return std::string(sp).append(" ").append(name).append("  ")
-                       .append(ar)
-                       .append(" exit 0  (")
-                       .append(std::to_string(lines))
-                       .append(" lines)  ")
-                       .append(preview);
-            };
-            std::string line = summarize(ev.tool_name, ev.tool_result);
-            if (fold == ToolFold::Auto) {
-                // Replace the last "running" tool line with the summary.
-                auto& lines = win().lines;
-                bool replaced = false;
-                for (int i = static_cast<int>(lines.size()) - 1; i >= 0; --i) {
-                    if (!lines[i].runs.empty() &&
-                        lines[i].runs[0].pair == P_STATUS &&
-                        lines[i].runs[0].text.rfind(text::glyph::tool(), 0) == 0) {
-                        lines[i].runs.clear();
-                        rich::Run r; r.pair = P_STATUS; r.text = line;
-                        lines[i].runs.push_back(r);
-                        replaced = true;
-                        break;
-                    }
+            // Summary line: colored success/failure icon + one-line report.
+            auto build_result =
+                [](const std::string& name,
+                   const agent::ToolResult& r) -> rich::Line {
+                rich::Line ln;
+                rich::Run icon;
+                icon.pair = r.ok ? P_GIT_PLUS : P_GIT_MINUS;
+                icon.text = r.ok ? text::glyph::check() : text::glyph::cross();
+                rich::Run rest;
+                rest.pair = P_STATUS;
+                rest.text = " " + name + "  " + text::glyph::arrow() + " ";
+                if (!r.ok) {
+                    rest.text += "error: " + r.error;
+                } else {
+                    int lines = 1;
+                    for (char c : r.output) if (c == '\n') ++lines;
+                    std::string preview = r.output;
+                    size_t nl = preview.find('\n');
+                    if (nl != std::string::npos) preview.resize(nl);
+                    if (preview.size() > 60) { preview.resize(57); preview += "..."; }
+                    rest.text += "exit 0  (" + std::to_string(lines) +
+                                 " lines)  " + preview;
                 }
-                if (!replaced) append_line(P_STATUS, line);
+                ln.runs.push_back(std::move(icon));
+                ln.runs.push_back(std::move(rest));
+                return ln;
+            };
+            rich::Line summary = build_result(ev.tool_name, ev.tool_result);
+            // Match the pending line for this call (name + args, FIFO).
+            std::string fp = ev.tool_args.dump();
+            size_t match = std::string::npos;
+            for (size_t i = 0; i < pending_tools_.size(); ++i)
+                if (pending_tools_[i].name == ev.tool_name &&
+                    pending_tools_[i].fingerprint == fp) {
+                    match = i; break;
+                }
+            if (match == std::string::npos)
+                for (size_t i = 0; i < pending_tools_.size(); ++i)
+                    if (pending_tools_[i].name == ev.tool_name) {
+                        match = i; break;
+                    }
+            if (match != std::string::npos &&
+                pending_tools_[match].index < win().lines.size()) {
+                size_t li = pending_tools_[match].index;
+                if (fold == ToolFold::Always) {
+                    // always = always open: freeze the open line (static tool
+                    // bullet) and append the summary as a second line.
+                    auto& runs = win().lines[li].runs;
+                    if (!runs.empty())
+                        runs.back().text = std::string(text::glyph::tool()) +
+                                           pending_tools_[match].tail;
+                    append_rich(summary);
+                } else {
+                    // auto/never: the single line closes — the spinner icon is
+                    // replaced by the success/failure icon and the summary.
+                    win().lines[li] = std::move(summary);
+                }
+                pending_tools_.erase(pending_tools_.begin() + match);
             } else {
-                append_line(P_STATUS, line);
+                append_rich(summary);
             }
             // Tool may have modified files — refresh git state for prompt.
             git_refresh();
@@ -622,6 +649,10 @@ void Tui::refresh_completions() {
 }
 
 void Tui::run() {
+    git_refresh();
+    refresh_model_list();
+    refresh_policy_feed();
+    refresh_job_feed();
     draw();
     draw_input("");
     flush();
@@ -649,75 +680,43 @@ void Tui::run() {
             std::string cmd_name = input.substr(1, sp - 1);
             std::string partial = input.substr(sp + 1);
 
-            // 1. SettingRegistry for /get and /set (dotted key config).
-            if (cmd_name == "get" || cmd_name == "set") {
-                // Convert space-separated partial to dotted for registry lookup:
-                // "policy mode" → "policy.mode"
-                std::string dotted_partial;
+            // Single path, tree-driven: build the full dotted path
+            // ("set policy mo" → "set.policy.mo", "job kill 4" → "job.kill.4")
+            // and complete the direct children of the namespace. Dynamic
+            // values (models, policy rules, job ids) are feed leaves, so
+            // every command gets the same completion behavior.
+            std::string dotted = cmd_name;
+            if (partial.empty()) {
+                dotted += ".";
+            } else {
                 size_t p = 0;
                 while (p < partial.size()) {
                     size_t spc = partial.find(' ', p);
-                    if (spc == std::string::npos) { dotted_partial += partial.substr(p); break; }
-                    if (!dotted_partial.empty()) dotted_partial += ".";
-                    dotted_partial += partial.substr(p, spc - p);
+                    dotted += ".";
+                    if (spc == std::string::npos) { dotted += partial.substr(p); break; }
+                    dotted += partial.substr(p, spc - p);
                     p = spc + 1;
                 }
-                // Strip the last namespace level so we complete leaf names only.
-                // e.g. "policy.mo" → ns="policy", leaf="mo" → we want completions for "policy"
-                std::string ns_part, leaf_part;
-                size_t last_dot = dotted_partial.rfind('.');
-                if (last_dot != std::string::npos) {
-                    ns_part = dotted_partial.substr(0, last_dot);
-                    leaf_part = dotted_partial.substr(last_dot + 1);
-                } else {
-                    leaf_part = dotted_partial;
-                }
-                auto completions = settings_.complete(ns_part.empty() ? leaf_part : ns_part);
-                std::vector<std::string> stripped;
-                for (auto& c : completions) {
-                    // Only show keys that match the leaf_part prefix.
-                    if (!leaf_part.empty() && c.rfind(leaf_part, 0) != 0) continue;
-                    // Strip the namespace prefix.
-                    if (!ns_part.empty()) {
-                        if (c.rfind(ns_part + ".", 0) == 0)
-                            stripped.push_back(c.substr(ns_part.size() + 1));
-                    } else {
-                        stripped.push_back(c);
-                    }
-                }
-                // Also include single-level keys from the legacy complete_arg.
-                const Command* cmd = find_command(cmd_name);
-                if (cmd && cmd->complete_arg) {
-                    auto legacy = cmd->complete_arg(partial);
-                    for (const auto& l : legacy)
-                        if (std::find(stripped.begin(), stripped.end(), l) == stripped.end())
-                            stripped.push_back(l);
-                }
-                cl.set_completions(stripped);
-                return;
             }
-
-            // 2. Subcommands from JSON (system, files, provider, model, session, job, window).
-            auto subs = settings_.subcommands_for(cmd_name);
-            if (!subs.empty()) {
-                if (partial.empty()) {
-                    cl.set_completions(subs);
-                } else {
-                    std::vector<std::string> filtered;
-                    for (const auto& s : subs)
-                        if (s.rfind(partial, 0) == 0)
-                            filtered.push_back(s);
-                    cl.set_completions(filtered);
-                }
-                return;
+            // Strip the last namespace level so we complete leaf names only.
+            std::string ns_part, leaf_part;
+            size_t last_dot = dotted.rfind('.');
+            if (last_dot != std::string::npos) {
+                ns_part = dotted.substr(0, last_dot);
+                leaf_part = dotted.substr(last_dot + 1);
+            } else {
+                leaf_part = dotted;
             }
-
-            // 3. Legacy complete_arg lambda (fallback).
-            const Command* cmd = find_command(cmd_name);
-            if (cmd && cmd->complete_arg) {
-                cl.set_completions(cmd->complete_arg(partial));
-                return;
+            auto completions = settings_.complete(ns_part);
+            std::vector<std::string> stripped;
+            for (const auto& c : completions) {
+                std::string tail = ns_part.empty() ? c : c.substr(ns_part.size() + 1);
+                if (!leaf_part.empty() && tail.rfind(leaf_part, 0) != 0) continue;
+                if (std::find(stripped.begin(), stripped.end(), tail) == stripped.end())
+                    stripped.push_back(tail);
             }
+            cl.set_completions(stripped);
+            return;
         }
         // Default: top-level command names (including aliases).
         std::vector<std::string> names;
@@ -745,6 +744,7 @@ void Tui::run() {
                 auto now = std::chrono::steady_clock::now();
                 if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
                     last_status_tick_ = now;
+                    advance_tool_spinners();
                     tick_clock();
                 }
             }

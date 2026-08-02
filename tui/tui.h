@@ -5,6 +5,7 @@
 #include <agent.h>
 #include <agent/learn_commands.h>
 #include <agent/mcp_config.h>
+#include <agent/model_probe.h>
 #include <agent/plugin.h>
 
 #include "widgets.h"
@@ -105,6 +106,21 @@ private:
     // e.g. bash), surfaced on the status bar so a synchronous command that is
     // not a JobService background job is still visible while it runs.
     std::string running_tool_;
+
+    // One advertised tool call = one pending scrollback line. All advertised
+    // calls animate together (the spinner glyph is swapped in-place each
+    // 150ms tick); each line's icon flips to success/failure when its result
+    // lands. Scrollback-only — the agent's immutable context stays sealed.
+    struct PendingToolLine {
+        size_t index = std::string::npos;  // index into win().lines
+        std::string name;
+        std::string fingerprint;  // args dump — identity for result matching
+        int style = 0;            // 0 square corners (core), 1 round (bash)
+        std::string tail;         // " name args" after the spinner glyph
+        int frame = 0;
+    };
+    std::vector<PendingToolLine> pending_tools_;
+    void advance_tool_spinners();
     // A prompt the user typed (and submitted with Enter) while the agent was
     // busy; auto-sent once the agent returns to idle so typing never feels
     // blocked.
@@ -213,11 +229,7 @@ private:
     void register_builtin_actions();
     void cmd_set_detection_toggle(const std::string& key, const std::string& val);
     void cmd_model_set(const std::string& arg);
-    void cmd_model_list();
-    void cmd_model_probe();
-    void cmd_model_panel();
-    void cmd_provider_list();
-    void cmd_provider_delete(const std::string& name);
+    void cmd_provider_list();    void cmd_provider_delete(const std::string& name);
     void cmd_provider_test(const std::string& name);
     void cmd_session_load(const std::string& id);
     void cmd_session_delete(const std::string& id);
@@ -245,9 +257,13 @@ private:
     void cmd_skills_uninstall(const std::string& name);
     void cmd_get_config();
     void cmd_get_model();
+    void cmd_get_model_list();
+    void cmd_get_model_context();
     void cmd_get_provider();
     void cmd_get_toolfold();
     void cmd_get_policy(const std::string& arg);
+    void cmd_get_policy_rule(const std::string& arg);
+    void cmd_set_policy_rule(const std::string& arg);
     void cmd_get_policy_mode();
     void cmd_get_policy_approval();
     void cmd_get_policy_timeout();
@@ -276,7 +292,6 @@ private:
     void cmd_plugin_install(const std::string& source);
     void cmd_plugin_uninstall(const std::string& id);
     std::string usage(const tui::Command& c) const;
-    void show_command_frame(const tui::Command& c);
     void cmd_help(const std::string& arg);
     void cmd_window(const std::string& arg);
     void cmd_job(const std::string& rest);
@@ -290,8 +305,22 @@ private:
     void refresh_completions();
     void cmd_prompt(const std::string& rest);
     void cmd_prompt_list();
-    void cmd_model(const std::string& arg);
     void cmd_provider(const std::string& arg);
+    // Model picker data: cached /v1/models list with context info, refreshed
+    // at startup and by /get model list. refresh_model_list() merges model
+    // ids as value leaves under set.model (each with a generated action) so
+    // the drawer, Tab completion, and dispatch all flow through the tree.
+    std::vector<agent::ModelInfo> model_info_;
+    void refresh_model_list();
+    // Permission feed: tool names become value leaves under get/set
+    // policy.rule (level + usage as help). Refreshed at startup and after
+    // every rule mutation so the dangerous-command curation stays in sync.
+    void refresh_policy_feed();
+    void apply_policy_rule(const std::string& name, const std::string& lvl);
+    void show_policy_rule(const std::string& name);
+    // Job feed: job ids become value leaves under job.kill / job.read.
+    // Refreshed at startup and after every start/kill.
+    void refresh_job_feed();
     void job_ls();
     void job_kill(const std::string& id);
     void job_read(const std::string& id);

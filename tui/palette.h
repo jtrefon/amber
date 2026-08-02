@@ -9,7 +9,9 @@
 namespace tui::palette {
 
 // ---------------------------------------------------------------------------
-// Legacy flat Command (used by draw_drawer, cmd_help, handle_slash)
+// Legacy flat Command (used by draw_drawer, cmd_help, handle_slash).
+// Completion and dispatch are JSON-tree driven; this struct only carries
+// display metadata (name, aliases, usage, help).
 // ---------------------------------------------------------------------------
 
 struct Command {
@@ -18,9 +20,6 @@ struct Command {
     std::vector<std::string> aliases;
     std::string args;
     std::string help;
-    std::function<void(const std::string& arg)> run = nullptr;
-    std::function<std::vector<std::string>(const std::string&)> complete_arg = nullptr;
-    std::function<std::string()> current_value = nullptr;
 };
 
 // Text before the first space (command name without '/').

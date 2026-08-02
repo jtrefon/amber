@@ -1,117 +1,487 @@
 [
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/agent.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/agent.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/agent.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/agent.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/config.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/config.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/agent_helpers.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/agent_helpers.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/llm.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/llm.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/archive_util.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/archive_util.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/prompt.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/prompt.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/bootstrap.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/bootstrap.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/registry.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/registry.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/compressor.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/compressor.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/session.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/session.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/compressor_apply.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/compressor_apply.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/statusbar.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/statusbar.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/compressor_parser.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/compressor_parser.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/tools_default.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/tools_default.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/compressor_request.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/compressor_request.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c lib/workspace.cpp",
-    "file": "/home/jack/Projects/cpp-agent/lib/workspace.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/compressor_scanner.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/compressor_scanner.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c src/main.cpp",
-    "file": "/home/jack/Projects/cpp-agent/src/main.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/config.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/config.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c src/smoketest.cpp",
-    "file": "/home/jack/Projects/cpp-agent/src/smoketest.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/conversation_log.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/conversation_log.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tools/bash_tool.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tools/bash_tool.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/data_path.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/data_path.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tools/read_tool.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tools/read_tool.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/debug_log.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/debug_log.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tools/search_tool.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tools/search_tool.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/dispatch.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/dispatch.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tools/write_tool.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tools/write_tool.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/environment.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/environment.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tools/search/grep_backend.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tools/search/grep_backend.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/http_transport.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/http_transport.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tools/search/semantic_backend.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tools/search/semantic_backend.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/job.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/job.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tui/palette.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tui/palette.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/learn_commands.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/learn_commands.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tui/textutil.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tui/textutil.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/llm.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/llm.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tui/tui.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tui/tui.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/mcp_client.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/mcp_client.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tui/welcome.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tui/welcome.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/mcp_commands.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/mcp_commands.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tui/widgets.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tui/widgets.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/mcp_config.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/mcp_config.cpp"
   },
   {
     "directory": "/home/jack/Projects/cpp-agent",
-    "command": "g++ -std=c++17 -x c++ -Wall -Iinclude -Isrc -Itools -I. -c tests/run_tests.cpp",
-    "file": "/home/jack/Projects/cpp-agent/tests/run_tests.cpp"
+    "file": "/home/jack/Projects/cpp-agent/lib/mcp_jsonrpc.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/mcp_jsonrpc.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/mcp_tools.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/mcp_tools.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/mcp_transport_http.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/mcp_transport_http.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/mcp_transport_stdio.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/mcp_transport_stdio.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/memory_retriever.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/memory_retriever.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/memory_store.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/memory_store.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/model_probe.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/model_probe.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/plugin.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/plugin.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/policy.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/policy.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/process.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/process.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/prompt.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/prompt.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/registry.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/registry.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/request_builder.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/request_builder.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/session.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/session.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/skill_catalog.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/skill_catalog.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/skill_commands.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/skill_commands.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/skill_file.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/skill_file.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/skill_install.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/skill_install.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/sse_parser.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/sse_parser.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/statusbar.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/statusbar.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/tool_call_parser.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/tool_call_parser.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/tool_recovery.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/tool_recovery.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/tools_default.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/tools_default.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/lib/workspace.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/lib/workspace.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/src/main.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/src/main.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/src/smoketest.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/src/smoketest.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/agent_loop_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/agent_loop_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/command_line_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/command_line_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/completions_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/completions_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/e2e_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/e2e_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/learn_commands_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/learn_commands_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/mcp_client_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/mcp_client_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/mcp_config_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/mcp_config_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/mcp_tools_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/mcp_tools_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/mcp_transport_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/mcp_transport_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/plugin_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/plugin_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/run_tests.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/run_tests.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/skill_catalog_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/skill_catalog_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/skill_file_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/skill_file_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tests/tui_tests.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tests/tui_tests.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/third_party/md4c/md4c.c",
+    "command": "cc -DMD4C_USE_UTF8 -I/home/jack/Projects/cpp-agent/third_party/md4c -c /home/jack/Projects/cpp-agent/third_party/md4c/md4c.c"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/bash_tool.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/bash_tool.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/plugins/cdp/main.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -I/home/jack/Projects/cpp-agent/tools/plugins/cdp -c /home/jack/Projects/cpp-agent/tools/plugins/cdp/main.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/plugins/cdp/ws_client.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -I/home/jack/Projects/cpp-agent/tools/plugins/cdp -c /home/jack/Projects/cpp-agent/tools/plugins/cdp/ws_client.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/plugins/cdp/ws_test.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -I/home/jack/Projects/cpp-agent/tools/plugins/cdp -c /home/jack/Projects/cpp-agent/tools/plugins/cdp/ws_test.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/plugins/sysinfo/main.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -I/home/jack/Projects/cpp-agent/tools/plugins/cdp -c /home/jack/Projects/cpp-agent/tools/plugins/sysinfo/main.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/process_tool.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/process_tool.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/read_tool.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/read_tool.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/search/grep_backend.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/search/grep_backend.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/search/semantic_backend.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/search/semantic_backend.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/search/semantic_index.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/search/semantic_index.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/search_tool.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/search_tool.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/skill_tools.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/skill_tools.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tools/write_tool.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tools/write_tool.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/canvas.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/canvas.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/command_line.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/command_line.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/confirm_panel.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/confirm_panel.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/dialog.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/dialog.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/form_edit.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/form_edit.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/info_dialog.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/info_dialog.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/list_panel.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/list_panel.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/markdown.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/markdown.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/markdown_md4c.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/markdown_md4c.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/menu_select.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/menu_select.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/palette.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/palette.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/panel.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/panel.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/rich.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/rich.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/setting_registry.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/setting_registry.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/textutil.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/textutil.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/tui.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/tui.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/tui_input.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/tui_input.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/tui_main.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/tui_main.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/tui_render.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/tui_render.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/tui_session.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/tui_session.cpp"
+  },
+  {
+    "directory": "/home/jack/Projects/cpp-agent",
+    "file": "/home/jack/Projects/cpp-agent/tui/welcome.cpp",
+    "command": "c++ -I/home/jack/Projects/cpp-agent/include -I/home/jack/Projects/cpp-agent/src -I/home/jack/Projects/cpp-agent/tools -I/home/jack/Projects/cpp-agent -I/usr/include/x86_64-linux-gnu -isystem /usr/include/mit-krb5 -I/usr/include/p11-kit-1 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -std=c++17 -Wall -Wextra -c /home/jack/Projects/cpp-agent/tui/welcome.cpp"
   }
 ]

@@ -417,6 +417,32 @@ void Tui::tick_clock() {
     wnoutrefresh(stdscr);
 }
 
+void Tui::advance_tool_spinners() {
+    if (pending_tools_.empty()) return;
+    bool changed = false;
+    for (auto& pt : pending_tools_) {
+        if (pt.index >= win().lines.size()) {
+            pt.index = std::string::npos;
+            continue;
+        }
+        ++pt.frame;
+        auto& runs = win().lines[pt.index].runs;
+        if (runs.empty()) continue;
+        // The body run is the LAST run (runs[0] is the timestamp).
+        const char* frame = pt.style ? text::glyph::spinner_round(pt.frame)
+                                     : text::glyph::spinner_square(pt.frame);
+        runs.back().text = std::string(frame) + pt.tail;
+        changed = true;
+    }
+    pending_tools_.erase(
+        std::remove_if(pending_tools_.begin(), pending_tools_.end(),
+                       [](const PendingToolLine& pt) {
+                           return pt.index == std::string::npos;
+                       }),
+        pending_tools_.end());
+    if (changed) draw();
+}
+
 void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
     dirty_ = true;
     draw_drawer(s);
@@ -589,37 +615,25 @@ void Tui::draw_drawer(const std::string& input) {
             partial = ns_path.substr(last_sp + 1);
             ns_path.resize(last_sp);
         }
-        // Convert space-separated to dotted: "get policy" → "get.policy"
-        std::string dotted;
-        size_t p = 0;
-        while (p < ns_path.size()) {
-            size_t spc = ns_path.find(' ', p);
-            if (spc == std::string::npos) { dotted += ns_path.substr(p); break; }
-            if (!dotted.empty()) dotted += ".";
-            dotted += ns_path.substr(p, spc - p);
-            p = spc + 1;
-        }
-        // Strip command prefix (get/set) for registry lookup.
-        // The JSON loader strips the first display-path component, so
-        // "get.policy" is stored as "policy"; "get.detection.loop" as
-        // "detection.loop".
+        // Convert space-separated to the full dotted path: "get policy" →
+        // "get.policy". Namespaces are indexed by their full display path.
         std::string lookup_key;
-        size_t first_dot = dotted.find('.');
-        if (first_dot != std::string::npos)
-            lookup_key = dotted.substr(first_dot + 1);
-        else
-            lookup_key = dotted;
-        // Children stored bare only when lookup_key matches the top-level
-        // command name (e.g. "get" → children stored as "policy", not
-        // "get.policy"). Nested namespaces include the full dotted path.
-        bool is_top_cmd = (lookup_key == token);
+        {
+            size_t p = 0;
+            while (p < ns_path.size()) {
+                size_t spc = ns_path.find(' ', p);
+                if (spc == std::string::npos) { lookup_key += ns_path.substr(p); break; }
+                if (!lookup_key.empty()) lookup_key += ".";
+                lookup_key += ns_path.substr(p, spc - p);
+                p = spc + 1;
+            }
+        }
         auto kids = settings_.children_of(lookup_key);
         if (!kids.empty()) {
             // If partial exactly matches a child that has its own children,
             // descend into that child's namespace.
             if (!partial.empty()) {
-                std::string sub_key = is_top_cmd ? partial
-                                                 : lookup_key + "." + partial;
+                std::string sub_key = lookup_key + "." + partial;
                 auto sub = settings_.children_of(sub_key);
                 if (!sub.empty()) {
                     for (const auto& sk : sub) {
@@ -642,11 +656,9 @@ void Tui::draw_drawer(const std::string& input) {
             }
             for (const auto& k : kids) {
                 if (!partial.empty() && k.rfind(partial, 0) != 0) continue;
-                std::string full_key = is_top_cmd ? k : lookup_key;
-                if (!is_top_cmd) {
-                    full_key += ".";
-                    full_key += k;
-                }
+                std::string full_key = lookup_key;
+                full_key += ".";
+                full_key += k;
                 std::string h = settings_.help_for(full_key);
                 std::string line = "  ";
                 line += k;
@@ -662,11 +674,13 @@ void Tui::draw_drawer(const std::string& input) {
                 rows.emplace_back("  (no matching option  -  Esc to cancel)");
             goto render;
         }
-        // Check if we're at a non-namespace command with args (show usage).
+        // Check if we're at a non-namespace command with args (usage row).
         std::vector<const Command*> cmds = filter_commands(token);
         const Command* c = cmds.empty() ? nullptr : cmds.front();
-        if (c) rows.push_back("  " + usage(*c) + "   " + c->help);
-        else rows.emplace_back("  (no such command)");
+        if (c)
+            rows.push_back("  " + usage(*c) + "   " + c->help);
+        else
+            rows.emplace_back("  (no such command)");
         goto render;
     }
 
@@ -675,13 +689,10 @@ void Tui::draw_drawer(const std::string& input) {
     {
         auto kids = settings_.children_of(token);
         if (!kids.empty()) {
-            bool is_top = (token == "get" || token == "set");
             for (const auto& k : kids) {
-                std::string full_key = is_top ? k : token;
-                if (!is_top) {
-                    full_key += ".";
-                    full_key += k;
-                }
+                std::string full_key = token;
+                full_key += ".";
+                full_key += k;
                 std::string h = settings_.help_for(full_key);
                 std::string line = "  ";
                 line += k;
