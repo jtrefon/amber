@@ -31,6 +31,23 @@ std::string read_until(const std::string& s, size_t& i,
     return content;
 }
 
+// Read an attribute-style tag "<tag=VALUE>" at or after `i`. On success
+// advances `i` past the ">" and returns VALUE (trimmed). Returns empty
+// without advancing when no such tag is found.
+std::string read_attr_tag(const std::string& s, size_t& i,
+                          const std::string& tag) {
+    auto pos = s.find("<" + tag + "=", i);
+    if (pos == std::string::npos) return "";
+    auto value_start = pos + tag.size() + 2;  // past "="
+    auto end = s.find('>', value_start);
+    if (end == std::string::npos) return "";
+    std::string v = s.substr(value_start, end - value_start);
+    while (!v.empty() && (v.back() == ' ' || v.back() == '\t'))
+        v.pop_back();
+    i = end + 1;
+    return v;
+}
+
 // Attempt to parse a tool call from a block that looks like:
 //   {"name":"X","arguments":{"key":"val"}}
 //   or just the inner content of a <tool_call> block.
@@ -133,6 +150,58 @@ json extract_tool_calls_from_text(const std::string& text) {
                 fn["arguments"] = rest;
             result.push_back(std::move(tc));
             found_any = true;
+        }
+    }
+
+    // Pattern 3: attribute-style tool calls (ornith template):
+    //   <tool_call>
+    //   <function=bash>
+    //   <parameter=command>
+    //   find . -type f
+    //   </parameter>
+    //   </function>
+    //   </tool_call>
+    // The parameter VALUE is the raw content until </parameter>; multiple
+    // <parameter> blocks merge into one arguments object. Unclosed blocks
+    // (the model cut off mid-call) still parse.
+    if (!found_any) {
+        i = 0;
+        while (i < text.size()) {
+            size_t start = text.find("<tool_call>", i);
+            if (start == std::string::npos) break;
+            i = start + 11;  // past "<tool_call>"
+            size_t ni = i;
+            std::string fname = read_attr_tag(text, ni, "function");
+            if (fname.empty()) continue;  // not the attribute style
+            // Parameters belong to THIS call: never search past </function>.
+            size_t fn_end = text.find("</function>", ni);
+            if (fn_end == std::string::npos) fn_end = text.size();
+            json args = json::object();
+            size_t pi = ni;
+            size_t param_pos = text.find("<parameter=", pi);
+            while (param_pos != std::string::npos && param_pos < fn_end) {
+                pi = param_pos;
+                std::string key = read_attr_tag(text, pi, "parameter");
+                std::string value = read_until(text, pi, "parameter");
+                while (!value.empty() &&
+                       (value.back() == ' ' || value.back() == '\n' ||
+                        value.back() == '\r' || value.back() == '\t'))
+                    value.pop_back();
+                size_t lead = value.find_first_not_of(" \n\r\t");
+                if (lead != std::string::npos)
+                    value = value.substr(lead);
+                else
+                    value.clear();
+                args[key] = value;
+                param_pos = text.find("<parameter=", pi);
+            }
+            json tc;
+            tc["type"] = "function";
+            tc["function"] = {{"name", fname}, {"arguments", args}};
+            result.push_back(std::move(tc));
+            found_any = true;
+            size_t close = text.find("</tool_call>", pi);
+            i = (close == std::string::npos) ? text.size() : close + 12;
         }
     }
 

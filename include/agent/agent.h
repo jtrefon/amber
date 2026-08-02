@@ -224,6 +224,12 @@ private:
     // Push a generated reply into context, log, and fire context event.
     void push_reply(Message reply);
 
+    // Extract text-embedded XML tool calls (attribute or name/arguments
+    // style) from a reply's content into the structured tool_calls field.
+    // Clears content when calls were found. Used by push_reply and the
+    // confirmation probe so both paths execute template-style tool calls.
+    bool extract_embedded_tool_calls(Message& reply) const;
+
     // Finalize a turn: fallback on empty, log, update state.
     std::string finish_turn(std::string final_reply);
 

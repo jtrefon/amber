@@ -494,7 +494,6 @@ TEST(agent_loop_attribute_xml_tool_call_executes) {
     agent::ToolRegistry reg;
     reg.register_tool(agent::make_read_tool());
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
-    agent_test::FakeLLMClient* raw = fake.get();
     agent_test::FakeReply r;
     r.content =
         "Let me check.\n"

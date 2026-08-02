@@ -309,28 +309,31 @@ const AgentHooks& Agent::silent_hooks() const {
 }
 
 void Agent::push_reply(Message reply) {
-    // Extract text-embedded tool calls into the structured field BEFORE push.
-    // This was previously done in-place on history_.back() after push, which
-    // violated immutability. Now we modify the reply before sealing it.
-    if ((reply.tool_calls.is_null() || reply.tool_calls.empty()) &&
-        !reply.content.empty()) {
-        auto extracted = extract_tool_calls_from_text(reply.content);
-        if (!extracted.is_null() && !extracted.empty()) {
-            reply.tool_calls = std::move(extracted);
-            reply.reasoning.clear();
-            reply.content.clear();
-            if (hooks_.on_tool_call && !reply.tool_calls.is_null()) {
-                for (const auto& tc : reply.tool_calls) {
-                    const auto& fn = tc.value("function", json::object());
-                    hooks_.on_tool_call(fn.value("name", ""), fn.value("arguments", json::object()));
-                }
-            }
-        }
-    }
+    // The caller extracts text-embedded tool calls before the dispatch
+    // snapshot; here the (already structured) reply is sealed.
     if (!reply.reasoning.empty())
         log_.event("reasoning", {{"content", reply.reasoning}});
     context_.push(std::move(reply));
     emit_context_event(context_events_, context_);
+}
+
+bool Agent::extract_embedded_tool_calls(Message& reply) const {
+    if (!(reply.tool_calls.is_null() || reply.tool_calls.empty()) ||
+        reply.content.empty())
+        return false;
+    auto extracted = extract_tool_calls_from_text(reply.content);
+    if (extracted.is_null() || extracted.empty()) return false;
+    reply.tool_calls = std::move(extracted);
+    reply.reasoning.clear();
+    reply.content.clear();
+    if (hooks_.on_tool_call) {
+        for (const auto& tc : reply.tool_calls) {
+            const auto& fn = tc.value("function", json::object());
+            hooks_.on_tool_call(fn.value("name", ""),
+                                fn.value("arguments", json::object()));
+        }
+    }
+    return true;
 }
 
 CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
@@ -447,6 +450,10 @@ std::string Agent::confirm_turn(const std::string& candidate,
 
     Message check = chat_with_recovery(tools, "probe", /*display=*/false,
                                        /*strict=*/true);
+    // Template-style tool calls arrive embedded in the content (e.g. ornith's
+    // <tool_call><function=...><parameter=...>) — extract them so the probe
+    // dispatches them like the main loop does.
+    extract_embedded_tool_calls(check);
     json check_tool_calls = check.tool_calls;
     std::string check_content = check.content;
     context_.push(std::move(check));
@@ -673,6 +680,10 @@ std::string Agent::run(const std::string& user_prompt) {
                                            /*strict=*/false);
 
         // Extract tool_calls and content before push_reply (which moves reply).
+        // Template-style tool calls arrive embedded in the content (e.g.
+        // ornith's <tool_call><function=...><parameter=...>) — extract them
+        // BEFORE the dispatch snapshot so they actually execute.
+        extract_embedded_tool_calls(reply);
         json tc = reply.tool_calls;
         std::string content = reply.content;
         push_reply(std::move(reply));
