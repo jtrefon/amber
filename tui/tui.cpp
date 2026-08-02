@@ -625,6 +625,7 @@ void Tui::run() {
     git_refresh();
     refresh_model_list();
     refresh_policy_feed();
+    refresh_job_feed();
     draw();
     draw_input("");
     flush();
@@ -652,65 +653,43 @@ void Tui::run() {
             std::string cmd_name = input.substr(1, sp - 1);
             std::string partial = input.substr(sp + 1);
 
-            // 1. SettingRegistry for /get and /set (full-path namespace keys:
-            // "set policy mo" → ns "set.policy", leaf "mo").
-            if (cmd_name == "get" || cmd_name == "set") {
-                // Build the full dotted path: "set.policy.mo".
-                std::string dotted = cmd_name;
-                if (partial.empty()) {
+            // Single path, tree-driven: build the full dotted path
+            // ("set policy mo" → "set.policy.mo", "job kill 4" → "job.kill.4")
+            // and complete the direct children of the namespace. Dynamic
+            // values (models, policy rules, job ids) are feed leaves, so
+            // every command gets the same completion behavior.
+            std::string dotted = cmd_name;
+            if (partial.empty()) {
+                dotted += ".";
+            } else {
+                size_t p = 0;
+                while (p < partial.size()) {
+                    size_t spc = partial.find(' ', p);
                     dotted += ".";
-                } else {
-                    size_t p = 0;
-                    while (p < partial.size()) {
-                        size_t spc = partial.find(' ', p);
-                        dotted += ".";
-                        if (spc == std::string::npos) { dotted += partial.substr(p); break; }
-                        dotted += partial.substr(p, spc - p);
-                        p = spc + 1;
-                    }
+                    if (spc == std::string::npos) { dotted += partial.substr(p); break; }
+                    dotted += partial.substr(p, spc - p);
+                    p = spc + 1;
                 }
-                // Strip the last namespace level so we complete leaf names only.
-                std::string ns_part, leaf_part;
-                size_t last_dot = dotted.rfind('.');
-                if (last_dot != std::string::npos) {
-                    ns_part = dotted.substr(0, last_dot);
-                    leaf_part = dotted.substr(last_dot + 1);
-                } else {
-                    leaf_part = dotted;
-                }
-                auto completions = settings_.complete(ns_part);
-                std::vector<std::string> stripped;
-                for (const auto& c : completions) {
-                    std::string tail = ns_part.empty() ? c : c.substr(ns_part.size() + 1);
-                    if (!leaf_part.empty() && tail.rfind(leaf_part, 0) != 0) continue;
-                    if (std::find(stripped.begin(), stripped.end(), tail) == stripped.end())
-                        stripped.push_back(tail);
-                }
-                cl.set_completions(stripped);
-                return;
             }
-
-            // 2. Subcommands from JSON (system, files, provider, model, session, job, window).
-            auto subs = settings_.subcommands_for(cmd_name);
-            if (!subs.empty()) {
-                if (partial.empty()) {
-                    cl.set_completions(subs);
-                } else {
-                    std::vector<std::string> filtered;
-                    for (const auto& s : subs)
-                        if (s.rfind(partial, 0) == 0)
-                            filtered.push_back(s);
-                    cl.set_completions(filtered);
-                }
-                return;
+            // Strip the last namespace level so we complete leaf names only.
+            std::string ns_part, leaf_part;
+            size_t last_dot = dotted.rfind('.');
+            if (last_dot != std::string::npos) {
+                ns_part = dotted.substr(0, last_dot);
+                leaf_part = dotted.substr(last_dot + 1);
+            } else {
+                leaf_part = dotted;
             }
-
-            // 3. Legacy complete_arg lambda (fallback).
-            const Command* cmd = find_command(cmd_name);
-            if (cmd && cmd->complete_arg) {
-                cl.set_completions(cmd->complete_arg(partial));
-                return;
+            auto completions = settings_.complete(ns_part);
+            std::vector<std::string> stripped;
+            for (const auto& c : completions) {
+                std::string tail = ns_part.empty() ? c : c.substr(ns_part.size() + 1);
+                if (!leaf_part.empty() && tail.rfind(leaf_part, 0) != 0) continue;
+                if (std::find(stripped.begin(), stripped.end(), tail) == stripped.end())
+                    stripped.push_back(tail);
             }
+            cl.set_completions(stripped);
+            return;
         }
         // Default: top-level command names (including aliases).
         std::vector<std::string> names;

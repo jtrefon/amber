@@ -277,7 +277,6 @@ private:
     void cmd_plugin_install(const std::string& source);
     void cmd_plugin_uninstall(const std::string& id);
     std::string usage(const tui::Command& c) const;
-    void show_command_frame(const tui::Command& c);
     void cmd_help(const std::string& arg);
     void cmd_window(const std::string& arg);
     void cmd_job(const std::string& rest);
@@ -304,6 +303,9 @@ private:
     void refresh_policy_feed();
     void apply_policy_rule(const std::string& name, const std::string& lvl);
     void show_policy_rule(const std::string& name);
+    // Job feed: job ids become value leaves under job.kill / job.read.
+    // Refreshed at startup and after every start/kill.
+    void refresh_job_feed();
     void job_ls();
     void job_kill(const std::string& id);
     void job_read(const std::string& id);

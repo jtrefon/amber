@@ -933,55 +933,13 @@ void Tui::build_commands() {
         {"stop", "core.stop", {"cancel", "kill"}, "",
          "terminate the current tool and agent loop"},
         {"set", "core.config.set", {}, "<option> <value>",
-         "set runtime options: detection, display, toolfold, policy (mode|tool <name> <level>|timeout <N>), compression, provider, model, think",
-         nullptr,
-         nullptr,
-         [this]() -> std::string {
-             return "detection " + std::string(cfg_.detection_loop ? "on" : "off") +
-                    "  display " + (win().markdown_on ? "on" : "off") +
-                    "  toolfold " + (tool_fold_ == ToolFold::Always ? "always" :
-                                    toolfold_name(tool_fold_)) +
-                    "  policy " + (cfg_.mode == agent::AgentMode::Read ? "read" :
-                                   mode_name(cfg_.mode)) +
-                    "  provider " + cfg_.provider_name +
-                    "  model " + cfg_.model +
-                    "  think " + cfg_.thinking;
-         }},
+         "set runtime options: detection, display, toolfold, policy (mode|tool <name> <level>|timeout <N>), compression, provider, model, think"},
         {"get", "core.config.get", {}, "<option>",
          "show current setting: config, model, provider, toolfold, policy (mode|timeout|<tool>), display, compression, detection"},
         {"compress", "core.compress", {"compact"}, "",
          "compress conversation history to free context space"},
-                {"job", "core.job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
-         "manage background processes (servers, builds) started by the agent",
-         nullptr,
-         [this](const std::string& partial) {
-             std::string sub, rest;
-             size_t sp = partial.find(' ');
-             if (sp == std::string::npos) { sub = partial; rest.clear(); }
-             else { sub = partial.substr(0, sp); rest = partial.substr(sp + 1); }
-             if (sub.empty())
-                 return std::vector<std::string>{"ls", "kill", "read", "start"};
-             if (sub == "kill") {
-                 std::vector<std::string> out;
-                 for (const auto& j : jobs_.list())
-                     if ((j.state == agent::JobState::Running ||
-                          j.state == agent::JobState::Starting) &&
-                         (rest.empty() || j.id.rfind(rest, 0) == 0))
-                         out.push_back("kill " + j.id);
-                 return out;
-             }
-             if (sub == "read") {
-                 std::vector<std::string> out;
-                 for (const auto& j : jobs_.list())
-                     if (rest.empty() || j.id.rfind(rest, 0) == 0)
-                         out.push_back("read " + j.id);
-                 return out;
-             }
-             return std::vector<std::string>{};
-         },
-         [this]() -> std::string {
-             return std::to_string(jobs_.running_count()) + " running";
-         }},
+        {"job", "core.job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
+         "manage background processes (servers, builds) started by the agent"},
 {"save", "core.session.save", {}, "",
          "persist the current conversation"},
         {"sessions", "core.session.list", {"load", "open"}, "",
@@ -1390,15 +1348,6 @@ bool Tui::handle_slash(const std::string& line) {
         }
         return true;
     }
-    // No argument but the command expects a fixed option: show the current
-    // value frame (BitchX-style), as before.
-    if (arg.empty()) {
-        if (const Command* c = find_command(tokens[0]);
-            c && c->complete_arg && !c->args.empty()) {
-            show_command_frame(*c);
-            return true;
-        }
-    }
     it->second(arg);
     return true;
 }
@@ -1406,27 +1355,6 @@ bool Tui::handle_slash(const std::string& line) {
 
 std::string Tui::usage(const Command& c) const {
     return palette::usage(c);
-}
-
-void Tui::show_command_frame(const Command& c) {
-    // Invoked with no argument: report the current setting neutrally (never a
-    // modal dialog, so it can't stall the agent worker). Providing a value is a
-    // separate path that confirms the change; this is just a status read-out.
-    std::string cur = c.current_value ? c.current_value() : "";
-    if (!cur.empty())
-        append_line(P_STATUS,
-                    "/" + c.name + " is currently: " + cur);
-    else
-        append_line(P_STATUS, "/" + c.name + ": " + c.help);
-    if (c.complete_arg) {
-        auto opts = c.complete_arg("");
-        if (!opts.empty()) {
-            std::string line = "  choices:";
-            for (auto& o : opts) line += "  " + o;
-            append_line(P_STATUS, line);
-        }
-    }
-    draw();
 }
 
 void Tui::cmd_model_set(const std::string& arg) {
@@ -1886,10 +1814,33 @@ void Tui::job_ls() {
     for (const auto& j : jobs) append_line(P_STATUS, job_list_line(j));
 }
 
+void Tui::refresh_job_feed() {
+    // Job ids become value leaves under job.kill / job.read (state as help),
+    // so /job kill|read complete through the tree like every other branch.
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& j : jobs_.list()) {
+        std::string id = j.id;
+        nlohmann::json& kill_leaf =
+            subtree["job"]["children"]["kill"]["children"][id];
+        kill_leaf["action"] = "core.job.kill." + id;
+        kill_leaf["help"] = job_state_name(j.state);
+        nlohmann::json& read_leaf =
+            subtree["job"]["children"]["read"]["children"][id];
+        read_leaf["action"] = "core.job.read." + id;
+        read_leaf["help"] = job_state_name(j.state);
+        register_action("core.job.kill." + id,
+                        [this, id](const std::string&) { job_kill(id); });
+        register_action("core.job.read." + id,
+                        [this, id](const std::string&) { job_read(id); });
+    }
+    settings_.merge_completions_json(subtree);
+}
+
 void Tui::job_kill(const std::string& id) {
     if (id.empty()) { append_line(P_STATUS, "usage: /job kill <id>"); return; }
     bool ok = jobs_.stop(id);
     append_line(P_STATUS, ok ? ("killed " + id) : ("no such job: " + id));
+    refresh_job_feed();
     draw();
 }
 
@@ -1910,6 +1861,7 @@ void Tui::job_start(const std::string& cmd) {
     std::string id = jobs_.start(cmd, agent::Workspace::root());
     if (id.empty()) { append_line(P_STATUS, "failed to start: " + cmd); return; }
     append_line(P_STATUS, "started " + id + ": " + cmd);
+    refresh_job_feed();
     draw();
 }
 
@@ -2254,13 +2206,6 @@ void Tui::build_settings() {
     // Namespace root for /get policy (no setter — children handle values).
     add("policy", "Permission rules and approval settings", "", Setting::String, {}, 0, 0,
         []() -> std::string { return ""; }, nullptr);
-    // Simple display-only keys (read-only, for /get completion).
-    add("config", "Open the settings configuration screen", "", Setting::String, {}, 0, 0,
-        []() -> std::string { return ""; }, nullptr);
-    add("model", "Active model name", "", Setting::String, {}, 0, 0,
-        [this]() -> std::string { return cfg_.model + " (" + cfg_.provider_name + ")"; }, nullptr);
-    add("provider", "Active provider name and API base URL", "", Setting::String, {}, 0, 0,
-        [this]() -> std::string { return cfg_.provider_name + " (" + cfg_.api_base + ")"; }, nullptr);
 
     add("think", "Thinking mode", "<on|off|auto>", Setting::Choice,
         {"on","off","auto"}, 0, 0,
