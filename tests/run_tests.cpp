@@ -3098,6 +3098,18 @@ TEST(tool_schema_sanitizer) {
     ASSERT(s["properties"]["bare"]["type"] == "object");
 }
 
+// The nlohmann {"required", {}} gotcha emits "required": null, which breaks
+// llama.cpp's grammar generator ("type must be array, but is null" 400).
+// Sanitizing must repair it before the request leaves the client.
+TEST(tool_schema_sanitizer_repairs_null_required) {
+    agent::json s = {{"type", "object"},
+                     {"properties", {{"name", {{"type", "string"}}}}},
+                     {"required", nullptr}};
+    agent::sanitize_tool_schema(s);
+    ASSERT(s["required"].is_array());
+    ASSERT_EQ(s["required"].size(), 0u);
+}
+
 // [TC] Attribute-style XML tool calls (ornith template):
 //   <tool_call>
 //   <function=bash>
