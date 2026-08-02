@@ -8,6 +8,7 @@
 #include "agent/dispatch.h"
 #include "agent/experience.h"
 #include "agent/environment.h"
+#include "../lib/http_transport.h"
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
@@ -655,6 +656,58 @@ TEST(probe_parse_models_malformed_is_not_ok) {
     ASSERT_FALSE(agent::LLMClient::parse_models("not json").ok);
     ASSERT_FALSE(agent::LLMClient::parse_models("{}").ok);
     ASSERT_FALSE(agent::LLMClient::parse_models(R"({"data":[]})").ok);
+}
+
+// The model LIST parser keeps per-model context info so the /set model drawer
+// can show "id (ctx N)" inline instead of bare ids.
+TEST(probe_parse_model_list_with_ctx) {
+    std::string body =
+        R"({"data":[{"id":"alpha","meta":{"n_ctx":8192,"n_ctx_train":32768}},)"
+        R"({"id":"beta"}]})";
+    auto models = agent::parse_model_list_info(body);
+    ASSERT_EQ(models.size(), 2u);
+    ASSERT_EQ(models[0].id, "alpha");
+    ASSERT_EQ(models[0].context, 8192);
+    ASSERT_EQ(models[0].context_train, 32768);
+    ASSERT_EQ(models[1].id, "beta");
+    ASSERT_EQ(models[1].context, 0);
+    ASSERT_EQ(models[1].context_train, 0);
+}
+
+TEST(probe_parse_model_list_malformed) {
+    ASSERT(agent::parse_model_list_info("not json").empty());
+    ASSERT(agent::parse_model_list_info("{}").empty());
+    ASSERT(agent::parse_model_list_info(R"({"data":[]})").empty());
+}
+
+TEST(probe_parse_model_list_ollama_shape) {
+    // Ollama-ish {"models":[{name, n_ctx}]} fallback shape, two entries.
+    std::string body =
+        R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192},)"
+        R"({"name":"qwen-7b"}]})";
+    auto models = agent::parse_model_list_info(body);
+    ASSERT_EQ(models.size(), 2u);
+    ASSERT_EQ(models[0].id, "llama-3.2-3b");
+    ASSERT_EQ(models[0].context, 8192);
+    ASSERT_EQ(models[1].id, "qwen-7b");
+}
+
+// llama.cpp "automatic parser generation" failures are a server/model problem
+// (the loaded chat template cannot be auto-parsed for tool calling). The error
+// message must say so instead of dumping the raw body.
+TEST(http_error_describes_parser_generation_failure) {
+    std::string body =
+        R"({"error":{"code":400,"message":"Unable to generate parser for this )"
+        R"(template. Automatic parser generation failed: [json.exception.)"
+        R"(type_error.302] type must be array, but is null","type":")"
+        R"(invalid_request_error"}})";
+    std::string msg = agent::describe_http_error(400, body);
+    ASSERT(msg.find("chat-template parser failure") != std::string::npos);
+    ASSERT(msg.find("reload the model") != std::string::npos);
+    // Unrelated 400s keep the plain message (no misleading hint).
+    std::string plain = agent::describe_http_error(400, R"({"error":"nope"})");
+    ASSERT(plain.find("chat-template") == std::string::npos);
+    ASSERT(plain.find("HTTP 400 from LLM server") != std::string::npos);
 }
 
 // The auto-detect merge policy: probe results fill only fields the user left on
