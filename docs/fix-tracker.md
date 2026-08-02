@@ -888,6 +888,12 @@ Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is deri
   a snapshot from construction. `Agent::set_model()` now rebuilds the client
   through an injectable `LLMClientFactory` (default: `HttpLLMClient`), and
   `cmd_model_set` propagates the switch to every window's agent.
+- Residual (2026-08-02): tool UI + read hardening. Fold semantics implemented
+  as specified (always = 2 lines; auto = single animated line that closes on
+  finish; never = always-closed single line), spinner animation (square for
+  core tools, round for bash), the two-line regression fixed (extraction no
+  longer double-fires on_tool_call), and `read` refuses binary files (NUL
+  sniff) with a hard line-based limit ceiling.
 
 ---
 
