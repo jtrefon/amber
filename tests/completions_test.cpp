@@ -63,11 +63,17 @@ TEST(test_namespace_children) {
     for (const auto& k : get_kids)
         if (k == "think") found_think = true;
     ASSERT(found_think);
-    auto policy_kids = reg.children_of("policy");
-    REQUIRE_NONEMPTY(policy_kids);
-    ASSERT_EQ(policy_kids.size(), 3u);
-    // JSON object keys are sorted alphabetically by nlohmann::json (std::map).
-    ASSERT_EQ(policy_kids.front(), "approval");
+    // Full-path namespaces: the set side is queried separately from get.
+    auto set_kids = reg.children_of("set.policy");
+    REQUIRE_NONEMPTY(set_kids);
+    ASSERT_EQ(set_kids.size(), 3u);
+    ASSERT_EQ(set_kids.front(), "approval");
+    auto get_kids2 = reg.children_of("get.policy");
+    REQUIRE_NONEMPTY(get_kids2);
+    ASSERT_EQ(get_kids2.size(), 3u);
+    // Dotted key resolution keeps /get <dotted> lookups working.
+    ASSERT(!reg.help_for("policy.mode").empty());
+    ASSERT(!reg.man_for("policy.mode").empty());
 }
 
 // ── Test: choices are loaded from JSON ─────────────────────────────
@@ -95,71 +101,67 @@ TEST(test_ranges_loaded) {
     ASSERT_EQ(hi, 1.0);
 }
 
-// ── Test: completions from registry ────────────────────────────────
+// ── Test: completions from registry (full-path namespace queries) ──
 
 TEST(test_completions_work) {
     tui::SettingRegistry reg;
-    reg.add({"detection.loop", "", "", tui::Setting::Choice, {"on","off","toggle"}});
-    reg.add({"detection.duplicate", "", "", tui::Setting::Choice, {"on","off","toggle"}});
-    reg.add({"compression.threshold", "", "", tui::Setting::Float, {}, 0.1, 1.0});
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
 
-    // Empty prefix → namespaces only (marked with trailing /)
+    // Empty prefix → top-level command keys only.
     auto all = reg.complete("");
-    bool has_detection = false, has_compression = false;
+    bool has_get = false, has_set = false;
     for (const auto& s : all) {
-        if (s == "detection") has_detection = true;
-        if (s == "compression") has_compression = true;
+        if (s == "get") has_get = true;
+        if (s == "set") has_set = true;
+        ASSERT(s.find('.') == std::string::npos);
     }
-    ASSERT(has_detection);
-    ASSERT(has_compression);
+    ASSERT(has_get);
+    ASSERT(has_set);
 
-    // "det" → detection only
-    auto det = reg.complete("det");
-    ASSERT_EQ(det.size(), 1u);
-    ASSERT_EQ(det.front(), "detection");
+    // "get" → its children paths.
+    auto get_kids = reg.complete("get");
+    bool has_model = false;
+    for (const auto& s : get_kids)
+        if (s == "get.model") has_model = true;
+    ASSERT(has_model);
 
-    // "detection." → loop duplicate
-    auto sub = reg.complete("detection.");
+    // "get.detection" → the two leaf paths.
+    auto sub = reg.complete("get.detection");
     ASSERT_EQ(sub.size(), 2u);
     bool has_loop = false, has_dup = false;
     for (const auto& s : sub) {
-        if (s == "loop") has_loop = true;
-        if (s == "duplicate") has_dup = true;
+        if (s == "get.detection.loop") has_loop = true;
+        if (s == "get.detection.duplicate") has_dup = true;
     }
     ASSERT(has_loop);
     ASSERT(has_dup);
 }
 
-// ── Test: JSON-only keys appear in completions (no build_settings entry) ─
+// ── Test: JSON-only keys appear in completions (no build_settings entry) ──
 
 TEST(test_json_only_key_in_completions) {
     tui::SettingRegistry reg;
-    // Add only ONE setting that's in build_settings.
-    reg.add({"detection.loop", "", "", tui::Setting::Choice, {"on","off","toggle"}});
-    // Load JSON — this adds keys like "provider", "config", "model" to key_help_.
     bool json_ok = reg.load_completions_json("completions.json");
     ASSERT(json_ok);
 
-    // "prov" should match "provider" from JSON even though it's not in settings_.
-    auto prov = reg.complete("prov");
-    bool found_provider = false;
-    for (const auto& k : prov)
-        if (k == "provider" || k == "provider/") found_provider = true;
+    // "provider", "model", "config" are get-namespace children from JSON.
+    auto get_kids = reg.complete("get");
+    bool found_provider = false, found_model = false, found_config = false;
+    for (const auto& k : get_kids) {
+        if (k == "get.provider") found_provider = true;
+        if (k == "get.model") found_model = true;
+        if (k == "get.config") found_config = true;
+    }
     ASSERT(found_provider);
-
-    // "mod" should match "model" from JSON.
-    auto mod = reg.complete("mod");
-    bool found_model = false;
-    for (const auto& k : mod)
-        if (k == "model" || k == "model/") found_model = true;
     ASSERT(found_model);
-
-    // "conf" should match "config" from JSON.
-    auto conf = reg.complete("conf");
-    bool found_config = false;
-    for (const auto& k : conf)
-        if (k == "config" || k == "config/") found_config = true;
     ASSERT(found_config);
+
+    // "model" is also a top-level command.
+    bool top_model = false;
+    for (const auto& k : reg.complete(""))
+        if (k == "model") top_model = true;
+    ASSERT(top_model);
 }
 
 // ── Test: missing JSON file ────────────────────────────────────────
@@ -170,73 +172,87 @@ TEST(test_missing_json_is_ok) {
     ASSERT(!ok);  // should return false, not crash
 }
 
-// ── 3-level deep completions ────────────────────────────────────────
+// ── 3-level deep completions (full-path namespace queries) ─────────
 
 TEST(test_complete_depth1_prefix) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("detec");
+    // "/get dete" → children of "get", filtered to the "detection" leaf.
+    auto r = reg.complete("get");
+    bool found = false;
+    for (const auto& k : r)
+        if (k == "get.detection") found = true;
     REQUIRE_NONEMPTY(r);
-    ASSERT_EQ(r.size(), 1u);
-    ASSERT_EQ(r.front(), "detection");
+    ASSERT(found);
 }
 
 TEST(test_complete_depth2_with_dot) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("detection.");
+    auto r = reg.complete("get.detection");
     REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 2u);
-    ASSERT_EQ(r.front(), "duplicate");
-    ASSERT_EQ(r[1], "loop");
+    ASSERT_EQ(r.front(), "get.detection.duplicate");
+    ASSERT_EQ(r[1], "get.detection.loop");
 }
 
 TEST(test_complete_depth2_prefix) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("detection.d");
+    // "/get detection.d" → children of "get.detection" filtered to "duplicate".
+    auto r = reg.complete("get.detection");
     REQUIRE_NONEMPTY(r);
-    ASSERT_EQ(r.size(), 1u);
-    ASSERT_EQ(r.front(), "duplicate");
+    bool found = false;
+    for (const auto& k : r)
+        if (k == "get.detection.duplicate") found = true;
+    ASSERT(found);
 }
 
 TEST(test_complete_depth2_policy) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("policy.");
+    // "/set policy" → children of "set.policy" (full-path: distinct from get).
+    auto r = reg.complete("set.policy");
     REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 3u);
-    ASSERT_EQ(r.front(), "approval");
-    ASSERT_EQ(r[1], "mode");
-    ASSERT_EQ(r[2], "timeout");
+    ASSERT_EQ(r.front(), "set.policy.approval");
+    ASSERT_EQ(r[1], "set.policy.mode");
+    ASSERT_EQ(r[2], "set.policy.timeout");
 }
 
 TEST(test_complete_depth1_compression_namespace) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("compression.");
+    auto r = reg.complete("get.compression");
     REQUIRE_NONEMPTY(r);
     ASSERT_EQ(r.size(), 2u);
-    ASSERT_EQ(r.front(), "min_turns");
-    ASSERT_EQ(r[1], "threshold");
+    ASSERT_EQ(r.front(), "get.compression.min_turns");
+    ASSERT_EQ(r[1], "get.compression.threshold");
 }
 
 TEST(test_complete_nonexistent_namespace) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("nonexistent.");
+    auto r = reg.complete("nonexistent");
     ASSERT(r.empty());
+    auto r2 = reg.complete("nonexistent.");
+    ASSERT(r2.empty());
 }
 
 TEST(test_complete_depth1_namespace_matches_at_top) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto r = reg.complete("comp");
-    REQUIRE_NONEMPTY(r);
-    // "compression" should appear as a top-level namespace match
+    // Top-level "compress" command is a root key...
+    auto top = reg.complete("");
+    bool found_compress = false;
+    for (const auto& s : top)
+        if (s == "compress") found_compress = true;
+    ASSERT(found_compress);
+    // ...and the compression namespace lives under get/set.
+    auto get_kids = reg.complete("get");
     bool found_compression = false;
-    for (const auto& s : r)
-        if (s == "compression") found_compression = true;
+    for (const auto& s : get_kids)
+        if (s == "get.compression") found_compression = true;
     ASSERT(found_compression);
 }
 
@@ -266,20 +282,20 @@ TEST(test_drawer_namespace_levels) {
         if (k == "policy") has_policy = true;
     ASSERT(has_policy);
 
-    // Level 3: /set policy <TAB> → children of "policy"
-    auto policy_kids = reg.children_of("policy");
+    // Level 3: /set policy <TAB> → children of "set.policy" (full path)
+    auto policy_kids = reg.children_of("set.policy");
     REQUIRE_NONEMPTY(policy_kids);
     ASSERT_EQ(policy_kids.size(), 3u);
     ASSERT_EQ(policy_kids.front(), "approval");
 
-    // Level 4: /set policy mode <TAB> → children of "policy.mode"
-    auto mode_kids = reg.children_of("policy.mode");
+    // Level 4: /set policy mode <TAB> → children of "set.policy.mode"
+    auto mode_kids = reg.children_of("set.policy.mode");
     ASSERT(mode_kids.empty());  // mode is a leaf node, no children
 
-    // Verify help text at each level
-    ASSERT(!reg.help_for("policy").empty());
-    ASSERT(!reg.help_for("policy.mode").empty());
-    ASSERT(!reg.help_for("policy.approval").empty());
+    // Verify help text at each level (full paths).
+    ASSERT(!reg.help_for("set.policy").empty());
+    ASSERT(!reg.help_for("set.policy.mode").empty());
+    ASSERT(!reg.help_for("set.policy.approval").empty());
 }
 
 // ── Test: /model is a pure switch command (no list|set|probe children) ──
@@ -309,13 +325,11 @@ TEST(test_full_path_namespaces_are_distinct) {
     ASSERT(ok);
 
     // A feed-style merge: set.model gains dynamic value children.
-    nlohmann::json subtree = {
-        {"set", {{"children",
-                  {{"model",
-                    {{"action", "core.config.set.model"},
-                     {"children",
-                      {{"m1", {{"action", "core.config.set.model.m1"},
-                               {"help", "ctx 8192"}}}}}}}}}}}};
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["set"]["children"]["model"]["action"] = "core.config.set.model";
+    subtree["set"]["children"]["model"]["children"]["m1"]["action"] =
+        "core.config.set.model.m1";
+    subtree["set"]["children"]["model"]["children"]["m1"]["help"] = "ctx 8192";
     reg.merge_completions_json(subtree);
 
     // The set side sees the merged leaves...
@@ -325,7 +339,7 @@ TEST(test_full_path_namespaces_are_distinct) {
     ASSERT(!reg.help_for("set.model.m1").empty());
     // ...while the get side of the same namespace stays untouched.
     ASSERT(reg.children_of("get.model").empty());
-    ASSERT(!reg.help_for("set.model").empty() || !reg.help_for("get.model").empty());
+    ASSERT(!reg.help_for("get.model").empty());
 }
 
 // ── Test: merge preserves static fields + children in the TREE (FIX-015 P1) ──
@@ -339,30 +353,30 @@ TEST(test_merge_preserves_static_tree_children) {
     ASSERT(ok);
 
     // Same shape mcp_completion_subtree() produces.
-    nlohmann::json subtree = {
-        {"mcp", {{"action", "core.mcp"},
-                 {"help", "Manage MCP servers."},
-                 {"man", "Live MCP tools appear under their server name."},
-                 {"children",
-                  {{"live_srv",
-                    {{"action", "mcp.live_srv"},
-                     {"children",
-                      {{"do_thing", {{"action", "mcp.live_srv.do_thing"},
-                                     {"help", "does the thing"}}}}}}}}}}}};
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["mcp"]["action"] = "core.mcp";
+    subtree["mcp"]["help"] = "Manage MCP servers.";
+    subtree["mcp"]["man"] = "Live MCP tools appear under their server name.";
+    subtree["mcp"]["children"]["live_srv"]["action"] = "mcp.live_srv";
+    subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["action"] =
+        "mcp.live_srv.do_thing";
+    subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["help"] =
+        "does the thing";
     reg.merge_completions_json(subtree);
 
     // Static children survive in the tree alongside the live branch.
-    const auto& tree = reg.command_tree();
-    ASSERT(tree.contains("commands"));
-    const auto& mcp = tree["commands"].at("mcp");
-    ASSERT_EQ(mcp.at("action").get<std::string>(), "core.mcp");
+    auto tree = reg.command_tree();  // mutable copy: operator[] never throws
+    const auto& mcp = tree["commands"]["mcp"];
+    ASSERT(mcp["action"] == "core.mcp");
     ASSERT(mcp.contains("children"));
-    ASSERT(mcp["children"].contains("list"));
-    ASSERT(mcp["children"].contains("live_srv"));
-    ASSERT(mcp["children"].at("live_srv")["children"].contains("do_thing"));
+    const auto& children = mcp["children"];
+    ASSERT(children.contains("list"));
+    ASSERT(children.contains("live_srv"));
+    ASSERT(children["live_srv"]["children"].contains("do_thing"));
 }
 
 int main() {
+    try {
     test_json_loads_all_commands();
     test_core_actions_have_help();
     test_choices_loaded();
@@ -383,6 +397,10 @@ int main() {
     test_model_command_is_leaf();
     test_full_path_namespaces_are_distinct();
     test_merge_preserves_static_tree_children();
+    } catch (const std::exception& e) {
+        std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
+        failed++;
+    }
 
     std::cout << (failed ? "FAILED" : "ALL PASSED")
               << " (" << failed << " failures)\n";

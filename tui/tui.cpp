@@ -622,6 +622,8 @@ void Tui::refresh_completions() {
 }
 
 void Tui::run() {
+    git_refresh();
+    refresh_model_list();
     draw();
     draw_input("");
     flush();
@@ -649,41 +651,39 @@ void Tui::run() {
             std::string cmd_name = input.substr(1, sp - 1);
             std::string partial = input.substr(sp + 1);
 
-            // 1. SettingRegistry for /get and /set (dotted key config).
+            // 1. SettingRegistry for /get and /set (full-path namespace keys:
+            // "set policy mo" → ns "set.policy", leaf "mo").
             if (cmd_name == "get" || cmd_name == "set") {
-                // Convert space-separated partial to dotted for registry lookup:
-                // "policy mode" → "policy.mode"
-                std::string dotted_partial;
-                size_t p = 0;
-                while (p < partial.size()) {
-                    size_t spc = partial.find(' ', p);
-                    if (spc == std::string::npos) { dotted_partial += partial.substr(p); break; }
-                    if (!dotted_partial.empty()) dotted_partial += ".";
-                    dotted_partial += partial.substr(p, spc - p);
-                    p = spc + 1;
+                // Build the full dotted path: "set.policy.mo".
+                std::string dotted = cmd_name;
+                if (partial.empty()) {
+                    dotted += ".";
+                } else {
+                    size_t p = 0;
+                    while (p < partial.size()) {
+                        size_t spc = partial.find(' ', p);
+                        dotted += ".";
+                        if (spc == std::string::npos) { dotted += partial.substr(p); break; }
+                        dotted += partial.substr(p, spc - p);
+                        p = spc + 1;
+                    }
                 }
                 // Strip the last namespace level so we complete leaf names only.
-                // e.g. "policy.mo" → ns="policy", leaf="mo" → we want completions for "policy"
                 std::string ns_part, leaf_part;
-                size_t last_dot = dotted_partial.rfind('.');
+                size_t last_dot = dotted.rfind('.');
                 if (last_dot != std::string::npos) {
-                    ns_part = dotted_partial.substr(0, last_dot);
-                    leaf_part = dotted_partial.substr(last_dot + 1);
+                    ns_part = dotted.substr(0, last_dot);
+                    leaf_part = dotted.substr(last_dot + 1);
                 } else {
-                    leaf_part = dotted_partial;
+                    leaf_part = dotted;
                 }
-                auto completions = settings_.complete(ns_part.empty() ? leaf_part : ns_part);
+                auto completions = settings_.complete(ns_part);
                 std::vector<std::string> stripped;
-                for (auto& c : completions) {
-                    // Only show keys that match the leaf_part prefix.
-                    if (!leaf_part.empty() && c.rfind(leaf_part, 0) != 0) continue;
-                    // Strip the namespace prefix.
-                    if (!ns_part.empty()) {
-                        if (c.rfind(ns_part + ".", 0) == 0)
-                            stripped.push_back(c.substr(ns_part.size() + 1));
-                    } else {
-                        stripped.push_back(c);
-                    }
+                for (const auto& c : completions) {
+                    std::string tail = ns_part.empty() ? c : c.substr(ns_part.size() + 1);
+                    if (!leaf_part.empty() && tail.rfind(leaf_part, 0) != 0) continue;
+                    if (std::find(stripped.begin(), stripped.end(), tail) == stripped.end())
+                        stripped.push_back(tail);
                 }
                 // Also include single-level keys from the legacy complete_arg.
                 const Command* cmd = find_command(cmd_name);
