@@ -52,6 +52,7 @@ public:
     int terminal_height() const override { return 24; }
     int terminal_width() const override { return 80; }
     void append_line(int color, const std::string& text) override {
+        (void)color;
         drawn_lines_.push_back(text);
     }
 };
