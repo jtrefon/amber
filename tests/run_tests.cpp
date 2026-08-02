@@ -3162,3 +3162,33 @@ TEST(tool_call_parser_attribute_style_unclosed) {
     ASSERT_EQ(calls[0]["function"]["arguments"]["path"].get<std::string>(),
               "Makefile");
 }
+
+// Binary files must be refused, not dumped as garbage lines (a NUL-byte
+// binary read once produced 32k lines in the conversation).
+TEST(read_tool_refuses_binary) {
+    std::string dir = "read_bin_" + std::to_string(getpid());
+    std::filesystem::create_directories(dir);
+    std::ofstream f(dir + "/bin.dat", std::ios::binary);
+    f << "\x00\x01\x02hello\n\x00world\n";
+    f.close();
+    auto tool = agent::make_read_tool();
+    auto r = tool->execute({{"path", dir + "/bin.dat"}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("binary") != std::string::npos);
+    std::filesystem::remove_all(dir);
+}
+
+// The read limit is line-based and hard-capped so a request can never pull
+// tens of thousands of lines into the conversation.
+TEST(read_tool_clamps_limit) {
+    std::string dir = "read_big_" + std::to_string(getpid());
+    std::filesystem::create_directories(dir);
+    std::ofstream f(dir + "/big.txt");
+    for (int i = 0; i < 5000; ++i) f << "line " << i << "\n";
+    f.close();
+    auto tool = agent::make_read_tool();
+    auto r = tool->execute({{"path", dir + "/big.txt"}, {"limit", 100000}});
+    ASSERT_TRUE(r.ok);
+    ASSERT(r.meta["lines"].get<long>() <= 2000);
+    std::filesystem::remove_all(dir);
+}

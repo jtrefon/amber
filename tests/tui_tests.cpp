@@ -429,3 +429,14 @@ TEST(col_to_byte_git_prompt) {
     ASSERT(tui::text::col_to_byte(p, total) <= p.size());
 }
 
+
+TEST(textutil_spinner_frames) {
+    // Square corners (core tools) and round (bash) spinner cycles; the ASCII
+    // fallback must also yield a full frame cycle so animation never stalls.
+    for (int i = 0; i < 4; ++i) {
+        ASSERT(!std::string(tui::text::glyph::spinner_square(i)).empty());
+        ASSERT(!std::string(tui::text::glyph::spinner_round(i)).empty());
+    }
+    ASSERT(std::string(tui::text::glyph::spinner_square(0)) !=
+           std::string(tui::text::glyph::spinner_square(1)));
+}

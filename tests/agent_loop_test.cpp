@@ -513,3 +513,30 @@ TEST(agent_loop_attribute_xml_tool_call_executes) {
             saw_tool_result = true;
     ASSERT(saw_tool_result);
 }
+
+// [GR] XML tool calls fire on_tool_call exactly once per dispatched call.
+// The extraction path used to fire the hook AND dispatch fired it again,
+// producing two "running" lines in the TUI (the fold replace only collapsed
+// the last one).
+TEST(agent_xml_tool_call_fires_hook_once) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply r;
+    r.content =
+        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+        "</parameter>\n</function>\n</tool_call>";
+    fake->script.push_back(std::move(r));
+    push_text(*fake, "done reading");
+    push_text(*fake, "done");
+    int tool_call_hook_count = 0;
+    agent::AgentHooks hooks;
+    hooks.on_tool_call = [&](const std::string&, const agent::json&) {
+        ++tool_call_hook_count;
+    };
+    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(fake));
+    ag.run("read the Makefile");
+    ASSERT_EQ(tool_call_hook_count, 1);
+}
