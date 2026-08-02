@@ -205,50 +205,10 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    // policy: mode read|write|yolo, or tool <tool> <level>, or timeout <N>
+    // policy: mode/approval/timeout/rule dispatch through the tree leaves
+    // (core.config.set.policy.*); this branch only sees the bare namespace.
     if (arg.rfind("policy ", 0) == 0 || arg == "policy") {
-        std::string rest = (arg.size() > 7) ? arg.substr(7) : "";
-        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
-        if (rest == "read" || rest == "write" || rest == "yolo") {
-            if (rest == "read") cfg_.mode = agent::AgentMode::Read;
-            else if (rest == "yolo") cfg_.mode = agent::AgentMode::Yolo;
-            else cfg_.mode = agent::AgentMode::Write;
-            append_line(P_STATUS, "policy mode: " + rest);
-            draw();
-            return;
-        }
-        if (rest.rfind("rule ", 0) == 0) {
-            std::string name, lvl;
-            size_t sp2 = rest.find(' ', 5);
-            if (sp2 == std::string::npos) { name = rest.substr(5); lvl.clear(); }
-            else { name = rest.substr(5, sp2 - 5); lvl = rest.substr(sp2 + 1); }
-            if (name.empty() || lvl.empty()) {
-                append_line(P_STATUS, "usage: /set policy rule <name> <allow|deny|ask>");
-                draw();
-                return;
-            }
-            agent::PolicyLevel pl = agent::policy_level_from_name(lvl);
-            if (pl == agent::PolicyLevel::Ask) {
-                for (auto& w : windows_)
-                    if (w->agent) w->agent->policy().revoke(name);
-                append_line(P_STATUS, "policy rule revoked for " + name);
-            } else if (pl == agent::PolicyLevel::AlwaysAllow || pl == agent::PolicyLevel::AlwaysDeny) {
-                for (auto& w : windows_)
-                    if (w->agent) w->agent->policy().set_rule(name, pl);
-                append_line(P_STATUS, "policy rule " + lvl + " for " + name);
-            } else {
-                append_line(P_STATUS, "invalid level: " + lvl + " (use allow, deny, or ask)");
-                draw();
-                return;
-            }
-            if (win().agent) {
-                std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
-                win().agent->policy().save(policy_path);
-            }
-            draw();
-            return;
-        }
-        append_line(P_STATUS, "usage: /set policy mode <read|write|yolo> | /set policy rule <name> <allow|deny|ask> | /set policy timeout <N> | /set policy approval <on|off>");
+        append_line(P_STATUS, "usage: /set policy mode <read|write|yolo> | /set policy rule <tool> <allow|deny|ask> | /set policy timeout <N> | /set policy approval <on|off>");
         draw();
         return;
     }
@@ -343,11 +303,7 @@ void Tui::cmd_get_toolfold() {
 }
 
 void Tui::cmd_get_policy(const std::string& arg) {
-    // Namespace: summary, or "rule <name>" lookup.
-    std::string name = arg;
-    if (!name.empty() && name[0] == ' ') name = name.substr(1);
-    if (name.rfind("rule ", 0) == 0) name = name.substr(5);
-    if (name.empty()) {
+    if (arg.empty()) {
         append_line(P_STATUS, "policy mode: " + mode_name(cfg_.mode));
         append_line(P_STATUS, "policy timeout: " + std::to_string(policy_timeout_) + "s");
         auto* ag = win().agent.get();
@@ -361,6 +317,19 @@ void Tui::cmd_get_policy(const std::string& arg) {
         }
         return;
     }
+    // Dotted or fallback form: "/get policy rule <tool>" arrives here only
+    // when the tool is not a feed leaf.
+    if (arg.rfind("rule", 0) == 0) {
+        std::string name = arg;
+        if (name.size() > 4 && name[4] == ' ') name = name.substr(5);
+        else if (name.size() > 4) name = name.substr(4);
+        cmd_get_policy_rule(name);
+        return;
+    }
+    show_policy_rule(arg);
+}
+
+void Tui::show_policy_rule(const std::string& name) {
     if (auto* ag = win().agent.get()) {
         const auto* r = ag->policy().find(name);
         if (r) {
@@ -372,6 +341,110 @@ void Tui::cmd_get_policy(const std::string& arg) {
             append_line(P_STATUS, "rule " + name + ": ask (no stored rule)");
         }
     }
+}
+
+void Tui::cmd_get_policy_rule(const std::string& arg) {
+    if (arg.empty()) {
+        auto* ag = win().agent.get();
+        if (!ag) return;
+        bool any = false;
+        for (const auto& r : ag->policy().rules()) {
+            if (r.level == agent::PolicyLevel::Ask) continue;
+            any = true;
+            std::string line = "  " + r.tool + " \u2192 " +
+                agent::policy_level_name(r.level);
+            if (r.count > 0)
+                line += " (used " + std::to_string(r.count) + "x)";
+            append_line(P_STATUS, line);
+        }
+        if (!any)
+            append_line(P_STATUS, "no stored rules \u2014 everything asks for approval");
+        return;
+    }
+    show_policy_rule(arg);
+}
+
+void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) {
+    if (lvl.empty()) {
+        show_policy_rule(name);
+        return;
+    }
+    agent::PolicyLevel pl = agent::policy_level_from_name(lvl);
+    if (pl == agent::PolicyLevel::Ask) {
+        for (auto& w : windows_)
+            if (w->agent) w->agent->policy().revoke(name);
+        append_line(P_STATUS, "policy rule revoked for " + name);
+    } else if (pl == agent::PolicyLevel::AlwaysAllow ||
+               pl == agent::PolicyLevel::AlwaysDeny) {
+        for (auto& w : windows_)
+            if (w->agent) w->agent->policy().set_rule(name, pl);
+        append_line(P_STATUS, "policy rule " + lvl + " for " + name);
+    } else {
+        append_line(P_STATUS, "invalid level: " + lvl + " (use allow, deny, or ask)");
+        return;
+    }
+    if (win().agent) {
+        std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
+        win().agent->policy().save(policy_path);
+    }
+    refresh_policy_feed();
+    draw();
+}
+
+void Tui::cmd_set_policy_rule(const std::string& arg) {
+    if (arg.empty()) {
+        append_line(P_STATUS, "usage: /set policy rule <tool> <allow|deny|ask>");
+        return;
+    }
+    size_t sp = arg.find(' ');
+    std::string name = (sp == std::string::npos) ? arg : arg.substr(0, sp);
+    std::string lvl = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
+    apply_policy_rule(name, lvl);
+}
+
+void Tui::refresh_policy_feed() {
+    // Existing rules (union across windows): tool -> level info.
+    std::map<std::string, std::string> rule_help;
+    for (auto& w : windows_) {
+        if (!w->agent) continue;
+        for (const auto& r : w->agent->policy().rules()) {
+            if (r.level == agent::PolicyLevel::Ask) continue;
+            std::string info = agent::policy_level_name(r.level);
+            if (r.count > 0)
+                info += " (used " + std::to_string(r.count) + "x)";
+            rule_help[r.tool] = info;
+        }
+    }
+    // Set side: every registered tool (rule or not) is a value leaf; the
+    // get side shows only tools that have a stored rule.
+    std::set<std::string> tools;
+    for (const auto& t : reg_.tools()) tools.insert(t->name());
+    for (const auto& [tool, _] : rule_help) tools.insert(tool);
+
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& tool : tools) {
+        std::string info = rule_help.count(tool) ? rule_help.at(tool)
+                                                 : "no rule (ask)";
+        std::string action = "core.config.set.policy.rule." + tool;
+        nlohmann::json& leaf =
+            subtree["set"]["children"]["policy"]["children"]["rule"]["children"][tool];
+        leaf["action"] = action;
+        leaf["help"] = info;
+        register_action(action, [this, tool](const std::string& a) {
+            apply_policy_rule(tool, a);
+        });
+        if (rule_help.count(tool)) {
+            std::string gaction = "core.config.get.policy.rule." + tool;
+            nlohmann::json& g =
+                subtree["get"]["children"]["policy"]["children"]["rule"]["children"][tool];
+            g["action"] = gaction;
+            g["help"] = info;
+            register_action(gaction, [this, tool](const std::string&) {
+                show_policy_rule(tool);
+            });
+        }
+    }
+    settings_.merge_completions_json(subtree);
 }
 
 void Tui::cmd_get_policy_mode() {
@@ -1107,6 +1180,8 @@ void Tui::register_builtin_actions() {
         append_line(P_STATUS, "policy timeout: " + std::to_string(n) + "s");
     });
     register_action("core.config.set.policy", [this](const std::string& a) { cmd_set(a); });
+    register_action("core.config.set.policy.rule",
+        [this](const std::string& a) { cmd_set_policy_rule(a); });
     register_action("core.config.set.compression.threshold", [this](const std::string& v) {
         double t = std::atof(v.c_str());
         if (t <= 0.0 || t > 1.0 || v.empty()) {
@@ -1183,6 +1258,8 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_policy_approval(); });
     register_action("core.config.get.policy.timeout",
         [this](const std::string&) { cmd_get_policy_timeout(); });
+    register_action("core.config.get.policy.rule",
+        [this](const std::string& a) { cmd_get_policy_rule(a); });
     register_action("core.config.get.display",
         [this](const std::string&) { cmd_get_display(); });
     register_action("core.config.get.think",

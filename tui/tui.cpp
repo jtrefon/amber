@@ -624,6 +624,7 @@ void Tui::refresh_completions() {
 void Tui::run() {
     git_refresh();
     refresh_model_list();
+    refresh_policy_feed();
     draw();
     draw_input("");
     flush();

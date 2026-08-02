@@ -247,6 +247,8 @@ private:
     void cmd_get_provider();
     void cmd_get_toolfold();
     void cmd_get_policy(const std::string& arg);
+    void cmd_get_policy_rule(const std::string& arg);
+    void cmd_set_policy_rule(const std::string& arg);
     void cmd_get_policy_mode();
     void cmd_get_policy_approval();
     void cmd_get_policy_timeout();
@@ -296,6 +298,12 @@ private:
     // the drawer, Tab completion, and dispatch all flow through the tree.
     std::vector<agent::ModelInfo> model_info_;
     void refresh_model_list();
+    // Permission feed: tool names become value leaves under get/set
+    // policy.rule (level + usage as help). Refreshed at startup and after
+    // every rule mutation so the dangerous-command curation stays in sync.
+    void refresh_policy_feed();
+    void apply_policy_rule(const std::string& name, const std::string& lvl);
+    void show_policy_rule(const std::string& name);
     void job_ls();
     void job_kill(const std::string& id);
     void job_read(const std::string& id);

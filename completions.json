@@ -123,6 +123,11 @@
               "action": "core.config.get.policy.timeout",
               "help": "Approval dialog timeout in seconds.",
               "man": "The countdown timer for the approval dialog. When the timer expires the default choice is auto-selected. Set to 0 to disable the timeout (wait indefinitely for user input)."
+            },
+            "rule": {
+              "action": "core.config.get.policy.rule",
+              "help": "Show a tool's permission rule.",
+              "man": "The rule branch reads the curated dangerous-command list: every tool with a stored approval rule (allow/deny) is listed with its level and usage count. Tools without a rule ask for approval each time."
             }
           }
         },
@@ -269,6 +274,11 @@
                 0,
                 999
               ]
+            },
+            "rule": {
+              "action": "core.config.set.policy.rule",
+              "help": "Set or clear a tool's permission rule.",
+              "man": "Curates the dangerous-command list: '/set policy rule <tool> allow|deny|ask' grants, blocks, or clears a tool's approval. Tool names complete from the registry; existing rules show their current level. 'ask' removes the stored rule."
             }
           }
         },

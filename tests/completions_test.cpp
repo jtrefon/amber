@@ -66,11 +66,11 @@ TEST(test_namespace_children) {
     // Full-path namespaces: the set side is queried separately from get.
     auto set_kids = reg.children_of("set.policy");
     REQUIRE_NONEMPTY(set_kids);
-    ASSERT_EQ(set_kids.size(), 3u);
+    ASSERT_EQ(set_kids.size(), 4u);
     ASSERT_EQ(set_kids.front(), "approval");
     auto get_kids2 = reg.children_of("get.policy");
     REQUIRE_NONEMPTY(get_kids2);
-    ASSERT_EQ(get_kids2.size(), 3u);
+    ASSERT_EQ(get_kids2.size(), 4u);
     // Dotted key resolution keeps /get <dotted> lookups working.
     ASSERT(!reg.help_for("policy.mode").empty());
     ASSERT(!reg.man_for("policy.mode").empty());
@@ -208,10 +208,11 @@ TEST(test_complete_depth2_policy) {
     // "/set policy" → children of "set.policy" (full-path: distinct from get).
     auto r = reg.complete("set.policy");
     REQUIRE_NONEMPTY(r);
-    ASSERT_EQ(r.size(), 3u);
+    ASSERT_EQ(r.size(), 4u);
     ASSERT_EQ(r.front(), "set.policy.approval");
     ASSERT_EQ(r[1], "set.policy.mode");
-    ASSERT_EQ(r[2], "set.policy.timeout");
+    ASSERT_EQ(r[2], "set.policy.rule");
+    ASSERT_EQ(r[3], "set.policy.timeout");
 }
 
 TEST(test_complete_depth1_compression_namespace) {
@@ -279,7 +280,7 @@ TEST(test_drawer_namespace_levels) {
     // Level 3: /set policy <TAB> → children of "set.policy" (full path)
     auto policy_kids = reg.children_of("set.policy");
     REQUIRE_NONEMPTY(policy_kids);
-    ASSERT_EQ(policy_kids.size(), 3u);
+    ASSERT_EQ(policy_kids.size(), 4u);
     ASSERT_EQ(policy_kids.front(), "approval");
 
     // Level 4: /set policy mode <TAB> → children of "set.policy.mode"
