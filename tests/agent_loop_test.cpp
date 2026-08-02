@@ -483,3 +483,34 @@ TEST(agent_probe_failure_throws_after_recovery) {
     }
     ASSERT(threw);
 }
+
+// [TC] Ornith attribute-style XML tool calls inside the reply content are
+// extracted and executed — the regression from the session where
+// <tool_call><function=bash><parameter=command> was emitted, never ran, and
+// the model repeated it.
+TEST(agent_loop_attribute_xml_tool_call_executes) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    agent_test::FakeReply r;
+    r.content =
+        "Let me check.\n"
+        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+        "</parameter>\n</function>\n</tool_call>";
+    fake->script.push_back(std::move(r));
+    push_text(*fake, "done reading");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    std::string reply = ag.run("read the Makefile");
+    ASSERT_EQ(reply, "done reading");
+    const auto& ctx = ag.context().get_all();
+    bool saw_tool_result = false;
+    for (const auto& m : ctx)
+        if (m.role == "tool" &&
+            m.content.find("Makefile") != std::string::npos)
+            saw_tool_result = true;
+    ASSERT(saw_tool_result);
+}

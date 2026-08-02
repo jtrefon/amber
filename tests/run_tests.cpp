@@ -12,6 +12,7 @@
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
+#include "agent/tool_call_parser.h"
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
@@ -3095,4 +3096,57 @@ TEST(tool_schema_sanitizer) {
     ASSERT(s["properties"]["count"]["items"].is_object());
     ASSERT(s["properties"]["nested"]["properties"]["x"]["type"] == "object");
     ASSERT(s["properties"]["bare"]["type"] == "object");
+}
+
+// [TC] Attribute-style XML tool calls (ornith template):
+//   <tool_call>
+//   <function=bash>
+//   <parameter=command>
+//   find . -type f
+//   </parameter>
+//   </function>
+//   </tool_call>
+TEST(tool_call_parser_attribute_style) {
+    std::string text =
+        "I'll review the app.\n"
+        "<tool_call>\n"
+        "<function=bash>\n"
+        "<parameter=command>\n"
+        "find . -type f | head\n"
+        "</parameter>\n"
+        "</function>\n"
+        "</tool_call>";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "bash");
+    ASSERT_EQ(calls[0]["function"]["arguments"]["command"].get<std::string>(),
+              "find . -type f | head");
+}
+
+TEST(tool_call_parser_attribute_style_multiple) {
+    std::string text =
+        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+        "</parameter>\n</function>\n</tool_call>\n"
+        "<tool_call>\n<function=search>\n<parameter=pattern>\nTODO\n"
+        "</parameter>\n</function>\n</tool_call>";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 2u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
+    ASSERT_EQ(calls[1]["function"]["name"].get<std::string>(), "search");
+    ASSERT_EQ(calls[1]["function"]["arguments"]["pattern"].get<std::string>(),
+              "TODO");
+}
+
+TEST(tool_call_parser_attribute_style_unclosed) {
+    // Model cut off mid-call: no closing </tool_call>.
+    std::string text =
+        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
+    ASSERT_EQ(calls[0]["function"]["arguments"]["path"].get<std::string>(),
+              "Makefile");
 }
