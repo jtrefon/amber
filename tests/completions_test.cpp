@@ -363,6 +363,64 @@ TEST(test_set_model_feed_leaves_complete) {
     ASSERT_EQ(reg.help_for("set.model.llama3"), "ctx 8192");
 }
 
+// ── Test: policy rule curation lives in the tree (FIX-015 P3) ──
+// The dangerous-command rules are fed into get/set policy rule as value
+// leaves (tool names + current level as help), so the permission system is
+// visible and editable through the drawer.
+
+TEST(test_policy_rule_branches_documented) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    ASSERT(!reg.help_for("get.policy.rule").empty());
+    ASSERT(!reg.man_for("set.policy.rule").empty());
+    // get.policy and set.policy both document the rule branch.
+    bool get_has_rule = false, set_has_rule = false;
+    for (const auto& k : reg.children_of("get.policy"))
+        if (k == "rule") get_has_rule = true;
+    for (const auto& k : reg.children_of("set.policy"))
+        if (k == "rule") set_has_rule = true;
+    ASSERT(get_has_rule && set_has_rule);
+}
+
+TEST(test_policy_rule_feed_leaves) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    // The policy feed shape (refresh_policy_feed): tool leaves under both
+    // get.policy.rule and set.policy.rule, level info as help text.
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
+        ["action"] = "core.config.get.policy.rule.bash";
+    subtree["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
+        ["help"] = "allow (used 3x)";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
+        ["action"] = "core.config.set.policy.rule.bash";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
+        ["help"] = "allow (used 3x)";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["search"]
+        ["action"] = "core.config.set.policy.rule.search";
+    reg.merge_completions_json(subtree);
+
+    // /set policy rule <Tab> completes tool names...
+    auto set_kids = reg.complete("set.policy.rule");
+    REQUIRE_NONEMPTY(set_kids);
+    ASSERT_EQ(set_kids.size(), 2u);
+    bool has_bash = false, has_search = false;
+    for (const auto& k : set_kids) {
+        if (k == "set.policy.rule.bash") has_bash = true;
+        if (k == "set.policy.rule.search") has_search = true;
+    }
+    ASSERT(has_bash && has_search);
+    // ...with the current level as inline help.
+    ASSERT_EQ(reg.help_for("set.policy.rule.bash"), "allow (used 3x)");
+    // /get policy rule shows only tools that have rules.
+    auto get_kids = reg.children_of("get.policy.rule");
+    REQUIRE_NONEMPTY(get_kids);
+    ASSERT_EQ(get_kids.size(), 1u);
+    ASSERT_EQ(get_kids.front(), "bash");
+}
+
 // ── Test: get/set namespaces are indexed by FULL path (FIX-015 P1) ──
 // The stripped-key scheme collapses get.model and set.model into one key, so
 // the two sides of the same namespace can never carry different children.
@@ -448,6 +506,8 @@ int main() {
     test_model_command_is_leaf();
     test_model_lives_under_get_set();
     test_set_model_feed_leaves_complete();
+    test_policy_rule_branches_documented();
+    test_policy_rule_feed_leaves();
     test_full_path_namespaces_are_distinct();
     test_merge_preserves_static_tree_children();
     } catch (const std::exception& e) {
