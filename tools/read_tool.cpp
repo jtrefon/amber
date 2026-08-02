@@ -2,6 +2,7 @@
 #include "agent/tool.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
+#include <array>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -54,9 +55,30 @@ public:
         long limit = a.value("limit", 200L);
         if (offset < 1) offset = 1;
         if (limit < 1) limit = 1;
+        // Line-based hard ceiling: a single call must never pull tens of
+        // thousands of lines into the conversation (binary/generated files).
+        if (limit > 2000) limit = 2000;
 
-        std::ifstream in(path);
+        std::ifstream in(path, std::ios::binary);
         if (!in) { r.ok = false; r.error = "cannot open: " + path; return r; }
+
+        // Refuse binary files up front: NUL bytes in the first chunk mean
+        // compressed/compiled content whose random newlines would flood the
+        // conversation with garbage (a .git object read once produced 32k
+        // "lines"). Text files (including UTF-16-ish encodings with NULs)
+        // are better served by bash tooling anyway.
+        std::array<char, 4096> sniff{};
+        in.read(sniff.data(), static_cast<std::streamsize>(sniff.size()));
+        std::streamsize got = in.gcount();
+        for (std::streamsize i = 0; i < got; ++i)
+            if (sniff[static_cast<size_t>(i)] == '\0') {
+                r.ok = false;
+                r.error = "binary file (NUL bytes) - refusing to read: " +
+                          Workspace::relative(path);
+                return r;
+            }
+        in.clear();
+        in.seekg(0);
 
         std::string line;
         long lineno = 0;

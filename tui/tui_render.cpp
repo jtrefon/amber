@@ -417,6 +417,22 @@ void Tui::tick_clock() {
     wnoutrefresh(stdscr);
 }
 
+void Tui::advance_tool_spinner() {
+    if (tool_line_ == std::string::npos ||
+        tool_line_ >= win().lines.size()) {
+        tool_line_ = std::string::npos;
+        return;
+    }
+    ++tool_spinner_frame_;
+    auto& runs = win().lines[tool_line_].runs;
+    if (runs.empty()) return;
+    const char* frame =
+        tool_line_style_ ? text::glyph::spinner_round(tool_spinner_frame_)
+                         : text::glyph::spinner_square(tool_spinner_frame_);
+    runs[0].text = std::string(frame) + tool_line_tail_;
+    draw();
+}
+
 void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
     dirty_ = true;
     draw_drawer(s);

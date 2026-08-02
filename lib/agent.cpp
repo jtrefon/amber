@@ -326,13 +326,8 @@ bool Agent::extract_embedded_tool_calls(Message& reply) const {
     reply.tool_calls = std::move(extracted);
     reply.reasoning.clear();
     reply.content.clear();
-    if (hooks_.on_tool_call) {
-        for (const auto& tc : reply.tool_calls) {
-            const auto& fn = tc.value("function", json::object());
-            hooks_.on_tool_call(fn.value("name", ""),
-                                fn.value("arguments", json::object()));
-        }
-    }
+    // NOTE: no on_tool_call here — dispatch fires it once per executed call
+    // (dispatch.cpp); firing it here too doubles the UI's "running" lines.
     return true;
 }
 

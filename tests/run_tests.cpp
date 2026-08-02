@@ -3166,10 +3166,13 @@ TEST(tool_call_parser_attribute_style_unclosed) {
 // Binary files must be refused, not dumped as garbage lines (a NUL-byte
 // binary read once produced 32k lines in the conversation).
 TEST(read_tool_refuses_binary) {
+    agent::Workspace::set_root(".");
     std::string dir = "read_bin_" + std::to_string(getpid());
     std::filesystem::create_directories(dir);
     std::ofstream f(dir + "/bin.dat", std::ios::binary);
-    f << "\x00\x01\x02hello\n\x00world\n";
+    // strlen() stops at the first NUL - build the fixture with an explicit
+    // length so the NUL bytes actually land in the file.
+    f.write(std::string("\x00\x01\x02hello\n\x00world\n", 16).data(), 16);
     f.close();
     auto tool = agent::make_read_tool();
     auto r = tool->execute({{"path", dir + "/bin.dat"}});
@@ -3181,6 +3184,7 @@ TEST(read_tool_refuses_binary) {
 // The read limit is line-based and hard-capped so a request can never pull
 // tens of thousands of lines into the conversation.
 TEST(read_tool_clamps_limit) {
+    agent::Workspace::set_root(".");
     std::string dir = "read_big_" + std::to_string(getpid());
     std::filesystem::create_directories(dir);
     std::ofstream f(dir + "/big.txt");

@@ -106,6 +106,17 @@ private:
     // e.g. bash), surfaced on the status bar so a synchronous command that is
     // not a JobService background job is still visible while it runs.
     std::string running_tool_;
+
+    // Active tool-line animation (scrollback only; the agent context stays
+    // sealed). tool_line_ indexes the current window's lines; each 150ms tick
+    // swaps the spinner frame in-place until the ToolResult event seals the
+    // line with the success/failure icon. Style: 0 = square corners (core
+    // tools), 1 = round (bash), so the tool class is visible at a glance.
+    size_t tool_line_ = std::string::npos;
+    int tool_spinner_frame_ = 0;
+    int tool_line_style_ = 0;
+    std::string tool_line_tail_;
+    void advance_tool_spinner();
     // A prompt the user typed (and submitted with Enter) while the agent was
     // busy; auto-sent once the agent returns to idle so typing never feels
     // blocked.

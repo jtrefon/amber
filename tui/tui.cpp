@@ -198,62 +198,72 @@ bool Tui::drain_events() {
             running_tool_ = ev.tool_name;
             flush_stream();
             ToolFold fold = tool_fold_;
-            if (fold != ToolFold::Never) {
-                std::string args = ev.tool_args.dump();
-                if (args.size() > 60) { args.resize(57); args += "..."; }
-                if (fold == ToolFold::Auto)
-                    append_line(P_STATUS, std::string(text::glyph::tool()) + " " +
-                                ev.tool_name + " " + args);
-                else
-                    append_line(P_STATUS, "tool: " + ev.tool_name + " " + args);
-            }
+            if (fold == ToolFold::Never) break;
+            // One "open" line per call: animated spinner + name + args.
+            // never = always closed: compact (name only, no args).
+            bool round = (ev.tool_name == "bash");
+            std::string args = ev.tool_args.dump();
+            if (args.size() > 60) { args.resize(57); args += "..."; }
+            std::string tail = " " + ev.tool_name;
+            if (fold != ToolFold::Never) tail += " " + args;
+            tool_spinner_frame_ = 0;
+            tool_line_style_ = round ? 1 : 0;
+            tool_line_tail_ = tail;
+            const char* frame = round ? text::glyph::spinner_round(0)
+                                      : text::glyph::spinner_square(0);
+            append_line(P_STATUS, std::string(frame) + tail);
+            tool_line_ = win().lines.size() - 1;
             break;
         }
         case AgentEvent::ToolResult: {
             running_tool_.clear();
             ToolFold fold = tool_fold_;
-            if (fold == ToolFold::Never) break;
-            // Build a compact summary line.
-            auto summarize = [](const std::string& name,
-                                const agent::ToolResult& r) -> std::string {
-                const char* sp = text::glyph::tool();
-                const char* ar = text::glyph::arrow();
-                if (!r.ok) return std::string(sp) + " " + name + "  " +
-                                   ar + " error: " + r.error;
-                // Count lines in output.
-                int lines = 1;
-                for (char c : r.output) if (c == '\n') ++lines;
-                std::string preview = r.output;
-                size_t nl = preview.find('\n');
-                if (nl != std::string::npos) preview.resize(nl);
-                if (preview.size() > 60) { preview.resize(57); preview += "..."; }
-                return std::string(sp).append(" ").append(name).append("  ")
-                       .append(ar)
-                       .append(" exit 0  (")
-                       .append(std::to_string(lines))
-                       .append(" lines)  ")
-                       .append(preview);
-            };
-            std::string line = summarize(ev.tool_name, ev.tool_result);
-            if (fold == ToolFold::Auto) {
-                // Replace the last "running" tool line with the summary.
-                auto& lines = win().lines;
-                bool replaced = false;
-                for (int i = static_cast<int>(lines.size()) - 1; i >= 0; --i) {
-                    if (!lines[i].runs.empty() &&
-                        lines[i].runs[0].pair == P_STATUS &&
-                        lines[i].runs[0].text.rfind(text::glyph::tool(), 0) == 0) {
-                        lines[i].runs.clear();
-                        rich::Run r; r.pair = P_STATUS; r.text = line;
-                        lines[i].runs.push_back(r);
-                        replaced = true;
-                        break;
-                    }
+            // Summary line: colored success/failure icon + one-line report.
+            auto build_result =
+                [](const std::string& name,
+                   const agent::ToolResult& r) -> rich::Line {
+                rich::Line ln;
+                rich::Run icon;
+                icon.pair = r.ok ? P_GIT_PLUS : P_GIT_MINUS;
+                icon.text = r.ok ? text::glyph::check() : text::glyph::cross();
+                rich::Run rest;
+                rest.pair = P_STATUS;
+                rest.text = " " + name + "  " + text::glyph::arrow() + " ";
+                if (!r.ok) {
+                    rest.text += "error: " + r.error;
+                } else {
+                    int lines = 1;
+                    for (char c : r.output) if (c == '\n') ++lines;
+                    std::string preview = r.output;
+                    size_t nl = preview.find('\n');
+                    if (nl != std::string::npos) preview.resize(nl);
+                    if (preview.size() > 60) { preview.resize(57); preview += "..."; }
+                    rest.text += "exit 0  (" + std::to_string(lines) +
+                                 " lines)  " + preview;
                 }
-                if (!replaced) append_line(P_STATUS, line);
+                ln.runs.push_back(std::move(icon));
+                ln.runs.push_back(std::move(rest));
+                return ln;
+            };
+            rich::Line summary = build_result(ev.tool_name, ev.tool_result);
+            bool tracking = tool_line_ != std::string::npos &&
+                            tool_line_ < win().lines.size();
+            if (fold == ToolFold::Always) {
+                // always = always open: freeze the running line (static tool
+                // bullet) and append the summary as a second line.
+                if (tracking) {
+                    auto& runs = win().lines[tool_line_].runs;
+                    if (!runs.empty()) runs[0].text = text::glyph::tool();
+                }
+                append_rich(summary);
+            } else if (tracking) {
+                // auto/never: the single line closes — spinner is replaced
+                // by the success/failure icon and the summary text.
+                win().lines[tool_line_] = std::move(summary);
             } else {
-                append_line(P_STATUS, line);
+                append_rich(summary);
             }
+            tool_line_ = std::string::npos;
             // Tool may have modified files — refresh git state for prompt.
             git_refresh();
             break;
@@ -717,6 +727,7 @@ void Tui::run() {
                 auto now = std::chrono::steady_clock::now();
                 if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
                     last_status_tick_ = now;
+                    advance_tool_spinner();
                     tick_clock();
                 }
             }
