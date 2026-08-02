@@ -21,6 +21,60 @@ auto read_int = [](const json& o, const char* k) -> int {
     return (it != o.end() && it->is_number_integer()) ? it->get<int>() : 0;
 };
 
+// Parse a single model entry into a ModelInfo. The id may come from any of
+// the shapes servers use ("id", "model", "name").
+ModelInfo parse_entry(const json& e) {
+    ModelInfo m;
+    if (e.contains("id") && e["id"].is_string())
+        m.id = e["id"].get<std::string>();
+    else if (e.contains("model") && e["model"].is_string())
+        m.id = e["model"].get<std::string>();
+    else if (e.contains("name") && e["name"].is_string())
+        m.id = e["name"].get<std::string>();
+    if (e.contains("meta") && e["meta"].is_object()) {
+        const json& meta = e["meta"];
+        m.context = read_int(meta, "n_ctx");
+        m.context_train = read_int(meta, "n_ctx_train");
+    }
+    if (m.context == 0) m.context = read_int(e, "n_ctx");
+    if (m.context_train == 0) m.context_train = read_int(e, "n_ctx_train");
+    return m;
+}
+
+// The model array from a /v1/models body ("data" or "models" key).
+const json* model_array(const json& j) {
+    if (j.contains("data") && j["data"].is_array())
+        return &j["data"];
+    if (j.contains("models") && j["models"].is_array())
+        return &j["models"];
+    return nullptr;
+}
+
+// GET the /v1/models body into `response`. Returns CURLE_OK on success.
+CURLcode fetch_models(const Config& cfg, std::string& response) {
+    CURL* c = curl_easy_init();
+    if (!c) return CURLE_FAILED_INIT;
+
+    struct curl_slist* headers = nullptr;
+    if (!cfg.api_key.empty()) {
+        std::string auth = "Authorization: Bearer " + cfg.api_key;
+        headers = curl_slist_append(headers, auth.c_str());
+    }
+
+    curl_easy_setopt(c, CURLOPT_URL, cfg.models_url().c_str());
+    if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
+    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
+
+    CURLcode rc = curl_easy_perform(c);
+    if (headers) curl_slist_free_all(headers);
+    curl_easy_cleanup(c);
+    return rc;
+}
+
 } // namespace
 
 ServerInfo parse_models(const std::string& body) {
@@ -28,30 +82,13 @@ ServerInfo parse_models(const std::string& body) {
     json j = json::parse(body, nullptr, false);
     if (j.is_discarded()) return info;
 
-    const json* entry = nullptr;
-    if (j.contains("data") && j["data"].is_array() && !j["data"].empty())
-        entry = &j["data"][0];
-    else if (j.contains("models") && j["models"].is_array() &&
-             !j["models"].empty())
-        entry = &j["models"][0];
-    if (!entry) return info;
+    const json* arr = model_array(j);
+    if (!arr || arr->empty()) return info;
 
-    const json& e = *entry;
-    if (e.contains("id") && e["id"].is_string())
-        info.model = e["id"].get<std::string>();
-    else if (e.contains("model") && e["model"].is_string())
-        info.model = e["model"].get<std::string>();
-    else if (e.contains("name") && e["name"].is_string())
-        info.model = e["name"].get<std::string>();
-
-    if (e.contains("meta") && e["meta"].is_object()) {
-        const json& m = e["meta"];
-        info.context_size = read_int(m, "n_ctx");
-        info.context_train = read_int(m, "n_ctx_train");
-    }
-    if (info.context_size == 0) info.context_size = read_int(e, "n_ctx");
-    if (info.context_train == 0) info.context_train = read_int(e, "n_ctx_train");
-
+    ModelInfo m = parse_entry((*arr)[0]);
+    info.model = m.id;
+    info.context_size = m.context;
+    info.context_train = m.context_train;
     info.ok = !info.model.empty() || info.context_size > 0;
     return info;
 }
@@ -115,16 +152,12 @@ ServerInfo apply_server_autodetect(Config& cfg) {
     return info;
 }
 
-std::vector<std::string> parse_model_list(const std::string& body) {
-    std::vector<std::string> out;
+std::vector<ModelInfo> parse_model_list_info(const std::string& body) {
+    std::vector<ModelInfo> out;
     json j = json::parse(body, nullptr, false);
     if (j.is_discarded()) return out;
 
-    const json* arr = nullptr;
-    if (j.contains("data") && j["data"].is_array())
-        arr = &j["data"];
-    else if (j.contains("models") && j["models"].is_array())
-        arr = &j["models"];
+    const json* arr = model_array(j);
     if (!arr) return out;
 
     // Servers sometimes list the same model multiple times (aliases, quant
@@ -132,43 +165,31 @@ std::vector<std::string> parse_model_list(const std::string& body) {
     // unique list.
     std::set<std::string> seen;
     for (const auto& e : *arr) {
-        std::string id;
-        if (e.contains("id") && e["id"].is_string())
-            id = e["id"].get<std::string>();
-        else if (e.contains("model") && e["model"].is_string())
-            id = e["model"].get<std::string>();
-        else if (e.contains("name") && e["name"].is_string())
-            id = e["name"].get<std::string>();
-        if (!id.empty() && seen.insert(id).second)
-            out.push_back(std::move(id));
+        ModelInfo m = parse_entry(e);
+        if (!m.id.empty() && seen.insert(m.id).second)
+            out.push_back(std::move(m));
     }
     return out;
 }
 
-std::vector<std::string> list_models(const Config& cfg) {
+std::vector<std::string> parse_model_list(const std::string& body) {
+    std::vector<std::string> out;
+    for (const auto& m : parse_model_list_info(body))
+        out.push_back(m.id);
+    return out;
+}
+
+std::vector<ModelInfo> list_model_info(const Config& cfg) {
     std::string response;
-    CURL* c = curl_easy_init();
-    if (!c) return {};
+    if (fetch_models(cfg, response) != CURLE_OK) return {};
+    return parse_model_list_info(response);
+}
 
-    struct curl_slist* headers = nullptr;
-    if (!cfg.api_key.empty()) {
-        std::string auth = "Authorization: Bearer " + cfg.api_key;
-        headers = curl_slist_append(headers, auth.c_str());
-    }
-
-    curl_easy_setopt(c, CURLOPT_URL, cfg.models_url().c_str());
-    if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
-
-    CURLcode rc = curl_easy_perform(c);
-    if (headers) curl_slist_free_all(headers);
-    curl_easy_cleanup(c);
-    if (rc != CURLE_OK) return {};
-    return parse_model_list(response);
+std::vector<std::string> list_models(const Config& cfg) {
+    std::vector<std::string> out;
+    for (const auto& m : list_model_info(cfg))
+        out.push_back(m.id);
+    return out;
 }
 
 } // namespace agent
