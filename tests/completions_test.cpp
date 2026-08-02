@@ -314,6 +314,60 @@ TEST(test_model_command_is_leaf) {
     ASSERT(!reg.help_for("model").empty());
 }
 
+// ── Test: model lives under get/set, not at the root (FIX-015 P2) ──
+// Model is a state-modifying accessor: queries at /get model (current, list,
+// context), switching at /set model. There is no root /model command.
+
+TEST(test_model_lives_under_get_set) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    bool root_model = false;
+    for (const auto& k : reg.complete(""))
+        if (k == "model") root_model = true;
+    ASSERT(!root_model);
+    // /get model list|context are documented children.
+    auto get_kids = reg.children_of("get.model");
+    REQUIRE_NONEMPTY(get_kids);
+    ASSERT_EQ(get_kids.size(), 2u);
+    bool has_list = false, has_context = false;
+    for (const auto& k : get_kids) {
+        if (k == "list") has_list = true;
+        if (k == "context") has_context = true;
+    }
+    ASSERT(has_list && has_context);
+    // /set model is a documented branch (bare = current model).
+    ASSERT(!reg.help_for("set.model").empty());
+    ASSERT(!reg.man_for("set.model").empty());
+}
+
+// ── Test: /set model completes from feed leaves (FIX-015 P2) ──
+// refresh_model_list() merges model ids as value leaves under set.model;
+// completion must surface them (the drawer rows and Tab share this path).
+
+TEST(test_set_model_feed_leaves_complete) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    nlohmann::json subtree = nlohmann::json::object();
+    subtree["set"]["children"]["model"]["children"]["llama3"]["action"] =
+        "core.config.set.model.llama3";
+    subtree["set"]["children"]["model"]["children"]["llama3"]["help"] = "ctx 8192";
+    subtree["set"]["children"]["model"]["children"]["qwen2"]["action"] =
+        "core.config.set.model.qwen2";
+    reg.merge_completions_json(subtree);
+    auto kids = reg.complete("set.model");
+    REQUIRE_NONEMPTY(kids);
+    ASSERT_EQ(kids.size(), 2u);
+    bool has_llama = false, has_qwen = false;
+    for (const auto& k : kids) {
+        if (k == "set.model.llama3") has_llama = true;
+        if (k == "set.model.qwen2") has_qwen = true;
+    }
+    ASSERT(has_llama && has_qwen);
+    ASSERT_EQ(reg.help_for("set.model.llama3"), "ctx 8192");
+}
+
 // ── Test: get/set namespaces are indexed by FULL path (FIX-015 P1) ──
 // The stripped-key scheme collapses get.model and set.model into one key, so
 // the two sides of the same namespace can never carry different children.
@@ -395,6 +449,8 @@ int main() {
     test_complete_depth1_namespace_matches_at_top();
     test_drawer_namespace_levels();
     test_model_command_is_leaf();
+    test_model_lives_under_get_set();
+    test_set_model_feed_leaves_complete();
     test_full_path_namespaces_are_distinct();
     test_merge_preserves_static_tree_children();
     } catch (const std::exception& e) {
