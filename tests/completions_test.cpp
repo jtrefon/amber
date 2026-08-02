@@ -282,6 +282,86 @@ TEST(test_drawer_namespace_levels) {
     ASSERT(!reg.help_for("policy.approval").empty());
 }
 
+// ── Test: /model is a pure switch command (no list|set|probe children) ──
+// Model discovery/context moved under /get model; switching is /model <name>
+// or the /set model drawer. Neither the tree nor the subcommand index may
+// still advertise the old list|set|probe verbs.
+
+TEST(test_model_command_is_leaf) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+    auto subs = reg.subcommands_for("model");
+    ASSERT(subs.empty());
+    ASSERT(reg.children_of("model").empty());
+    // The command is still documented (help text for switching).
+    ASSERT(!reg.help_for("model").empty());
+}
+
+// ── Test: get/set namespaces are indexed by FULL path (FIX-015 P1) ──
+// The stripped-key scheme collapses get.model and set.model into one key, so
+// the two sides of the same namespace can never carry different children.
+// A feed merge into set.model must not pollute the get side.
+
+TEST(test_full_path_namespaces_are_distinct) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+
+    // A feed-style merge: set.model gains dynamic value children.
+    nlohmann::json subtree = {
+        {"set", {{"children",
+                  {{"model",
+                    {{"action", "core.config.set.model"},
+                     {"children",
+                      {{"m1", {{"action", "core.config.set.model.m1"},
+                               {"help", "ctx 8192"}}}}}}}}}}}};
+    reg.merge_completions_json(subtree);
+
+    // The set side sees the merged leaves...
+    auto set_kids = reg.children_of("set.model");
+    ASSERT_EQ(set_kids.size(), 1u);
+    ASSERT_EQ(set_kids.front(), "m1");
+    ASSERT(!reg.help_for("set.model.m1").empty());
+    // ...while the get side of the same namespace stays untouched.
+    ASSERT(reg.children_of("get.model").empty());
+    ASSERT(!reg.help_for("set.model").empty() || !reg.help_for("get.model").empty());
+}
+
+// ── Test: merge preserves static fields + children in the TREE (FIX-015 P1) ──
+// merge_completions_json replaced tree_["commands"][key] wholesale while the
+// index unioned children — a live MCP/plugin merge lost the static children
+// from tree-walk dispatch (/mcp list degraded to the raw-arg fallback).
+
+TEST(test_merge_preserves_static_tree_children) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+
+    // Same shape mcp_completion_subtree() produces.
+    nlohmann::json subtree = {
+        {"mcp", {{"action", "core.mcp"},
+                 {"help", "Manage MCP servers."},
+                 {"man", "Live MCP tools appear under their server name."},
+                 {"children",
+                  {{"live_srv",
+                    {{"action", "mcp.live_srv"},
+                     {"children",
+                      {{"do_thing", {{"action", "mcp.live_srv.do_thing"},
+                                     {"help", "does the thing"}}}}}}}}}}}};
+    reg.merge_completions_json(subtree);
+
+    // Static children survive in the tree alongside the live branch.
+    const auto& tree = reg.command_tree();
+    ASSERT(tree.contains("commands"));
+    const auto& mcp = tree["commands"].at("mcp");
+    ASSERT_EQ(mcp.at("action").get<std::string>(), "core.mcp");
+    ASSERT(mcp.contains("children"));
+    ASSERT(mcp["children"].contains("list"));
+    ASSERT(mcp["children"].contains("live_srv"));
+    ASSERT(mcp["children"].at("live_srv")["children"].contains("do_thing"));
+}
+
 int main() {
     test_json_loads_all_commands();
     test_core_actions_have_help();
@@ -300,6 +380,9 @@ int main() {
     test_complete_nonexistent_namespace();
     test_complete_depth1_namespace_matches_at_top();
     test_drawer_namespace_levels();
+    test_model_command_is_leaf();
+    test_full_path_namespaces_are_distinct();
+    test_merge_preserves_static_tree_children();
 
     std::cout << (failed ? "FAILED" : "ALL PASSED")
               << " (" << failed << " failures)\n";
