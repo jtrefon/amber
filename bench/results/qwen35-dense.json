@@ -1,7 +1,7 @@
 {
   "engine_version": "0.3.1",
   "mode": "live",
-  "model": "qwen35-dense",
+  "model": "Qwen3.6-27B dense",
   "model_score": 910.8,
   "profile": "qwen35-dense",
   "reasoning": "on",

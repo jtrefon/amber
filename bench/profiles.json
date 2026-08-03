@@ -51,5 +51,11 @@
     "temperature": 0.2,
     "thinking": "on",
     "thinking_budget": 16384
+  },
+  "qwen35-moe": {
+    "model": "qwen35-moe",
+    "temperature": 0.2,
+    "thinking": "on",
+    "thinking_budget": 16384
   }
 }
