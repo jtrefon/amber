@@ -101,7 +101,7 @@ changes — rerun the same commands after any harness change and compare.
 
 ## qwopus-27b
 
-- run: `run-1785784927270481946` [live, engine 0.3.1, reasoning default]
+- run: `run-1785784927270481946` [live, engine 0.3.1, reasoning on]
 - **model score: 900/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
@@ -138,7 +138,7 @@ changes — rerun the same commands after any harness change and compare.
 
 ## Qwen3.6-27B dense
 
-- run: `run-1785781966685651020` [live, engine 0.3.1, reasoning default]
+- run: `run-1785781966685651020` [live, engine 0.3.1, reasoning on]
 - **model score: 910/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
@@ -175,7 +175,7 @@ changes — rerun the same commands after any harness change and compare.
 
 ## Qwen3.6-27B MTP
 
-- run: `run-1785784252052460619` [live, engine 0.3.1, reasoning default]
+- run: `run-1785784252052460619` [live, engine 0.3.1, reasoning on]
 - **model score: 901/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
@@ -212,7 +212,7 @@ changes — rerun the same commands after any harness change and compare.
 
 ## Qwen3.6-35B MoE (A3B)
 
-- run: `run-1785792736852620357` [live, engine 0.3.1, reasoning default]
+- run: `run-1785792736852620357` [live, engine 0.3.1, reasoning on]
 - **model score: 877/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
@@ -290,7 +290,7 @@ changes — rerun the same commands after any harness change and compare.
 
 ## gemma4-12b-q4
 
-- run: `run-1785776685335860326` [live, engine 0.3.1, reasoning default]
+- run: `run-1785776685335860326` [live, engine 0.3.1, reasoning on (server preset, client auto)]
 - **model score: 726/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
@@ -334,7 +334,7 @@ changes — rerun the same commands after any harness change and compare.
 
 ## gemma4-12b-q4 (reasoning explicit)
 
-- run: `run-1785791432528704324` [live, engine 0.3.1, reasoning default]
+- run: `run-1785791432528704324` [live, engine 0.3.1, reasoning on]
 - **model score: 799/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
@@ -375,7 +375,7 @@ changes — rerun the same commands after any harness change and compare.
 
 ## gemma4-31b
 
-- run: `run-1785779734693544183` [live, engine 0.3.1, reasoning default]
+- run: `run-1785779734693544183` [live, engine 0.3.1, reasoning on]
 - **model score: 903/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |

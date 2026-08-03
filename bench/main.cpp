@@ -204,6 +204,7 @@ bool parse_report_file(const std::string& file, bench::RunMeta& meta,
     meta.model = j.value("model", "");
     meta.engine_version = j.value("engine_version", "");
     meta.timestamp = j.value("timestamp", "");
+    meta.reasoning = j.value("reasoning", "");
     for (const auto& e : j["scenarios"]) {
         bench::ScenarioReport rep;
         rep.name = e.value("name", "");
