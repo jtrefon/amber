@@ -82,6 +82,16 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
 
 
 CLI_OBJ   = $(BUILD_DIR)/src/main.o
+BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
+             $(BUILD_DIR)/bench/oracle.o \
+             $(BUILD_DIR)/bench/recorder.o \
+             $(BUILD_DIR)/bench/kpi.o \
+             $(BUILD_DIR)/bench/resources.o \
+             $(BUILD_DIR)/bench/template.o \
+             $(BUILD_DIR)/bench/report.o \
+             $(BUILD_DIR)/bench/fake.o \
+             $(BUILD_DIR)/bench/runner.o
+BENCH_MAIN = $(BUILD_DIR)/bench/main.o
 TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/tui_render.o \
             $(BUILD_DIR)/tui/tui_input.o \
@@ -119,21 +129,24 @@ CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
 COMP_TEST_OBJ = $(BUILD_DIR)/tests/completions_test.o
 PLUGIN_TEST_OBJ = $(BUILD_DIR)/tests/plugin_test.o
+BENCH_TEST_OBJ = $(BUILD_DIR)/tests/bench_test.o
 
 CORE_LIB  = libagent_core.a
 TOOLS_LIB = libagent_tools.a
 CLI_BIN   = amber-cli
 TUI_BIN   = amber
+BENCH_BIN = amber-bench
 
 # ncurses (+ form/menu/panel) for the TUI client (detected at configure time).
 NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
-.PHONY: all lib cli tui check test lint analyze duplicates clean install uninstall
+.PHONY: all lib cli tui bench check test lint analyze duplicates clean install uninstall
 
 # Lint sources: every project translation unit, third_party excluded.
 LINT_SRCS = $(wildcard $(SRC_DIR)/lib/*.cpp) \
             $(wildcard $(SRC_DIR)/src/*.cpp) \
+            $(wildcard $(SRC_DIR)/bench/*.cpp) \
             $(wildcard $(SRC_DIR)/tools/*.cpp) \
             $(wildcard $(SRC_DIR)/tools/search/*.cpp) \
             $(wildcard $(SRC_DIR)/tools/plugins/*/*.cpp) \
@@ -191,7 +204,7 @@ duplicates:
 SYSINFO_PLUGIN = $(BUILD_DIR)/tools/plugins/sysinfo/sysinfo-plugin
 CDP_PLUGIN = $(BUILD_DIR)/tools/plugins/cdp/cdp-plugin
 
-all: lib cli tui $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
+all: lib cli tui bench $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
 
 $(SYSINFO_PLUGIN): tools/plugins/sysinfo/main.cpp
 	$(CXX) $(CXXFLAGS) -I$(SRC_DIR)/include -o $@ tools/plugins/sysinfo/main.cpp
@@ -202,8 +215,8 @@ $(CDP_PLUGIN): tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp tools/
 check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 
-test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test
-	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test
+test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test
+	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/bench_test
 
 $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
@@ -219,6 +232,14 @@ $(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/setting_registr
 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+
+$(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+
+bench: $(BUILD_DIR)/$(BENCH_BIN)
+
+$(BUILD_DIR)/$(BENCH_BIN): $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/ws_test: tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp tools/plugins/cdp/ws_client.h
 	$(CXX) $(CXXFLAGS) -Itools/plugins/cdp -o $@ tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp
@@ -258,6 +279,10 @@ $(BUILD_DIR)/src/%.o: $(SRC_DIR)/src/%.cpp
 	@mkdir -p $(BUILD_DIR)/src
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/bench/%.o: $(SRC_DIR)/bench/%.cpp
+	@mkdir -p $(BUILD_DIR)/bench
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/tui/%.o: $(SRC_DIR)/tui/%.cpp
 	@mkdir -p $(BUILD_DIR)/tui
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) $(NCURSES_CFLAGS) -c $< -o $@
@@ -279,6 +304,8 @@ $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 -include $(CORE_OBJS:.o=.d)
 -include $(TOOLS_OBJS:.o=.d)
 -include $(CLI_OBJ:.o=.d)
+-include $(BENCH_OBJS:.o=.d)
+-include $(BENCH_MAIN:.o=.d)
 -include $(TUI_OBJS:.o=.d)
 -include $(UNITTEST_OBJ:.o=.d)
 -include $(TEST_OBJ:.o=.d)
@@ -292,6 +319,7 @@ install: all
 	install -d $(DESTDIR)$(bindir)
 	install -m 755 $(BUILD_DIR)/$(CLI_BIN) $(DESTDIR)$(bindir)/
 	install -m 755 $(BUILD_DIR)/$(TUI_BIN) $(DESTDIR)$(bindir)/
+	install -m 755 $(BUILD_DIR)/$(BENCH_BIN) $(DESTDIR)$(bindir)/
 	install -d $(DESTDIR)$(libdir)
 	install -m 644 $(BUILD_DIR)/$(CORE_LIB) $(DESTDIR)$(libdir)/
 	install -m 644 $(BUILD_DIR)/$(TOOLS_LIB) $(DESTDIR)$(libdir)/
@@ -314,6 +342,7 @@ install: all
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(CLI_BIN)
 	rm -f $(DESTDIR)$(bindir)/$(TUI_BIN)
+	rm -f $(DESTDIR)$(bindir)/$(BENCH_BIN)
 	rm -f $(DESTDIR)$(libdir)/$(CORE_LIB)
 	rm -f $(DESTDIR)$(libdir)/$(TOOLS_LIB)
 	rm -rf $(DESTDIR)$(includedir)/agent
@@ -321,9 +350,11 @@ uninstall:
 
 clean:
 	rm -f $(BUILD_DIR)/lib/*.o $(BUILD_DIR)/src/*.o $(BUILD_DIR)/tui/*.o $(BUILD_DIR)/tests/*.o
+	rm -f $(BUILD_DIR)/bench/*.o
 	rm -f $(BUILD_DIR)/tools/*.o $(BUILD_DIR)/tools/search/*.o
 	rm -f $(BUILD_DIR)/lib/*.d $(BUILD_DIR)/src/*.d $(BUILD_DIR)/tui/*.d \
 	      $(BUILD_DIR)/tui/setting_registry.o \
 	      $(BUILD_DIR)/tui/setting_registry.d \
+	      $(BUILD_DIR)/bench/*.d \
 	      $(BUILD_DIR)/tests/*.d $(BUILD_DIR)/tools/*.d $(BUILD_DIR)/tools/search/*.d \
-	rm -f $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/libagent.a
+	rm -f $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/libagent.a
