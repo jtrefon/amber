@@ -1,7 +1,8 @@
 # AGENTS.md — amber (cpp-agent)
 
-C++17 AI agent harness: a core library (`libagent.a`) plus a headless CLI
-(`amber`) and an ncurses TUI (`amber-tui`), driven by an OpenAI-compatible LLM API.
+C++17 AI agent harness: a core library (`libagent_core.a` + `libagent_tools.a`)
+plus a headless CLI (`amber-cli`) and an ncurses TUI (`amber`, the flagship),
+driven by an OpenAI-compatible LLM API.
 
 ## Build & verify
 
@@ -9,7 +10,7 @@ C++17 AI agent harness: a core library (`libagent.a`) plus a headless CLI
   generate `Makefile` from `Makefile.in`. You rarely need to call `./configure`
   by hand.
 - `make` builds everything (`lib cli tui`). The binaries and archive land in the
-  repo root (`amber`, `amber-tui`, `libagent.a`) — in-tree, not in a `build/`.
+  repo root (`amber`, `amber-cli`, `libagent_core.a`, `libagent_tools.a`) — in-tree, not in a `build/`.
 - `make test` builds and runs the unit suite (`run_tests`). `make check` is a
   separate, lighter tool smoke test (`smoketest`) — do not confuse the two.
 - `make lint` runs **clang-tidy** over every project source (third_party
@@ -37,9 +38,9 @@ C++17 AI agent harness: a core library (`libagent.a`) plus a headless CLI
 
 - `lib/` + `include/agent/` is the UI-free core: LLM client, tool registry,
   agent loop, prompt/markdown loader, built-in tools. Keep UI concerns out.
-- `src/amber` is the headless CLI; `tui/` is the ncurses client. Both only
-  *link* `libagent.a` and communicate via `AgentHooks`. `tui/` must never be
-  depended on by `lib/`.
+- `src/amber-cli` is the headless CLI; `tui/` is the ncurses client (`amber`).
+  Both only *link* `libagent_core.a` + `libagent_tools.a` and communicate via
+  `AgentHooks`. `tui/` must never be depended on by `lib/`.
 - Tools live in `tools/` (read/write/search/bash). The search tool is
   pluggable: `mode="grep"` (default, wraps `grep -rnI`) or `mode="semantic"`
   (dependency-free lexical index). Swap only `embed()` to use a real model.

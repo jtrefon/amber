@@ -13,8 +13,7 @@ autom4te.cache/
 
 # Generated binaries
 amber
-amber-tui
-amber-tui-debug
+amber-cli
 run_tests
 run_tests_dbg
 command_line_test
