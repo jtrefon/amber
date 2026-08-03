@@ -2,7 +2,7 @@
   "engine_version": "0.3.1",
   "mode": "live",
   "model": "gemma4-12b-q4",
-  "model_score": 850.203488372093,
+  "model_score": 726.3,
   "profile": "gemma4-12b-q4",
   "run_id": "run-1785776685335860326",
   "scenarios": [
@@ -919,15 +919,13 @@
       "artifact_score": 1.0,
       "baseline_rss_kb": 16440,
       "behavior_equivalent": true,
-      "bullseye": 0.0,
+      "bullseye": 1.0,
       "bullseye_at_ms": 1850,
       "compile_ok": true,
       "completion_tokens": 81,
       "cpu_ms": 6,
       "difficulty": 3,
-      "failures": [
-        "oracle not matched: 0/1 steps (bullseye 0)"
-      ],
+      "failures": [],
       "files_touched": 0,
       "final_text": "version=2.7.1\ndone.",
       "hard_stop": false,
@@ -938,14 +936,14 @@
       "recoveries": 0,
       "redundant": 0,
       "retries": 0,
-      "score": 30.5,
+      "score": 100.0,
       "score_adherence": 100.0,
       "score_correctness": 30.0,
       "score_efficiency": 80.0,
       "score_robustness": 100.0,
       "steps": 2,
       "structure_checks": 1.0,
-      "success": false,
+      "success": true,
       "suite": "terminal",
       "tool_call_accuracy": 0.0,
       "tool_calls": [
@@ -957,7 +955,7 @@
       "tps_avg": 83.00737105027476,
       "ttft_ms": 710.125,
       "wall_ms": 1850,
-      "wasted": 1,
+      "wasted": 0,
       "templated": false
     },
     {

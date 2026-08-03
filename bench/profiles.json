@@ -45,5 +45,11 @@
     "temperature": 0.2,
     "thinking": "on",
     "thinking_budget": 16384
+  },
+  "qwen36-27b-mtp": {
+    "model": "qwen36-27b-mtp",
+    "temperature": 0.2,
+    "thinking": "on",
+    "thinking_budget": 16384
   }
 }

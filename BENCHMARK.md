@@ -23,8 +23,9 @@ llama.cpp / llama-turboq with the presets below):
 ./amber-bench run --live --profile qwopus-27b   --out .amber/bench/results/qwopus-27b.json
 ./amber-bench run --live --profile gemma4-12b-q4 --out .amber/bench/results/gemma4-12b-q4.json
 ./amber-bench run --live --profile gemma4-31b   --out .amber/bench/results/gemma4-31b.json
-./amber-bench run --live --profile qwen35-dense --out .amber/bench/results/qwen35-dense.json
-./amber-bench run --live --profile ornith-35b   --out .amber/bench/results/ornith-35b.json
+./amber-bench run --live --profile qwen35-dense   --out .amber/bench/results/qwen35-dense.json
+./amber-bench run --live --profile qwen36-27b-mtp --out .amber/bench/results/qwen36-27b-mtp.json
+./amber-bench run --live --profile ornith-35b    --out .amber/bench/results/ornith-35b.json
 ./amber-bench report bench/results/*.json --format markdown
 ```
 
@@ -39,83 +40,87 @@ wasted call, per failed hidden test.
 Raw per-run JSON lives in `bench/results/`. The baseline (2026-08-03) is
 tracked here so we can measure our own rate of improvement as the engine
 changes — rerun the same commands after any harness change and compare.
+
+> Naming note: `qwen35-dense` is the preset for **Qwen3.6-27B** dense (the
+> 35B MoE is preset `qwen35-moe`). All three 27B Qwen-family runs
+> (qwopus-27b, qwen35-dense, qwen36-27b-mtp) land in a ~900-910 band —
+> differences within it are single-run variance, not model ranking; use
+> `--repeat N` for statistically meaningful deltas.
 # Benchmark: harness score by model
 
-- **qwopus-27b**: 841/1000
+- **qwopus-27b**: 900/1000
 - **qwen35-dense**: 910/1000
+- **qwen36-27b-mtp**: 901/1000
 - **ornith-1.0-35b**: 837/1000
-- **gemma4-12b-q4**: 702/1000
-- **gemma4-31b**: 878/1000
+- **gemma4-12b-q4**: 726/1000
+- **gemma4-31b**: 903/1000
 
-| scenario | qwopus-27b | qwen35-dense | ornith-1.0-35b | gemma4-12b-q4 | gemma4-31b |
-|---|---|---|---|---|---|
-| c-01-fizzbuzz | 96 | 96 | 96 | 84 | 100 |
-| c-02-sorting-multi | 96 | 96 | 40 | 95 | 90 |
-| c-03-ring-buffer | 80 | 80 | 84 | 86 | 80 |
-| c-04-lcs | 92 | 88 | 84 | 90 | 84 |
-| c-05-graph-bfs | 86 | 86 | 82 | 90 | 84 |
-| p-01-envelope-format | 100 | 100 | 96 | 100 | 96 |
-| p-02-banned-tool-refusal | 100 | 100 | 100 | 100 | 100 |
-| p-03-verify-after-action | 25 | 27 | 21 | 21 | 29 |
-| p-05-multi-constraint | 100 | 100 | 100 | 48 | 100 |
-| p-06-verify-before-claim | 94 | 94 | 94 | 98 | 94 |
-| r-01-extract-method | 96 | 94 | 96 | 40 | 100 |
-| r-02-polymorphism-over-switch | 96 | 86 | 96 | 89 | 100 |
-| r-03-adapter | 80 | 82 | 80 | 27 | 80 |
-| r-04-strategy | 88 | 88 | 80 | 34 | 82 |
-| t-01-ls-count-files | 100 | 100 | 100 | 100 | 100 |
-| t-02-grep-extract-value | 30 | 98 | 98 | 30 | 28 |
-| t-03-compile-run-cpp | 100 | 100 | 46 | 100 | 100 |
-| t-04-env-inventory | 100 | 100 | 100 | 44 | 100 |
-| t-05-pipeline-transform | 100 | 100 | 100 | 46 | 100 |
-| t-06-multi-dir-count | 100 | 100 | 100 | 100 | 100 |
-| t-01-search-vs-bash-grep | 100 | 100 | 100 | 100 | 100 |
-| t-02-read-vs-cat | 31 | 100 | 94 | 100 | 100 |
-| t-03-write-vs-rewrite | 92 | 100 | 35 | 92 | 92 |
-| t-04-process-vs-blocking | 34 | 90 | 80 | 32 | 86 |
-| t-06-write-verify-loop | 90 | 90 | 90 | 82 | 82 |
+| scenario | qwopus-27b | qwen35-dense | qwen36-27b-mtp | ornith-1.0-35b | gemma4-12b-q4 | gemma4-31b |
+|---|---|---|---|---|---|---|
+| c-01-fizzbuzz | 96 | 96 | 96 | 96 | 84 | 100 |
+| c-02-sorting-multi | 96 | 96 | 100 | 40 | 95 | 90 |
+| c-03-ring-buffer | 84 | 80 | 80 | 84 | 86 | 80 |
+| c-04-lcs | 80 | 88 | 84 | 84 | 90 | 84 |
+| c-05-graph-bfs | 84 | 86 | 80 | 82 | 90 | 84 |
+| p-01-envelope-format | 100 | 100 | 100 | 96 | 100 | 96 |
+| p-02-banned-tool-refusal | 100 | 100 | 100 | 100 | 100 | 100 |
+| p-03-verify-after-action | 15 | 27 | 21 | 21 | 21 | 29 |
+| p-05-multi-constraint | 100 | 100 | 100 | 100 | 48 | 100 |
+| p-06-verify-before-claim | 98 | 94 | 94 | 94 | 98 | 94 |
+| r-01-extract-method | 96 | 94 | 96 | 96 | 40 | 100 |
+| r-02-polymorphism-over-switch | 92 | 86 | 96 | 96 | 89 | 100 |
+| r-03-adapter | 80 | 82 | 80 | 80 | 27 | 80 |
+| r-04-strategy | 88 | 88 | 86 | 80 | 34 | 82 |
+| t-01-ls-count-files | 100 | 100 | 100 | 100 | 100 | 100 |
+| t-02-grep-extract-value | 100 | 98 | 100 | 98 | 100 | 100 |
+| t-03-compile-run-cpp | 100 | 100 | 100 | 46 | 100 | 100 |
+| t-04-env-inventory | 100 | 100 | 100 | 100 | 44 | 100 |
+| t-05-pipeline-transform | 100 | 100 | 100 | 100 | 46 | 100 |
+| t-06-multi-dir-count | 100 | 100 | 100 | 100 | 100 | 100 |
+| t-01-search-vs-bash-grep | 100 | 100 | 100 | 100 | 100 | 100 |
+| t-02-read-vs-cat | 100 | 100 | 100 | 94 | 100 | 100 |
+| t-03-write-vs-rewrite | 92 | 100 | 92 | 35 | 92 | 92 |
+| t-04-process-vs-blocking | 80 | 90 | 82 | 80 | 32 | 86 |
+| t-06-write-verify-loop | 90 | 90 | 90 | 90 | 82 | 82 |
 
 ---
 
 ## qwopus-27b
 
-- run: `run-1785777163134501929` [live, engine 0.3.1, reasoning default]
-- **model score: 841/1000** (25 scenarios)
+- run: `run-1785784927270481946` [live, engine 0.3.1, reasoning default]
+- **model score: 900/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
 |---|---|---|---|---|---|---|---|
-| c-01-fizzbuzz | 2 | 96 | 1 | 7 | 6 | 13.844 | 1 |
-| c-02-sorting-multi | 3 | 96 | 1 | 8 | 7 | 25.751 | 1 |
-| c-03-ring-buffer | 4 | 80 | 1 | 14 | 13 | 42.586 | 1 |
-| c-04-lcs | 4 | 92 | 1 | 5 | 3 | 15.518 | 1 |
-| c-05-graph-bfs | 5 | 86 | 1 | 6 | 6 | 18.15 | 1 |
-| p-01-envelope-format | 2 | 100 | 1 | 2 | 0 | 4.8 | - |
-| p-02-banned-tool-refusal | 3 | 100 | 1 | 2 | 0 | 4.825 | - |
-| p-03-verify-after-action | 3 | 25 | 0 | 3 | 2 | 7.183 | - |
-| p-05-multi-constraint | 4 | 100 | 1 | 2 | 0 | 5.23 | - |
-| p-06-verify-before-claim | 4 | 94 | 1 | 3 | 1 | 5.748 | - |
-| r-01-extract-method | 4 | 96 | 1 | 6 | 5 | 18.729 | 1 |
-| r-02-polymorphism-over-switch | 4 | 96 | 1 | 5 | 5 | 16.472 | 1 |
-| r-03-adapter | 4 | 80 | 1 | 9 | 10 | 18.045 | 1 |
-| r-04-strategy | 5 | 88 | 1 | 5 | 5 | 15.66 | 1 |
-| t-01-ls-count-files | 2 | 100 | 1 | 2 | 0 | 5.06 | - |
-| t-02-grep-extract-value | 3 | 30 | 0 | 2 | 1 | 4.765 | - |
-| t-03-compile-run-cpp | 3 | 100 | 1 | 4 | 0 | 7.202 | - |
-| t-04-env-inventory | 3 | 100 | 1 | 1 | 0 | 4.74 | - |
-| t-05-pipeline-transform | 4 | 100 | 1 | 4 | 0 | 8.343 | - |
-| t-06-multi-dir-count | 3 | 100 | 1 | 3 | 0 | 7.282 | - |
-| t-01-search-vs-bash-grep | 3 | 100 | 1 | 2 | 0 | 4.896 | - |
-| t-02-read-vs-cat | 2 | 31 | 0 | 2 | 1 | 5.469 | - |
-| t-03-write-vs-rewrite | 3 | 92 | 1 | 4 | 1 | 7.034 | - |
-| t-04-process-vs-blocking | 5 | 34 | 0.666667 | 7 | 4 | 20.192 | - |
-| t-06-write-verify-loop | 4 | 90 | 1 | 4 | 1 | 6.417 | - |
+| c-01-fizzbuzz | 2 | 96 | 1 | 7 | 6 | 11.865 | 1 |
+| c-02-sorting-multi | 3 | 96 | 1 | 8 | 7 | 23.839 | 1 |
+| c-03-ring-buffer | 4 | 84 | 1 | 7 | 7 | 21.58 | 1 |
+| c-04-lcs | 4 | 80 | 1 | 12 | 11 | 34.261 | 1 |
+| c-05-graph-bfs | 5 | 84 | 1 | 7 | 6 | 25.872 | 1 |
+| p-01-envelope-format | 2 | 100 | 1 | 2 | 0 | 6.219 | - |
+| p-02-banned-tool-refusal | 3 | 100 | 1 | 2 | 0 | 4.767 | - |
+| p-03-verify-after-action | 3 | 15 | 0 | 8 | 7 | 24.386 | - |
+| p-05-multi-constraint | 4 | 100 | 1 | 2 | 0 | 5.725 | - |
+| p-06-verify-before-claim | 4 | 98 | 1 | 2 | 0 | 4.616 | - |
+| r-01-extract-method | 4 | 96 | 1 | 6 | 5 | 20.961 | 1 |
+| r-02-polymorphism-over-switch | 4 | 92 | 1 | 8 | 7 | 21.831 | 1 |
+| r-03-adapter | 4 | 80 | 1 | 11 | 13 | 22.287 | 1 |
+| r-04-strategy | 5 | 88 | 1 | 5 | 5 | 16.106 | 1 |
+| t-01-ls-count-files | 2 | 100 | 1 | 2 | 0 | 4.887 | - |
+| t-02-grep-extract-value | 3 | 100 | 1 | 2 | 0 | 4.913 | - |
+| t-03-compile-run-cpp | 3 | 100 | 1 | 4 | 0 | 7.103 | - |
+| t-04-env-inventory | 3 | 100 | 1 | 1 | 0 | 4.482 | - |
+| t-05-pipeline-transform | 4 | 100 | 1 | 3 | 0 | 7.952 | - |
+| t-06-multi-dir-count | 3 | 100 | 1 | 2 | 0 | 5.122 | - |
+| t-01-search-vs-bash-grep | 3 | 100 | 1 | 2 | 0 | 4.701 | - |
+| t-02-read-vs-cat | 2 | 100 | 1 | 2 | 0 | 4.922 | - |
+| t-03-write-vs-rewrite | 3 | 92 | 1 | 4 | 1 | 6.379 | - |
+| t-04-process-vs-blocking | 5 | 80 | 1 | 8 | 4 | 19.975 | - |
+| t-06-write-verify-loop | 4 | 90 | 1 | 4 | 1 | 7.151 | - |
 
 ### Failures
 
-- **p-03-verify-after-action** (25/100): oracle not matched: 0/2 steps (bullseye 0)
-- **t-02-grep-extract-value** (30/100): oracle not matched: 0/1 steps (bullseye 0)
-- **t-02-read-vs-cat** (31/100): oracle not matched: 0/1 steps (bullseye 0)
-- **t-04-process-vs-blocking** (34/100): oracle not matched: 2/3 steps (bullseye 0.666667)
+- **p-03-verify-after-action** (15/100): oracle not matched: 0/2 steps (bullseye 0)
 
 ## qwen35-dense
 
@@ -153,6 +158,43 @@ changes — rerun the same commands after any harness change and compare.
 ### Failures
 
 - **p-03-verify-after-action** (27/100): oracle not matched: 0/2 steps (bullseye 0)
+
+## qwen36-27b-mtp
+
+- run: `run-1785784252052460619` [live, engine 0.3.1, reasoning default]
+- **model score: 901/1000** (25 scenarios)
+
+| scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
+|---|---|---|---|---|---|---|---|
+| c-01-fizzbuzz | 2 | 96 | 1 | 8 | 7 | 16.692 | 1 |
+| c-02-sorting-multi | 3 | 100 | 1 | 7 | 6 | 24.835 | 1 |
+| c-03-ring-buffer | 4 | 80 | 1 | 9 | 9 | 33.503 | 1 |
+| c-04-lcs | 4 | 84 | 1 | 7 | 5 | 18.67 | 1 |
+| c-05-graph-bfs | 5 | 80 | 1 | 10 | 8 | 22.602 | 1 |
+| p-01-envelope-format | 2 | 100 | 1 | 2 | 0 | 5.173 | - |
+| p-02-banned-tool-refusal | 3 | 100 | 1 | 2 | 0 | 4.578 | - |
+| p-03-verify-after-action | 3 | 21 | 0 | 4 | 3 | 8.371 | - |
+| p-05-multi-constraint | 4 | 100 | 1 | 2 | 0 | 5.542 | - |
+| p-06-verify-before-claim | 4 | 94 | 1 | 3 | 1 | 6.209 | - |
+| r-01-extract-method | 4 | 96 | 1 | 7 | 7 | 23.245 | 1 |
+| r-02-polymorphism-over-switch | 4 | 96 | 1 | 8 | 8 | 24.827 | 1 |
+| r-03-adapter | 4 | 80 | 1 | 9 | 10 | 22.016 | 1 |
+| r-04-strategy | 5 | 86 | 1 | 6 | 5 | 19.396 | 1 |
+| t-01-ls-count-files | 2 | 100 | 1 | 2 | 0 | 5.187 | - |
+| t-02-grep-extract-value | 3 | 100 | 1 | 2 | 0 | 4.762 | - |
+| t-03-compile-run-cpp | 3 | 100 | 1 | 4 | 0 | 7.549 | - |
+| t-04-env-inventory | 3 | 100 | 1 | 1 | 0 | 5.298 | - |
+| t-05-pipeline-transform | 4 | 100 | 1 | 2 | 0 | 7.39 | - |
+| t-06-multi-dir-count | 3 | 100 | 1 | 3 | 0 | 6.193 | - |
+| t-01-search-vs-bash-grep | 3 | 100 | 1 | 2 | 0 | 5.33 | - |
+| t-02-read-vs-cat | 2 | 100 | 1 | 2 | 0 | 5.971 | - |
+| t-03-write-vs-rewrite | 3 | 92 | 1 | 4 | 1 | 7.383 | - |
+| t-04-process-vs-blocking | 5 | 82 | 1 | 7 | 3 | 11.091 | - |
+| t-06-write-verify-loop | 4 | 90 | 1 | 4 | 1 | 6.901 | - |
+
+### Failures
+
+- **p-03-verify-after-action** (21/100): oracle not matched: 0/2 steps (bullseye 0)
 
 ## ornith-1.0-35b
 
@@ -197,7 +239,7 @@ changes — rerun the same commands after any harness change and compare.
 ## gemma4-12b-q4
 
 - run: `run-1785776685335860326` [live, engine 0.3.1, reasoning default]
-- **model score: 702/1000** (25 scenarios)
+- **model score: 726/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
 |---|---|---|---|---|---|---|---|
@@ -216,7 +258,7 @@ changes — rerun the same commands after any harness change and compare.
 | r-03-adapter | 4 | 27 | 1 | 13 | 11 | 84.313 | 0 |
 | r-04-strategy | 5 | 34 | 1 | 7 | 5 | 12.387 | 0 |
 | t-01-ls-count-files | 2 | 100 | 1 | 2 | 0 | 2.006 | - |
-| t-02-grep-extract-value | 3 | 30 | 0 | 2 | 1 | 1.85 | - |
+| t-02-grep-extract-value | 3 | 100 | 1 | 2 | 0 | 1.85 | - |
 | t-03-compile-run-cpp | 3 | 100 | 1 | 4 | 0 | 6.338 | - |
 | t-04-env-inventory | 3 | 44 | 1 | 2 | 0 | 10.569 | - |
 | t-05-pipeline-transform | 4 | 46 | 1 | 4 | 0 | 8.579 | - |
@@ -234,7 +276,6 @@ changes — rerun the same commands after any harness change and compare.
 - **r-01-extract-method** (40/100): artifact failed to compile; hidden tests failed; artifact behavior differs from reference
 - **r-03-adapter** (27/100): artifact failed to compile; hidden tests failed; artifact behavior differs from reference
 - **r-04-strategy** (34/100): artifact failed to compile; hidden tests failed; artifact behavior differs from reference
-- **t-02-grep-extract-value** (30/100): oracle not matched: 0/1 steps (bullseye 0)
 - **t-04-env-inventory** (44/100): final answer failed scenario checks
 - **t-05-pipeline-transform** (46/100): final answer failed scenario checks
 - **t-04-process-vs-blocking** (32/100): final answer failed scenario checks
@@ -242,7 +283,7 @@ changes — rerun the same commands after any harness change and compare.
 ## gemma4-31b
 
 - run: `run-1785779734693544183` [live, engine 0.3.1, reasoning default]
-- **model score: 878/1000** (25 scenarios)
+- **model score: 903/1000** (25 scenarios)
 
 | scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
 |---|---|---|---|---|---|---|---|
@@ -261,7 +302,7 @@ changes — rerun the same commands after any harness change and compare.
 | r-03-adapter | 4 | 80 | 1 | 11 | 9 | 50.326 | 1 |
 | r-04-strategy | 5 | 82 | 1 | 8 | 6 | 51.016 | 1 |
 | t-01-ls-count-files | 2 | 100 | 1 | 2 | 0 | 6.299 | - |
-| t-02-grep-extract-value | 3 | 28 | 0 | 3 | 2 | 10.097 | - |
+| t-02-grep-extract-value | 3 | 100 | 1 | 2 | 0 | 10.097 | - |
 | t-03-compile-run-cpp | 3 | 100 | 1 | 3 | 0 | 9.542 | - |
 | t-04-env-inventory | 3 | 100 | 1 | 1 | 0 | 7.664 | - |
 | t-05-pipeline-transform | 4 | 100 | 1 | 3 | 0 | 15.391 | - |
@@ -275,5 +316,4 @@ changes — rerun the same commands after any harness change and compare.
 ### Failures
 
 - **p-03-verify-after-action** (29/100): oracle not matched: 0/2 steps (bullseye 0)
-- **t-02-grep-extract-value** (28/100): oracle not matched: 0/1 steps (bullseye 0)
 

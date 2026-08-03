@@ -17,14 +17,16 @@
       "tool": "read",
       "args": {
         "path": "*a.txt"
-      }
+      },
+      "unordered": true
     },
     {
       "tool": "write",
       "args": {
         "path": "*a.txt"
       },
-      "args_subset": true
+      "args_subset": true,
+      "unordered": true
     }
   ],
   "forbidden_tools": [

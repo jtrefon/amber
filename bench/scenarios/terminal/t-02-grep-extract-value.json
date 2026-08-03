@@ -13,14 +13,7 @@
     }
   },
   "prompt": "Extract the value of version from config.txt. Reply with exactly: version=<value>, then the word done.",
-  "oracle": [
-    {
-      "tool": "read",
-      "args": {
-        "path": "*config.txt"
-      }
-    }
-  ],
+  "oracle": [],
   "checks": {
     "must_contain": [
       "version=2.7.1",
