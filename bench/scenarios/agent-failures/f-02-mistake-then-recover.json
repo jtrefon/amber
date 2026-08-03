@@ -1,0 +1,69 @@
+{
+  "name": "f-02-mistake-then-recover",
+  "suite": "agent-failures",
+  "description": "agent reads a wrong path first, then recovers to the right one",
+  "hermetic_only": true,
+  "setup": {
+    "files": {
+      "a.txt": "hello world"
+    }
+  },
+  "prompt": "what is in a.txt",
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"missing.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 50,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"a.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done. a.txt contains hello world.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    },
+    {
+      "content": "yes",
+      "prompt_tokens": 1,
+      "completion_tokens": 1
+    }
+  ],
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "a.txt"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "hello world"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 30000
+  }
+}

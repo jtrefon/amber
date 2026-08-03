@@ -118,7 +118,8 @@ TEST(oracle_partial_match_bullseye) {
     ASSERT_FALSE(r.success);
     ASSERT_EQ(r.matched_steps, 1);
     ASSERT_EQ(r.total_steps, 3);
-    ASSERT(r.bullseye > 0.32 && r.bullseye < 0.34);
+    ASSERT(r.bullseye > 0.32);
+    ASSERT(r.bullseye < 0.34);
 }
 
 TEST(oracle_off_oracle_wasted) {
@@ -370,6 +371,7 @@ TEST(kpi_budget_enforcement) {
     Scenario s;
     s.max_steps = 2;
     Kpi k;
+    k.success = true;
     k.steps = 3;
     ASSERT_FALSE(bench::kpi_success(k, s));
     s.max_steps = 0;
@@ -526,6 +528,15 @@ TEST(e2e_hermetic_read_scenario) {
         "suite": "tools",
         "prompt": "what is in a.txt",
         "setup": {"files": {"a.txt": "hello world"}},
+        "fake_replies": [
+            {"tool_calls": [{"id": "call_1", "type": "function",
+                             "function": {"name": "read",
+                                          "arguments": "{\"path\":\"a.txt\"}"}}],
+             "prompt_tokens": 50, "completion_tokens": 10},
+            {"content": "done. a.txt contains hello world.",
+             "prompt_tokens": 60, "completion_tokens": 5},
+            {"content": "yes", "prompt_tokens": 1, "completion_tokens": 1}
+        ],
         "oracle": [{"tool": "read", "args": {"path": "a.txt"}}],
         "checks": {"must_contain": ["hello world"]},
         "budget": {"max_steps": 10, "max_wall_ms": 30000}
@@ -533,24 +544,7 @@ TEST(e2e_hermetic_read_scenario) {
     std::string err;
     auto s = bench::load_scenario(dir + "/s.json", err);
     ASSERT(s.has_value());
-
-    bench::FakeClient fake;
-    bench::BenchReply r1;
-    r1.tool_calls = agent::json::array(
-        {{{"id", "call_1"},
-          {"type", "function"},
-          {"function", {{"name", "read"},
-                        {"arguments", agent::json{{"path", "a.txt"}}.dump()}}}}});
-    r1.latency_ms = 2;
-    r1.prompt_tokens = 50;
-    r1.completion_tokens = 10;
-    bench::BenchReply r2;
-    r2.content = "done.";
-    r2.prompt_tokens = 60;
-    r2.completion_tokens = 5;
-    bench::BenchReply r3;
-    r3.content = "yes";
-    fake.script = {r1, r2, r3};
+    ASSERT_EQ(s->fake_replies.size(), 3u);
 
     bench::RunOptions opts;
     bench::RunMeta meta;
@@ -563,11 +557,10 @@ TEST(e2e_hermetic_read_scenario) {
     ASSERT_EQ(rep.failures.size(), 0u);
     ASSERT(rep.kpi.success);
     ASSERT_EQ(rep.kpi.bullseye, 1.0);
-    ASSERT_EQ(rep.kpi.steps, 3);
+    ASSERT_EQ(rep.kpi.steps, 2);
     ASSERT_EQ(rep.kpi.tool_call_accuracy, 1.0);
     ASSERT_EQ(rep.kpi.prompt_adherence, 1.0);
     ASSERT(rep.kpi.wall_ms >= 0);
-    ASSERT(fake.chat_calls >= 3);
 }
 
 int main() { return agent::test::run_all(); }

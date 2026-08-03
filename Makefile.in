@@ -309,6 +309,7 @@ $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 -include $(TUI_OBJS:.o=.d)
 -include $(UNITTEST_OBJ:.o=.d)
 -include $(TEST_OBJ:.o=.d)
+-include $(BENCH_TEST_OBJ:.o=.d)
 -include $(CL_TEST_OBJ:.o=.d)
 -include $(E2E_TEST_OBJ:.o=.d)
 -include $(COMP_TEST_OBJ:.o=.d)

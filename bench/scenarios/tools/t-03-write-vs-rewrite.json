@@ -1,0 +1,35 @@
+{
+  "name": "t-03-write-vs-rewrite",
+  "suite": "tools",
+  "description": "patch-style write for a small edit; bash is forbidden",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "hello\n"
+    }
+  },
+  "prompt": "Change the word hello to hi in a.txt. Do NOT use bash. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "write",
+      "args": {
+        "path": "a.txt"
+      }
+    }
+  ],
+  "forbidden_tools": [
+    "bash"
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  }
+}

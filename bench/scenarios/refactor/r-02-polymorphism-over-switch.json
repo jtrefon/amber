@@ -1,0 +1,28 @@
+{
+  "name": "r-02-polymorphism-over-switch",
+  "suite": "refactor",
+  "description": "replace type-dispatch switch with a virtual interface, behavior unchanged",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "template": "refactor/polymorphism",
+  "prompt": "Read TASK.md and refactor the code in the workspace. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "TASK.md"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 20,
+    "max_wall_ms": 300000
+  }
+}

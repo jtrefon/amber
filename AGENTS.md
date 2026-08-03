@@ -41,6 +41,12 @@ driven by an OpenAI-compatible LLM API.
 - `src/amber-cli` is the headless CLI; `tui/` is the ncurses client (`amber`).
   Both only *link* `libagent_core.a` + `libagent_tools.a` and communicate via
   `AgentHooks`. `tui/` must never be depended on by `lib/`.
+- `bench/` is the benchmark & KPI harness (`amber-bench`): scenario loader,
+  oracle scorer, recorder (an `AgentHooks` observer), KPI aggregation, static
+  template engine. Same layering rules as the clients — `bench/` only links
+  the libraries, never touches the engine. Hermetic mode (fake LLM) is
+  deterministic and safe for CI; live mode targets any OpenAI-compatible
+  endpoint. Specs: `docs/spec/benchmark/`.
 - Tools live in `tools/` (read/write/search/bash). The search tool is
   pluggable: `mode="grep"` (default, wraps `grep -rnI`) or `mode="semantic"`
   (dependency-free lexical index). Swap only `embed()` to use a real model.

@@ -39,6 +39,8 @@ struct Scenario {
     std::vector<std::string> model_profiles;
     agent::json setup = agent::json::object();  // {files: {path: content}, shell: [...]}
     std::string prompt;
+    agent::json fake_replies = agent::json::array();  // hermetic script
+    bool stream = false;        // hermetic: use the streaming path
     std::vector<ScenarioStep> oracle;
     std::vector<std::string> forbidden_tools;
     Checks prompt_checks;

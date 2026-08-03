@@ -44,9 +44,6 @@ public:
         const std::vector<agent::Tool*>& tools,
         const std::function<void(const agent::StreamChunk&)>& on_chunk,
         agent::Stats* stats = nullptr) override;
-
-private:
-    agent::Message serve(BenchReply r, agent::Stats* stats) const;
 };
 
 } // namespace bench

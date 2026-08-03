@@ -1,0 +1,1 @@
+{"must_contain": ["virtual", "override"], "must_not_contain": ["switch (s.type)"]}

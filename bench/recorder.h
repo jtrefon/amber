@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "agent/agent.h"
+#include "bench/oracle.h"
 
 namespace bench {
 
@@ -40,6 +41,7 @@ struct StatsEvent {
 };
 
 struct EventStream {
+    std::vector<ToolCallEvent> calls;   // in the agent's chosen order
     std::vector<ToolEvent> tools;
     std::vector<RetryEvent> retries;
     std::vector<RecoveryEvent> recoveries;
@@ -56,7 +58,7 @@ public:
     Recorder() = default;
 
     // Hooks to hand to Agent (captures this; Recorder must outlive the Agent).
-    agent::AgentHooks hooks() const;
+    agent::AgentHooks hooks();
 
     const EventStream& stream() const noexcept { return stream_; }
 
