@@ -25,6 +25,9 @@ struct ScenarioReport {
     std::string name;
     std::string suite;
     Kpi kpi;
+    std::string final_text;              // the agent's final answer
+    std::vector<std::pair<std::string, std::string>> tool_calls;  // name, args
+    bool templated = false;              // static-template scenario
     std::vector<std::string> failures;
 };
 

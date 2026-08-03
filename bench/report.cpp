@@ -24,10 +24,31 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
             << " wasted=" << r.kpi.wasted
             << " wall=" << r.kpi.wall_ms << "ms"
             << " retries=" << r.kpi.retries
-            << " recoveries=" << r.kpi.recoveries
-            << "\n";
+            << " recoveries=" << r.kpi.recoveries;
+        if (r.templated) {
+            out << " artifact=" << r.kpi.artifact_score
+                << " compile=" << (r.kpi.compile_ok ? "ok" : "FAIL")
+                << " behavior=" << (r.kpi.behavior_equivalent ? "eq" : "diff");
+        }
+        out << "\n";
         if (!r.failures.empty()) {
             for (const auto& f : r.failures) out << "    - " << f << "\n";
+            for (const auto& tc : r.tool_calls) {
+                std::string a = tc.second;
+                if (a.size() > 80) {
+                    a.resize(77);
+                    a += "...";
+                }
+                out << "    call: " << tc.first << " " << a << "\n";
+            }
+            if (!r.final_text.empty()) {
+                std::string t = r.final_text;
+                if (t.size() > 140) {
+                    t.resize(137);
+                    t += "...";
+                }
+                out << "    final: " << t << "\n";
+            }
         }
     }
     out << passed << "/" << reports.size() << " scenarios passed\n";
@@ -73,6 +94,15 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["behavior_equivalent"] = r.kpi.behavior_equivalent;
         j["structure_checks"] = r.kpi.structure_checks;
         j["prompt_adherence"] = r.kpi.prompt_adherence;
+        j["final_text"] = r.final_text;
+        agent::json calls = agent::json::array();
+        for (const auto& tc : r.tool_calls) {
+            agent::json cj;
+            cj["tool"] = tc.first;
+            cj["args"] = tc.second;
+            calls.push_back(std::move(cj));
+        }
+        j["tool_calls"] = std::move(calls);
         j["failures"] = r.failures;
         arr.push_back(std::move(j));
     }

@@ -14,10 +14,17 @@
   "prompt": "Change the word hello to hi in a.txt. Do NOT use bash. Reply with the word done when finished.",
   "oracle": [
     {
+      "tool": "read",
+      "args": {
+        "path": "*a.txt"
+      }
+    },
+    {
       "tool": "write",
       "args": {
-        "path": "a.txt"
-      }
+        "path": "*a.txt"
+      },
+      "args_subset": true
     }
   ],
   "forbidden_tools": [

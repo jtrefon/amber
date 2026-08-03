@@ -17,6 +17,7 @@ struct ToolCallEvent {
     std::string name;
     agent::json args;
     long t_ms = 0;              // wall time of the call (recorder-stamped)
+    std::string status;         // "ok" | "error" | "denied" (filled on result)
 };
 
 struct OracleResult {

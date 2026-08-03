@@ -1,0 +1,4 @@
+{
+  "good": {"model": "ornith-1.0-35b", "temperature": 0.2},
+  "poor": {"model": "ornith-1.0-35b", "temperature": 0.8, "thinking": "off"}
+}

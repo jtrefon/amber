@@ -17,7 +17,7 @@
           "type": "function",
           "function": {
             "name": "bash",
-            "arguments": "{\"command\":\"cat a.txt\"}"
+            "arguments": "{\"command\":\"rm -rf /tmp/amber_denied_probe\"}"
           }
         }
       ],

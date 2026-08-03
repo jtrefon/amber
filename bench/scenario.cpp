@@ -20,6 +20,12 @@ std::string current_platform() noexcept {
     return is_darwin() ? "darwin" : "linux";
 }
 
+std::string lowercase(std::string s) {
+    for (auto& c : s)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
 bool parse_checks(const agent::json& j, Checks& out) {
     if (j.is_null()) return true;
     if (!j.is_object()) return false;
@@ -130,24 +136,28 @@ bool platform_supported(const Scenario& s) noexcept {
 }
 
 bool checks_pass(const Checks& c, const std::string& text) noexcept {
+    const std::string folded = lowercase(text);
     return std::all_of(c.must_contain.begin(), c.must_contain.end(),
-                       [&text](const std::string& need) {
-                           return text.find(need) != std::string::npos;
+                       [&folded](const std::string& need) {
+                           return folded.find(lowercase(need)) !=
+                                  std::string::npos;
                        }) &&
            std::all_of(c.must_not_contain.begin(), c.must_not_contain.end(),
-                       [&text](const std::string& banned) {
-                           return text.find(banned) == std::string::npos;
+                       [&folded](const std::string& banned) {
+                           return folded.find(lowercase(banned)) ==
+                                  std::string::npos;
                        });
 }
 
 double adherence(const Checks& c, const std::string& text) noexcept {
+    const std::string folded = lowercase(text);
     size_t total = c.must_contain.size() + c.must_not_contain.size();
     if (total == 0) return 1.0;
     size_t passed = 0;
     for (const auto& need : c.must_contain)
-        if (text.find(need) != std::string::npos) ++passed;
+        if (folded.find(lowercase(need)) != std::string::npos) ++passed;
     for (const auto& banned : c.must_not_contain)
-        if (text.find(banned) == std::string::npos) ++passed;
+        if (folded.find(lowercase(banned)) == std::string::npos) ++passed;
     return static_cast<double>(passed) / static_cast<double>(total);
 }
 

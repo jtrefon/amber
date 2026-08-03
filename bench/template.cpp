@@ -98,12 +98,12 @@ struct TestOutcome {
 };
 
 TestOutcome run_one_test(const std::string& compiler,
+                         const std::vector<fs::path>& artifact_sources,
                          const fs::path& solution_dir, const fs::path& test_file,
                          const fs::path& cache) {
     TestOutcome out;
-    const std::vector<fs::path> sources = source_files(solution_dir, ".cpp");
     const fs::path bin = cache / (test_file.stem().string() + ".bin");
-    if (std::system((compile_cmd(compiler, sources, solution_dir, test_file, bin) +
+    if (std::system((compile_cmd(compiler, artifact_sources, solution_dir, test_file, bin) +
                      " 2>/dev/null")
                         .c_str()) != 0)
         return out;
@@ -111,6 +111,20 @@ TestOutcome run_one_test(const std::string& compiler,
     int status = -1;
     out.output = run_capture('"' + bin.string() + '"', &status);
     out.passed = status == 0;
+    return out;
+}
+
+// The agent's source set is the skeleton's contract files only — stray files
+// the agent left behind (own scratch tests) must not enter the build.
+std::vector<fs::path> contract_sources(const fs::path& skeleton_dir,
+                                       const fs::path& artifact_dir) {
+    std::vector<fs::path> out;
+    if (!fs::is_directory(skeleton_dir)) return out;
+    for (const auto& e : fs::directory_iterator(skeleton_dir)) {
+        if (!e.is_regular_file() || e.path().extension() != ".cpp") continue;
+        const fs::path candidate = artifact_dir / e.path().filename();
+        if (fs::is_regular_file(candidate)) out.push_back(candidate);
+    }
     return out;
 }
 
@@ -210,14 +224,22 @@ TemplateResult run_template(const std::string& template_dir,
 
     std::vector<TestOutcome> reference_outcomes;
     reference_outcomes.reserve(tests.size());
+    const std::vector<fs::path> ref_sources =
+        contract_sources(reference, reference);
     for (const auto& t : tests)
-        reference_outcomes.push_back(run_one_test(compiler, reference, t, cache));
+        reference_outcomes.push_back(
+            run_one_test(compiler, ref_sources, reference, t, cache));
 
     r.tests_total = static_cast<int>(tests.size());
     r.compile_ok = true;
     bool reference_all_good = true;
+    std::vector<fs::path> art_sources =
+        contract_sources(tpl / "skeleton", artifact);
+    if (art_sources.empty())
+        art_sources = source_files(artifact, ".cpp");
     for (size_t i = 0; i < tests.size(); ++i) {
-        TestOutcome ao = run_one_test(compiler, artifact, tests[i], cache);
+        TestOutcome ao =
+            run_one_test(compiler, art_sources, artifact, tests[i], cache);
         if (!ao.compiled) {
             r.compile_ok = false;
             reference_all_good = false;

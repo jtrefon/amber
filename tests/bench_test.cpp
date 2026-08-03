@@ -51,8 +51,8 @@ TEST(oracle_exact_ordered_match) {
         {"write", {{"path", "b.txt"}}},
     };
     std::vector<ToolCallEvent> calls = {
-        {"read", {{"path", "a.txt"}}},
-        {"write", {{"path", "b.txt"}}},
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
+        {"write", {{"path", "b.txt"}}, 0, "ok"},
     };
     OracleResult r = bench::score_oracle(steps, calls);
     ASSERT(r.success);
@@ -66,7 +66,7 @@ TEST(oracle_exact_ordered_match) {
 
 TEST(oracle_wildcard_args) {
     std::vector<ScenarioStep> steps = {{"read", {{"path", "*/a.txt"}}}};
-    std::vector<ToolCallEvent> calls = {{"read", {{"path", "src/a.txt"}}}};
+    std::vector<ToolCallEvent> calls = {{"read", {{"path", "src/a.txt"}}, 0, "ok"}};
     OracleResult r = bench::score_oracle(steps, calls);
     ASSERT(r.success);
     ASSERT_EQ(r.bullseye, 1.0);
@@ -76,7 +76,7 @@ TEST(oracle_args_subset_relaxes) {
     std::vector<ScenarioStep> steps = {
         {"read", {{"path", "a.txt"}}, true},
     };
-    std::vector<ToolCallEvent> calls = {{"read", {{"path", "a.txt"}, {"lines", 40}}}};
+    std::vector<ToolCallEvent> calls = {{"read", {{"path", "a.txt"}, {"lines", 40}}, 0, "ok"}};
     OracleResult r = bench::score_oracle(steps, calls);
     ASSERT(r.success);
     ASSERT_EQ(r.arg_precision, 1.0);
@@ -86,7 +86,7 @@ TEST(oracle_missing_expected_key_fails) {
     std::vector<ScenarioStep> steps = {
         {"read", {{"path", "a.txt"}, {"lines", 40}}, false},
     };
-    std::vector<ToolCallEvent> calls = {{"read", {{"path", "a.txt"}}}};
+    std::vector<ToolCallEvent> calls = {{"read", {{"path", "a.txt"}}, 0, "ok"}};
     OracleResult r = bench::score_oracle(steps, calls);
     ASSERT_FALSE(r.success);
     ASSERT_EQ(r.matched_steps, 0);
@@ -98,8 +98,8 @@ TEST(oracle_unordered_steps_any_order) {
         {"search", {{"query", "*"}}, false, true},
     };
     std::vector<ToolCallEvent> calls = {
-        {"search", {{"query", "x"}}},
-        {"read", {{"path", "a.txt"}}},
+        {"search", {{"query", "x"}}, 0, "ok"},
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
     };
     OracleResult r = bench::score_oracle(steps, calls);
     ASSERT(r.success);
@@ -113,7 +113,7 @@ TEST(oracle_partial_match_bullseye) {
         {"write", {{"path", "b.txt"}}},
         {"bash", {{"command", "*diff*"}}},
     };
-    std::vector<ToolCallEvent> calls = {{"read", {{"path", "a.txt"}}}};
+    std::vector<ToolCallEvent> calls = {{"read", {{"path", "a.txt"}}, 0, "ok"}};
     OracleResult r = bench::score_oracle(steps, calls);
     ASSERT_FALSE(r.success);
     ASSERT_EQ(r.matched_steps, 1);
@@ -125,8 +125,8 @@ TEST(oracle_partial_match_bullseye) {
 TEST(oracle_off_oracle_wasted) {
     std::vector<ScenarioStep> steps = {{"read", {{"path", "a.txt"}}}};
     std::vector<ToolCallEvent> calls = {
-        {"read", {{"path", "a.txt"}}},
-        {"bash", {{"command", "ls"}}},
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
+        {"bash", {{"command", "ls"}}, 0, "ok"},
     };
     OracleResult r = bench::score_oracle(steps, calls);
     ASSERT(r.success);
@@ -141,9 +141,9 @@ TEST(oracle_redundant_identical_calls) {
         {"read", {{"path", "b.txt"}}},
     };
     std::vector<ToolCallEvent> calls = {
-        {"read", {{"path", "a.txt"}}},
-        {"read", {{"path", "a.txt"}}},
-        {"read", {{"path", "b.txt"}}},
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
+        {"read", {{"path", "b.txt"}}, 0, "ok"},
     };
     OracleResult r = bench::score_oracle(steps, calls);
     ASSERT(r.success);
@@ -152,7 +152,8 @@ TEST(oracle_redundant_identical_calls) {
 }
 
 TEST(oracle_empty_oracle_success) {
-    OracleResult r = bench::score_oracle({}, {{"read", {{"path", "a.txt"}}}});
+    OracleResult r = bench::score_oracle(
+        {}, {{"read", {{"path", "a.txt"}}, 0, "ok"}});
     ASSERT(r.success);
     ASSERT_EQ(r.bullseye, 1.0);
 }

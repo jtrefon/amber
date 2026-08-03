@@ -73,6 +73,16 @@ void Recorder::on_tool_result(const std::string& name,
         pending_.erase(it);
         break;
     }
+    for (auto& c : stream_.calls) {
+        if (c.name != name || !c.status.empty()) continue;
+        if (e.ok)
+            c.status = "ok";
+        else if (e.denied)
+            c.status = "denied";
+        else
+            c.status = "error";
+        break;
+    }
     stream_.tools.push_back(std::move(e));
 }
 

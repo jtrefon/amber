@@ -60,14 +60,23 @@ void run_setup_shell(const fs::path& ws, const json& setup) {
 
 void copy_skeleton(const fs::path& template_dir, const fs::path& ws) {
     const fs::path skel = template_dir / "skeleton";
-    if (!fs::is_directory(skel)) return;
-    for (const auto& e : fs::recursive_directory_iterator(skel)) {
-        fs::path rel = fs::relative(e.path(), skel);
-        if (e.is_directory()) {
-            fs::create_directories(ws / rel);
-        } else if (e.is_regular_file()) {
-            fs::create_directories((ws / rel).parent_path());
-            fs::copy_file(e.path(), ws / rel, fs::copy_options::overwrite_existing);
+    if (fs::is_directory(skel)) {
+        for (const auto& e : fs::recursive_directory_iterator(skel)) {
+            fs::path rel = fs::relative(e.path(), skel);
+            if (e.is_directory()) {
+                fs::create_directories(ws / rel);
+            } else if (e.is_regular_file()) {
+                fs::create_directories((ws / rel).parent_path());
+                fs::copy_file(e.path(), ws / rel,
+                              fs::copy_options::overwrite_existing);
+            }
+        }
+    }
+    // Task documents at the template root (TASK.md) are part of the contract.
+    for (const auto& e : fs::directory_iterator(template_dir)) {
+        if (e.is_regular_file() && e.path().extension() == ".md") {
+            fs::copy_file(e.path(), ws / e.path().filename(),
+                          fs::copy_options::overwrite_existing);
         }
     }
 }
@@ -76,12 +85,26 @@ fs::path template_root() {
     return fs::current_path() / "bench" / "scenarios";
 }
 
+// Restore the process CWD on scope exit (the env card in the system prompt
+// reports getcwd(), so scenarios must run with the workspace as CWD).
+struct CwdGuard {
+    explicit CwdGuard(const fs::path& dir) : saved_(fs::current_path()) {
+        const int rc = ::chdir(dir.string().c_str());
+        (void)rc;
+    }
+    ~CwdGuard() {
+        const int rc = ::chdir(saved_.string().c_str());
+        (void)rc;
+    }
+    fs::path saved_;
+};
+
 } // namespace
 
 ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
                                 const RunMeta& meta, std::string& err) {
     (void)meta;
-    ScenarioReport rep{s.name, s.suite, Kpi{}, {}};
+    ScenarioReport rep{s.name, s.suite, Kpi{}, "", {}, false, {}};
     err.clear();
     if (!platform_supported(s)) {
         rep.failures.emplace_back("platform not supported by this scenario");
@@ -94,6 +117,11 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     fs::remove_all(ws);
     fs::create_directories(ws);
     agent::Workspace::set_root(ws.string());
+
+    const fs::path tpl_abs =
+        s.template_dir.empty()
+            ? fs::path()
+            : fs::absolute(template_root() / s.template_dir);
 
     write_setup_files(ws, s.setup);
     run_setup_shell(ws, s.setup);
@@ -116,6 +144,9 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         if (cfg.tools_prompt_path.empty())
             cfg.tools_prompt_path =
                 agent::resolve_data_path("prompts/tools.md", nullptr);
+        // Mirror the CLI (src/main.cpp): fill model/context from the server
+        // when the user did not set them explicitly.
+        agent::apply_server_autodetect(cfg);
     } else {
         cfg.stream = s.stream;
         cfg.context_size = 4096;
@@ -170,6 +201,13 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     long wall_ms = 0;
     long t0 = 0;
     try {
+        // The env card advertises getcwd() as the working directory — run
+        // with the workspace as CWD so the model sees the scenario files.
+        if (!cfg.system_prompt_path.empty())
+            cfg.system_prompt_path = fs::absolute(cfg.system_prompt_path).string();
+        if (!cfg.tools_prompt_path.empty())
+            cfg.tools_prompt_path = fs::absolute(cfg.tools_prompt_path).string();
+        CwdGuard cwd(ws);
         agent::Agent agent(cfg, registry, recorder.hooks(),
                            std::move(compressor), std::move(gate),
                            std::move(mem_store), std::move(retriever),
@@ -191,8 +229,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     TemplateResult tmpl;
     if (!s.template_dir.empty()) {
         std::string terr;
-        tmpl = run_template((template_root() / s.template_dir).string(),
-                            ws.string(), "g++", terr);
+        tmpl = run_template(tpl_abs.string(), ws.string(), "g++", terr);
         if (!terr.empty()) rep.failures.emplace_back("template: " + terr);
     }
 
@@ -207,12 +244,25 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
 
     Kpi kpi = compute_kpi(recorder.stream(), oracle, meter, tmpl,
                           s.prompt_checks, final_text, wall_ms, bullseye_at);
+    const bool checks_ok = checks_pass(s.checks, final_text);
+    if (!checks_ok) kpi.success = false;
     if (!s.template_dir.empty() &&
         (!kpi.compile_ok || kpi.artifact_score != 1.0 ||
          !kpi.behavior_equivalent))
         kpi.success = false;
     kpi.success = kpi_success(kpi, s);
     rep.kpi = kpi;
+    rep.final_text = final_text;
+    rep.templated = !s.template_dir.empty();
+    for (const auto& c : recorder.stream().calls) {
+        std::string args = c.args.dump();
+        if (args.size() > 160) {
+            args.resize(157);
+            args += "...";
+        }
+        rep.tool_calls.emplace_back(c.name + " [" + c.status + "]",
+                                    args);
+    }
 
     if (!oracle.success) {
         std::ostringstream msg;
@@ -221,7 +271,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
             << oracle.bullseye << ")";
         rep.failures.emplace_back(msg.str());
     }
-    if (!checks_pass(s.checks, final_text))
+    if (!checks_ok)
         rep.failures.emplace_back("final answer failed scenario checks");
     if (kpi.hard_stop) rep.failures.emplace_back("agent hard-stopped (loop)");
     if (s.max_steps > 0 && kpi.steps > s.max_steps)
