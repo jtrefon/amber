@@ -28,7 +28,7 @@ sudo apt-get install -y build-essential libcurl4-openssl-dev \
 
 ```sh
 ./configure          # detects compiler, libcurl, ncursesw
-make                 # builds libagent.a, amber, amber-tui
+make                 # builds libagent_core.a, libagent_tools.a, amber, amber-cli
 make test            # runs the unit test suite
 ```
 

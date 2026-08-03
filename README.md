@@ -17,10 +17,11 @@ Build requirements:
   - nlohmann/json is vendored under include/ (no separate install needed)
 
 Layout:
-  lib/        libagent.a — harness core (LLM client, tool registry, agent loop,
-              prompt/markdown loader, built-in tools). No UI dependency.
-  src/        amber  — headless CLI client linking libagent.
-  tui/        amber-tui — ncurses TUI client linking libagent.
+  lib/        libagent_core.a + libagent_tools.a — harness core (LLM client,
+              tool registry, agent loop, prompt/markdown loader, built-in
+              tools). No UI dependency.
+  src/        amber-cli — headless CLI client linking libagent.
+  tui/        amber — ncurses TUI client linking libagent.
   tools/      the pre-defined tools: read (paginated), write (patch-style),
               search (pluggable backend: grep or local semantic index),
               bash (approval-gated shell execution in the workspace).
@@ -32,11 +33,11 @@ Building:
   make install    # optional, honors --prefix
 
 Run:
-  ./amber --help
-  ./amber-tui
+  ./amber
+  ./amber-cli --help
 
   Pass --yes to auto-approve the bash tool for the session (headless CLI);
-  otherwise amber prompts before each shell command on an interactive
+  otherwise amber-cli prompts before each shell command on an interactive
   terminal and denies shell execution when stdin is not a TTY.
 
 Streaming:
