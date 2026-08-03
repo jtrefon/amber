@@ -122,8 +122,8 @@ PLUGIN_TEST_OBJ = $(BUILD_DIR)/tests/plugin_test.o
 
 CORE_LIB  = libagent_core.a
 TOOLS_LIB = libagent_tools.a
-CLI_BIN   = amber
-TUI_BIN   = amber-tui
+CLI_BIN   = amber-cli
+TUI_BIN   = amber
 
 # ncurses (+ form/menu/panel) for the TUI client (detected at configure time).
 NCURSES_LIBS = @NCURSES_LIBS@

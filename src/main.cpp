@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
                 mcp_prompt_args += std::string(argv[i + 1]) + " ";
         }
         else if (a == "--version") {
-            std::cout << "amber " << agent::kVersion << " (" << agent::kBuildDate
+            std::cout << "amber-cli " << agent::kVersion << " (" << agent::kBuildDate
                       << ")\n";
             return 0;
         }

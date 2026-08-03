@@ -148,7 +148,7 @@ jobs:
           rm -rf /tmp/smoke && mkdir -p /tmp/smoke
           cd /tmp/smoke
           set +e
-          HOME=/tmp/smoke/home /usr/bin/amber -p "hi" >/tmp/smoke/out.txt 2>&1
+          HOME=/tmp/smoke/home /usr/bin/amber-cli -p "hi" >/tmp/smoke/out.txt 2>&1
           rc=$?
           set -e
           if grep -q "critical data files missing" /tmp/smoke/out.txt; then
