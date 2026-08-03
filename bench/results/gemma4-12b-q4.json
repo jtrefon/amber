@@ -1441,5 +1441,6 @@
       "templated": false
     }
   ],
-  "timestamp": "1785776685335860794"
+  "timestamp": "1785776685335860794",
+  "reasoning": "on (server preset, client auto)"
 }

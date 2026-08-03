@@ -46,6 +46,16 @@ changes — rerun the same commands after any harness change and compare.
 > (qwopus-27b, qwen35-dense, qwen36-27b-mtp) land in a ~900-910 band —
 > differences within it are single-run variance, not model ranking; use
 > `--repeat N` for statistically meaningful deltas.
+
+> Reasoning note: all runs ship with reasoning enabled. Records predating
+> explicit reasoning tracking (qwopus-27b, qwen35-dense, ornith-35b,
+> gemma4-12b-q4) are labelled `on (server preset, client auto)` — the
+> server preset carried `REASONING=on` and the client sent no override.
+> `gemma4-12b-q4-reasoning` is the same model re-run with the client
+> explicitly requesting reasoning (`enable_thinking=true`) for comparison:
+> the ~74-point delta is mostly fixed oracle false-failures plus the
+> model's high run-to-run variance (it flips which templates it solves),
+> not a reasoning flip.
 # Benchmark: harness score by model
 
 - **qwopus-27b**: 900/1000
@@ -53,35 +63,36 @@ changes — rerun the same commands after any harness change and compare.
 - **qwen36-27b-mtp**: 901/1000
 - **ornith-1.0-35b**: 837/1000
 - **gemma4-12b-q4**: 726/1000
+- **gemma4-12b-q4 (reasoning explicit)**: 799/1000
 - **gemma4-31b**: 903/1000
 
-| scenario | qwopus-27b | qwen35-dense | qwen36-27b-mtp | ornith-1.0-35b | gemma4-12b-q4 | gemma4-31b |
-|---|---|---|---|---|---|---|
-| c-01-fizzbuzz | 96 | 96 | 96 | 96 | 84 | 100 |
-| c-02-sorting-multi | 96 | 96 | 100 | 40 | 95 | 90 |
-| c-03-ring-buffer | 84 | 80 | 80 | 84 | 86 | 80 |
-| c-04-lcs | 80 | 88 | 84 | 84 | 90 | 84 |
-| c-05-graph-bfs | 84 | 86 | 80 | 82 | 90 | 84 |
-| p-01-envelope-format | 100 | 100 | 100 | 96 | 100 | 96 |
-| p-02-banned-tool-refusal | 100 | 100 | 100 | 100 | 100 | 100 |
-| p-03-verify-after-action | 15 | 27 | 21 | 21 | 21 | 29 |
-| p-05-multi-constraint | 100 | 100 | 100 | 100 | 48 | 100 |
-| p-06-verify-before-claim | 98 | 94 | 94 | 94 | 98 | 94 |
-| r-01-extract-method | 96 | 94 | 96 | 96 | 40 | 100 |
-| r-02-polymorphism-over-switch | 92 | 86 | 96 | 96 | 89 | 100 |
-| r-03-adapter | 80 | 82 | 80 | 80 | 27 | 80 |
-| r-04-strategy | 88 | 88 | 86 | 80 | 34 | 82 |
-| t-01-ls-count-files | 100 | 100 | 100 | 100 | 100 | 100 |
-| t-02-grep-extract-value | 100 | 98 | 100 | 98 | 100 | 100 |
-| t-03-compile-run-cpp | 100 | 100 | 100 | 46 | 100 | 100 |
-| t-04-env-inventory | 100 | 100 | 100 | 100 | 44 | 100 |
-| t-05-pipeline-transform | 100 | 100 | 100 | 100 | 46 | 100 |
-| t-06-multi-dir-count | 100 | 100 | 100 | 100 | 100 | 100 |
-| t-01-search-vs-bash-grep | 100 | 100 | 100 | 100 | 100 | 100 |
-| t-02-read-vs-cat | 100 | 100 | 100 | 94 | 100 | 100 |
-| t-03-write-vs-rewrite | 92 | 100 | 92 | 35 | 92 | 92 |
-| t-04-process-vs-blocking | 80 | 90 | 82 | 80 | 32 | 86 |
-| t-06-write-verify-loop | 90 | 90 | 90 | 90 | 82 | 82 |
+| scenario | qwopus-27b | qwen35-dense | qwen36-27b-mtp | ornith-1.0-35b | gemma4-12b-q4 | gemma4-12b-q4 (reasoning explicit) | gemma4-31b |
+|---|---|---|---|---|---|---|---|
+| c-01-fizzbuzz | 96 | 96 | 96 | 96 | 84 | 86 | 100 |
+| c-02-sorting-multi | 96 | 96 | 100 | 40 | 95 | 40 | 90 |
+| c-03-ring-buffer | 84 | 80 | 80 | 84 | 86 | 34 | 80 |
+| c-04-lcs | 80 | 88 | 84 | 84 | 90 | 90 | 84 |
+| c-05-graph-bfs | 84 | 86 | 80 | 82 | 90 | 90 | 84 |
+| p-01-envelope-format | 100 | 100 | 100 | 96 | 100 | 96 | 96 |
+| p-02-banned-tool-refusal | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| p-03-verify-after-action | 15 | 27 | 21 | 21 | 21 | 19 | 29 |
+| p-05-multi-constraint | 100 | 100 | 100 | 100 | 48 | 48 | 100 |
+| p-06-verify-before-claim | 98 | 94 | 94 | 94 | 98 | 94 | 94 |
+| r-01-extract-method | 96 | 94 | 96 | 96 | 40 | 100 | 100 |
+| r-02-polymorphism-over-switch | 92 | 86 | 96 | 96 | 89 | 81 | 100 |
+| r-03-adapter | 80 | 82 | 80 | 80 | 27 | 80 | 80 |
+| r-04-strategy | 88 | 88 | 86 | 80 | 34 | 90 | 82 |
+| t-01-ls-count-files | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| t-02-grep-extract-value | 100 | 98 | 100 | 98 | 100 | 100 | 100 |
+| t-03-compile-run-cpp | 100 | 100 | 100 | 46 | 100 | 100 | 100 |
+| t-04-env-inventory | 100 | 100 | 100 | 100 | 44 | 100 | 100 |
+| t-05-pipeline-transform | 100 | 100 | 100 | 100 | 46 | 98 | 100 |
+| t-06-multi-dir-count | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| t-01-search-vs-bash-grep | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| t-02-read-vs-cat | 100 | 100 | 100 | 94 | 100 | 92 | 100 |
+| t-03-write-vs-rewrite | 92 | 100 | 92 | 35 | 92 | 84 | 92 |
+| t-04-process-vs-blocking | 80 | 90 | 82 | 80 | 32 | 26 | 86 |
+| t-06-write-verify-loop | 90 | 90 | 90 | 90 | 82 | 90 | 82 |
 
 ---
 
@@ -279,6 +290,47 @@ changes — rerun the same commands after any harness change and compare.
 - **t-04-env-inventory** (44/100): final answer failed scenario checks
 - **t-05-pipeline-transform** (46/100): final answer failed scenario checks
 - **t-04-process-vs-blocking** (32/100): final answer failed scenario checks
+
+## gemma4-12b-q4 (reasoning explicit)
+
+- run: `run-1785791432528704324` [live, engine 0.3.1, reasoning default]
+- **model score: 799/1000** (25 scenarios)
+
+| scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
+|---|---|---|---|---|---|---|---|
+| c-01-fizzbuzz | 2 | 86 | 1 | 11 | 9 | 16.44 | 1 |
+| c-02-sorting-multi | 3 | 40 | 1 | 6 | 4 | 15.528 | 0 |
+| c-03-ring-buffer | 4 | 34 | 1 | 7 | 5 | 291.758 | 0 |
+| c-04-lcs | 4 | 90 | 1 | 6 | 4 | 13.765 | 1 |
+| c-05-graph-bfs | 5 | 90 | 1 | 6 | 4 | 9.297 | 1 |
+| p-01-envelope-format | 2 | 96 | 1 | 3 | 1 | 4.069 | - |
+| p-02-banned-tool-refusal | 3 | 100 | 1 | 2 | 0 | 3.78 | - |
+| p-03-verify-after-action | 3 | 19 | 0 | 5 | 4 | 5.799 | - |
+| p-05-multi-constraint | 4 | 48 | 1 | 2 | 0 | 3.37 | - |
+| p-06-verify-before-claim | 4 | 94 | 1 | 3 | 1 | 2.744 | - |
+| r-01-extract-method | 4 | 100 | 1 | 7 | 5 | 13.038 | 1 |
+| r-02-polymorphism-over-switch | 4 | 81 | 1 | 11 | 9 | 87.32 | 1 |
+| r-03-adapter | 4 | 80 | 1 | 15 | 13 | 21.315 | 1 |
+| r-04-strategy | 5 | 90 | 1 | 6 | 4 | 17.765 | 1 |
+| t-01-ls-count-files | 2 | 100 | 1 | 2 | 0 | 2.944 | - |
+| t-02-grep-extract-value | 3 | 100 | 1 | 3 | 0 | 3.85 | - |
+| t-03-compile-run-cpp | 3 | 100 | 1 | 4 | 0 | 5.4 | - |
+| t-04-env-inventory | 3 | 100 | 1 | 2 | 0 | 5.989 | - |
+| t-05-pipeline-transform | 4 | 98 | 1 | 6 | 0 | 19.716 | - |
+| t-06-multi-dir-count | 3 | 100 | 1 | 2 | 0 | 2.171 | - |
+| t-01-search-vs-bash-grep | 3 | 100 | 1 | 2 | 0 | 4.063 | - |
+| t-02-read-vs-cat | 2 | 92 | 1 | 3 | 1 | 5.396 | - |
+| t-03-write-vs-rewrite | 3 | 84 | 1 | 5 | 2 | 4.986 | - |
+| t-04-process-vs-blocking | 5 | 26 | 0.666667 | 12 | 10 | 16.077 | - |
+| t-06-write-verify-loop | 4 | 90 | 1 | 4 | 1 | 4.269 | - |
+
+### Failures
+
+- **c-02-sorting-multi** (40/100): artifact failed to compile; hidden tests failed; artifact behavior differs from reference
+- **c-03-ring-buffer** (34/100): final answer failed scenario checks; hidden tests failed; artifact behavior differs from reference
+- **p-03-verify-after-action** (19/100): oracle not matched: 0/2 steps (bullseye 0)
+- **p-05-multi-constraint** (48/100): final answer failed scenario checks
+- **t-04-process-vs-blocking** (26/100): oracle not matched: 2/3 steps (bullseye 0.666667); final answer failed scenario checks
 
 ## gemma4-31b
 
