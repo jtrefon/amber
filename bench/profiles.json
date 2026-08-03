@@ -1,10 +1,49 @@
 {
-  "good": {"model": "qwopus-27b", "temperature": 0.2, "thinking": "on"},
-  "poor": {"model": "gemma4-12b-q4", "temperature": 0.8, "thinking": "on"},
-  "qwopus-27b": {"model": "qwopus-27b", "temperature": 0.2, "thinking": "on"},
-  "ornith-35b": {"model": "ornith-1.0-35b", "temperature": 0.2, "thinking": "on"},
-  "gemma4-12b-q4": {"model": "gemma4-12b-q4", "temperature": 0.2, "thinking": "on"},
-  "gemma4-12b-q8": {"model": "gemma4-12b-q8", "temperature": 0.2, "thinking": "on"},
-  "gemma4-31b": {"model": "gemma4-31b", "temperature": 0.2, "thinking": "on", "thinking_budget": 16384},
-  "ornith-9b": {"model": "ornith-9b", "temperature": 0.2, "thinking": "on"}
+  "good": {
+    "model": "qwopus-27b",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "poor": {
+    "model": "gemma4-12b-q4",
+    "temperature": 0.8,
+    "thinking": "on"
+  },
+  "qwopus-27b": {
+    "model": "qwopus-27b",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "ornith-35b": {
+    "model": "ornith-1.0-35b",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "gemma4-12b-q4": {
+    "model": "gemma4-12b-q4",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "gemma4-12b-q8": {
+    "model": "gemma4-12b-q8",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "gemma4-31b": {
+    "model": "gemma4-31b",
+    "temperature": 0.2,
+    "thinking": "on",
+    "thinking_budget": 16384
+  },
+  "ornith-9b": {
+    "model": "ornith-9b",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "qwen35-dense": {
+    "model": "qwen35-dense",
+    "temperature": 0.2,
+    "thinking": "on",
+    "thinking_budget": 16384
+  }
 }
