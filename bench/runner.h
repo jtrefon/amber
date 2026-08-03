@@ -22,6 +22,8 @@ struct RunOptions {
     int repeat = 1;
     std::string model;           // explicit model override (live)
     double temperature = -1;     // <0 = leave default
+    std::string thinking;        // "" = leave default; "on"/"off"/"auto"
+    int thinking_budget = -1;    // <0 = leave default
 };
 
 // Run one scenario to completion; returns a full report. `err` carries the

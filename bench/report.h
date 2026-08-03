@@ -17,6 +17,7 @@ struct RunMeta {
     std::string mode;         // "hermetic" | "live"
     std::string profile;
     std::string model;
+    std::string reasoning;    // "on" | "off" | "auto" (cfg.thinking)
     std::string engine_version;
     std::string timestamp;
 };
@@ -27,6 +28,7 @@ struct ScenarioReport {
     Kpi kpi;
     Score score;
     int difficulty = 3;
+    std::string reasoning;               // cfg.thinking at run time (live)
     std::string final_text;              // the agent's final answer
     std::vector<std::pair<std::string, std::string>> tool_calls;  // name, args
     bool templated = false;              // static-template scenario

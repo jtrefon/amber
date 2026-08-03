@@ -572,6 +572,7 @@ int main() { return agent::test::run_all(); }
 
 static bench::Kpi perfect_kpi() {
     bench::Kpi k;
+    k.success = true;
     k.bullseye = 1.0;
     k.tool_call_accuracy = 1.0;
     k.arg_precision = 1.0;
@@ -632,9 +633,21 @@ TEST(score_robustness_hard_stop) {
     Kpi k = perfect_kpi();
     k.steps = 1;
     k.hard_stop = true;
+    k.success = false;  // compute_kpi marks hard stops as failures
     bench::Score sc = bench::compute_score(k, s, 1.0, 0);
     ASSERT_NEAR(sc.robustness, 0.0, 0.01);
-    ASSERT_NEAR(sc.total, 85.0, 0.01);
+    ASSERT_NEAR(sc.total, 42.5, 0.01);  // 85 halved by the failure penalty
+}
+
+TEST(score_failure_penalty_halves_total) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 1;
+    k.success = false;  // one failed check, otherwise flawless
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    ASSERT_NEAR(sc.correctness, 100.0, 0.01);
+    ASSERT_NEAR(sc.total, 50.0, 0.01);
 }
 
 TEST(score_adherence_forbidden_penalty) {

@@ -125,6 +125,10 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
 
     sc.total = (0.50 * sc.correctness) + (0.20 * sc.efficiency) +
                (0.15 * sc.robustness) + (0.15 * sc.adherence);
+    // A failed scenario (oracle miss, failed checks, budget breach, hard
+    // stop) caps its total at 50 — near-miss failures must still cost
+    // meaningfully, or pass/fail counts and scores diverge.
+    if (!k.success) sc.total *= 0.5;
     return sc;
 }
 

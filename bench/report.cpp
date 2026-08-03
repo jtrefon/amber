@@ -82,6 +82,7 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
     out["model"] = meta.model;
     out["engine_version"] = meta.engine_version;
     out["timestamp"] = meta.timestamp;
+    out["reasoning"] = meta.reasoning;
     agent::json arr = agent::json::array();
     for (const auto& r : reports) {
         agent::json j = agent::json::object();
@@ -141,7 +142,8 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
     std::ostringstream out;
     out << "## " << meta.model << "\n\n";
     out << "- run: `" << meta.run_id << "` [" << meta.mode << ", engine "
-        << meta.engine_version << "]\n";
+        << meta.engine_version << ", reasoning "
+        << (meta.reasoning.empty() ? "default" : meta.reasoning) << "]\n";
     out << "- **model score: " << static_cast<int>(run_score(reports) * 10.0)
         << "/1000** (" << reports.size() << " scenarios)\n\n";
     out << "| scenario | d | score | bullseye | steps | wasted | wall (s) "

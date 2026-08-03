@@ -105,7 +105,7 @@ struct CwdGuard {
 ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
                                 const RunMeta& meta, std::string& err) {
     (void)meta;
-    ScenarioReport rep{s.name, s.suite, Kpi{}, Score{}, 3, "", {}, false, {}};
+    ScenarioReport rep{s.name, s.suite, Kpi{}, Score{}, 3, "", "", {}, false, {}};
     err.clear();
     if (!platform_supported(s)) {
         rep.failures.emplace_back("platform not supported by this scenario");
@@ -139,6 +139,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
             cfg.model_explicit = true;
         }
         if (opts.temperature >= 0) cfg.temperature = opts.temperature;
+        if (!opts.thinking.empty()) cfg.thinking = opts.thinking;
+        if (opts.thinking_budget >= 0) cfg.thinking_budget = opts.thinking_budget;
         if (cfg.system_prompt_path.empty())
             cfg.system_prompt_path =
                 agent::resolve_data_path("prompts/system.md", nullptr);
@@ -271,6 +273,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     rep.final_text = final_text;
     rep.templated = !s.template_dir.empty();
     rep.difficulty = s.difficulty;
+    rep.reasoning = cfg.thinking;
 
     int forbidden = 0;
     for (const auto& c : recorder.stream().calls)

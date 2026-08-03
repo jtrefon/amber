@@ -93,6 +93,10 @@ void apply_profile(bench::RunOptions& opts, const std::string& profile) {
     if (p.contains("model") && p["model"].is_string()) opts.model = p["model"].get<std::string>();
     if (p.contains("temperature") && p["temperature"].is_number())
         opts.temperature = p["temperature"].get<double>();
+    if (p.contains("thinking") && p["thinking"].is_string())
+        opts.thinking = p["thinking"].get<std::string>();
+    if (p.contains("thinking_budget") && p["thinking_budget"].is_number_integer())
+        opts.thinking_budget = p["thinking_budget"].get<int>();
 }
 
 std::string run_id() {
@@ -129,6 +133,7 @@ int cmd_run(const std::vector<std::string>& args, bool live,
     meta.engine_version = agent::kVersion;
     meta.timestamp = std::to_string(static_cast<long long>(
         std::chrono::system_clock::now().time_since_epoch().count()));
+    meta.reasoning = opts.thinking.empty() ? "auto" : opts.thinking;
 
     std::vector<bench::ScenarioReport> reports =
         bench::run_scenarios(scenarios, opts, meta);
