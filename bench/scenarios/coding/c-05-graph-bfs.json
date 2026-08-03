@@ -1,0 +1,29 @@
+{
+  "name": "c-05-graph-bfs",
+  "suite": "coding",
+  "description": "breadth-first distances on an undirected graph; hidden tests verify",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 5,
+  "template": "coding/graph-bfs",
+  "prompt": "Read TASK.md and implement the task in the workspace. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*TASK.md"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 20,
+    "max_wall_ms": 300000
+  }
+}

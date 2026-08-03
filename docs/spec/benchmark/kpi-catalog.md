@@ -86,7 +86,23 @@ to:
 | DDD / BDD | Framework-internal: scenario files ARE behavior specs (name = behavior, oracle = when, checks = then); the framework itself is developed TDD red→green | process, not product |
 | Prompt strength | `tool_call_accuracy` + `bullseye_ratio` per suite | `tools` suite |
 
-## 6. Aggregation & reporting
+## 6. Scoring (continuous, weighted)
+
+Every scenario earns a **continuous score (0..100)** — partial credit on every
+component, so weak and strong models separate:
+
+- `correctness` = 0.6·bullseye + 0.4·artifact (template) | 0.7·bullseye + 0.3·checks (else)
+- `efficiency` = 100·clamp(1 − 0.10·excess_steps − 0.10·wasted − 0.20·redundant) (template: wasted excluded)
+- `robustness` = 100·clamp(1 − 0.30·retries − 0.50·recoveries − 1.00·hard_stop)
+- `adherence` = 100·clamp(prompt_adherence − 0.25·forbidden_calls)
+- `total` = 0.50·correctness + 0.20·efficiency + 0.15·robustness + 0.15·adherence
+- **model score** = difficulty-weighted aggregate (difficulty 1–5 per scenario) → /1000
+
+Budgets are **enforced during the run** (`max_tool_iterations` cap from
+`max_steps`), not only scored after. Scenario budgets, difficulty and
+`expected_steps` (efficiency baseline) are JSON fields.
+
+## 7. Aggregation & reporting
 
 - **Per scenario**: the KPI record above (one JSON object + event stream file).
 - **Per run** (suite × profile): median/p95 of continuous KPIs, sums of

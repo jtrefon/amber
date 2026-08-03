@@ -116,10 +116,11 @@ agent's artifact with byte-identical outputs — the refactor must change
 
 ## P1 scope (first PR)
 
-Suites seeded: `agent-failures` (f-01, f-02, f-03, f-07), `terminal` (t-01,
-t-03, t-04), `tools` (t-01, t-02, t-03), `prompt` (p-01, p-02, p-03), `coding`
-(c-01, c-02), `refactor` (r-01, r-02). 16 scenarios + their template dirs.
-Everything else grows in follow-up PRs under the same schema.
+Suites seeded: `agent-failures` (f-01, f-02, f-03, f-04, f-06, f-07),
+`terminal` (t-01..t-06), `tools` (t-01..t-04, t-06), `prompt` (p-01..p-03,
+p-05, p-06), `coding` (c-01..c-05: fizzbuzz, sorting, ring-buffer, lcs, bfs),
+`refactor` (r-01..r-04: extract-method, polymorphism, adapter, strategy).
+31 scenarios + 9 template dirs, each with difficulty (1-5) and expected_steps.
 
 Growth rule: new scenarios must score on objective oracles/templates only —
 if a metric needs human judgment, it does not get a scenario until a template

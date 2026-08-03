@@ -80,4 +80,52 @@ bool kpi_success(const Kpi& k, const Scenario& s) noexcept {
     return true;
 }
 
+namespace {
+
+double clamp01(double v) noexcept {
+    if (v < 0.0) return 0.0;
+    if (v > 1.0) return 1.0;
+    return v;
+}
+
+int expected_steps(const Scenario& s) noexcept {
+    if (s.expected_steps > 0) return s.expected_steps;
+    if (!s.oracle.empty()) return static_cast<int>(s.oracle.size());
+    return 5;
+}
+
+} // namespace
+
+Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
+                    int forbidden_calls) {
+    Score sc;
+    const bool templated = !s.template_dir.empty();
+    if (templated) {
+        sc.correctness = 100.0 * (0.6 * k.bullseye + 0.4 * k.artifact_score);
+    } else {
+        sc.correctness = 100.0 * (0.7 * k.bullseye + 0.3 * checks_ratio);
+    }
+
+    const int excess = std::max(0, k.steps - expected_steps(s));
+    if (templated) {
+        sc.efficiency =
+            100.0 * clamp01(1.0 - (0.10 * excess) - (0.20 * k.redundant));
+    } else {
+        sc.efficiency =
+            100.0 * clamp01(1.0 - (0.10 * excess) - (0.10 * k.wasted) -
+                            (0.20 * k.redundant));
+    }
+
+    sc.robustness =
+        100.0 * clamp01(1.0 - (0.30 * k.retries) - (0.50 * k.recoveries) -
+                        (k.hard_stop ? 1.0 : 0.0));
+
+    sc.adherence =
+        100.0 * clamp01(k.prompt_adherence - (0.25 * forbidden_calls));
+
+    sc.total = (0.50 * sc.correctness) + (0.20 * sc.efficiency) +
+               (0.15 * sc.robustness) + (0.15 * sc.adherence);
+    return sc;
+}
+
 } // namespace bench

@@ -46,6 +46,8 @@ struct Scenario {
     Checks prompt_checks;
     Checks checks;
     std::string template_dir;   // empty = no static template
+    int difficulty = 3;         // 1..5 — scoring weight
+    int expected_steps = 0;     // 0 = oracle size (or 5) — efficiency baseline
     int max_steps = 0;          // 0 = unlimited
     long max_wall_ms = 0;       // 0 = unlimited
 };

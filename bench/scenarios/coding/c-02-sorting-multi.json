@@ -24,5 +24,7 @@
   "budget": {
     "max_steps": 20,
     "max_wall_ms": 300000
-  }
+  },
+  "difficulty": 3,
+  "expected_steps": 10
 }

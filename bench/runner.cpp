@@ -1,6 +1,7 @@
 
 #include "bench/runner.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -104,7 +105,7 @@ struct CwdGuard {
 ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
                                 const RunMeta& meta, std::string& err) {
     (void)meta;
-    ScenarioReport rep{s.name, s.suite, Kpi{}, "", {}, false, {}};
+    ScenarioReport rep{s.name, s.suite, Kpi{}, Score{}, 3, "", {}, false, {}};
     err.clear();
     if (!platform_supported(s)) {
         rep.failures.emplace_back("platform not supported by this scenario");
@@ -166,6 +167,14 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     agent::JobService jobs;
     agent::register_default_tools(registry, jobs, cfg.cancel_token);
 
+    // Enforce the scenario step budget during the run (the engine's own
+    // iteration cap), not just in post-hoc scoring.
+    if (s.max_steps > 0 && s.max_steps < cfg.max_tool_iterations)
+        cfg.max_tool_iterations = s.max_steps;
+
+    // Benchmark approval policy: workspace-confined process tools are always
+    // allowed; anything else approval-gated (dangerous bash) is denied —
+    // mirroring the headless CLI without --yes.
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
     auto compressor = agent::make_compressor(comp_cfg);
@@ -175,6 +184,13 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         std::make_unique<agent::MemoryRetriever>(*mem_store);
 
     Recorder recorder;
+    agent::AgentHooks hooks = recorder.hooks();
+    hooks.on_approval =
+        [](const std::string& tool, const agent::json&,
+           const std::string&) -> agent::Approval {
+        return tool.rfind("process_", 0) == 0 ? agent::Approval::AllowSession
+                                              : agent::Approval::Deny;
+    };
     ResourceMeter meter;
     meter.start();
 
@@ -208,7 +224,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         if (!cfg.tools_prompt_path.empty())
             cfg.tools_prompt_path = fs::absolute(cfg.tools_prompt_path).string();
         CwdGuard cwd(ws);
-        agent::Agent agent(cfg, registry, recorder.hooks(),
+        agent::Agent agent(cfg, registry, hooks,
                            std::move(compressor), std::move(gate),
                            std::move(mem_store), std::move(retriever),
                            std::move(client));
@@ -254,6 +270,16 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     rep.kpi = kpi;
     rep.final_text = final_text;
     rep.templated = !s.template_dir.empty();
+    rep.difficulty = s.difficulty;
+
+    int forbidden = 0;
+    for (const auto& c : recorder.stream().calls)
+        if (std::find(s.forbidden_tools.begin(), s.forbidden_tools.end(),
+                      c.name) != s.forbidden_tools.end())
+            ++forbidden;
+    const double checks_ratio = adherence(s.checks, final_text);
+    rep.score = compute_score(kpi, s, checks_ratio, forbidden);
+
     for (const auto& c : recorder.stream().calls) {
         std::string args = c.args.dump();
         if (args.size() > 160) {

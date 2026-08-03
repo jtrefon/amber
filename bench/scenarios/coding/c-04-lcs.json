@@ -1,0 +1,29 @@
+{
+  "name": "c-04-lcs",
+  "suite": "coding",
+  "description": "longest common subsequence via dynamic programming; hidden tests verify",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 4,
+  "template": "coding/lcs",
+  "prompt": "Read TASK.md and implement the task in the workspace. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*TASK.md"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 20,
+    "max_wall_ms": 300000
+  }
+}

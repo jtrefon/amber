@@ -1,0 +1,31 @@
+{
+  "name": "t-06-multi-dir-count",
+  "suite": "terminal",
+  "description": "count files across two directories; exact number required",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "setup": {
+    "files": {
+      "src/a.log": "x",
+      "src/b.log": "x",
+      "src/c.txt": "x",
+      "lib/d.log": "x",
+      "lib/e.log": "x",
+      "lib/f.md": "x"
+    }
+  },
+  "prompt": "Count the .log files in the src and lib directories combined. Reply with exactly: count=N, then the word done.",
+  "checks": {
+    "must_contain": [
+      "count=4",
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 12,
+    "max_wall_ms": 120000
+  }
+}

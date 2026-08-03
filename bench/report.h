@@ -25,11 +25,16 @@ struct ScenarioReport {
     std::string name;
     std::string suite;
     Kpi kpi;
+    Score score;
+    int difficulty = 3;
     std::string final_text;              // the agent's final answer
     std::vector<std::pair<std::string, std::string>> tool_calls;  // name, args
     bool templated = false;              // static-template scenario
     std::vector<std::string> failures;
 };
+
+// Difficulty-weighted aggregate of per-scenario totals: 0..100 (×10 = /1000).
+double run_score(const std::vector<ScenarioReport>& reports) noexcept;
 
 std::string render_text(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta);

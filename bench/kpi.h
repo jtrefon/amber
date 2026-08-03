@@ -15,8 +15,7 @@
 namespace bench {
 
 struct Kpi {
-    bool success = false;
-    double bullseye = 0.0;
+    bool success = false;    double bullseye = 0.0;
     double tool_call_accuracy = 0.0;
     double arg_precision = 0.0;
     int steps = 0;
@@ -52,6 +51,31 @@ Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle,
 
 // Compose the success flag from the KPI record + budget enforcement.
 bool kpi_success(const Kpi& k, const Scenario& s) noexcept;
+
+// Continuous scoring (0..100 per sub-score and total). Unlike the binary
+// success flag, every component earns partial credit, so the score
+// discriminates between weak and strong models. Sub-scores:
+//   correctness = 0.6*bullseye + 0.4*artifact  (template scenarios)
+//              or 0.7*bullseye + 0.3*checks     (otherwise)
+//   efficiency = 100 * clamp(1 - 0.10*excess_steps - 0.10*wasted
+//                            - 0.20*redundant, 0, 1)       (non-template)
+//              = 100 * clamp(1 - 0.10*excess_steps - 0.20*redundant, 0, 1)
+//                                                          (template)
+//   robustness = 100 * clamp(1 - 0.30*retries - 0.50*recoveries
+//                            - 1.00*hard_stop, 0, 1)
+//   adherence  = 100 * clamp(prompt_adherence - 0.25*forbidden_calls, 0, 1)
+//   total      = 0.50*correctness + 0.20*efficiency + 0.15*robustness
+//              + 0.15*adherence
+struct Score {
+    double correctness = 0.0;
+    double efficiency = 0.0;
+    double robustness = 0.0;
+    double adherence = 0.0;
+    double total = 0.0;
+};
+
+Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
+                    int forbidden_calls);
 
 } // namespace bench
 

@@ -7,6 +7,16 @@
 
 namespace bench {
 
+double run_score(const std::vector<ScenarioReport>& reports) noexcept {
+    double weighted = 0.0;
+    int weight = 0;
+    for (const auto& r : reports) {
+        weighted += r.difficulty * r.score.total;
+        weight += r.difficulty;
+    }
+    return weight > 0 ? weighted / weight : 100.0;
+}
+
 std::string render_text(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta) {
     std::ostringstream out;
@@ -14,12 +24,15 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
         << (meta.profile.empty() ? "default" : meta.profile) << ", "
         << meta.model << "]\n";
     out << "engine " << meta.engine_version << " @ " << meta.timestamp << "\n";
+    out << "model score: " << (run_score(reports) * 10.0) << "/1000\n";
     int passed = 0;
     for (const auto& r : reports) {
         const char* verdict = r.kpi.success ? "PASS" : "FAIL";
         if (r.kpi.success) ++passed;
         out << verdict << "  " << r.name << " (" << r.suite << ")"
-            << "  bullseye=" << r.kpi.bullseye
+            << "  score=" << static_cast<int>(r.score.total)
+            << " d" << r.difficulty
+            << " bullseye=" << r.kpi.bullseye
             << " steps=" << r.kpi.steps
             << " wasted=" << r.kpi.wasted
             << " wall=" << r.kpi.wall_ms << "ms"
@@ -33,7 +46,9 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
         out << "\n";
         if (!r.failures.empty()) {
             for (const auto& f : r.failures) out << "    - " << f << "\n";
-            for (const auto& tc : r.tool_calls) {
+            const size_t cap = std::min<size_t>(r.tool_calls.size(), 12);
+            for (size_t i = 0; i < cap; ++i) {
+                const auto& tc = r.tool_calls[i];
                 std::string a = tc.second;
                 if (a.size() > 80) {
                     a.resize(77);
@@ -41,6 +56,9 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
                 }
                 out << "    call: " << tc.first << " " << a << "\n";
             }
+            if (r.tool_calls.size() > cap)
+                out << "    ... " << (r.tool_calls.size() - cap)
+                    << " more calls (full trace in JSON)\n";
             if (!r.final_text.empty()) {
                 std::string t = r.final_text;
                 if (t.size() > 140) {
@@ -70,6 +88,12 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["name"] = r.name;
         j["suite"] = r.suite;
         j["success"] = r.kpi.success;
+        j["difficulty"] = r.difficulty;
+        j["score"] = r.score.total;
+        j["score_correctness"] = r.score.correctness;
+        j["score_efficiency"] = r.score.efficiency;
+        j["score_robustness"] = r.score.robustness;
+        j["score_adherence"] = r.score.adherence;
         j["bullseye"] = r.kpi.bullseye;
         j["tool_call_accuracy"] = r.kpi.tool_call_accuracy;
         j["arg_precision"] = r.kpi.arg_precision;
@@ -107,6 +131,7 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         arr.push_back(std::move(j));
     }
     out["scenarios"] = std::move(arr);
+    out["model_score"] = run_score(reports) * 10.0;
     return out.dump(2) + "\n";
 }
 

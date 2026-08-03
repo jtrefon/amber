@@ -1,0 +1,29 @@
+{
+  "name": "r-04-strategy",
+  "suite": "refactor",
+  "description": "replace if/else pricing with strategy classes; behavior unchanged",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 5,
+  "template": "refactor/strategy",
+  "prompt": "Read TASK.md and implement the task in the workspace. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*TASK.md"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 20,
+    "max_wall_ms": 300000
+  }
+}

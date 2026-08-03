@@ -565,3 +565,110 @@ TEST(e2e_hermetic_read_scenario) {
 }
 
 int main() { return agent::test::run_all(); }
+
+// ---------------------------------------------------------------------------
+// Scoring (v2 — continuous, weighted, discriminating)
+// ---------------------------------------------------------------------------
+
+static bench::Kpi perfect_kpi() {
+    bench::Kpi k;
+    k.bullseye = 1.0;
+    k.tool_call_accuracy = 1.0;
+    k.arg_precision = 1.0;
+    k.prompt_adherence = 1.0;
+    return k;
+}
+
+#define ASSERT_NEAR(a, b, eps)                                                \
+    do {                                                                      \
+        const double _a = (a);                                                \
+        const double _b = (b);                                                \
+        if (_a < _b - (eps) || _a > _b + (eps))                               \
+            ::agent::test::fail("assert_near failed: " #a " ~= " #b           \
+                                " (" + std::to_string(_a) + " vs " +          \
+                                std::to_string(_b) + ")");                    \
+    } while (0)
+
+TEST(score_perfect_run_100) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}, {"write", {{"path", "b.txt"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 2;
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    ASSERT_EQ(sc.correctness, 100.0);
+    ASSERT_EQ(sc.efficiency, 100.0);
+    ASSERT_EQ(sc.robustness, 100.0);
+    ASSERT_EQ(sc.adherence, 100.0);
+    ASSERT_EQ(sc.total, 100.0);
+}
+
+TEST(score_template_partial_artifact) {
+    Scenario s;
+    s.template_dir = "coding/x";
+    Kpi k = perfect_kpi();
+    k.steps = 1;
+    k.artifact_score = 0.5;
+    k.compile_ok = true;
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    ASSERT_NEAR(sc.correctness, 80.0, 0.01);
+    ASSERT_NEAR(sc.total, 90.0, 0.01);
+}
+
+TEST(score_efficiency_penalties) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}, {"write", {{"path", "b.txt"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 4;
+    k.wasted = 2;
+    k.redundant = 1;
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    ASSERT_NEAR(sc.efficiency, 40.0, 0.01);
+    ASSERT_NEAR(sc.total, 88.0, 0.01);
+}
+
+TEST(score_robustness_hard_stop) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 1;
+    k.hard_stop = true;
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    ASSERT_NEAR(sc.robustness, 0.0, 0.01);
+    ASSERT_NEAR(sc.total, 85.0, 0.01);
+}
+
+TEST(score_adherence_forbidden_penalty) {
+    Scenario s;
+    s.prompt_checks.must_contain = {"done"};
+    s.oracle = {{"read", {{"path", "a.txt"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 1;
+    bench::Score sc = bench::compute_score(k, s, 1.0, 2);
+    ASSERT_NEAR(sc.adherence, 50.0, 0.01);
+    ASSERT_NEAR(sc.total, 92.5, 0.01);
+}
+
+TEST(score_expected_steps_from_oracle) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}, {"write", {{"path", "b.txt"}}}, {"bash", {{"command", "*"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 3;
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    ASSERT_EQ(sc.efficiency, 100.0);
+}
+
+TEST(run_score_difficulty_weighted) {
+    bench::ScenarioReport a;
+    a.difficulty = 1;
+    a.score.total = 100.0;
+    bench::ScenarioReport b;
+    b.difficulty = 3;
+    b.score.total = 50.0;
+    double score = bench::run_score({a, b});
+    ASSERT_EQ(score, 62.5);
+}
+
+TEST(run_score_empty_1000) {
+    double score = bench::run_score({});
+    ASSERT_EQ(score, 100.0);
+}

@@ -1,0 +1,26 @@
+{
+  "name": "t-05-pipeline-transform",
+  "suite": "terminal",
+  "description": "transform a data file with a command pipeline; exact result required",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 4,
+  "setup": {
+    "files": {
+      "data.txt": "banana\napple\ncherry\nbanana\napple\nfig\n"
+    }
+  },
+  "prompt": "Sort data.txt lines, remove duplicates, take the 2nd result line, and write it to out.txt. Then read out.txt and report: exactly result=<contents>. Reply with the word done on the next line.",
+  "checks": {
+    "must_contain": [
+      "result=banana",
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 12,
+    "max_wall_ms": 120000
+  }
+}
