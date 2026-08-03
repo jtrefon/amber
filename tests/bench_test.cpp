@@ -672,3 +672,50 @@ TEST(run_score_empty_1000) {
     double score = bench::run_score({});
     ASSERT_EQ(score, 100.0);
 }
+
+// ---------------------------------------------------------------------------
+// Markdown report
+// ---------------------------------------------------------------------------
+
+TEST(report_markdown_renders_score_and_table) {
+    bench::ScenarioReport rep;
+    rep.name = "demo-scenario";
+    rep.suite = "tools";
+    rep.kpi.success = true;
+    rep.kpi.bullseye = 1.0;
+    rep.kpi.steps = 2;
+    rep.difficulty = 3;
+    rep.score.total = 95.0;
+    bench::RunMeta meta;
+    meta.mode = "live";
+    meta.model = "test-model";
+    std::string md = bench::render_markdown({rep}, meta);
+    ASSERT(md.find("demo-scenario") != std::string::npos);
+    ASSERT(md.find("950/1000") != std::string::npos);
+    ASSERT(md.find('|') != std::string::npos);
+}
+
+TEST(report_markdown_comparison_matrix) {
+    bench::ScenarioReport a;
+    a.name = "s1";
+    a.suite = "t";
+    a.difficulty = 3;
+    a.score.total = 90.0;
+    a.kpi.success = true;
+    bench::ScenarioReport b;
+    b.name = "s1";
+    b.suite = "t";
+    b.difficulty = 3;
+    b.score.total = 60.0;
+    b.kpi.success = false;
+    bench::RunMeta m1;
+    m1.model = "model-a";
+    bench::RunMeta m2;
+    m2.model = "model-b";
+    std::string md = bench::render_markdown_comparison(
+        {{m1, {a}}, {m2, {b}}});
+    ASSERT(md.find("model-a") != std::string::npos);
+    ASSERT(md.find("model-b") != std::string::npos);
+    ASSERT(md.find("90") != std::string::npos);
+    ASSERT(md.find("60") != std::string::npos);
+}

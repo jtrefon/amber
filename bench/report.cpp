@@ -118,6 +118,7 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["behavior_equivalent"] = r.kpi.behavior_equivalent;
         j["structure_checks"] = r.kpi.structure_checks;
         j["prompt_adherence"] = r.kpi.prompt_adherence;
+        j["templated"] = r.templated;
         j["final_text"] = r.final_text;
         agent::json calls = agent::json::array();
         for (const auto& tc : r.tool_calls) {
@@ -133,6 +134,78 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
     out["scenarios"] = std::move(arr);
     out["model_score"] = run_score(reports) * 10.0;
     return out.dump(2) + "\n";
+}
+
+std::string render_markdown(const std::vector<ScenarioReport>& reports,
+                            const RunMeta& meta) {
+    std::ostringstream out;
+    out << "## " << meta.model << "\n\n";
+    out << "- run: `" << meta.run_id << "` [" << meta.mode << ", engine "
+        << meta.engine_version << "]\n";
+    out << "- **model score: " << static_cast<int>(run_score(reports) * 10.0)
+        << "/1000** (" << reports.size() << " scenarios)\n\n";
+    out << "| scenario | d | score | bullseye | steps | wasted | wall (s) "
+           "| artifact |\n";
+    out << "|---|---|---|---|---|---|---|---|\n";
+    for (const auto& r : reports) {
+        out << "| " << r.name << " | " << r.difficulty << " | "
+            << static_cast<int>(r.score.total) << " | " << r.kpi.bullseye
+            << " | " << r.kpi.steps << " | " << r.kpi.wasted << " | "
+            << (r.kpi.wall_ms / 1000.0) << " | ";
+        if (r.templated)
+            out << r.kpi.artifact_score;
+        else
+            out << "-";
+        out << " |\n";
+    }
+    out << "\n### Failures\n\n";
+    bool any = false;
+    for (const auto& r : reports) {
+        if (r.kpi.success) continue;
+        any = true;
+        out << "- **" << r.name << "** (" << static_cast<int>(r.score.total)
+            << "/100): ";
+        for (size_t i = 0; i < r.failures.size(); ++i) {
+            if (i) out << "; ";
+            out << r.failures[i];
+        }
+        out << "\n";
+    }
+    if (!any) out << "none\n";
+    return out.str();
+}
+
+std::string render_markdown_comparison(
+    const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs) {
+    if (runs.empty()) return "";
+    std::ostringstream out;
+    out << "# Benchmark: harness score by model\n\n";
+    for (const auto& run : runs)
+        out << "- **" << run.first.model << "**: "
+            << static_cast<int>(run_score(run.second) * 10.0) << "/1000\n";
+
+    out << "\n| scenario |";
+    for (const auto& run : runs) out << " " << run.first.model << " |";
+    out << "\n|---|";
+    for (size_t i = 0; i < runs.size(); ++i) out << "---|";
+    out << "\n";
+    const size_t n = runs[0].second.size();
+    for (size_t i = 0; i < n; ++i) {
+        out << "| " << runs[0].second[i].name << " |";
+        for (const auto& run : runs) {
+            if (i < run.second.size())
+                out << " " << static_cast<int>(run.second[i].score.total)
+                    << " |";
+            else
+                out << " - |";
+        }
+        out << "\n";
+    }
+
+    out << "\n---\n\n";
+    for (const auto& run : runs)
+        out << render_markdown(run.second, run.first) << "\n";
+    return out.str();
 }
 
 } // namespace bench

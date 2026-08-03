@@ -24,7 +24,8 @@ void print_usage(const char* prog) {
               << "  list                        list available scenarios\n"
               << "  run                         run scenarios (hermetic fake LLM by default)\n"
               << "  validate-template <scenario> prove a coding template's hidden tests pass\n"
-              << "  report <results.json>       re-render a stored JSON report\n\n"
+              << "  report <results.json>...     re-render stored JSON report(s);\n"
+              << "                               multiple files render a model comparison\n\n"
               << "Options:\n"
               << "  --suite NAME     filter by suite\n"
               << "  --scenario NAME  run a single scenario\n"
@@ -34,6 +35,7 @@ void print_usage(const char* prog) {
               << "  --temperature T  temperature override (live)\n"
               << "  --repeat N       run each scenario N times\n"
               << "  --out FILE       write JSON report to FILE\n"
+              << "  --format FMT     report output: text (default), markdown, json\n"
               << "  -h, --help       show this help\n";
 }
 
@@ -173,31 +175,30 @@ int cmd_validate(const std::string& name) {
     return (r.compile_ok && r.tests_passed == r.tests_total) ? 0 : 1;
 }
 
-int cmd_report(const std::string& file) {
+bool parse_report_file(const std::string& file, bench::RunMeta& meta,
+                       std::vector<bench::ScenarioReport>& reports) {
     std::ifstream f(file);
     if (!f) {
         std::cerr << "error: cannot open " << file << "\n";
-        return 1;
+        return false;
     }
     agent::json j;
     try {
         j = agent::json::parse(f);
     } catch (const std::exception& e) {
-        std::cerr << "error: " << e.what() << "\n";
-        return 1;
+        std::cerr << "error: " << file << ": " << e.what() << "\n";
+        return false;
     }
     if (!j.contains("scenarios") || !j["scenarios"].is_array()) {
-        std::cerr << "error: not an amber-bench report\n";
-        return 1;
+        std::cerr << "error: " << file << " is not an amber-bench report\n";
+        return false;
     }
-    bench::RunMeta meta;
     meta.run_id = j.value("run_id", "");
     meta.mode = j.value("mode", "");
     meta.profile = j.value("profile", "");
     meta.model = j.value("model", "");
     meta.engine_version = j.value("engine_version", "");
     meta.timestamp = j.value("timestamp", "");
-    std::vector<bench::ScenarioReport> reports;
     for (const auto& e : j["scenarios"]) {
         bench::ScenarioReport rep;
         rep.name = e.value("name", "");
@@ -209,12 +210,43 @@ int cmd_report(const std::string& file) {
         rep.kpi.retries = e.value("retries", 0);
         rep.kpi.recoveries = e.value("recoveries", 0);
         rep.kpi.wall_ms = e.value("wall_ms", 0L);
+        rep.difficulty = e.value("difficulty", 3);
+        rep.score.total = e.value("score", 0.0);
+        rep.templated = e.value("templated", false);
+        if (e.contains("artifact_score") && e["artifact_score"].is_number())
+            rep.kpi.artifact_score = e["artifact_score"].get<double>();
         if (e.contains("failures") && e["failures"].is_array())
             for (const auto& x : e["failures"])
                 if (x.is_string()) rep.failures.push_back(x.get<std::string>());
         reports.push_back(std::move(rep));
     }
-    std::cout << bench::render_text(reports, meta);
+    return true;
+}
+
+int cmd_report(const std::vector<std::string>& files,
+               const std::string& format) {
+    if (files.empty()) {
+        std::cerr << "error: report needs at least one results file\n";
+        return 1;
+    }
+    std::vector<std::pair<bench::RunMeta, std::vector<bench::ScenarioReport>>> runs;
+    for (const auto& f : files) {
+        bench::RunMeta meta;
+        std::vector<bench::ScenarioReport> reports;
+        if (!parse_report_file(f, meta, reports)) return 1;
+        runs.emplace_back(std::move(meta), std::move(reports));
+    }
+    if (format == "markdown") {
+        if (runs.size() == 1)
+            std::cout << bench::render_markdown(runs[0].second, runs[0].first);
+        else
+            std::cout << bench::render_markdown_comparison(runs);
+    } else if (format == "json") {
+        std::cout << bench::render_json(runs[0].second, runs[0].first);
+    } else {
+        for (const auto& run : runs)
+            std::cout << bench::render_text(run.second, run.first) << "\n";
+    }
     return 0;
 }
 
@@ -228,7 +260,7 @@ int main(int argc, char** argv) {
     const std::string cmd = argv[1];
 
     bool live = false;
-    std::string suite, name, profile, model, out_file;
+    std::string suite, name, profile, model, out_file, format = "text";
     double temperature = -1;
     int repeat = 1;
     std::vector<std::string> rest;
@@ -246,6 +278,7 @@ int main(int argc, char** argv) {
         else if (a == "--temperature") temperature = std::atof(next("0").c_str());
         else if (a == "--repeat") repeat = std::atoi(next("1").c_str());
         else if (a == "--out") out_file = next("");
+        else if (a == "--format") format = next("text");
         else if (a == "-h" || a == "--help") { print_usage(argv[0]); return 0; }
         else rest.push_back(a);
     }
@@ -259,7 +292,7 @@ int main(int argc, char** argv) {
         }
         if (cmd == "validate-template" && !rest.empty())
             return cmd_validate(rest[0]);
-        if (cmd == "report" && !rest.empty()) return cmd_report(rest[0]);
+        if (cmd == "report") return cmd_report(rest, format);
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";
         return 1;

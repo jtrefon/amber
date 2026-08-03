@@ -42,6 +42,15 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
 std::string render_json(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta);
 
+// Markdown report: score table + failure details (for BENCHMARK.md).
+std::string render_markdown(const std::vector<ScenarioReport>& reports,
+                            const RunMeta& meta);
+
+// Markdown comparison of multiple model runs: scenario × model score matrix
+// followed by per-model detail sections.
+std::string render_markdown_comparison(
+    const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs);
+
 } // namespace bench
 
 #endif // BENCH_REPORT_H

@@ -39,6 +39,8 @@ Run:
   ./amber-cli --help
   ./amber-bench run        # hermetic benchmark corpus (no model needed)
   ./amber-bench run --live # benchmark against your configured model
+  ./amber-bench report bench/results/*.json --format markdown
+                           # render the published KPI report (see BENCHMARK.md)
 
   Pass --yes to auto-approve the bash tool for the session (headless CLI);
   otherwise amber-cli prompts before each shell command on an interactive
