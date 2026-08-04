@@ -658,5 +658,5 @@ TEST(skill_trust_prompts_skills_loaded) {
     std::string p = agent::load_prompt("prompts/skills.md");
     ASSERT_FALSE(p.empty());
     ASSERT(p.find("read_skill") != std::string::npos);
-    ASSERT(p.find("explicitly asks") != std::string::npos);
+    ASSERT(p.find("when the user asks") != std::string::npos);
 }

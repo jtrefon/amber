@@ -51,6 +51,24 @@ changes — rerun the same commands after any harness change and compare.
 > land in a ~900-910 band — differences within it are single-run variance,
 > not model ranking; use `--repeat N` for statistically meaningful deltas.
 
+## Prompt v2 (empowerment) — before/after
+
+`prompts/system.md` was rewritten from confinement language ("never fabricate",
+"each turn must advance", "dont stop unless stuck") to a descriptive,
+empowerment-style prompt: role, personality, working style, response
+framework, closing convention. Same scenarios, same models, same harness —
+the only change is the prompt. Raw records: `bench/results/prompt-v2/`.
+
+| Model | Before | After | Verdict |
+|---|---|---|---|
+| Nemotron 550B (free) | 806 / 20-25 | 821 / 21-25 | **t-01-search audit-loop termination fixed** |
+| Qwen3.6-27B dense | 910 / 24-25 | 885, 913 / 24-25 | within variance, no regression |
+| qwopus-27b | 900 / 23-25 | 906 / 24-25 | +6, earlier t-03 failure cleared |
+
+The prompt philosophy (descriptive over prohibitive) is now a repo
+convention: prompts describe role, personality, environment and tooling;
+they empower rather than confine. No forcing or forbidding language.
+
 > Cloud runs (kilo-auto/free, Nemotron 550B) go through the Kilo AI Gateway
 > (`https://api.kilo.ai/api/gateway`, provider preset `kilocode`); the free
 > tier auto-routes `kilo-auto/free` to the best available free model
