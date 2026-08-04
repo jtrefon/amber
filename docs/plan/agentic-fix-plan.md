@@ -320,9 +320,13 @@ Shipped: `todowrite` tool + `TodoStore` (full-list replacement, informed by
 opencode's actual TodoWrite source — the model sends the whole list, the
 store replaces it; no op-based API). Hermetic tests green, zero-warning
 build, no benchmark regression (qwen dense 913 → 911, within variance).
-**Adoption: 0** — the corpus has no task where planning pays (all scenarios
-are single-pass). The adoption gate moves to the repo-level suite; P1's
-infrastructure is required by P4 regardless. Reordered sequencing:
+**Adoption: 0** across all experiments (wiring / complexity / advertisement
+hypotheses all disproven with wire-level evidence — verdict: model training
+fit, H5). **Now feature-flagged: `plan_tool` config key / `AMBER_PLAN_TOOL`
+env, default OFF** — off means no registration, no schema, no prompt
+section (zero per-request cost); on registers the tool + appends
+`prompts/tools_planning.md`. The tool stays off until a model trained on
+the TodoWrite convention arrives or P4 lands. Reordered sequencing:
 
 | Order | Item | Note |
 |---|---|---|

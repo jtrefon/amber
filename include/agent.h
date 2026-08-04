@@ -28,7 +28,8 @@ namespace agent {
 // lib/tools_default.cpp, linked into libagent.
 void register_default_tools(ToolRegistry& reg, JobService& jobs,
                             TodoStore& todos,
-                            const CancellationToken& cancel_token = {});
+                            const CancellationToken& cancel_token = {},
+                            bool enable_plan_tool = false);
 }
 
 #endif // AGENT_AGENT_H_ALL

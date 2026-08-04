@@ -168,7 +168,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(registry, jobs, todos, cfg.cancel_token);
+    agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
+                        cfg.plan_tool);
 
     // Enforce the scenario step budget during the run (the engine's own
     // iteration cap), not just in post-hoc scoring.

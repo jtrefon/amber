@@ -551,7 +551,8 @@ TEST(agent_loop_todowrite_state_persists) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(reg, jobs, todos);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  true);
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_tool_call(*fake, "todowrite",

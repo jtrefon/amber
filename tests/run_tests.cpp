@@ -401,7 +401,7 @@ TEST(registry_register_and_find) {
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
-    ASSERT_EQ(r.tools().size(), 8u);
+    ASSERT_EQ(r.tools().size(), 7u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -419,7 +419,7 @@ TEST(registry_schema_shape) {
     agent::register_default_tools(r, jobs, todos);
     agent::json s = r.schema();
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 8u);
+    ASSERT_EQ(s.size(), 7u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");
@@ -3286,10 +3286,20 @@ TEST(todowrite_tool_rejects_invalid_status) {
     ASSERT_FALSE(r2.ok);
 }
 
-TEST(todowrite_registered_by_default) {
+
+TEST(todowrite_off_by_default_not_registered) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::register_default_tools(reg, jobs, todos);
+    ASSERT(reg.find("todowrite") == nullptr);
+}
+
+TEST(todowrite_registered_when_enabled) {
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  true);
     ASSERT(reg.find("todowrite") != nullptr);
 }

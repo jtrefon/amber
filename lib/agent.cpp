@@ -9,6 +9,7 @@
 #include "agent/dispatch.h"
 #include "agent/tools.h"
 #include "agent/model_probe.h"
+#include "agent/data_path.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -17,6 +18,18 @@
 namespace agent {
 
 namespace {
+
+// Locate an optional prompt file: next to the binary first (works when the
+// process CWD differs, e.g. the benchmark runner's workspace), then
+// CWD-relative (dev runs from the repo root).
+std::string optional_prompt(const char* name) {
+    const std::string dir = exe_dir();
+    if (!dir.empty()) {
+        const std::string p = dir + "/" + name;
+        if (file_exists(p)) return p;
+    }
+    return name;
+}
 
 // Helper: publish context-change event to all subscribers.
 void emit_context_event(ContextEventSource& src, const Context& ctx) {
@@ -121,15 +134,24 @@ void Agent::ensure_system_prompt() {
     if (!git.empty())
         system += "\n\n" + git;
 
-    // Optional skills prompt (discovery block, authoring rule, trust boundary)
-    std::string skills = load_prompt("prompts/skills.md");
+    // Optional skills prompt (discovery block, authoring rule, trust boundary).
+    // Resolved via the binary dir so the sections load regardless of CWD
+    // (the benchmark runner runs with the workspace as CWD).
+    std::string skills = load_prompt(optional_prompt("prompts/skills.md"));
     if (!skills.empty())
         system += "\n\n" + skills;
 
-    // Optional MCP prompt (untrusted-server posture, user-only prompts)
-    std::string mcp = load_prompt("prompts/mcp.md");
+    // Optional MCP prompt (untrusted-server posture, user-only prompts).
+    std::string mcp = load_prompt(optional_prompt("prompts/mcp.md"));
     if (!mcp.empty())
         system += "\n\n" + mcp;
+
+    // Optional planning-tool prompt — only when the todowrite tool is enabled.
+    if (cfg_.plan_tool) {
+        std::string plan =
+            load_prompt(optional_prompt("prompts/tools_planning.md"));
+        if (!plan.empty()) system += "\n\n" + plan;
+    }
 
     Message sys_msg;
     sys_msg.role = "system";
