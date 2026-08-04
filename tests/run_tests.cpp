@@ -225,10 +225,12 @@ TEST(config_provider_openrouter_preset) {
 }
 
 TEST(config_provider_kilocode_preset) {
+    // Kilo's OpenAI-compatible gateway (docs: kilo.ai/docs/gateway). The
+    // old api.kilocode.ai/v1 endpoint 404'd on every request.
     agent::Config c;
     c.apply_provider("kilocode");
     ASSERT_EQ(c.provider_name, "kilocode");
-    ASSERT_EQ(c.api_base, "https://api.kilocode.ai/v1");
+    ASSERT_EQ(c.api_base, "https://api.kilo.ai/api/gateway");
     ASSERT(!c.model.empty());
 }
 

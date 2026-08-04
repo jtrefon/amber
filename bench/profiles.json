@@ -57,5 +57,20 @@
     "temperature": 0.2,
     "thinking": "on",
     "thinking_budget": 16384
+  },
+  "kilo-1": {
+    "model": "kilocode/kilo-1",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "kilo-auto-free": {
+    "model": "kilo-auto/free",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "nemotron-550b": {
+    "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "temperature": 0.2,
+    "thinking": "on"
   }
 }

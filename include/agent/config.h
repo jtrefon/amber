@@ -25,7 +25,7 @@ struct Provider {
 namespace provider {
 
 inline const Provider openrouter  = {"openrouter",  "https://openrouter.ai/api/v1",   "openai/gpt-4o",        true};
-inline const Provider kilocode   = {"kilocode",   "https://api.kilocode.ai/v1",     "kilocode/kilo-1",      true};
+inline const Provider kilocode   = {"kilocode",   "https://api.kilo.ai/api/gateway", "kilo-auto/free",       true};
 inline const Provider custom     = {"custom",     "",                                "",                     false};
 
 inline const Provider* all[] = { &openrouter, &kilocode, &custom };
