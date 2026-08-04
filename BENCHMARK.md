@@ -76,6 +76,24 @@ economy and termination dominate — exactly the axis where the 27B's coding
 training wins. To measure the 550B's actual strengths, the corpus needs a
 repo-level suite: multi-file bugs, long-context tasks, deeper reasoning.
 
+## P1: todowrite tool — externalized task tracking (2026-08-04)
+
+`todowrite` tool shipped (host-owned `TodoStore`, full-list replacement —
+the TodoWrite contract strong agentic models are trained on; survives
+compression by design). Hermetic tests prove state persists across turns.
+
+| Model | before | after | todowrite uses |
+|---|---|---|---|
+| Qwen3.6-27B dense | 913, 24/25, red 9 | 911, 24/25, red 12 | 0 |
+| t-07 planning-multi-file (new, d5) | — | qwen 88, laguna 90, both 0 redundant | 0 |
+
+Finding: **no regression, but zero adoption** — the current corpus is
+single-pass work where planning cannot pay (opencode's own guidance: skip
+when the task is straightforward). Proof of value is gated on the
+repo-level suite (long-horizon tasks), which is also the gate for the
+sub-agent work. The tool is prerequisite infrastructure, not a lever on
+this corpus.
+
 ## Prompt v2 (empowerment) — before/after
 
 `prompts/system.md` was rewritten from confinement language ("never fabricate",

@@ -314,6 +314,24 @@ re-reading.
 
 ---
 
+## 6a. P1 status (2026-08-04)
+
+Shipped: `todowrite` tool + `TodoStore` (full-list replacement, informed by
+opencode's actual TodoWrite source — the model sends the whole list, the
+store replaces it; no op-based API). Hermetic tests green, zero-warning
+build, no benchmark regression (qwen dense 913 → 911, within variance).
+**Adoption: 0** — the corpus has no task where planning pays (all scenarios
+are single-pass). The adoption gate moves to the repo-level suite; P1's
+infrastructure is required by P4 regardless. Reordered sequencing:
+
+| Order | Item | Note |
+|---|---|---|
+| 1 | **repo-level suite** (was 4th) | now the critical path — gates P1 proof AND P4 |
+| 2 | P2 lean envelope | independent, do next |
+| 3 | P3 schema-first tools | independent |
+| 4 | P4 task tool | builds on repo suite + P1 store pattern |
+| 5 | P5 compression budget | independent |
+
 ## 6. Sequencing, acceptance, PRs
 
 | Order | Item | PR title prefix | Acceptance |
