@@ -174,6 +174,12 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     if (s.max_steps > 0 && s.max_steps < cfg.max_tool_iterations)
         cfg.max_tool_iterations = s.max_steps;
 
+    if (!opts.debug_dir.empty()) {
+        fs::create_directories(opts.debug_dir);
+        cfg.debug_log = (fs::path(opts.debug_dir) / (s.name + ".wire.log")).string();
+        cfg.log_path = (fs::path(opts.debug_dir) / (s.name + ".jsonl")).string();
+    }
+
     // Benchmark approval policy: workspace-confined process tools are always
     // allowed; anything else approval-gated (dangerous bash) is denied —
     // mirroring the headless CLI without --yes.
