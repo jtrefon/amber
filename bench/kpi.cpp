@@ -1,6 +1,8 @@
 
 #include "bench/kpi.h"
 
+#include <algorithm>
+#include <map>
 #include <set>
 
 namespace bench {
@@ -135,6 +137,44 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
     // meaningfully, or pass/fail counts and scores diverge.
     if (!k.success) sc.total *= 0.5;
     return sc;
+}
+
+Agentic compute_agentic(const EventStream& stream, const Kpi& k,
+                        const Scenario& s) {
+    Agentic a;
+    std::map<std::string, int> plan;
+    if (s.optimal_plan.is_object() && !s.optimal_plan.empty()) {
+        for (auto it = s.optimal_plan.begin(); it != s.optimal_plan.end(); ++it)
+            if (it.value().is_number_integer())
+                plan[it.key()] = it.value().get<int>();
+    } else {
+        for (const auto& step : s.oracle) ++plan[step.tool];
+    }
+    if (plan.empty()) return a;
+    a.has_plan = true;
+    for (const auto& p : plan) a.plan_tools += p.second;
+
+    std::map<std::string, int> actual;
+    for (const auto& c : stream.calls) ++actual[c.name];
+    int actual_total = static_cast<int>(stream.calls.size());
+
+    a.plan_by_tool = plan;
+    a.actual_by_tool = actual;
+    a.plan_deviation = actual_total - a.plan_tools;
+    a.plan_ratio = actual_total > 0
+                       ? static_cast<double>(a.plan_tools) /
+                             static_cast<double>(actual_total)
+                       : 0.0;
+
+    a.score = 100.0;
+    a.score -= 10.0 * std::max(0, a.plan_deviation);
+    a.score -= 20.0 * k.redundant;
+    a.score -= 25.0 * k.tool_failures;
+    a.score -= 25.0 * k.tool_denied;
+    a.score -= 30.0 * k.retries;
+    if (k.hard_stop) a.score -= 50.0;
+    if (a.score < 0.0) a.score = 0.0;
+    return a;
 }
 
 } // namespace bench

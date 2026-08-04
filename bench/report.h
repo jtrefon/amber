@@ -27,6 +27,7 @@ struct ScenarioReport {
     std::string suite;
     Kpi kpi;
     Score score;
+    Agentic agentic;
     int difficulty = 3;
     std::string reasoning;               // cfg.thinking at run time (live)
     std::string final_text;              // the agent's final answer

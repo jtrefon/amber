@@ -45,6 +45,7 @@ struct Scenario {
     std::vector<std::string> forbidden_tools;
     Checks prompt_checks;
     Checks checks;
+    agent::json optimal_plan = agent::json::object();  // tool -> count; empty = oracle mix
     std::string template_dir;   // empty = no static template
     int difficulty = 3;         // 1..5 — scoring weight
     int expected_steps = 0;     // 0 = oracle size (or 5) — efficiency baseline

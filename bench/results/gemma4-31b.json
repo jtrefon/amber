@@ -76,7 +76,22 @@
       "wasted": 6,
       "tool_calls_total": 7,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 4,
+      "agentic_ratio": 0.429,
+      "agentic_score": 60.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 3,
+        "bash": 2,
+        "write": 2
+      }
     },
     {
       "arg_precision": 1.0,
@@ -167,7 +182,22 @@
       "wasted": 11,
       "tool_calls_total": 12,
       "tool_failures": 2,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 9,
+      "agentic_ratio": 0.25,
+      "agentic_score": 0.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 4,
+        "bash": 4,
+        "write": 4
+      }
     },
     {
       "arg_precision": 1.0,
@@ -254,7 +284,22 @@
       "wasted": 10,
       "tool_calls_total": 11,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 8,
+      "agentic_ratio": 0.273,
+      "agentic_score": 20.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 3,
+        "bash": 4,
+        "write": 4
+      }
     },
     {
       "arg_precision": 1.0,
@@ -329,7 +374,22 @@
       "wasted": 7,
       "tool_calls_total": 8,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 5,
+      "agentic_ratio": 0.375,
+      "agentic_score": 50.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 3,
+        "bash": 3,
+        "write": 2
+      }
     },
     {
       "arg_precision": 1.0,
@@ -404,7 +464,22 @@
       "wasted": 7,
       "tool_calls_total": 8,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 5,
+      "agentic_ratio": 0.375,
+      "agentic_score": 50.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 3,
+        "bash": 3,
+        "write": 2
+      }
     },
     {
       "arg_precision": 1.0,
@@ -455,7 +530,19 @@
       "wasted": 1,
       "tool_calls_total": 2,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 90.0,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -502,7 +589,18 @@
       "wasted": 0,
       "tool_calls_total": 1,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 0,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 1
+      }
     },
     {
       "arg_precision": 0.0,
@@ -551,7 +649,19 @@
       "wasted": 1,
       "tool_calls_total": 1,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 2,
+      "agentic_deviation": -1,
+      "agentic_ratio": 2.0,
+      "agentic_score": 100.0,
+      "agentic_plan_by_tool": {
+        "write": 1,
+        "read": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -598,7 +708,18 @@
       "wasted": 0,
       "tool_calls_total": 1,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 0,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -649,7 +770,19 @@
       "wasted": 1,
       "tool_calls_total": 2,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 90.0,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -716,7 +849,22 @@
       "wasted": 5,
       "tool_calls_total": 6,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 3,
+      "agentic_ratio": 0.5,
+      "agentic_score": 70.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 2,
+        "bash": 3,
+        "write": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -779,7 +927,22 @@
       "wasted": 4,
       "tool_calls_total": 5,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 2,
+      "agentic_ratio": 0.6,
+      "agentic_score": 80.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 3,
+        "bash": 1,
+        "write": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -862,7 +1025,22 @@
       "wasted": 9,
       "tool_calls_total": 10,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 7,
+      "agentic_ratio": 0.3,
+      "agentic_score": 30.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 4,
+        "bash": 4,
+        "write": 2
+      }
     },
     {
       "arg_precision": 1.0,
@@ -933,7 +1111,22 @@
       "wasted": 6,
       "tool_calls_total": 7,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 4,
+      "agentic_ratio": 0.429,
+      "agentic_score": 40.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1,
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 4,
+        "bash": 2,
+        "write": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -980,7 +1173,18 @@
       "wasted": 0,
       "tool_calls_total": 1,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 0,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 1
+      }
     },
     {
       "arg_precision": 0.0,
@@ -1031,7 +1235,18 @@
       "wasted": 0,
       "tool_calls_total": 2,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 90.0,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 2
+      }
     },
     {
       "arg_precision": 1.0,
@@ -1082,7 +1297,18 @@
       "wasted": 0,
       "tool_calls_total": 2,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 90.0,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 2
+      }
     },
     {
       "arg_precision": 1.0,
@@ -1124,7 +1350,16 @@
       "wasted": 0,
       "tool_calls_total": 0,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": -1,
+      "agentic_ratio": 0.0,
+      "agentic_score": 100.0,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_actual_by_tool": {}
     },
     {
       "arg_precision": 1.0,
@@ -1175,7 +1410,19 @@
       "wasted": 0,
       "tool_calls_total": 2,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 2,
+      "agentic_deviation": 0,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 2
+      }
     },
     {
       "arg_precision": 1.0,
@@ -1269,7 +1516,18 @@
       "wasted": 0,
       "tool_calls_total": 1,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 0,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "agentic_plan_by_tool": {
+        "search": 1
+      },
+      "agentic_actual_by_tool": {
+        "search": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -1316,7 +1574,18 @@
       "wasted": 0,
       "tool_calls_total": 1,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 1,
+      "agentic_deviation": 0,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -1371,7 +1640,20 @@
       "wasted": 1,
       "tool_calls_total": 3,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 2,
+      "agentic_deviation": 1,
+      "agentic_ratio": 0.667,
+      "agentic_score": 70.0,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1
+      },
+      "agentic_actual_by_tool": {
+        "read": 2,
+        "write": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -1434,7 +1716,23 @@
       "wasted": 2,
       "tool_calls_total": 5,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 3,
+      "agentic_deviation": 2,
+      "agentic_ratio": 0.6,
+      "agentic_score": 60.0,
+      "agentic_plan_by_tool": {
+        "process_start": 1,
+        "process_read": 1,
+        "read": 1
+      },
+      "agentic_actual_by_tool": {
+        "process_start": 1,
+        "process_read": 2,
+        "bash": 1,
+        "read": 1
+      }
     },
     {
       "arg_precision": 1.0,
@@ -1493,7 +1791,21 @@
       "wasted": 2,
       "tool_calls_total": 4,
       "tool_failures": 0,
-      "tool_denied": 0
+      "tool_denied": 0,
+      "agentic_has_plan": true,
+      "agentic_plan_tools": 2,
+      "agentic_deviation": 2,
+      "agentic_ratio": 0.5,
+      "agentic_score": 60.0,
+      "agentic_plan_by_tool": {
+        "write": 1,
+        "read": 1
+      },
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 2,
+        "write": 1
+      }
     }
   ],
   "timestamp": "1785779734693545583"

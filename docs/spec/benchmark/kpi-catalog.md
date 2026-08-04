@@ -70,6 +70,25 @@ Notes:
 - Resource KPIs are measured per scenario in isolation (serial runner) so the
   numbers are comparable; `--repeat` aggregates median/p95.
 
+## 4b. Agentic performance (distance from the optimal tool plan)
+
+Separate from the model-performance score — measures the harness+model's
+**tool economy** against each scenario's optimal plan.
+
+- `optimal_plan` per scenario (JSON: tool -> count; defaults to the oracle's
+  tool mix when absent — template scenarios carry explicit plans such as
+  `{"read":1,"write":1,"bash":1}`; a paged-read edit scenario would declare
+  `{"read":2,"write":1}` for a 20-line file with 10-line pages).
+- Per scenario: `plan_tools` (optimal), `plan_deviation` (actual − plan,
+  signed), `plan_ratio` (plan/actual, 1.0 = perfect), and the **agentic
+  score**: 100 − 10·extra_calls − 20·redundant − 25·failures − 25·denied
+  − 30·retries − 50·hard_stop, clamped ≥ 0.
+- Per model: mean agentic score over planned scenarios, total deviation,
+  and a **tool-mix table** (plan vs actual per tool: reads, writes, bash,
+  process, search) — e.g. a model reading 2.7× more than optimal shows
+  `read: plan 18 / actual 49 / +31`.
+- Hermetic runs are excluded (scripted fakes carry no model signal).
+
 ## 5. Judgment metrics (SOLID / KISS / DRY / YAGNI / DDD / BDD)
 
 These cannot be measured directly — they are code-review properties. The

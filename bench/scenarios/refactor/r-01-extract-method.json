@@ -26,5 +26,10 @@
     "max_wall_ms": 300000
   },
   "difficulty": 4,
-  "expected_steps": 8
+  "expected_steps": 8,
+  "optimal_plan": {
+    "read": 1,
+    "write": 1,
+    "bash": 1
+  }
 }

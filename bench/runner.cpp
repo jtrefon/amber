@@ -105,7 +105,7 @@ struct CwdGuard {
 ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
                                 const RunMeta& meta, std::string& err) {
     (void)meta;
-    ScenarioReport rep{s.name, s.suite, Kpi{}, Score{}, 3, "", "", {}, false, {}};
+    ScenarioReport rep{s.name, s.suite, Kpi{}, Score{}, Agentic{}, 3, "", "", {}, false, {}};
     err.clear();
     if (!platform_supported(s)) {
         rep.failures.emplace_back("platform not supported by this scenario");
@@ -282,6 +282,10 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
             ++forbidden;
     const double checks_ratio = adherence(s.checks, final_text);
     rep.score = compute_score(kpi, s, checks_ratio, forbidden);
+    // Agentic plan adherence measures the model's tool economy; scripted
+    // hermetic runs carry no model signal, so skip them.
+    if (opts.live)
+        rep.agentic = compute_agentic(recorder.stream(), kpi, s);
 
     for (const auto& c : recorder.stream().calls) {
         std::string args = c.args.dump();

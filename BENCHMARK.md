@@ -69,16 +69,16 @@ changes — rerun the same commands after any harness change and compare.
 - **gemma4-12b-q4 (reasoning explicit)**: 799/1000
 - **gemma4-31b**: 903/1000
 
-| model | score | tools | failures | denied | redundant | retries | steps | wall (s) |
-|---|---|---|---|---|---|---|---|---|
-| qwopus-27b | 900 | 109 | 5 | 0 | 17 | 0 | 121 | 321.902 |
-| Qwen3.6-27B dense | 910 | 104 | 4 | 0 | 10 | 0 | 115 | 781.901 |
-| Qwen3.6-27B MTP | 901 | 104 | 2 | 0 | 12 | 0 | 117 | 308.714 |
-| Qwen3.6-35B MoE (A3B) | 877 | 137 | 12 | 1 | 22 | 0 | 145 | 548.405 |
-| ornith-1.0-35b | 837 | 124 | 9 | 0 | 32 | 0 | 153 | 497.099 |
-| gemma4-12b-q4 | 726 | 103 | 8 | 0 | 12 | 3 | 127 | 414.075 |
-| gemma4-12b-q4 (reasoning explicit) | 799 | 111 | 14 | 0 | 18 | 1 | 135 | 580.849 |
-| gemma4-31b | 903 | 103 | 2 | 0 | 5 | 0 | 127 | 1056.49 |
+| model | score | agentic | tools | failures | denied | redundant | retries | steps | wall (s) |
+|---|---|---|---|---|---|---|---|---|---|
+| qwopus-27b | 900 | 62 | 109 | 5 | 0 | 17 | 0 | 121 | 321.902 |
+| Qwen3.6-27B dense | 910 | 68 | 104 | 4 | 0 | 10 | 0 | 115 | 781.901 |
+| Qwen3.6-27B MTP | 901 | 66 | 104 | 2 | 0 | 12 | 0 | 117 | 308.714 |
+| Qwen3.6-35B MoE (A3B) | 877 | 59 | 137 | 12 | 1 | 22 | 0 | 145 | 548.405 |
+| ornith-1.0-35b | 837 | 63 | 124 | 9 | 0 | 32 | 0 | 153 | 497.099 |
+| gemma4-12b-q4 | 726 | 70 | 103 | 8 | 0 | 12 | 3 | 127 | 414.075 |
+| gemma4-12b-q4 (reasoning explicit) | 799 | 66 | 111 | 14 | 0 | 18 | 1 | 135 | 580.849 |
+| gemma4-31b | 903 | 72 | 103 | 2 | 0 | 5 | 0 | 127 | 1056.49 |
 
 | scenario | qwopus-27b | Qwen3.6-27B dense | Qwen3.6-27B MTP | Qwen3.6-35B MoE (A3B) | ornith-1.0-35b | gemma4-12b-q4 | gemma4-12b-q4 (reasoning explicit) | gemma4-31b |
 |---|---|---|---|---|---|---|---|---|
@@ -158,6 +158,27 @@ changes — rerun the same commands after any harness change and compare.
 | LLM retries | 0 | 0 |
 | wall time (s) | 321.902 | 12.8761 |
 
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 109 |
+| total deviation (extra calls) | 60 |
+| agentic score (mean plan adherence) | 62/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation |
+|---|---|---|---|
+| bash | 15 | 39 | 24 |
+| process_read | 1 | 3 | 2 |
+| process_start | 1 | 1 | 0 |
+| read | 18 | 49 | 31 |
+| search | 1 | 1 | 0 |
+| write | 12 | 15 | 3 |
+
 ## Qwen3.6-27B dense
 
 - run: `run-1785781966685651020` [live, engine 0.3.1, reasoning on]
@@ -205,6 +226,27 @@ changes — rerun the same commands after any harness change and compare.
 | redundant calls | 10 | 0.4 |
 | LLM retries | 0 | 0 |
 | wall time (s) | 781.901 | 31.276 |
+
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 104 |
+| total deviation (extra calls) | 55 |
+| agentic score (mean plan adherence) | 68/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation |
+|---|---|---|---|
+| bash | 15 | 36 | 21 |
+| process_read | 1 | 2 | 1 |
+| process_start | 1 | 1 | 0 |
+| read | 18 | 48 | 30 |
+| search | 1 | 2 | 1 |
+| write | 12 | 14 | 2 |
 
 ## Qwen3.6-27B MTP
 
@@ -254,6 +296,27 @@ changes — rerun the same commands after any harness change and compare.
 | LLM retries | 0 | 0 |
 | wall time (s) | 308.714 | 12.3486 |
 
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 104 |
+| total deviation (extra calls) | 54 |
+| agentic score (mean plan adherence) | 66/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation |
+|---|---|---|---|
+| bash | 15 | 31 | 16 |
+| process_read | 1 | 2 | 1 |
+| process_start | 1 | 1 | 0 |
+| read | 18 | 52 | 34 |
+| search | 1 | 1 | 0 |
+| write | 12 | 15 | 3 |
+
 ## Qwen3.6-35B MoE (A3B)
 
 - run: `run-1785792736852620357` [live, engine 0.3.1, reasoning on]
@@ -302,6 +365,27 @@ changes — rerun the same commands after any harness change and compare.
 | redundant calls | 22 | 0.88 |
 | LLM retries | 0 | 0 |
 | wall time (s) | 548.405 | 21.9362 |
+
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 137 |
+| total deviation (extra calls) | 88 |
+| agentic score (mean plan adherence) | 59/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation |
+|---|---|---|---|
+| bash | 15 | 44 | 29 |
+| process_read | 1 | 3 | 2 |
+| process_start | 1 | 1 | 0 |
+| read | 18 | 60 | 42 |
+| search | 1 | 1 | 0 |
+| write | 12 | 27 | 15 |
 
 ## ornith-1.0-35b
 
@@ -353,6 +437,27 @@ changes — rerun the same commands after any harness change and compare.
 | redundant calls | 32 | 1.28 |
 | LLM retries | 0 | 0 |
 | wall time (s) | 497.099 | 19.884 |
+
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 124 |
+| total deviation (extra calls) | 75 |
+| agentic score (mean plan adherence) | 63/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation |
+|---|---|---|---|
+| bash | 15 | 41 | 26 |
+| process_read | 1 | 4 | 3 |
+| process_start | 1 | 1 | 0 |
+| read | 18 | 60 | 42 |
+| search | 1 | 1 | 0 |
+| write | 12 | 16 | 4 |
 
 ## gemma4-12b-q4
 
@@ -409,6 +514,28 @@ changes — rerun the same commands after any harness change and compare.
 | LLM retries | 3 | 0.12 |
 | wall time (s) | 414.075 | 16.563 |
 
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 103 |
+| total deviation (extra calls) | 54 |
+| agentic score (mean plan adherence) | 70/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation |
+|---|---|---|---|
+| bash | 15 | 35 | 20 |
+| process_read | 1 | 4 | 3 |
+| process_start | 1 | 2 | 1 |
+| read | 18 | 41 | 23 |
+| search | 1 | 1 | 0 |
+| write | 12 | 18 | 6 |
+| process_stop | 0 | 1 | 1 |
+
 ## gemma4-12b-q4 (reasoning explicit)
 
 - run: `run-1785791432528704324` [live, engine 0.3.1, reasoning on]
@@ -461,6 +588,28 @@ changes — rerun the same commands after any harness change and compare.
 | LLM retries | 1 | 0.04 |
 | wall time (s) | 580.849 | 23.234 |
 
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 111 |
+| total deviation (extra calls) | 62 |
+| agentic score (mean plan adherence) | 66/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation |
+|---|---|---|---|
+| bash | 15 | 31 | 16 |
+| process_read | 1 | 6 | 5 |
+| process_start | 1 | 3 | 2 |
+| read | 18 | 47 | 29 |
+| search | 1 | 1 | 0 |
+| write | 12 | 21 | 9 |
+| process_stop | 0 | 1 | 1 |
+
 ## gemma4-31b
 
 - run: `run-1785779734693544183` [live, engine 0.3.1, reasoning on]
@@ -508,4 +657,25 @@ changes — rerun the same commands after any harness change and compare.
 | redundant calls | 5 | 0.2 |
 | LLM retries | 0 | 0 |
 | wall time (s) | 1056.49 | 42.2597 |
+
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 103 |
+| total deviation (extra calls) | 54 |
+| agentic score (mean plan adherence) | 72/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation |
+|---|---|---|---|
+| bash | 15 | 39 | 24 |
+| process_read | 1 | 2 | 1 |
+| process_start | 1 | 1 | 0 |
+| read | 18 | 38 | 20 |
+| search | 1 | 1 | 0 |
+| write | 12 | 21 | 9 |
 

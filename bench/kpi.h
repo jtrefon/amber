@@ -5,6 +5,7 @@
 // KPI aggregation: fold the recorder's event stream, the oracle result, the
 // resource sample and the template result into one scenario KPI record.
 
+#include <map>
 #include <string>
 
 #include "bench/oracle.h"
@@ -79,6 +80,28 @@ struct Score {
 
 Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
                     int forbidden_calls);
+
+// Agentic performance: distance from the scenario's optimal tool plan.
+// The plan is the scenario's declared `optimal_plan` (tool -> count), or the
+// oracle's tool mix when absent. Deviation is actual calls minus plan;
+// plan_ratio is plan/actual (1.0 = perfect). The score (0..100) is a strict
+// plan-adherence lens — separate from the model-performance Score:
+//   100 - 10*extra_calls - 20*redundant - 25*failures - 25*denied
+//        - 30*retries - 50*hard_stop, clamped >= 0
+// Scenarios without a plan (empty oracle and no explicit plan) have
+// has_plan=false and are excluded from agentic aggregation.
+struct Agentic {
+    bool has_plan = false;
+    int plan_tools = 0;         // optimal tool calls
+    int plan_deviation = 0;     // actual - plan (extra calls, signed)
+    double plan_ratio = 0.0;    // plan / actual
+    double score = 0.0;         // 0..100 plan-adherence
+    std::map<std::string, int> plan_by_tool;
+    std::map<std::string, int> actual_by_tool;
+};
+
+Agentic compute_agentic(const EventStream& stream, const Kpi& k,
+                        const Scenario& s);
 
 } // namespace bench
 

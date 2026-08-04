@@ -787,3 +787,81 @@ TEST(report_markdown_agentic_profile) {
     ASSERT(md.find("tool failures") != std::string::npos);
     ASSERT(md.find('1') != std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// Agentic performance: distance from the optimal tool plan
+// ---------------------------------------------------------------------------
+
+static bench::Agentic agentic_for(const std::vector<bench::ToolCallEvent>& calls,
+                                  const std::vector<ScenarioStep>& oracle,
+                                  const agent::json& plan,
+                                  const Kpi& k = Kpi{}) {
+    bench::EventStream stream;
+    stream.calls = calls;
+    Scenario s;
+    s.oracle = oracle;
+    s.optimal_plan = plan;
+    return bench::compute_agentic(stream, k, s);
+}
+
+TEST(agentic_perfect_plan_zero_deviation) {
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
+        {"write", {{"path", "b.txt"}}, 0, "ok"},
+    };
+    auto a = agentic_for(calls, {{"read", {}}, {"write", {}}}, agent::json());
+    ASSERT(a.has_plan);
+    ASSERT_EQ(a.plan_tools, 2);
+    ASSERT_EQ(a.plan_deviation, 0);
+    ASSERT_EQ(a.plan_ratio, 1.0);
+    ASSERT_EQ(a.score, 100.0);
+}
+
+TEST(agentic_extra_calls_penalized) {
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
+        {"bash", {{"command", "ls"}}, 0, "ok"},
+        {"bash", {{"command", "cat"}}, 0, "ok"},
+    };
+    auto a = agentic_for(calls, {{"read", {}}}, agent::json());
+    ASSERT_EQ(a.plan_tools, 1);
+    ASSERT_EQ(a.plan_deviation, 2);
+    ASSERT_NEAR(a.plan_ratio, 1.0 / 3.0, 0.01);
+    ASSERT_EQ(a.score, 80.0);
+}
+
+TEST(agentic_explicit_plan_overrides_oracle) {
+    // Oracle says read TASK.md only, but a perfect agent also writes and
+    // compiles: explicit plan {read:1, write:1, bash:1}.
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "TASK.md"}}, 0, "ok"},
+        {"write", {{"path", "solution.cpp"}}, 0, "ok"},
+        {"bash", {{"command", "g++"}}, 0, "ok"},
+    };
+    auto a = agentic_for(calls, {{"read", {}}},
+                         agent::json{{"read", 1}, {"write", 1}, {"bash", 1}});
+    ASSERT_EQ(a.plan_tools, 3);
+    ASSERT_EQ(a.plan_deviation, 0);
+    ASSERT_EQ(a.score, 100.0);
+}
+
+TEST(agentic_repeats_failures_retries_penalized) {
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
+        {"read", {{"path", "a.txt"}}, 0, "ok"},   // exact repeat
+        {"read", {{"path", "b.txt"}}, 0, "error"},  // failure
+    };
+    Kpi k;
+    k.redundant = 1;
+    k.retries = 1;
+    k.tool_failures = 1;
+    auto a = agentic_for(calls, {{"read", {}}}, agent::json(), k);
+    // 100 - 20 extra calls - 20 repeat - 25 failure - 30 retry = 5
+    ASSERT_EQ(a.score, 5.0);
+}
+
+TEST(agentic_no_plan_skipped) {
+    auto a = agentic_for({}, {}, agent::json());
+    ASSERT_FALSE(a.has_plan);
+    ASSERT_EQ(a.score, 0.0);
+}
