@@ -27,6 +27,8 @@ llama.cpp / llama-turboq with the presets below):
 ./amber-bench run --live --profile qwen36-27b-mtp --out .amber/bench/results/qwen36-27b-mtp.json
 ./amber-bench run --live --profile qwen35-moe     --out .amber/bench/results/qwen35-moe.json
 ./amber-bench run --live --profile ornith-35b    --out .amber/bench/results/ornith-35b.json
+./amber-bench run --live --profile kilo-auto-free --out .amber/bench/results/kilo-auto-free.json   # needs AMBER_API_KEY (kilo.ai gateway)
+./amber-bench run --live --profile nemotron-550b  --out .amber/bench/results/nemotron-550b.json    # needs AMBER_API_KEY
 ./amber-bench report bench/results/*.json --format markdown
 ```
 
@@ -49,6 +51,13 @@ changes — rerun the same commands after any harness change and compare.
 > land in a ~900-910 band — differences within it are single-run variance,
 > not model ranking; use `--repeat N` for statistically meaningful deltas.
 
+> Cloud runs (kilo-auto/free, Nemotron 550B) go through the Kilo AI Gateway
+> (`https://api.kilo.ai/api/gateway`, provider preset `kilocode`); the free
+> tier auto-routes `kilo-auto/free` to the best available free model
+> (a small flash on the recorded run), while the Nemotron run targets the
+> explicit 550B free endpoint. Cloud runs carry rate-limit and routing
+> variance.
+
 > Reasoning note: all runs ship with reasoning enabled. Records predating
 > explicit reasoning tracking (qwopus-27b, qwen35-dense, ornith-35b,
 > gemma4-12b-q4) are labelled `on (server preset, client auto)` — the
@@ -68,6 +77,8 @@ changes — rerun the same commands after any harness change and compare.
 - **gemma4-12b-q4**: 726/1000
 - **gemma4-12b-q4 (reasoning explicit)**: 799/1000
 - **gemma4-31b**: 903/1000
+- **kilo-auto/free**: 861/1000
+- **NVIDIA Nemotron 3 Ultra 550B (free)**: 806/1000
 
 | model | score | agentic | plan % | tools | fail % | redun % | steps | wall (s) |
 |---|---|---|---|---|---|---|---|---|
@@ -79,34 +90,36 @@ changes — rerun the same commands after any harness change and compare.
 | gemma4-12b-q4 | 726 | 70 | 47 | 103 | 7 | 11 | 127 | 414.075 |
 | gemma4-12b-q4 (reasoning explicit) | 799 | 66 | 43 | 111 | 12 | 16 | 135 | 580.849 |
 | gemma4-31b | 903 | 72 | 47 | 103 | 1 | 4 | 127 | 1056.49 |
+| kilo-auto/free | 861 | 63 | 42 | 115 | 6 | 6 | 121 | 364.541 |
+| NVIDIA Nemotron 3 Ultra 550B (free) | 806 | 58 | 36 | 133 | 6 | 15 | 149 | 1087.47 |
 
-| scenario | qwopus-27b | Qwen3.6-27B dense | Qwen3.6-27B MTP | Qwen3.6-35B MoE (A3B) | ornith-1.0-35b | gemma4-12b-q4 | gemma4-12b-q4 (reasoning explicit) | gemma4-31b |
-|---|---|---|---|---|---|---|---|---|
-| c-01-fizzbuzz | 96 | 96 | 96 | 100 | 96 | 84 | 86 | 100 |
-| c-02-sorting-multi | 96 | 96 | 100 | 40 | 40 | 95 | 40 | 90 |
-| c-03-ring-buffer | 84 | 80 | 80 | 80 | 84 | 86 | 34 | 80 |
-| c-04-lcs | 80 | 88 | 84 | 80 | 84 | 90 | 90 | 84 |
-| c-05-graph-bfs | 84 | 86 | 80 | 82 | 82 | 90 | 90 | 84 |
-| p-01-envelope-format | 100 | 100 | 100 | 100 | 96 | 100 | 96 | 96 |
-| p-02-banned-tool-refusal | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| p-03-verify-after-action | 15 | 27 | 21 | 25 | 21 | 21 | 19 | 29 |
-| p-05-multi-constraint | 100 | 100 | 100 | 100 | 100 | 48 | 48 | 100 |
-| p-06-verify-before-claim | 98 | 94 | 94 | 98 | 94 | 98 | 94 | 94 |
-| r-01-extract-method | 96 | 94 | 96 | 92 | 96 | 40 | 100 | 100 |
-| r-02-polymorphism-over-switch | 92 | 86 | 96 | 80 | 96 | 89 | 81 | 100 |
-| r-03-adapter | 80 | 82 | 80 | 86 | 80 | 27 | 80 | 80 |
-| r-04-strategy | 88 | 88 | 86 | 84 | 80 | 34 | 90 | 82 |
-| t-01-ls-count-files | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| t-02-grep-extract-value | 100 | 98 | 100 | 100 | 98 | 100 | 100 | 100 |
-| t-03-compile-run-cpp | 100 | 100 | 100 | 100 | 46 | 100 | 100 | 100 |
-| t-04-env-inventory | 100 | 100 | 100 | 100 | 100 | 44 | 100 | 100 |
-| t-05-pipeline-transform | 100 | 100 | 100 | 98 | 100 | 46 | 98 | 100 |
-| t-06-multi-dir-count | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| t-01-search-vs-bash-grep | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| t-02-read-vs-cat | 100 | 100 | 100 | 100 | 94 | 100 | 92 | 100 |
-| t-03-write-vs-rewrite | 92 | 100 | 92 | 100 | 35 | 92 | 84 | 92 |
-| t-04-process-vs-blocking | 80 | 90 | 82 | 80 | 80 | 32 | 26 | 86 |
-| t-06-write-verify-loop | 90 | 90 | 90 | 90 | 90 | 82 | 90 | 82 |
+| scenario | qwopus-27b | Qwen3.6-27B dense | Qwen3.6-27B MTP | Qwen3.6-35B MoE (A3B) | ornith-1.0-35b | gemma4-12b-q4 | gemma4-12b-q4 (reasoning explicit) | gemma4-31b | kilo-auto/free | NVIDIA Nemotron 3 Ultra 550B (free) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| c-01-fizzbuzz | 96 | 96 | 96 | 100 | 96 | 84 | 86 | 100 | 100 | 88 |
+| c-02-sorting-multi | 96 | 96 | 100 | 40 | 40 | 95 | 40 | 90 | 100 | 82 |
+| c-03-ring-buffer | 84 | 80 | 80 | 80 | 84 | 86 | 34 | 80 | 80 | 40 |
+| c-04-lcs | 80 | 88 | 84 | 80 | 84 | 90 | 90 | 84 | 84 | 80 |
+| c-05-graph-bfs | 84 | 86 | 80 | 82 | 82 | 90 | 90 | 84 | 82 | 80 |
+| p-01-envelope-format | 100 | 100 | 100 | 100 | 96 | 100 | 96 | 96 | 96 | 100 |
+| p-02-banned-tool-refusal | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| p-03-verify-after-action | 15 | 27 | 21 | 25 | 21 | 21 | 19 | 29 | 25 | 29 |
+| p-05-multi-constraint | 100 | 100 | 100 | 100 | 100 | 48 | 48 | 100 | 48 | 48 |
+| p-06-verify-before-claim | 98 | 94 | 94 | 98 | 94 | 98 | 94 | 94 | 94 | 98 |
+| r-01-extract-method | 96 | 94 | 96 | 92 | 96 | 40 | 100 | 100 | 96 | 96 |
+| r-02-polymorphism-over-switch | 92 | 86 | 96 | 80 | 96 | 89 | 81 | 100 | 88 | 94 |
+| r-03-adapter | 80 | 82 | 80 | 86 | 80 | 27 | 80 | 80 | 82 | 80 |
+| r-04-strategy | 88 | 88 | 86 | 84 | 80 | 34 | 90 | 82 | 82 | 82 |
+| t-01-ls-count-files | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| t-02-grep-extract-value | 100 | 98 | 100 | 100 | 98 | 100 | 100 | 100 | 100 | 100 |
+| t-03-compile-run-cpp | 100 | 100 | 100 | 100 | 46 | 100 | 100 | 100 | 46 | 46 |
+| t-04-env-inventory | 100 | 100 | 100 | 100 | 100 | 44 | 100 | 100 | 100 | 100 |
+| t-05-pipeline-transform | 100 | 100 | 100 | 98 | 100 | 46 | 98 | 100 | 100 | 100 |
+| t-06-multi-dir-count | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| t-01-search-vs-bash-grep | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 30 |
+| t-02-read-vs-cat | 100 | 100 | 100 | 100 | 94 | 100 | 92 | 100 | 100 | 100 |
+| t-03-write-vs-rewrite | 92 | 100 | 92 | 100 | 35 | 92 | 84 | 92 | 92 | 92 |
+| t-04-process-vs-blocking | 80 | 90 | 82 | 80 | 80 | 32 | 26 | 86 | 90 | 80 |
+| t-06-write-verify-loop | 90 | 90 | 90 | 90 | 90 | 82 | 90 | 82 | 90 | 90 |
 
 ---
 
@@ -686,4 +699,150 @@ changes — rerun the same commands after any harness change and compare.
 | read | 18 | 38 | 20 | 47 |
 | search | 1 | 1 | 0 | 100 |
 | write | 12 | 21 | 9 | 57 |
+
+## kilo-auto/free
+
+- run: `run-1785839903363081822` [live, engine 0.3.1, reasoning on]
+- **model score: 861/1000** (25 scenarios)
+
+| scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
+|---|---|---|---|---|---|---|---|
+| c-01-fizzbuzz | 2 | 100 | 1 | 6 | 5 | 14.267 | 1 |
+| c-02-sorting-multi | 3 | 100 | 1 | 9 | 8 | 25.212 | 1 |
+| c-03-ring-buffer | 4 | 80 | 1 | 9 | 9 | 33.581 | 1 |
+| c-04-lcs | 4 | 84 | 1 | 9 | 8 | 24.631 | 1 |
+| c-05-graph-bfs | 5 | 82 | 1 | 8 | 8 | 16.609 | 1 |
+| p-01-envelope-format | 2 | 96 | 1 | 3 | 1 | 7.765 | - |
+| p-02-banned-tool-refusal | 3 | 100 | 1 | 2 | 0 | 5.317 | - |
+| p-03-verify-after-action | 3 | 25 | 0 | 3 | 2 | 16.492 | - |
+| p-05-multi-constraint | 4 | 48 | 1 | 2 | 0 | 13.687 | - |
+| p-06-verify-before-claim | 4 | 94 | 1 | 3 | 1 | 5.191 | - |
+| r-01-extract-method | 4 | 96 | 1 | 7 | 8 | 26.082 | 1 |
+| r-02-polymorphism-over-switch | 4 | 88 | 1 | 12 | 13 | 30.029 | 1 |
+| r-03-adapter | 4 | 82 | 1 | 8 | 10 | 23.754 | 1 |
+| r-04-strategy | 5 | 82 | 1 | 8 | 8 | 21.773 | 1 |
+| t-01-ls-count-files | 2 | 100 | 1 | 2 | 0 | 5.149 | - |
+| t-02-grep-extract-value | 3 | 100 | 1 | 3 | 0 | 5.903 | - |
+| t-03-compile-run-cpp | 3 | 46 | 1 | 3 | 0 | 5.723 | - |
+| t-04-env-inventory | 3 | 100 | 1 | 1 | 0 | 3.028 | - |
+| t-05-pipeline-transform | 4 | 100 | 1 | 4 | 0 | 15.994 | - |
+| t-06-multi-dir-count | 3 | 100 | 1 | 2 | 0 | 18.304 | - |
+| t-01-search-vs-bash-grep | 3 | 100 | 1 | 2 | 0 | 5.474 | - |
+| t-02-read-vs-cat | 2 | 100 | 1 | 2 | 0 | 4.673 | - |
+| t-03-write-vs-rewrite | 3 | 92 | 1 | 4 | 1 | 12.806 | - |
+| t-04-process-vs-blocking | 5 | 90 | 1 | 5 | 1 | 14.252 | - |
+| t-06-write-verify-loop | 4 | 90 | 1 | 4 | 1 | 8.845 | - |
+
+### Failures
+
+- **p-03-verify-after-action** (25/100): oracle not matched: 0/2 steps (bullseye 0)
+- **p-05-multi-constraint** (48/100): final answer failed scenario checks
+- **t-03-compile-run-cpp** (46/100): final answer failed scenario checks
+
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 115 | 4.6 |
+| tool failures | 7 | 0.28 |
+| tool denials | 0 | 0 |
+| redundant calls | 8 | 0.32 |
+| LLM retries | 0 | 0 |
+| wall time (s) | 364.541 | 14.5816 |
+
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 115 |
+| total deviation (extra calls) | 66 |
+| plan efficiency | 41/100 |
+| agentic score (mean plan adherence) | 63/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 51 | 36 | 29 |
+| process_read | 1 | 2 | 1 | 50 |
+| process_start | 1 | 1 | 0 | 100 |
+| read | 18 | 44 | 26 | 40 |
+| search | 1 | 1 | 0 | 100 |
+| write | 12 | 15 | 3 | 80 |
+
+## NVIDIA Nemotron 3 Ultra 550B (free)
+
+- run: `run-1785840286887120700` [live, engine 0.3.1, reasoning on]
+- **model score: 806/1000** (25 scenarios)
+
+| scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |
+|---|---|---|---|---|---|---|---|
+| c-01-fizzbuzz | 2 | 88 | 1 | 10 | 8 | 63.17 | 1 |
+| c-02-sorting-multi | 3 | 82 | 1 | 13 | 12 | 138.957 | 1 |
+| c-03-ring-buffer | 4 | 40 | 1 | 20 | 19 | 155.896 | 1 |
+| c-04-lcs | 4 | 80 | 1 | 9 | 8 | 66.522 | 1 |
+| c-05-graph-bfs | 5 | 80 | 1 | 10 | 8 | 46.992 | 1 |
+| p-01-envelope-format | 2 | 100 | 1 | 2 | 0 | 6.236 | - |
+| p-02-banned-tool-refusal | 3 | 100 | 1 | 2 | 0 | 15.068 | - |
+| p-03-verify-after-action | 3 | 29 | 0 | 2 | 1 | 7.961 | - |
+| p-05-multi-constraint | 4 | 48 | 1 | 2 | 0 | 18.936 | - |
+| p-06-verify-before-claim | 4 | 98 | 1 | 2 | 0 | 38.914 | - |
+| r-01-extract-method | 4 | 96 | 1 | 6 | 4 | 77.26 | 1 |
+| r-02-polymorphism-over-switch | 4 | 94 | 1 | 9 | 7 | 71.458 | 1 |
+| r-03-adapter | 4 | 80 | 1 | 11 | 14 | 116.425 | 1 |
+| r-04-strategy | 5 | 82 | 1 | 8 | 7 | 50.312 | 1 |
+| t-01-ls-count-files | 2 | 100 | 1 | 2 | 0 | 6.888 | - |
+| t-02-grep-extract-value | 3 | 100 | 1 | 2 | 0 | 11.287 | - |
+| t-03-compile-run-cpp | 3 | 46 | 1 | 4 | 0 | 36.488 | - |
+| t-04-env-inventory | 3 | 100 | 1 | 1 | 0 | 8.686 | - |
+| t-05-pipeline-transform | 4 | 100 | 1 | 4 | 0 | 41.351 | - |
+| t-06-multi-dir-count | 3 | 100 | 1 | 2 | 0 | 6.936 | - |
+| t-01-search-vs-bash-grep | 3 | 30 | 1 | 10 | 8 | 32.122 | - |
+| t-02-read-vs-cat | 2 | 100 | 1 | 2 | 0 | 5.631 | - |
+| t-03-write-vs-rewrite | 3 | 92 | 1 | 4 | 1 | 13.98 | - |
+| t-04-process-vs-blocking | 5 | 80 | 1 | 8 | 4 | 31.512 | - |
+| t-06-write-verify-loop | 4 | 90 | 1 | 4 | 1 | 18.485 | - |
+
+### Failures
+
+- **c-03-ring-buffer** (40/100): final answer failed scenario checks
+- **p-03-verify-after-action** (29/100): oracle not matched: 0/2 steps (bullseye 0)
+- **p-05-multi-constraint** (48/100): final answer failed scenario checks
+- **t-03-compile-run-cpp** (46/100): final answer failed scenario checks
+- **t-01-search-vs-bash-grep** (30/100): final answer failed scenario checks
+
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 133 | 5.32 |
+| tool failures | 8 | 0.32 |
+| tool denials | 0 | 0 |
+| redundant calls | 20 | 0.8 |
+| LLM retries | 0 | 0 |
+| wall time (s) | 1087.47 | 43.4989 |
+
+**Plan adherence** (optimal tool plan vs actual):
+
+| metric | value |
+|---|---|
+| scenarios with a plan | 24 |
+| optimal tool calls (sum) | 48 |
+| actual tool calls | 133 |
+| total deviation (extra calls) | 84 |
+| plan efficiency | 36/100 |
+| agentic score (mean plan adherence) | 58/100 |
+
+**Tool mix (plan vs actual, summed across scenarios):**
+
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 46 | 31 | 32 |
+| process_read | 1 | 3 | 2 | 33 |
+| process_start | 1 | 2 | 1 | 50 |
+| read | 18 | 57 | 39 | 31 |
+| search | 1 | 10 | 9 | 10 |
+| write | 12 | 14 | 2 | 85 |
 
