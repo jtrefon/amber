@@ -1,4 +1,6 @@
 
+#include "agent/todo.h"
+#include "agent/tools.h"
 #include "bench/fake.h"
 #include "bench/kpi.h"
 #include "bench/oracle.h"
@@ -904,4 +906,15 @@ TEST(template_c_source_support) {
     ASSERT(r.compile_ok);
     ASSERT_EQ(r.tests_passed, 1);
     ASSERT(r.behavior_equivalent);
+}
+
+TEST(todowrite_schema_invites_proactive_use) {
+    // The advertisement matters: models reach for TodoWrite when the
+    // description names concrete triggers ("three or more distinct steps",
+    // dependencies, mid-task additions). A passive description gets ignored.
+    agent::TodoStore store;
+    auto tool = agent::make_todowrite_tool(store);
+    const std::string d = tool->description();
+    ASSERT(d.find("three or more distinct steps") != std::string::npos);
+    ASSERT(d.find("survives context compaction") != std::string::npos);
 }

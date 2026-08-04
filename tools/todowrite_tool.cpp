@@ -38,10 +38,15 @@ public:
 
     std::string description() const noexcept override {
         return "Create and maintain a structured task list for the current "
-               "session. Tracks progress during multi-step work and keeps "
-               "status visible to the user. The full list is sent on every "
-               "call and replaces the previous one. Item statuses: pending, "
-               "in_progress, completed, cancelled.";
+               "session. Each item: id, short description, status (pending, "
+               "in_progress, completed, cancelled). Send the full updated "
+               "list on every call — it replaces the previous one. A task "
+               "list earns its keep when the work has shape: three or more "
+               "distinct steps, steps that depend on earlier ones, files "
+               "that change together, or new instructions arriving mid-task "
+               "— write the list down and keep it current. The list lives "
+               "outside the conversation, survives context compaction, and "
+               "keeps the user in view of where the work stands.";
     }
 
     agent::json parameters_schema() const override {

@@ -87,6 +87,24 @@ sites → compile), r-02 seeded bug-hunt (explore → fix → verify).
 | r-01-rename-interface | PASS 100 (7 steps, artifact 1) | 0 |
 | r-02-bug-hunt | PASS 96 (artifact 1) | 0 |
 
+Advertisement experiment (same day): tools.md + schema description
+rewritten with concrete triggers ("a task list earns its keep when the work
+has shape: three or more distinct steps, steps that depend on earlier ones,
+files that change together, or new instructions arriving mid-task"). Wire
+capture confirms the model received the trigger-rich description verbatim
+on every request. **Adoption: still 0** on both repo scenarios (both still
+PASS: 100 / 96).
+
+**Complete verdict across the hypothesis chain** — all three disproven with
+wire-level evidence: (1) not wiring — advertised in every request; (2) not
+task complexity — long-horizon tasks solved perfectly without the tool;
+(3) not advertisement — trigger-rich text delivered verbatim, still unused.
+The residual explanation is **model training fit (H5)**: Qwen3.6-27B's RL
+traces do not include the TodoWrite convention that Claude/GPT-class models
+are trained with. The tool remains functional, advertised, and harmless —
+it becomes relevant with sub-agent delegation (P4) and models trained on
+the convention.
+
 Verdict on the "not complex enough" hypothesis: **complexity is not the
 trigger.** The baseline model completes multi-phase, dependent-step work
 efficiently without any planning tool (r-01 at 100, surgical edits, zero
