@@ -1,0 +1,74 @@
+{
+  "name": "f-04-parallel-vs-sequential",
+  "suite": "agent-failures",
+  "description": "two reads issued in one reply must both dispatch and match (unordered oracle)",
+  "hermetic_only": true,
+  "difficulty": 3,
+  "setup": {
+    "files": {
+      "a.txt": "alpha",
+      "b.txt": "beta"
+    }
+  },
+  "prompt": "read a.txt and b.txt",
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"a.txt\"}"
+          }
+        },
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"b.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 50,
+      "completion_tokens": 20
+    },
+    {
+      "content": "done. a.txt is alpha and b.txt is beta.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    },
+    {
+      "content": "yes",
+      "prompt_tokens": 1,
+      "completion_tokens": 1
+    }
+  ],
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*a.txt"
+      },
+      "unordered": true
+    },
+    {
+      "tool": "read",
+      "args": {
+        "path": "*b.txt"
+      },
+      "unordered": true
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "alpha",
+      "beta"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 30000
+  }
+}

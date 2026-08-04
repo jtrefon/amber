@@ -154,3 +154,11 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | File | Covers |
 |------|--------|
 | `git-integration/git-workflow.md` | Three-layer architecture (shell prompt, agent prompt, bash execution), commit/rollback workflow, invariants, tool-deferral reasoning |
+
+## Benchmark / KPIs
+
+| File | Covers |
+|------|--------|
+| `benchmark/kpi-framework.md` | Harness architecture: scenario schema, runner lifecycle, static-template engine, hermetic fake, phasing |
+| `benchmark/corpus.md` | Scenario taxonomy: 9 suites, scenario ladder (agent failures, terminal, tools, prompt, coding, refactor, skills, mcp, compression), P1 scope |
+| `benchmark/kpi-catalog.md` | Every measurable indicator: correctness, efficiency, robustness, resources, judgment-metric proxies |

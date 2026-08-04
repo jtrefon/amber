@@ -76,7 +76,28 @@ json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
     if (!cfg.reasoning_effort.empty() && cfg.reasoning_effort != "off")
         body["reasoning_effort"] = cfg.reasoning_effort;
 
+    // Merge consecutive system messages into one. The memory/skills blocks are
+    // injected as a second role=system message; strict GGUF chat templates
+    // (e.g. Qwen 3.6 dense) reject multiple system messages with HTTP 500.
+    // Token-level KV prefix caching is unaffected — the common prefix tokens
+    // are identical with or without the merge.
+    std::string merged_content;
+    bool system_open = false;
     for (const auto& m : messages) {
+        if (m.role == "system") {
+            if (!system_open) {
+                merged_content = m.content;
+                system_open = true;
+            } else {
+                merged_content += "\n\n" + m.content;
+            }
+            continue;
+        }
+        if (system_open) {
+            body["messages"].push_back(
+                {{"role", "system"}, {"content", merged_content}});
+            system_open = false;
+        }
         json jm = {{"role", m.role}};
         if (m.role == "assistant" && !m.tool_calls.is_null()) {
             jm["tool_calls"] = m.tool_calls;
@@ -97,6 +118,9 @@ json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
         }
         body["messages"].push_back(jm);
     }
+    if (system_open)
+        body["messages"].push_back(
+            {{"role", "system"}, {"content", merged_content}});
 
     if (!tools.empty()) {
         json tarr = json::array();

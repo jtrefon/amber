@@ -1,0 +1,35 @@
+{
+  "name": "r-01-extract-method",
+  "suite": "refactor",
+  "description": "split a monster function into named extract_ helpers, behavior unchanged",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "template": "refactor/extract-method",
+  "prompt": "Read TASK.md and refactor the code in the workspace. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*TASK.md"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 20,
+    "max_wall_ms": 300000
+  },
+  "difficulty": 4,
+  "expected_steps": 8,
+  "optimal_plan": {
+    "read": 1,
+    "write": 1,
+    "bash": 1
+  }
+}

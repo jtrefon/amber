@@ -1,0 +1,1 @@
+{"must_contain": ["virtual", "override", "ShippingStrategy"], "must_not_contain": ["return 10 + 2 * weight_kg"]}

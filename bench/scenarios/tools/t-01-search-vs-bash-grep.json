@@ -1,0 +1,35 @@
+{
+  "name": "t-01-search-vs-bash-grep",
+  "suite": "tools",
+  "description": "the search tool is the right tool; bash is forbidden",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "src/main.cpp": "// TODO: implement\nint main() { return 0; }\n",
+      "src/util.cpp": "// done\n"
+    }
+  },
+  "prompt": "Find the files containing the text TODO. Do NOT use bash. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "search"
+    }
+  ],
+  "forbidden_tools": [
+    "bash"
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "difficulty": 3,
+  "expected_steps": 2
+}

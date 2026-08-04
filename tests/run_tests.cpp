@@ -333,6 +333,35 @@ TEST(request_body_survives_invalid_utf8) {
     ASSERT(payload.find("\xEF\xBF\xBD") != std::string::npos);  // U+FFFD present
 }
 
+TEST(request_builder_merges_consecutive_system_messages) {
+    // Strict GGUF chat templates (e.g. Qwen 3.6 dense) raise HTTP 500 when the
+    // request carries more than one system message ("System message must be at
+    // the beginning"). The memory/skills blocks are injected as a second
+    // role=system message, so the wire format must merge consecutive system
+    // messages into one. Token-level KV prefix caching is unaffected: the
+    // common prefix tokens stay identical either way.
+    agent::Config c;
+    std::vector<agent::Message> msgs;
+    agent::Message s1; s1.role = "system"; s1.content = "main prompt"; msgs.push_back(s1);
+    agent::Message s2; s2.role = "system"; s2.content = "memories block"; msgs.push_back(s2);
+    agent::Message u; u.role = "user"; u.content = "hi"; msgs.push_back(u);
+
+    std::vector<agent::Tool*> no_tools;
+    json body = build_chat_body(c, msgs, no_tools, false);
+    const auto& wire = body["messages"];
+    ASSERT_EQ(wire.size(), 2u);
+    ASSERT_EQ(wire[0]["role"], "system");
+    ASSERT_EQ(wire[0]["content"], "main prompt\n\nmemories block");
+    ASSERT_EQ(wire[1]["role"], "user");
+
+    // A single system message is passed through untouched.
+    std::vector<agent::Message> single;
+    single.push_back(s1);
+    json body2 = build_chat_body(c, single, no_tools, false);
+    ASSERT_EQ(body2["messages"].size(), 1u);
+    ASSERT_EQ(body2["messages"][0]["content"], "main prompt");
+}
+
 TEST(request_builder_assistant_message_always_has_content) {
     // Regression: a reasoning model can answer with content "" and the whole
     // reply in reasoning_content. Serializing that as {"role":"assistant"}

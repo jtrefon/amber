@@ -1,0 +1,33 @@
+{
+  "name": "t-02-grep-extract-value",
+  "suite": "terminal",
+  "description": "extract an exact key=value from a config file; exact answer required",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "setup": {
+    "files": {
+      "config.txt": "# app config\nhost=db.internal\nport=5432\nversion=2.7.1\nmode=prod\n"
+    }
+  },
+  "prompt": "Extract the value of version from config.txt. Reply with exactly: version=<value>, then the word done.",
+  "oracle": [],
+  "checks": {
+    "must_contain": [
+      "version=2.7.1",
+      "done"
+    ],
+    "must_not_contain": [
+      "5432"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "optimal_plan": {
+    "bash": 1
+  }
+}

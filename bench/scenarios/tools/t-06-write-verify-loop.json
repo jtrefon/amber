@@ -1,0 +1,43 @@
+{
+  "name": "t-06-write-verify-loop",
+  "suite": "tools",
+  "description": "write, verify, adjust, verify again \u2014 multi-round iteration discipline",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 4,
+  "setup": {
+    "files": {
+      "notes.txt": "old line\n"
+    }
+  },
+  "prompt": "Replace the line in notes.txt with exactly: new line. Then read it back to verify. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "write",
+      "args": {
+        "path": "*notes.txt"
+      },
+      "args_subset": true
+    },
+    {
+      "tool": "read",
+      "args": {
+        "path": "*notes.txt"
+      }
+    }
+  ],
+  "forbidden_tools": [
+    "bash"
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  }
+}

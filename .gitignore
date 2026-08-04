@@ -14,10 +14,12 @@ autom4te.cache/
 # Generated binaries
 amber
 amber-cli
+amber-bench
 run_tests
 run_tests_dbg
 command_line_test
 completions_test
+bench_test
 e2e_test
 run_command_line_test
 run_completions_test

@@ -22,6 +22,8 @@ Layout:
               tools). No UI dependency.
   src/        amber-cli — headless CLI client linking libagent.
   tui/        amber — ncurses TUI client linking libagent.
+  bench/      amber-bench — benchmark & KPI harness (scenarios, oracle scoring,
+              static templates). Observer over AgentHooks; no engine changes.
   tools/      the pre-defined tools: read (paginated), write (patch-style),
               search (pluggable backend: grep or local semantic index),
               bash (approval-gated shell execution in the workspace).
@@ -35,6 +37,10 @@ Building:
 Run:
   ./amber
   ./amber-cli --help
+  ./amber-bench run        # hermetic benchmark corpus (no model needed)
+  ./amber-bench run --live # benchmark against your configured model
+  ./amber-bench report bench/results/*.json --format markdown
+                           # render the published KPI report (see BENCHMARK.md)
 
   Pass --yes to auto-approve the bash tool for the session (headless CLI);
   otherwise amber-cli prompts before each shell command on an interactive
