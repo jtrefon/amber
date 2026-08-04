@@ -918,3 +918,12 @@ TEST(todowrite_schema_invites_proactive_use) {
     ASSERT(d.find("three or more distinct steps") != std::string::npos);
     ASSERT(d.find("survives context compaction") != std::string::npos);
 }
+
+TEST(recorder_counts_compressions) {
+    Recorder rec;
+    rec.on_status("compressing 12 messages...");
+    rec.on_status("LLM error - retrying (1/3) in 1s");
+    rec.on_status("compressing 4 messages...");
+    ASSERT_EQ(rec.stream().compressions, 2);
+    ASSERT_EQ(rec.stream().retries.size(), 1u);
+}

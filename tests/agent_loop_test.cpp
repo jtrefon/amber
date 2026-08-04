@@ -380,7 +380,11 @@ TEST(agent_loop_unknown_context_fallback) {
     auto compressor = agent::make_compressor(comp_cfg);
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
-    for (int i = 0; i < 21; ++i) {
+    // A few warm turns stay under the fallback budget (3200 tokens at
+    // threshold 0.1); the first compression fires on the big prompt. (The
+    // old script used 21 warm turns to bypass a cooldown bug that blocked
+    // the first compression until turn 20 — that bug is fixed.)
+    for (int i = 0; i < 5; ++i) {
         push_text(*fake, "warm");
         push_text(*fake, "done");
     }
@@ -396,7 +400,7 @@ TEST(agent_loop_unknown_context_fallback) {
     push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
                     {}, {}, std::move(fake));
-    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+    for (int i = 0; i < 5; ++i) ag.run("warm " + std::to_string(i));
 
     std::string big_prompt(8000, 'x');
     std::string reply = ag.run(big_prompt);

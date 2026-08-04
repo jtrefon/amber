@@ -76,6 +76,27 @@ economy and termination dominate — exactly the axis where the 27B's coding
 training wins. To measure the 550B's actual strengths, the corpus needs a
 repo-level suite: multi-file bugs, long-context tasks, deeper reasoning.
 
+## P5: compression gate fixes (2026-08-04)
+
+Two gate defects found and fixed (TDD):
+
+1. **Budget cap**: the gate fired at 50% of auto-detected `n_ctx`
+   (~131k tokens with the 262k local server) — effectively never during a
+   run. The effective budget is now capped at 32k regardless of n_ctx.
+2. **Cooldown-from-zero bug (the true root cause)**: `last_compress_turn_`
+   starts at 0, and the cooldown check `(turn - 0) < 20` blocked the FIRST
+   compression of every session until turn 20 — compression effectively
+   never ran in normal use. Fixed: cooldown applies only after the first
+   compression (turn-0 loaded-session protection retained).
+
+Proof: unit tests (gate fires at 16k with 262k n_ctx; first-compress not
+cooldown-blocked) + new hermetic scenario **k-01-compression-stress**
+(scripted 10+ message run crosses the gate mid-task → compression fires
+(`compressions: 1` KPI) → final answer correct, PASS). Live corpus still
+cannot trigger it: our scenarios stay under ~7k tokens vs the 16k firing
+point (the same horizon finding as P1/P4). New `compressions` KPI in the
+recorder/report.
+
 ## Repo-level suite (long-horizon, 2026-08-04)
 
 Two new repo scenarios with real verification (hidden tests compile and run

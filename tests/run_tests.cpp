@@ -3303,3 +3303,67 @@ TEST(todowrite_registered_when_enabled) {
                                   true);
     ASSERT(reg.find("todowrite") != nullptr);
 }
+
+TEST(compression_gate_budget_capped_for_large_ctx) {
+    // Auto-detected n_ctx (262k locally) made the gate fire at ~131k tokens —
+    // effectively never during a normal run. The effective budget must be
+    // capped so compression fires early regardless of n_ctx.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.5;
+    cc.cooldown_turns = 0;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 262144;
+    cfg.turn_counter = 5;
+    cfg.prompt_tokens_used = 20000;  // > 16k capped budget, < 131k uncapped
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_first_compress_not_cooldown_blocked) {
+    // last_compress_turn_ starts at 0 ("never compressed"); the cooldown must
+    // not block the FIRST compression of a fresh session — only subsequent
+    // ones. Previously (0 - 0) < cooldown blocked everything until turn 20.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.5;
+    cc.cooldown_turns = 20;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 262144;
+    cfg.turn_counter = 5;
+    cfg.prompt_tokens_used = 20000;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    ASSERT(gate->should_compress(ctx, cfg));
+    // After the first compression, cooldown applies normally.
+    gate->set_last_compress_turn(5);
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.turn_counter = 26;  // 5 + 20 + 1
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_hermetic_conditions) {
+    // The exact gate inputs of the k-01 hermetic scenario (runner's
+    // context_size=4096, 10 context messages, turn 4, 3000 tokens used).
+    agent::CompressionConfig cc;
+    cc.cooldown_turns = 20;
+    cc.min_turns = 10;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 4096;
+    cfg.turn_counter = 4;
+    cfg.prompt_tokens_used = 3000;
+    agent::Context ctx;
+    ctx.push(msg("system", "sys"));
+    ctx.push(msg("user", "what is in a.txt"));
+    for (int i = 0; i < 4; ++i) {
+        ctx.push(msg("assistant", "x"));
+        ctx.push(msg("tool", "content"));
+    }
+    ASSERT(gate->should_compress(ctx, cfg));
+}
