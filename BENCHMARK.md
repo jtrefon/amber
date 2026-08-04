@@ -94,6 +94,24 @@ The prompt philosophy (descriptive over prohibitive) is now a repo
 convention: prompts describe role, personality, environment and tooling;
 they empower rather than confine. No forcing or forbidding language.
 
+### Free-tier challengers (prompt v2)
+
+| Model | score | pass | agentic | plan% | tools | redundant | Official (SWE-bench / TB) |
+|---|---|---|---|---|---|---|---|
+| Qwen3.6-27B dense (local) | 913 | 24/25 | 71 | 69 | 104 | 9 | 77.2 / 59.3 |
+| qwopus-27b (local) | 906 | 24/25 | 66 | 62 | 105 | 13 | — / — |
+| **Laguna S 2.1 (free)** | **887** | 23/25 | 66 | 60 | 117 | **4** | 59.4 Pro / **70.2** |
+| Nemotron 550B (free) | 821 | 21/25 | 54 | 54 | 142 | 17 | 71.9 / 56.4 |
+| Hy3 (free, untested here) | — | — | — | — | — | — | 78.0 / 54.4 |
+
+Laguna S 2.1 is the strongest free challenger: lowest redundancy of any
+model tested (4 identical re-calls) and the best official Terminal-Bench
+score (70.2, +11 over Qwen) — its weakness on this corpus is the
+multi-constraint format scenario (p-05) and higher tool count on small
+tasks. No free Kilo model significantly beats the Qwen 27B dense on this
+harness; the models that do (Opus-class, GLM-5 77.8, Kimi K2.5 76.8) are
+paid tiers.
+
 > Cloud runs (kilo-auto/free, Nemotron 550B) go through the Kilo AI Gateway
 > (`https://api.kilo.ai/api/gateway`, provider preset `kilocode`); the free
 > tier auto-routes `kilo-auto/free` to the best available free model
