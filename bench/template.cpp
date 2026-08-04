@@ -38,7 +38,12 @@ std::vector<fs::path> source_files(const fs::path& dir, const char* ext) {
 
 bool file_has_checks(const fs::path& p) noexcept {
     return fs::is_regular_file(p) &&
-           (p.extension() == ".cpp" || p.extension() == ".h");
+           (p.extension() == ".cpp" || p.extension() == ".c" ||
+            p.extension() == ".h");
+}
+
+bool is_source_file(const fs::path& p) noexcept {
+    return p.extension() == ".cpp" || p.extension() == ".c";
 }
 
 std::string artifact_text(const fs::path& artifact_dir) {
@@ -121,7 +126,7 @@ std::vector<fs::path> contract_sources(const fs::path& skeleton_dir,
     std::vector<fs::path> out;
     if (!fs::is_directory(skeleton_dir)) return out;
     for (const auto& e : fs::directory_iterator(skeleton_dir)) {
-        if (!e.is_regular_file() || e.path().extension() != ".cpp") continue;
+        if (!e.is_regular_file() || !is_source_file(e.path())) continue;
         const fs::path candidate = artifact_dir / e.path().filename();
         if (fs::is_regular_file(candidate)) out.push_back(candidate);
     }
@@ -235,8 +240,12 @@ TemplateResult run_template(const std::string& template_dir,
     bool reference_all_good = true;
     std::vector<fs::path> art_sources =
         contract_sources(tpl / "skeleton", artifact);
-    if (art_sources.empty())
+    if (art_sources.empty()) {
         art_sources = source_files(artifact, ".cpp");
+        const auto c_sources = source_files(artifact, ".c");
+        art_sources.insert(art_sources.end(), c_sources.begin(),
+                           c_sources.end());
+    }
     for (size_t i = 0; i < tests.size(); ++i) {
         TestOutcome ao =
             run_one_test(compiler, art_sources, artifact, tests[i], cache);

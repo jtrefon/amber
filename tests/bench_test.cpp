@@ -885,3 +885,23 @@ TEST(agentic_efficiency_capped_at_100) {
     auto a = agentic_for(calls, {{"read", {}}, {"write", {}}}, agent::json());
     ASSERT_EQ(a.efficiency_pct, 100.0);  // under-execution capped (correctness catches it)
 }
+
+TEST(template_c_source_support) {
+    // Repo-suite templates ship .c sources; contract_sources must pick them up.
+    std::string dir = tmp_dir("tplc");
+    std::string tpl = dir + "/template";
+    fs::create_directories(tpl + "/reference");
+    fs::create_directories(tpl + "/hidden_tests");
+    write_file(tpl + "/reference/lib.h", "#pragma once\nint value(void);\n");
+    write_file(tpl + "/reference/lib.c",
+               "#include \"lib.h\"\nint value(void) { return 42; }\n");
+    write_file(tpl + "/hidden_tests/test_main.cpp",
+               "#include \"lib.h\"\n#include <cstdio>\n"
+               "int main() { std::printf(\"%d\", value()); return value() == 42 ? 0 : 1; }\n");
+    write_file(tpl + "/checks.json", R"({"must_contain": ["value"]})");
+    std::string err;
+    TemplateResult r = bench::run_template(tpl, tpl + "/reference", "g++", err);
+    ASSERT(r.compile_ok);
+    ASSERT_EQ(r.tests_passed, 1);
+    ASSERT(r.behavior_equivalent);
+}

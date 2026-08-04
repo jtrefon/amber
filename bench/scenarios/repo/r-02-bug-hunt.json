@@ -1,0 +1,18 @@
+{
+  "name": "r-02-bug-hunt",
+  "suite": "repo",
+  "description": "find a seeded bug in a small project, fix it, verify — exploration + fix + verify phases",
+  "platforms": ["linux", "darwin"],
+  "difficulty": 5,
+  "expected_steps": 12,
+  "template": "repo/bug-hunt",
+  "prompt": "Read TASK.md and fix the bug in the workspace. Reply with the word done when finished.",
+  "oracle": [
+    {"tool": "read", "args": {"path": "*TASK.md"}},
+    {"tool": "write", "args": {"path": "*"}, "args_subset": true, "unordered": true},
+    {"tool": "bash", "args": {"command": "*gcc*"}, "unordered": true}
+  ],
+  "optimal_plan": {"read": 2, "search": 1, "write": 1, "bash": 1, "todowrite": 1},
+  "checks": {"must_contain": ["done"]},
+  "budget": {"max_steps": 20, "max_wall_ms": 300000}
+}
