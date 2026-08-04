@@ -865,3 +865,23 @@ TEST(agentic_no_plan_skipped) {
     ASSERT_FALSE(a.has_plan);
     ASSERT_EQ(a.score, 0.0);
 }
+
+TEST(agentic_efficiency_percent_normalized) {
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "a.txt"}}, 0, "ok"},
+        {"read", {{"path", "a.txt"}}, 0, "ok"},   // 2 reads, plan says 1
+        {"bash", {{"command", "ls"}}, 0, "ok"},
+    };
+    auto a = agentic_for(calls, {{"read", {}}}, agent::json());
+    // plan 1 / actual 3 -> 33.3%
+    ASSERT_NEAR(a.efficiency_pct, 33.3, 0.1);
+    ASSERT_NEAR(a.plan_ratio, 1.0 / 3.0, 0.01);
+}
+
+TEST(agentic_efficiency_capped_at_100) {
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "a.txt"}}, 0, "ok"},  // fewer calls than plan
+    };
+    auto a = agentic_for(calls, {{"read", {}}, {"write", {}}}, agent::json());
+    ASSERT_EQ(a.efficiency_pct, 100.0);  // under-execution capped (correctness catches it)
+}

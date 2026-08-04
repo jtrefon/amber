@@ -165,6 +165,8 @@ Agentic compute_agentic(const EventStream& stream, const Kpi& k,
                        ? static_cast<double>(a.plan_tools) /
                              static_cast<double>(actual_total)
                        : 0.0;
+    a.efficiency_pct = a.plan_ratio * 100.0;
+    if (a.efficiency_pct > 100.0) a.efficiency_pct = 100.0;
 
     a.score = 100.0;
     a.score -= 10.0 * std::max(0, a.plan_deviation);

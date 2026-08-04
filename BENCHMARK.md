@@ -69,16 +69,16 @@ changes — rerun the same commands after any harness change and compare.
 - **gemma4-12b-q4 (reasoning explicit)**: 799/1000
 - **gemma4-31b**: 903/1000
 
-| model | score | agentic | tools | failures | denied | redundant | retries | steps | wall (s) |
-|---|---|---|---|---|---|---|---|---|---|
-| qwopus-27b | 900 | 62 | 109 | 5 | 0 | 17 | 0 | 121 | 321.902 |
-| Qwen3.6-27B dense | 910 | 68 | 104 | 4 | 0 | 10 | 0 | 115 | 781.901 |
-| Qwen3.6-27B MTP | 901 | 66 | 104 | 2 | 0 | 12 | 0 | 117 | 308.714 |
-| Qwen3.6-35B MoE (A3B) | 877 | 59 | 137 | 12 | 1 | 22 | 0 | 145 | 548.405 |
-| ornith-1.0-35b | 837 | 63 | 124 | 9 | 0 | 32 | 0 | 153 | 497.099 |
-| gemma4-12b-q4 | 726 | 70 | 103 | 8 | 0 | 12 | 3 | 127 | 414.075 |
-| gemma4-12b-q4 (reasoning explicit) | 799 | 66 | 111 | 14 | 0 | 18 | 1 | 135 | 580.849 |
-| gemma4-31b | 903 | 72 | 103 | 2 | 0 | 5 | 0 | 127 | 1056.49 |
+| model | score | agentic | plan % | tools | failures | denied | redundant | retries | steps | wall (s) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| qwopus-27b | 900 | 62 | 44 | 109 | 5 | 0 | 17 | 0 | 121 | 321.902 |
+| Qwen3.6-27B dense | 910 | 68 | 46 | 104 | 4 | 0 | 10 | 0 | 115 | 781.901 |
+| Qwen3.6-27B MTP | 901 | 66 | 47 | 104 | 2 | 0 | 12 | 0 | 117 | 308.714 |
+| Qwen3.6-35B MoE (A3B) | 877 | 59 | 35 | 137 | 12 | 1 | 22 | 0 | 145 | 548.405 |
+| ornith-1.0-35b | 837 | 63 | 39 | 124 | 9 | 0 | 32 | 0 | 153 | 497.099 |
+| gemma4-12b-q4 | 726 | 70 | 47 | 103 | 8 | 0 | 12 | 3 | 127 | 414.075 |
+| gemma4-12b-q4 (reasoning explicit) | 799 | 66 | 43 | 111 | 14 | 0 | 18 | 1 | 135 | 580.849 |
+| gemma4-31b | 903 | 72 | 47 | 103 | 2 | 0 | 5 | 0 | 127 | 1056.49 |
 
 | scenario | qwopus-27b | Qwen3.6-27B dense | Qwen3.6-27B MTP | Qwen3.6-35B MoE (A3B) | ornith-1.0-35b | gemma4-12b-q4 | gemma4-12b-q4 (reasoning explicit) | gemma4-31b |
 |---|---|---|---|---|---|---|---|---|
@@ -166,18 +166,19 @@ changes — rerun the same commands after any harness change and compare.
 | optimal tool calls (sum) | 48 |
 | actual tool calls | 109 |
 | total deviation (extra calls) | 60 |
+| plan efficiency | 44/100 |
 | agentic score (mean plan adherence) | 62/100 |
 
 **Tool mix (plan vs actual, summed across scenarios):**
 
-| tool | plan | actual | deviation |
-|---|---|---|---|
-| bash | 15 | 39 | 24 |
-| process_read | 1 | 3 | 2 |
-| process_start | 1 | 1 | 0 |
-| read | 18 | 49 | 31 |
-| search | 1 | 1 | 0 |
-| write | 12 | 15 | 3 |
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 39 | 24 | 38 |
+| process_read | 1 | 3 | 2 | 33 |
+| process_start | 1 | 1 | 0 | 100 |
+| read | 18 | 49 | 31 | 36 |
+| search | 1 | 1 | 0 | 100 |
+| write | 12 | 15 | 3 | 80 |
 
 ## Qwen3.6-27B dense
 
@@ -235,18 +236,19 @@ changes — rerun the same commands after any harness change and compare.
 | optimal tool calls (sum) | 48 |
 | actual tool calls | 104 |
 | total deviation (extra calls) | 55 |
+| plan efficiency | 46/100 |
 | agentic score (mean plan adherence) | 68/100 |
 
 **Tool mix (plan vs actual, summed across scenarios):**
 
-| tool | plan | actual | deviation |
-|---|---|---|---|
-| bash | 15 | 36 | 21 |
-| process_read | 1 | 2 | 1 |
-| process_start | 1 | 1 | 0 |
-| read | 18 | 48 | 30 |
-| search | 1 | 2 | 1 |
-| write | 12 | 14 | 2 |
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 36 | 21 | 41 |
+| process_read | 1 | 2 | 1 | 50 |
+| process_start | 1 | 1 | 0 | 100 |
+| read | 18 | 48 | 30 | 37 |
+| search | 1 | 2 | 1 | 50 |
+| write | 12 | 14 | 2 | 85 |
 
 ## Qwen3.6-27B MTP
 
@@ -304,18 +306,19 @@ changes — rerun the same commands after any harness change and compare.
 | optimal tool calls (sum) | 48 |
 | actual tool calls | 104 |
 | total deviation (extra calls) | 54 |
+| plan efficiency | 46/100 |
 | agentic score (mean plan adherence) | 66/100 |
 
 **Tool mix (plan vs actual, summed across scenarios):**
 
-| tool | plan | actual | deviation |
-|---|---|---|---|
-| bash | 15 | 31 | 16 |
-| process_read | 1 | 2 | 1 |
-| process_start | 1 | 1 | 0 |
-| read | 18 | 52 | 34 |
-| search | 1 | 1 | 0 |
-| write | 12 | 15 | 3 |
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 31 | 16 | 48 |
+| process_read | 1 | 2 | 1 | 50 |
+| process_start | 1 | 1 | 0 | 100 |
+| read | 18 | 52 | 34 | 34 |
+| search | 1 | 1 | 0 | 100 |
+| write | 12 | 15 | 3 | 80 |
 
 ## Qwen3.6-35B MoE (A3B)
 
@@ -374,18 +377,19 @@ changes — rerun the same commands after any harness change and compare.
 | optimal tool calls (sum) | 48 |
 | actual tool calls | 137 |
 | total deviation (extra calls) | 88 |
+| plan efficiency | 35/100 |
 | agentic score (mean plan adherence) | 59/100 |
 
 **Tool mix (plan vs actual, summed across scenarios):**
 
-| tool | plan | actual | deviation |
-|---|---|---|---|
-| bash | 15 | 44 | 29 |
-| process_read | 1 | 3 | 2 |
-| process_start | 1 | 1 | 0 |
-| read | 18 | 60 | 42 |
-| search | 1 | 1 | 0 |
-| write | 12 | 27 | 15 |
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 44 | 29 | 34 |
+| process_read | 1 | 3 | 2 | 33 |
+| process_start | 1 | 1 | 0 | 100 |
+| read | 18 | 60 | 42 | 30 |
+| search | 1 | 1 | 0 | 100 |
+| write | 12 | 27 | 15 | 44 |
 
 ## ornith-1.0-35b
 
@@ -446,18 +450,19 @@ changes — rerun the same commands after any harness change and compare.
 | optimal tool calls (sum) | 48 |
 | actual tool calls | 124 |
 | total deviation (extra calls) | 75 |
+| plan efficiency | 38/100 |
 | agentic score (mean plan adherence) | 63/100 |
 
 **Tool mix (plan vs actual, summed across scenarios):**
 
-| tool | plan | actual | deviation |
-|---|---|---|---|
-| bash | 15 | 41 | 26 |
-| process_read | 1 | 4 | 3 |
-| process_start | 1 | 1 | 0 |
-| read | 18 | 60 | 42 |
-| search | 1 | 1 | 0 |
-| write | 12 | 16 | 4 |
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 41 | 26 | 36 |
+| process_read | 1 | 4 | 3 | 25 |
+| process_start | 1 | 1 | 0 | 100 |
+| read | 18 | 60 | 42 | 30 |
+| search | 1 | 1 | 0 | 100 |
+| write | 12 | 16 | 4 | 75 |
 
 ## gemma4-12b-q4
 
@@ -522,19 +527,20 @@ changes — rerun the same commands after any harness change and compare.
 | optimal tool calls (sum) | 48 |
 | actual tool calls | 103 |
 | total deviation (extra calls) | 54 |
+| plan efficiency | 46/100 |
 | agentic score (mean plan adherence) | 70/100 |
 
 **Tool mix (plan vs actual, summed across scenarios):**
 
-| tool | plan | actual | deviation |
-|---|---|---|---|
-| bash | 15 | 35 | 20 |
-| process_read | 1 | 4 | 3 |
-| process_start | 1 | 2 | 1 |
-| read | 18 | 41 | 23 |
-| search | 1 | 1 | 0 |
-| write | 12 | 18 | 6 |
-| process_stop | 0 | 1 | 1 |
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 35 | 20 | 42 |
+| process_read | 1 | 4 | 3 | 25 |
+| process_start | 1 | 2 | 1 | 50 |
+| read | 18 | 41 | 23 | 43 |
+| search | 1 | 1 | 0 | 100 |
+| write | 12 | 18 | 6 | 66 |
+| process_stop | 0 | 1 | 1 | 0 |
 
 ## gemma4-12b-q4 (reasoning explicit)
 
@@ -596,19 +602,20 @@ changes — rerun the same commands after any harness change and compare.
 | optimal tool calls (sum) | 48 |
 | actual tool calls | 111 |
 | total deviation (extra calls) | 62 |
+| plan efficiency | 43/100 |
 | agentic score (mean plan adherence) | 66/100 |
 
 **Tool mix (plan vs actual, summed across scenarios):**
 
-| tool | plan | actual | deviation |
-|---|---|---|---|
-| bash | 15 | 31 | 16 |
-| process_read | 1 | 6 | 5 |
-| process_start | 1 | 3 | 2 |
-| read | 18 | 47 | 29 |
-| search | 1 | 1 | 0 |
-| write | 12 | 21 | 9 |
-| process_stop | 0 | 1 | 1 |
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 31 | 16 | 48 |
+| process_read | 1 | 6 | 5 | 16 |
+| process_start | 1 | 3 | 2 | 33 |
+| read | 18 | 47 | 29 | 38 |
+| search | 1 | 1 | 0 | 100 |
+| write | 12 | 21 | 9 | 57 |
+| process_stop | 0 | 1 | 1 | 0 |
 
 ## gemma4-31b
 
@@ -666,16 +673,17 @@ changes — rerun the same commands after any harness change and compare.
 | optimal tool calls (sum) | 48 |
 | actual tool calls | 103 |
 | total deviation (extra calls) | 54 |
+| plan efficiency | 46/100 |
 | agentic score (mean plan adherence) | 72/100 |
 
 **Tool mix (plan vs actual, summed across scenarios):**
 
-| tool | plan | actual | deviation |
-|---|---|---|---|
-| bash | 15 | 39 | 24 |
-| process_read | 1 | 2 | 1 |
-| process_start | 1 | 1 | 0 |
-| read | 18 | 38 | 20 |
-| search | 1 | 1 | 0 |
-| write | 12 | 21 | 9 |
+| tool | plan | actual | deviation | efficiency % |
+|---|---|---|---|---|
+| bash | 15 | 39 | 24 | 38 |
+| process_read | 1 | 2 | 1 | 50 |
+| process_start | 1 | 1 | 0 | 100 |
+| read | 18 | 38 | 20 | 47 |
+| search | 1 | 1 | 0 | 100 |
+| write | 12 | 21 | 9 | 57 |
 

@@ -228,6 +228,7 @@ bool parse_report_file(const std::string& file, bench::RunMeta& meta,
         rep.agentic.plan_tools = e.value("agentic_plan_tools", 0);
         rep.agentic.plan_deviation = e.value("agentic_deviation", 0);
         rep.agentic.plan_ratio = e.value("agentic_ratio", 0.0);
+        rep.agentic.efficiency_pct = e.value("agentic_efficiency_pct", 0.0);
         rep.agentic.score = e.value("agentic_score", 0.0);
         if (e.contains("agentic_plan_by_tool") &&
             e["agentic_plan_by_tool"].is_object())

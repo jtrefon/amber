@@ -90,7 +90,8 @@
         "read": 4,
         "bash": 2,
         "write": 1
-      }
+      },
+      "agentic_efficiency_pct": 42.9
     },
     {
       "arg_precision": 1.0,
@@ -234,7 +235,8 @@
         "read": 10,
         "bash": 9,
         "write": 2
-      }
+      },
+      "agentic_efficiency_pct": 14.3
     },
     {
       "arg_precision": 1.0,
@@ -320,7 +322,8 @@
         "read": 4,
         "bash": 2,
         "write": 1
-      }
+      },
+      "agentic_efficiency_pct": 42.9
     },
     {
       "arg_precision": 1.0,
@@ -406,7 +409,8 @@
         "read": 4,
         "bash": 2,
         "write": 1
-      }
+      },
+      "agentic_efficiency_pct": 42.9
     },
     {
       "arg_precision": 1.0,
@@ -496,7 +500,8 @@
         "read": 4,
         "bash": 2,
         "write": 2
-      }
+      },
+      "agentic_efficiency_pct": 37.5
     },
     {
       "arg_precision": 1.0,
@@ -559,7 +564,8 @@
       "agentic_actual_by_tool": {
         "bash": 1,
         "read": 1
-      }
+      },
+      "agentic_efficiency_pct": 50.0
     },
     {
       "arg_precision": 1.0,
@@ -617,7 +623,8 @@
       },
       "agentic_actual_by_tool": {
         "read": 1
-      }
+      },
+      "agentic_efficiency_pct": 100.0
     },
     {
       "arg_precision": 0.0,
@@ -686,7 +693,8 @@
       },
       "agentic_actual_by_tool": {
         "bash": 3
-      }
+      },
+      "agentic_efficiency_pct": 66.7
     },
     {
       "arg_precision": 1.0,
@@ -744,7 +752,8 @@
       },
       "agentic_actual_by_tool": {
         "bash": 1
-      }
+      },
+      "agentic_efficiency_pct": 100.0
     },
     {
       "arg_precision": 1.0,
@@ -807,7 +816,8 @@
       "agentic_actual_by_tool": {
         "bash": 1,
         "read": 1
-      }
+      },
+      "agentic_efficiency_pct": 50.0
     },
     {
       "arg_precision": 1.0,
@@ -889,7 +899,8 @@
         "read": 4,
         "bash": 1,
         "write": 1
-      }
+      },
+      "agentic_efficiency_pct": 50.0
     },
     {
       "arg_precision": 1.0,
@@ -979,7 +990,8 @@
         "read": 4,
         "bash": 2,
         "write": 2
-      }
+      },
+      "agentic_efficiency_pct": 37.5
     },
     {
       "arg_precision": 1.0,
@@ -1069,7 +1081,8 @@
         "read": 6,
         "bash": 1,
         "write": 1
-      }
+      },
+      "agentic_efficiency_pct": 37.5
     },
     {
       "arg_precision": 1.0,
@@ -1207,7 +1220,8 @@
         "read": 8,
         "bash": 9,
         "write": 3
-      }
+      },
+      "agentic_efficiency_pct": 15.0
     },
     {
       "arg_precision": 1.0,
@@ -1265,7 +1279,8 @@
       },
       "agentic_actual_by_tool": {
         "bash": 1
-      }
+      },
+      "agentic_efficiency_pct": 100.0
     },
     {
       "arg_precision": 1.0,
@@ -1323,7 +1338,8 @@
       },
       "agentic_actual_by_tool": {
         "read": 1
-      }
+      },
+      "agentic_efficiency_pct": 100.0
     },
     {
       "arg_precision": 1.0,
@@ -1392,7 +1408,8 @@
       "agentic_actual_by_tool": {
         "bash": 2,
         "read": 1
-      }
+      },
+      "agentic_efficiency_pct": 33.3
     },
     {
       "arg_precision": 1.0,
@@ -1443,7 +1460,8 @@
       "agentic_plan_by_tool": {
         "bash": 1
       },
-      "agentic_actual_by_tool": {}
+      "agentic_actual_by_tool": {},
+      "agentic_efficiency_pct": 0.0
     },
     {
       "arg_precision": 1.0,
@@ -1511,7 +1529,8 @@
       "agentic_actual_by_tool": {
         "bash": 2,
         "read": 1
-      }
+      },
+      "agentic_efficiency_pct": 66.7
     },
     {
       "arg_precision": 1.0,
@@ -1616,7 +1635,8 @@
       },
       "agentic_actual_by_tool": {
         "search": 1
-      }
+      },
+      "agentic_efficiency_pct": 100.0
     },
     {
       "arg_precision": 1.0,
@@ -1678,7 +1698,8 @@
       },
       "agentic_actual_by_tool": {
         "read": 2
-      }
+      },
+      "agentic_efficiency_pct": 50.0
     },
     {
       "arg_precision": 1.0,
@@ -1744,7 +1765,8 @@
       "agentic_actual_by_tool": {
         "read": 1,
         "write": 1
-      }
+      },
+      "agentic_efficiency_pct": 100.0
     },
     {
       "arg_precision": 1.0,
@@ -1826,7 +1848,8 @@
         "process_start": 1,
         "process_read": 4,
         "read": 1
-      }
+      },
+      "agentic_efficiency_pct": 50.0
     },
     {
       "arg_precision": 1.0,
@@ -1894,7 +1917,8 @@
       "agentic_actual_by_tool": {
         "read": 2,
         "write": 1
-      }
+      },
+      "agentic_efficiency_pct": 66.7
     }
   ],
   "timestamp": "1785777586223648835"

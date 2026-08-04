@@ -95,6 +95,7 @@ struct Agentic {
     int plan_tools = 0;         // optimal tool calls
     int plan_deviation = 0;     // actual - plan (extra calls, signed)
     double plan_ratio = 0.0;    // plan / actual
+    double efficiency_pct = 0.0;  // plan/actual * 100, capped at 100 (0-100 axis)
     double score = 0.0;         // 0..100 plan-adherence
     std::map<std::string, int> plan_by_tool;
     std::map<std::string, int> actual_by_tool;

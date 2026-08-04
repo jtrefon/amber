@@ -126,6 +126,7 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["agentic_plan_tools"] = r.agentic.plan_tools;
         j["agentic_deviation"] = r.agentic.plan_deviation;
         j["agentic_ratio"] = r.agentic.plan_ratio;
+        j["agentic_efficiency_pct"] = r.agentic.efficiency_pct;
         j["agentic_score"] = r.agentic.score;
         j["agentic_plan_by_tool"] = r.agentic.plan_by_tool;
         j["agentic_actual_by_tool"] = r.agentic.actual_by_tool;
@@ -225,6 +226,11 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
         out << "| optimal tool calls (sum) | " << plan_total << " |\n";
         out << "| actual tool calls | " << tot_tools << " |\n";
         out << "| total deviation (extra calls) | " << dev_total << " |\n";
+        const double eff = tot_tools > 0
+                               ? (100.0 * plan_total / tot_tools)
+                               : 0.0;
+        out << "| plan efficiency | " << static_cast<int>(eff > 100.0 ? 100.0 : eff)
+            << "/100 |\n";
         out << "| agentic score (mean plan adherence) | "
             << static_cast<int>(ag_sum / ag_n) << "/100 |\n";
 
@@ -236,16 +242,19 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
                 actual_mix[a.first] += a.second;
         }
         out << "\n**Tool mix (plan vs actual, summed across scenarios):**\n\n";
-        out << "| tool | plan | actual | deviation |\n|---|---|---|---|\n";
+        out << "| tool | plan | actual | deviation | efficiency % |\n"
+               "|---|---|---|---|---|\n";
         for (const auto& p : plan_mix) {
             const int act = actual_mix[p.first];
+            const double eff = act > 0 ? (100.0 * p.second / act) : 0.0;
             out << "| " << p.first << " | " << p.second << " | " << act
-                << " | " << (act - p.second) << " |\n";
+                << " | " << (act - p.second) << " | "
+                << static_cast<int>(eff > 100.0 ? 100.0 : eff) << " |\n";
         }
         for (const auto& a : actual_mix) {
             if (plan_mix.count(a.first)) continue;
             out << "| " << a.first << " | 0 | " << a.second << " | "
-                << a.second << " |\n";
+                << a.second << " | 0 |\n";
         }
     }
     return out.str();
@@ -260,9 +269,9 @@ std::string render_markdown_comparison(
         out << "- **" << run.first.model << "**: "
             << static_cast<int>(run_score(run.second) * 10.0) << "/1000\n";
 
-    out << "\n| model | score | agentic | tools | failures | denied | "
+    out << "\n| model | score | agentic | plan % | tools | failures | denied | "
            "redundant | retries | steps | wall (s) |\n";
-    out << "|---|---|---|---|---|---|---|---|---|---|\n";
+    out << "|---|---|---|---|---|---|---|---|---|---|---|\n";
     for (const auto& run : runs) {
         int tools = 0, fail = 0, denied = 0, red = 0, retr = 0, steps = 0;
         long wall = 0;
@@ -281,9 +290,21 @@ std::string render_markdown_comparison(
                 ++ag_n;
             }
         }
+        double plan_pct = 0.0;
+        if (ag_n > 0) {
+            int pt = 0, at = 0;
+            for (const auto& r : run.second) {
+                if (!r.agentic.has_plan) continue;
+                pt += r.agentic.plan_tools;
+                at += r.kpi.tool_calls;
+            }
+            plan_pct = at > 0 ? (100.0 * pt / at) : 0.0;
+            if (plan_pct > 100.0) plan_pct = 100.0;
+        }
         out << "| " << run.first.model << " | "
             << static_cast<int>(run_score(run.second) * 10.0) << " | "
-            << (ag_n ? static_cast<int>(ag_sum / ag_n) : 0) << " | " << tools
+            << (ag_n ? static_cast<int>(ag_sum / ag_n) : 0) << " | "
+            << static_cast<int>(plan_pct) << " | " << tools
             << " | " << fail << " | " << denied << " | " << red << " | "
             << retr << " | " << steps << " | " << (wall / 1000.0) << " |\n";
     }
