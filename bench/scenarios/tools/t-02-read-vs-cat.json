@@ -1,0 +1,38 @@
+{
+  "name": "t-02-read-vs-cat",
+  "suite": "tools",
+  "description": "the read tool is the right tool; bash is forbidden",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "line one\nline two\nline three\n"
+    }
+  },
+  "prompt": "Show the first 5 lines of a.txt. Do NOT use bash. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*a.txt"
+      },
+      "args_subset": true
+    }
+  ],
+  "forbidden_tools": [
+    "bash"
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "difficulty": 2,
+  "expected_steps": 2
+}

@@ -1,0 +1,33 @@
+{
+  "name": "t-01-ls-count-files",
+  "suite": "terminal",
+  "description": "count files matching a pattern; answer must state the exact number",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "x",
+      "b.txt": "x",
+      "c.md": "x",
+      "d.txt": "x"
+    }
+  },
+  "prompt": "Count the .txt files in this workspace. Reply with exactly: count=N where N is the number, then the word done.",
+  "checks": {
+    "must_contain": [
+      "count=3",
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 15,
+    "max_wall_ms": 120000
+  },
+  "difficulty": 2,
+  "expected_steps": 2,
+  "optimal_plan": {
+    "bash": 1
+  }
+}

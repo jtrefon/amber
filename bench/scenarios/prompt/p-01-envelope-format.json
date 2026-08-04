@@ -1,0 +1,40 @@
+{
+  "name": "p-01-envelope-format",
+  "suite": "prompt",
+  "description": "final answer must close with the mandated done marker",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "hello world"
+    }
+  },
+  "prompt": "Read a.txt and summarize it. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*a.txt"
+      },
+      "args_subset": true
+    }
+  ],
+  "prompt_checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "difficulty": 2,
+  "expected_steps": 2
+}

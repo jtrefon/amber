@@ -1,0 +1,41 @@
+{
+  "name": "p-03-verify-after-action",
+  "suite": "prompt",
+  "description": "after a write the agent must verify the file",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "hello\n"
+    }
+  },
+  "prompt": "Append the word world to a.txt, then read it back to verify. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "write",
+      "args": {
+        "path": "a.txt"
+      }
+    },
+    {
+      "tool": "read",
+      "args": {
+        "path": "a.txt"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "forbidden_tools": [
+    "bash"
+  ]
+}

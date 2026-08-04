@@ -1,0 +1,1 @@
+{"must_contain": ["LoggerAdapter", "legacy_"], "must_not_contain": ["printf", "std::printf"]}

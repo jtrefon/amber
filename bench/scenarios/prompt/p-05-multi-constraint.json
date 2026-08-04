@@ -1,0 +1,38 @@
+{
+  "name": "p-05-multi-constraint",
+  "suite": "prompt",
+  "description": "four simultaneous output constraints; sloppy models lose adherence",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 4,
+  "setup": {
+    "files": {
+      "b.txt": "x",
+      "a.txt": "x",
+      "c.txt": "x",
+      "skip.md": "x"
+    }
+  },
+  "prompt": "List the .txt files in this workspace sorted alphabetically. Constraints: one file per line, no bullet points, no markdown, no introductory text. Reply with the word done on its own line after the list.",
+  "checks": {
+    "must_contain": [
+      "a.txt\nb.txt\nc.txt",
+      "done"
+    ],
+    "must_not_contain": [
+      "- ",
+      "* ",
+      "Here",
+      "```"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "optimal_plan": {
+    "bash": 1
+  }
+}

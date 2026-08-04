@@ -1,0 +1,40 @@
+{
+  "name": "t-04-process-vs-blocking",
+  "suite": "tools",
+  "description": "a slow task must use process_start, not a blocking bash call",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 5,
+  "setup": {
+    "files": {
+      "slow.sh": "#!/bin/sh\nsleep 4\necho done > result.txt\n"
+    }
+  },
+  "prompt": "Run slow.sh in the background with the process tool, wait for it, then read result.txt and report its contents. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "process_start"
+    },
+    {
+      "tool": "process_read"
+    },
+    {
+      "tool": "read",
+      "args": {
+        "path": "*result.txt"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done",
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 12,
+    "max_wall_ms": 120000
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "t-04-env-inventory",
+  "suite": "terminal",
+  "description": "report OS, user and cwd in a fixed format (no invented facts)",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Report the operating system, the current user and the current working directory. Reply with exactly one line per fact: os=..., user=..., cwd=..., then the word done.",
+  "checks": {
+    "must_contain": [
+      "os=",
+      "user=",
+      "cwd=",
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "optimal_plan": {
+    "bash": 1
+  }
+}

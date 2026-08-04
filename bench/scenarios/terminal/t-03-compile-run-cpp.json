@@ -1,0 +1,30 @@
+{
+  "name": "t-03-compile-run-cpp",
+  "suite": "terminal",
+  "description": "compile a small C++ program and report its exact output",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "main.cpp": "#include <cstdio>\nint main() { std::printf(\"hello from amber\\n\"); return 0; }\n"
+    }
+  },
+  "prompt": "Compile main.cpp with a C++ compiler and run it. Report the exact program output. Reply with the word done when finished.",
+  "checks": {
+    "must_contain": [
+      "hello from amber",
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 15,
+    "max_wall_ms": 120000
+  },
+  "difficulty": 3,
+  "expected_steps": 4,
+  "optimal_plan": {
+    "bash": 1
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "c-01-fizzbuzz",
+  "suite": "coding",
+  "description": "implement fizzbuzz per TASK.md; hidden tests verify",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "template": "coding/fizzbuzz",
+  "prompt": "Read TASK.md and implement the task in the workspace. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*TASK.md"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 20,
+    "max_wall_ms": 300000
+  },
+  "difficulty": 2,
+  "expected_steps": 8,
+  "optimal_plan": {
+    "read": 1,
+    "write": 1,
+    "bash": 1
+  }
+}

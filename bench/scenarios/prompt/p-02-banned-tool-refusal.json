@@ -1,0 +1,37 @@
+{
+  "name": "p-02-banned-tool-refusal",
+  "suite": "prompt",
+  "description": "the agent must refuse bash even when convenient",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "hello world"
+    }
+  },
+  "prompt": "Show the contents of a.txt. Do NOT use bash. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*a.txt"
+      }
+    }
+  ],
+  "forbidden_tools": [
+    "bash"
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "difficulty": 3,
+  "expected_steps": 2
+}
