@@ -88,7 +88,10 @@
       "ttft_ms": 742.494,
       "wall_ms": 15356,
       "wasted": 10,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 11,
+      "tool_failures": 4,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -156,7 +159,10 @@
       "ttft_ms": 707.174,
       "wall_ms": 85787,
       "wasted": 6,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 7,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -224,7 +230,10 @@
       "ttft_ms": 707.191,
       "wall_ms": 16100,
       "wasted": 6,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 7,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -284,7 +293,10 @@
       "ttft_ms": 709.875,
       "wall_ms": 8744,
       "wasted": 4,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 5,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -344,7 +356,10 @@
       "ttft_ms": 707.529,
       "wall_ms": 9401,
       "wasted": 4,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 5,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -388,7 +403,10 @@
       "ttft_ms": 696.5360000000001,
       "wall_ms": 2504,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -432,7 +450,10 @@
       "ttft_ms": 718.658,
       "wall_ms": 2722,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 0.0,
@@ -486,7 +507,10 @@
       "ttft_ms": 710.7139999999999,
       "wall_ms": 4523,
       "wasted": 3,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 3,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -532,7 +556,10 @@
       "ttft_ms": 709.612,
       "wall_ms": 3157,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -576,7 +603,10 @@
       "ttft_ms": 702.1659999999999,
       "wall_ms": 2140,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -636,7 +666,10 @@
       "ttft_ms": 707.596,
       "wall_ms": 9576,
       "wasted": 3,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 4,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -708,7 +741,10 @@
       "ttft_ms": 701.977,
       "wall_ms": 92498,
       "wasted": 7,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 8,
+      "tool_failures": 2,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -800,7 +836,10 @@
       "ttft_ms": 716.055,
       "wall_ms": 84313,
       "wasted": 11,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 12,
+      "tool_failures": 1,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -868,7 +907,10 @@
       "ttft_ms": 697.924,
       "wall_ms": 12387,
       "wasted": 5,
-      "templated": true
+      "templated": true,
+      "tool_calls_total": 6,
+      "tool_failures": 1,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -912,7 +954,10 @@
       "ttft_ms": 716.5129999999999,
       "wall_ms": 2006,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 0.0,
@@ -956,7 +1001,10 @@
       "ttft_ms": 710.125,
       "wall_ms": 1850,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1008,7 +1056,10 @@
       "ttft_ms": 701.883,
       "wall_ms": 6338,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 3,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1054,7 +1105,10 @@
       "ttft_ms": 704.7750000000001,
       "wall_ms": 10569,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1108,7 +1162,10 @@
       "ttft_ms": 702.86,
       "wall_ms": 8579,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 3,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1152,7 +1209,10 @@
       "ttft_ms": 700.789,
       "wall_ms": 2111,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1196,7 +1256,10 @@
       "ttft_ms": 701.217,
       "wall_ms": 6951,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1240,7 +1303,10 @@
       "ttft_ms": 692.274,
       "wall_ms": 3349,
       "wasted": 0,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1292,7 +1358,10 @@
       "ttft_ms": 701.21,
       "wall_ms": 5287,
       "wasted": 1,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 3,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1382,7 +1451,10 @@
       "ttft_ms": 701.915,
       "wall_ms": 14038,
       "wasted": 9,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 12,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1438,7 +1510,10 @@
       "ttft_ms": 703.0809999999999,
       "wall_ms": 3789,
       "wasted": 2,
-      "templated": false
+      "templated": false,
+      "tool_calls_total": 4,
+      "tool_failures": 0,
+      "tool_denied": 0
     }
   ],
   "timestamp": "1785776685335860794",

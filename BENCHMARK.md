@@ -69,6 +69,17 @@ changes — rerun the same commands after any harness change and compare.
 - **gemma4-12b-q4 (reasoning explicit)**: 799/1000
 - **gemma4-31b**: 903/1000
 
+| model | score | tools | failures | denied | redundant | retries | steps | wall (s) |
+|---|---|---|---|---|---|---|---|---|
+| qwopus-27b | 900 | 109 | 5 | 0 | 17 | 0 | 121 | 321.902 |
+| Qwen3.6-27B dense | 910 | 104 | 4 | 0 | 10 | 0 | 115 | 781.901 |
+| Qwen3.6-27B MTP | 901 | 104 | 2 | 0 | 12 | 0 | 117 | 308.714 |
+| Qwen3.6-35B MoE (A3B) | 877 | 137 | 12 | 1 | 22 | 0 | 145 | 548.405 |
+| ornith-1.0-35b | 837 | 124 | 9 | 0 | 32 | 0 | 153 | 497.099 |
+| gemma4-12b-q4 | 726 | 103 | 8 | 0 | 12 | 3 | 127 | 414.075 |
+| gemma4-12b-q4 (reasoning explicit) | 799 | 111 | 14 | 0 | 18 | 1 | 135 | 580.849 |
+| gemma4-31b | 903 | 103 | 2 | 0 | 5 | 0 | 127 | 1056.49 |
+
 | scenario | qwopus-27b | Qwen3.6-27B dense | Qwen3.6-27B MTP | Qwen3.6-35B MoE (A3B) | ornith-1.0-35b | gemma4-12b-q4 | gemma4-12b-q4 (reasoning explicit) | gemma4-31b |
 |---|---|---|---|---|---|---|---|---|
 | c-01-fizzbuzz | 96 | 96 | 96 | 100 | 96 | 84 | 86 | 100 |
@@ -136,6 +147,17 @@ changes — rerun the same commands after any harness change and compare.
 
 - **p-03-verify-after-action** (15/100): oracle not matched: 0/2 steps (bullseye 0)
 
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 109 | 4.36 |
+| tool failures | 5 | 0.2 |
+| tool denials | 0 | 0 |
+| redundant calls | 17 | 0.68 |
+| LLM retries | 0 | 0 |
+| wall time (s) | 321.902 | 12.8761 |
+
 ## Qwen3.6-27B dense
 
 - run: `run-1785781966685651020` [live, engine 0.3.1, reasoning on]
@@ -172,6 +194,17 @@ changes — rerun the same commands after any harness change and compare.
 ### Failures
 
 - **p-03-verify-after-action** (27/100): oracle not matched: 0/2 steps (bullseye 0)
+
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 104 | 4.16 |
+| tool failures | 4 | 0.16 |
+| tool denials | 0 | 0 |
+| redundant calls | 10 | 0.4 |
+| LLM retries | 0 | 0 |
+| wall time (s) | 781.901 | 31.276 |
 
 ## Qwen3.6-27B MTP
 
@@ -210,6 +243,17 @@ changes — rerun the same commands after any harness change and compare.
 
 - **p-03-verify-after-action** (21/100): oracle not matched: 0/2 steps (bullseye 0)
 
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 104 | 4.16 |
+| tool failures | 2 | 0.08 |
+| tool denials | 0 | 0 |
+| redundant calls | 12 | 0.48 |
+| LLM retries | 0 | 0 |
+| wall time (s) | 308.714 | 12.3486 |
+
 ## Qwen3.6-35B MoE (A3B)
 
 - run: `run-1785792736852620357` [live, engine 0.3.1, reasoning on]
@@ -247,6 +291,17 @@ changes — rerun the same commands after any harness change and compare.
 
 - **c-02-sorting-multi** (40/100): final answer failed scenario checks
 - **p-03-verify-after-action** (25/100): oracle not matched: 0/2 steps (bullseye 0)
+
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 137 | 5.48 |
+| tool failures | 12 | 0.48 |
+| tool denials | 1 | 0.04 |
+| redundant calls | 22 | 0.88 |
+| LLM retries | 0 | 0 |
+| wall time (s) | 548.405 | 21.9362 |
 
 ## ornith-1.0-35b
 
@@ -287,6 +342,17 @@ changes — rerun the same commands after any harness change and compare.
 - **p-03-verify-after-action** (21/100): oracle not matched: 0/2 steps (bullseye 0)
 - **t-03-compile-run-cpp** (46/100): final answer failed scenario checks
 - **t-03-write-vs-rewrite** (35/100): final answer failed scenario checks
+
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 124 | 4.96 |
+| tool failures | 9 | 0.36 |
+| tool denials | 0 | 0 |
+| redundant calls | 32 | 1.28 |
+| LLM retries | 0 | 0 |
+| wall time (s) | 497.099 | 19.884 |
 
 ## gemma4-12b-q4
 
@@ -332,6 +398,17 @@ changes — rerun the same commands after any harness change and compare.
 - **t-05-pipeline-transform** (46/100): final answer failed scenario checks
 - **t-04-process-vs-blocking** (32/100): final answer failed scenario checks
 
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 103 | 4.12 |
+| tool failures | 8 | 0.32 |
+| tool denials | 0 | 0 |
+| redundant calls | 12 | 0.48 |
+| LLM retries | 3 | 0.12 |
+| wall time (s) | 414.075 | 16.563 |
+
 ## gemma4-12b-q4 (reasoning explicit)
 
 - run: `run-1785791432528704324` [live, engine 0.3.1, reasoning on]
@@ -373,6 +450,17 @@ changes — rerun the same commands after any harness change and compare.
 - **p-05-multi-constraint** (48/100): final answer failed scenario checks
 - **t-04-process-vs-blocking** (26/100): oracle not matched: 2/3 steps (bullseye 0.666667); final answer failed scenario checks
 
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 111 | 4.44 |
+| tool failures | 14 | 0.56 |
+| tool denials | 0 | 0 |
+| redundant calls | 18 | 0.72 |
+| LLM retries | 1 | 0.04 |
+| wall time (s) | 580.849 | 23.234 |
+
 ## gemma4-31b
 
 - run: `run-1785779734693544183` [live, engine 0.3.1, reasoning on]
@@ -409,4 +497,15 @@ changes — rerun the same commands after any harness change and compare.
 ### Failures
 
 - **p-03-verify-after-action** (29/100): oracle not matched: 0/2 steps (bullseye 0)
+
+### Agentic profile
+
+| metric | total | per scenario |
+|---|---|---|
+| tool calls | 103 | 4.12 |
+| tool failures | 2 | 0.08 |
+| tool denials | 0 | 0 |
+| redundant calls | 5 | 0.2 |
+| LLM retries | 0 | 0 |
+| wall time (s) | 1056.49 | 42.2597 |
 

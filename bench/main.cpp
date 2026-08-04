@@ -212,6 +212,11 @@ bool parse_report_file(const std::string& file, bench::RunMeta& meta,
         rep.kpi.success = e.value("success", false);
         rep.kpi.bullseye = e.value("bullseye", 0.0);
         rep.kpi.steps = e.value("steps", 0);
+        rep.kpi.tool_calls = e.value("tool_calls_total", 0);
+        rep.kpi.tool_failures = e.value("tool_failures", 0);
+        rep.kpi.tool_denied = e.value("tool_denied", 0);
+        rep.kpi.redundant = e.value("redundant", 0);
+        rep.kpi.retries = e.value("retries", 0);
         rep.kpi.wasted = e.value("wasted", 0);
         rep.kpi.retries = e.value("retries", 0);
         rep.kpi.recoveries = e.value("recoveries", 0);

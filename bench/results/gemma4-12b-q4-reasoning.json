@@ -85,7 +85,10 @@
       "tps_avg": 83.00598524762528,
       "ttft_ms": 683.8199999999999,
       "wall_ms": 16440,
-      "wasted": 9
+      "wasted": 9,
+      "tool_calls_total": 10,
+      "tool_failures": 4,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -149,7 +152,10 @@
       "tps_avg": 82.78303174645073,
       "ttft_ms": 761.882,
       "wall_ms": 15528,
-      "wasted": 4
+      "wasted": 4,
+      "tool_calls_total": 5,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -217,7 +223,10 @@
       "tps_avg": 81.03141011564638,
       "ttft_ms": 751.776,
       "wall_ms": 291758,
-      "wasted": 5
+      "wasted": 5,
+      "tool_calls_total": 6,
+      "tool_failures": 2,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -277,7 +286,10 @@
       "tps_avg": 83.39821521693862,
       "ttft_ms": 832.634,
       "wall_ms": 13765,
-      "wasted": 4
+      "wasted": 4,
+      "tool_calls_total": 5,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -337,7 +349,10 @@
       "tps_avg": 83.7786916622753,
       "ttft_ms": 750.409,
       "wall_ms": 9297,
-      "wasted": 4
+      "wasted": 4,
+      "tool_calls_total": 5,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -385,7 +400,10 @@
       "tps_avg": 82.67944360064743,
       "ttft_ms": 758.95,
       "wall_ms": 4069,
-      "wasted": 1
+      "wasted": 1,
+      "tool_calls_total": 2,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -429,7 +447,10 @@
       "tps_avg": 82.4420006694163,
       "ttft_ms": 783.709,
       "wall_ms": 3780,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 0.0,
@@ -487,7 +508,10 @@
       "tps_avg": 83.78650967717587,
       "ttft_ms": 763.083,
       "wall_ms": 5799,
-      "wasted": 4
+      "wasted": 4,
+      "tool_calls_total": 4,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -533,7 +557,10 @@
       "tps_avg": 83.06528603924924,
       "ttft_ms": 769.511,
       "wall_ms": 3370,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -581,7 +608,10 @@
       "tps_avg": 83.2958074173482,
       "ttft_ms": 764.4889999999999,
       "wall_ms": 2744,
-      "wasted": 1
+      "wasted": 1,
+      "tool_calls_total": 2,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -645,7 +675,10 @@
       "tps_avg": 83.16171554141853,
       "ttft_ms": 755.8620000000001,
       "wall_ms": 13038,
-      "wasted": 5
+      "wasted": 5,
+      "tool_calls_total": 6,
+      "tool_failures": 1,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -725,7 +758,10 @@
       "tps_avg": 83.085960811258,
       "ttft_ms": 770.747,
       "wall_ms": 87320,
-      "wasted": 9
+      "wasted": 9,
+      "tool_calls_total": 10,
+      "tool_failures": 2,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -821,7 +857,10 @@
       "tps_avg": 83.13416016447827,
       "ttft_ms": 760.126,
       "wall_ms": 21315,
-      "wasted": 13
+      "wasted": 13,
+      "tool_calls_total": 14,
+      "tool_failures": 5,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -881,7 +920,10 @@
       "tps_avg": 82.2408156981788,
       "ttft_ms": 764.1289999999999,
       "wall_ms": 17765,
-      "wasted": 4
+      "wasted": 4,
+      "tool_calls_total": 5,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -925,7 +967,10 @@
       "tps_avg": 83.78871531107227,
       "ttft_ms": 784.525,
       "wall_ms": 2944,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -973,7 +1018,10 @@
       "tps_avg": 83.59418166329057,
       "ttft_ms": 762.815,
       "wall_ms": 3850,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 2,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1025,7 +1073,10 @@
       "tps_avg": 81.83530054812832,
       "ttft_ms": 762.377,
       "wall_ms": 5400,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 3,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1069,7 +1120,10 @@
       "tps_avg": 82.4182335501664,
       "ttft_ms": 763.7629999999999,
       "wall_ms": 5989,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1129,7 +1183,10 @@
       "tps_avg": 83.14584433608597,
       "ttft_ms": 758.222,
       "wall_ms": 19716,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 5,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1173,7 +1230,10 @@
       "tps_avg": 84.06224999636082,
       "ttft_ms": 768.711,
       "wall_ms": 2171,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1217,7 +1277,10 @@
       "tps_avg": 81.87609707462629,
       "ttft_ms": 760.817,
       "wall_ms": 4063,
-      "wasted": 0
+      "wasted": 0,
+      "tool_calls_total": 1,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1265,7 +1328,10 @@
       "tps_avg": 82.24357811989144,
       "ttft_ms": 772.633,
       "wall_ms": 5396,
-      "wasted": 1
+      "wasted": 1,
+      "tool_calls_total": 2,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1321,7 +1387,10 @@
       "tps_avg": 84.00453710201167,
       "ttft_ms": 769.688,
       "wall_ms": 4986,
-      "wasted": 2
+      "wasted": 2,
+      "tool_calls_total": 4,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1412,7 +1481,10 @@
       "tps_avg": 84.06767483485588,
       "ttft_ms": 763.7479999999999,
       "wall_ms": 16077,
-      "wasted": 10
+      "wasted": 10,
+      "tool_calls_total": 12,
+      "tool_failures": 0,
+      "tool_denied": 0
     },
     {
       "arg_precision": 1.0,
@@ -1464,7 +1536,10 @@
       "tps_avg": 84.51563146884354,
       "ttft_ms": 768.088,
       "wall_ms": 4269,
-      "wasted": 1
+      "wasted": 1,
+      "tool_calls_total": 3,
+      "tool_failures": 0,
+      "tool_denied": 0
     }
   ],
   "timestamp": "1785791432528705752"

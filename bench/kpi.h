@@ -19,6 +19,9 @@ struct Kpi {
     double tool_call_accuracy = 0.0;
     double arg_precision = 0.0;
     int steps = 0;
+    int tool_calls = 0;       // executed tool calls (all statuses)
+    int tool_failures = 0;    // calls that returned an error
+    int tool_denied = 0;      // calls denied by the approval gate
     int wasted = 0;
     int redundant = 0;
     int retries = 0;

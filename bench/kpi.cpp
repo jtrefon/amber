@@ -21,6 +21,11 @@ Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle,
                                      static_cast<double>(oracle.total_calls)
                                : 1.0;
     k.steps = stream.iterations;
+    k.tool_calls = static_cast<int>(stream.calls.size());
+    for (const auto& c : stream.calls) {
+        if (c.status == "error") ++k.tool_failures;
+        if (c.status == "denied") ++k.tool_denied;
+    }
     k.wasted = oracle.wasted;
     k.redundant = oracle.redundant;
     k.retries = static_cast<int>(stream.retries.size());

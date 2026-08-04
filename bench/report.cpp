@@ -99,6 +99,9 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["tool_call_accuracy"] = r.kpi.tool_call_accuracy;
         j["arg_precision"] = r.kpi.arg_precision;
         j["steps"] = r.kpi.steps;
+        j["tool_calls_total"] = r.kpi.tool_calls;
+        j["tool_failures"] = r.kpi.tool_failures;
+        j["tool_denied"] = r.kpi.tool_denied;
         j["wasted"] = r.kpi.wasted;
         j["redundant"] = r.kpi.redundant;
         j["retries"] = r.kpi.retries;
@@ -174,6 +177,32 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
         out << "\n";
     }
     if (!any) out << "none\n";
+
+    out << "\n### Agentic profile\n\n";
+    int tot_tools = 0, tot_fail = 0, tot_denied = 0, tot_red = 0, tot_retr = 0;
+    long tot_wall = 0;
+    for (const auto& r : reports) {
+        tot_tools += r.kpi.tool_calls;
+        tot_fail += r.kpi.tool_failures;
+        tot_denied += r.kpi.tool_denied;
+        tot_red += r.kpi.redundant;
+        tot_retr += r.kpi.retries;
+        tot_wall += r.kpi.wall_ms;
+    }
+    const int n = static_cast<int>(reports.size());
+    out << "| metric | total | per scenario |\n|---|---|---|\n";
+    out << "| tool calls | " << tot_tools << " | "
+        << (n ? (tot_tools / static_cast<double>(n)) : 0.0) << " |\n";
+    out << "| tool failures | " << tot_fail << " | "
+        << (n ? (tot_fail / static_cast<double>(n)) : 0.0) << " |\n";
+    out << "| tool denials | " << tot_denied << " | "
+        << (n ? (tot_denied / static_cast<double>(n)) : 0.0) << " |\n";
+    out << "| redundant calls | " << tot_red << " | "
+        << (n ? (tot_red / static_cast<double>(n)) : 0.0) << " |\n";
+    out << "| LLM retries | " << tot_retr << " | "
+        << (n ? (tot_retr / static_cast<double>(n)) : 0.0) << " |\n";
+    out << "| wall time (s) | " << (tot_wall / 1000.0) << " | "
+        << (n ? (tot_wall / 1000.0 / n) : 0.0) << " |\n";
     return out.str();
 }
 
@@ -185,6 +214,27 @@ std::string render_markdown_comparison(
     for (const auto& run : runs)
         out << "- **" << run.first.model << "**: "
             << static_cast<int>(run_score(run.second) * 10.0) << "/1000\n";
+
+    out << "\n| model | score | tools | failures | denied | redundant | "
+           "retries | steps | wall (s) |\n";
+    out << "|---|---|---|---|---|---|---|---|---|\n";
+    for (const auto& run : runs) {
+        int tools = 0, fail = 0, denied = 0, red = 0, retr = 0, steps = 0;
+        long wall = 0;
+        for (const auto& r : run.second) {
+            tools += r.kpi.tool_calls;
+            fail += r.kpi.tool_failures;
+            denied += r.kpi.tool_denied;
+            red += r.kpi.redundant;
+            retr += r.kpi.retries;
+            steps += r.kpi.steps;
+            wall += r.kpi.wall_ms;
+        }
+        out << "| " << run.first.model << " | "
+            << static_cast<int>(run_score(run.second) * 10.0) << " | " << tools
+            << " | " << fail << " | " << denied << " | " << red << " | "
+            << retr << " | " << steps << " | " << (wall / 1000.0) << " |\n";
+    }
 
     out << "\n| scenario |";
     for (const auto& run : runs) out << " " << run.first.model << " |";

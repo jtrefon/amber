@@ -732,3 +732,58 @@ TEST(report_markdown_comparison_matrix) {
     ASSERT(md.find("90") != std::string::npos);
     ASSERT(md.find("60") != std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// Agentic tool KPIs (per-model tool efficiency)
+// ---------------------------------------------------------------------------
+
+TEST(kpi_tool_aggregation_from_stream) {
+    bench::EventStream stream;
+    stream.calls.push_back({"read", {{"path", "a.txt"}}, 0, "ok"});
+    stream.calls.push_back({"read", {{"path", "b.txt"}}, 0, "error"});
+    stream.calls.push_back({"bash", {{"command", "ls"}}, 0, "denied"});
+    stream.calls.push_back({"read", {{"path", "a.txt"}}, 0, "ok"});
+
+    OracleResult oracle;
+    oracle.success = true;
+    oracle.bullseye = 1.0;
+    oracle.total_steps = 2;
+    oracle.matched_steps = 2;
+    oracle.on_oracle_calls = 2;
+    oracle.total_calls = 4;
+    oracle.arg_precision = 1.0;
+    oracle.redundant = 1;  // identical read a.txt twice (score_oracle detects)
+
+    ResourceMeter meter;
+    TemplateResult tmpl;
+    Checks pc;
+
+    Kpi k = bench::compute_kpi(stream, oracle, meter, tmpl, pc, "done.", 1000, 500);
+    ASSERT_EQ(k.tool_calls, 4);
+    ASSERT_EQ(k.tool_failures, 1);
+    ASSERT_EQ(k.tool_denied, 1);
+    ASSERT_EQ(k.redundant, 1);  // read a.txt twice
+}
+
+TEST(report_markdown_agentic_profile) {
+    bench::ScenarioReport rep;
+    rep.name = "demo";
+    rep.suite = "tools";
+    rep.kpi.success = true;
+    rep.kpi.bullseye = 1.0;
+    rep.kpi.steps = 3;
+    rep.kpi.tool_calls = 5;
+    rep.kpi.tool_failures = 1;
+    rep.kpi.tool_denied = 0;
+    rep.kpi.redundant = 2;
+    rep.kpi.retries = 1;
+    rep.difficulty = 3;
+    rep.score.total = 90.0;
+    bench::RunMeta meta;
+    meta.mode = "live";
+    meta.model = "m1";
+    std::string md = bench::render_markdown({rep}, meta);
+    ASSERT(md.find("Agentic profile") != std::string::npos);
+    ASSERT(md.find("tool failures") != std::string::npos);
+    ASSERT(md.find('1') != std::string::npos);
+}
