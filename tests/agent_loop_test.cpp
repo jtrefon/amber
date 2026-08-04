@@ -11,6 +11,7 @@
 
 #include "agent.h"
 #include "agent/tools.h"
+#include "agent/todo.h"
 #include "fake_llm.h"
 #include "tests/test_util.h"
 
@@ -539,4 +540,37 @@ TEST(agent_xml_tool_call_fires_hook_once) {
     agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(fake));
     ag.run("read the Makefile");
     ASSERT_EQ(tool_call_hook_count, 1);
+}
+
+// [P1] The todowrite tool's host-owned store persists across turns (the
+// model replaces the full list each call; state survives in TodoStore, not
+// in context).
+TEST(agent_loop_todowrite_state_persists) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_tool_call(*fake, "todowrite",
+                   {{"todos", {{{"id", "p1"}, {"text", "fix parsing"},
+                                {"status", "in_progress"}}}}});
+    push_tool_call(*fake, "todowrite",
+                   {{"todos", {{{"id", "p1"}, {"text", "fix parsing"},
+                                {"status", "completed"}},
+                               {{"id", "p2"}, {"text", "write tests"},
+                                {"status", "pending"}}}}});
+    push_text(*fake, "done");
+    push_text(*fake, "yes");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("track the work");
+    ASSERT_EQ(reply, "done");
+    // The final full-list replacement is what the store holds.
+    ASSERT_EQ(todos.items().size(), 2u);
+    ASSERT(todos.items()[0].status == agent::TodoStatus::Completed);
+    ASSERT_EQ(todos.items()[1].text, "write tests");
+    ASSERT(raw->chat_calls >= 3);
 }

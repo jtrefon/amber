@@ -166,3 +166,14 @@ Terminate a background job and return its captured output.
 
 **Content**: "stopped" notice + captured output.
 **Meta**: `{"job_id": "<id>"}`
+
+## todowrite
+
+A structured task list for the session, maintained by you and visible to the
+user. Multi-step work unfolds naturally as a list: each item has an id, a
+short description, and a status (`pending`, `in_progress`, `completed`,
+`cancelled`). Send the **full updated list** on every call — it replaces the
+previous one. The list lives outside the conversation, so it survives context
+compaction and keeps you and the user on the same page across long tasks.
+A fresh list of 3–5 actionable items at the start of a larger task, kept
+current as work progresses, is a good shape for this tool.

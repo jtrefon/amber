@@ -398,9 +398,10 @@ TEST(request_builder_assistant_message_always_has_content) {
 TEST(registry_register_and_find) {
     agent::ToolRegistry r;
     agent::JobService jobs;
-    agent::register_default_tools(r, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
-    ASSERT_EQ(r.tools().size(), 7u);
+    ASSERT_EQ(r.tools().size(), 8u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -414,10 +415,11 @@ TEST(registry_register_and_find) {
 TEST(registry_schema_shape) {
     agent::ToolRegistry r;
     agent::JobService jobs;
-    agent::register_default_tools(r, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(r, jobs, todos);
     agent::json s = r.schema();
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 7u);
+    ASSERT_EQ(s.size(), 8u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");
@@ -448,7 +450,8 @@ TEST(prompt_loads_existing) {
 TEST(prompt_render_tools_markdown_lists_all) {
     agent::ToolRegistry r;
     agent::JobService jobs;
-    agent::register_default_tools(r, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(r, jobs, todos);
     std::string md = agent::render_tools_markdown(r);
     ASSERT(md.find("# Tools") != std::string::npos);
     ASSERT(md.find("`read`") != std::string::npos);
@@ -1291,7 +1294,8 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     cfg.system_prompt_path = "prompts/system.md";
     agent::ToolRegistry reg;
     agent::JobService jobs;
-    agent::register_default_tools(reg, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos);
     agent::Agent ag(cfg, reg);
 
     // Count tool-call dispatches by watching the on_tool_result hook.

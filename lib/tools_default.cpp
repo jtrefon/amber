@@ -3,6 +3,7 @@
 #include "agent/tools.h"
 #include "agent/process.h"
 #include "agent/job.h"
+#include "agent/todo.h"
 
 namespace agent {
 
@@ -11,10 +12,12 @@ namespace agent {
 // translation units (read_tool.cpp, write_tool.cpp, search_tool.cpp, and the
 // search backends) are compiled separately and linked into libagent.
 void register_default_tools(ToolRegistry& reg, JobService& jobs,
+                            TodoStore& todos,
                             const CancellationToken& cancel_token) {
     reg.register_tool(make_read_tool());
     reg.register_tool(make_write_tool());
     reg.register_tool(make_search_tool());
+    reg.register_tool(make_todowrite_tool(todos));
     reg.register_tool(make_bash_tool(&jobs, cancel_token));
     for (auto& t : make_process_tools(jobs))
         reg.register_tool(std::move(t));
