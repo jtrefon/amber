@@ -119,6 +119,10 @@ benchmark will tell us if it costs anything); security gates; approval flow.
 
 ## 5. What winning looks like
 
+The executable plan (architecture + specs + TDD lists + benchmark gates for
+every item) is in `docs/plan/agentic-fix-plan.md` — a self-contained brief for
+the implementing session.
+
 P1 alone should move redundant calls toward single digits and raise plan% toward
 60+ on the baseline models. Each subsequent item compounds. The BENCHMARK.md
 tracks every before/after — that is the proof loop.
