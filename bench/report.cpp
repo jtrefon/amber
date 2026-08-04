@@ -269,9 +269,9 @@ std::string render_markdown_comparison(
         out << "- **" << run.first.model << "**: "
             << static_cast<int>(run_score(run.second) * 10.0) << "/1000\n";
 
-    out << "\n| model | score | agentic | plan % | tools | failures | denied | "
-           "redundant | retries | steps | wall (s) |\n";
-    out << "|---|---|---|---|---|---|---|---|---|---|---|\n";
+    out << "\n| model | score | agentic | plan % | tools | fail % | redun % | "
+           "steps | wall (s) |\n";
+    out << "|---|---|---|---|---|---|---|---|---|\n";
     for (const auto& run : runs) {
         int tools = 0, fail = 0, denied = 0, red = 0, retr = 0, steps = 0;
         long wall = 0;
@@ -301,12 +301,14 @@ std::string render_markdown_comparison(
             plan_pct = at > 0 ? (100.0 * pt / at) : 0.0;
             if (plan_pct > 100.0) plan_pct = 100.0;
         }
+        const int fail_pct = tools > 0 ? (100 * fail / tools) : 0;
+        const int red_pct = tools > 0 ? (100 * red / tools) : 0;
         out << "| " << run.first.model << " | "
             << static_cast<int>(run_score(run.second) * 10.0) << " | "
             << (ag_n ? static_cast<int>(ag_sum / ag_n) : 0) << " | "
             << static_cast<int>(plan_pct) << " | " << tools
-            << " | " << fail << " | " << denied << " | " << red << " | "
-            << retr << " | " << steps << " | " << (wall / 1000.0) << " |\n";
+            << " | " << fail_pct << " | " << red_pct << " | "
+            << steps << " | " << (wall / 1000.0) << " |\n";
     }
 
     out << "\n| scenario |";

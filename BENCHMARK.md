@@ -69,16 +69,16 @@ changes — rerun the same commands after any harness change and compare.
 - **gemma4-12b-q4 (reasoning explicit)**: 799/1000
 - **gemma4-31b**: 903/1000
 
-| model | score | agentic | plan % | tools | failures | denied | redundant | retries | steps | wall (s) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| qwopus-27b | 900 | 62 | 44 | 109 | 5 | 0 | 17 | 0 | 121 | 321.902 |
-| Qwen3.6-27B dense | 910 | 68 | 46 | 104 | 4 | 0 | 10 | 0 | 115 | 781.901 |
-| Qwen3.6-27B MTP | 901 | 66 | 47 | 104 | 2 | 0 | 12 | 0 | 117 | 308.714 |
-| Qwen3.6-35B MoE (A3B) | 877 | 59 | 35 | 137 | 12 | 1 | 22 | 0 | 145 | 548.405 |
-| ornith-1.0-35b | 837 | 63 | 39 | 124 | 9 | 0 | 32 | 0 | 153 | 497.099 |
-| gemma4-12b-q4 | 726 | 70 | 47 | 103 | 8 | 0 | 12 | 3 | 127 | 414.075 |
-| gemma4-12b-q4 (reasoning explicit) | 799 | 66 | 43 | 111 | 14 | 0 | 18 | 1 | 135 | 580.849 |
-| gemma4-31b | 903 | 72 | 47 | 103 | 2 | 0 | 5 | 0 | 127 | 1056.49 |
+| model | score | agentic | plan % | tools | fail % | redun % | steps | wall (s) |
+|---|---|---|---|---|---|---|---|---|
+| qwopus-27b | 900 | 62 | 44 | 109 | 4 | 15 | 121 | 321.902 |
+| Qwen3.6-27B dense | 910 | 68 | 46 | 104 | 3 | 9 | 115 | 781.901 |
+| Qwen3.6-27B MTP | 901 | 66 | 47 | 104 | 1 | 11 | 117 | 308.714 |
+| Qwen3.6-35B MoE (A3B) | 877 | 59 | 35 | 137 | 8 | 16 | 145 | 548.405 |
+| ornith-1.0-35b | 837 | 63 | 39 | 124 | 7 | 25 | 153 | 497.099 |
+| gemma4-12b-q4 | 726 | 70 | 47 | 103 | 7 | 11 | 127 | 414.075 |
+| gemma4-12b-q4 (reasoning explicit) | 799 | 66 | 43 | 111 | 12 | 16 | 135 | 580.849 |
+| gemma4-31b | 903 | 72 | 47 | 103 | 1 | 4 | 127 | 1056.49 |
 
 | scenario | qwopus-27b | Qwen3.6-27B dense | Qwen3.6-27B MTP | Qwen3.6-35B MoE (A3B) | ornith-1.0-35b | gemma4-12b-q4 | gemma4-12b-q4 (reasoning explicit) | gemma4-31b |
 |---|---|---|---|---|---|---|---|---|
