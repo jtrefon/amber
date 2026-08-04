@@ -92,7 +92,13 @@ single-run variance swings already observed in earlier runs (c-03 ranged
 67-88 across all runs). Agentic 69→66, plan% 65→63, redundant 9→7-12: all
 within the established variance band.
 
-**Verdict: no degradation, no measurable improvement, zero adoption** — the current corpus is
+**Verdict: no degradation, no measurable improvement, zero adoption**
+
+Adoption proof (wire-level): `--debug` capture of a live t-07 run shows all
+11 tools — including `todowrite` — advertised in every request the model
+received; the model saw the tool and declined it on all 5 requests. The tool
+executed correctly in hermetic tests (state persists across turns). Zero
+adoption is genuine model behavior on single-pass tasks, not a wiring bug. — the current corpus is
 single-pass work where planning cannot pay (opencode's own guidance: skip
 when the task is straightforward). Proof of value is gated on the
 repo-level suite (long-horizon tasks), which is also the gate for the
