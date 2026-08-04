@@ -13,6 +13,7 @@
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
 #include "agent/tool_call_parser.h"
+#include "agent/todo.h"
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
@@ -3226,4 +3227,65 @@ TEST(read_tool_clamps_limit) {
     ASSERT_TRUE(r.ok);
     ASSERT(r.meta["lines"].get<long>() <= 2000);
     std::filesystem::remove_all(dir);
+}
+
+// ---------------------------------------------------------------------------
+// Todowrite tool (P1 — externalized task tracking)
+// ---------------------------------------------------------------------------
+
+TEST(todo_store_full_list_replace) {
+    agent::TodoStore store;
+    store.update({
+        {"p1", "fix parsing", agent::TodoStatus::InProgress},
+        {"p2", "write tests", agent::TodoStatus::Pending},
+    });
+    ASSERT_EQ(store.items().size(), 2u);
+    ASSERT_EQ(store.items()[0].id, "p1");
+    ASSERT_EQ(store.items()[1].text, "write tests");
+    // Full-list replacement: a new update drops the previous list entirely.
+    store.update({{"p3", "ship", agent::TodoStatus::Completed}});
+    ASSERT_EQ(store.items().size(), 1u);
+    ASSERT_EQ(store.items()[0].id, "p3");
+    // Empty update clears.
+    store.update({});
+    ASSERT(store.items().empty());
+}
+
+TEST(todowrite_tool_replaces_and_echoes) {
+    agent::TodoStore store;
+    auto tool = agent::make_todowrite_tool(store);
+    ASSERT_EQ(tool->name(), "todowrite");
+    auto r = tool->execute({{"todos", {
+        {{"id", "p1"}, {"text", "fix parsing"}, {"status", "in_progress"}},
+        {{"id", "p2"}, {"text", "write tests"}, {"status", "pending"}},
+    }}});
+    ASSERT(r.ok);
+    ASSERT(r.output.find("p1") != std::string::npos);
+    ASSERT(r.output.find("fix parsing") != std::string::npos);
+    ASSERT_EQ(store.items().size(), 2u);
+    // Second call replaces the list entirely.
+    tool->execute({{"todos", {{{"id", "p9"}, {"text", "ship it"}, {"status", "completed"}}}}});
+    ASSERT_EQ(store.items().size(), 1u);
+    ASSERT_EQ(store.items()[0].id, "p9");
+}
+
+TEST(todowrite_tool_rejects_invalid_status) {
+    agent::TodoStore store;
+    auto tool = agent::make_todowrite_tool(store);
+    auto r = tool->execute({{"todos", {
+        {{"id", "p1"}, {"text", "x"}, {"status", "done"}},  // not a valid status
+    }}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(store.items().empty());
+    // Missing required key also fails.
+    auto r2 = tool->execute(agent::json::object());
+    ASSERT_FALSE(r2.ok);
+}
+
+TEST(todowrite_registered_by_default) {
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos);
+    ASSERT(reg.find("todowrite") != nullptr);
 }
