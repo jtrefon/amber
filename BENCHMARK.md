@@ -76,6 +76,25 @@ economy and termination dominate — exactly the axis where the 27B's coding
 training wins. To measure the 550B's actual strengths, the corpus needs a
 repo-level suite: multi-file bugs, long-context tasks, deeper reasoning.
 
+## Repo-level suite (long-horizon, 2026-08-04)
+
+Two new repo scenarios with real verification (hidden tests compile and run
+the project): r-01 cross-file interface rename (search → edit all call
+sites → compile), r-02 seeded bug-hunt (explore → fix → verify).
+
+| Scenario | Qwen3.6-27B dense | todowrite used |
+|---|---|---|
+| r-01-rename-interface | PASS 100 (7 steps, artifact 1) | 0 |
+| r-02-bug-hunt | PASS 96 (artifact 1) | 0 |
+
+Verdict on the "not complex enough" hypothesis: **complexity is not the
+trigger.** The baseline model completes multi-phase, dependent-step work
+efficiently without any planning tool (r-01 at 100, surgical edits, zero
+redundancy). The horizon where externalized task tracking pays (context
+degradation on very long runs) is beyond this corpus. The todowrite tool
+remains functional, advertised (wire-verified), and harmless — it becomes
+relevant with P4 sub-agents and much longer scenarios.
+
 ## P1: todowrite tool — externalized task tracking (2026-08-04)
 
 `todowrite` tool shipped (host-owned `TodoStore`, full-list replacement —
