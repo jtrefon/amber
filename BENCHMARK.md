@@ -82,12 +82,17 @@ repo-level suite: multi-file bugs, long-context tasks, deeper reasoning.
 the TodoWrite contract strong agentic models are trained on; survives
 compression by design). Hermetic tests prove state persists across turns.
 
-| Model | before | after | todowrite uses |
+| Model | before (2 runs) | after (3 runs) | verdict |
 |---|---|---|---|
-| Qwen3.6-27B dense | 913, 24/25, red 9 | 911, 24/25, red 12 | 0 |
-| t-07 planning-multi-file (new, d5) | — | qwen 88, laguna 90, both 0 redundant | 0 |
+| Qwen3.6-27B dense | 885, 913 — mean 899 | 911, 895, 908 — mean 905 | **neutral** (+6 ≈ noise) |
 
-Finding: **no regression, but zero adoption** — the current corpus is
+Per-scenario (25 shared scenarios, before-r2 vs mean-of-3-after): 2 improved,
+19 stable, 4 regressed — the regressions (c-03 -21, c-02 -4, c-04 -4) are
+single-run variance swings already observed in earlier runs (c-03 ranged
+67-88 across all runs). Agentic 69→66, plan% 65→63, redundant 9→7-12: all
+within the established variance band.
+
+**Verdict: no degradation, no measurable improvement, zero adoption** — the current corpus is
 single-pass work where planning cannot pay (opencode's own guidance: skip
 when the task is straightforward). Proof of value is gated on the
 repo-level suite (long-horizon tasks), which is also the gate for the
