@@ -51,6 +51,31 @@ changes — rerun the same commands after any harness change and compare.
 > land in a ~900-910 band — differences within it are single-run variance,
 > not model ranking; use `--repeat N` for statistically meaningful deltas.
 
+## Official benchmark cross-check (the 27B vs 550B question)
+
+Why does a 27B dense model outscore a 550B frontier model on this harness?
+It is not a harness artifact — the official numbers say the same thing:
+
+| Model | SWE-bench Verified | Terminal-Bench |
+|---|---|---|
+| Qwen3.6-27B (dense, Apr 2026) | **77.2%** | **59.3%** (TB 2.0) |
+| NVIDIA Nemotron 3 Ultra 550B-A55B (Jun 2026) | 71.9% | 56.4% (TB 2.1) |
+
+Sources: Qwen first-party model card (77.2 / 59.3, purpose-built for
+agentic coding and repository-level reasoning — it also beats the 397B
+MoE flagship); NVIDIA / evals.report verified scores for Nemotron 3 Ultra
+(SWE-bench Verified 71.9, Terminal-Bench 2.1 56.4, GPQA Diamond 87.0).
+
+**Conclusion**: the harness ranking direction is validated by the official
+benchmarks — this particular 27B dense model is genuinely the better
+*agentic coding* model. Nemotron's strengths (GPQA 87%, 1M context,
+long-context analysis, math/science) live on axes this corpus barely
+touches. The harness gap (910 vs 806) is wider than the official gap
+(77.2 vs 71.9), because the corpus is small single-file tasks where tool
+economy and termination dominate — exactly the axis where the 27B's coding
+training wins. To measure the 550B's actual strengths, the corpus needs a
+repo-level suite: multi-file bugs, long-context tasks, deeper reasoning.
+
 ## Prompt v2 (empowerment) — before/after
 
 `prompts/system.md` was rewritten from confinement language ("never fabricate",
