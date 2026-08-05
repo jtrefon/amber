@@ -168,8 +168,12 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
     agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
-                        cfg.plan_tool);
+                        cfg.plan_tool, subagents);
+    subagents.set_config(cfg);
+    subagents.set_parallel(cfg.subagent_parallel);
+    subagents.set_max(cfg.subagent_max);
 
     // Enforce the scenario step budget during the run (the engine's own
     // iteration cap), not just in post-hoc scoring.

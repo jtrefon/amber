@@ -3,6 +3,7 @@
 #define AGENT_AGENT_H_ALL
 
 // Umbrella header for libagent consumers (TUI, tests, headless CLI).
+#include "agent/subagent.h"
 #include "agent/todo.h"
 #include "agent/version.h"
 #include "agent/tool.h"
@@ -20,6 +21,8 @@
 
 namespace agent {
 
+inline SubAgentExecutor g_empty_subagents;
+
 // Register the built-in tools into the given registry. `jobs` is the shared
 // JobService the model-driven process_* tools operate on; the host owns the
 // instance so it stays visible (and killable) from the UI.
@@ -29,7 +32,8 @@ namespace agent {
 void register_default_tools(ToolRegistry& reg, JobService& jobs,
                             TodoStore& todos,
                             const CancellationToken& cancel_token = {},
-                            bool enable_plan_tool = false);
+                            bool enable_plan_tool = false,
+                            SubAgentExecutor& subagents = g_empty_subagents);
 }
 
 #endif // AGENT_AGENT_H_ALL

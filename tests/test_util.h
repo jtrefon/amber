@@ -31,6 +31,7 @@ inline std::vector<Case>& registry() {
 
 inline int failures = 0;
 inline int passed = 0;
+inline const char* g_only = std::getenv("RUN_TESTS_ONLY");
 
 struct Registrar {
     Registrar(const std::string& name, void (*fn)()) {
@@ -40,6 +41,7 @@ struct Registrar {
 
 inline int run_all() {
     for (const auto& c : registry()) {
+        if (g_only && c.name.find(g_only) == std::string::npos) continue;
         try {
             c.fn();
             ++passed;
