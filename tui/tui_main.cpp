@@ -44,15 +44,7 @@ int main(int argc, char** argv) {
         std::string global_path = agent::global_config_path();
         std::ifstream sf(global_path);
         if (sf) tmp.load(global_path);
-        // Apply provider preset if one was saved
-        if (!tmp.provider_name.empty() && tmp.provider_name != "custom") {
-            cfg.apply_provider(tmp.provider_name);
-            cfg.api_key = tmp.api_key;
-            if (!tmp.model.empty()) { cfg.model = tmp.model; cfg.model_explicit = true; }
-            if (tmp.context_size > 0) { cfg.context_size = tmp.context_size; cfg.context_explicit = true; }
-        }
-        // Always load api_key from global config, even for custom providers
-        if (!tmp.api_key.empty()) cfg.api_key = tmp.api_key;
+        overlay_global_config(cfg, tmp);
         if (!tmp.model.empty() && !cfg.model_explicit) { cfg.model = tmp.model; }
         if (tmp.context_size > 0 && !cfg.context_explicit) { cfg.context_size = tmp.context_size; }
 

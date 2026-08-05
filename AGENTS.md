@@ -98,6 +98,31 @@ tree in `SettingRegistry`; C++ handlers are pure `(action, arg)` closures.
   dispatch. The legacy flat `palette::Command` carries display metadata only
   (name/aliases/usage/help); there is no `complete_arg`/`current_value`.
 
+### Hard rule: slash commands are NEVER hardcoded (no exceptions)
+
+Every slash-command path, completion, and dispatch must come from the JSON
+tree + feeds. Concretely:
+
+- **No hardcoded command paths in handlers.** `handle_slash` walks the tree
+  and dispatches the deepest documented node's `action`; C++ handlers are
+  pure `(action, arg)` closures. Do NOT special-case command names in
+  `cmd_set`/`cmd_get`/`handle_slash` — if a command is missing from the
+  tree, add the node (or a feed leaf), not an `if (arg.rfind(...))`.
+- **No hardcoded completion/choice lists.** Completion rows, `choices`,
+  usage hints, and "try: ..." messages derive from the tree/feeds —
+  including dynamically discovered names (providers, policy rules, models,
+  MCP servers): they are feed leaves (`merge_completions_json`), never
+  hardcoded C++ lists.
+- **No dead legacy dispatch.** When a feed/tree supersedes a hand-written
+  branch, delete the branch; a branch that "only sees the bare namespace"
+  is acceptable only as the namespace's usage page (its `action` is
+  registered).
+- Feeds register their leaf action closures exactly like static nodes;
+  `register_action` is the only place command behavior exists.
+
+The command surface is `completions.json` + `refresh_*_feed()`s; anything a
+user can type must be resolvable there.
+
 ## Context stack architecture (immutable, hash-chained)
 
 The `Context` class (`include/agent/context.h`) is a **pure stack** — messages are

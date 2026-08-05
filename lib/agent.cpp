@@ -81,6 +81,11 @@ void Agent::set_model(const std::string& model) {
     client_ = make_client(cfg_, client_factory_);
 }
 
+void Agent::set_reasoning_effort(const std::string& effort) {
+    cfg_.reasoning_effort = effort;
+    client_ = make_client(cfg_, client_factory_);
+}
+
 void Agent::ensure_system_prompt() {
     if (!context_.empty()) return;
 

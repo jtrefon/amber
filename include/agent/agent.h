@@ -132,6 +132,7 @@ public:
     // Config snapshot from construction, so the client is rebuilt through the
     // injected factory — the next turn talks to the new model.
     void set_model(const std::string& model);
+    void set_reasoning_effort(const std::string& effort);
 
     void set_compression_threshold(double t) {
         cfg_.compression_threshold = t;

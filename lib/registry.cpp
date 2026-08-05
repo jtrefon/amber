@@ -4,6 +4,17 @@
 namespace agent {
 
 void ToolRegistry::register_tool(std::unique_ptr<Tool> tool) {
+    // Idempotent by name: re-registration (a second Agent, a skills
+    // re-discovery) replaces the earlier instance instead of duplicating
+    // it — duplicate names in the tools[] schema are rejected by strict
+    // servers ("Tool names must be unique").
+    const std::string name = tool->name();
+    for (auto& t : tools_) {
+        if (t->name() == name) {
+            t = std::move(tool);
+            return;
+        }
+    }
     tools_.push_back(std::move(tool));
 }
 
