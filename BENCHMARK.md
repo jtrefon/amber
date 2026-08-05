@@ -97,28 +97,33 @@ cannot trigger it: our scenarios stay under ~7k tokens vs the 16k firing
 point (the same horizon finding as P1/P4). New `compressions` KPI in the
 recorder/report.
 
-## P2: lean tool results (drop the args echo) — first measured win (2026-08-04)
+## P2/P2v2: lean tool results (2026-08-04)
 
-The result envelope stopped re-echoing the full `args` JSON
-(`[tool=<name> status=<status> meta=<meta>]` — status/meta kept). Hypothesis:
-context bloat per result drives degradation → re-reading and wrong-arg calls.
+The result envelope echoed the full `args` JSON on every result. Two
+iterations, A/B on Nemotron 550B free (25 shared scenarios, same prompt):
 
-A/B on Nemotron 550B free (25 shared scenarios, same prompt — only the
-envelope changed):
+**P2 (full args drop)** — three runs: score 82.1→82.1/84.4/88.2 (+2.8 mean),
+tools −5%, steps −4%, failures 18→10/5/17 (**noise — reverted on run 3**),
+redundant 17→23/22/20 (**consistent +5 — real side effect**: the args echo
+was the model's confirmation that it sent the right thing).
 
-| Metric | before | P2 r1 | P2 r2 |
-|---|---|---|---|
-| tool failures | 18 | 10 | **5** (−72%) |
-| tool calls | 142 | 133 | 132 (−7%) |
-| steps | 164 | 157 | 157 (−4%) |
-| score | 82.1 | 82.1 | 84.4 |
-| redundant | 17 | 23 | 22 (+5, caveat) |
+**P2v2 (conditional echo)** — args echoed when compact (≤120 chars), dropped
+for large payloads. Two runs:
 
-**Verdict: first consistent improvement on the agentic axis** — failures
-down 72% across two runs, tools and steps down. The redundant-call increase
-is flagged for follow-up runs (possible side effect of less confirmation in
-results, or variance). Hermetic proof: `agent_loop_tool_envelope_lean`
-pins the new format.
+| metric | before | v2 r1 | v2 r2 | mean Δ |
+|---|---|---|---|---|
+| score | 82.1 | 84.7 | 83.6 | +2.0 |
+| tools | 142 | 123 | 135 | −9% |
+| steps | 164 | 148 | 159 | −6% |
+| failures | 18 | 8 | 13 | down both runs |
+| redundant | 17 | 16 | 19 | baseline (side effect gone) |
+
+**Verdict**: P2v2 is a defensible, consistent improvement on the agentic
+axis (tools/steps/score down or up on both runs) with **no side effect** —
+it confirms the P2 redundant uptick was lost confirmation, and keeps the
+bloat reduction where it matters (large payloads). Magnitude is modest;
+statistically suggestive, not sealed (n=2). Hermetic tests pin both paths
+(`agent_loop_tool_envelope_lean`, `agent_loop_tool_envelope_small_args_echoed`).
 
 ## Repo-level suite (long-horizon, 2026-08-04)
 
