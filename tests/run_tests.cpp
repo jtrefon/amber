@@ -82,6 +82,7 @@ TEST(config_load_key_value) {
         f << "stream=false\n";
         f << "subagent_parallel=false\n";
         f << "subagent_max=2\n";
+        f << "reasoning_effort=high\n";
     }
     agent::Config c;
     c.load(path);
@@ -92,6 +93,7 @@ TEST(config_load_key_value) {
     ASSERT_FALSE(c.stream);
     ASSERT_FALSE(c.subagent_parallel);
     ASSERT_EQ(c.subagent_max, 2);
+    ASSERT_EQ(c.reasoning_effort, "high");
     std::remove(path.c_str());
 }
 
@@ -160,8 +162,11 @@ TEST(config_save_settings_keeps_llm_global) {
     std::ifstream f(path);
     std::string body((std::istreambuf_iterator<char>(f)),
                      std::istreambuf_iterator<char>());
+    std::fprintf(stderr, "[dbg] body(%zu): %.300s\n", body.size(), body.c_str());
     ASSERT(body.find("api_base=") == std::string::npos);
+    std::fprintf(stderr, "[dbg] body(%zu): %.300s\n", body.size(), body.c_str());
     ASSERT(body.find("api_key=") == std::string::npos);
+    std::fprintf(stderr, "[dbg] body(%zu): %.300s\n", body.size(), body.c_str());
     ASSERT(body.find("model=") == std::string::npos);
     std::remove(path.c_str());
 }
@@ -416,6 +421,88 @@ TEST(registry_register_and_find) {
     ASSERT(r.find("nonexistent") == nullptr);
 }
 
+TEST(provider_apply_carries_saved_api_key) {
+    // /set provider <saved> must activate the saved provider's key too —
+    // switching with an empty key leaves the probe failing (401) and the
+    // model list empty.
+    const std::string dir = agent::global_config_dir() + "/providers";
+    std::filesystem::create_directories(dir);
+    const std::string path = dir + "/zzz_key_provider.conf";
+    {
+        std::ofstream f(path);
+        f << "provider=zzz_key_provider\n"
+             "api_base=http://127.0.0.1:9999/v1\n"
+             "api_key=sk-zzz-secret\n";
+    }
+    agent::Config c;
+    c.apply_provider("zzz_key_provider");
+    ASSERT_EQ(c.provider_name, "zzz_key_provider");
+    ASSERT_EQ(c.api_base, "http://127.0.0.1:9999/v1");
+    ASSERT_EQ(c.api_key, "sk-zzz-secret");
+    // A key-less saved provider must not clobber a manually set key.
+    const std::string path2 = dir + "/zzz_nokey_provider.conf";
+    {
+        std::ofstream f(path2);
+        f << "provider=zzz_nokey_provider\n"
+             "api_base=http://127.0.0.1:9998/v1\n";
+    }
+    agent::Config c2;
+    c2.api_key = "sk-existing";
+    c2.apply_provider("zzz_nokey_provider");
+    ASSERT_EQ(c2.api_key, "sk-existing");
+    std::remove(path.c_str());
+    std::remove(path2.c_str());
+}
+
+TEST(provider_key_survives_empty_global_overlay) {
+    // Startup order: apply the saved provider (key from the provider file),
+    // then overlay the global config. An EMPTY global key must never
+    // clobber the provider key — that left probes failing with 401.
+    const std::string dir = agent::global_config_dir() + "/providers";
+    std::filesystem::create_directories(dir);
+    const std::string path = dir + "/zzz_overlay_provider.conf";
+    {
+        std::ofstream f(path);
+        f << "provider=zzz_overlay_provider\n"
+             "api_base=http://127.0.0.1:9997/v1\n"
+             "api_key=sk-provider-key\n";
+    }
+    agent::Config global;               // provider set, key EMPTY
+    global.provider_name = "zzz_overlay_provider";
+    agent::Config cfg;
+    agent::overlay_global_config(cfg, global);
+    ASSERT_EQ(cfg.api_key, "sk-provider-key");
+    ASSERT_EQ(cfg.api_base, "http://127.0.0.1:9997/v1");
+
+    // A non-empty global key wins over the provider file.
+    agent::Config global2 = global;
+    global2.api_key = "sk-global-key";
+    agent::Config cfg2;
+    agent::overlay_global_config(cfg2, global2);
+    ASSERT_EQ(cfg2.api_key, "sk-global-key");
+    std::remove(path.c_str());
+}
+
+TEST(provider_is_known_includes_saved) {
+    ASSERT(agent::is_known_provider("openrouter"));
+    ASSERT(agent::is_known_provider("kilocode"));
+    ASSERT(agent::is_known_provider("custom"));
+    // A provider saved under the providers dir is known too (the /set
+    // provider gate must not reject user-added providers).
+    const std::string dir = agent::global_config_dir() + "/providers";
+    std::filesystem::create_directories(dir);
+    const std::string path = dir + "/zzz_test_provider.conf";
+    {
+        std::ofstream f(path);
+        f << "provider=zzz_test_provider\n"
+             "api_base=http://127.0.0.1:9999/v1\n";
+    }
+    ASSERT(agent::is_known_provider("zzz_test_provider"));
+    std::remove(path.c_str());
+    ASSERT_FALSE(agent::is_known_provider("zzz_test_provider"));
+    ASSERT_FALSE(agent::is_known_provider("nonexistent_provider_xyz"));
+}
+
 TEST(registry_task_tool_opt_in) {
     agent::ToolRegistry r;
     agent::JobService jobs;
@@ -425,6 +512,22 @@ TEST(registry_task_tool_opt_in) {
                                   false, ex, true);
     ASSERT_EQ(r.tools().size(), 8u);
     ASSERT(r.find("task") != nullptr);
+}
+
+TEST(registry_repeated_registration_dedups) {
+    // A second Agent (new window/session) re-registers skill tools into
+    // the shared registry; duplicate names in the tools[] schema are
+    // rejected by strict servers ("Tool names must be unique").
+    agent::ToolRegistry r;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(r, jobs, todos);
+    const size_t first = r.tools().size();
+    agent::register_default_tools(r, jobs, todos);
+    ASSERT_EQ(r.tools().size(), first);  // no duplicates
+    std::set<std::string> names;
+    for (const auto& t : r.tools()) names.insert(t->name());
+    ASSERT_EQ(names.size(), first);      // schema names unique
 }
 
 TEST(registry_schema_shape) {
@@ -875,7 +978,7 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
     if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) { close(fd); return -1; }
     listen(fd, 1);
     body_out.clear();
-    std::thread t([fd, sse_override]() {
+    std::thread t([fd, sse_override, &body_out]() {
         int c = accept(fd, nullptr, nullptr);
         if (c < 0) return;
         // read the request (headers + body) until we have it
@@ -887,7 +990,22 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
             req.append(buf, n);
             if (req.find("\r\n\r\n") != std::string::npos) break;
         }
-        (void)req;
+        // Drain the request body (Content-Length) so body_out is complete.
+        {
+            size_t hl = req.find("\r\n\r\n");
+            if (hl != std::string::npos) {
+                const size_t cl = req.find("Content-Length:");
+                if (cl != std::string::npos) {
+                    long len = std::atol(req.c_str() + cl + 15);
+                    while ((long)req.size() < (long)hl + 4 + len) {
+                        int n = recv(c, buf, sizeof(buf) - 1, 0);
+                        if (n <= 0) break;
+                        req.append(buf, n);
+                    }
+                }
+            }
+        }
+        body_out = req;
         std::string sse = !sse_override.empty() ? sse_override :
             std::string(
             "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
@@ -3381,4 +3499,42 @@ TEST(compression_gate_hermetic_conditions) {
         ctx.push(msg("tool", "content"));
     }
     ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(llm_reasoning_effort_in_request_body) {
+    std::string body;
+    int srv = spawn_mock_sse(8915, body);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8915/v1";
+    cfg.stream = true;
+    cfg.reasoning_effort = "high";
+    agent::HttpLLMClient client(cfg);
+    agent::Message reply = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT(body.find("\"reasoning_effort\":\"high\"") != std::string::npos);
+    close(srv);
+}
+
+TEST(agent_set_reasoning_effort_rebuilds_client) {
+    agent::Workspace::set_root("/tmp/amber_rsn_test");
+    agent::Config cfg;
+    cfg.stream = false;
+    cfg.max_tool_iterations = 10;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos);
+
+    std::string factory_seen;
+    agent::LLMClientFactory factory = [&factory_seen](const agent::Config& c) {
+        factory_seen = c.reasoning_effort;
+        return std::make_unique<agent::HttpLLMClient>(c);
+    };
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, nullptr, factory);
+    ag.set_reasoning_effort("high");
+    ASSERT_EQ(factory_seen, "high");
 }

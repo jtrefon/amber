@@ -1,5 +1,6 @@
 
 #include "agent/config.h"
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -111,6 +112,28 @@ std::string global_config_path() {
     return global_config_dir() + "/config";
 }
 
+void overlay_global_config(Config& cfg, const Config& global) {
+    if (!global.provider_name.empty() && global.provider_name != "custom")
+        cfg.apply_provider(global.provider_name);
+    if (!global.api_key.empty()) cfg.api_key = global.api_key;
+    if (!global.model.empty() && !cfg.model_explicit) {
+        cfg.model = global.model;
+        cfg.model_explicit = global.model_explicit;
+    }
+    if (global.context_size > 0 && !cfg.context_explicit) {
+        cfg.context_size = global.context_size;
+        cfg.context_explicit = global.context_explicit;
+    }
+}
+
+bool is_known_provider(const std::string& name) {
+    // provider::find falls back to the "custom" preset; only a real
+    // name match counts as a built-in.
+    if (provider::find(name)->name == name) return true;
+    const auto saved = list_saved_providers();
+    return std::find(saved.begin(), saved.end(), name) != saved.end();
+}
+
 std::string providers_dir() {
     std::string dir = global_config_dir() + "/providers";
     std::error_code ec;
@@ -169,6 +192,9 @@ void Config::apply_provider(const std::string& name) {
     if (load_provider(name, saved)) {
         provider_name = saved.provider_name;
         if (!saved.api_base.empty()) api_base = saved.api_base;
+        // The saved key travels with the provider: switching without it
+        // leaves the probe failing (401) and the model list empty.
+        if (!saved.api_key.empty()) api_key = saved.api_key;
         if (!saved.model.empty()) { model = saved.model; model_explicit = saved.model_explicit; }
         if (saved.default_context_size > 0 && !context_explicit)
             context_size = saved.default_context_size;

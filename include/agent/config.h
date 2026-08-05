@@ -38,6 +38,8 @@ inline const Provider* find(const std::string& name) {
 
 } // namespace provider
 
+// True for built-in presets AND providers saved under ~/.config/amber/
+// providers/<name>.conf (the saved set is dynamic — user-added).
 // Runtime configuration for the harness. Sourced from command-line flags,
 // environment variables, and global/project config files.
 // The library layer is intentionally free of any UI concerns.
@@ -190,6 +192,15 @@ struct Config {
 // Path to the global config file (~/.config/amber/config). Used by the CLI
 // and TUI to load/store LLM provider settings across all projects.
 std::string global_config_path();
+
+// True for built-in presets AND providers saved under ~/.config/amber/
+// providers/<name>.conf (the saved set is dynamic — user-added).
+bool is_known_provider(const std::string& name);
+
+// Startup overlay: apply the global config's provider preset, then layer
+// non-empty global fields on top. Empty fields NEVER clobber — an empty
+// global api_key must not null a key the provider file just supplied.
+void overlay_global_config(Config& cfg, const Config& global);
 
 // Directory holding global amber state (~/.config/amber, or $XDG_CONFIG_HOME/amber).
 std::string global_config_dir();
