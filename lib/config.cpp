@@ -1,5 +1,6 @@
 
 #include "agent/config.h"
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -109,6 +110,14 @@ std::string global_config_dir() {
 
 std::string global_config_path() {
     return global_config_dir() + "/config";
+}
+
+bool is_known_provider(const std::string& name) {
+    // provider::find falls back to the "custom" preset; only a real
+    // name match counts as a built-in.
+    if (provider::find(name)->name == name) return true;
+    const auto saved = list_saved_providers();
+    return std::find(saved.begin(), saved.end(), name) != saved.end();
 }
 
 std::string providers_dir() {

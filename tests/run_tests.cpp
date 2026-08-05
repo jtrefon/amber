@@ -421,6 +421,26 @@ TEST(registry_register_and_find) {
     ASSERT(r.find("nonexistent") == nullptr);
 }
 
+TEST(provider_is_known_includes_saved) {
+    ASSERT(agent::is_known_provider("openrouter"));
+    ASSERT(agent::is_known_provider("kilocode"));
+    ASSERT(agent::is_known_provider("custom"));
+    // A provider saved under the providers dir is known too (the /set
+    // provider gate must not reject user-added providers).
+    const std::string dir = agent::global_config_dir() + "/providers";
+    std::filesystem::create_directories(dir);
+    const std::string path = dir + "/zzz_test_provider.conf";
+    {
+        std::ofstream f(path);
+        f << "provider=zzz_test_provider\n"
+             "api_base=http://127.0.0.1:9999/v1\n";
+    }
+    ASSERT(agent::is_known_provider("zzz_test_provider"));
+    std::remove(path.c_str());
+    ASSERT_FALSE(agent::is_known_provider("zzz_test_provider"));
+    ASSERT_FALSE(agent::is_known_provider("nonexistent_provider_xyz"));
+}
+
 TEST(registry_task_tool_opt_in) {
     agent::ToolRegistry r;
     agent::JobService jobs;

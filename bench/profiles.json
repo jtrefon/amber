@@ -1,81 +1,86 @@
 {
-  "good": {
-    "model": "qwopus-27b",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "poor": {
-    "model": "gemma4-12b-q4",
-    "temperature": 0.8,
-    "thinking": "on"
-  },
-  "qwopus-27b": {
-    "model": "qwopus-27b",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "ornith-35b": {
-    "model": "ornith-1.0-35b",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "gemma4-12b-q4": {
-    "model": "gemma4-12b-q4",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "gemma4-12b-q8": {
-    "model": "gemma4-12b-q8",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "gemma4-31b": {
-    "model": "gemma4-31b",
-    "temperature": 0.2,
-    "thinking": "on",
-    "thinking_budget": 16384
-  },
-  "ornith-9b": {
-    "model": "ornith-9b",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "qwen35-dense": {
-    "model": "Qwen3.6-27B-official",
-    "temperature": 0.2,
-    "thinking": "on",
-    "thinking_budget": 16384
-  },
-  "qwen36-27b-mtp": {
-    "model": "qwen36-27b-mtp",
-    "temperature": 0.2,
-    "thinking": "on",
-    "thinking_budget": 16384
-  },
-  "qwen35-moe": {
-    "model": "qwen35-moe",
-    "temperature": 0.2,
-    "thinking": "on",
-    "thinking_budget": 16384
-  },
-  "kilo-1": {
-    "model": "kilocode/kilo-1",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "kilo-auto-free": {
-    "model": "kilo-auto/free",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "nemotron-550b": {
-    "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "temperature": 0.2,
-    "thinking": "on"
-  },
-  "laguna-s-2.1": {
-    "model": "poolside/laguna-s-2.1:free",
-    "temperature": 0.2,
-    "thinking": "on"
-  }
+ "good": {
+  "model": "qwopus-27b",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "poor": {
+  "model": "gemma4-12b-q4",
+  "temperature": 0.8,
+  "thinking": "on"
+ },
+ "qwopus-27b": {
+  "model": "qwopus-27b",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "ornith-35b": {
+  "model": "ornith-1.0-35b",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "gemma4-12b-q4": {
+  "model": "gemma4-12b-q4",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "gemma4-12b-q8": {
+  "model": "gemma4-12b-q8",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "gemma4-31b": {
+  "model": "gemma4-31b",
+  "temperature": 0.2,
+  "thinking": "on",
+  "thinking_budget": 16384
+ },
+ "ornith-9b": {
+  "model": "ornith-9b",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "qwen35-dense": {
+  "model": "Qwen3.6-27B-official",
+  "temperature": 0.2,
+  "thinking": "on",
+  "thinking_budget": 16384
+ },
+ "qwen36-27b-mtp": {
+  "model": "qwen36-27b-mtp",
+  "temperature": 0.2,
+  "thinking": "on",
+  "thinking_budget": 16384
+ },
+ "qwen35-moe": {
+  "model": "qwen35-moe",
+  "temperature": 0.2,
+  "thinking": "on",
+  "thinking_budget": 16384
+ },
+ "kilo-1": {
+  "model": "kilocode/kilo-1",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "kilo-auto-free": {
+  "model": "kilo-auto/free",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "nemotron-550b": {
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "laguna-s-2.1": {
+  "model": "poolside/laguna-s-2.1:free",
+  "temperature": 0.2,
+  "thinking": "on"
+ },
+ "deepseek-flash": {
+  "model": "deepseek-chat",
+  "temperature": 0.2,
+  "thinking": "on"
+ }
 }

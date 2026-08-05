@@ -1523,18 +1523,19 @@ void Tui::cmd_provider(const std::string& a) {
                      " (" + cfg_.api_base + ")");
         return;
     }
-    auto* prov = agent::provider::find(a);
-    if (!prov || (prov->name == "custom" && a != "custom")) {
+    if (!agent::is_known_provider(a)) {
         append_line(P_STATUS, "unknown provider: " + a +
-                     " (try: openrouter, kilocode, custom)");
+                     " (try: openrouter, kilocode, custom, or add a "
+                     "provider file under ~/.config/amber/providers/)");
         return;
     }
+    const auto* prov = agent::provider::find(a);
     if (a == "custom") {
         append_line(P_STATUS, "provider set to custom (use /set or amber.conf to configure)");
         return;
     }
     cfg_.apply_provider(a);
-    if (prov->requires_key && cfg_.api_key.empty()) {
+    if (prov && prov->requires_key && cfg_.api_key.empty()) {
         append_line(P_STATUS, "warning: " + a + " requires an API key (set AMBER_API_KEY)");
     }
     std::string global = agent::global_config_path();

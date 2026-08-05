@@ -38,6 +38,10 @@ inline const Provider* find(const std::string& name) {
 
 } // namespace provider
 
+// True for built-in presets AND providers saved under ~/.config/amber/
+// providers/<name>.conf (the saved set is dynamic — user-added).
+bool is_known_provider(const std::string& name);
+
 // Runtime configuration for the harness. Sourced from command-line flags,
 // environment variables, and global/project config files.
 // The library layer is intentionally free of any UI concerns.
