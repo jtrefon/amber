@@ -14,11 +14,13 @@ namespace agent {
 void register_default_tools(ToolRegistry& reg, JobService& jobs,
                             TodoStore& todos,
                             const CancellationToken& cancel_token,
-                            bool enable_plan_tool) {
+                            bool enable_plan_tool,
+                            SubAgentExecutor& subagents) {
     reg.register_tool(make_read_tool());
     reg.register_tool(make_write_tool());
     reg.register_tool(make_search_tool());
     if (enable_plan_tool) reg.register_tool(make_todowrite_tool(todos));
+    reg.register_tool(make_task_tool(subagents, reg));
     reg.register_tool(make_bash_tool(&jobs, cancel_token));
     for (auto& t : make_process_tools(jobs))
         reg.register_tool(std::move(t));

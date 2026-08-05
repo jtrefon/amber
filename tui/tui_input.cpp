@@ -173,6 +173,55 @@ void Tui::cmd_set_detection_toggle(const std::string& key, const std::string& va
     draw();
 }
 
+void Tui::cmd_set_subagent_parallel(const std::string& val) {
+    if (val != "off" && val != "on" && val != "toggle") {
+        append_line(P_STATUS,
+                    "usage: /set subagent parallel on|off|toggle (got: " +
+                        val + ")");
+        return;
+    }
+    bool new_val;
+    if (val == "on") new_val = true;
+    else if (val == "off") new_val = false;
+    else new_val = !subagents_.parallel();
+    subagents_.set_parallel(new_val);
+    cfg_.subagent_parallel = new_val;
+    cfg_.save_settings(settings_path_);
+    append_line(P_STATUS, std::string("subagent parallel: ") +
+                              (new_val ? "on" : "off") +
+                              " \u2014 " +
+                              (new_val ? "concurrent workers"
+                                       : "serial (cache-friendly)"));
+    draw();
+}
+
+void Tui::cmd_set_subagent_max(const std::string& val) {
+    int n = 0;
+    try {
+        n = std::stoi(val);
+    } catch (...) {
+        n = -1;
+    }
+    if (n < 1 || n > 16) {
+        append_line(P_STATUS,
+                    "usage: /set subagent max <1-16> (got: " + val + ")");
+        return;
+    }
+    subagents_.set_max(n);
+    cfg_.subagent_max = n;
+    cfg_.save_settings(settings_path_);
+    append_line(P_STATUS, "subagent max: " + std::to_string(n));
+    draw();
+}
+
+void Tui::cmd_get_subagent() {
+    append_line(P_STATUS,
+                std::string("subagent parallel: ") +
+                    (subagents_.parallel() ? "on" : "off") +
+                    ", max: " + std::to_string(subagents_.max()));
+    draw();
+}
+
 void Tui::cmd_set(const std::string& arg) {
     // Dotted keys via SettingRegistry (e.g. "compression.threshold 0.8").
     if (arg.find('.') != std::string::npos) {
@@ -1092,6 +1141,12 @@ void Tui::register_builtin_actions() {
     register_action("core.config.set.detection.duplicate", [this](const std::string& v) {
         cmd_set_detection_toggle("duplicate", v);
     });
+    register_action("core.config.set.subagent.parallel", [this](const std::string& v) {
+        cmd_set_subagent_parallel(v);
+    });
+    register_action("core.config.set.subagent.max", [this](const std::string& v) {
+        cmd_set_subagent_max(v);
+    });
     register_action("core.config.set.display.markdown", [this](const std::string& v) {
         if (v != "on" && v != "off") {
             append_line(P_STATUS, "usage: /set display markdown on|off");
@@ -1228,6 +1283,8 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_detection("loop"); });
     register_action("core.config.get.detection.duplicate",
         [this](const std::string&) { cmd_get_detection("duplicate"); });
+    register_action("core.config.get.subagent",
+        [this](const std::string&) { cmd_get_subagent(); });
     register_action("core.config.get.compression",
         [this](const std::string&) { cmd_get_compression(); });
     register_action("core.config.get.skills",
@@ -2164,6 +2221,25 @@ void Tui::build_settings() {
         [this](const std::string& v) {
             if (v == "toggle") cfg_.detection_duplicate = !cfg_.detection_duplicate;
             else cfg_.detection_duplicate = (v == "on");
+            cfg_.save_settings(settings_path_);
+        });
+    add("subagent.parallel", "Sub-agent parallelism", "<on|off|toggle>", Setting::Choice,
+        {"on","off","toggle"}, 0, 0,
+        [this](){ return subagents_.parallel() ? "on" : "off"; },
+        [this](const std::string& v) {
+            if (v == "toggle") subagents_.set_parallel(!subagents_.parallel());
+            else subagents_.set_parallel(v == "on");
+            cfg_.subagent_parallel = subagents_.parallel();
+            cfg_.save_settings(settings_path_);
+        });
+    add("subagent.max", "Max concurrent sub-agents", "<1-16>", Setting::Int,
+        {}, 1, 16,
+        [this](){ return std::to_string(subagents_.max()); },
+        [this](const std::string& v) {
+            int n = std::atoi(v.c_str());
+            if (n < 1 || n > 16) return;
+            subagents_.set_max(n);
+            cfg_.subagent_max = n;
             cfg_.save_settings(settings_path_);
         });
     add("display.markdown", "Markdown rendering", "<on|off>", Setting::Choice,

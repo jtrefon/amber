@@ -80,6 +80,8 @@ TEST(config_load_key_value) {
         f << "max_tool_iterations=5\n";
         f << "temperature=0.9\n";
         f << "stream=false\n";
+        f << "subagent_parallel=false\n";
+        f << "subagent_max=2\n";
     }
     agent::Config c;
     c.load(path);
@@ -88,6 +90,8 @@ TEST(config_load_key_value) {
     ASSERT_EQ(c.max_tool_iterations, 5);
     ASSERT_EQ(c.temperature, 0.9);
     ASSERT_FALSE(c.stream);
+    ASSERT_FALSE(c.subagent_parallel);
+    ASSERT_EQ(c.subagent_max, 2);
     std::remove(path.c_str());
 }
 
@@ -401,7 +405,7 @@ TEST(registry_register_and_find) {
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
-    ASSERT_EQ(r.tools().size(), 7u);
+    ASSERT_EQ(r.tools().size(), 8u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -409,6 +413,7 @@ TEST(registry_register_and_find) {
     ASSERT(r.find("process_start") != nullptr);
     ASSERT(r.find("process_read") != nullptr);
     ASSERT(r.find("process_stop") != nullptr);
+    ASSERT(r.find("task") != nullptr);
     ASSERT(r.find("nonexistent") == nullptr);
 }
 
@@ -419,7 +424,7 @@ TEST(registry_schema_shape) {
     agent::register_default_tools(r, jobs, todos);
     agent::json s = r.schema();
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 7u);
+    ASSERT_EQ(s.size(), 8u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");

@@ -1,4 +1,5 @@
 
+#include "agent.h"
 #include "agent/todo.h"
 #include "agent/tools.h"
 #include "bench/fake.h"
@@ -926,4 +927,76 @@ TEST(recorder_counts_compressions) {
     rec.on_status("compressing 4 messages...");
     ASSERT_EQ(rec.stream().compressions, 2);
     ASSERT_EQ(rec.stream().retries.size(), 1u);
+}
+
+// The task tool's sub-agent work must never leak into the parent's observer
+// hooks: the recorder sees exactly the one task call, not the sub-agent's
+// nested tool calls or its internal exchanges.
+TEST(subagent_hooks_do_not_leak) {
+    using namespace agent;
+    Workspace::set_root(std::filesystem::current_path().string());
+    Config cfg;
+    cfg.stream = false;
+    cfg.max_tool_iterations = 100;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+
+    ToolRegistry reg;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor executor;
+    register_default_tools(reg, jobs, todos, CancellationToken{}, false,
+                           executor);
+
+    auto parent_script = std::make_shared<std::deque<bench::BenchReply>>();
+    auto sub_script = std::make_shared<std::deque<bench::BenchReply>>();
+    auto script = parent_script;
+    bench::BenchReply task_call;
+    task_call.tool_calls = json::array(
+        {{{"id", "call_1"},
+          {"type", "function"},
+          {"function",
+           {{"name", "task"},
+            {"arguments", R"({"prompt":"explore the workspace"})"}}}}});
+    script->push_back(std::move(task_call));
+    auto script2 = sub_script;
+    bench::BenchReply sub_read;
+    sub_read.tool_calls = json::array(
+        {{{"id", "call_2"},
+          {"type", "function"},
+          {"function",
+           {{"name", "read"},
+            {"arguments", R"({"path":"Makefile"})"}}}}});
+    script2->push_back(std::move(sub_read));
+    bench::BenchReply sub_report;
+    sub_report.content = "worker findings";
+    script2->push_back(std::move(sub_report));
+    bench::BenchReply sub_done;
+    sub_done.content = "done";
+    script2->push_back(std::move(sub_done));
+    bench::BenchReply parent_done;
+    parent_done.content = "done";
+    script->push_back(std::move(parent_done));
+    bench::BenchReply parent_yes;
+    parent_yes.content = "yes";
+    script->push_back(std::move(parent_yes));
+
+    Recorder rec;
+    AgentHooks hooks = rec.hooks();
+    auto parent = std::make_unique<bench::FakeClient>();
+    parent->script = *parent_script;
+    executor.set_factory([sub_script](const Config&) {
+        auto f = std::make_unique<bench::FakeClient>();
+        f->script = *sub_script;
+        return std::unique_ptr<LLMClient>(std::move(f));
+    });
+    executor.set_config(cfg);
+    executor.set_hooks(hooks);
+
+    Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(parent));
+    std::string reply = ag.run("delegate an exploration");
+    ASSERT_EQ(reply, "done");
+    ASSERT_EQ(rec.stream().tools.size(), 1u);
+    ASSERT_EQ(rec.stream().tools[0].name, "task");
+    ASSERT(rec.stream().tools[0].ok);
 }

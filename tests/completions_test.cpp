@@ -633,3 +633,24 @@ TEST(test_json_merge_unions_children) {
     ASSERT(has_list && has_live);
     ASSERT(!reg.help_for("live_srv.do_thing").empty());
 }
+
+// ── Test: subagent settings live in the get/set tree ───────────────
+
+TEST(test_subagent_tree_nodes) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    ASSERT(!reg.help_for("subagent.parallel").empty());
+    ASSERT(!reg.man_for("subagent.max").empty());
+    auto ch = reg.choices_for("subagent.parallel");
+    ASSERT_EQ(ch.size(), 3u);
+    ASSERT_EQ(ch[0], "on");
+    ASSERT_EQ(ch[1], "off");
+    ASSERT_EQ(ch[2], "toggle");
+    double lo, hi;
+    ASSERT(reg.range_for("subagent.max", lo, hi));
+    ASSERT_EQ(lo, 1.0);
+    ASSERT_EQ(hi, 16.0);
+    auto set_kids = reg.children_of("set.subagent");
+    REQUIRE_NONEMPTY(set_kids);
+    ASSERT_EQ(set_kids.size(), 2u);
+}
