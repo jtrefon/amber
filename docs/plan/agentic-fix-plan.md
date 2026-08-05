@@ -336,6 +336,15 @@ the TodoWrite convention arrives or P4 lands. Reordered sequencing:
 | 4 | P4 task tool | builds on repo suite + P1 store pattern |
 | 5 | P5 compression budget | independent |
 
+## 6b. P2 status (2026-08-04)
+
+Shipped: envelope drops the args echo (`format_tool_envelope` 2-arg),
+tools.md contract updated. A/B on Nemotron 550B free (Kilo gateway, local
+inference WIP): tool failures 18 → 5 (−72%, consistent across two runs),
+tools −7%, steps −4%, score 82.1 → 84.4. **First measured improvement on
+the agentic axis.** Redundant +5 flagged for follow-up. Next candidates:
+P3 (schema-first) and a redundant-focused look.
+
 ## 6. Sequencing, acceptance, PRs
 
 | Order | Item | PR title prefix | Acceptance |

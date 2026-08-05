@@ -579,3 +579,34 @@ TEST(agent_loop_todowrite_state_persists) {
     ASSERT_EQ(todos.items()[1].text, "write tests");
     ASSERT(raw->chat_calls >= 3);
 }
+
+// [P2] The result envelope must not re-echo the full args JSON (write calls
+// echoed whole edit payloads — context bloat on every result drives
+// re-reading). status + meta stay.
+TEST(agent_loop_tool_envelope_lean) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_write_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::json edits = agent::json::array(
+        {{{"old", ""}, {"new", "envelope lean payload"}}});
+    push_tool_call(*fake, "write",
+                   {{"path", "bench_envelope_test.txt"}, {"edits", edits}});
+    push_text(*fake, "done writing");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.run("create bench_envelope_test.txt");
+    std::remove("bench_envelope_test.txt");
+    const auto& ctx = ag.context().get_all();
+    bool saw_lean = false;
+    for (const auto& m : ctx) {
+        if (m.role != "tool") continue;
+        ASSERT(m.content.find("[tool=write status=ok") != std::string::npos);
+        ASSERT(m.content.find("args=") == std::string::npos);
+        ASSERT(m.content.find("[end]") != std::string::npos);
+        saw_lean = true;
+    }
+    ASSERT(saw_lean);
+}

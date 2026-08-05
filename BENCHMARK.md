@@ -97,6 +97,29 @@ cannot trigger it: our scenarios stay under ~7k tokens vs the 16k firing
 point (the same horizon finding as P1/P4). New `compressions` KPI in the
 recorder/report.
 
+## P2: lean tool results (drop the args echo) — first measured win (2026-08-04)
+
+The result envelope stopped re-echoing the full `args` JSON
+(`[tool=<name> status=<status> meta=<meta>]` — status/meta kept). Hypothesis:
+context bloat per result drives degradation → re-reading and wrong-arg calls.
+
+A/B on Nemotron 550B free (25 shared scenarios, same prompt — only the
+envelope changed):
+
+| Metric | before | P2 r1 | P2 r2 |
+|---|---|---|---|
+| tool failures | 18 | 10 | **5** (−72%) |
+| tool calls | 142 | 133 | 132 (−7%) |
+| steps | 164 | 157 | 157 (−4%) |
+| score | 82.1 | 82.1 | 84.4 |
+| redundant | 17 | 23 | 22 (+5, caveat) |
+
+**Verdict: first consistent improvement on the agentic axis** — failures
+down 72% across two runs, tools and steps down. The redundant-call increase
+is flagged for follow-up runs (possible side effect of less confirmation in
+results, or variance). Hermetic proof: `agent_loop_tool_envelope_lean`
+pins the new format.
+
 ## Repo-level suite (long-horizon, 2026-08-04)
 
 Two new repo scenarios with real verification (hidden tests compile and run

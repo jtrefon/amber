@@ -41,7 +41,7 @@
     "thinking": "on"
   },
   "qwen35-dense": {
-    "model": "qwen35-dense",
+    "model": "Qwen3.6-27B-official",
     "temperature": 0.2,
     "thinking": "on",
     "thinking_budget": 16384

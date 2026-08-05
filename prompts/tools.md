@@ -21,7 +21,7 @@ Every tool result — regardless of which tool, regardless of success or
 failure — uses the exact same form:
 
 ```
-[tool=<name> args=<json> status=<status> meta=<json>]
+[tool=<name> status=<status> meta=<json>]
 <content>
 [end]
 ```
@@ -34,7 +34,6 @@ is always identical. This lets you parse any result the same way.
 | Field | Always? | Meaning |
 |-------|---------|---------|
 | `name` | always | The tool that was called — matches your invocation |
-| `args` | always | Your original arguments echoed back as compact JSON. Lets you confirm the tool received what you sent. |
 | `status` | always | Outcome — one of the four values below |
 | `meta` | always | Tool-specific metadata as JSON object (lines, exit code, hits, etc.). Empty `{}` if nothing to report. |
 
