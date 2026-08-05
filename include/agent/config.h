@@ -54,6 +54,9 @@ struct Config {
     size_t max_tokens = 16384;
     bool stream = true;                  // use SSE streaming when supported
     bool plan_tool = false;              // register todowrite tool + prompt (env AMBER_PLAN_TOOL)
+    bool task_tool = false;              // register the task tool (env AMBER_TASK_TOOL)
+    bool subagent_parallel = true;       // sub-agents run concurrently (env AMBER_SUBAGENT_PARALLEL)
+    int subagent_max = 4;                // max concurrent sub-agents (env AMBER_SUBAGENT_MAX)
 
     // Agent mode: controls tool availability and approval policy.
     //   read  — only observation tools (search, grep, read); writes disallowed

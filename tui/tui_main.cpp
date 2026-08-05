@@ -108,13 +108,17 @@ int main(int argc, char** argv) {
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
     agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
-                        cfg.plan_tool);
+                        cfg.plan_tool, subagents, cfg.task_tool);
+    subagents.set_config(cfg);
+    subagents.set_parallel(cfg.subagent_parallel);
+    subagents.set_max(cfg.subagent_max);
 
     agent::PluginManager plugins;
     plugins.discover();
 
-    tui::Tui tui(cfg, registry, jobs, plugins);
+    tui::Tui tui(cfg, registry, jobs, subagents, plugins);
     tui.run();
     return 0;
 }

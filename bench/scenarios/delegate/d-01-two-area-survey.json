@@ -1,0 +1,116 @@
+{
+  "name": "d-01-two-area-survey",
+  "suite": "delegate",
+  "description": "two independent modules to survey \u2014 delegation (task tool) is the efficient path; measures whether the model splits the work",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 4,
+  "expected_steps": 8,
+  "prompt": "Survey error handling in the workspace: lib/parser.cpp and tui/scroll.cpp. For each module report how it treats invalid input and how strict it is, then compare the two. Splitting the two surveys into separate task calls lets each worker focus on one module \u2014 you may delegate them. Name both modules in your final reply.",
+  "setup": {
+    "files": {
+      "lib/parser.cpp": "#include <stdexcept>\nint parse(const char* s) { if (!s || !*s) throw std::runtime_error(\"empty input\"); return 42; }\n",
+      "tui/scroll.cpp": "#include <cassert>\nint scroll(int n) { assert(n > 0); return n; }\n"
+    }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "task",
+            "arguments": "{\"prompt\":\"survey lib/parser.cpp\"}"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "task",
+            "arguments": "{\"prompt\":\"survey tui/scroll.cpp\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "done. parser throws on empty input, scroll asserts \u2014 parser is stricter. done."
+    },
+    {
+      "content": "yes"
+    }
+  ],
+  "oracle": [
+    {
+      "tool": "task",
+      "unordered": true
+    },
+    {
+      "tool": "task",
+      "unordered": true
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "parser",
+      "scroll"
+    ]
+  },
+  "optimal_plan": {
+    "task": 2
+  },
+  "budget": {
+    "max_steps": 30,
+    "max_wall_ms": 600000
+  },
+  "task_tool": true,
+  "subagent_replies": [
+    [
+      {
+        "tool_calls": [
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "read",
+              "arguments": "{\"path\":\"lib/parser.cpp\"}"
+            }
+          }
+        ]
+      },
+      {
+        "content": "parser throws on empty input"
+      },
+      {
+        "content": "done"
+      }
+    ],
+    [
+      {
+        "tool_calls": [
+          {
+            "id": "c4",
+            "type": "function",
+            "function": {
+              "name": "read",
+              "arguments": "{\"path\":\"tui/scroll.cpp\"}"
+            }
+          }
+        ]
+      },
+      {
+        "content": "scroll asserts strictly"
+      },
+      {
+        "content": "done"
+      }
+    ]
+  ]
+}
