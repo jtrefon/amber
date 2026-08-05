@@ -3,6 +3,7 @@
 #include "agent/agent_helpers.h"
 #include "agent/context.h"
 #include "agent/policy.h"
+#include "agent/subagent.h"
 
 #include <chrono>
 #include <future>
@@ -219,10 +220,16 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         size_t idx;
         std::future<ToolResult> future;
     };
+    // Nesting state must survive the thread hop: the task tool runs inside
+    // sub-agents on dispatch workers, and a nested task call would otherwise
+    // bypass the in_subagent guard. Each worker inherits the caller's state.
+    const bool caller_in_subagent = in_subagent();
     std::vector<Pending> pending;
     for (size_t i = 0; i < todo.size(); ++i) {
         if (!todo[i].approved) continue;
-        pending.push_back({i, std::async(std::launch::async, [&todo, i]() {
+        pending.push_back({i, std::async(std::launch::async,
+                                         [&todo, i, caller_in_subagent]() {
+            set_subagent_inherited(caller_in_subagent);
             try { return todo[i].tool->execute(todo[i].args); }
             catch (const std::exception& e) {
                 return ToolResult{false, "", std::string("tool threw: ") + e.what(), agent::json{}};

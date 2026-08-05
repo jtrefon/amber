@@ -191,13 +191,18 @@ int main(int argc, char** argv) {
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
     agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
-                        cfg.plan_tool);
+                        cfg.plan_tool, subagents, cfg.task_tool);
+    subagents.set_config(cfg);
+    subagents.set_parallel(cfg.subagent_parallel);
+    subagents.set_max(cfg.subagent_max);
 
     agent::AgentHooks hooks;
     hooks.on_status = [](const std::string& s) {
         std::cerr << "[status] " << s << "\n";
     };
+    subagents.set_hooks(hooks);
     // Live streaming: surface tokens as they arrive so a long generation shows
     // progress instead of appearing to hang.
     hooks.on_token = [](const std::string& t) { std::cout << t << std::flush; };

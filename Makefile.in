@@ -75,6 +75,8 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/search_tool.o \
              $(BUILD_DIR)/tools/bash_tool.o \
              $(BUILD_DIR)/tools/todowrite_tool.o \
+             $(BUILD_DIR)/tools/task_tool.o \
+             $(BUILD_DIR)/lib/subagent.o \
              $(BUILD_DIR)/tools/process_tool.o \
              $(BUILD_DIR)/tools/skill_tools.o \
              $(BUILD_DIR)/tools/search/grep_backend.o \

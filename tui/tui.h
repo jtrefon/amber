@@ -75,7 +75,7 @@ struct AgentEvent {
 class Tui {
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
-        agent::PluginManager& plugins);
+        agent::SubAgentExecutor& subagents, agent::PluginManager& plugins);
     ~Tui();
 
     Tui(const Tui&) = delete;
@@ -228,6 +228,9 @@ private:
                          std::function<void(const std::string&)> handler);
     void register_builtin_actions();
     void cmd_set_detection_toggle(const std::string& key, const std::string& val);
+    void cmd_set_subagent_parallel(const std::string& val);
+    void cmd_set_subagent_max(const std::string& val);
+    void cmd_get_subagent();
     void cmd_model_set(const std::string& arg);
     void cmd_provider_list();    void cmd_provider_delete(const std::string& name);
     void cmd_provider_test(const std::string& name);
@@ -339,7 +342,8 @@ public:
     // ---- member variables -----------------------------------------------
     agent::Config cfg_;
     agent::ToolRegistry& reg_;
-    agent::JobService& jobs_;       // host-owned; shared with process_* tools
+    agent::JobService& jobs_;
+    agent::SubAgentExecutor& subagents_;       // host-owned; shared with process_* tools
     agent::PluginManager& plugins_; // host-owned; plugin lifecycle + tools
     agent::ServerManager mcp_servers_;  // session-scoped MCP manager
     std::string input_fill_;            // /prompt result applied to the input line

@@ -165,11 +165,19 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         cfg.model = "fake";
     }
 
+    // Scenario-level opt-in: a delegation scenario may enable the task tool
+    // even when the default config keeps it out of the schema.
+    cfg.task_tool = cfg.task_tool || s.task_tool;
+
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
     agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
-                        cfg.plan_tool);
+                        cfg.plan_tool, subagents, cfg.task_tool);
+    subagents.set_config(cfg);
+    subagents.set_parallel(cfg.subagent_parallel);
+    subagents.set_max(cfg.subagent_max);
 
     // Enforce the scenario step budget during the run (the engine's own
     // iteration cap), not just in post-hoc scoring.
@@ -206,7 +214,10 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
 
     std::unique_ptr<agent::LLMClient> client;
     if (!opts.live) {
-        auto fake = std::make_unique<FakeClient>();
+        // Shared script: the parent and any sub-agents (task tool) each take
+        // a copy at construction time, so hermetic runs stay deterministic
+        // and never touch the network.
+        auto script = std::make_shared<std::deque<BenchReply>>();
         for (const auto& e : s.fake_replies) {
             if (!e.is_object()) continue;
             BenchReply r;
@@ -218,8 +229,34 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
             r.drop_after_chunks = e.value("drop_after_chunks", 0);
             r.prompt_tokens = e.value("prompt_tokens", 0L);
             r.completion_tokens = e.value("completion_tokens", 0L);
-            fake->script.push_back(std::move(r));
+            script->push_back(std::move(r));
         }
+        if (s.task_tool) {
+            auto sub_scripts =
+                std::make_shared<std::vector<std::deque<BenchReply>>>();
+            for (const auto& ss : s.subagent_replies) {
+                std::deque<BenchReply> dq;
+                for (const auto& e : ss) {
+                    if (!e.is_object()) continue;
+                    BenchReply r;
+                    r.content = e.value("content", "");
+                    if (e.contains("tool_calls")) r.tool_calls = e["tool_calls"];
+                    dq.push_back(std::move(r));
+                }
+                sub_scripts->push_back(std::move(dq));
+            }
+            auto counter = std::make_shared<std::atomic<size_t>>(0);
+            subagents.set_factory(
+                [sub_scripts, counter](const agent::Config&) {
+                    auto f = std::make_unique<FakeClient>();
+                    const size_t i = (*counter)++;
+                    if (i < sub_scripts->size())
+                        f->script = (*sub_scripts)[i];
+                    return std::unique_ptr<agent::LLMClient>(std::move(f));
+                });
+        }
+        auto fake = std::make_unique<FakeClient>();
+        fake->script = *script;
         client = std::move(fake);
     }
 

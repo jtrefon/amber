@@ -96,8 +96,13 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     if (j.contains("setup") && j["setup"].is_object()) s.setup = j["setup"];
     if (j.contains("fake_replies") && j["fake_replies"].is_array())
         s.fake_replies = j["fake_replies"];
+    if (j.contains("subagent_replies") && j["subagent_replies"].is_array())
+        for (const auto& e : j["subagent_replies"])
+            if (e.is_array()) s.subagent_replies.push_back(e);
     if (j.contains("stream") && j["stream"].is_boolean())
         s.stream = j["stream"].get<bool>();
+    if (j.contains("task_tool") && j["task_tool"].is_boolean())
+        s.task_tool = j["task_tool"].get<bool>();
 
     if (j.contains("oracle") && j["oracle"].is_array()) {
         for (const auto& e : j["oracle"]) {

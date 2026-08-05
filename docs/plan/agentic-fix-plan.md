@@ -361,6 +361,42 @@ tests: `agent_loop_tool_envelope_lean` (large payload not echoed),
 `agent_loop_tool_envelope_small_args_echoed` (small args echoed).
 Next: P3 (schema-first tools).
 
+## 6d. P4 status (2026-08-05, MECHANISM SHIPPED, flag-gated — adoption is framing-dependent)
+
+Sub-agents built and shipped: `task` tool + `SubAgentExecutor` with
+runtime-configurable serial/parallel execution (`/set subagent parallel|max`,
+`amber.conf` `subagent_parallel`/`subagent_max`, env overrides). Serial mode
+runs workers one at a time — sequential requests share the prompt prefix,
+keeping provider prompt caches warm (DeepSeek cached hits ~90% discounted;
+parallel requests with distinct prefixes pay full price each). Parallel mode
+runs concurrently under the max cap. Tests: focused task, iteration cap,
+serial (peak concurrency 1), parallel (peak 2), nesting guard (async
+dispatch workers inherit the sub-agent state; exactly one launch), recorder
+isolation, config keys, completions tree, hermetic d-01 scenario.
+
+Two live A/B runs on the full corpus (Nemotron 550B free):
+
+| metric | P2v2 mean | P4 r1 | P4 r2 | mean Δ |
+|---|---|---|---|---|
+| score | 85.1 | 82.3 | 81.7 | −3.1 |
+| pass | 24.5 | 24 | 23 | −1.0 |
+| tools | 172 | 178 | 173 | +3.5 |
+| redundant | 24 | 27 | 27 | +3.0 |
+| failures | 15.5 | 18 | 18 | +2.5 |
+| steps | 181.5 | 186 | 183 | +3.0 |
+
+**task usage: 0 calls in every repo scenario** — same adoption wall as P1.
+
+Verdict: default-on costs ~3 points of schema noise and buys nothing
+unprompted. **The tool is now flag-gated (`task_tool`, default off)** like
+plan_tool; the executor + serial/parallel config stay live and apply
+whenever the tool is enabled. A delegation-shaped scenario
+(`d-01-two-area-survey`, suite `delegate`) invites splitting two
+independent surveys into task calls; live adoption when invited: **2/3 runs
+delegated (bullseye 1.0, 0 wasted steps)** vs 0% unprompted. Conclusion:
+the mechanism works; usage follows task framing, not availability.
+Records: `bench/results/prompt-v2/nemotron-550b-p4*.json`, `-d01.json`.
+
 ## 6. Sequencing, acceptance, PRs
 
 | Order | Item | PR title prefix | Acceptance |

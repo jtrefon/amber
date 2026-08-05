@@ -97,6 +97,27 @@ cannot trigger it: our scenarios stay under ~7k tokens vs the 16k firing
 point (the same horizon finding as P1/P4). New `compressions` KPI in the
 recorder/report.
 
+## P4: sub-agents — task tool with serial/parallel control (2026-08-05)
+
+Mechanism shipped: `task` tool + `SubAgentExecutor`, flag-gated
+(`task_tool`, default off). Serial mode runs workers one at a time
+(cache-friendly: sequential requests share the prompt prefix — DeepSeek
+cached hits ~90% discounted); parallel runs concurrently under a cap.
+Runtime config: `/set subagent parallel|max`, `amber.conf`
+`subagent_parallel`/`subagent_max`.
+
+Default-on cost (2 live runs, Nemotron 550B free, full corpus): score
+−3.1, pass −1, redundant +3, failures +2.5, steps +3 — with **0 task
+calls** in every scenario: schema noise, zero adoption.
+
+Invited adoption (`d-01-two-area-survey`, delegation-shaped prompt):
+**2/3 runs delegated** with bullseye 1.0 and 0 wasted steps vs 0%
+unprompted. Usage follows task framing, not availability — same
+conclusion as P1 (todowrite).
+
+Records: `bench/results/prompt-v2/nemotron-550b-p4.json`,
+`-p4-r2.json`, `-d01.json`.
+
 ## P2/P2v2: lean tool results (2026-08-04)
 
 The result envelope echoed the full `args` JSON on every result. Two

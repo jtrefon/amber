@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <atomic>
 
 #include "agent.h"
 #include "agent/tools.h"
@@ -35,6 +36,24 @@ void push_text(agent_test::FakeLLMClient& fake, const std::string& text) {
     agent_test::FakeReply r;
     r.content = text;
     fake.script.push_back(std::move(r));
+}
+
+void push_text(const std::shared_ptr<std::deque<agent_test::FakeReply>>& script,
+               const std::string& text) {
+    agent_test::FakeReply r;
+    r.content = text;
+    script->push_back(std::move(r));
+}
+
+void push_tool_call(const std::shared_ptr<std::deque<agent_test::FakeReply>>& script,
+                    const std::string& fn, const json& args,
+                    const std::string& id = "call_1") {
+    agent_test::FakeReply r;
+    r.tool_calls = json::array(
+        {{{"id", id},
+          {"type", "function"},
+          {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
+    script->push_back(std::move(r));
 }
 
 void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn,
@@ -635,4 +654,302 @@ TEST(agent_loop_tool_envelope_small_args_echoed) {
         saw_echo = true;
     }
     ASSERT(saw_echo);
+}
+
+// ---------------------------------------------------------------------------
+// [P4] Sub-agents (task tool) — focused worker with its own context
+// ---------------------------------------------------------------------------
+
+// Fake client sharing one script deque across parent and sub-agent
+// instances (the sub-agent is constructed by the executor's factory).
+struct FakeTrack {
+    std::atomic<int> active{0};
+    std::atomic<int> peak{0};
+};
+
+class SharedScriptFake : public agent::LLMClient {
+public:
+    std::shared_ptr<std::deque<agent_test::FakeReply>> script =
+        std::make_shared<std::deque<agent_test::FakeReply>>();
+    std::shared_ptr<FakeTrack> track;
+    std::vector<size_t> tool_counts;
+
+    agent::ServerInfo probe_server() const override {
+        agent::ServerInfo i;
+        i.ok = true;
+        i.model = "fake";
+        return i;
+    }
+
+    agent::Message chat(const std::vector<agent::Message>&,
+                        const std::vector<agent::Tool*>& tools,
+                        agent::Stats* stats = nullptr) override {
+        tool_counts.push_back(tools.size());
+        if (track) {
+            const int a = ++track->active;
+            int p = track->peak.load();
+            while (a > p && !track->peak.compare_exchange_weak(p, a)) {}
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+            --track->active;
+        }
+        agent_test::FakeReply r;
+        if (!script->empty()) {
+            r = std::move(script->front());
+            script->pop_front();
+        }
+        if (stats) {
+            stats->prompt_tokens = r.prompt_tokens;
+            stats->completion_tokens = r.completion_tokens;
+            stats->valid = true;
+        }
+        if (!r.error.empty())
+            throw agent::ApiError(r.retryable ? 503 : 401, r.retryable, r.error);
+        agent::Message m;
+        m.role = "assistant";
+        m.content = r.content;
+        m.tool_calls = r.tool_calls;
+        return m;
+    }
+
+    agent::Message chat_stream(
+        const std::vector<agent::Message>&,
+        const std::vector<agent::Tool*>&,
+        const std::function<void(const agent::StreamChunk&)>&,
+        agent::Stats* stats = nullptr) override {
+        return chat({}, {}, stats);
+    }
+};
+
+// The parent delegates one task; the sub-agent completes it with its own
+// context and the parent receives the sub-agent's final reply.
+TEST(agent_loop_subagent_focused_task) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  false, executor, true);
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    // Parent turn 1: delegate. Then the sub-agent's turns: read, report,
+    // probe-confirm; the parent then chats "done" and probe-confirms "yes".
+    push_tool_call(script, "task", {{"prompt", "read a.txt and report"}});
+    push_tool_call(script, "read", {{"path", "Makefile"}});
+    agent_test::FakeReply sub_done;
+    sub_done.content = "sub-agent report: done reading";
+    script->push_back(std::move(sub_done));
+    push_text(script, "done");
+    push_text(script, "done");
+    push_text(script, "yes");
+
+    auto parent = std::make_unique<SharedScriptFake>();
+    parent->script = script;
+    executor.set_factory([script](const agent::Config&) {
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = script;
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    });
+    executor.set_config(cfg);
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    std::string reply = ag.run("delegate the reading");
+    ASSERT_EQ(reply, "done");
+    // The task result (the sub-agent's report) must be fed back to the parent.
+    bool saw_report = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.role == "tool" &&
+            m.content.find("sub-agent report") != std::string::npos)
+            saw_report = true;
+    ASSERT(saw_report);
+}
+
+// The sub-agent never exceeds its iteration cap even if the model churns:
+// the task result reports the sub hit its own cap, and the parent's own
+// bounded run consumed far less than the script's 200 scripted read calls.
+TEST(agent_loop_subagent_iteration_cap) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.max_tool_iterations = 25;  // bound the parent's churn too
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  false, executor, true);
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    push_tool_call(script, "task", {{"prompt", "never stop"}});
+    for (int i = 0; i < 200; ++i)
+        push_tool_call(script, "read", {{"path", "Makefile"}});
+    push_text(script, "done");
+    push_text(script, "yes");
+
+    auto parent = std::make_unique<SharedScriptFake>();
+    parent->script = script;
+    executor.set_factory([script](const agent::Config&) {
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = script;
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    });
+    executor.set_config(cfg);
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    std::string reply = ag.run("delegate");
+    // The sub-agent stopped at its own cap (message inside the task result),
+    // never consuming the script's 200 reads.
+    bool sub_hit_cap = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.role == "tool" &&
+            m.content.find("agent stopped") != std::string::npos)
+            sub_hit_cap = true;
+    ASSERT(sub_hit_cap);
+    ASSERT(script->size() > 150u);  // ~20 sub iterations consumed, not 200
+    ASSERT(reply.find("stopped") != std::string::npos);
+}
+
+// Serial mode: two concurrent task calls run one at a time (cache-friendly
+// request ordering — parallel requests would break shared prompt prefixes).
+TEST(agent_loop_subagent_serial_mode) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  false, executor, true);
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    // One reply issuing BOTH task calls; the shared script serves both
+    // sub-agents in order (serialized), then the parent finishes.
+    agent_test::FakeReply two_calls;
+    two_calls.tool_calls = json::array(
+        {{{"id", "call_1"},
+          {"type", "function"},
+          {"function", {{"name", "task"}, {"arguments", R"({"prompt":"first"})"}}}},
+         {{"id", "call_2"},
+          {"type", "function"},
+          {"function", {{"name", "task"}, {"arguments", R"({"prompt":"second"})"}}}}});
+    script->push_back(std::move(two_calls));
+    push_text(script, "report one");
+    push_text(script, "done");
+    push_text(script, "report two");
+    push_text(script, "done");
+    push_text(script, "done");
+    push_text(script, "yes");
+
+    auto track = std::make_shared<FakeTrack>();
+    auto parent = std::make_unique<SharedScriptFake>();
+    parent->script = script;
+    parent->track = track;
+    executor.set_factory([script, track](const agent::Config&) {
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = script;
+        f->track = track;
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    });
+    executor.set_config(cfg);
+    executor.set_parallel(false);
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    std::string reply = ag.run("delegate two tasks");
+    ASSERT_EQ(reply, "done");
+    ASSERT_EQ(track->peak.load(), 1);  // never overlapped
+    bool saw_one = false, saw_two = false;
+    for (const auto& m : ag.context().get_all()) {
+        if (m.role != "tool") continue;
+        saw_one |= m.content.find("report one") != std::string::npos;
+        saw_two |= m.content.find("report two") != std::string::npos;
+    }
+    ASSERT(saw_one);
+    ASSERT(saw_two);
+}
+
+// Parallel mode: two concurrent task calls overlap (bounded by max).
+TEST(agent_loop_subagent_parallel_mode) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  false, executor, true);
+    // The parent's own script: two task calls then finish.
+    auto parent_script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    agent_test::FakeReply two_calls;
+    two_calls.tool_calls = json::array(
+        {{{"id", "call_1"},
+          {"type", "function"},
+          {"function", {{"name", "task"}, {"arguments", R"({"prompt":"first"})"}}}},
+         {{"id", "call_2"},
+          {"type", "function"},
+          {"function", {{"name", "task"}, {"arguments", R"({"prompt":"second"})"}}}}});
+    parent_script->push_back(std::move(two_calls));
+    push_text(parent_script, "done");
+    push_text(parent_script, "yes");
+
+    // Each sub-agent gets its own one-round script.
+    auto scripts = std::make_shared<std::vector<std::shared_ptr<std::deque<agent_test::FakeReply>>>>();
+    for (int i = 0; i < 2; ++i) {
+        auto sub_script = std::make_shared<std::deque<agent_test::FakeReply>>();
+        push_text(sub_script, "sub report " + std::to_string(i + 1));
+        push_text(sub_script, "done");
+        scripts->push_back(sub_script);
+    }
+    auto counter = std::make_shared<std::atomic<int>>(0);
+    auto track = std::make_shared<FakeTrack>();
+
+    auto parent = std::make_unique<SharedScriptFake>();
+    parent->script = parent_script;
+    parent->track = track;
+    executor.set_factory([scripts, counter, track](const agent::Config&) {
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = (*scripts)[(*counter)++];
+        f->track = track;
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    });
+    executor.set_config(cfg);
+    executor.set_parallel(true);
+    executor.set_max(2);
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    std::string reply = ag.run("delegate two tasks");
+    ASSERT_EQ(reply, "done");
+    ASSERT_EQ(track->peak.load(), 2);  // overlapped
+}
+
+// The task tool refuses to nest: a sub-agent cannot spawn its own task.
+TEST(agent_loop_subagent_nesting_guard) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  false, executor, true);
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    push_tool_call(script, "task", {{"prompt", "go"}});
+    push_tool_call(script, "task", {{"prompt", "nested"}});
+    push_text(script, "report");
+    push_text(script, "done");
+    push_text(script, "done");
+    push_text(script, "yes");
+
+    auto parent = std::make_unique<SharedScriptFake>();
+    parent->script = script;
+    executor.set_factory([script](const agent::Config&) {
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = script;
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    });
+    executor.set_config(cfg);
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    std::string reply = ag.run("delegate");
+    ASSERT_EQ(reply, "done");
+    // Exactly one sub-agent ever launched: the nested task call was blocked
+    // by the guard and the sub-agent recovered on its own.
+    ASSERT_EQ(executor.launched(), 1);
+    ASSERT(script->empty());
 }
