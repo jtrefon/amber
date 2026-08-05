@@ -97,6 +97,30 @@ cannot trigger it: our scenarios stay under ~7k tokens vs the 16k firing
 point (the same horizon finding as P1/P4). New `compressions` KPI in the
 recorder/report.
 
+## Frontier-model verdict (2026-08-05): the harness was never the problem
+
+DeepSeek (deepseek-chat) through the same harness, same 28-scenario
+corpus (vs Nemotron 550B free, 2-run mean):
+
+| metric | Nemotron 550B | DeepSeek | Δ |
+|---|---|---|---|
+| score (1000) | 85.1 | **93.9** | +8.8 |
+| pass | 24.5/28 | **27/28** | +2.5 |
+| tool calls | 172.0 | **103.0** | −40% |
+| redundant | 24.0 | **2.0** | −92% |
+| failures | 15.5 | **3.0** | −81% |
+| steps | 181.5 | **120.0** | −34% |
+| wasted | 130.5 | **63.0** | −52% |
+| plan efficiency | 52.3 | **74.9** | +22.6 |
+
+The agentic gap we chased (2.48x optimal calls, ~20% tool failures) was
+the model class: free-tier/27B models are not RL-trained tool users.
+A frontier-class model collapses the gap with zero harness changes —
+redundant 24→2, failures 15.5→3, steps −34%. The two failed scenarios
+are oracle artifacts: d-01 requires delegation by design (the model did
+the survey inline, correctly), p-03 fails on a whitespace expectation.
+Record: `bench/results/prompt-v2/deepseek-flash.json`.
+
 ## P4: sub-agents — task tool with serial/parallel control (2026-08-05)
 
 Mechanism shipped: `task` tool + `SubAgentExecutor`, flag-gated
