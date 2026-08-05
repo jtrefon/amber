@@ -28,7 +28,7 @@ std::string fingerprint_tool_calls(const json& calls) {
     return key;
 }
 
-std::string format_tool_envelope(const std::string& name, const json& args,
+std::string format_tool_envelope(const std::string& name,
                                   const ToolResult& result) {
     // Ensure meta is always an object, never null (tools that return early
     // on error may leave meta uninitialized).
@@ -46,7 +46,6 @@ std::string format_tool_envelope(const std::string& name, const json& args,
     }
 
     std::string header = "[tool=" + name +
-        " args=" + args.dump() +
         " status=" + status +
         " meta=" + meta.dump() + "]\n";
 

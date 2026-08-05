@@ -24,6 +24,7 @@ struct RunOptions {
     double temperature = -1;     // <0 = leave default
     std::string thinking;        // "" = leave default; "on"/"off"/"auto"
     int thinking_budget = -1;    // <0 = leave default
+    std::string debug_dir;       // per-scenario wire + conversation logs
 };
 
 // Run one scenario to completion; returns a full report. `err` carries the

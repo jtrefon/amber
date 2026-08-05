@@ -6,7 +6,8 @@
 int main() {
     agent::ToolRegistry reg;
     agent::JobService jobs;
-    agent::register_default_tools(reg, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos);
 
     // read tool
     {

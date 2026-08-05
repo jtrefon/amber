@@ -243,6 +243,16 @@ Every PR reviewer MUST verify:
 - [ ] No new clang-tidy or cppcheck warnings.
 - [ ] **Context is a pure stack** — only `push()`, `pop()` (LIFO), `clear()`, `get_all()`. No mutation of sealed messages. No `replace()` or similar. The FNV-1a hash chain in `get_all()` asserts integrity — any bypass crashes in debug.
 
+## Prompting philosophy (mandatory)
+
+Prompts are **descriptive, not prohibitive**: describe the role, personality,
+environment and tooling, and empower the agent to work — never force or
+forbid behavior ("never", "don't", "must", "do not" are banned from
+`prompts/`). Conventions (like the closing `done` marker) are described as
+the natural shape of finished work, not commands. A prompt change is a
+behavior change: prove it with a before/after benchmark run (see
+`BENCHMARK.md` "Prompt v2" section for the template).
+
 ## Coding standards
 
 - **RAII** — ownership follows resource acquisition. Use `unique_ptr` for

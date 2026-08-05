@@ -1,0 +1,27 @@
+{
+  "name": "t-07-planning-multi-file",
+  "suite": "tools",
+  "description": "four markers across four files, compile verification — multi-step work where a task list helps",
+  "platforms": ["linux", "darwin"],
+  "difficulty": 5,
+  "expected_steps": 8,
+  "setup": {
+    "files": {
+      "a.c": "// FIX 1\nint a(void) { return 1; }\n",
+      "b.c": "// FIX 2\nint b(void) { return 2; }\n",
+      "c.c": "// FIX 3\nint c(void) { return 3; }\n",
+      "d.c": "// FIX 4\nint d(void) { return 4; }\n"
+    }
+  },
+  "prompt": "Replace FIX 1..4 in a.c, b.c, c.c, d.c with a comment describing each function, then compile all four files together to verify. Reply with the word done when finished.",
+  "oracle": [
+    {"tool": "write", "args": {"path": "*a.c"}, "args_subset": true, "unordered": true},
+    {"tool": "write", "args": {"path": "*b.c"}, "args_subset": true, "unordered": true},
+    {"tool": "write", "args": {"path": "*c.c"}, "args_subset": true, "unordered": true},
+    {"tool": "write", "args": {"path": "*d.c"}, "args_subset": true, "unordered": true},
+    {"tool": "bash", "args": {"command": "*gcc*"}, "unordered": true}
+  ],
+  "optimal_plan": {"todowrite": 1, "write": 4, "bash": 1},
+  "checks": {"must_contain": ["done"]},
+  "budget": {"max_steps": 15, "max_wall_ms": 300000}
+}

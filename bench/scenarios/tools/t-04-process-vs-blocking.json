@@ -19,12 +19,6 @@
     },
     {
       "tool": "process_read"
-    },
-    {
-      "tool": "read",
-      "args": {
-        "path": "*result.txt"
-      }
     }
   ],
   "checks": {

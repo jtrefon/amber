@@ -45,8 +45,13 @@ public:
 private:
     bool threshold_exceeded(const Context& context,
                              const Config& agent_cfg) const {
+        // Cap the effective budget at the conservative fallback regardless of
+        // n_ctx: an auto-detected 262k window would otherwise push the 50%
+        // firing point to ~131k tokens — effectively never during a run,
+        // letting context grow unbounded and degrading later turns.
         double budget = agent_cfg.context_size > 0
-            ? static_cast<double>(agent_cfg.context_size)
+            ? std::min(static_cast<double>(agent_cfg.context_size),
+                       static_cast<double>(kFallbackContextBudget))
             : static_cast<double>(kFallbackContextBudget);
         double tokens = agent_cfg.prompt_tokens_used > 0
             ? static_cast<double>(agent_cfg.prompt_tokens_used)
@@ -60,11 +65,13 @@ private:
     }
 
     bool is_within_cooldown(size_t current_turn) const override {
-        // When last_compress_turn_ is 0 AND current_turn is also 0 (fresh
-        // restart / session load), treat it as within cooldown so the gate
-        // doesn't fire immediately on the first turn after loading a large
-        // session. Once compression has run once, set_last_compress_turn
-        // updates this to a non-zero value and normal cooldown applies.
+        // last_compress_turn_ == 0 means "never compressed": only the very
+        // first turn of a freshly loaded session counts as cooldown (so a
+        // restored large session is not compressed immediately); any later
+        // turn is free to trigger the first compression. After the first
+        // compression, normal cooldown applies.
+        if (last_compress_turn_ == 0)
+            return current_turn == 0 && cfg_.cooldown_turns > 0;
         return (current_turn - last_compress_turn_) <
                static_cast<size_t>(cfg_.cooldown_turns);
     }

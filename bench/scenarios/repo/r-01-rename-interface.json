@@ -1,0 +1,45 @@
+{
+  "name": "r-01-rename-interface",
+  "suite": "repo",
+  "description": "cross-file interface rename: search, edit every call site, compile \u2014 long-horizon, dependent steps",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 5,
+  "expected_steps": 12,
+  "template": "repo/rename-interface",
+  "prompt": "Read TASK.md and perform the refactor in the workspace. Reply with the word done when finished.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*TASK.md"
+      }
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "*"
+      },
+      "args_subset": true,
+      "unordered": true
+    }
+  ],
+  "optimal_plan": {
+    "read": 1,
+    "search": 1,
+    "write": 4,
+    "bash": 1,
+    "todowrite": 1
+  },
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 20,
+    "max_wall_ms": 300000
+  }
+}

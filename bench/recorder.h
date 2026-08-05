@@ -46,6 +46,7 @@ struct EventStream {
     std::vector<RetryEvent> retries;
     std::vector<RecoveryEvent> recoveries;
     std::vector<StatsEvent> stats;
+    int compressions = 0;           // "compressing N messages..." status lines
     int iterations = 0;             // max "iteration N/M" observed
     double ttft_ms = -1;            // first request's time-to-first-byte
     long prompt_tokens = 0;

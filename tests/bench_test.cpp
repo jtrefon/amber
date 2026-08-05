@@ -1,4 +1,6 @@
 
+#include "agent/todo.h"
+#include "agent/tools.h"
 #include "bench/fake.h"
 #include "bench/kpi.h"
 #include "bench/oracle.h"
@@ -884,4 +886,44 @@ TEST(agentic_efficiency_capped_at_100) {
     };
     auto a = agentic_for(calls, {{"read", {}}, {"write", {}}}, agent::json());
     ASSERT_EQ(a.efficiency_pct, 100.0);  // under-execution capped (correctness catches it)
+}
+
+TEST(template_c_source_support) {
+    // Repo-suite templates ship .c sources; contract_sources must pick them up.
+    std::string dir = tmp_dir("tplc");
+    std::string tpl = dir + "/template";
+    fs::create_directories(tpl + "/reference");
+    fs::create_directories(tpl + "/hidden_tests");
+    write_file(tpl + "/reference/lib.h", "#pragma once\nint value(void);\n");
+    write_file(tpl + "/reference/lib.c",
+               "#include \"lib.h\"\nint value(void) { return 42; }\n");
+    write_file(tpl + "/hidden_tests/test_main.cpp",
+               "#include \"lib.h\"\n#include <cstdio>\n"
+               "int main() { std::printf(\"%d\", value()); return value() == 42 ? 0 : 1; }\n");
+    write_file(tpl + "/checks.json", R"({"must_contain": ["value"]})");
+    std::string err;
+    TemplateResult r = bench::run_template(tpl, tpl + "/reference", "g++", err);
+    ASSERT(r.compile_ok);
+    ASSERT_EQ(r.tests_passed, 1);
+    ASSERT(r.behavior_equivalent);
+}
+
+TEST(todowrite_schema_invites_proactive_use) {
+    // The advertisement matters: models reach for TodoWrite when the
+    // description names concrete triggers ("three or more distinct steps",
+    // dependencies, mid-task additions). A passive description gets ignored.
+    agent::TodoStore store;
+    auto tool = agent::make_todowrite_tool(store);
+    const std::string d = tool->description();
+    ASSERT(d.find("three or more distinct steps") != std::string::npos);
+    ASSERT(d.find("survives context compaction") != std::string::npos);
+}
+
+TEST(recorder_counts_compressions) {
+    Recorder rec;
+    rec.on_status("compressing 12 messages...");
+    rec.on_status("LLM error - retrying (1/3) in 1s");
+    rec.on_status("compressing 4 messages...");
+    ASSERT_EQ(rec.stream().compressions, 2);
+    ASSERT_EQ(rec.stream().retries.size(), 1u);
 }

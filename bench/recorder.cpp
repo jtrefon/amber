@@ -118,7 +118,9 @@ long Recorder::now_ms() noexcept {
 }
 
 void parse_status(const std::string& text, EventStream& out) noexcept {
-    if (text.find("LLM error - retrying (") != std::string::npos) {
+    if (text.find("compressing ") != std::string::npos) {
+        ++out.compressions;
+    } else if (text.find("LLM error - retrying (") != std::string::npos) {
         out.retries.push_back({static_cast<int>(parse_attempt(text))});
     } else if (text.find("LLM request repaired, retrying") != std::string::npos) {
         out.recoveries.push_back({"repaired"});

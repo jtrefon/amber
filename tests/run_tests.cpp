@@ -13,6 +13,7 @@
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
 #include "agent/tool_call_parser.h"
+#include "agent/todo.h"
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
@@ -397,7 +398,8 @@ TEST(request_builder_assistant_message_always_has_content) {
 TEST(registry_register_and_find) {
     agent::ToolRegistry r;
     agent::JobService jobs;
-    agent::register_default_tools(r, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
     ASSERT_EQ(r.tools().size(), 7u);
     ASSERT(r.find("read") != nullptr);
@@ -413,7 +415,8 @@ TEST(registry_register_and_find) {
 TEST(registry_schema_shape) {
     agent::ToolRegistry r;
     agent::JobService jobs;
-    agent::register_default_tools(r, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(r, jobs, todos);
     agent::json s = r.schema();
     ASSERT(s.is_array());
     ASSERT_EQ(s.size(), 7u);
@@ -447,7 +450,8 @@ TEST(prompt_loads_existing) {
 TEST(prompt_render_tools_markdown_lists_all) {
     agent::ToolRegistry r;
     agent::JobService jobs;
-    agent::register_default_tools(r, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(r, jobs, todos);
     std::string md = agent::render_tools_markdown(r);
     ASSERT(md.find("# Tools") != std::string::npos);
     ASSERT(md.find("`read`") != std::string::npos);
@@ -1290,7 +1294,8 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     cfg.system_prompt_path = "prompts/system.md";
     agent::ToolRegistry reg;
     agent::JobService jobs;
-    agent::register_default_tools(reg, jobs);
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos);
     agent::Agent ag(cfg, reg);
 
     // Count tool-call dispatches by watching the on_tool_result hook.
@@ -3226,4 +3231,139 @@ TEST(read_tool_clamps_limit) {
     ASSERT_TRUE(r.ok);
     ASSERT(r.meta["lines"].get<long>() <= 2000);
     std::filesystem::remove_all(dir);
+}
+
+// ---------------------------------------------------------------------------
+// Todowrite tool (P1 — externalized task tracking)
+// ---------------------------------------------------------------------------
+
+TEST(todo_store_full_list_replace) {
+    agent::TodoStore store;
+    store.update({
+        {"p1", "fix parsing", agent::TodoStatus::InProgress},
+        {"p2", "write tests", agent::TodoStatus::Pending},
+    });
+    ASSERT_EQ(store.items().size(), 2u);
+    ASSERT_EQ(store.items()[0].id, "p1");
+    ASSERT_EQ(store.items()[1].text, "write tests");
+    // Full-list replacement: a new update drops the previous list entirely.
+    store.update({{"p3", "ship", agent::TodoStatus::Completed}});
+    ASSERT_EQ(store.items().size(), 1u);
+    ASSERT_EQ(store.items()[0].id, "p3");
+    // Empty update clears.
+    store.update({});
+    ASSERT(store.items().empty());
+}
+
+TEST(todowrite_tool_replaces_and_echoes) {
+    agent::TodoStore store;
+    auto tool = agent::make_todowrite_tool(store);
+    ASSERT_EQ(tool->name(), "todowrite");
+    auto r = tool->execute({{"todos", {
+        {{"id", "p1"}, {"text", "fix parsing"}, {"status", "in_progress"}},
+        {{"id", "p2"}, {"text", "write tests"}, {"status", "pending"}},
+    }}});
+    ASSERT(r.ok);
+    ASSERT(r.output.find("p1") != std::string::npos);
+    ASSERT(r.output.find("fix parsing") != std::string::npos);
+    ASSERT_EQ(store.items().size(), 2u);
+    // Second call replaces the list entirely.
+    tool->execute({{"todos", {{{"id", "p9"}, {"text", "ship it"}, {"status", "completed"}}}}});
+    ASSERT_EQ(store.items().size(), 1u);
+    ASSERT_EQ(store.items()[0].id, "p9");
+}
+
+TEST(todowrite_tool_rejects_invalid_status) {
+    agent::TodoStore store;
+    auto tool = agent::make_todowrite_tool(store);
+    auto r = tool->execute({{"todos", {
+        {{"id", "p1"}, {"text", "x"}, {"status", "done"}},  // not a valid status
+    }}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(store.items().empty());
+    // Missing required key also fails.
+    auto r2 = tool->execute(agent::json::object());
+    ASSERT_FALSE(r2.ok);
+}
+
+
+TEST(todowrite_off_by_default_not_registered) {
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos);
+    ASSERT(reg.find("todowrite") == nullptr);
+}
+
+TEST(todowrite_registered_when_enabled) {
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  true);
+    ASSERT(reg.find("todowrite") != nullptr);
+}
+
+TEST(compression_gate_budget_capped_for_large_ctx) {
+    // Auto-detected n_ctx (262k locally) made the gate fire at ~131k tokens —
+    // effectively never during a normal run. The effective budget must be
+    // capped so compression fires early regardless of n_ctx.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.5;
+    cc.cooldown_turns = 0;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 262144;
+    cfg.turn_counter = 5;
+    cfg.prompt_tokens_used = 20000;  // > 16k capped budget, < 131k uncapped
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_first_compress_not_cooldown_blocked) {
+    // last_compress_turn_ starts at 0 ("never compressed"); the cooldown must
+    // not block the FIRST compression of a fresh session — only subsequent
+    // ones. Previously (0 - 0) < cooldown blocked everything until turn 20.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.5;
+    cc.cooldown_turns = 20;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 262144;
+    cfg.turn_counter = 5;
+    cfg.prompt_tokens_used = 20000;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    ASSERT(gate->should_compress(ctx, cfg));
+    // After the first compression, cooldown applies normally.
+    gate->set_last_compress_turn(5);
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.turn_counter = 26;  // 5 + 20 + 1
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_hermetic_conditions) {
+    // The exact gate inputs of the k-01 hermetic scenario (runner's
+    // context_size=4096, 10 context messages, turn 4, 3000 tokens used).
+    agent::CompressionConfig cc;
+    cc.cooldown_turns = 20;
+    cc.min_turns = 10;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 4096;
+    cfg.turn_counter = 4;
+    cfg.prompt_tokens_used = 3000;
+    agent::Context ctx;
+    ctx.push(msg("system", "sys"));
+    ctx.push(msg("user", "what is in a.txt"));
+    for (int i = 0; i < 4; ++i) {
+        ctx.push(msg("assistant", "x"));
+        ctx.push(msg("tool", "content"));
+    }
+    ASSERT(gate->should_compress(ctx, cfg));
 }

@@ -41,7 +41,7 @@
     "thinking": "on"
   },
   "qwen35-dense": {
-    "model": "qwen35-dense",
+    "model": "Qwen3.6-27B-official",
     "temperature": 0.2,
     "thinking": "on",
     "thinking_budget": 16384
@@ -70,6 +70,11 @@
   },
   "nemotron-550b": {
     "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "temperature": 0.2,
+    "thinking": "on"
+  },
+  "laguna-s-2.1": {
+    "model": "poolside/laguna-s-2.1:free",
     "temperature": 0.2,
     "thinking": "on"
   }

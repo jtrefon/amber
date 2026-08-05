@@ -167,12 +167,20 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
 
     agent::ToolRegistry registry;
     agent::JobService jobs;
-    agent::register_default_tools(registry, jobs, cfg.cancel_token);
+    agent::TodoStore todos;
+    agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
+                        cfg.plan_tool);
 
     // Enforce the scenario step budget during the run (the engine's own
     // iteration cap), not just in post-hoc scoring.
     if (s.max_steps > 0 && s.max_steps < cfg.max_tool_iterations)
         cfg.max_tool_iterations = s.max_steps;
+
+    if (!opts.debug_dir.empty()) {
+        fs::create_directories(opts.debug_dir);
+        cfg.debug_log = (fs::path(opts.debug_dir) / (s.name + ".wire.log")).string();
+        cfg.log_path = (fs::path(opts.debug_dir) / (s.name + ".jsonl")).string();
+    }
 
     // Benchmark approval policy: workspace-confined process tools are always
     // allowed; anything else approval-gated (dangerous bash) is denied —

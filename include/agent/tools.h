@@ -13,12 +13,14 @@ namespace agent {
 
 class JobService;  // process_* tools bind to the host-owned job service
 class SkillCatalog;
+class TodoStore;   // todowrite tool binds to the host-owned task list
 
 // Built-in tool factories. Definitions live in tools/*.cpp, compiled and linked
 // into libagent. Kept as factories so the registry owns unique instances.
 std::unique_ptr<Tool> make_read_tool();
 std::unique_ptr<Tool> make_write_tool();
 std::unique_ptr<Tool> make_search_tool();
+std::unique_ptr<Tool> make_todowrite_tool(TodoStore& todos);
 std::unique_ptr<Tool> make_bash_tool(JobService* jobs = nullptr,
                                      const CancellationToken& cancel_token = {});
 
