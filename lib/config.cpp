@@ -112,6 +112,20 @@ std::string global_config_path() {
     return global_config_dir() + "/config";
 }
 
+void overlay_global_config(Config& cfg, const Config& global) {
+    if (!global.provider_name.empty() && global.provider_name != "custom")
+        cfg.apply_provider(global.provider_name);
+    if (!global.api_key.empty()) cfg.api_key = global.api_key;
+    if (!global.model.empty() && !cfg.model_explicit) {
+        cfg.model = global.model;
+        cfg.model_explicit = global.model_explicit;
+    }
+    if (global.context_size > 0 && !cfg.context_explicit) {
+        cfg.context_size = global.context_size;
+        cfg.context_explicit = global.context_explicit;
+    }
+}
+
 bool is_known_provider(const std::string& name) {
     // provider::find falls back to the "custom" preset; only a real
     // name match counts as a built-in.

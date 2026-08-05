@@ -454,6 +454,35 @@ TEST(provider_apply_carries_saved_api_key) {
     std::remove(path2.c_str());
 }
 
+TEST(provider_key_survives_empty_global_overlay) {
+    // Startup order: apply the saved provider (key from the provider file),
+    // then overlay the global config. An EMPTY global key must never
+    // clobber the provider key — that left probes failing with 401.
+    const std::string dir = agent::global_config_dir() + "/providers";
+    std::filesystem::create_directories(dir);
+    const std::string path = dir + "/zzz_overlay_provider.conf";
+    {
+        std::ofstream f(path);
+        f << "provider=zzz_overlay_provider\n"
+             "api_base=http://127.0.0.1:9997/v1\n"
+             "api_key=sk-provider-key\n";
+    }
+    agent::Config global;               // provider set, key EMPTY
+    global.provider_name = "zzz_overlay_provider";
+    agent::Config cfg;
+    agent::overlay_global_config(cfg, global);
+    ASSERT_EQ(cfg.api_key, "sk-provider-key");
+    ASSERT_EQ(cfg.api_base, "http://127.0.0.1:9997/v1");
+
+    // A non-empty global key wins over the provider file.
+    agent::Config global2 = global;
+    global2.api_key = "sk-global-key";
+    agent::Config cfg2;
+    agent::overlay_global_config(cfg2, global2);
+    ASSERT_EQ(cfg2.api_key, "sk-global-key");
+    std::remove(path.c_str());
+}
+
 TEST(provider_is_known_includes_saved) {
     ASSERT(agent::is_known_provider("openrouter"));
     ASSERT(agent::is_known_provider("kilocode"));
