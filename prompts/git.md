@@ -6,8 +6,9 @@ the current state with `git status`, `git diff --stat`, or `git log --oneline`.
 After completing a logical unit of work, create a commit snapshot. A good
 commit:
 
-- Only commits when there are actual changes (`git diff --stat` shows
-  insertions or deletions) — never create empty commits
+- Commits carry actual changes (`git diff --stat` shows insertions or
+  deletions); an empty commit adds noise, so a commit with nothing in it
+  is a sign the snapshot is not ready
 - Groups related changes together so each commit is one self-contained
   logical change
 - Has a descriptive message that explains **what** changed and **why**,

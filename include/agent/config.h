@@ -53,6 +53,7 @@ struct Config {
     double temperature = 0.2;
     size_t max_tokens = 16384;
     bool stream = true;                  // use SSE streaming when supported
+    bool plan_tool = false;              // register todowrite tool + prompt (env AMBER_PLAN_TOOL)
 
     // Agent mode: controls tool availability and approval policy.
     //   read  — only observation tools (search, grep, read); writes disallowed

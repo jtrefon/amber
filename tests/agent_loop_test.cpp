@@ -11,6 +11,7 @@
 
 #include "agent.h"
 #include "agent/tools.h"
+#include "agent/todo.h"
 #include "fake_llm.h"
 #include "tests/test_util.h"
 
@@ -379,7 +380,11 @@ TEST(agent_loop_unknown_context_fallback) {
     auto compressor = agent::make_compressor(comp_cfg);
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
-    for (int i = 0; i < 21; ++i) {
+    // A few warm turns stay under the fallback budget (3200 tokens at
+    // threshold 0.1); the first compression fires on the big prompt. (The
+    // old script used 21 warm turns to bypass a cooldown bug that blocked
+    // the first compression until turn 20 — that bug is fixed.)
+    for (int i = 0; i < 5; ++i) {
         push_text(*fake, "warm");
         push_text(*fake, "done");
     }
@@ -395,7 +400,7 @@ TEST(agent_loop_unknown_context_fallback) {
     push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
                     {}, {}, std::move(fake));
-    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+    for (int i = 0; i < 5; ++i) ag.run("warm " + std::to_string(i));
 
     std::string big_prompt(8000, 'x');
     std::string reply = ag.run(big_prompt);
@@ -539,4 +544,69 @@ TEST(agent_xml_tool_call_fires_hook_once) {
     agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(fake));
     ag.run("read the Makefile");
     ASSERT_EQ(tool_call_hook_count, 1);
+}
+
+// [P1] The todowrite tool's host-owned store persists across turns (the
+// model replaces the full list each call; state survives in TodoStore, not
+// in context).
+TEST(agent_loop_todowrite_state_persists) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  true);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_tool_call(*fake, "todowrite",
+                   {{"todos", {{{"id", "p1"}, {"text", "fix parsing"},
+                                {"status", "in_progress"}}}}});
+    push_tool_call(*fake, "todowrite",
+                   {{"todos", {{{"id", "p1"}, {"text", "fix parsing"},
+                                {"status", "completed"}},
+                               {{"id", "p2"}, {"text", "write tests"},
+                                {"status", "pending"}}}}});
+    push_text(*fake, "done");
+    push_text(*fake, "yes");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("track the work");
+    ASSERT_EQ(reply, "done");
+    // The final full-list replacement is what the store holds.
+    ASSERT_EQ(todos.items().size(), 2u);
+    ASSERT(todos.items()[0].status == agent::TodoStatus::Completed);
+    ASSERT_EQ(todos.items()[1].text, "write tests");
+    ASSERT(raw->chat_calls >= 3);
+}
+
+// [P2] The result envelope must not re-echo the full args JSON (write calls
+// echoed whole edit payloads — context bloat on every result drives
+// re-reading). status + meta stay.
+TEST(agent_loop_tool_envelope_lean) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_write_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::json edits = agent::json::array(
+        {{{"old", ""}, {"new", "envelope lean payload"}}});
+    push_tool_call(*fake, "write",
+                   {{"path", "bench_envelope_test.txt"}, {"edits", edits}});
+    push_text(*fake, "done writing");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.run("create bench_envelope_test.txt");
+    std::remove("bench_envelope_test.txt");
+    const auto& ctx = ag.context().get_all();
+    bool saw_lean = false;
+    for (const auto& m : ctx) {
+        if (m.role != "tool") continue;
+        ASSERT(m.content.find("[tool=write status=ok") != std::string::npos);
+        ASSERT(m.content.find("args=") == std::string::npos);
+        ASSERT(m.content.find("[end]") != std::string::npos);
+        saw_lean = true;
+    }
+    ASSERT(saw_lean);
 }

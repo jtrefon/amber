@@ -33,6 +33,8 @@ void Config::load(const std::string& path) {
         else if (key == "max_tool_iterations") max_tool_iterations = std::stoi(val);
         else if (key == "temperature") temperature = std::stod(val);
         else if (key == "max_tokens") max_tokens = std::stoul(val);
+        else if (key == "plan_tool")
+            plan_tool = (val == "1" || val == "true" || val == "yes");
         else if (key == "stream") stream = (val == "1" || val == "true" || val == "yes");
         else if (key == "thinking") thinking = val;
         else if (key == "thinking_budget") thinking_budget = std::stoi(val);
@@ -233,6 +235,8 @@ void Config::apply_environment() {
     get("AMBER_TOOLS_PROMPT", tools_prompt_path);
     const char* s = std::getenv("AMBER_STREAM");
     if (s) stream = (std::string(s) == "1" || std::string(s) == "true");
+    const char* pt = std::getenv("AMBER_PLAN_TOOL");
+    if (pt) plan_tool = (std::string(pt) == "1" || std::string(pt) == "true");
     get("AMBER_THINKING", thinking);
     const char* tb = std::getenv("AMBER_THINKING_BUDGET");
     if (tb) thinking_budget = std::atoi(tb);

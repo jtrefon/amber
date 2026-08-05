@@ -23,6 +23,7 @@ Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle,
                                      static_cast<double>(oracle.total_calls)
                                : 1.0;
     k.steps = stream.iterations;
+    k.compressions = stream.compressions;
     k.tool_calls = static_cast<int>(stream.calls.size());
     for (const auto& c : stream.calls) {
         if (c.status == "error") ++k.tool_failures;

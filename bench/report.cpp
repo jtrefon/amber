@@ -99,6 +99,7 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["tool_call_accuracy"] = r.kpi.tool_call_accuracy;
         j["arg_precision"] = r.kpi.arg_precision;
         j["steps"] = r.kpi.steps;
+        j["compressions"] = r.kpi.compressions;
         j["tool_calls_total"] = r.kpi.tool_calls;
         j["tool_failures"] = r.kpi.tool_failures;
         j["tool_denied"] = r.kpi.tool_denied;

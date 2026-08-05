@@ -368,5 +368,5 @@ TEST(mcp_prompts_file_loaded) {
     std::string p = agent::load_prompt("prompts/mcp.md");
     ASSERT_FALSE(p.empty());
     ASSERT(p.find("mcp_") != std::string::npos);
-    ASSERT(p.find("user only") != std::string::npos);
+    ASSERT(p.find("the user invokes") != std::string::npos);
 }

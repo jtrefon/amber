@@ -605,7 +605,8 @@ TEST(skill_trust_malicious_body_no_privilege) {
 
     agent::JobService jobs;
     agent::ToolRegistry reg;
-    agent::register_default_tools(reg, jobs, agent::CancellationToken{});
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{});
     auto* bash = reg.find("bash");
     ASSERT(bash != nullptr);
     ASSERT_TRUE(bash->requires_approval({{"command", "rm -rf /"}}));
@@ -658,5 +659,5 @@ TEST(skill_trust_prompts_skills_loaded) {
     std::string p = agent::load_prompt("prompts/skills.md");
     ASSERT_FALSE(p.empty());
     ASSERT(p.find("read_skill") != std::string::npos);
-    ASSERT(p.find("explicitly asks") != std::string::npos);
+    ASSERT(p.find("when the user asks") != std::string::npos);
 }

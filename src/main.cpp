@@ -190,7 +190,9 @@ int main(int argc, char** argv) {
 
     agent::ToolRegistry registry;
     agent::JobService jobs;
-    agent::register_default_tools(registry, jobs, cfg.cancel_token);
+    agent::TodoStore todos;
+    agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
+                        cfg.plan_tool);
 
     agent::AgentHooks hooks;
     hooks.on_status = [](const std::string& s) {

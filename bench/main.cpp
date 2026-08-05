@@ -109,13 +109,15 @@ std::string run_id() {
 int cmd_run(const std::vector<std::string>& args, bool live,
             const std::string& suite, const std::string& name,
             const std::string& profile, const std::string& model,
-            double temperature, int repeat, const std::string& out_file) {
+            double temperature, int repeat, const std::string& out_file,
+            const std::string& debug_dir) {
     (void)args;
     bench::RunOptions opts;
     opts.live = live;
     opts.repeat = repeat;
     opts.model = model;
     opts.temperature = temperature;
+    opts.debug_dir = debug_dir;
     apply_profile(opts, profile);
 
     auto scenarios = discover_scenarios(suite, name);
@@ -212,6 +214,7 @@ bool parse_report_file(const std::string& file, bench::RunMeta& meta,
         rep.kpi.success = e.value("success", false);
         rep.kpi.bullseye = e.value("bullseye", 0.0);
         rep.kpi.steps = e.value("steps", 0);
+        rep.kpi.compressions = e.value("compressions", 0);
         rep.kpi.tool_calls = e.value("tool_calls_total", 0);
         rep.kpi.tool_failures = e.value("tool_failures", 0);
         rep.kpi.tool_denied = e.value("tool_denied", 0);
@@ -290,6 +293,7 @@ int main(int argc, char** argv) {
 
     bool live = false;
     std::string suite, name, profile, model, out_file, format = "text";
+    std::string opts_debug_dir;
     double temperature = -1;
     int repeat = 1;
     std::vector<std::string> rest;
@@ -306,6 +310,7 @@ int main(int argc, char** argv) {
         else if (a == "--model") model = next("");
         else if (a == "--temperature") temperature = std::atof(next("0").c_str());
         else if (a == "--repeat") repeat = std::atoi(next("1").c_str());
+        else if (a == "--debug") opts_debug_dir = next("");
         else if (a == "--out") out_file = next("");
         else if (a == "--format") format = next("text");
         else if (a == "-h" || a == "--help") { print_usage(argv[0]); return 0; }
@@ -317,7 +322,7 @@ int main(int argc, char** argv) {
         if (cmd == "run") {
             if (!rest.empty()) name = rest[0];
             return cmd_run(rest, live, suite, name, profile, model, temperature,
-                           repeat, out_file);
+                           repeat, out_file, opts_debug_dir);
         }
         if (cmd == "validate-template" && !rest.empty())
             return cmd_validate(rest[0]);

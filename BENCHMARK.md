@@ -51,6 +51,177 @@ changes — rerun the same commands after any harness change and compare.
 > land in a ~900-910 band — differences within it are single-run variance,
 > not model ranking; use `--repeat N` for statistically meaningful deltas.
 
+## Official benchmark cross-check (the 27B vs 550B question)
+
+Why does a 27B dense model outscore a 550B frontier model on this harness?
+It is not a harness artifact — the official numbers say the same thing:
+
+| Model | SWE-bench Verified | Terminal-Bench |
+|---|---|---|
+| Qwen3.6-27B (dense, Apr 2026) | **77.2%** | **59.3%** (TB 2.0) |
+| NVIDIA Nemotron 3 Ultra 550B-A55B (Jun 2026) | 71.9% | 56.4% (TB 2.1) |
+
+Sources: Qwen first-party model card (77.2 / 59.3, purpose-built for
+agentic coding and repository-level reasoning — it also beats the 397B
+MoE flagship); NVIDIA / evals.report verified scores for Nemotron 3 Ultra
+(SWE-bench Verified 71.9, Terminal-Bench 2.1 56.4, GPQA Diamond 87.0).
+
+**Conclusion**: the harness ranking direction is validated by the official
+benchmarks — this particular 27B dense model is genuinely the better
+*agentic coding* model. Nemotron's strengths (GPQA 87%, 1M context,
+long-context analysis, math/science) live on axes this corpus barely
+touches. The harness gap (910 vs 806) is wider than the official gap
+(77.2 vs 71.9), because the corpus is small single-file tasks where tool
+economy and termination dominate — exactly the axis where the 27B's coding
+training wins. To measure the 550B's actual strengths, the corpus needs a
+repo-level suite: multi-file bugs, long-context tasks, deeper reasoning.
+
+## P5: compression gate fixes (2026-08-04)
+
+Two gate defects found and fixed (TDD):
+
+1. **Budget cap**: the gate fired at 50% of auto-detected `n_ctx`
+   (~131k tokens with the 262k local server) — effectively never during a
+   run. The effective budget is now capped at 32k regardless of n_ctx.
+2. **Cooldown-from-zero bug (the true root cause)**: `last_compress_turn_`
+   starts at 0, and the cooldown check `(turn - 0) < 20` blocked the FIRST
+   compression of every session until turn 20 — compression effectively
+   never ran in normal use. Fixed: cooldown applies only after the first
+   compression (turn-0 loaded-session protection retained).
+
+Proof: unit tests (gate fires at 16k with 262k n_ctx; first-compress not
+cooldown-blocked) + new hermetic scenario **k-01-compression-stress**
+(scripted 10+ message run crosses the gate mid-task → compression fires
+(`compressions: 1` KPI) → final answer correct, PASS). Live corpus still
+cannot trigger it: our scenarios stay under ~7k tokens vs the 16k firing
+point (the same horizon finding as P1/P4). New `compressions` KPI in the
+recorder/report.
+
+## P2: lean tool results (drop the args echo) — first measured win (2026-08-04)
+
+The result envelope stopped re-echoing the full `args` JSON
+(`[tool=<name> status=<status> meta=<meta>]` — status/meta kept). Hypothesis:
+context bloat per result drives degradation → re-reading and wrong-arg calls.
+
+A/B on Nemotron 550B free (25 shared scenarios, same prompt — only the
+envelope changed):
+
+| Metric | before | P2 r1 | P2 r2 |
+|---|---|---|---|
+| tool failures | 18 | 10 | **5** (−72%) |
+| tool calls | 142 | 133 | 132 (−7%) |
+| steps | 164 | 157 | 157 (−4%) |
+| score | 82.1 | 82.1 | 84.4 |
+| redundant | 17 | 23 | 22 (+5, caveat) |
+
+**Verdict: first consistent improvement on the agentic axis** — failures
+down 72% across two runs, tools and steps down. The redundant-call increase
+is flagged for follow-up runs (possible side effect of less confirmation in
+results, or variance). Hermetic proof: `agent_loop_tool_envelope_lean`
+pins the new format.
+
+## Repo-level suite (long-horizon, 2026-08-04)
+
+Two new repo scenarios with real verification (hidden tests compile and run
+the project): r-01 cross-file interface rename (search → edit all call
+sites → compile), r-02 seeded bug-hunt (explore → fix → verify).
+
+| Scenario | Qwen3.6-27B dense | todowrite used |
+|---|---|---|
+| r-01-rename-interface | PASS 100 (7 steps, artifact 1) | 0 |
+| r-02-bug-hunt | PASS 96 (artifact 1) | 0 |
+
+Advertisement experiment (same day): tools.md + schema description
+rewritten with concrete triggers ("a task list earns its keep when the work
+has shape: three or more distinct steps, steps that depend on earlier ones,
+files that change together, or new instructions arriving mid-task"). Wire
+capture confirms the model received the trigger-rich description verbatim
+on every request. **Adoption: still 0** on both repo scenarios (both still
+PASS: 100 / 96).
+
+**Complete verdict across the hypothesis chain** — all three disproven with
+wire-level evidence: (1) not wiring — advertised in every request; (2) not
+task complexity — long-horizon tasks solved perfectly without the tool;
+(3) not advertisement — trigger-rich text delivered verbatim, still unused.
+The residual explanation is **model training fit (H5)**: Qwen3.6-27B's RL
+traces do not include the TodoWrite convention that Claude/GPT-class models
+are trained with. The tool remains functional, advertised, and harmless —
+it becomes relevant with sub-agent delegation (P4) and models trained on
+the convention.
+
+Verdict on the "not complex enough" hypothesis: **complexity is not the
+trigger.** The baseline model completes multi-phase, dependent-step work
+efficiently without any planning tool (r-01 at 100, surgical edits, zero
+redundancy). The horizon where externalized task tracking pays (context
+degradation on very long runs) is beyond this corpus. The todowrite tool
+remains functional, advertised (wire-verified), and harmless — it becomes
+relevant with P4 sub-agents and much longer scenarios.
+
+## P1: todowrite tool — externalized task tracking (2026-08-04)
+
+`todowrite` tool shipped (host-owned `TodoStore`, full-list replacement —
+the TodoWrite contract strong agentic models are trained on; survives
+compression by design). Hermetic tests prove state persists across turns.
+
+| Model | before (2 runs) | after (3 runs) | verdict |
+|---|---|---|---|
+| Qwen3.6-27B dense | 885, 913 — mean 899 | 911, 895, 908 — mean 905 | **neutral** (+6 ≈ noise) |
+
+Per-scenario (25 shared scenarios, before-r2 vs mean-of-3-after): 2 improved,
+19 stable, 4 regressed — the regressions (c-03 -21, c-02 -4, c-04 -4) are
+single-run variance swings already observed in earlier runs (c-03 ranged
+67-88 across all runs). Agentic 69→66, plan% 65→63, redundant 9→7-12: all
+within the established variance band.
+
+**Verdict: no degradation, no measurable improvement, zero adoption**
+
+Adoption proof (wire-level): `--debug` capture of a live t-07 run shows all
+11 tools — including `todowrite` — advertised in every request the model
+received; the model saw the tool and declined it on all 5 requests. The tool
+executed correctly in hermetic tests (state persists across turns). Zero
+adoption is genuine model behavior on single-pass tasks, not a wiring bug. — the current corpus is
+single-pass work where planning cannot pay (opencode's own guidance: skip
+when the task is straightforward). Proof of value is gated on the
+repo-level suite (long-horizon tasks), which is also the gate for the
+sub-agent work. The tool is prerequisite infrastructure, not a lever on
+this corpus.
+
+## Prompt v2 (empowerment) — before/after
+
+`prompts/system.md` was rewritten from confinement language ("never fabricate",
+"each turn must advance", "dont stop unless stuck") to a descriptive,
+empowerment-style prompt: role, personality, working style, response
+framework, closing convention. Same scenarios, same models, same harness —
+the only change is the prompt. Raw records: `bench/results/prompt-v2/`.
+
+| Model | Before | After | Verdict |
+|---|---|---|---|
+| Nemotron 550B (free) | 806 / 20-25 | 821 / 21-25 | **t-01-search audit-loop termination fixed** |
+| Qwen3.6-27B dense | 910 / 24-25 | 885, 913 / 24-25 | within variance, no regression |
+| qwopus-27b | 900 / 23-25 | 906 / 24-25 | +6, earlier t-03 failure cleared |
+
+The prompt philosophy (descriptive over prohibitive) is now a repo
+convention: prompts describe role, personality, environment and tooling;
+they empower rather than confine. No forcing or forbidding language.
+
+### Free-tier challengers (prompt v2)
+
+| Model | score | pass | agentic | plan% | tools | redundant | Official (SWE-bench / TB) |
+|---|---|---|---|---|---|---|---|
+| Qwen3.6-27B dense (local) | 913 | 24/25 | 71 | 69 | 104 | 9 | 77.2 / 59.3 |
+| qwopus-27b (local) | 906 | 24/25 | 66 | 62 | 105 | 13 | — / — |
+| **Laguna S 2.1 (free)** | **887** | 23/25 | 66 | 60 | 117 | **4** | 59.4 Pro / **70.2** |
+| Nemotron 550B (free) | 821 | 21/25 | 54 | 54 | 142 | 17 | 71.9 / 56.4 |
+| Hy3 (free, untested here) | — | — | — | — | — | — | 78.0 / 54.4 |
+
+Laguna S 2.1 is the strongest free challenger: lowest redundancy of any
+model tested (4 identical re-calls) and the best official Terminal-Bench
+score (70.2, +11 over Qwen) — its weakness on this corpus is the
+multi-constraint format scenario (p-05) and higher tool count on small
+tasks. No free Kilo model significantly beats the Qwen 27B dense on this
+harness; the models that do (Opus-class, GLM-5 77.8, Kimi K2.5 76.8) are
+paid tiers.
+
 > Cloud runs (kilo-auto/free, Nemotron 550B) go through the Kilo AI Gateway
 > (`https://api.kilo.ai/api/gateway`, provider preset `kilocode`); the free
 > tier auto-routes `kilo-auto/free` to the best available free model
