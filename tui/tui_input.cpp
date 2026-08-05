@@ -283,23 +283,14 @@ void Tui::cmd_set(const std::string& arg) {
         return;
     }
 
-    // skills: export, enable|disable|block (documented verbs go to leaves)
-    if (arg.rfind("skills ", 0) == 0 || arg == "skills") {
-        std::string rest = (arg.size() > 7) ? arg.substr(7) : "";
-        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
-        cmd_skills_set(rest);
-        return;
+    // Unknown option: the hint is derived from the tree, never hardcoded.
+    std::string hint;
+    for (const auto& child : settings_.children_of("set")) {
+        if (!hint.empty()) hint += ", ";
+        hint += child;
     }
-
-    // provider switch
-    if (arg.rfind("provider ", 0) == 0 || arg == "provider") {
-        std::string rest = (arg.size() > 9) ? arg.substr(9) : "";
-        if (!rest.empty() && rest[0] == ' ') rest = rest.substr(1);
-        cmd_provider(rest);
-        return;
-    }
-
-    append_line(P_STATUS, "unknown option: " + arg + " (try: detection, display, toolfold, policy, compression, provider, model, think, skills)");
+    append_line(P_STATUS, "unknown option: " + arg +
+                              (hint.empty() ? "" : " (try: " + hint + ")"));
 }
 
 void Tui::cmd_get(const std::string& arg) {
@@ -470,6 +461,32 @@ void Tui::cmd_set_policy_rule(const std::string& arg) {
     std::string name = (sp == std::string::npos) ? arg : arg.substr(0, sp);
     std::string lvl = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
     apply_policy_rule(name, lvl);
+}
+
+void Tui::refresh_provider_feed() {
+    // Providers are dynamic: built-in presets plus every saved provider
+    // file under ~/.config/amber/providers/. Merge them as feed leaves so
+    // /set provider <name> completes and dispatches from the JSON tree.
+    std::set<std::string> names;
+    for (auto* p : agent::provider::all)
+        if (p->name != "custom") names.insert(p->name);
+    const auto saved = agent::list_saved_providers();
+    for (const auto& s2 : saved) names.insert(s2);
+
+    nlohmann::json subtree = nlohmann::json::object();
+    auto& leaves =
+        subtree["set"]["children"]["provider"]["children"];
+    for (const auto& name : names) {
+        const std::string action = "core.config.set.provider." + name;
+        nlohmann::json& leaf = leaves[name];
+        leaf["action"] = action;
+        leaf["help"] = name == cfg_.provider_name ? "active provider"
+                                                  : "switch to this provider";
+        register_action(action, [this, name](const std::string&) {
+            cmd_provider(name);
+        });
+    }
+    settings_.merge_completions_json(subtree);
 }
 
 void Tui::refresh_policy_feed() {
@@ -1214,6 +1231,7 @@ void Tui::register_builtin_actions() {
         append_line(P_STATUS, "policy timeout: " + std::to_string(n) + "s");
     });
     register_action("core.config.set.policy", [this](const std::string& a) { cmd_set(a); });
+    register_action("core.config.set.provider", [this](const std::string& a) { cmd_provider(a); });
     register_action("core.config.set.policy.rule",
         [this](const std::string& a) { cmd_set_policy_rule(a); });
     register_action("core.config.set.compression.threshold", [this](const std::string& v) {
@@ -1280,6 +1298,8 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_model_context(); });
     register_action("core.config.set.model",
         [this](const std::string& a) { cmd_model_set(a); });
+    register_action("core.config.get.mcp", [this](const std::string& a) { cmd_get(a); });
+    register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.provider",
         [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.toolfold",
@@ -1540,6 +1560,7 @@ void Tui::cmd_provider(const std::string& a) {
     }
     std::string global = agent::global_config_path();
     cfg_.save_global(global);
+    refresh_provider_feed();
     append_line(P_STATUS, "provider switched to " + a + " (saved to " + global + ")");
 }
 
@@ -1553,6 +1574,7 @@ void Tui::cmd_provider_list() {
 void Tui::cmd_provider_delete(const std::string& name) {
     if (name.empty()) { append_line(P_STATUS, "usage: /provider delete <name>"); return; }
     agent::delete_provider(name);
+    refresh_provider_feed();
     append_line(P_STATUS, "deleted provider: " + name);
 }
 
@@ -2054,9 +2076,10 @@ void Tui::settings_screen() {
         prov_id.push_back(id);
         if (cfg_.provider_name == id) active_idx = static_cast<int>(prov_id.size() - 1);
     };
-    add_preset("openrouter", "OpenRouter  (openrouter.ai)");
-    add_preset("kilocode",   "Kilo Code   (api.kilocode.ai)");
-    add_preset("custom",     "Custom      (user-defined)");
+    for (auto* p : agent::provider::all)
+        if (p->name != "custom")
+            add_preset(p->name, p->name + "  (" + p->api_base + ")");
+    add_preset("custom", "Custom      (user-defined)");
 
     // User-saved providers
     for (const auto& s : saved) {
@@ -2143,6 +2166,7 @@ void Tui::settings_screen() {
         cfg_.model = prov_cfg.model;
         cfg_.model_explicit = !prov_cfg.model.empty();
         cfg_.save_global(agent::global_config_path());
+        refresh_provider_feed();
         append_line(P_STATUS, "provider '" + new_name + "' added and activated");
         return;
     }
@@ -2200,6 +2224,7 @@ void Tui::settings_screen() {
             cfg_.model_explicit = !prov_cfg.model.empty();
         }
         cfg_.save_global(agent::global_config_path());
+        refresh_provider_feed();
         append_line(P_STATUS, "provider '" + selected_id + "' activated");
 
         // Test connection
@@ -2217,6 +2242,7 @@ void Tui::settings_screen() {
         tui::ConfirmPanel confirm("Delete Provider", msg);
         if (confirm.run()) {
             agent::delete_provider(selected_id);
+            refresh_provider_feed();
             append_line(P_STATUS, "provider '" + selected_id + "' deleted");
         }
     }

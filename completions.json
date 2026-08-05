@@ -216,6 +216,16 @@
      "action": "core.config.get.reasoning",
      "help": "Show reasoning effort.",
      "man": "Shows the current reasoning effort value sent to the server (off/low/medium/high)."
+    },
+    "mcp": {
+     "action": "core.config.get.mcp",
+     "help": "Show MCP server status and prompts.",
+     "man": "Summarizes the configured MCP servers and their exposed prompts."
+    },
+    "learn": {
+     "action": "core.config.get.learn",
+     "help": "Show learned skills and memories.",
+     "man": "Summarizes skills and memories the agent has learned from past sessions."
     }
    }
   },
@@ -441,6 +451,11 @@
        ]
       }
      }
+    },
+    "provider": {
+     "action": "core.config.set.provider",
+     "help": "Switch the active LLM provider.",
+     "man": "Selects the active provider. Built-in presets and every provider saved under ~/.config/amber/providers/ are offered as completions; the switch applies immediately and is persisted."
     }
    }
   },

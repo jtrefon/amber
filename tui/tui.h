@@ -321,6 +321,7 @@ private:
     // policy.rule (level + usage as help). Refreshed at startup and after
     // every rule mutation so the dangerous-command curation stays in sync.
     void refresh_policy_feed();
+    void refresh_provider_feed();
     void apply_policy_rule(const std::string& name, const std::string& lvl);
     void show_policy_rule(const std::string& name);
     // Job feed: job ids become value leaves under job.kill / job.read.

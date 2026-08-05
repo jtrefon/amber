@@ -669,3 +669,22 @@ TEST(test_reasoning_tree_nodes) {
     ASSERT_EQ(ch[2], "medium");
     ASSERT_EQ(ch[3], "high");
 }
+
+// ── Test: provider lives in the set tree (feed merges saved names) ──
+
+TEST(test_provider_tree_nodes) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    ASSERT(!reg.help_for("set.provider").empty());
+    ASSERT(!reg.man_for("set.provider").empty());
+}
+
+// ── Test: no hardcoded command paths — mcp/learn are tree nodes ────
+
+TEST(test_get_mcp_learn_tree_nodes) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    ASSERT(!reg.help_for("get.mcp").empty());
+    ASSERT(!reg.help_for("get.learn").empty());
+    ASSERT(!reg.man_for("mcp").empty());
+}
