@@ -1,0 +1,2329 @@
+{
+  "engine_version": "0.3.1",
+  "mode": "live",
+  "model": "Nemotron 550B (free) [P3 trim r2]",
+  "model_score": 832.7351485148515,
+  "profile": "nemotron-550b",
+  "reasoning": "on",
+  "run_id": "run-1785930468720402416",
+  "scenarios": [
+    {
+      "agentic_actual_by_tool": {
+        "bash": 3,
+        "read": 5,
+        "write": 1
+      },
+      "agentic_deviation": 6,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 19804,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 2629,
+      "compile_ok": true,
+      "completion_tokens": 1264,
+      "compressions": 0,
+      "cpu_ms": 400,
+      "difficulty": 2,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "c-01-fizzbuzz",
+      "peak_rss_kb": 20664,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 69734,
+      "recoveries": 0,
+      "redundant": 2,
+      "retries": 1,
+      "score": 83.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 40.0,
+      "score_robustness": 70.0,
+      "steps": 10,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.1111111111111111,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1036981/solution.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1036981/solution.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"solution.h\\\"\\n\\nstd::string fizzbuzz(int n) {\\n    if (n % 15 == 0) {\\n        return \\\"FizzBuzz\\\";\\n    } else if (n % 3 == 0) ...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1036981/solution.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-01-fizzbuzz_1036981 && g++ -std=c++17 -o test_fizzbuzz solution.cpp -c && echo \\\"Compilation successful\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-01-fizzbuzz_1036981 && cat > test_main.cpp << 'EOF'\\n#include \\\"solution.h\\\"\\n#include <iostream>\\n\\nint main() {\\n    /...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-01-fizzbuzz_1036981 && rm -f test_fizzbuzz test_main.cpp\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1036981/solution.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 9,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 25.1252160857718,
+      "ttft_ms": 796.169,
+      "wall_ms": 101018,
+      "wasted": 8
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 3,
+        "read": 4,
+        "write": 1
+      },
+      "agentic_deviation": 5,
+      "agentic_efficiency_pct": 37.5,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.375,
+      "agentic_score": 30.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21048,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3140,
+      "compile_ok": true,
+      "completion_tokens": 2645,
+      "compressions": 0,
+      "cpu_ms": 376,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done\n\nImplemented both sorting algorithms in `sorting.cpp`:\n\n- **bubble_sort**: Standard O(n\u00b2) in-place bubble sort with nested loops\n- **merge_sort**: O(n log n) recursive merge sort with a helper `merge` function and recursive `merge_sort_rec` function\n\nBoth functions sort in ascending order, in place, without using `std::sort`. All tests pass (empty, single element, sorted, reverse sorted, random, duplicates, and large arrays).",
+      "hard_stop": false,
+      "name": "c-02-sorting-multi",
+      "peak_rss_kb": 21048,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 70940,
+      "recoveries": 0,
+      "redundant": 1,
+      "retries": 0,
+      "score": 96.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 80.0,
+      "score_robustness": 100.0,
+      "steps": 9,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.125,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-02-sorting-multi_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-02-sorting-multi_1036981/sorting.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-02-sorting-multi_1036981/sorting.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"sorting.h\\\"\\n\\nvoid bubble_sort(int* a, size_t n) {\\n    for (size_t i = 0; i < n; ++i) {\\n        for (size_t j = 0; j + 1 < n ...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-02-sorting-multi_1036981/sorting.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-02-sorting-multi_1036981 && g++ -std=c++17 -o test_sort sorting.cpp -c\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-02-sorting-multi_1036981 && cat > test_main.cpp << 'EOF'\\n#include \\\"sorting.h\\\"\\n#include <iostream>\\n#include <vector>...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-02-sorting-multi_1036981 && rm -f test_sort test_main.cpp\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 8,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 40.95004981573743,
+      "ttft_ms": 1585.0169999999998,
+      "wall_ms": 84528,
+      "wasted": 7
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 13,
+        "read": 4,
+        "write": 2
+      },
+      "agentic_deviation": 16,
+      "agentic_efficiency_pct": 15.789473684210526,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.15789473684210525,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21300,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 2542,
+      "compile_ok": true,
+      "completion_tokens": 3391,
+      "compressions": 0,
+      "cpu_ms": 839,
+      "difficulty": 4,
+      "failures": [
+        "final answer failed scenario checks"
+      ],
+      "files_touched": 1,
+      "final_text": "[agent stopped: the model stopped producing usable output after tool calls; see the ERROR messages above]",
+      "hard_stop": false,
+      "name": "c-03-ring-buffer",
+      "peak_rss_kb": 21300,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 141175,
+      "recoveries": 0,
+      "redundant": 2,
+      "retries": 0,
+      "score": 40.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_robustness": 100.0,
+      "steps": 20,
+      "structure_checks": 1.0,
+      "success": false,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.05263157894736842,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_c-03-ring-buffer_1036981/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"ring_buffer.h\\\"\\n\\nRingBuffer::RingBuffer(size_t capacity) : cap_(capacity), buf_(new int[capacity]) {}\\n\\nRingBuffer::~RingBuff...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-03-ring-buffer_1036981 && g++ -std=c++17 -Wall -Wextra -o test_ring_buffer ring_buffer.cpp -c\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-03-ring-buffer_1036981 && g++ -std=c++17 -Wall -Wextra -o test_ring_buffer ring_buffer.cpp -c 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-03-ring-buffer_1036981 && g++ -std=c++17 -Wall -Wextra -c ring_buffer.cpp 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -Wall -Wextra -c /tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.cpp 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"g++ --version\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -Wall -Wextra -c /tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.cpp\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -Wall -Wextra -c /tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.cpp 2>&1; echo \\\"Exit code: $?\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"ring_buffer.h\\\"\\n\\nRingBuffer::RingBuffer(size_t capacity) : cap_(capacity), buf_(new int[capacity]) {}\\n\\nbool RingBuffer::push...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -Wall -Wextra -c /tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.cpp 2>&1; echo \\\"Exit code: $?\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cat > /tmp/test_ring.cpp << 'EOF'\\n#include \\\"ring_buffer.h\\\"\\n#include <cassert>\\n#include <iostream>\\n\\nint main() {\\n    // Test basic push/po...",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -Wall -Wextra -o /tmp/test_ring /tmp/test_ring.cpp /tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.cpp 2>&1; echo \\\"Exit ...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -Wall -Wextra -I/tmp/amber_bench_ws_c-03-ring-buffer_1036981 -o /tmp/test_ring /tmp/test_ring.cpp /tmp/amber_bench_ws_c-03-ring-bu...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -Wall -Wextra -I/tmp/amber_bench_ws_c-03-ring-buffer_1036981 -c /tmp/amber_bench_ws_c-03-ring-buffer_1036981/ring_buffer.cpp 2>&1 ...",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 19,
+      "tool_denied": 0,
+      "tool_failures": 6,
+      "tps_avg": 34.20406910348529,
+      "ttft_ms": 772.3820000000001,
+      "wall_ms": 134201,
+      "wasted": 18
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 4,
+        "read": 4,
+        "write": 1
+      },
+      "agentic_deviation": 6,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 20.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21300,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 15949,
+      "compile_ok": true,
+      "completion_tokens": 1600,
+      "compressions": 0,
+      "cpu_ms": 383,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done\n\nImplemented the LCS (Longest Common Subsequence) algorithm in `lcs.cpp` using dynamic programming with O(min(m,n)) space optimization. The implementation:\n\n- Returns 0 for empty inputs\n- Uses a 2-row DP table (prev/curr) to compute LCS length in O(m\u00d7n) time and O(min(m,n)) space\n- Handles all edge cases: empty strings, no common characters, repeated characters, non-contiguous subsequences\n- All tests pass including standard LCS test cases like \"ABCBDAB\"/\"BDCABA\" (length 4) and \"AGGTAB\"/\"GXTXAYB\" (length 4)",
+      "hard_stop": false,
+      "name": "c-04-lcs",
+      "peak_rss_kb": 21300,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 71879,
+      "recoveries": 0,
+      "redundant": 1,
+      "retries": 0,
+      "score": 80.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_robustness": 100.0,
+      "steps": 10,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.1111111111111111,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-04-lcs_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_c-04-lcs_1036981/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-04-lcs_1036981/lcs.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-04-lcs_1036981/lcs.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"lcs.h\\\"\\n#include <vector>\\n#include <algorithm>\\n\\nint lcs(const std::string& a, const std::string& b) {\\n    if (a.empty() || ...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-04-lcs_1036981 && g++ -std=c++17 -o test_lcs lcs.cpp -xc++ - << 'EOF'\\n#include \\\"lcs.h\\\"\\n#include <iostream>\\n#include...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-04-lcs_1036981 && ./test_lcs\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"rm /tmp/amber_bench_ws_c-04-lcs_1036981/test_lcs\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-04-lcs_1036981/lcs.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 9,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 42.340201916177335,
+      "ttft_ms": 819.806,
+      "wall_ms": 67138,
+      "wasted": 8
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 4,
+        "read": 5,
+        "write": 1
+      },
+      "agentic_deviation": 7,
+      "agentic_efficiency_pct": 30.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.3,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21684,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 2058,
+      "compile_ok": true,
+      "completion_tokens": 1750,
+      "compressions": 0,
+      "cpu_ms": 401,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "c-05-graph-bfs",
+      "peak_rss_kb": 21684,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 83733,
+      "recoveries": 0,
+      "redundant": 2,
+      "retries": 0,
+      "score": 80.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_robustness": 100.0,
+      "steps": 11,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.1,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_c-05-graph-bfs_1036981/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1036981/bfs.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1036981/bfs.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"bfs.h\\\"\\n#include <queue>\\n\\nstd::vector<int> bfs_distances(int n, const std::vector<std::pair<int, int>>& edges, int source) {\\...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1036981/bfs.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-05-graph-bfs_1036981 && g++ -std=c++17 -c bfs.cpp -o bfs.o\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-05-graph-bfs_1036981 && cat > test_bfs.cpp << 'EOF'\\n#include \\\"bfs.h\\\"\\n#include <iostream>\\n#include <vector>\\n\\nint m...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"rm /tmp/amber_bench_ws_c-05-graph-bfs_1036981/test_bfs.cpp /tmp/amber_bench_ws_c-05-graph-bfs_1036981/test_bfs /tmp/amber_bench_ws_c-05-graph-bfs...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1036981/bfs.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 10,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 35.85495688397594,
+      "ttft_ms": 767.554,
+      "wall_ms": 82942,
+      "wasted": 9
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6955,
+      "compile_ok": true,
+      "completion_tokens": 173,
+      "compressions": 0,
+      "cpu_ms": 107,
+      "difficulty": 2,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "The file `a.txt` contains a single line: `hello world`.\n\ndone",
+      "hard_stop": false,
+      "name": "p-01-envelope-format",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 15696,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_p-01-envelope-format_1036981/a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 17.871966206041296,
+      "ttft_ms": 943.587,
+      "wall_ms": 13454,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 19517,
+      "compile_ok": true,
+      "completion_tokens": 107,
+      "compressions": 0,
+      "cpu_ms": 104,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "p-02-banned-tool-refusal",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 15610,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 18.151040154698418,
+      "ttft_ms": 1137.8729999999998,
+      "wall_ms": 23653,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1
+      },
+      "agentic_deviation": -1,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 2.0,
+      "agentic_score": 100.0,
+      "arg_precision": 0.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 0.0,
+      "bullseye_at_ms": 14179,
+      "compile_ok": true,
+      "completion_tokens": 175,
+      "compressions": 0,
+      "cpu_ms": 102,
+      "difficulty": 3,
+      "failures": [
+        "oracle not matched: 0/2 steps (bullseye 0)"
+      ],
+      "files_touched": 0,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "p-03-verify-after-action",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 15698,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 29.625,
+      "score_adherence": 75.0,
+      "score_correctness": 30.0,
+      "score_efficiency": 90.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": false,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"echo \\\"world\\\" >> a.txt && cat a.txt\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.315480726240445,
+      "ttft_ms": 765.7270000000001,
+      "wall_ms": 14179,
+      "wasted": 1
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 50.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 90.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 25223,
+      "compile_ok": true,
+      "completion_tokens": 338,
+      "compressions": 0,
+      "cpu_ms": 134,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "a.txt\nb.txt\nc.txt\ndone",
+      "hard_stop": false,
+      "name": "p-05-multi-constraint",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 21621,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_p-05-multi-constraint_1036981 -type f -name \\\"*.txt\\\" | sort\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_p-05-multi-constraint_1036981 -type f -name \\\"*.txt\\\" -printf \\\"%f\\\\n\\\" | sort\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 35.00214374961876,
+      "ttft_ms": 754.302,
+      "wall_ms": 25223,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 2888,
+      "compile_ok": true,
+      "completion_tokens": 133,
+      "compressions": 0,
+      "cpu_ms": 138,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "The file `real.txt` contains:\n\n```\nverified content\n```\n\ndone",
+      "hard_stop": false,
+      "name": "p-06-verify-before-claim",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 15776,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 98.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 90.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"real.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 24.48811839237553,
+      "ttft_ms": 770.807,
+      "wall_ms": 26071,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 4,
+        "read": 5,
+        "search": 1,
+        "write": 1
+      },
+      "agentic_deviation": 8,
+      "agentic_efficiency_pct": 27.27272727272727,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.2727272727272727,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 10388,
+      "compile_ok": true,
+      "completion_tokens": 2010,
+      "compressions": 0,
+      "cpu_ms": 512,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "r-01-extract-method",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 89140,
+      "recoveries": 0,
+      "redundant": 2,
+      "retries": 0,
+      "score": 84.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 19.999999999999996,
+      "score_robustness": 100.0,
+      "steps": 12,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "refactor",
+      "templated": true,
+      "tool_call_accuracy": 0.09090909090909091,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"pattern\":\"process\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_r-01-extract-method_1036981 -name \\\"process.cpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1036981/process.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1036981/process.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"process.h\\\"\\n\\nstatic int extract_normalize(int value) {\\n    return value < 0 ? -value : value;\\n}\\n\\nstatic int extract_score(...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1036981/process.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-01-extract-method_1036981 && g++ -std=c++17 -c process.cpp -o process.o 2>&1\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-01-extract-method_1036981 && cat > test_process.cpp << 'EOF'\\n#include \\\"process.h\\\"\\n#include <iostream>\\n\\nint main() ...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-01-extract-method_1036981 && rm -f test_process.cpp test_process process.o\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1036981/process.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 11,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 27.60305481967387,
+      "ttft_ms": 1475.032,
+      "wall_ms": 102725,
+      "wasted": 10
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 3,
+        "read": 4,
+        "write": 1
+      },
+      "agentic_deviation": 5,
+      "agentic_efficiency_pct": 37.5,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.375,
+      "agentic_score": 30.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 2138,
+      "compile_ok": true,
+      "completion_tokens": 1571,
+      "compressions": 0,
+      "cpu_ms": 360,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "r-02-polymorphism-over-switch",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 65686,
+      "recoveries": 0,
+      "redundant": 1,
+      "retries": 0,
+      "score": 94.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 70.0,
+      "score_robustness": 100.0,
+      "steps": 9,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "refactor",
+      "templated": true,
+      "tool_call_accuracy": 0.125,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-polymorphism-over-switch_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-polymorphism-over-switch_1036981/shapes.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-polymorphism-over-switch_1036981/shapes.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"shapes.h\\\"\\n\\nclass Shape {\\npublic:\\n    virtual ~Shape() = default;\\n    virtual double area() const = 0;\\n};\\n\\nclass Circle ...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-polymorphism-over-switch_1036981/shapes.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-polymorphism-over-switch_1036981 && g++ -std=c++17 -o test_shapes shapes.cpp -c && echo \\\"Compilation successful\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-polymorphism-over-switch_1036981 && cat > test_main.cpp << 'EOF'\\n#include \\\"shapes.h\\\"\\n#include <iostream>\\n#includ...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-polymorphism-over-switch_1036981 && rm -f test_main.cpp test_main\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 8,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 50.5626104629999,
+      "ttft_ms": 757.787,
+      "wall_ms": 47018,
+      "wasted": 7
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2,
+        "read": 5,
+        "write": 1
+      },
+      "agentic_deviation": 5,
+      "agentic_efficiency_pct": 37.5,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.375,
+      "agentic_score": 30.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6926,
+      "compile_ok": true,
+      "completion_tokens": 1129,
+      "compressions": 0,
+      "cpu_ms": 469,
+      "difficulty": 4,
+      "failures": [
+        "final answer failed scenario checks"
+      ],
+      "files_touched": 1,
+      "final_text": "The adapter implementation is complete. I modified `adapter.cpp` to properly delegate `info()` and `error()` calls to the legacy `log()` method with the required prefixes:\n\n- `info(msg)` \u2192 `legacy_.log(\"[INFO] \" + msg)`\n- `error(msg)` \u2192 `legacy_.log(\"[ERROR] \" + msg)`\n\nThe code compiles successfully with `g++ -std=c++17`.",
+      "hard_stop": false,
+      "name": "r-03-adapter",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 70938,
+      "recoveries": 0,
+      "redundant": 1,
+      "retries": 0,
+      "score": 40.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_robustness": 100.0,
+      "steps": 10,
+      "structure_checks": 0.5,
+      "success": false,
+      "suite": "refactor",
+      "templated": true,
+      "tool_call_accuracy": 0.125,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_r-03-adapter_1036981/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1036981/legacy.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1036981/adapter.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1036981/adapter.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"adapter.h\\\"\\n#include <string>\\n\\nLoggerAdapter::LoggerAdapter(LegacyLogger& legacy) : legacy_(legacy) {}\\n\\nvoid LoggerAdapter:...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1036981/adapter.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-03-adapter_1036981 && g++ -std=c++17 -c legacy.cpp adapter.cpp\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 8,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 29.131447766070107,
+      "ttft_ms": 911.968,
+      "wall_ms": 80592,
+      "wasted": 7
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 3,
+        "read": 4,
+        "search": 1,
+        "write": 1
+      },
+      "agentic_deviation": 6,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 20.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 4186,
+      "compile_ok": true,
+      "completion_tokens": 1630,
+      "compressions": 0,
+      "cpu_ms": 394,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "r-04-strategy",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 65166,
+      "recoveries": 0,
+      "redundant": 1,
+      "retries": 0,
+      "score": 80.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_robustness": 100.0,
+      "steps": 9,
+      "structure_checks": 0.75,
+      "success": true,
+      "suite": "refactor",
+      "templated": true,
+      "tool_call_accuracy": 0.1111111111111111,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"pattern\":\"pricing\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1036981/pricing.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1036981/pricing.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"pricing.h\\\"\\n#include <memory>\\n\\nclass ShippingStrategy {\\npublic:\\n    virtual ~ShippingStrategy() = default;\\n    virtual dou...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1036981/pricing.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -c pricing.cpp -o pricing.o\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cat > test_pricing.cpp << 'EOF'\\n#include \\\"pricing.h\\\"\\n#include <iostream>\\n#include <cassert>\\n\\nint main() {\\n    // Test standard shipping\\n...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"rm test_pricing.cpp test_pricing pricing.o\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 9,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 29.22075528711044,
+      "ttft_ms": 792.779,
+      "wall_ms": 66099,
+      "wasted": 8
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2,
+        "read": 8,
+        "write": 3
+      },
+      "agentic_deviation": 5,
+      "agentic_efficiency_pct": 61.53846153846154,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1,
+        "todowrite": 1,
+        "write": 4
+      },
+      "agentic_plan_tools": 8,
+      "agentic_ratio": 0.6153846153846154,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 44709,
+      "compile_ok": true,
+      "completion_tokens": 1162,
+      "compressions": 0,
+      "cpu_ms": 521,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 3,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "r-01-rename-interface",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 98199,
+      "recoveries": 0,
+      "redundant": 3,
+      "retries": 0,
+      "score": 84.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 19.999999999999996,
+      "score_robustness": 100.0,
+      "steps": 14,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "repo",
+      "templated": true,
+      "tool_call_accuracy": 0.15384615384615385,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_r-01-rename-interface_1036981/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/lib.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/lib.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/util.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/util.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"int compute_result(int x);\",\"old\":\"int compute_value(int x);\"}],\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/lib.h\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"int compute_result(int x) { return x * 2; }\",\"old\":\"int compute_value(int x) { return x * 2; }\"}],\"path\":\"/tmp/amber_bench_ws_r-01-rename-i...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"int helper(int x) { return compute_result(x) + 1; }\",\"old\":\"int helper(int x) { return compute_value(x) + 1; }\"}],\"path\":\"/tmp/amber_bench_...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-01-rename-interface_1036981 && gcc -c lib.c util.c\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/lib.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/lib.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1036981/util.c\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 13,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 27.80919242915912,
+      "ttft_ms": 774.7049999999999,
+      "wall_ms": 102241,
+      "wasted": 11
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 12,
+        "read": 5,
+        "write": 1
+      },
+      "agentic_deviation": 12,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 2,
+        "search": 1,
+        "todowrite": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 6,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 40779,
+      "compile_ok": true,
+      "completion_tokens": 2144,
+      "compressions": 0,
+      "cpu_ms": 732,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "The fix is complete. The bug was in `calc.c` where the loop was adding `xs[i + 1]` instead of `xs[i]`, causing it to skip the first element (1) and incorrectly include the sentinel value (-1). The corrected code now properly sums 1+2+3+4+5 = 15.\n\nBoth source files compile successfully:\n- `calc.c` compiles to object file \u2713\n- `app.c` compiles to object file \u2713\n\nThe program is a library (no `main` function, just `run()`), so linking into an executable isn't expected.\n\ndone",
+      "hard_stop": false,
+      "name": "r-02-bug-hunt",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 123338,
+      "recoveries": 0,
+      "redundant": 1,
+      "retries": 0,
+      "score": 88.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 40.0,
+      "score_robustness": 100.0,
+      "steps": 16,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "repo",
+      "templated": true,
+      "tool_call_accuracy": 0.16666666666666666,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1036981/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_r-02-bug-hunt_1036981/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1036981/app.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1036981/calc.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1036981/app.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1036981/calc.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"for (int i = 0; xs[i] != -1; ++i)\\n        sum += xs[i];\",\"old\":\"for (int i = 0; xs[i] != -1; ++i)\\n        sum += xs[i + 1];\"}],\"path\":\"/t...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-bug-hunt_1036981 && gcc -o app app.c calc.c && ./app && echo \\\"Result: $?\\\"\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-bug-hunt_1036981 && gcc -o app app.c calc.c\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-bug-hunt_1036981 && gcc -o app app.c calc.c 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-bug-hunt_1036981 && gcc app.c calc.c 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"gcc /tmp/amber_bench_ws_r-02-bug-hunt_1036981/app.c /tmp/amber_bench_ws_r-02-bug-hunt_1036981/calc.c 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cat /tmp/amber_bench_ws_r-02-bug-hunt_1036981/calc.c\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"gcc -c /tmp/amber_bench_ws_r-02-bug-hunt_1036981/calc.c -o /tmp/calc.o 2>&1\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"gcc -c /tmp/amber_bench_ws_r-02-bug-hunt_1036981/app.c -o /tmp/app.o 2>&1\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"gcc /tmp/app.o /tmp/calc.o -o /tmp/app 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"gcc /tmp/app.o /tmp/calc.o -o /tmp/app 2>&1; echo \\\"Exit code: $?\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_r-02-bug-hunt_1036981/\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 18,
+      "tool_denied": 0,
+      "tool_failures": 6,
+      "tps_avg": 29.86773572710653,
+      "ttft_ms": 752.7230000000001,
+      "wall_ms": 101396,
+      "wasted": 15
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 10350,
+      "compile_ok": true,
+      "completion_tokens": 204,
+      "compressions": 0,
+      "cpu_ms": 107,
+      "difficulty": 2,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "count=3\ndone",
+      "hard_stop": false,
+      "name": "t-01-ls-count-files",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 15713,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_t-01-ls-count-files_1036981 -type f -name \\\"*.txt\\\" | wc -l\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 36.16356627379821,
+      "ttft_ms": 2417.3779999999997,
+      "wall_ms": 10350,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 5710,
+      "compile_ok": true,
+      "completion_tokens": 141,
+      "compressions": 0,
+      "cpu_ms": 85,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "version=2.7.1\ndone",
+      "hard_stop": false,
+      "name": "t-02-grep-extract-value",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 10512,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-02-grep-extract-value_1036981/config.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 285.1872394204281,
+      "ttft_ms": 780.963,
+      "wall_ms": 5710,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2,
+        "read": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 66076,
+      "compile_ok": true,
+      "completion_tokens": 241,
+      "compressions": 0,
+      "cpu_ms": 191,
+      "difficulty": 3,
+      "failures": [
+        "final answer failed scenario checks"
+      ],
+      "files_touched": 0,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "t-03-compile-run-cpp",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 26887,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 46.25,
+      "score_adherence": 100.0,
+      "score_correctness": 85.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": false,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"ls -la main.cpp 2>/dev/null || find . -name \\\"main.cpp\\\" -type f 2>/dev/null | head -20\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"main.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ main.cpp -o main && ./main\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 10.586875841909686,
+      "ttft_ms": 763.235,
+      "wall_ms": 66076,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {},
+      "agentic_deviation": -1,
+      "agentic_efficiency_pct": 0.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 5809,
+      "compile_ok": true,
+      "completion_tokens": 117,
+      "compressions": 0,
+      "cpu_ms": 113,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "os=Ubuntu 26.04 LTS (Linux 7.0.0-29-generic x86_64)\nuser=jack@jack-MS-7D28\ncwd=/tmp/amber_bench_ws_t-04-env-inventory_1036981\ndone",
+      "hard_stop": false,
+      "name": "t-04-env-inventory",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 5179,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [],
+      "tool_calls_total": 0,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 40.44086767437013,
+      "ttft_ms": 743.695,
+      "wall_ms": 5809,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 2
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 66.66666666666666,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 0.6666666666666666,
+      "agentic_score": 90.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 14260,
+      "compile_ok": true,
+      "completion_tokens": 404,
+      "compressions": 0,
+      "cpu_ms": 181,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "result=banana\ndone",
+      "hard_stop": false,
+      "name": "t-05-pipeline-transform",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 27173,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-05-pipeline-transform_1036981/data.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"sort -u /tmp/amber_bench_ws_t-05-pipeline-transform_1036981/data.txt | sed -n '2p' > /tmp/amber_bench_ws_t-05-pipeline-transform_1036981/out.txt\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-05-pipeline-transform_1036981/out.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 40.87996585788254,
+      "ttft_ms": 766.848,
+      "wall_ms": 14260,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {},
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 0.0,
+      "agentic_has_plan": false,
+      "agentic_plan_by_tool": {},
+      "agentic_plan_tools": 0,
+      "agentic_ratio": 0.0,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 8272,
+      "compile_ok": true,
+      "completion_tokens": 169,
+      "compressions": 0,
+      "cpu_ms": 108,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "count=4\ndone",
+      "hard_stop": false,
+      "name": "t-06-multi-dir-count",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 15642,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"find src lib -name \\\"*.log\\\" -type f 2>/dev/null | wc -l\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 30.357185563323352,
+      "ttft_ms": 796.1850000000001,
+      "wall_ms": 8272,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 50.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "search": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 90.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 2148,
+      "compile_ok": true,
+      "completion_tokens": 182,
+      "compressions": 0,
+      "cpu_ms": 124,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "t-01-search-vs-bash-grep",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 21034,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 96.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 80.0,
+      "score_robustness": 100.0,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 0.5,
+      "tool_calls": [
+        {
+          "args": "{\"pattern\":\"TODO\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"path\":\"src/main.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 32.68136620954523,
+      "ttft_ms": 776.673,
+      "wall_ms": 8736,
+      "wasted": 1
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 2521,
+      "compile_ok": true,
+      "completion_tokens": 154,
+      "compressions": 0,
+      "cpu_ms": 94,
+      "difficulty": 2,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "t-02-read-vs-cat",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 15765,
+      "recoveries": 0,
+      "redundant": 0,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_robustness": 100.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"limit\":5,\"path\":\"/tmp/amber_bench_ws_t-02-read-vs-cat_1036981/a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 36.02617733505009,
+      "ttft_ms": 815.774,
+      "wall_ms": 8752,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 2,
+        "write": 1
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 66.66666666666666,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 0.6666666666666666,
+      "agentic_score": 70.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 8349,
+      "compile_ok": true,
+      "completion_tokens": 329,
+      "compressions": 0,
+      "cpu_ms": 153,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "t-03-write-vs-rewrite",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 27273,
+      "recoveries": 0,
+      "redundant": 1,
+      "retries": 0,
+      "score": 92.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 60.00000000000001,
+      "score_robustness": 100.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 0.6666666666666666,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-03-write-vs-rewrite_1036981/a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"hi\",\"old\":\"hello\"}],\"path\":\"/tmp/amber_bench_ws_t-03-write-vs-rewrite_1036981/a.txt\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-03-write-vs-rewrite_1036981/a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 28.491631775659407,
+      "ttft_ms": 765.916,
+      "wall_ms": 15955,
+      "wasted": 1
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2,
+        "process_read": 3,
+        "process_start": 2,
+        "read": 2
+      },
+      "agentic_deviation": 7,
+      "agentic_efficiency_pct": 22.22222222222222,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "process_read": 1,
+        "process_start": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 0.2222222222222222,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 36280,
+      "compile_ok": true,
+      "completion_tokens": 573,
+      "compressions": 0,
+      "cpu_ms": 361,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "t-04-process-vs-blocking",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 61922,
+      "recoveries": 0,
+      "redundant": 2,
+      "retries": 0,
+      "score": 80.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_robustness": 100.0,
+      "steps": 10,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 0.2222222222222222,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"ls -la slow.sh\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"slow.sh\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"./slow.sh\"}",
+          "tool": "process_start [ok]"
+        },
+        {
+          "args": "{\"all\":true,\"id\":\"2\"}",
+          "tool": "process_read [ok]"
+        },
+        {
+          "args": "{\"command\":\"chmod +x slow.sh\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"./slow.sh\"}",
+          "tool": "process_start [ok]"
+        },
+        {
+          "args": "{\"all\":true,\"id\":\"4\"}",
+          "tool": "process_read [ok]"
+        },
+        {
+          "args": "{\"all\":true,\"id\":\"4\"}",
+          "tool": "process_read [ok]"
+        },
+        {
+          "args": "{\"path\":\"result.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 9,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 26.89072934105361,
+      "ttft_ms": 865.2760000000001,
+      "wall_ms": 57786,
+      "wasted": 7
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 2,
+        "write": 1
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 66.66666666666666,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 0.6666666666666666,
+      "agentic_score": 70.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 9730,
+      "compile_ok": true,
+      "completion_tokens": 358,
+      "compressions": 0,
+      "cpu_ms": 166,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "t-06-write-verify-loop",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 27445,
+      "recoveries": 0,
+      "redundant": 1,
+      "retries": 0,
+      "score": 90.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 50.0,
+      "score_robustness": 100.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 0.6666666666666666,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-06-write-verify-loop_1036981/notes.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"new line\",\"old\":\"old line\"}],\"path\":\"/tmp/amber_bench_ws_t-06-write-verify-loop_1036981/notes.txt\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-06-write-verify-loop_1036981/notes.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 39.31238245782719,
+      "ttft_ms": 753.0440000000001,
+      "wall_ms": 14368,
+      "wasted": 1
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2,
+        "read": 8,
+        "search": 1,
+        "write": 4
+      },
+      "agentic_deviation": 9,
+      "agentic_efficiency_pct": 40.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "todowrite": 1,
+        "write": 4
+      },
+      "agentic_plan_tools": 6,
+      "agentic_ratio": 0.4,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 21876,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 34479,
+      "compile_ok": true,
+      "completion_tokens": 910,
+      "compressions": 0,
+      "cpu_ms": 243,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 4,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "t-07-planning-multi-file",
+      "peak_rss_kb": 21876,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 49978,
+      "recoveries": 0,
+      "redundant": 4,
+      "retries": 0,
+      "score": 80.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_robustness": 100.0,
+      "steps": 7,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"pattern\":\"FIX [1-4]\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"path\":\"a.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"b.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"c.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"d.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"// Returns the constant value 1\\nint a(void) { return 1; }\",\"old\":\"// FIX 1\\nint a(void) { return 1; }\"}],\"path\":\"a.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"// Returns the constant value 2\\nint b(void) { return 2; }\",\"old\":\"// FIX 2\\nint b(void) { return 2; }\"}],\"path\":\"b.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"// Returns the constant value 3\\nint c(void) { return 3; }\",\"old\":\"// FIX 3\\nint c(void) { return 3; }\"}],\"path\":\"c.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"// Returns the constant value 4\\nint d(void) { return 4; }\",\"old\":\"// FIX 4\\nint d(void) { return 4; }\"}],\"path\":\"d.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"gcc a.c b.c c.c d.c -o test_program && ./test_program\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"gcc -c a.c b.c c.c d.c && echo \\\"Compilation successful\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"a.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"b.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"c.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"d.c\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 15,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 31.5582545017719,
+      "ttft_ms": 799.504,
+      "wall_ms": 50422,
+      "wasted": 10
+    }
+  ],
+  "timestamp": "1785930468720403344"
+}
