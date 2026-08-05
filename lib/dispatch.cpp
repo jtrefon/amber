@@ -242,12 +242,13 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
                                     {"ok", res.ok},
                                     {"output", res.ok ? res.output : res.error}});
 
+        json call_args = c.args;
         Message tool_msg;
         tool_msg.role = "tool";
         tool_msg.tool_call_id = c.id;
         tool_msg.name = c.fn;
         tool_msg.content = utf8_sanitize(
-            format_tool_envelope(c.fn, res));
+            format_tool_envelope(c.fn, call_args, res));
         context->push(std::move(tool_msg));
     };
 
