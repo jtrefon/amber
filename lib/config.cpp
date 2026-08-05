@@ -33,6 +33,8 @@ void Config::load(const std::string& path) {
         else if (key == "max_tool_iterations") max_tool_iterations = std::stoi(val);
         else if (key == "temperature") temperature = std::stod(val);
         else if (key == "max_tokens") max_tokens = std::stoul(val);
+        else if (key == "task_tool")
+            task_tool = (val == "1" || val == "true" || val == "yes");
         else if (key == "subagent_parallel")
             subagent_parallel = (val == "1" || val == "true" || val == "yes");
         else if (key == "subagent_max")
@@ -241,6 +243,8 @@ void Config::apply_environment() {
     if (s) stream = (std::string(s) == "1" || std::string(s) == "true");
     const char* pt = std::getenv("AMBER_PLAN_TOOL");
     if (pt) plan_tool = (std::string(pt) == "1" || std::string(pt) == "true");
+    const char* tt = std::getenv("AMBER_TASK_TOOL");
+    if (tt) task_tool = (std::string(tt) == "1" || std::string(tt) == "true");
     const char* spa = std::getenv("AMBER_SUBAGENT_PARALLEL");
     if (spa) subagent_parallel = (std::string(spa) == "1" || std::string(spa) == "true");
     const char* sma = std::getenv("AMBER_SUBAGENT_MAX");

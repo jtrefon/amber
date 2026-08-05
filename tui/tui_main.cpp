@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
     agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
-                        cfg.plan_tool, subagents);
+                        cfg.plan_tool, subagents, cfg.task_tool);
     subagents.set_config(cfg);
     subagents.set_parallel(cfg.subagent_parallel);
     subagents.set_max(cfg.subagent_max);
