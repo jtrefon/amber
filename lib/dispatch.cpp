@@ -246,8 +246,9 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         tool_msg.role = "tool";
         tool_msg.tool_call_id = c.id;
         tool_msg.name = c.fn;
+        json call_args = c.args;
         tool_msg.content = utf8_sanitize(
-            format_tool_envelope(c.fn, res));
+            format_tool_envelope(c.fn, call_args, res));
         context->push(std::move(tool_msg));
     };
 
