@@ -730,7 +730,7 @@ TEST(agent_loop_subagent_focused_task) {
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor);
+                                  false, executor, true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     // Parent turn 1: delegate. Then the sub-agent's turns: read, report,
     // probe-confirm; the parent then chats "done" and probe-confirms "yes".
@@ -776,7 +776,7 @@ TEST(agent_loop_subagent_iteration_cap) {
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor);
+                                  false, executor, true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "never stop"}});
     for (int i = 0; i < 200; ++i)
@@ -817,7 +817,7 @@ TEST(agent_loop_subagent_serial_mode) {
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor);
+                                  false, executor, true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     // One reply issuing BOTH task calls; the shared script serves both
     // sub-agents in order (serialized), then the parent finishes.
@@ -873,7 +873,7 @@ TEST(agent_loop_subagent_parallel_mode) {
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor);
+                                  false, executor, true);
     // The parent's own script: two task calls then finish.
     auto parent_script = std::make_shared<std::deque<agent_test::FakeReply>>();
     agent_test::FakeReply two_calls;
@@ -927,7 +927,7 @@ TEST(agent_loop_subagent_nesting_guard) {
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor);
+                                  false, executor, true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "go"}});
     push_tool_call(script, "task", {{"prompt", "nested"}});

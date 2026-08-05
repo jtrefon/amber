@@ -40,6 +40,7 @@ struct Scenario {
     agent::json setup = agent::json::object();  // {files: {path: content}, shell: [...]}
     std::string prompt;
     agent::json fake_replies = agent::json::array();  // hermetic script
+    std::vector<agent::json> subagent_replies;        // hermetic: per-sub-agent scripts
     bool stream = false;        // hermetic: use the streaming path
     std::vector<ScenarioStep> oracle;
     std::vector<std::string> forbidden_tools;
@@ -51,6 +52,7 @@ struct Scenario {
     int expected_steps = 0;     // 0 = oracle size (or 5) — efficiency baseline
     int max_steps = 0;          // 0 = unlimited
     long max_wall_ms = 0;       // 0 = unlimited
+    bool task_tool = false;     // enable the task tool for this scenario
 };
 
 // Parse and validate a scenario file. Returns nullopt with a message on error.

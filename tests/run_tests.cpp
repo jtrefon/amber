@@ -405,7 +405,7 @@ TEST(registry_register_and_find) {
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
-    ASSERT_EQ(r.tools().size(), 8u);
+    ASSERT_EQ(r.tools().size(), 7u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -413,8 +413,18 @@ TEST(registry_register_and_find) {
     ASSERT(r.find("process_start") != nullptr);
     ASSERT(r.find("process_read") != nullptr);
     ASSERT(r.find("process_stop") != nullptr);
-    ASSERT(r.find("task") != nullptr);
     ASSERT(r.find("nonexistent") == nullptr);
+}
+
+TEST(registry_task_tool_opt_in) {
+    agent::ToolRegistry r;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor ex;
+    agent::register_default_tools(r, jobs, todos, agent::CancellationToken{},
+                                  false, ex, true);
+    ASSERT_EQ(r.tools().size(), 8u);
+    ASSERT(r.find("task") != nullptr);
 }
 
 TEST(registry_schema_shape) {
@@ -424,7 +434,7 @@ TEST(registry_schema_shape) {
     agent::register_default_tools(r, jobs, todos);
     agent::json s = r.schema();
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 8u);
+    ASSERT_EQ(s.size(), 7u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");

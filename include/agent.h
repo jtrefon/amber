@@ -33,7 +33,8 @@ void register_default_tools(ToolRegistry& reg, JobService& jobs,
                             TodoStore& todos,
                             const CancellationToken& cancel_token = {},
                             bool enable_plan_tool = false,
-                            SubAgentExecutor& subagents = g_empty_subagents);
+                            SubAgentExecutor& subagents = g_empty_subagents,
+                            bool enable_task_tool = false);
 }
 
 #endif // AGENT_AGENT_H_ALL

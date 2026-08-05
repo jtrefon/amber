@@ -946,7 +946,7 @@ TEST(subagent_hooks_do_not_leak) {
     TodoStore todos;
     SubAgentExecutor executor;
     register_default_tools(reg, jobs, todos, CancellationToken{}, false,
-                           executor);
+                           executor, true);
 
     auto parent_script = std::make_shared<std::deque<bench::BenchReply>>();
     auto sub_script = std::make_shared<std::deque<bench::BenchReply>>();
