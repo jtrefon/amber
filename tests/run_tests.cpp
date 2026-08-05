@@ -421,6 +421,39 @@ TEST(registry_register_and_find) {
     ASSERT(r.find("nonexistent") == nullptr);
 }
 
+TEST(provider_apply_carries_saved_api_key) {
+    // /set provider <saved> must activate the saved provider's key too —
+    // switching with an empty key leaves the probe failing (401) and the
+    // model list empty.
+    const std::string dir = agent::global_config_dir() + "/providers";
+    std::filesystem::create_directories(dir);
+    const std::string path = dir + "/zzz_key_provider.conf";
+    {
+        std::ofstream f(path);
+        f << "provider=zzz_key_provider\n"
+             "api_base=http://127.0.0.1:9999/v1\n"
+             "api_key=sk-zzz-secret\n";
+    }
+    agent::Config c;
+    c.apply_provider("zzz_key_provider");
+    ASSERT_EQ(c.provider_name, "zzz_key_provider");
+    ASSERT_EQ(c.api_base, "http://127.0.0.1:9999/v1");
+    ASSERT_EQ(c.api_key, "sk-zzz-secret");
+    // A key-less saved provider must not clobber a manually set key.
+    const std::string path2 = dir + "/zzz_nokey_provider.conf";
+    {
+        std::ofstream f(path2);
+        f << "provider=zzz_nokey_provider\n"
+             "api_base=http://127.0.0.1:9998/v1\n";
+    }
+    agent::Config c2;
+    c2.api_key = "sk-existing";
+    c2.apply_provider("zzz_nokey_provider");
+    ASSERT_EQ(c2.api_key, "sk-existing");
+    std::remove(path.c_str());
+    std::remove(path2.c_str());
+}
+
 TEST(provider_is_known_includes_saved) {
     ASSERT(agent::is_known_provider("openrouter"));
     ASSERT(agent::is_known_provider("kilocode"));

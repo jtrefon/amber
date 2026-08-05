@@ -178,6 +178,9 @@ void Config::apply_provider(const std::string& name) {
     if (load_provider(name, saved)) {
         provider_name = saved.provider_name;
         if (!saved.api_base.empty()) api_base = saved.api_base;
+        // The saved key travels with the provider: switching without it
+        // leaves the probe failing (401) and the model list empty.
+        if (!saved.api_key.empty()) api_key = saved.api_key;
         if (!saved.model.empty()) { model = saved.model; model_explicit = saved.model_explicit; }
         if (saved.default_context_size > 0 && !context_explicit)
             context_size = saved.default_context_size;
