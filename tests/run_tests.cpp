@@ -514,6 +514,22 @@ TEST(registry_task_tool_opt_in) {
     ASSERT(r.find("task") != nullptr);
 }
 
+TEST(registry_repeated_registration_dedups) {
+    // A second Agent (new window/session) re-registers skill tools into
+    // the shared registry; duplicate names in the tools[] schema are
+    // rejected by strict servers ("Tool names must be unique").
+    agent::ToolRegistry r;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(r, jobs, todos);
+    const size_t first = r.tools().size();
+    agent::register_default_tools(r, jobs, todos);
+    ASSERT_EQ(r.tools().size(), first);  // no duplicates
+    std::set<std::string> names;
+    for (const auto& t : r.tools()) names.insert(t->name());
+    ASSERT_EQ(names.size(), first);      // schema names unique
+}
+
 TEST(registry_schema_shape) {
     agent::ToolRegistry r;
     agent::JobService jobs;
