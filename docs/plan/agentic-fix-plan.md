@@ -397,6 +397,28 @@ delegated (bullseye 1.0, 0 wasted steps)** vs 0% unprompted. Conclusion:
 the mechanism works; usage follows task framing, not availability.
 Records: `bench/results/prompt-v2/nemotron-550b-p4*.json`, `-d01.json`.
 
+## 6c. P3 status (2026-08-04, NEGATIVE — reverted)
+
+Experiment: trimmed tools.md 172 → 131 lines (per-tool parameter tables
+removed; one-line index + result contracts kept — the schemas already carry
+the parameter descriptions). Hypothesis: less prose to skim → fewer
+wrong-arg calls.
+
+A/B on Nemotron 550B free (2 runs, same corpus):
+
+| metric | P2v2 mean | P3 r1 | P3 r2 | Δ |
+|---|---|---|---|---|
+| score | 85.1 | 80.6 | 83.3 | −3.2 |
+| pass | 24.5 | 22 | 24 | −1.5 |
+| steps | 181.5 | 186 | 187 | +5.0 |
+| failures | 15.5 | 17 | 13 | −0.5 |
+
+Verdict: **mild regression, hypothesis not supported** — the parameter
+tables carried defaults/constraints the model actually used. Reverted to
+the P2v2 prompt. Records kept in `bench/results/prompt-v2/`. Lesson: prose
+tool tables are load-bearing for this model class; schema descriptions do
+not fully replace them.
+
 ## 6. Sequencing, acceptance, PRs
 
 | Order | Item | PR title prefix | Acceptance |
