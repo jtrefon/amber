@@ -654,3 +654,18 @@ TEST(test_subagent_tree_nodes) {
     REQUIRE_NONEMPTY(set_kids);
     ASSERT_EQ(set_kids.size(), 2u);
 }
+
+// ── Test: reasoning effort lives in the get/set tree ──────────────
+
+TEST(test_reasoning_tree_nodes) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    ASSERT(!reg.help_for("reasoning.effort").empty());
+    ASSERT(!reg.man_for("reasoning.effort").empty());
+    auto ch = reg.choices_for("reasoning.effort");
+    REQUIRE_NONEMPTY(ch);
+    ASSERT_EQ(ch[0], "off");
+    ASSERT_EQ(ch[1], "low");
+    ASSERT_EQ(ch[2], "medium");
+    ASSERT_EQ(ch[3], "high");
+}

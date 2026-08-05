@@ -82,6 +82,7 @@ TEST(config_load_key_value) {
         f << "stream=false\n";
         f << "subagent_parallel=false\n";
         f << "subagent_max=2\n";
+        f << "reasoning_effort=high\n";
     }
     agent::Config c;
     c.load(path);
@@ -92,6 +93,7 @@ TEST(config_load_key_value) {
     ASSERT_FALSE(c.stream);
     ASSERT_FALSE(c.subagent_parallel);
     ASSERT_EQ(c.subagent_max, 2);
+    ASSERT_EQ(c.reasoning_effort, "high");
     std::remove(path.c_str());
 }
 
@@ -160,8 +162,11 @@ TEST(config_save_settings_keeps_llm_global) {
     std::ifstream f(path);
     std::string body((std::istreambuf_iterator<char>(f)),
                      std::istreambuf_iterator<char>());
+    std::fprintf(stderr, "[dbg] body(%zu): %.300s\n", body.size(), body.c_str());
     ASSERT(body.find("api_base=") == std::string::npos);
+    std::fprintf(stderr, "[dbg] body(%zu): %.300s\n", body.size(), body.c_str());
     ASSERT(body.find("api_key=") == std::string::npos);
+    std::fprintf(stderr, "[dbg] body(%zu): %.300s\n", body.size(), body.c_str());
     ASSERT(body.find("model=") == std::string::npos);
     std::remove(path.c_str());
 }
@@ -875,7 +880,7 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
     if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) { close(fd); return -1; }
     listen(fd, 1);
     body_out.clear();
-    std::thread t([fd, sse_override]() {
+    std::thread t([fd, sse_override, &body_out]() {
         int c = accept(fd, nullptr, nullptr);
         if (c < 0) return;
         // read the request (headers + body) until we have it
@@ -887,7 +892,22 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
             req.append(buf, n);
             if (req.find("\r\n\r\n") != std::string::npos) break;
         }
-        (void)req;
+        // Drain the request body (Content-Length) so body_out is complete.
+        {
+            size_t hl = req.find("\r\n\r\n");
+            if (hl != std::string::npos) {
+                const size_t cl = req.find("Content-Length:");
+                if (cl != std::string::npos) {
+                    long len = std::atol(req.c_str() + cl + 15);
+                    while ((long)req.size() < (long)hl + 4 + len) {
+                        int n = recv(c, buf, sizeof(buf) - 1, 0);
+                        if (n <= 0) break;
+                        req.append(buf, n);
+                    }
+                }
+            }
+        }
+        body_out = req;
         std::string sse = !sse_override.empty() ? sse_override :
             std::string(
             "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
@@ -3381,4 +3401,42 @@ TEST(compression_gate_hermetic_conditions) {
         ctx.push(msg("tool", "content"));
     }
     ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(llm_reasoning_effort_in_request_body) {
+    std::string body;
+    int srv = spawn_mock_sse(8915, body);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8915/v1";
+    cfg.stream = true;
+    cfg.reasoning_effort = "high";
+    agent::HttpLLMClient client(cfg);
+    agent::Message reply = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT(body.find("\"reasoning_effort\":\"high\"") != std::string::npos);
+    close(srv);
+}
+
+TEST(agent_set_reasoning_effort_rebuilds_client) {
+    agent::Workspace::set_root("/tmp/amber_rsn_test");
+    agent::Config cfg;
+    cfg.stream = false;
+    cfg.max_tool_iterations = 10;
+    cfg.system_prompt_path = "prompts/system.md";
+    cfg.tools_prompt_path = "prompts/tools.md";
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos);
+
+    std::string factory_seen;
+    agent::LLMClientFactory factory = [&factory_seen](const agent::Config& c) {
+        factory_seen = c.reasoning_effort;
+        return std::make_unique<agent::HttpLLMClient>(c);
+    };
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, nullptr, factory);
+    ag.set_reasoning_effort("high");
+    ASSERT_EQ(factory_seen, "high");
 }

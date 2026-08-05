@@ -222,6 +222,27 @@ void Tui::cmd_get_subagent() {
     draw();
 }
 
+void Tui::cmd_set_reasoning_effort(const std::string& val) {
+    if (val != "off" && val != "low" && val != "medium" && val != "high") {
+        append_line(P_STATUS,
+                    "usage: /set reasoning effort off|low|medium|high (got: " +
+                        val + ")");
+        return;
+    }
+    cfg_.reasoning_effort = val;
+    for (auto& w : windows_)
+        if (w->agent) w->agent->set_reasoning_effort(val);
+    cfg_.save_settings(settings_path_);
+    append_line(P_STATUS, "reasoning effort: " + val +
+                              " (applies from the next turn)");
+    draw();
+}
+
+void Tui::cmd_get_reasoning() {
+    append_line(P_STATUS, "reasoning effort: " + cfg_.reasoning_effort);
+    draw();
+}
+
 void Tui::cmd_set(const std::string& arg) {
     // Dotted keys via SettingRegistry (e.g. "compression.threshold 0.8").
     if (arg.find('.') != std::string::npos) {
@@ -1285,6 +1306,11 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_detection("duplicate"); });
     register_action("core.config.get.subagent",
         [this](const std::string&) { cmd_get_subagent(); });
+    register_action("core.config.set.reasoning.effort", [this](const std::string& v) {
+        cmd_set_reasoning_effort(v);
+    });
+    register_action("core.config.get.reasoning",
+        [this](const std::string&) { cmd_get_reasoning(); });
     register_action("core.config.get.compression",
         [this](const std::string&) { cmd_get_compression(); });
     register_action("core.config.get.skills",
@@ -2221,6 +2247,16 @@ void Tui::build_settings() {
         [this](const std::string& v) {
             if (v == "toggle") cfg_.detection_duplicate = !cfg_.detection_duplicate;
             else cfg_.detection_duplicate = (v == "on");
+            cfg_.save_settings(settings_path_);
+        });
+    add("reasoning.effort", "Reasoning effort", "<off|low|medium|high>", Setting::Choice,
+        {"off","low","medium","high"}, 0, 0,
+        [this](){ return cfg_.reasoning_effort; },
+        [this](const std::string& v) {
+            if (v != "off" && v != "low" && v != "medium" && v != "high") return;
+            cfg_.reasoning_effort = v;
+            for (auto& w : windows_)
+                if (w->agent) w->agent->set_reasoning_effort(v);
             cfg_.save_settings(settings_path_);
         });
     add("subagent.parallel", "Sub-agent parallelism", "<on|off|toggle>", Setting::Choice,

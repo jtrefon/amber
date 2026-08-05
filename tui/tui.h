@@ -231,6 +231,8 @@ private:
     void cmd_set_subagent_parallel(const std::string& val);
     void cmd_set_subagent_max(const std::string& val);
     void cmd_get_subagent();
+    void cmd_set_reasoning_effort(const std::string& val);
+    void cmd_get_reasoning();
     void cmd_model_set(const std::string& arg);
     void cmd_provider_list();    void cmd_provider_delete(const std::string& name);
     void cmd_provider_test(const std::string& name);

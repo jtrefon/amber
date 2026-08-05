@@ -211,6 +211,11 @@
      "action": "core.config.get.subagent",
      "help": "Show sub-agent execution settings.",
      "man": "Shows whether the task tool runs sub-agents in parallel and the maximum concurrency cap."
+    },
+    "reasoning": {
+     "action": "core.config.get.reasoning",
+     "help": "Show reasoning effort.",
+     "man": "Shows the current reasoning effort value sent to the server (off/low/medium/high)."
     }
    }
   },
@@ -416,6 +421,24 @@
        "action": "core.config.set.subagent.max",
        "help": "Maximum concurrent sub-agents.",
        "man": "Upper bound on simultaneously running worker agents when parallel is on. Range 1-16."
+      }
+     }
+    },
+    "reasoning": {
+     "action": "core.config.set.reasoning",
+     "help": "Reasoning effort settings.",
+     "man": "Controls the model's reasoning strength for OpenAI-compatible servers that support the reasoning_effort field (o-series, vLLM, DeepSeek). off disables it; low/medium/high trade depth against speed and cost.",
+     "children": {
+      "effort": {
+       "action": "core.config.set.reasoning.effort",
+       "help": "Reasoning effort (off/low/medium/high).",
+       "man": "Sent as the reasoning_effort field in chat completions. off omits nothing and disables reasoning where supported; low/medium/high select the reasoning budget. Changes apply to the next turn and are persisted.",
+       "choices": [
+        "off",
+        "low",
+        "medium",
+        "high"
+       ]
       }
      }
     }
