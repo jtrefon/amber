@@ -21,7 +21,7 @@ Every tool result — regardless of which tool, regardless of success or
 failure — uses the exact same form:
 
 ```
-[tool=<name> args=<json> status=<status> meta=<json>]
+[tool=<name> status=<status> meta=<json>]
 <content>
 [end]
 ```
