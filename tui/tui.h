@@ -344,6 +344,7 @@ public:
 
     // ---- member variables -----------------------------------------------
     agent::Config cfg_;
+    std::unique_ptr<agent::ProviderService> providers_;
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;
     agent::SubAgentExecutor& subagents_;       // host-owned; shared with process_* tools

@@ -44,23 +44,19 @@ int main(int argc, char** argv) {
         std::string global_path = agent::global_config_path();
         std::ifstream sf(global_path);
         if (sf) tmp.load(global_path);
-        overlay_global_config(cfg, tmp);
-        if (!tmp.model.empty() && !cfg.model_explicit) { cfg.model = tmp.model; }
-        if (tmp.context_size > 0 && !cfg.context_explicit) { cfg.context_size = tmp.context_size; }
+        // The provider domain resolves the active provider and auto-loads
+        // its last-used model; the user's explicit choice is remembered
+        // per provider (default_model), so it survives restarts.
+        auto providers = agent::make_default_provider_service(cfg);
+        if (!tmp.provider_name.empty()) {
+            auto sel = providers->select(tmp.provider_name);
+            if (sel.ok()) agent::apply_selection(cfg, sel);
+        }
 
-        // Load project-level amber.conf unconditionally (like the CLI does).
-        // This overlays on top of the global config so api_base, api_key, and
-        // context from amber.conf take effect even when a managed provider is
-        // configured globally. A model explicitly saved via /model set (global
-        // config) is re-asserted afterwards: the user's explicit choice must
-        // survive restarts instead of being clobbered by a stale project
-        // default.
+        // Project-level amber.conf may still pin data paths; endpoint and
+        // model come from the provider domain above.
         std::ifstream sf2("amber.conf");
         if (sf2) cfg.load("amber.conf");
-        if (!tmp.model.empty() && tmp.model_explicit) {
-            cfg.model = tmp.model;
-            cfg.model_explicit = true;
-        }
     }
 
     // Project-local overrides (non-LLM settings) live in .amber/settings so they

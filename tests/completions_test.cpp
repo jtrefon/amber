@@ -688,3 +688,11 @@ TEST(test_get_mcp_learn_tree_nodes) {
     ASSERT(!reg.help_for("get.learn").empty());
     ASSERT(!reg.man_for("mcp").empty());
 }
+
+// ── Test: get provider list node ─────────────────────────────────
+
+TEST(test_get_provider_list_node) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    ASSERT(!reg.help_for("provider.list").empty());
+}

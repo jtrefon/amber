@@ -97,7 +97,14 @@
     "provider": {
      "action": "core.config.get.provider",
      "help": "Show the active provider name and API base URL.",
-     "man": "Shows the currently selected provider name and its API endpoint URL. Providers are managed via '/provider' commands."
+     "man": "Shows the currently selected provider name and its API endpoint URL. Providers are managed via '/provider' commands.",
+     "children": {
+      "list": {
+       "action": "core.config.get.provider.list",
+       "help": "List available providers.",
+       "man": "Lists every available provider: built-in presets, saved providers and custom. The active provider is marked."
+      }
+     }
     },
     "toolfold": {
      "action": "core.config.get.toolfold",

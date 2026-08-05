@@ -42,7 +42,9 @@ static void signal_handler(int sig) {
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
           agent::SubAgentExecutor& subagents, agent::PluginManager& plugins)
-    : cfg_(std::move(cfg)), reg_(reg), jobs_(jobs), subagents_(subagents),
+    : cfg_(std::move(cfg)),
+      providers_(agent::make_default_provider_service(cfg_)),
+      reg_(reg), jobs_(jobs), subagents_(subagents),
       plugins_(plugins),
       mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token),
       settings_path_(agent::Workspace::local_dir() + "/settings") {

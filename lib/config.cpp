@@ -112,102 +112,6 @@ std::string global_config_path() {
     return global_config_dir() + "/config";
 }
 
-void overlay_global_config(Config& cfg, const Config& global) {
-    if (!global.provider_name.empty() && global.provider_name != "custom")
-        cfg.apply_provider(global.provider_name);
-    if (!global.api_key.empty()) cfg.api_key = global.api_key;
-    if (!global.model.empty() && !cfg.model_explicit) {
-        cfg.model = global.model;
-        cfg.model_explicit = global.model_explicit;
-    }
-    if (global.context_size > 0 && !cfg.context_explicit) {
-        cfg.context_size = global.context_size;
-        cfg.context_explicit = global.context_explicit;
-    }
-}
-
-bool is_known_provider(const std::string& name) {
-    // provider::find falls back to the "custom" preset; only a real
-    // name match counts as a built-in.
-    if (provider::find(name)->name == name) return true;
-    const auto saved = list_saved_providers();
-    return std::find(saved.begin(), saved.end(), name) != saved.end();
-}
-
-std::string providers_dir() {
-    std::string dir = global_config_dir() + "/providers";
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    return dir;
-}
-
-std::vector<std::string> list_saved_providers() {
-    std::vector<std::string> out;
-    std::string dir = providers_dir();
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-        std::string name = entry.path().filename().string();
-        if (name.size() < 5 || name.substr(name.size() - 5) != ".conf")
-            continue;
-        out.push_back(name.substr(0, name.size() - 5));
-    }
-    return out;
-}
-
-bool load_provider(const std::string& name, Config& out) {
-    std::string path = providers_dir() + "/" + name + ".conf";
-    std::ifstream f(path);
-    if (!f) return false;
-    out.load(path);
-    return !out.api_base.empty();
-}
-
-bool save_provider(const Config& cfg) {
-    std::string dir = providers_dir();
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    std::string path = dir + "/" + cfg.provider_name + ".conf";
-    std::ofstream f(path, std::ios::trunc);
-    if (!f) return false;
-    f << "# amber provider: " << cfg.provider_name << "\n";
-    f << "provider=" << cfg.provider_name << "\n";
-    f << "api_base=" << cfg.api_base << "\n";
-    f << "api_key=" << cfg.api_key << "\n";
-    f << "default_model=" << cfg.model << "\n";
-    f << "requires_key=" << (cfg.api_key.empty() ? "0" : "1") << "\n";
-    if (cfg.context_size > 0)
-        f << "default_context_size=" << cfg.context_size << "\n";
-    return static_cast<bool>(f);
-}
-
-bool delete_provider(const std::string& name) {
-    std::string path = providers_dir() + "/" + name + ".conf";
-    return std::filesystem::remove(path);
-}
-
-void Config::apply_provider(const std::string& name) {
-    // First, try loading a saved provider file; its fields (including
-    // default_context_size) take precedence over built-in presets.
-    Config saved;
-    if (load_provider(name, saved)) {
-        provider_name = saved.provider_name;
-        if (!saved.api_base.empty()) api_base = saved.api_base;
-        // The saved key travels with the provider: switching without it
-        // leaves the probe failing (401) and the model list empty.
-        if (!saved.api_key.empty()) api_key = saved.api_key;
-        if (!saved.model.empty()) { model = saved.model; model_explicit = saved.model_explicit; }
-        if (saved.default_context_size > 0 && !context_explicit)
-            context_size = saved.default_context_size;
-        return;
-    }
-    auto* p = provider::find(name);
-    if (!p || p->name == "custom") return;
-    provider_name = p->name;
-    api_base = p->api_base;
-    if (model.empty() || model == "gpt-4o-mini")
-        model = p->default_model;
-}
-
 bool Config::save_global(const std::string& path) const {
     std::error_code ec;
     std::filesystem::path p(path);
@@ -303,17 +207,6 @@ std::vector<std::string> Config::validate() const {
 
     if (model.empty())
         errs.emplace_back("model is empty");
-
-    // Managed providers (OpenRouter, Kilo Code) require an API key UNLESS
-    // the user has overridden api_base (e.g. to a local endpoint). In that
-    // case the provider name is just a label and the key is not needed.
-    auto* prov = provider::find(provider_name);
-    if (prov && prov->requires_key && api_key.empty()) {
-        bool base_overridden = (api_base != prov->api_base);
-        if (!base_overridden)
-            errs.emplace_back("api_key is required for " + provider_name +
-                              " (set via AMBER_API_KEY env or save_global)");
-    }
 
     if (max_tool_iterations < 1)
         errs.push_back("max_tool_iterations must be >= 1 (got: " +
