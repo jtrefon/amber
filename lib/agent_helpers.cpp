@@ -28,7 +28,7 @@ std::string fingerprint_tool_calls(const json& calls) {
     return key;
 }
 
-std::string format_tool_envelope(const std::string& name,
+std::string format_tool_envelope(const std::string& name, const json& args,
                                   const ToolResult& result) {
     // Ensure meta is always an object, never null (tools that return early
     // on error may leave meta uninitialized).
@@ -45,7 +45,12 @@ std::string format_tool_envelope(const std::string& name,
         status = "error";
     }
 
+    // Echo args only when compact: the model confirms what it sent (the
+    // envelope's own contract), but large payloads (write edit blocks) only
+    // bloat context and drive degradation.
+    const std::string args_dump = args.dump();
     std::string header = "[tool=" + name +
+        (args_dump.size() <= 120 ? " args=" + args_dump : "") +
         " status=" + status +
         " meta=" + meta.dump() + "]\n";
 

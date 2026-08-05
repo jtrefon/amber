@@ -108,7 +108,7 @@ std::string empty_turn_reply(const std::deque<Message>& history);
 // `status` is one of "ok"|"error"|"denied"|"timeout", and `meta` holds
 // tool-specific metadata (lines, exit code, duration, etc.). The envelope
 // is token 0 — the model sees it before any content.
-std::string format_tool_envelope(const std::string& name,
+std::string format_tool_envelope(const std::string& name, const json& args,
                                  const ToolResult& result);
 
 

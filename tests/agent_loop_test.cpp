@@ -590,7 +590,9 @@ TEST(agent_loop_tool_envelope_lean) {
     reg.register_tool(agent::make_write_tool());
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent::json edits = agent::json::array(
-        {{{"old", ""}, {"new", "envelope lean payload"}}});
+        {{{"old", ""},
+          {"new",
+           std::string(300, 'L')}}});  // > 120 chars -> args must not echo
     push_tool_call(*fake, "write",
                    {{"path", "bench_envelope_test.txt"}, {"edits", edits}});
     push_text(*fake, "done writing");
@@ -609,4 +611,28 @@ TEST(agent_loop_tool_envelope_lean) {
         saw_lean = true;
     }
     ASSERT(saw_lean);
+}
+
+// [P2v2] The envelope echoes args only when small — confirmation for the
+// common case (read path=...), silence for large payloads (write edits).
+TEST(agent_loop_tool_envelope_small_args_echoed) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_tool_call(*fake, "read", {{"path", "Makefile"}});
+    push_text(*fake, "done reading");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.run("read the Makefile");
+    const auto& ctx = ag.context().get_all();
+    bool saw_echo = false;
+    for (const auto& m : ctx) {
+        if (m.role != "tool") continue;
+        ASSERT(m.content.find("[tool=read args={\"path\":\"Makefile\"}") != std::string::npos);
+        saw_echo = true;
+    }
+    ASSERT(saw_echo);
 }

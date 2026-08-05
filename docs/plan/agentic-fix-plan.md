@@ -336,14 +336,30 @@ the TodoWrite convention arrives or P4 lands. Reordered sequencing:
 | 4 | P4 task tool | builds on repo suite + P1 store pattern |
 | 5 | P5 compression budget | independent |
 
-## 6b. P2 status (2026-08-04)
+## 6b. P2 status (2026-08-04, final: P2v2)
 
-Shipped: envelope drops the args echo (`format_tool_envelope` 2-arg),
-tools.md contract updated. A/B on Nemotron 550B free (Kilo gateway, local
-inference WIP): tool failures 18 → 5 (−72%, consistent across two runs),
-tools −7%, steps −4%, score 82.1 → 84.4. **First measured improvement on
-the agentic axis.** Redundant +5 flagged for follow-up. Next candidates:
-P3 (schema-first) and a redundant-focused look.
+**P2 (full args drop) — abandoned after 3 runs**: failures gain was noise
+(18→10/5/17, reverted), and redundant rose consistently (+5, 17→22/23/20 —
+a real side effect: the args echo was the model's confirmation).
+
+**P2v2 (conditional echo, shipped)**: args echoed when compact (≤120 chars),
+dropped for large payloads. Two A/B runs on Nemotron 550B free (25 shared
+scenarios, same prompt):
+
+| metric | before | v2 r1 | v2 r2 | mean Δ |
+|---|---|---|---|---|
+| score | 82.1 | 84.7 | 83.6 | +2.0 |
+| tools | 142 | 123 | 135 | −9% |
+| steps | 164 | 148 | 159 | −6% |
+| failures | 18 | 8 | 13 | down both runs |
+| redundant | 17 | 16 | 19 | baseline |
+
+Verdict: consistent modest gains, no side effect — the redundant uptick of
+P2 is proven to be lost confirmation. Statistically suggestive (n=2), not
+sealed; re-confirm on the local baseline when inference returns. Hermetic
+tests: `agent_loop_tool_envelope_lean` (large payload not echoed),
+`agent_loop_tool_envelope_small_args_echoed` (small args echoed).
+Next: P3 (schema-first tools).
 
 ## 6. Sequencing, acceptance, PRs
 

@@ -26,6 +26,10 @@ failure — uses the exact same form:
 [end]
 ```
 
+The `args` field echoes your original arguments when they are compact —
+confirmation of what was sent. Large payloads (e.g. full file writes) are
+not echoed.
+
 The envelope is **immutable**. Only the values inside change. The shape
 is always identical. This lets you parse any result the same way.
 
