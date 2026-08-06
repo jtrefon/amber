@@ -226,8 +226,8 @@ public:
             } catch (const std::exception& e) {
                 context.pop();
                 cr.error = std::string("LLM call failed: ") + e.what();
-                if (response_out) *response_out = std::move(cr);
                 if (observer) observer->on_error(cr.error);
+                if (response_out) *response_out = std::move(cr);
                 return original;
             }
             context.pop();  // remove classify request, restore context
@@ -236,8 +236,8 @@ public:
             cr = parse_compression_response(class_reply.content);
             if (cr.segments.empty()) {
                 cr.error = "unparseable compression response";
-                if (response_out) *response_out = std::move(cr);
                 if (observer) observer->on_error(cr.error);
+                if (response_out) *response_out = std::move(cr);
                 return original;
             }
 
