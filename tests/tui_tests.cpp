@@ -615,7 +615,8 @@ TEST(tool_display_result_line_shows_command) {
     std::string t = join_runs(ln);
     ASSERT(t.find("grep -rn Foo src/") != std::string::npos);
     ASSERT(t.find("bash") == std::string::npos);
-    ASSERT(t.find("exit 0") != std::string::npos);
+    // The icon conveys success — the redundant "exit 0" text is gone.
+    ASSERT(t.find("exit 0") == std::string::npos);
     ASSERT(t.find("3 lines") != std::string::npos);
     ASSERT(!ln.runs.empty());
     ASSERT_EQ(ln.runs[0].pair, tui::P_GIT_PLUS);
@@ -638,11 +639,10 @@ TEST(tool_display_result_line_preview_truncated) {
     ASSERT(join_runs(ln).find("...") != std::string::npos);
 }
 
-TEST(tool_display_result_line_restore_omits_exit_status) {
+TEST(tool_display_result_line_shows_lines_tail) {
     auto ln = tui::tool_display::result_line(
-        "bash", agent::json{{"command", "ls -la"}}, true, "a\nb\nc\n", "",
-        false);
+        "bash", agent::json{{"command", "ls -la"}}, true, "a\nb\nc\n", "");
     std::string t = join_runs(ln);
-    ASSERT(t.find("exit 0") == std::string::npos);
+    ASSERT(t.find("ls -la") != std::string::npos);
     ASSERT(t.find("4 lines") != std::string::npos);
 }

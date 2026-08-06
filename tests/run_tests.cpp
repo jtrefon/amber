@@ -3858,3 +3858,27 @@ TEST(provider_custom_unconfigured_is_error) {
     // default endpoint, and never "unknown": custom is a known preset.
     ASSERT(sel.error.find("no endpoint") != std::string::npos);
 }
+
+TEST(config_save_settings_persists_compression) {
+    // /set compression threshold 0.8 must survive a restart: save_settings
+    // writes the compression fields, load() restores them.
+    std::string path = "/tmp/amber_compression_settings_test.conf";
+    agent::Config c;
+    c.compression_threshold = 0.8;
+    c.compression_threshold_explicit = true;
+    c.compression_min_turns = 4;
+    c.compression_min_turns_explicit = true;
+    c.compression_cooldown_turns = 12;
+    c.compression_cooldown_turns_explicit = true;
+    ASSERT(c.save_settings(path));
+
+    agent::Config d;
+    d.load(path);
+    ASSERT(d.compression_threshold_explicit);
+    ASSERT_EQ(d.compression_threshold, 0.8);
+    ASSERT(d.compression_min_turns_explicit);
+    ASSERT_EQ(d.compression_min_turns, 4);
+    ASSERT(d.compression_cooldown_turns_explicit);
+    ASSERT_EQ(d.compression_cooldown_turns, 12);
+    std::remove(path.c_str());
+}
