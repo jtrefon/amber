@@ -56,7 +56,10 @@ struct AgentHooks {
     std::function<void(const std::string&)> on_token;       // streamed text delta
     std::function<void(const std::string&)> on_reasoning;   // streamed thinking delta
     std::function<void(const std::string&, const json&)> on_tool_call;
-    std::function<void(const std::string&, const ToolResult&)> on_tool_result;
+    // (name, result, args) — args are the original tool-call arguments so
+    // hosts can describe what was actually run.
+    std::function<void(const std::string&, const ToolResult&, const json&)>
+        on_tool_result;
     std::function<void(const std::string&)> on_status;
     std::function<void(RunState)> on_state;                 // activity transitions
     std::function<void(const Stats&)> on_stats;             // per-request telemetry

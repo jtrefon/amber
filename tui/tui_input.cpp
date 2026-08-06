@@ -469,7 +469,7 @@ void Tui::cmd_get_detection(const std::string& sub) {
 
 void Tui::cmd_get_compression() {
     double t = compression_threshold_effective();
-    int mt = cfg_.compression_min_turns_explicit ? cfg_.compression_min_turns : 10;
+    int mt = agent::load_compression_config(cfg_).min_turns;
     append_line(P_STATUS, "compression threshold: " + std::to_string(t));
     append_line(P_STATUS, "compression min_turns: " + std::to_string(mt));
 }
@@ -1217,6 +1217,16 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_reasoning(); });
     register_action("core.config.get.compression",
         [this](const std::string&) { cmd_get_compression(); });
+    register_action("core.config.get.compression.threshold",
+        [this](const std::string&) {
+            append_line(P_STATUS, "compression threshold: " +
+                std::to_string(compression_threshold_effective()));
+        });
+    register_action("core.config.get.compression.min_turns",
+        [this](const std::string&) {
+            append_line(P_STATUS, "compression min_turns: " +
+                std::to_string(agent::load_compression_config(cfg_).min_turns));
+        });
     register_action("core.config.get.skills",
         [this](const std::string& a) { cmd_skills_get(a); });
     register_action("core.config.get.skills.show",

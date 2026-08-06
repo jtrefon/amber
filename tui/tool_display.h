@@ -34,13 +34,12 @@ std::string working_label(const std::string& frame, size_t elapsed_secs,
 std::string reasoning_badge(const std::string& effort);
 
 // One closed tool-result line: icon (check/cross) + description + arrow +
-// "exit 0 (N lines) preview" or "error: ...". Shared by the live ToolResult
-// event and session restore so both render identically. With exit_known
-// false (restored history has no exit status) the "exit 0" prefix is
-// omitted.
+// "(N lines) preview" or "error: ...". The icon conveys success — no
+// redundant "exit 0" text. Shared by the live ToolResult event and session
+// restore so both render identically.
 rich::Line result_line(const std::string& name, const agent::json& args,
                        bool ok, const std::string& output,
-                       const std::string& error, bool exit_known = true);
+                       const std::string& error);
 
 } // namespace tui::tool_display
 

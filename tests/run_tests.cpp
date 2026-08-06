@@ -1581,7 +1581,7 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     // Count tool-call dispatches by watching the on_tool_result hook.
     int tool_results = 0;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult&) {
+    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult&, const agent::json&) {
         ++tool_results;
     };
     ag.set_hooks(hooks);
@@ -1705,7 +1705,7 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     int tool_results = 0;
     agent::ToolResult captured;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& r) {
+    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& r, const agent::json&) {
         ++tool_results;
         captured = r;
     };
@@ -1762,7 +1762,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     int tool_results = 0;
     std::vector<agent::ToolResult> results;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult& r) {
+    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult& r, const agent::json&) {
         ++tool_results;
         results.push_back(r);
     };
@@ -1796,7 +1796,7 @@ TEST(dispatch_auto_approves_in_write_mode) {
     int tool_results = 0;
     bool approval_called = false;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& /*r*/) {
+    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& /*r*/, const agent::json&) {
         ++tool_results;
     };
     hooks.on_approval = [&](const std::string& /*n*/, const agent::json&,
@@ -1833,7 +1833,7 @@ TEST(dispatch_missing_tool_reports_unknown) {
     int tool_results = 0;
     agent::ToolResult captured;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult& r) {
+    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult& r, const agent::json&) {
         ++tool_results;
         captured = r;
     };

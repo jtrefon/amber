@@ -65,7 +65,8 @@ public:
 
     // Direct feeds for unit tests (also invoked by the hook lambdas).
     void on_tool_call(const std::string& name, const agent::json& args);
-    void on_tool_result(const std::string& name, const agent::ToolResult& res);
+    void on_tool_result(const std::string& name, const agent::ToolResult& res,
+                        const agent::json& args);
     void on_status(const std::string& text);
     void on_debug(const std::string& text);
     void on_stats(const agent::Stats& s);

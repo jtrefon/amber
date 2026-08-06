@@ -46,7 +46,7 @@ void Tui::restore_message_lines(const agent::Message& m,
             RestoredCall c = std::move(pending.front());
             pending.erase(pending.begin());
             rich::Line ln = tool_display::result_line(c.name, c.args, true,
-                                                      m.content, "", false);
+                                                      m.content, "");
             rich::Run ts;
             ts.text = timestamp();
             ts.pair = P_REASONING;
@@ -140,7 +140,9 @@ void Tui::load_session(const std::string& id) {
                    ? s.meta[key].get<long>() : def;
     };
     ctx_used_ = get_num("ctx_used", -1);
-    cfg_.context_size = static_cast<int>(get_num("ctx_size", 0));
+    long restored_ctx = get_num("ctx_size", 0);
+    if (restored_ctx > 0)
+        cfg_.context_size = static_cast<int>(restored_ctx);
     if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
         stats_.latency_ms = s.meta["latency_ms"].get<double>();
         stats_.tps = static_cast<double>(get_num("tps", -1));
@@ -425,7 +427,9 @@ void Tui::lazy_load_active() {
                    ? s.meta[key].get<long>() : def;
     };
     ctx_used_ = get_num("ctx_used", -1);
-    cfg_.context_size = static_cast<int>(get_num("ctx_size", 0));
+    long restored_ctx = get_num("ctx_size", 0);
+    if (restored_ctx > 0)
+        cfg_.context_size = static_cast<int>(restored_ctx);
     if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
         stats_.latency_ms = s.meta["latency_ms"].get<double>();
         stats_.tps = static_cast<double>(get_num("tps", -1));

@@ -40,8 +40,9 @@ agent::AgentHooks Recorder::hooks() {
     h.on_tool_call = [this](const std::string& n, const agent::json& a) {
         on_tool_call(n, a);
     };
-    h.on_tool_result = [this](const std::string& n, const agent::ToolResult& r) {
-        on_tool_result(n, r);
+    h.on_tool_result = [this](const std::string& n, const agent::ToolResult& r,
+                              const agent::json& a) {
+        on_tool_result(n, r, a);
     };
     h.on_status = [this](const std::string& t) { on_status(t); };
     h.on_debug = [this](const std::string& t) { on_debug(t); };
@@ -57,7 +58,8 @@ void Recorder::on_tool_call(const std::string& name, const agent::json& args) {
 }
 
 void Recorder::on_tool_result(const std::string& name,
-                              const agent::ToolResult& res) {
+                              const agent::ToolResult& res,
+                              const agent::json&) {
     ToolEvent e;
     e.name = name;
     e.ok = res.ok;

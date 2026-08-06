@@ -93,7 +93,7 @@ std::string reasoning_badge(const std::string& effort) {
 
 rich::Line result_line(const std::string& name, const agent::json& args,
                        bool ok, const std::string& output,
-                       const std::string& error, bool exit_known) {
+                       const std::string& error) {
     rich::Line ln;
     rich::Run icon;
     icon.pair = ok ? P_GIT_PLUS : P_GIT_MINUS;
@@ -115,7 +115,6 @@ rich::Line result_line(const std::string& name, const agent::json& args,
             preview.resize(57);
             preview += "...";
         }
-        if (exit_known) rest.text += "exit 0  ";
         rest.text += "(" + std::to_string(lines) + " lines)  " + preview;
     }
     ln.runs.push_back(std::move(icon));

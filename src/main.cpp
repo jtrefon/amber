@@ -48,6 +48,13 @@ int main(int argc, char** argv) {
         std::ifstream gf(global_path);
         if (gf) {
             tmp.load(global_path);
+            // The user's explicit context window applies regardless of the
+            // provider default (the provider domain only fills it when the
+            // config leaves it unknown).
+            if (tmp.context_explicit && tmp.context_size > 0) {
+                cfg.context_size = tmp.context_size;
+                cfg.context_explicit = true;
+            }
             auto providers = agent::make_default_provider_service(cfg);
             if (!tmp.provider_name.empty()) {
                 auto sel = providers->select(tmp.provider_name);
@@ -209,7 +216,8 @@ int main(int argc, char** argv) {
     hooks.on_tool_call = [](const std::string& n, const agent::json&) {
         std::cerr << "[tool] " << n << "\n";
     };
-    hooks.on_tool_result = [](const std::string& n, const agent::ToolResult& r) {
+    hooks.on_tool_result = [](const std::string& n, const agent::ToolResult& r,
+                              const agent::json&) {
         std::string s = "[tool] " + n + " ";
         if (!r.ok) {
             std::string err = r.error;

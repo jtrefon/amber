@@ -459,11 +459,14 @@ void Tui::agent_worker(const std::string& prompt) {
         std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
     };
-    hooks.on_tool_result = [this](const std::string& n, const agent::ToolResult& r) {
+    hooks.on_tool_result = [this](const std::string& n,
+                                  const agent::ToolResult& r,
+                                  const agent::json& a) {
         if (agent_cancel_.load()) return;
         AgentEvent ev;
         ev.type = AgentEvent::ToolResult;
         ev.tool_name = n;
+        ev.tool_args = a;
         ev.tool_result = r;
         std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
