@@ -14,6 +14,24 @@
 
 namespace agent {
 
+// Token estimation for a single message (chars/4 plus per-message overhead).
+// Single source of truth: Context's cached counter and the compression
+// budget enforcement both use this.
+inline constexpr int kPerMessageTokenOverhead = 4;
+
+inline size_t message_tokens(const Message& msg) noexcept {
+    size_t n = (msg.content.size() + msg.reasoning.size()) / 4;
+    if (!msg.tool_calls.is_null())
+        n += msg.tool_calls.dump().size() / 4;
+    return n + kPerMessageTokenOverhead;
+}
+
+inline size_t estimate_tokens(const std::vector<Message>& msgs) noexcept {
+    size_t n = 0;
+    for (const auto& msg : msgs) n += message_tokens(msg);
+    return n;
+}
+
 // Pure-stack conversation context with hash-chain integrity.
 //
 // Messages are sealed on push — once on the stack they can never be
@@ -43,7 +61,7 @@ public:
         uint64_t h = chain_hash(chain_hash_, msg);
         hashes_.push_back(h);
         chain_hash_ = h;
-        token_count_ += message_tokens(msg);
+        token_count_ += ::agent::message_tokens(msg);
         stack_.push_back(std::move(msg));
     }
 
@@ -55,7 +73,7 @@ public:
         assert(!stack_.empty());
         hashes_.pop_back();
         chain_hash_ = hashes_.empty() ? 0 : hashes_.back();
-        token_count_ -= message_tokens(stack_.back());
+        token_count_ -= ::agent::message_tokens(stack_.back());
         Message out = std::move(stack_.back());
         stack_.pop_back();
         return out;
@@ -84,8 +102,6 @@ private:
     std::deque<uint64_t> hashes_;    // one chained hash per message
     size_t token_count_ = 0;
     uint64_t chain_hash_ = 0;        // hash of the last message (== hashes_.back())
-
-    static constexpr int kOverhead = 4;
 
     // ------------------------------------------------------------------
     // Hash-chain
@@ -128,17 +144,6 @@ private:
         for (const auto& msg : stack_)
             expected = chain_hash(expected, msg);
         return expected == chain_hash_;
-    }
-
-    // ------------------------------------------------------------------
-    // Token count
-    // ------------------------------------------------------------------
-
-    static size_t message_tokens(const Message& msg) noexcept {
-        size_t n = (msg.content.size() + msg.reasoning.size()) / 4;
-        if (!msg.tool_calls.is_null())
-            n += msg.tool_calls.dump().size() / 4;
-        return n + kOverhead;
     }
 };
 

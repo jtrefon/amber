@@ -1,5 +1,6 @@
 
 #include "agent/compressor.h"
+#include "agent/context.h"
 #include "agent/experience.h"
 
 #include <algorithm>
@@ -26,6 +27,20 @@ std::vector<Message> apply_classification(
             summaries[i] = seg.summary;
         }
     }
+
+    // Safety net: the last two user turns and everything after them survive
+    // verbatim — a misclassification must never drop the active task.
+    size_t last_user = history.size();
+    size_t prev_user = history.size();
+    for (size_t i = 1; i < history.size(); ++i) {
+        if (history[i].role == "user") {
+            prev_user = last_user;
+            last_user = i;
+        }
+    }
+    size_t guard_start = prev_user < history.size() ? prev_user : last_user;
+    for (size_t i = guard_start; i < history.size(); ++i)
+        tags[i] = Classification::core;
 
     // Always preserve the system prompt (index 0) regardless of how the
     // classifier tagged it — the classifier treats message indices as "turn"
@@ -92,7 +107,8 @@ std::vector<Message> apply_classification(
 
     Message compressed_msg;
     compressed_msg.role = "system";
-    compressed_msg.content = "Compressed conversation context:\n" + ctx.dump(2);
+    compressed_msg.content =
+        std::string(kCompressedContextPrefix) + "\n" + ctx.dump(2);
     core.push_back(compressed_msg);
 
     // Minimum context invariant: ensure at least one user message survives.
@@ -115,52 +131,37 @@ std::vector<Message> apply_classification(
     return core;
 }
 
-namespace {
-
-std::string hash_content(const std::string& content) {
-    std::hash<std::string> hasher;
-    return std::to_string(hasher(content));
-}
-
-} // namespace
-
 void apply_memory_ops(MemoryStore& store,
                       const std::vector<KnowledgeOp>& ops,
                       const std::string& store_path,
-                      std::vector<ExtractionItem>* items,
-                      int promote_threshold) {
+                      std::vector<ExtractionItem>* items) {
     for (const auto& op : ops) {
         if (op.action == "deprecate") {
-            auto existing = store.top_memories(100, "");
-            std::string key = hash_content(op.content);
-            for (const auto& mem : existing) {
-                if (mem.id == key || mem.content == op.content) {
-                    Memory updated = mem;
-                    updated.evidence_count = std::max(0, mem.evidence_count - 1);
-                    store.upsert(updated);
-                    if (items) items->push_back({op.name.empty() ? op.content.substr(0, 40) : op.name, "deprecate", updated.evidence_count, updated.promoted});
-                    break;
-                }
+            int evidence = store.deprecate(op.content);
+            if (evidence >= 0 && items) {
+                items->push_back(
+                    {op.name.empty() ? op.content.substr(0, 40) : op.name,
+                     "deprecate", evidence, evidence > 0});
             }
-        } else {
-            // Validate name uniqueness: if a memory with the same name but
-            // different content exists, flag as conflict so the LLM picks
-            // a different name rather than silently overwriting.
-            std::string label = op.name.empty() ? op.content.substr(0, 40) : op.name;
-            const Memory* existing = store.find_memory(label);
-            if (existing && existing->content != op.content) {
-                if (items) items->push_back({label, "conflict: name \"" + label + "\" already used for different content", existing->evidence_count, existing->promoted});
-                continue;
-            }
-            Memory mem;
-            mem.name = label;
-            mem.content = op.content;
-            mem.tags = op.tags;
-            mem.evidence_count = promote_threshold;
-            mem.promoted = true;
-            store.upsert(mem);
-            if (items) items->push_back({label, "upsert", promote_threshold, true});
+            continue;
         }
+        // Validate name uniqueness: if a memory with the same name but
+        // different content exists, flag as conflict so the LLM picks
+        // a different name rather than silently overwriting.
+        std::string label = op.name.empty() ? op.content.substr(0, 40) : op.name;
+        const Memory* existing = store.find_memory(label);
+        if (existing && existing->content != op.content) {
+            if (items) items->push_back({label, "conflict: name \"" + label + "\" already used for different content", existing->evidence_count, existing->promoted});
+            continue;
+        }
+        Memory mem;
+        mem.name = label;
+        mem.content = op.content;
+        mem.tags = op.tags;
+        mem.evidence_count = store.memory_promote_threshold();
+        mem.promoted = true;
+        store.upsert(mem);
+        if (items) items->push_back({label, "upsert", mem.evidence_count, true});
     }
 
     if (!store_path.empty())
@@ -170,38 +171,32 @@ void apply_memory_ops(MemoryStore& store,
 void apply_skill_ops(MemoryStore& store,
                      const std::vector<KnowledgeOp>& ops,
                      const std::string& store_path,
-                     std::vector<ExtractionItem>* items,
-                     int promote_threshold) {
+                     std::vector<ExtractionItem>* items) {
     for (const auto& op : ops) {
         if (op.action == "deprecate") {
-            auto existing = store.top_skills(100, "");
-            std::string key = hash_content(op.content);
-            for (const auto& sk : existing) {
-                if (sk.id == key || sk.content == op.content) {
-                    Skill updated = sk;
-                    updated.evidence_count = std::max(0, sk.evidence_count - 1);
-                    store.upsert(updated);
-                    if (items) items->push_back({op.name.empty() ? op.content.substr(0, 40) : op.name, "deprecate", updated.evidence_count, updated.promoted});
-                    break;
-                }
+            int evidence = store.deprecate(op.content);
+            if (evidence >= 0 && items) {
+                items->push_back(
+                    {op.name.empty() ? op.content.substr(0, 40) : op.name,
+                     "deprecate", evidence, evidence > 0});
             }
-        } else {
-            std::string label = op.name.empty() ? op.content.substr(0, 40) : op.name;
-            const Skill* existing = store.find_skill(label);
-            if (existing && existing->content != op.content) {
-                if (items) items->push_back({label, "conflict: name \"" + label + "\" already used for different content", existing->evidence_count, existing->promoted});
-                continue;
-            }
-            Skill sk;
-            sk.name = label;
-            sk.content = op.content;
-            sk.tags = op.tags;
-            sk.trigger_phrase = op.trigger_phrase;
-            sk.evidence_count = promote_threshold;
-            sk.promoted = true;
-            store.upsert(sk);
-            if (items) items->push_back({label, "upsert", promote_threshold, true});
+            continue;
         }
+        std::string label = op.name.empty() ? op.content.substr(0, 40) : op.name;
+        const Skill* existing = store.find_skill(label);
+        if (existing && existing->content != op.content) {
+            if (items) items->push_back({label, "conflict: name \"" + label + "\" already used for different content", existing->evidence_count, existing->promoted});
+            continue;
+        }
+        Skill sk;
+        sk.name = label;
+        sk.content = op.content;
+        sk.tags = op.tags;
+        sk.trigger_phrase = op.trigger_phrase;
+        sk.evidence_count = store.skill_promote_threshold();
+        sk.promoted = true;
+        store.upsert(sk);
+        if (items) items->push_back({label, "upsert", sk.evidence_count, true});
     }
 
     if (!store_path.empty())
@@ -212,41 +207,61 @@ void apply_skill_ops(MemoryStore& store,
 // Budget enforcement
 // ---------------------------------------------------------------------------
 
-namespace {
-
-// Recount estimated token count for a message vector.
-size_t count_tokens(const std::vector<Message>& msgs) {
-    size_t n = 0;
-    for (const auto& msg : msgs) {
-        n += msg.content.size() / 4;
-        n += msg.reasoning.size() / 4;
-        if (!msg.tool_calls.is_null())
-            n += msg.tool_calls.dump().size() / 4;
-        n += 4;
-    }
-    return n;
-}
-
-} // namespace
-
 // Enforce that the compressed context leaves at least 25% headroom.
+// Oldest non-system messages are dropped oldest-first and recorded as
+// archive entries on the compressed-context message — never replaced by
+// placeholder messages (the LLM must not see fabricated system turns).
 std::vector<Message> enforce_headroom(std::vector<Message> compressed,
-                                       size_t context_size) {
+                                      size_t context_size) {
     if (context_size == 0) return compressed;
     auto budget = static_cast<size_t>(
         static_cast<double>(context_size) * 0.75);
-    size_t used = count_tokens(compressed);
+
+    // Drop oldest non-system messages (the compressed-context message is a
+    // system role, so the walk never touches it) until the budget fits.
+    size_t used = estimate_tokens(compressed);
     if (used <= budget) return compressed;
 
+    std::vector<size_t> dropped;
     for (size_t i = 1; i < compressed.size(); ++i) {
         if (compressed[i].role == "system") continue;
-        Message archived;
-        archived.role = "system";
-        archived.content = "[over-budget archived]";
-        compressed[i] = std::move(archived);
-
-        used = count_tokens(compressed);
+        used -= message_tokens(compressed[i]);
+        dropped.push_back(i);
         if (used <= budget) break;
+    }
+    if (dropped.empty()) return compressed;
+
+    // Remove dropped messages (descending so indices stay valid).
+    for (auto it = dropped.rbegin(); it != dropped.rend(); ++it)
+        compressed.erase(compressed.begin() + static_cast<ptrdiff_t>(*it));
+
+    // Re-locate the compressed-context message AFTER the erase (indices
+    // shifted) and record each dropped message in its archive block.
+    size_t ctx_idx = compressed.size();
+    for (size_t i = 0; i < compressed.size(); ++i) {
+        if (compressed[i].content.compare(
+                0, sizeof(kCompressedContextPrefix) - 1,
+                kCompressedContextPrefix) == 0) {
+            ctx_idx = i;
+            break;
+        }
+    }
+    if (ctx_idx == compressed.size()) return compressed;
+
+    std::string json_part =
+        compressed[ctx_idx].content.substr(sizeof(kCompressedContextPrefix) - 1);
+    json body = json::parse(json_part, nullptr, false);
+    if (!body.is_discarded() && body.is_object()) {
+        json archive = body.value("archive", json::array());
+        for (const size_t idx : dropped) {
+            json entry;
+            entry["turns"] = std::to_string(idx);
+            entry["summary"] = "(over-budget archived)";
+            archive.push_back(std::move(entry));
+        }
+        body["archive"] = std::move(archive);
+        compressed[ctx_idx].content =
+            std::string(kCompressedContextPrefix) + "\n" + body.dump(2);
     }
     return compressed;
 }

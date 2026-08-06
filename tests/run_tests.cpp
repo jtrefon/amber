@@ -1991,37 +1991,47 @@ TEST(apply_classification_all_core) {
 }
 
 TEST(apply_classification_prunes_and_archives) {
+    // Four user exchanges; the recent-turn safety net protects the last two,
+    // so an early prunable exchange is still removed.
     std::vector<agent::Message> hist = {
         msg("system", "prompt"),
-        msg("user", "read file"),
+        msg("user", "explore file a"),
         msg("assistant", ""),
         msg("tool", std::string(200, 'x'), "read"),
-        msg("assistant", "done"),
-        msg("user", "move on"),
+        msg("assistant", "done a"),
+        msg("user", "explore file b"),
+        msg("assistant", "done b"),
+        msg("user", "explore file c"),
+        msg("assistant", "done c"),
+        msg("user", "active task"),
+        msg("assistant", "working"),
     };
     agent::CompressionResponse cr;
-    cr.segments.push_back({0, 0, agent::Classification::core, ""});
     cr.segments.push_back({1, 1, agent::Classification::core, ""});
     cr.segments.push_back({2, 2, agent::Classification::prune, ""});
     cr.segments.push_back({3, 3, agent::Classification::prune, ""});
-    cr.segments.push_back({4, 4, agent::Classification::core, ""});
-    cr.segments.push_back({5, 5, agent::Classification::core, ""});
+    cr.segments.push_back({4, 10, agent::Classification::core, ""});
     auto result = agent::apply_classification(hist, cr);
     // 2 pruned → result should be smaller than original
     ASSERT(result.size() < hist.size());
 }
 
 TEST(apply_classification_context_creates_archive_entry) {
+    // The archived exchange is the oldest one — outside the recent-turn
+    // safety net, so it is replaced by an archive entry as classified.
     std::vector<agent::Message> hist = {
         msg("system", "prompt"),
         msg("user", "do something"),
         msg("assistant", "working"),
         msg("user", "continue"),
+        msg("assistant", "ok"),
+        msg("user", "next"),
+        msg("assistant", "sure"),
     };
     agent::CompressionResponse cr;
     cr.segments.push_back({0, 0, agent::Classification::core, ""});
     cr.segments.push_back({1, 2, agent::Classification::context, "user asked and assistant worked"});
-    cr.segments.push_back({3, 3, agent::Classification::core, ""});
+    cr.segments.push_back({3, 6, agent::Classification::core, ""});
     auto result = agent::apply_classification(hist, cr);
     // Should contain system msg + core turns + archive system msg
     ASSERT(result.size() >= 2u);
@@ -2073,6 +2083,34 @@ TEST(apply_classification_preserves_system_when_classifier_tags_as_context) {
 // Compression gate tests (unchanged)
 // =========================================================================
 
+TEST(apply_classification_keeps_recent_turns_verbatim) {
+    // Safety net: even when the classifier tags the recent turns "prune",
+    // the last two user turns and everything after them must survive —
+    // a misclassification must never drop the active task.
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "task one"),
+        msg("assistant", "done one"),
+        msg("user", "task two"),
+        msg("assistant", "doing two"),
+        msg("user", "current task"),
+        msg("assistant", "working"),
+    };
+    agent::CompressionResponse cr;
+    cr.segments.push_back({1, 6, agent::Classification::prune, ""});
+    auto result = agent::apply_classification(hist, cr);
+    bool kept_current = false;
+    for (const auto& m : result)
+        if (m.content.find("current task") != std::string::npos)
+            kept_current = true;
+    ASSERT(kept_current);
+    bool kept_previous = false;
+    for (const auto& m : result)
+        if (m.content.find("task two") != std::string::npos)
+            kept_previous = true;
+    ASSERT(kept_previous);
+}
+
 TEST(compression_gate_below_threshold) {
     agent::CompressionConfig cc;
     cc.threshold = 0.75;
@@ -2108,27 +2146,6 @@ TEST(compression_gate_min_turns) {
     agent::Context ctx;
     ctx.push(msg("user", "hello"));
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-}
-
-TEST(request_builder_returns_message) {
-    auto req = agent::build_compression_request();
-    ASSERT(req.role == "user");
-    ASSERT(!req.content.empty());
-}
-
-TEST(compressor_pipeline_fallback_on_no_client) {
-    // When no LLM client is available (test context), compress() returns
-    // the original history unchanged via the exception fallback.
-    agent::CompressionConfig cfg;
-    auto c = agent::make_compressor(cfg);
-    std::vector<agent::Message> hist = {
-        msg("system", "prompt"),
-        msg("user", "hello"),
-    };
-    // We cannot create an LLMClient in tests (no server), so we verify
-    // the pipeline handles the error gracefully by returning history.
-    // This test validates the fallback path only.
-    ASSERT(!hist.empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -2386,6 +2403,104 @@ TEST(integration_apply_and_retrieve) {
 // ---------------------------------------------------------------------------
 // Agent memory extraction (FIX-002)
 // ---------------------------------------------------------------------------
+
+TEST(apply_memory_ops_deprecate_decreases_evidence) {
+    // A "deprecate" op must actually lower evidence — it previously decremented
+    // then upserted, and the store's upsert always increments: net zero (or
+    // worse, +1). Deprecated knowledge must lose weight.
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory mem;
+    mem.name = "make-fact";
+    mem.content = "project uses make";
+    mem.tags = {"build"};
+    mem.evidence_count = 3;
+    mem.promoted = true;
+    store->upsert(mem);
+    agent::KnowledgeOp op;
+    op.name = "make-fact";
+    op.content = "project uses make";
+    op.action = "deprecate";
+    agent::apply_memory_ops(*store, {op}, "");
+    auto all = store->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].evidence_count, 2);
+}
+
+TEST(apply_memory_ops_deprecate_removes_at_zero_evidence) {
+    // Deprecating the last evidence point removes the item from the store.
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory mem;
+    mem.name = "one-hit";
+    mem.content = "one-time fact";
+    mem.evidence_count = 1;
+    mem.promoted = true;
+    store->upsert(mem);
+    agent::KnowledgeOp op;
+    op.name = "one-hit";
+    op.content = "one-time fact";
+    op.action = "deprecate";
+    agent::apply_memory_ops(*store, {op}, "");
+    ASSERT(store->all_memories().empty());
+}
+
+TEST(apply_skill_ops_deprecate_decreases_evidence) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Skill sk;
+    sk.name = "run-tests";
+    sk.content = "Run 'make test' in workspace root";
+    sk.trigger_phrase = "test";
+    sk.evidence_count = 5;
+    sk.promoted = true;
+    store->upsert(sk);
+    agent::KnowledgeOp op;
+    op.name = "run-tests";
+    op.content = "Run 'make test' in workspace root";
+    op.action = "deprecate";
+    agent::apply_skill_ops(*store, {op}, "");
+    auto all = store->all_skills();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].evidence_count, 4);
+}
+
+// ---------------------------------------------------------------------------
+// Headroom enforcement
+// ---------------------------------------------------------------------------
+
+TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
+    // Over-budget messages were replaced with fake "[over-budget archived]"
+    // system messages that polluted the prompt. They must instead be dropped
+    // and recorded as archive entries on the compressed-context message.
+    agent::Message ctx_msg;
+    ctx_msg.role = "system";
+    ctx_msg.content =
+        "Compressed conversation context:\n{\"archive\":[],\"facts\":{}}";
+    std::vector<agent::Message> msgs = {
+        msg("system", "Amber"),
+        msg("user", std::string(4000, 'a')),
+        msg("assistant", std::string(4000, 'b')),
+        msg("user", std::string(4000, 'c')),
+        ctx_msg,
+    };
+    // budget = 0.75 * 3000 = 2250 tokens; the three 4000-char messages
+    // (~1004 tokens each) put us at ~3033 — one must go.
+    auto out = agent::enforce_headroom(std::move(msgs), 3000);
+    ASSERT_EQ(out.size(), size_t{4});
+    for (const auto& m : out)
+        ASSERT(m.content.find("[over-budget archived]") ==
+               std::string::npos);
+    bool archived = false;
+    for (const auto& m : out)
+        if (m.content.find("Compressed conversation context:") == 0)
+            archived = m.content.find("archive") != std::string::npos &&
+                       m.content.find("over-budget") != std::string::npos;
+    ASSERT(archived);
+}
 
 TEST(agent_extract_memories_from_tool_results) {
     // Verify MemoryStore round-trip (the core store behavior, not the
@@ -3584,10 +3699,10 @@ TEST(todowrite_registered_when_enabled) {
     ASSERT(reg.find("todowrite") != nullptr);
 }
 
-TEST(compression_gate_budget_capped_for_large_ctx) {
-    // Auto-detected n_ctx (262k locally) made the gate fire at ~131k tokens —
-    // effectively never during a normal run. The effective budget must be
-    // capped so compression fires early regardless of n_ctx.
+TEST(compression_gate_large_window_fires_at_threshold_fraction) {
+    // The budget is the REAL window (probed or explicit): a 262k window with
+    // threshold 0.5 fires only past ~131k tokens — the old unconditional 32k
+    // cap was never part of the spec and is gone.
     agent::CompressionConfig cc;
     cc.threshold = 0.5;
     cc.cooldown_turns = 0;
@@ -3596,10 +3711,51 @@ TEST(compression_gate_budget_capped_for_large_ctx) {
     agent::Config cfg;
     cfg.context_size = 262144;
     cfg.turn_counter = 5;
-    cfg.prompt_tokens_used = 20000;  // > 16k capped budget, < 131k uncapped
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
+    cfg.prompt_tokens_used = 20000;   // ~7.6% of the window: below threshold
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 150000;  // ~57% of the window: above threshold
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_explicit_window_honored) {
+    // An explicitly configured window is the budget; the threshold is a
+    // fraction of that window, never of a hidden cap.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.7;
+    cc.cooldown_turns = 0;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 100000;
+    cfg.turn_counter = 5;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    cfg.prompt_tokens_used = 50000;   // 50% of the window: below threshold
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 70000;   // 70% of the window: at threshold
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_unknown_window_uses_fallback_budget) {
+    // No probe, no explicit config: the 32k fallback budget keeps the gate
+    // alive so compression still fires instead of being disabled entirely.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.5;
+    cc.cooldown_turns = 0;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;                 // context_size stays 0 (unknown)
+    cfg.turn_counter = 5;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    cfg.prompt_tokens_used = 15000;    // ~47% of 32000: below threshold
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 16001;    // ~50% of 32000: above threshold
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -3615,7 +3771,7 @@ TEST(compression_gate_first_compress_not_cooldown_blocked) {
     agent::Config cfg;
     cfg.context_size = 262144;
     cfg.turn_counter = 5;
-    cfg.prompt_tokens_used = 20000;
+    cfg.prompt_tokens_used = 200000;   // > 50% of the window: threshold met
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));

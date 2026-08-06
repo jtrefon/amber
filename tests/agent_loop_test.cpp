@@ -255,6 +255,79 @@ TEST(agent_loop_compression_trigger) {
     (void)ag.context().get_all();
 }
 
+// The pipeline must forward BOTH the classification segments and the
+// memory/skill ops to the caller — previously only the ops survived, so the
+// reported core/context/prune counts were always zero.
+TEST(compression_pipeline_forwards_segments_and_ops) {
+    agent::CompressionConfig cc;
+    auto compressor = agent::make_compressor(cc);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply classify;
+    classify.content =
+        R"({"classification":[{"turns":"0-1","tag":"context","summary":"greeting"}],)"
+        R"("memories":[],"skills":[]})";
+    fake->script.push_back(std::move(classify));
+    agent_test::FakeReply extract;
+    extract.content =
+        R"({"memories":[{"name":"fact-1","content":"a fact","action":"upsert"}],)"
+        R"("skills":[]})";
+    fake->script.push_back(std::move(extract));
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "hello";
+    ctx.push(std::move(user));
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
+    ASSERT(!out.empty());
+    ASSERT_EQ(cr.segments.size(), size_t{1});
+    ASSERT(cr.segments[0].tag == agent::Classification::context);
+    ASSERT_EQ(cr.memory_ops.size(), size_t{1});
+    // The classify/extract requests were popped again — context unchanged.
+    ASSERT_EQ(ctx.size(), 2);
+    (void)ctx.get_all();  // hash chain intact after the push/pop pairs
+}
+
+// Spec invariant 7: if any LLM call or parse fails, the input history is
+// returned unchanged. The loop-collapse pass must not leak into the failure
+// path — previously the caller rebuilt the context from the collapsed copy.
+TEST(compression_pipeline_failure_returns_history_unchanged) {
+    agent::CompressionConfig cc;
+    auto compressor = agent::make_compressor(cc);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply garbage;
+    garbage.content = "this is not json";
+    fake->script.push_back(std::move(garbage));
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "search for x";
+    ctx.push(std::move(user));
+    for (int i = 0; i < 3; ++i) {
+        ctx.push(agent_test::tool_call_msg(
+            "search", json{{"pattern", "x"}}));
+        agent::Message res;
+        res.role = "tool";
+        res.name = "search";
+        res.content = "result";
+        ctx.push(std::move(res));
+    }
+    auto before = ctx.get_all();
+    auto out = compressor->compress(ctx, cc, *fake, nullptr, nullptr);
+    // Identical size and the tool loop is intact (no collapse on failure).
+    ASSERT_EQ(out.size(), before.size());
+    for (size_t i = 0; i < before.size(); ++i)
+        ASSERT(out[i].content == before[i].content);
+}
+
 // [AL-12] The context hash chain survives a full session (get_all() asserts
 // integrity on every read; every test above already exercises it).
 TEST(agent_loop_hash_chain_intact) {

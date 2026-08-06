@@ -239,41 +239,12 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
     // Check compression gate. If triggered, compress and persist.
     if (gate_ && compression_) {
         if (gate_->should_compress(context_, cfg_)) {
-            auto cc = load_compression_config(cfg_);
-            CompressionResponse cr;
-            CompressionResult r;
-            CompressionReporter reporter(hooks_, r);
-            size_t before_msgs = context_.size();
-            size_t before_tok = context_.token_count();
-            reporter.set_before(before_msgs, before_tok);
-            auto compressed = compression_->compress(
-                context_, cc, *client_, &reporter, &cr);
-            // Rebuild the context from the compressed result using stack
-            // primitives — no replace/mutation, just clear + push.
-            context_.clear();
-            for (auto& m : compressed)
-                context_.push(std::move(m));
-            emit_context_event(context_events_, context_);
-            // Apply memory/skill ops from the LLM classification.
-            apply_compression_result(cr);
-            // Report final stats
-            r.messages_before = before_msgs;
-            r.tokens_before = before_tok;
-            r.messages_after = context_.size();
-            r.tokens_after = context_.token_count();
-            for (const auto& seg : cr.segments) {
-                switch (seg.tag) {
-                    case Classification::core:    ++r.core_count; break;
-                    case Classification::context: ++r.context_count; break;
-                    case Classification::prune:   ++r.prune_count; break;
-                }
+            if (run_compression(std::function<void()>(), nullptr)) {
+                // Build prompt_copy from the new compressed context for
+                // the current LLM call.
+                auto new_msgs = context_.get_all();
+                prompt_copy.assign(new_msgs.begin(), new_msgs.end());
             }
-            reporter.on_compress_done(r);
-            gate_->set_last_compress_turn(turn_counter_);
-            // Build prompt_copy from the new compressed context for
-            // the current LLM call.
-            auto new_msgs = context_.get_all();
-            prompt_copy.assign(new_msgs.begin(), new_msgs.end());
         }
     }
 
@@ -372,70 +343,43 @@ bool Agent::extract_embedded_tool_calls(Message& reply) const {
 
 CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     CompressionResult r;
-    if (!compression_ || context_.size() < 2) return r;
+    run_compression(std::move(progress_cb), &r);
+    last_compression_ = r;
+    return r;
+}
 
+bool Agent::run_compression(std::function<void()> progress_cb,
+                            CompressionResult* out) {
     // Snapshot BEFORE compression — immutable, never mutate live stack.
+    if (!compression_ || context_.size() < 2) return false;
     auto before = context_.get_all();
     size_t msgs_before = before.size();
     size_t tokens_before = context_.token_count();
 
-    CompressionReporter reporter(hooks_, r);
+    CompressionResult r;
+    CompressionReporter reporter(hooks_, r, std::move(progress_cb));
     reporter.set_before(msgs_before, tokens_before);
 
-    // Wrap the reporter with a progress-callback proxy so the TUI can
-    // pump events during long-running compression.
-    struct ProgressProxy : public CompressionReporter {
-        std::function<void()> cb;
-        ProgressProxy(const AgentHooks& h, CompressionResult& r,
-                      std::function<void()> cb)
-            : CompressionReporter(h, r), cb(std::move(cb)) {}
-        void on_compress_start(size_t msgs, size_t arg) override {
-            CompressionReporter::on_compress_start(msgs, arg);
-            if (cb) cb();
-        }
-        void on_llm_request_sent() override {
-            CompressionReporter::on_llm_request_sent();
-            if (cb) cb();
-        }
-        void on_llm_reply_received(long sec) override {
-            CompressionReporter::on_llm_reply_received(sec);
-            if (cb) cb();
-        }
-        void on_parse_result(const CompressionResponse& cr) override {
-            CompressionReporter::on_parse_result(cr);
-            if (cb) cb();
-        }
-        void on_apply_result(const CompressionResult& cr) override {
-            CompressionReporter::on_apply_result(cr);
-            if (cb) cb();
-        }
-        void on_memory_ops_applied(size_t up, size_t dep) override {
-            CompressionReporter::on_memory_ops_applied(up, dep);
-            if (cb) cb();
-        }
-        void on_error(const std::string& msg) override {
-            CompressionReporter::on_error(msg);
-            if (cb) cb();
-        }
-        void on_loop_collapse(size_t removed) override {
-            CompressionReporter::on_loop_collapse(removed);
-            if (cb) cb();
-        }
-    };
-    ProgressProxy proxy(hooks_, r, std::move(progress_cb));
-
     // Call pipeline on the LIVE context so both LLM calls extend the KV
-    // cache from the same prefix (no full prefill between them).
-    // Pipeline handles: append classify → LLM → pop → parse → apply →
-    // append extract → LLM → pop → parse.  Pipeline touches context_ only
-    // via push/pop (classify/extract requests); the actual compressed
-    // result is applied below via pop-all + push.
+    // cache from the same prefix (no full prefill between them). Pipeline
+    // touches context_ only via push/pop (classify/extract requests); the
+    // actual compressed result is applied below via pop-all + push.
     auto cc = load_compression_config(cfg_);
     CompressionResponse cr;
-    // before was captured at the top; the live context is still the same
-    // since compress_now runs synchronously.
     auto compressed = compression_->compress(context_, cc, *client_,
-                                              &proxy, &cr);
+                                              &reporter, &cr);
+
+    // Cooldown applies to the attempt, not just the success: a failing
+    // classifier must not re-fire the pipeline on every following turn and
+    // burn two LLM calls each time — the gate stays silent for the cooldown
+    // window and retries later.
+    gate_->set_last_compress_turn(turn_counter_);
+
+    // Spec invariant 7: a failed compression leaves the context untouched.
+    if (!cr.error.empty()) {
+        reporter.on_error(cr.error);
+        return false;
+    }
 
     // Rebuild context from compressed result using stack primitives.
     context_.clear();
@@ -462,14 +406,8 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     }
 
     reporter.on_compress_done(r);
-    last_compression_ = r;
-    return r;
-}
-
-bool Agent::should_compress() {
-    if (!gate_) return false;
-    cfg_.turn_counter = turn_counter_;
-    return gate_->should_compress(context_, cfg_);
+    if (out) *out = std::move(r);
+    return true;
 }
 
 std::string Agent::confirm_turn(const std::string& candidate,
@@ -752,8 +690,7 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
     std::vector<ExtractionItem> items;
     if (!cr.memory_ops.empty())
         apply_memory_ops(*memory_store_, cr.memory_ops,
-                        experience_cfg_.store_path, &items,
-                        experience_cfg_.memory_promote_threshold);
+                         experience_cfg_.store_path, &items);
 
     // Apply skill ops
     size_t sk_up = 0, sk_dep = 0;
@@ -762,8 +699,7 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
     }
     if (!cr.skill_ops.empty())
         apply_skill_ops(*memory_store_, cr.skill_ops,
-                       experience_cfg_.store_path, &items,
-                       experience_cfg_.skill_promote_threshold);
+                        experience_cfg_.store_path, &items);
 
     // Decay and persist
     size_t before_decay = memory_store_->store_size();

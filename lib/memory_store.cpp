@@ -354,7 +354,46 @@ public:
         return true;
     }
 
+    int deprecate(const std::string& content) override {
+        int rc = deprecate_one(content, memories_);
+        if (rc >= 0) return rc;
+        return deprecate_one(content, skills_);
+    }
+
+    int memory_promote_threshold() const override {
+        return cfg_.memory_promote_threshold;
+    }
+
+    int skill_promote_threshold() const override {
+        return cfg_.skill_promote_threshold;
+    }
+
 private:
+    template <typename T>
+    int deprecate_one(const std::string& content,
+                      std::unordered_map<std::string, T>& items) {
+        std::string key = hash_content(content);
+        auto it = items.find(key);
+        if (it == items.end()) {
+            // Legacy rows may carry ids that do not match a fresh hash; fall
+            // back to a content match before giving up.
+            for (auto& [id, item] : items) {
+                if (item.content == content) {
+                    it = items.find(id);
+                    break;
+                }
+            }
+        }
+        if (it == items.end()) return -1;
+        T& item = it->second;
+        item.evidence_count = std::max(0, item.evidence_count - 1);
+        if (item.evidence_count == 0) {
+            items.erase(it);
+            return 0;
+        }
+        return item.evidence_count;
+    }
+
     ExperienceConfig cfg_;
     std::unordered_map<std::string, Memory> memories_;
     std::unordered_map<std::string, Skill> skills_;
