@@ -264,7 +264,7 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply classify;
     classify.content =
-        R"({"classification":[{"turns":"0-1","tag":"context","summary":"greeting"},)"
+        R"({"classification":[{"turns":"0-1","tag":"context","summary":"greeting"}],)"
         R"("memories":[],"skills":[]})";
     fake->script.push_back(std::move(classify));
     agent_test::FakeReply extract;
@@ -284,9 +284,9 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
     agent::CompressionResponse cr;
     auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
     ASSERT(!out.empty());
-    ASSERT_EQ(cr.segments.size(), 1);
+    ASSERT_EQ(cr.segments.size(), size_t{1});
     ASSERT(cr.segments[0].tag == agent::Classification::context);
-    ASSERT_EQ(cr.memory_ops.size(), 1);
+    ASSERT_EQ(cr.memory_ops.size(), size_t{1});
     // The classify/extract requests were popped again — context unchanged.
     ASSERT_EQ(ctx.size(), 2);
     (void)ctx.get_all();  // hash chain intact after the push/pop pairs

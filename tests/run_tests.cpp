@@ -1991,37 +1991,47 @@ TEST(apply_classification_all_core) {
 }
 
 TEST(apply_classification_prunes_and_archives) {
+    // Four user exchanges; the recent-turn safety net protects the last two,
+    // so an early prunable exchange is still removed.
     std::vector<agent::Message> hist = {
         msg("system", "prompt"),
-        msg("user", "read file"),
+        msg("user", "explore file a"),
         msg("assistant", ""),
         msg("tool", std::string(200, 'x'), "read"),
-        msg("assistant", "done"),
-        msg("user", "move on"),
+        msg("assistant", "done a"),
+        msg("user", "explore file b"),
+        msg("assistant", "done b"),
+        msg("user", "explore file c"),
+        msg("assistant", "done c"),
+        msg("user", "active task"),
+        msg("assistant", "working"),
     };
     agent::CompressionResponse cr;
-    cr.segments.push_back({0, 0, agent::Classification::core, ""});
     cr.segments.push_back({1, 1, agent::Classification::core, ""});
     cr.segments.push_back({2, 2, agent::Classification::prune, ""});
     cr.segments.push_back({3, 3, agent::Classification::prune, ""});
-    cr.segments.push_back({4, 4, agent::Classification::core, ""});
-    cr.segments.push_back({5, 5, agent::Classification::core, ""});
+    cr.segments.push_back({4, 10, agent::Classification::core, ""});
     auto result = agent::apply_classification(hist, cr);
     // 2 pruned → result should be smaller than original
     ASSERT(result.size() < hist.size());
 }
 
 TEST(apply_classification_context_creates_archive_entry) {
+    // The archived exchange is the oldest one — outside the recent-turn
+    // safety net, so it is replaced by an archive entry as classified.
     std::vector<agent::Message> hist = {
         msg("system", "prompt"),
         msg("user", "do something"),
         msg("assistant", "working"),
         msg("user", "continue"),
+        msg("assistant", "ok"),
+        msg("user", "next"),
+        msg("assistant", "sure"),
     };
     agent::CompressionResponse cr;
     cr.segments.push_back({0, 0, agent::Classification::core, ""});
     cr.segments.push_back({1, 2, agent::Classification::context, "user asked and assistant worked"});
-    cr.segments.push_back({3, 3, agent::Classification::core, ""});
+    cr.segments.push_back({3, 6, agent::Classification::core, ""});
     auto result = agent::apply_classification(hist, cr);
     // Should contain system msg + core turns + archive system msg
     ASSERT(result.size() >= 2u);
@@ -2073,6 +2083,34 @@ TEST(apply_classification_preserves_system_when_classifier_tags_as_context) {
 // Compression gate tests (unchanged)
 // =========================================================================
 
+TEST(apply_classification_keeps_recent_turns_verbatim) {
+    // Safety net: even when the classifier tags the recent turns "prune",
+    // the last two user turns and everything after them must survive —
+    // a misclassification must never drop the active task.
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "task one"),
+        msg("assistant", "done one"),
+        msg("user", "task two"),
+        msg("assistant", "doing two"),
+        msg("user", "current task"),
+        msg("assistant", "working"),
+    };
+    agent::CompressionResponse cr;
+    cr.segments.push_back({1, 6, agent::Classification::prune, ""});
+    auto result = agent::apply_classification(hist, cr);
+    bool kept_current = false;
+    for (const auto& m : result)
+        if (m.content.find("current task") != std::string::npos)
+            kept_current = true;
+    ASSERT(kept_current);
+    bool kept_previous = false;
+    for (const auto& m : result)
+        if (m.content.find("task two") != std::string::npos)
+            kept_previous = true;
+    ASSERT(kept_previous);
+}
+
 TEST(compression_gate_below_threshold) {
     agent::CompressionConfig cc;
     cc.threshold = 0.75;
@@ -2108,27 +2146,6 @@ TEST(compression_gate_min_turns) {
     agent::Context ctx;
     ctx.push(msg("user", "hello"));
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-}
-
-TEST(request_builder_returns_message) {
-    auto req = agent::build_compression_request();
-    ASSERT(req.role == "user");
-    ASSERT(!req.content.empty());
-}
-
-TEST(compressor_pipeline_fallback_on_no_client) {
-    // When no LLM client is available (test context), compress() returns
-    // the original history unchanged via the exception fallback.
-    agent::CompressionConfig cfg;
-    auto c = agent::make_compressor(cfg);
-    std::vector<agent::Message> hist = {
-        msg("system", "prompt"),
-        msg("user", "hello"),
-    };
-    // We cannot create an LLMClient in tests (no server), so we verify
-    // the pipeline handles the error gracefully by returning history.
-    // This test validates the fallback path only.
-    ASSERT(!hist.empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -2405,9 +2422,9 @@ TEST(apply_memory_ops_deprecate_decreases_evidence) {
     op.name = "make-fact";
     op.content = "project uses make";
     op.action = "deprecate";
-    agent::apply_memory_ops(*store, {op}, "", nullptr, 3);
+    agent::apply_memory_ops(*store, {op}, "");
     auto all = store->all_memories();
-    ASSERT_EQ(all.size(), 1);
+    ASSERT_EQ(all.size(), size_t{1});
     ASSERT_EQ(all[0].evidence_count, 2);
 }
 
@@ -2426,7 +2443,7 @@ TEST(apply_memory_ops_deprecate_removes_at_zero_evidence) {
     op.name = "one-hit";
     op.content = "one-time fact";
     op.action = "deprecate";
-    agent::apply_memory_ops(*store, {op}, "", nullptr, 3);
+    agent::apply_memory_ops(*store, {op}, "");
     ASSERT(store->all_memories().empty());
 }
 
@@ -2445,9 +2462,9 @@ TEST(apply_skill_ops_deprecate_decreases_evidence) {
     op.name = "run-tests";
     op.content = "Run 'make test' in workspace root";
     op.action = "deprecate";
-    agent::apply_skill_ops(*store, {op}, "", nullptr, 5);
+    agent::apply_skill_ops(*store, {op}, "");
     auto all = store->all_skills();
-    ASSERT_EQ(all.size(), 1);
+    ASSERT_EQ(all.size(), size_t{1});
     ASSERT_EQ(all[0].evidence_count, 4);
 }
 
@@ -2473,7 +2490,7 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
     // budget = 0.75 * 3000 = 2250 tokens; the three 4000-char messages
     // (~1004 tokens each) put us at ~3033 — one must go.
     auto out = agent::enforce_headroom(std::move(msgs), 3000);
-    ASSERT_EQ(out.size(), 4);
+    ASSERT_EQ(out.size(), size_t{4});
     for (const auto& m : out)
         ASSERT(m.content.find("[over-budget archived]") ==
                std::string::npos);

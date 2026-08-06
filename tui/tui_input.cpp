@@ -268,7 +268,7 @@ void Tui::cmd_set(const std::string& arg) {
         append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
         append_line(P_STATUS, "policy: " + mode_name(cfg_.mode));
         append_line(P_STATUS, "compression threshold: " +
-            std::to_string(cfg_.compression_threshold > 0.0 ? cfg_.compression_threshold : 0.75));
+            std::to_string(compression_threshold_effective()));
         append_line(P_STATUS, "compression min_turns: " +
             std::to_string(cfg_.compression_min_turns_explicit ? cfg_.compression_min_turns : 10));
         append_line(P_STATUS, "provider: " + cfg_.provider_name);
@@ -561,7 +561,7 @@ void Tui::cmd_get_detection(const std::string& sub) {
 }
 
 void Tui::cmd_get_compression() {
-    double t = (cfg_.compression_threshold > 0.0) ? cfg_.compression_threshold : 0.75;
+    double t = compression_threshold_effective();
     int mt = cfg_.compression_min_turns_explicit ? cfg_.compression_min_turns : 10;
     append_line(P_STATUS, "compression threshold: " + std::to_string(t));
     append_line(P_STATUS, "compression min_turns: " + std::to_string(mt));
@@ -2339,7 +2339,9 @@ void Tui::build_settings() {
         [this](const std::string& v) { cfg_.thinking = v; cfg_.save_settings(settings_path_); });
     add("compression.threshold", "Context utilisation threshold",
         "<0.1-1.0>", Setting::Float, {}, 0.1, 1.0,
-        [this]() -> std::string { return std::to_string(cfg_.compression_threshold > 0 ? cfg_.compression_threshold : 0.75); },
+        [this]() -> std::string {
+            return std::to_string(compression_threshold_effective());
+        },
         [this](const std::string& v) {
             cfg_.compression_threshold = std::stod(v);
             cfg_.save_settings(settings_path_);

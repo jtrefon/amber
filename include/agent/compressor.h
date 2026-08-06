@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,6 +21,15 @@ struct Memory;
 struct Skill;
 struct ExtractionItem;
 
+// Single source of truth for the default compression threshold. The gate,
+// load_compression_config, and the UIs all read this value.
+inline constexpr double kDefaultCompressionThreshold = 0.50;
+
+// Prefix of the compressed-context message produced by apply_classification;
+// enforce_headroom locates it by this prefix to append archive entries.
+inline constexpr char kCompressedContextPrefix[] =
+    "Compressed conversation context:";
+
 // ---------------------------------------------------------------------------
 // Value types
 // ---------------------------------------------------------------------------
@@ -28,27 +38,6 @@ enum class Classification : std::uint8_t {
     core,
     context,
     prune
-};
-
-struct ArchiveEntry {
-    std::string turn_range;
-    std::string summary;
-};
-
-struct CompressedContext {
-    struct Task {
-        std::string name;
-        std::string status;
-        std::string goal;
-        std::vector<std::string> decisions;
-        std::vector<std::string> done;
-        std::vector<std::string> pending;
-    };
-
-    std::vector<Task> tasks;
-    std::vector<ArchiveEntry> archive;
-    json facts;
-    int version = 1;
 };
 
 struct CompressionResult {
@@ -63,7 +52,7 @@ struct CompressionResult {
 };
 
 struct CompressionConfig {
-    double threshold        = 0.50;
+    double threshold        = kDefaultCompressionThreshold;
     int    min_turns        = 10;
     int    cooldown_turns   = 20;
     int    context_size     = 0;       // filled from Config for headroom enforcement
@@ -91,6 +80,8 @@ struct CompressionResponse {
     std::vector<ClassifiedSegment> segments;
     std::vector<KnowledgeOp> memory_ops;
     std::vector<KnowledgeOp> skill_ops;
+    std::string error;               // non-empty when the pipeline failed;
+                                     // callers must keep the context untouched
 };
 
 // ---------------------------------------------------------------------------
@@ -107,7 +98,6 @@ struct CompressionObserver {
     virtual void on_llm_reply_received(long /*elapsed_ms*/) {}
     virtual void on_parse_result(const CompressionResponse& /*cr*/) {}
     virtual void on_apply_result(const CompressionResult& /*r*/) {}
-    virtual void on_memory_ops_applied(size_t /*upsert*/, size_t /*deprecate*/) {}
     virtual void on_error(const std::string& /*msg*/) {}
     virtual void on_compress_done(const CompressionResult& /*r*/) {}
 };
@@ -148,9 +138,6 @@ public:
 // Collapse detected loops in history (modifies in place).
 void collapse_loops(std::vector<Message>& history);
 
-// Build the user message that asks the LLM to classify and compress.
-Message build_compression_request();
-
 // Build a classification-only request (returns array of turn tags).
 // This is the first step of the multi-step pipeline.
 Message build_classify_request();
@@ -168,22 +155,21 @@ std::vector<Message> apply_classification(
     const CompressionResponse& response);
 
 // Apply memory/skill upsert/deprecate ops to a MemoryStore.
-// When `items` is non-null, it receives one ExtractionItem per op for UI reporting.
+// When `items` is non-null, it receives one ExtractionItem per op for UI
+// reporting. The store owns promotion thresholds.
 void apply_memory_ops(MemoryStore& store,
                       const std::vector<KnowledgeOp>& ops,
                       const std::string& store_path,
-                      std::vector<ExtractionItem>* items = nullptr,
-                      int promote_threshold = 3);
+                      std::vector<ExtractionItem>* items = nullptr);
 void apply_skill_ops(MemoryStore& store,
                      const std::vector<KnowledgeOp>& ops,
                      const std::string& store_path,
-                     std::vector<ExtractionItem>* items = nullptr,
-                     int promote_threshold = 3);
+                     std::vector<ExtractionItem>* items = nullptr);
 
 // Enforce that the compressed context leaves at least 25% headroom.
-// Walks backward from oldest non-system messages, archiving them until
-// the token budget fits. The system prompt at index 0 is never modified.
-// Returns the tightened vector (it may be shorter than the input).
+// Drops oldest non-system messages, recording them as archive entries on
+// the compressed-context message. The system prompt at index 0 is never
+// modified. Returns the tightened vector (it may be shorter than input).
 std::vector<Message> enforce_headroom(std::vector<Message> compressed,
                                        size_t context_size);
 
@@ -200,11 +186,14 @@ std::unique_ptr<CompressionGate> make_compression_gate(
 CompressionConfig load_compression_config(const Config& cfg);
 
 // Bridges CompressionObserver to AgentHooks for status reporting.
-// Constructed with the hooks and a CompressionResult reference to fill.
+// Constructed with the hooks, a CompressionResult reference to fill, and an
+// optional progress callback invoked after every event so hosts can pump
+// their event loop during long-running compression.
 // The log() method writes timestamped status lines via hooks_.on_status.
 class CompressionReporter : public CompressionObserver {
 public:
-    CompressionReporter(const AgentHooks& hooks, CompressionResult& result);
+    CompressionReporter(const AgentHooks& hooks, CompressionResult& result,
+                        std::function<void()> progress = {});
     void set_before(size_t msgs, size_t tokens);
     void on_compress_start(size_t msgs, size_t) override;
     void on_loop_collapse(size_t removed) override;
@@ -212,15 +201,16 @@ public:
     void on_llm_reply_received(long sec) override;
     void on_parse_result(const CompressionResponse& cr) override;
     void on_apply_result(const CompressionResult&) override;
-    void on_memory_ops_applied(size_t up, size_t dep) override;
     void on_error(const std::string& msg) override;
     void on_compress_done(const CompressionResult& final) override;
 private:
     const AgentHooks& hooks_;
     CompressionResult& r_;
+    std::function<void()> progress_;
     std::chrono::steady_clock::time_point t0_;
     size_t before_msgs_ = 0;
     void log(const std::string& msg);
+    void pump();
 };
 
 } // namespace agent
