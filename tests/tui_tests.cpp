@@ -433,14 +433,12 @@ TEST(col_to_byte_git_prompt) {
 
 
 TEST(textutil_spinner_frames) {
-    // Square corners (core tools) and round (bash) spinner cycles; the ASCII
-    // fallback must also yield a full frame cycle so animation never stalls.
-    for (int i = 0; i < 4; ++i) {
-        ASSERT(!std::string(tui::text::glyph::spinner_square(i)).empty());
+    // The round spinner cycle; the ASCII fallback must also yield a full
+    // frame cycle so animation never stalls.
+    for (int i = 0; i < 4; ++i)
         ASSERT(!std::string(tui::text::glyph::spinner_round(i)).empty());
-    }
-    ASSERT(std::string(tui::text::glyph::spinner_square(0)) !=
-           std::string(tui::text::glyph::spinner_square(1)));
+    ASSERT(std::string(tui::text::glyph::spinner_round(0)) !=
+           std::string(tui::text::glyph::spinner_round(1)));
 }
 
 // ── Test: action registry is idempotent (feeds re-merge on refresh) ──

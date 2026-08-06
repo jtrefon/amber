@@ -8,8 +8,7 @@
 #include "agent/llm.h"
 #include "tui/rich.h"
 
-namespace tui {
-namespace tool_display {
+namespace tui::tool_display {
 
 // Human-readable description of a tool call for the scrollback line.
 // bash -> the command verbatim (no tool name); read/write -> path;
@@ -28,7 +27,6 @@ std::string elapsed_label(size_t secs);
 // The full working indicator: "<frame> working <elapsed>".
 std::string working_label(const std::string& frame, size_t elapsed_secs);
 
-} // namespace tool_display
-} // namespace tui
+} // namespace tui::tool_display
 
 #endif // AMBER_TUI_TOOL_DISPLAY_H

@@ -4,6 +4,7 @@
 #include "tui.h"
 #include "command_line.h"
 #include "confirm_panel.h"
+#include "tool_display.h"
 
 #include <agent.h>
 #include <agent/mcp_tools.h>
@@ -200,21 +201,16 @@ bool Tui::drain_events() {
         case AgentEvent::ToolCall: {
             running_tool_ = ev.tool_name;
             flush_stream();
-            ToolFold fold = tool_fold_;
-            // One "open" line per advertised call, all animated together.
-            // never = always closed: compact (name only, no args).
-            bool round = (ev.tool_name == "bash");
-            std::string args = ev.tool_args.dump();
-            if (args.size() > 60) { args.resize(57); args += "..."; }
+            // One "open" line per advertised call, animated together: round
+            // spinner + a human description of what is actually running
+            // (bash -> the command, read/write -> path, search -> pattern).
             PendingToolLine pt;
             pt.name = ev.tool_name;
             pt.fingerprint = ev.tool_args.dump();
-            pt.style = round ? 1 : 0;
             pt.frame = 0;
-            pt.tail = " " + ev.tool_name;
-            if (fold != ToolFold::Never) pt.tail += " " + args;
-            const char* frame = round ? text::glyph::spinner_round(0)
-                                      : text::glyph::spinner_square(0);
+            pt.tail = " " + tool_display::describe_tool_call(ev.tool_name,
+                                                             ev.tool_args);
+            const char* frame = text::glyph::spinner_round(0);
             append_line(P_STATUS, std::string(frame) + pt.tail);
             pt.index = win().lines.size() - 1;
             pending_tools_.push_back(std::move(pt));
@@ -222,10 +218,10 @@ bool Tui::drain_events() {
         }
         case AgentEvent::ToolResult: {
             running_tool_.clear();
-            ToolFold fold = tool_fold_;
-            // Summary line: colored success/failure icon + one-line report.
+            // Summary line: colored success/failure icon + one-line report,
+            // closed IN PLACE on the open line (single line per tool call).
             auto build_result =
-                [](const std::string& name,
+                [](const std::string& name, const agent::json& args,
                    const agent::ToolResult& r) -> rich::Line {
                 rich::Line ln;
                 rich::Run icon;
@@ -233,7 +229,8 @@ bool Tui::drain_events() {
                 icon.text = r.ok ? text::glyph::check() : text::glyph::cross();
                 rich::Run rest;
                 rest.pair = P_STATUS;
-                rest.text = " " + name + "  " + text::glyph::arrow() + " ";
+                rest.text = " " + tool_display::describe_tool_call(name, args) +
+                            "  " + text::glyph::arrow() + " ";
                 if (!r.ok) {
                     rest.text += "error: " + r.error;
                 } else {
@@ -250,7 +247,8 @@ bool Tui::drain_events() {
                 ln.runs.push_back(std::move(rest));
                 return ln;
             };
-            rich::Line summary = build_result(ev.tool_name, ev.tool_result);
+            rich::Line summary = build_result(ev.tool_name, ev.tool_args,
+                                              ev.tool_result);
             // Match the pending line for this call (name + args, FIFO).
             std::string fp = ev.tool_args.dump();
             size_t match = std::string::npos;
@@ -267,19 +265,9 @@ bool Tui::drain_events() {
             if (match != std::string::npos &&
                 pending_tools_[match].index < win().lines.size()) {
                 size_t li = pending_tools_[match].index;
-                if (fold == ToolFold::Always) {
-                    // always = always open: freeze the open line (static tool
-                    // bullet) and append the summary as a second line.
-                    auto& runs = win().lines[li].runs;
-                    if (!runs.empty())
-                        runs.back().text = std::string(text::glyph::tool()) +
-                                           pending_tools_[match].tail;
-                    append_rich(summary);
-                } else {
-                    // auto/never: the single line closes — the spinner icon is
-                    // replaced by the success/failure icon and the summary.
-                    win().lines[li] = std::move(summary);
-                }
+                // Close in place: keep the open line's timestamp run.
+                win().lines[li] = tool_display::close_tool_line(
+                    win().lines[li], std::move(summary));
                 pending_tools_.erase(pending_tools_.begin() + match);
             } else {
                 append_rich(summary);
@@ -422,6 +410,7 @@ void Tui::send_async(const std::string& raw_prompt) {
         agent_thread_.join();
 
     agent_busy_.store(true);
+    working_since_ = std::chrono::steady_clock::now();
     agent_cancel_.store(false);
 
     ensure_chat_window();
@@ -562,6 +551,8 @@ void Tui::compress_worker() {
     if (agent_thread_.joinable())
         agent_thread_.join();
     agent_busy_.store(true);
+    working_since_ = std::chrono::steady_clock::now();
+    working_visible_ = true;
     agent_thread_ = std::thread([this]() {
         AgentEvent ev;
         ev.type = AgentEvent::CompressResult;

@@ -1,6 +1,7 @@
 
 #include "tui.h"
 #include "welcome.h"
+#include "tool_display.h"
 
 #include "tui/drawer_rows.h"
 
@@ -431,9 +432,8 @@ void Tui::advance_tool_spinners() {
         auto& runs = win().lines[pt.index].runs;
         if (runs.empty()) continue;
         // The body run is the LAST run (runs[0] is the timestamp).
-        const char* frame = pt.style ? text::glyph::spinner_round(pt.frame)
-                                     : text::glyph::spinner_square(pt.frame);
-        runs.back().text = std::string(frame) + pt.tail;
+        runs.back().text = std::string(text::glyph::spinner_round(pt.frame)) +
+                           pt.tail;
         changed = true;
     }
     pending_tools_.erase(
@@ -476,6 +476,19 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
 
     // Always show project name. Git branch and diff stats when available.
     auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
+
+    // Global working indicator: animated round ball + "working" + elapsed
+    // seconds, left of the prompt decor, while the agent is busy.
+    if (agent_busy_.load()) {
+        auto now = std::chrono::steady_clock::now();
+        size_t secs = static_cast<size_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(
+                now - working_since_).count());
+        std::string label = tool_display::working_label(
+            text::glyph::spinner_round(anim_phase_), secs);
+        put(" " + label + " ", P_GAUGE_WARN);
+    }
+
     decor("\u250c\u2500[");
     put(git_project_, P_USER);
     if (!git_branch_.empty()) {

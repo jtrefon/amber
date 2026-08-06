@@ -23,26 +23,6 @@ static bool edit_provider_form(agent::Config& cfg, const std::string& title);
 
 namespace {
 
-int map_last_choice(agent::PolicyLevel lc) {
-    switch (lc) {
-        case agent::PolicyLevel::AllowSession: return 1;
-        case agent::PolicyLevel::AlwaysAllow:  return 2;
-        case agent::PolicyLevel::AlwaysDeny:   return 3;
-        default: return 0;
-    }
-}
-
-} // namespace
-
-
-namespace {
-
-std::string toolfold_name(ToolFold f) {
-    if (f == ToolFold::Always) return "always";
-    if (f == ToolFold::Never) return "never";
-    return "auto";
-}
-
 std::string mode_name(agent::AgentMode m) {
     if (m == agent::AgentMode::Read) return "read";
     if (m == agent::AgentMode::Yolo) return "yolo";
@@ -50,82 +30,6 @@ std::string mode_name(agent::AgentMode m) {
 }
 
 } // namespace
-
-void Tui::send(const std::string& prompt) {
-    agent::AgentHooks hooks;
-    win().reason_buf.clear();
-    win().reason_folded = false;
-    show_reasoning_ = cfg_.show_reasoning;
-    win().stream_ts = timestamp();
-    hooks.on_reasoning = [this](const std::string& d) {
-        win().reason_buf += d;
-        win().scroll_top = max_scroll();
-        draw();
-    };
-    hooks.on_token = [this](const std::string& d) {
-        if (!win().reason_folded && !win().reason_buf.empty()) {
-            fold_reasoning();
-        }
-        win().stream_color = P_ASSISTANT;
-        win().stream_buf += d;
-        live_ctx_offset_ += (static_cast<long>(d.size()) / 4) + 1;
-        win().scroll_top = max_scroll();
-        draw();
-    };
-    hooks.on_assistant = [this](const std::string& s) {
-        if (win().stream_buf.empty()) append_line(P_ASSISTANT, s);
-    };
-    hooks.on_status = [this](const std::string& s) { append_line(P_STATUS, s); };
-    hooks.on_tool_call = [this](const std::string& n, const agent::json& a) {
-        flush_stream();
-        append_line(P_STATUS, "tool: " + n + " " + a.dump());
-    };
-    hooks.on_tool_result = [this](const std::string& n, const agent::ToolResult& r) {
-        append_line(P_STATUS, "result:" + n + " " + (r.ok ? r.output : r.error));
-    };
-    hooks.on_approval = [this](const std::string& tool, const agent::json&,
-                                const std::string& summary) -> agent::Approval {
-        flush_stream();
-        int dflt = 0;
-        if (auto* ag = win().agent.get())
-            dflt = map_last_choice(ag->policy().last_choice(tool));
-        agent::Approval d = approve_dialog(summary, 60, dflt);
-        const char* verdict = "denied";
-        if (d == agent::Approval::AllowOnce) verdict = "allowed once";
-        else if (d == agent::Approval::AllowSession) verdict = "allowed session";
-        else if (d == agent::Approval::AlwaysAllow) verdict = "always allow";
-        else if (d == agent::Approval::AlwaysDeny) verdict = "always deny";
-        append_line(P_STATUS,
-                    std::string("approval: ") + verdict + "  (" + summary + ")");
-        draw();
-        return d;
-    };
-    hooks.on_state = [this](agent::RunState s) {
-        state_ = s;
-        draw();
-    };
-    hooks.on_stats = [this](const agent::Stats& s) {
-        stats_ = s;
-        if (s.prompt_tokens >= 0) {
-            ctx_used_ = s.prompt_tokens;
-            live_ctx_offset_ = 0;
-        }
-        draw();
-    };
-    try {
-        win().agent->set_hooks(hooks);
-        win().agent->run(prompt);
-        win().dirty = true;
-    } catch (const std::exception& e) {
-        state_ = agent::RunState::Error;
-        flush_stream();
-        append_line(P_STATUS, std::string("error: ") + e.what());
-    }
-    if (state_ != agent::RunState::Error) state_ = agent::RunState::Idle;
-    flush_stream();
-    autosave();
-    draw();
-}
 
 void Tui::fold_reasoning() {
     if (win().reason_folded) return;
@@ -265,7 +169,6 @@ void Tui::cmd_set(const std::string& arg) {
         append_line(P_STATUS, "detection loop: " + std::string(cfg_.detection_loop ? "on" : "off"));
         append_line(P_STATUS, "detection duplicate: " + std::string(cfg_.detection_duplicate ? "on" : "off"));
         append_line(P_STATUS, "display markdown: " + std::string(win().markdown_on ? "on" : "off"));
-        append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
         append_line(P_STATUS, "policy: " + mode_name(cfg_.mode));
         append_line(P_STATUS, "compression threshold: " +
             std::to_string(compression_threshold_effective()));
@@ -361,10 +264,6 @@ void Tui::cmd_get_config() {
 
 void Tui::cmd_get_provider() {
     append_line(P_STATUS, "provider: " + cfg_.provider_name + " (" + cfg_.api_base + ")");
-}
-
-void Tui::cmd_get_toolfold() {
-    append_line(P_STATUS, "toolfold: " + toolfold_name(tool_fold_));
 }
 
 void Tui::cmd_get_policy(const std::string& arg) {
@@ -1171,14 +1070,6 @@ void Tui::register_builtin_actions() {
         append_line(P_STATUS, "markdown rendering: " + v);
         draw();
     });
-    register_action("core.config.set.toolfold", [this](const std::string& v) {
-        if (v == "always") tool_fold_ = ToolFold::Always;
-        else if (v == "auto") tool_fold_ = ToolFold::Auto;
-        else if (v == "never") tool_fold_ = ToolFold::Never;
-        else { append_line(P_STATUS, "usage: /set toolfold always|auto|never"); return; }
-        append_line(P_STATUS, "tool fold: " + v);
-        draw();
-    });
     register_action("core.config.set.policy.mode", [this](const std::string& v) {
         if (v != "read" && v != "write" && v != "yolo") {
             append_line(P_STATUS, "usage: /set policy mode read|write|yolo");
@@ -1281,8 +1172,6 @@ void Tui::register_builtin_actions() {
         [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.provider.list",
         [this](const std::string&) { cmd_provider_list(); });
-    register_action("core.config.get.toolfold",
-        [this](const std::string&) { cmd_get_toolfold(); });
     register_action("core.config.get.policy",
         [this](const std::string& a) { cmd_get_policy(a); });
     register_action("core.config.get.policy.mode",
@@ -2294,15 +2183,6 @@ void Tui::build_settings() {
         [this](){ return win().markdown_on ? "on" : "off"; },
         [this](const std::string& v) {
             win().markdown_on = (v == "on");
-            cfg_.save_settings(settings_path_);
-        });
-    add("toolfold", "Tool result folding mode", "<always|auto|never>", Setting::Choice,
-        {"always","auto","never"}, 0, 0,
-        [this]() -> std::string { return toolfold_name(tool_fold_); },
-        [this](const std::string& v) {
-            if (v == "always") tool_fold_ = ToolFold::Always;
-            else if (v == "never") tool_fold_ = ToolFold::Never;
-            else tool_fold_ = ToolFold::Auto;
             cfg_.save_settings(settings_path_);
         });
     add("policy.mode", "Agent mode", "<read|write|yolo>", Setting::Choice,

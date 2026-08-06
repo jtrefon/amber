@@ -48,7 +48,6 @@ TEST(test_core_actions_have_help) {
     // These should all have help text from the JSON.
     ASSERT(!reg.help_for("detection.loop").empty());
     ASSERT(!reg.help_for("compression.threshold").empty());
-    ASSERT(!reg.help_for("toolfold").empty());
     ASSERT(!reg.help_for("policy.mode").empty());
     ASSERT(!reg.help_for("think").empty());
 }

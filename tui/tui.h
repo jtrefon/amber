@@ -109,15 +109,15 @@ private:
     std::string running_tool_;
 
     // One advertised tool call = one pending scrollback line. All advertised
-    // calls animate together (the spinner glyph is swapped in-place each
-    // 150ms tick); each line's icon flips to success/failure when its result
-    // lands. Scrollback-only — the agent's immutable context stays sealed.
+    // calls animate together (the round spinner glyph is swapped in-place
+    // each 150ms tick); each line's icon flips to success/failure when its
+    // result lands. Scrollback-only — the agent's immutable context stays
+    // sealed.
     struct PendingToolLine {
         size_t index = std::string::npos;  // index into win().lines
         std::string name;
         std::string fingerprint;  // args dump — identity for result matching
-        int style = 0;            // 0 square corners (core), 1 round (bash)
-        std::string tail;         // " name args" after the spinner glyph
+        std::string tail;         // " <description>" after the spinner glyph
         int frame = 0;
     };
     std::vector<PendingToolLine> pending_tools_;
@@ -219,7 +219,6 @@ private:
     // ---- slash command framework ----------------------------------------
     const std::vector<tui::Command>& commands();
     void build_commands();
-    ToolFold tool_fold_ = ToolFold::Auto;  // global tool-call display mode
     const tui::Command* find_command(const std::string& name);
     ActionRegistry action_registry_;
     std::string plugin_state_name(agent::PluginState st) const;
@@ -266,7 +265,6 @@ private:
     void cmd_get_model_list();
     void cmd_get_model_context();
     void cmd_get_provider();
-    void cmd_get_toolfold();
     void cmd_get_policy(const std::string& arg);
     void cmd_get_policy_rule(const std::string& arg);
     void cmd_set_policy_rule(const std::string& arg);
@@ -382,6 +380,9 @@ public:
     long live_ctx_offset_ = 0;   // running token count during streaming
     agent::ServerInfo last_detected_;
     int anim_phase_ = 0;
+    // Turn start of the global "working" indicator (input-line spinner +
+    // elapsed seconds); set when the agent becomes busy, cleared on idle.
+    std::chrono::steady_clock::time_point working_since_{};
     bool dirty_ = true;          // coalesce redraws into one flush per tick
     // Wall-clock timestamp of the last status-bar repaint, so the clock and
     // progress wave keep ticking while the agent is blocked on a call that

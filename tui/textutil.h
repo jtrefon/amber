@@ -66,10 +66,8 @@ const char* check();
 // Cross used for tool-result failure indicators.
 const char* cross();
 
-// Animated spinner frames. Square corners are used for core tools, round
-// for bash, so the running tool's class is visible at a glance. Frames
-// cycle mod 4; the ASCII fallback cycles |/-\ on non-UTF-8 terminals.
-const char* spinner_square(int frame);
+// Animated spinner frame (round ball). Frames cycle mod 4; the ASCII
+// fallback cycles |/-\ on non-UTF-8 terminals.
 const char* spinner_round(int frame);
 
 } // namespace glyph
