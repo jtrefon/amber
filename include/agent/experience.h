@@ -62,6 +62,24 @@ public:
     virtual void upsert(const Memory& memory) = 0;
     virtual void upsert(const Skill& skill) = 0;
 
+    // Decrement the evidence of the item whose content matches (content is
+    // the store's canonical identity key). Returns the new evidence count,
+    // or 0 when the item was removed, or -1 when no item matched. The
+    // store owns the id mapping — callers never touch hashes.
+    virtual int deprecate(const std::string& content) {
+        (void)content;
+        return -1;
+    }
+
+    // Promotion thresholds — the store owns them (single source). New
+    // LLM-confirmed items start at the threshold and are promoted at once.
+    virtual int memory_promote_threshold() const {
+        return ExperienceConfig{}.memory_promote_threshold;
+    }
+    virtual int skill_promote_threshold() const {
+        return ExperienceConfig{}.skill_promote_threshold;
+    }
+
     // Set the current turn counter so the store can track
     // last_confirm_turn for freshness scoring.
     virtual void set_current_turn(size_t turn) = 0;

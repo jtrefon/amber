@@ -333,6 +333,11 @@ private:
     void job_read(const std::string& id);
     void job_start(const std::string& cmd);
     void request_quit();
+    // Effective compression threshold: the pipeline default when unset —
+    // single source via load_compression_config (never a local magic number).
+    double compression_threshold_effective() const {
+        return agent::load_compression_config(cfg_).threshold;
+    }
 public:
     void save_workspace_now();
     void redraw_after_modal();

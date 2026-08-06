@@ -30,13 +30,6 @@ Respond with ONLY this JSON array — no text outside it, no markdown fences:
     return req;
 }
 
-// Build the combined classification+extraction request.
-// Used by the single-request pipeline path. For the multi-step path,
-// use build_classify_request() followed by build_extract_request().
-Message build_compression_request() {
-    return build_classify_request();
-}
-
 // Build a request to extract memories and skills from the classification result.
 // Called as a second step after classification, sharing the same KV prefix.
 Message build_extract_request() {

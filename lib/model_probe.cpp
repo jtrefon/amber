@@ -128,27 +128,19 @@ void merge_server_info(Config& cfg, const ServerInfo& info) {
     if (!info.ok) return;
     if (!cfg.model_explicit && !info.model.empty())
         cfg.model = info.model;
-    if (!cfg.context_explicit) {
-        if (info.context_size > 0) {
-            cfg.context_size = info.context_size;
-        } else if (cfg.context_size <= 0) {
-            // Fallback: server didn't report n_ctx — use 128K as a generous
-            // minimum. This keeps the compression gate active and the context
-            // gauge visible. If the actual limit is smaller, the HTTP 400
-            // error learner (http_transport.cpp) will correct it downward.
-            cfg.context_size = 131072;
-        }
-    }
+    if (!cfg.context_explicit && info.context_size > 0)
+        cfg.context_size = info.context_size;
 }
 
 ServerInfo apply_server_autodetect(Config& cfg) {
     HttpLLMClient client(cfg);
     ServerInfo info = client.probe_server();
     merge_server_info(cfg, info);
-    // If still unknown after merge, apply the system fallback so the
-    // compression gate and context gauge always have a budget to work with.
-    if (!cfg.context_explicit && cfg.context_size <= 0)
-        cfg.context_size = 131072;
+    // When the window is still unknown (no probe result, no explicit config)
+    // it stays 0: the compression gate applies its own fallback budget and
+    // the context gauge hides instead of showing a fabricated number. The
+    // HTTP 400 error learner (http_transport.cpp) still corrects downward
+    // once the server rejects an oversized request.
     return info;
 }
 

@@ -111,10 +111,11 @@ public:
     // summary of what was saved.
     CompressionResult compress_now(std::function<void()> progress_cb = {});
 
-    // Check whether the compression gate would fire on the current context
-    // (without actually running compression). Useful for triggering
-    // compression on session load.
-    bool should_compress();
+    // Run the compression pipeline (gate already decided). Rebuilds the
+    // context only on success — a failed pipeline leaves the context
+    // untouched (spec invariant 7). Optionally fills `out` with stats.
+    bool run_compression(std::function<void()> progress_cb,
+                         CompressionResult* out);
 
     // Internal metadata — never sent to the LLM.  Persisted alongside
     // history_ in the session file for future internal use.

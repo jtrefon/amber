@@ -556,10 +556,13 @@ void Tui::agent_worker(const std::string& prompt) {
 }
 
 void Tui::compress_worker() {
-    // Run on a background thread so the main event loop keeps processing
-    // events (status messages, input) during the long LLM calls.
+    // Compression runs on the same worker thread as the agent loop, so the
+    // destructor's join() covers it too — never a detached thread capturing
+    // `this` (use-after-free when the TUI is torn down mid-compression).
+    if (agent_thread_.joinable())
+        agent_thread_.join();
     agent_busy_.store(true);
-    std::thread t([this]() {
+    agent_thread_ = std::thread([this]() {
         AgentEvent ev;
         ev.type = AgentEvent::CompressResult;
         if (win().agent) {
@@ -571,7 +574,6 @@ void Tui::compress_worker() {
             event_queue_.push(std::move(ev));
         }
     });
-    t.detach();
 }
 
 void Tui::git_refresh() {
