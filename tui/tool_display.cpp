@@ -78,8 +78,13 @@ std::string elapsed_label(size_t secs) {
     return b;
 }
 
-std::string working_label(const std::string& frame, size_t elapsed_secs) {
+std::string working_label(const std::string& frame, size_t elapsed_secs,
+                          const std::string& task) {
     return frame + " working " + elapsed_label(elapsed_secs);
+}
+
+Badge reasoning_badge(const std::string&) {
+    return {"", P_BAR_DIM};
 }
 
 } // namespace tui::tool_display

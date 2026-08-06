@@ -24,8 +24,19 @@ rich::Line close_tool_line(const rich::Line& open, rich::Line summary);
 // Elapsed-time label for the working indicator: 12s, 1m 05s, 1h 02m.
 std::string elapsed_label(size_t secs);
 
-// The full working indicator: "<frame> working <elapsed>".
-std::string working_label(const std::string& frame, size_t elapsed_secs);
+// The full working indicator: "<frame> working <elapsed>", plus an optional
+// running-task description appended as " · <task>" (truncated to 40 cols).
+std::string working_label(const std::string& frame, size_t elapsed_secs,
+                          const std::string& task = {});
+
+// Status-bar reasoning-strength badge: " ·<effort>" text and its color pair.
+// off -> dim, low -> ok, medium -> warn, high -> critical; unknown efforts
+// fall back to dim. Always shown, including the off state.
+struct Badge {
+    std::string text;
+    int pair = 0;
+};
+Badge reasoning_badge(const std::string& effort);
 
 } // namespace tui::tool_display
 

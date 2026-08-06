@@ -564,3 +564,41 @@ TEST(tool_display_working_label) {
     ASSERT(w.find("working") != std::string::npos);
     ASSERT(w.find("12s") != std::string::npos);
 }
+
+TEST(tool_display_working_label_with_task) {
+    std::string w = tui::tool_display::working_label(
+        "◐", 12, "grep -rn CancellationToken src/");
+    ASSERT(w.find("◐") == 0);
+    ASSERT(w.find("working") != std::string::npos);
+    ASSERT(w.find("12s") != std::string::npos);
+    ASSERT(w.find("· grep -rn CancellationToken src/") != std::string::npos);
+}
+
+TEST(tool_display_working_label_task_truncated) {
+    std::string long_task(80, 'x');
+    std::string w = tui::tool_display::working_label("◐", 5, long_task);
+    size_t pos = w.find("· ");
+    ASSERT(pos != std::string::npos);
+    std::string shown = w.substr(pos + 2);
+    ASSERT(shown.size() <= 41);  // 40 cols + ellipsis
+    ASSERT(shown.find("…") != std::string::npos);
+}
+
+TEST(tool_display_working_label_task_omitted_when_empty) {
+    std::string w = tui::tool_display::working_label("◐", 5, "");
+    ASSERT(w.find("·") == std::string::npos);
+}
+
+TEST(tool_display_reasoning_badge_mapping) {
+    auto off = tui::tool_display::reasoning_badge("off");
+    ASSERT_EQ(off.text, "·off");
+    ASSERT_EQ(off.pair, tui::P_BAR_DIM);
+    ASSERT_EQ(tui::tool_display::reasoning_badge("low").pair, tui::P_GAUGE_OK);
+    ASSERT_EQ(tui::tool_display::reasoning_badge("medium").pair,
+              tui::P_GAUGE_WARN);
+    ASSERT_EQ(tui::tool_display::reasoning_badge("high").pair,
+              tui::P_GAUGE_CRIT);
+    auto unk = tui::tool_display::reasoning_badge("turbo");
+    ASSERT_EQ(unk.text, "·turbo");
+    ASSERT_EQ(unk.pair, tui::P_BAR_DIM);
+}
