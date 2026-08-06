@@ -567,6 +567,11 @@ TEST(provider_custom_is_builtin_preset) {
     // Custom follows the same lifecycle as every other provider: always
     // present (built-in preset), selectable, and loud+actionable when
     // unconfigured — never a silent fallback, never missing.
+    // Hermetic: a seeded custom.conf in the real config dir would shadow
+    // the built-in preset (file providers are not builtin), so the preset
+    // path is tested against a clean XDG_CONFIG_HOME.
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_preset", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_preset");
     auto svc = agent::make_default_provider_service(agent::Config{});
     bool found = false;
     for (const auto& p : svc->available())
