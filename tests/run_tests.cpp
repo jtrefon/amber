@@ -2387,6 +2387,104 @@ TEST(integration_apply_and_retrieve) {
 // Agent memory extraction (FIX-002)
 // ---------------------------------------------------------------------------
 
+TEST(apply_memory_ops_deprecate_decreases_evidence) {
+    // A "deprecate" op must actually lower evidence — it previously decremented
+    // then upserted, and the store's upsert always increments: net zero (or
+    // worse, +1). Deprecated knowledge must lose weight.
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory mem;
+    mem.name = "make-fact";
+    mem.content = "project uses make";
+    mem.tags = {"build"};
+    mem.evidence_count = 3;
+    mem.promoted = true;
+    store->upsert(mem);
+    agent::KnowledgeOp op;
+    op.name = "make-fact";
+    op.content = "project uses make";
+    op.action = "deprecate";
+    agent::apply_memory_ops(*store, {op}, "", nullptr, 3);
+    auto all = store->all_memories();
+    ASSERT_EQ(all.size(), 1);
+    ASSERT_EQ(all[0].evidence_count, 2);
+}
+
+TEST(apply_memory_ops_deprecate_removes_at_zero_evidence) {
+    // Deprecating the last evidence point removes the item from the store.
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory mem;
+    mem.name = "one-hit";
+    mem.content = "one-time fact";
+    mem.evidence_count = 1;
+    mem.promoted = true;
+    store->upsert(mem);
+    agent::KnowledgeOp op;
+    op.name = "one-hit";
+    op.content = "one-time fact";
+    op.action = "deprecate";
+    agent::apply_memory_ops(*store, {op}, "", nullptr, 3);
+    ASSERT(store->all_memories().empty());
+}
+
+TEST(apply_skill_ops_deprecate_decreases_evidence) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Skill sk;
+    sk.name = "run-tests";
+    sk.content = "Run 'make test' in workspace root";
+    sk.trigger_phrase = "test";
+    sk.evidence_count = 5;
+    sk.promoted = true;
+    store->upsert(sk);
+    agent::KnowledgeOp op;
+    op.name = "run-tests";
+    op.content = "Run 'make test' in workspace root";
+    op.action = "deprecate";
+    agent::apply_skill_ops(*store, {op}, "", nullptr, 5);
+    auto all = store->all_skills();
+    ASSERT_EQ(all.size(), 1);
+    ASSERT_EQ(all[0].evidence_count, 4);
+}
+
+// ---------------------------------------------------------------------------
+// Headroom enforcement
+// ---------------------------------------------------------------------------
+
+TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
+    // Over-budget messages were replaced with fake "[over-budget archived]"
+    // system messages that polluted the prompt. They must instead be dropped
+    // and recorded as archive entries on the compressed-context message.
+    agent::Message ctx_msg;
+    ctx_msg.role = "system";
+    ctx_msg.content =
+        "Compressed conversation context:\n{\"archive\":[],\"facts\":{}}";
+    std::vector<agent::Message> msgs = {
+        msg("system", "Amber"),
+        msg("user", std::string(4000, 'a')),
+        msg("assistant", std::string(4000, 'b')),
+        msg("user", std::string(4000, 'c')),
+        ctx_msg,
+    };
+    // budget = 0.75 * 3000 = 2250 tokens; the three 4000-char messages
+    // (~1004 tokens each) put us at ~3033 — one must go.
+    auto out = agent::enforce_headroom(std::move(msgs), 3000);
+    ASSERT_EQ(out.size(), 4);
+    for (const auto& m : out)
+        ASSERT(m.content.find("[over-budget archived]") ==
+               std::string::npos);
+    bool archived = false;
+    for (const auto& m : out)
+        if (m.content.find("Compressed conversation context:") == 0)
+            archived = m.content.find("archive") != std::string::npos &&
+                       m.content.find("over-budget") != std::string::npos;
+    ASSERT(archived);
+}
+
 TEST(agent_extract_memories_from_tool_results) {
     // Verify MemoryStore round-trip (the core store behavior, not the
     // removed heuristic extraction). The LLM-based extraction in
@@ -3584,10 +3682,10 @@ TEST(todowrite_registered_when_enabled) {
     ASSERT(reg.find("todowrite") != nullptr);
 }
 
-TEST(compression_gate_budget_capped_for_large_ctx) {
-    // Auto-detected n_ctx (262k locally) made the gate fire at ~131k tokens —
-    // effectively never during a normal run. The effective budget must be
-    // capped so compression fires early regardless of n_ctx.
+TEST(compression_gate_large_window_fires_at_threshold_fraction) {
+    // The budget is the REAL window (probed or explicit): a 262k window with
+    // threshold 0.5 fires only past ~131k tokens — the old unconditional 32k
+    // cap was never part of the spec and is gone.
     agent::CompressionConfig cc;
     cc.threshold = 0.5;
     cc.cooldown_turns = 0;
@@ -3596,10 +3694,51 @@ TEST(compression_gate_budget_capped_for_large_ctx) {
     agent::Config cfg;
     cfg.context_size = 262144;
     cfg.turn_counter = 5;
-    cfg.prompt_tokens_used = 20000;  // > 16k capped budget, < 131k uncapped
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
+    cfg.prompt_tokens_used = 20000;   // ~7.6% of the window: below threshold
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 150000;  // ~57% of the window: above threshold
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_explicit_window_honored) {
+    // An explicitly configured window is the budget; the threshold is a
+    // fraction of that window, never of a hidden cap.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.7;
+    cc.cooldown_turns = 0;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 100000;
+    cfg.turn_counter = 5;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    cfg.prompt_tokens_used = 50000;   // 50% of the window: below threshold
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 70000;   // 70% of the window: at threshold
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_unknown_window_uses_fallback_budget) {
+    // No probe, no explicit config: the 32k fallback budget keeps the gate
+    // alive so compression still fires instead of being disabled entirely.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.5;
+    cc.cooldown_turns = 0;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;                 // context_size stays 0 (unknown)
+    cfg.turn_counter = 5;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    cfg.prompt_tokens_used = 15000;    // ~47% of 32000: below threshold
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 16001;    // ~50% of 32000: above threshold
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -3615,7 +3754,7 @@ TEST(compression_gate_first_compress_not_cooldown_blocked) {
     agent::Config cfg;
     cfg.context_size = 262144;
     cfg.turn_counter = 5;
-    cfg.prompt_tokens_used = 20000;
+    cfg.prompt_tokens_used = 200000;   // > 50% of the window: threshold met
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
