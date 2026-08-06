@@ -130,7 +130,15 @@ void Tui::cmd_get_subagent() {
     draw();
 }
 
+bool Tui::busy_reject(const std::string& what) {
+    if (!agent_busy_.load()) return false;
+    append_line(P_STATUS, what + ": agent is busy \u2014 apply when idle");
+    return true;
+}
+
 void Tui::cmd_set_reasoning_effort(const std::string& val) {
+    if (busy_reject("reasoning effort")) return;
+
     if (val != "off" && val != "low" && val != "medium" && val != "high") {
         append_line(P_STATUS,
                     "usage: /set reasoning effort off|low|medium|high (got: " +
@@ -1336,6 +1344,7 @@ std::string Tui::usage(const Command& c) const {
 }
 
 void Tui::cmd_model_set(const std::string& arg) {
+    if (busy_reject("model")) return;
     if (arg.empty()) {
         append_line(P_STATUS, "model: " + cfg_.model + " \u2014 /model <name> or /set model to switch");
         return;
@@ -1415,6 +1424,7 @@ void Tui::refresh_model_list() {
 }
 
 void Tui::cmd_provider(const std::string& a) {
+    if (busy_reject("provider")) return;
     if (a.empty()) {
         append_line(P_STATUS, "current provider: " + cfg_.provider_name +
                      " (" + cfg_.api_base + ")");
@@ -2162,6 +2172,7 @@ void Tui::build_settings() {
         [this](){ return cfg_.reasoning_effort; },
         [this](const std::string& v) {
             if (v != "off" && v != "low" && v != "medium" && v != "high") return;
+            if (busy_reject("reasoning effort")) return;
             cfg_.reasoning_effort = v;
             for (auto& w : windows_)
                 if (w->agent) w->agent->set_reasoning_effort(v);

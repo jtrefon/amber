@@ -334,6 +334,10 @@ private:
     void job_read(const std::string& id);
     void job_start(const std::string& cmd);
     void request_quit();
+    // Rejects configuration changes that would rebuild the agent's LLM
+    // client while the worker thread is mid-request (use-after-free). Shows
+    // a status line and returns true when the agent is busy.
+    bool busy_reject(const std::string& what);
     // Effective compression threshold: the pipeline default when unset —
     // single source via load_compression_config (never a local magic number).
     double compression_threshold_effective() const {
