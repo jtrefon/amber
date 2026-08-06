@@ -1921,8 +1921,7 @@ void Tui::cmd_compress(const std::string&) {
     }
     append_line(P_STATUS, "compressing...");
     state_ = agent::RunState::Waiting;
-    std::thread t([this] { compress_worker(); });
-    t.detach();
+    compress_worker();
 }
 
 void Tui::cmd_job(const std::string& rest) {

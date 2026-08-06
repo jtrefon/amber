@@ -346,8 +346,10 @@ behavior change: prove it with a before/after benchmark run (see
 - **Null Object** — `Agent::silent_hooks()` returns a no-op `AgentHooks` so
   internal confirmation exchanges never reach the scrollback, without null-checking
   at every call site.
-- **Memento** — `compress_now()` snapshots `history_` before mutation and
-  restores it on failure, capturing and rolling back state.
+- **Memento** — `run_compression()` (gate path) and `compress_now()` leave the
+  live `context_` untouched when the pipeline fails (spec invariant 7); the
+  rebuild via `clear()` + `push()` only happens on success, capturing and
+  rolling back state atomically.
 - **Adapter** — `LLMClient` adapts libcurl + the OpenAI JSON contract behind a
   small C++ interface; `Workspace` adapts filesystem confinement behind a simple
   `confine()` port.
