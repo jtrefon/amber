@@ -128,9 +128,11 @@ void apply_selection(Config& cfg, const ProviderSelection& sel);
 std::unique_ptr<ProviderRepository> make_static_provider_repository();
 // ~/.config/amber/providers/*.conf persistence (user-added providers).
 std::unique_ptr<ProviderRepository> make_file_provider_repository();
-// The user-defined "custom" connection: env AMBER_API_* / amber.conf /
-// the global config (only when it names provider "custom").
-std::unique_ptr<ProviderRepository> make_custom_provider_repository();
+// Write (or update) ~/.config/amber/providers/custom.conf from the given
+// connection so the custom provider follows the file lifecycle of every
+// other provider. An empty connection still writes a complete template.
+// Returns true when written.
+bool seed_custom_provider(const Config& connection);
 // OpenAI-compatible /v1/models probe.
 std::unique_ptr<ModelCatalog> make_http_model_catalog();
 

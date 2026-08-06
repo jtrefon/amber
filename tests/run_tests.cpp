@@ -563,17 +563,77 @@ TEST(provider_service_available_merges_and_dedups) {
             ASSERT_EQ(p.api_base, "https://two.test/v1");
 }
 
-TEST(provider_service_custom_from_env) {
-    setenv("AMBER_API_BASE", "https://custom.env.test/v1", 1);
-    setenv("AMBER_API_KEY", "sk-env-key", 1);
-    agent::Config cfg;
-    auto svc = agent::make_default_provider_service(cfg);
+TEST(provider_custom_is_builtin_preset) {
+    // Custom follows the same lifecycle as every other provider: always
+    // present (built-in preset), selectable, and loud+actionable when
+    // unconfigured — never a silent fallback, never missing.
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    bool found = false;
+    for (const auto& p : svc->available())
+        if (p.name == "custom") {
+            found = true;
+            ASSERT(p.builtin);
+        }
+    ASSERT(found);
+    auto sel = svc->select("custom");
+    ASSERT_FALSE(sel.ok());
+    ASSERT(sel.error.find("no endpoint") != std::string::npos);
+}
+
+TEST(provider_custom_file_override_wins) {
+    // The dedicated file (later repo) overrides the built-in preset, like
+    // deepseek.conf does for its preset class.
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_ovr", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_ovr");
+    agent::Config conn;
+    conn.api_base = "https://custom.test/v1";
+    conn.api_key = "sk-custom";
+    conn.model = "custom-model";
+    ASSERT(agent::seed_custom_provider(conn));
+
+    auto svc = agent::make_default_provider_service(agent::Config{});
     auto sel = svc->select("custom");
     ASSERT(sel.ok());
-    ASSERT_EQ(sel.provider.api_base, "https://custom.env.test/v1");
-    ASSERT_EQ(sel.provider.api_key, "sk-env-key");
-    unsetenv("AMBER_API_BASE");
-    unsetenv("AMBER_API_KEY");
+    ASSERT_EQ(sel.provider.api_base, "https://custom.test/v1");
+    ASSERT_EQ(sel.provider.api_key, "sk-custom");
+    ASSERT_EQ(sel.provider.default_model, "custom-model");
+
+    // Removing the file restores the unconfigured preset.
+    std::filesystem::remove(agent::global_config_dir() +
+                            "/providers/custom.conf");
+    auto svc2 = agent::make_default_provider_service(agent::Config{});
+    auto sel2 = svc2->select("custom");
+    ASSERT_FALSE(sel2.ok());
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_ovr");
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+TEST(provider_custom_seed_writes_all_keys) {
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_seed", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_seed");
+    agent::Config conn;
+    conn.api_base = "https://seed.test/v1";
+    conn.api_key = "sk-seed";
+    conn.model = "seed-model";
+    conn.context_size = 12345;
+    ASSERT(agent::seed_custom_provider(conn));
+    const std::string path =
+        agent::global_config_dir() + "/providers/custom.conf";
+    std::ifstream f(path);
+    ASSERT(f.good());
+    std::string content((std::istreambuf_iterator<char>(f)),
+                        std::istreambuf_iterator<char>());
+    ASSERT(content.find("provider=custom") != std::string::npos);
+    ASSERT(content.find("api_base=https://seed.test/v1") != std::string::npos);
+    ASSERT(content.find("api_key=sk-seed") != std::string::npos);
+    ASSERT(content.find("default_model=seed-model") != std::string::npos);
+    ASSERT(content.find("default_context_size=12345") != std::string::npos);
+    // An empty connection still writes a complete template.
+    agent::Config empty;
+    empty.api_base.clear();
+    ASSERT(agent::seed_custom_provider(empty));
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_seed");
+    unsetenv("XDG_CONFIG_HOME");
 }
 
 TEST(file_provider_repository_roundtrip) {
@@ -3633,6 +3693,7 @@ TEST(provider_custom_unconfigured_is_error) {
     auto sel = svc->select("custom");
     unsetenv("XDG_CONFIG_HOME");
     ASSERT_FALSE(sel.ok());
-    // Loud failure — never a silent fallback to the DTO default endpoint.
-    ASSERT(sel.error.find("unknown provider") != std::string::npos);
+    // Loud, actionable failure — never a silent fallback to the DTO
+    // default endpoint, and never "unknown": custom is a known preset.
+    ASSERT(sel.error.find("no endpoint") != std::string::npos);
 }

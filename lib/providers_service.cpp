@@ -126,12 +126,21 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
         cfg.context_size = sel.provider.default_context_size;
 }
 
+bool seed_custom_provider(const Config& connection) {
+    Provider p;
+    p.name = "custom";
+    p.api_base = connection.api_base;
+    p.api_key = connection.api_key;
+    p.default_model = connection.model;
+    p.default_context_size = connection.context_size;
+    return make_file_provider_repository()->save(p);
+}
+
 std::unique_ptr<ProviderService> make_default_provider_service(
     const Config&) {
     std::vector<std::unique_ptr<ProviderRepository>> repos;
     repos.push_back(make_static_provider_repository());
     repos.push_back(make_file_provider_repository());
-    repos.push_back(make_custom_provider_repository());
     return std::make_unique<ProviderService>(
         std::move(repos), make_http_model_catalog());
 }

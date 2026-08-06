@@ -18,6 +18,10 @@ public:
         out.push_back({"kilocode",
                        "https://api.kilo.ai/api/gateway", "", true,
                        "kilo-auto/free", 0, /*builtin=*/true});
+        // Custom is a built-in preset too: always present, configured via
+        // its dedicated file (~/.config/amber/providers/custom.conf) like
+        // every other provider. Empty endpoint until the file exists.
+        out.push_back({"custom", "", "", false, "", 0, /*builtin=*/true});
         return out;
     }
 

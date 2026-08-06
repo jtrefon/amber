@@ -80,7 +80,6 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/lib/providers_service.o \
              $(BUILD_DIR)/lib/providers_repo_files.o \
              $(BUILD_DIR)/lib/providers_repo_static.o \
-             $(BUILD_DIR)/lib/providers_repo_custom.o \
              $(BUILD_DIR)/lib/providers_catalog_http.o \
              $(BUILD_DIR)/tools/process_tool.o \
              $(BUILD_DIR)/tools/skill_tools.o \

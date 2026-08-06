@@ -16,6 +16,10 @@
 #include <unistd.h>
 
 namespace tui {
+// Provider edit form (Server URL / API Key / Model / Context). Returns
+// true when the user saved, false on cancel.
+static bool edit_provider_form(agent::Config& cfg, const std::string& title);
+
 
 namespace {
 
@@ -1521,8 +1525,44 @@ void Tui::cmd_provider(const std::string& a) {
     }
     auto sel = providers_->select(a);
     if (!sel.ok()) {
-        append_line(P_STATUS, "error: " + sel.error);
-        return;
+        // First-run flow for the custom provider: seed its dedicated file
+        // from the current connection, then confirm via the same provider
+        // form used everywhere else. Esc leaves the seeded file behind for
+        // external editing — never a dead end.
+        if (a == "custom" &&
+            sel.error.find("no endpoint") != std::string::npos) {
+            agent::seed_custom_provider(cfg_);
+            agent::Config prov_cfg;
+            prov_cfg.provider_name = "custom";
+            prov_cfg.api_base = cfg_.api_base;
+            prov_cfg.api_key = cfg_.api_key;
+            prov_cfg.model = cfg_.model;
+            prov_cfg.model_explicit = cfg_.model_explicit;
+            prov_cfg.context_size = cfg_.context_size;
+            prov_cfg.context_explicit = cfg_.context_explicit;
+            if (!edit_provider_form(prov_cfg,
+                                    "Configure custom provider")) {
+                refresh_provider_feed();
+                append_line(P_STATUS,
+                            "custom provider file created at " +
+                                agent::global_config_dir() +
+                                "/providers/custom.conf \u2014 edit it or "
+                                "re-run /set provider custom");
+                return;
+            }
+            providers_->save(agent::Provider{
+                prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+                !prov_cfg.api_key.empty(), prov_cfg.model,
+                prov_cfg.context_size, false});
+            sel = providers_->select("custom");
+            if (!sel.ok()) {
+                append_line(P_STATUS, "error: " + sel.error);
+                return;
+            }
+        } else {
+            append_line(P_STATUS, "error: " + sel.error);
+            return;
+        }
     }
     agent::apply_selection(cfg_, sel);
     if (!sel.warning.empty())
