@@ -11,6 +11,7 @@ namespace tui::tool_display {
 namespace {
 
 constexpr size_t kCommandCap = 160;
+constexpr size_t kTaskCap = 40;
 
 std::string truncate(const std::string& s, size_t cap) {
     if (s.size() <= cap) return s;
@@ -80,11 +81,20 @@ std::string elapsed_label(size_t secs) {
 
 std::string working_label(const std::string& frame, size_t elapsed_secs,
                           const std::string& task) {
-    return frame + " working " + elapsed_label(elapsed_secs);
+    std::string out = frame + " working " + elapsed_label(elapsed_secs);
+    if (!task.empty())
+        out += " \u00b7 " + truncate(task, kTaskCap);
+    return out;
 }
 
-Badge reasoning_badge(const std::string&) {
-    return {"", P_BAR_DIM};
+Badge reasoning_badge(const std::string& effort) {
+    Badge b;
+    b.text = "\u00b7" + effort;
+    if (effort == "low")          b.pair = P_GAUGE_OK;
+    else if (effort == "medium")  b.pair = P_GAUGE_WARN;
+    else if (effort == "high")    b.pair = P_GAUGE_CRIT;
+    else                          b.pair = P_BAR_DIM;
+    return b;
 }
 
 } // namespace tui::tool_display

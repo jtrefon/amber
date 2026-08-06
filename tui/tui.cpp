@@ -200,6 +200,8 @@ bool Tui::drain_events() {
             break;
         case AgentEvent::ToolCall: {
             running_tool_ = ev.tool_name;
+            running_tool_desc_ = tool_display::describe_tool_call(
+                ev.tool_name, ev.tool_args);
             flush_stream();
             // One "open" line per advertised call, animated together: round
             // spinner + a human description of what is actually running
@@ -218,6 +220,7 @@ bool Tui::drain_events() {
         }
         case AgentEvent::ToolResult: {
             running_tool_.clear();
+            running_tool_desc_.clear();
             // Summary line: colored success/failure icon + one-line report,
             // closed IN PLACE on the open line (single line per tool call).
             auto build_result =

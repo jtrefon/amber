@@ -107,6 +107,9 @@ private:
     // e.g. bash), surfaced on the status bar so a synchronous command that is
     // not a JobService background job is still visible while it runs.
     std::string running_tool_;
+    // Human-readable description of the running tool call (describe_tool_call
+    // output), shown in the sticky working row while the tool executes.
+    std::string running_tool_desc_;
 
     // One advertised tool call = one pending scrollback line. All advertised
     // calls animate together (the round spinner glyph is swapped in-place

@@ -132,6 +132,12 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     segs.push_back({wtag, P_BANNER, 3});
     segs.push_back({" [" + cfg_.model + "]", P_BAR_DIM | A_BOLD, 5});
 
+    // Reasoning-strength badge, separate from the model so the strings never
+    // visually concatenate: [model]  ·high — color-coded, always shown.
+    auto badge = tool_display::reasoning_badge(cfg_.reasoning_effort);
+    if (!badge.text.empty())
+        segs.push_back({"  " + badge.text, badge.pair, 6});
+
     // Agent mode label with full words and colour coding.
     std::string mode_txt;
     int mode_pair = P_BAR_DIM;
@@ -250,6 +256,26 @@ void Tui::draw() {
         } else {
             append_rich_to(view, win().stream_buf, win().stream_color, width());
         }
+    }
+
+    // Sticky working row: messenger-style indicator pinned at the BOTTOM of
+    // the history while the agent is busy. Output streams in above it and it
+    // disappears when the turn ends (idle). Optionally names the tool being
+    // executed: "◐ working 12s · grep -rn X src/".
+    if (agent_busy_.load()) {
+        auto now = std::chrono::steady_clock::now();
+        size_t secs = static_cast<size_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(
+                now - working_since_).count());
+        std::string label = tool_display::working_label(
+            text::glyph::spinner_round(anim_phase_), secs,
+            running_tool_desc_);
+        rich::Line wl;
+        rich::Run r;
+        r.pair = P_GAUGE_WARN;
+        r.text = label;
+        wl.runs.push_back(std::move(r));
+        view.push_back(std::move(wl));
     }
 
     chat_canvas_.resize(chat_top(), chat_height(), width());
@@ -476,20 +502,7 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
 
     // Always show project name. Git branch and diff stats when available.
     auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
-
-    // Global working indicator: animated round ball + "working" + elapsed
-    // seconds, left of the prompt decor, while the agent is busy.
-    if (agent_busy_.load()) {
-        auto now = std::chrono::steady_clock::now();
-        size_t secs = static_cast<size_t>(
-            std::chrono::duration_cast<std::chrono::seconds>(
-                now - working_since_).count());
-        std::string label = tool_display::working_label(
-            text::glyph::spinner_round(anim_phase_), secs);
-        put(" " + label + " ", P_GAUGE_WARN);
-    }
-
-    decor("\u250c\u2500[");
+    decor("\u2514\u2500[");
     put(git_project_, P_USER);
     if (!git_branch_.empty()) {
         decor("]\u2500[");

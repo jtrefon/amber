@@ -579,8 +579,8 @@ TEST(tool_display_working_label_task_truncated) {
     std::string w = tui::tool_display::working_label("◐", 5, long_task);
     size_t pos = w.find("· ");
     ASSERT(pos != std::string::npos);
-    std::string shown = w.substr(pos + 2);
-    ASSERT(shown.size() <= 41);  // 40 cols + ellipsis
+    std::string shown = w.substr(pos + std::string("· ").size());
+    ASSERT(tui::text::display_cols(shown) <= 40);
     ASSERT(shown.find("…") != std::string::npos);
 }
 
