@@ -3,17 +3,29 @@
   "help": {
    "action": "core.help",
    "help": "Show command help. Use '/help <command>' for details, or type '?' at the end of any command path.",
-   "man": "The help command lists all available slash commands and their usage. Pass a command name to get detailed help for that specific command. You can also type '?' at the end of any command path to see the manual page for that namespace or setting."
+   "man": "The help command lists all available slash commands and their usage. Pass a command name to get detailed help for that specific command. You can also type '?' at the end of any command path to see the manual page for that namespace or setting.",
+   "aliases": [
+    "?",
+    "h"
+   ]
   },
   "settings": {
    "action": "core.settings",
    "help": "Open the settings screen to configure provider, model, API key, and connection test.",
-   "man": "Opens a full-screen configuration dialog where you can manage API providers, change the active model, set API keys, and test server connectivity. All changes are persisted to ~/.config/amber/."
+   "man": "Opens a full-screen configuration dialog where you can manage API providers, change the active model, set API keys, and test server connectivity. All changes are persisted to ~/.config/amber/.",
+   "aliases": [
+    "server",
+    "endpoint"
+   ]
   },
   "new": {
    "action": "core.session.reset",
    "help": "Clear the current conversation and start fresh.",
-   "man": "Resets the current chat window: clears all conversation history, stream buffers, and session-level tool approvals. The next message you send starts a brand new conversation. Use '/window new' if you want to open an additional window instead."
+   "man": "Resets the current chat window: clears all conversation history, stream buffers, and session-level tool approvals. The next message you send starts a brand new conversation. Use '/window new' if you want to open an additional window instead.",
+   "aliases": [
+    "clear",
+    "reset"
+   ]
   },
   "close": {
    "action": "core.window.close",
@@ -23,12 +35,19 @@
   "stop": {
    "action": "core.stop",
    "help": "Terminate the running agent and cancel any in-flight tool calls.",
-   "man": "Sends a cancellation signal to the running agent. Any in-flight HTTP request or tool execution is aborted cooperatively. The agent stops sending new tool calls and returns control to the prompt."
+   "man": "Sends a cancellation signal to the running agent. Any in-flight HTTP request or tool execution is aborted cooperatively. The agent stops sending new tool calls and returns control to the prompt.",
+   "aliases": [
+    "cancel",
+    "kill"
+   ]
   },
   "compress": {
    "action": "core.compress",
    "help": "Compress conversation history to free context space while preserving task state.",
-   "man": "Runs the LLM-based conversation compressor which collapses loops, archives older turns into summaries, and prunes redundant tool output. This frees token space in the context window while preserving task context and decisions. The compressed history replaces the current conversation."
+   "man": "Runs the LLM-based conversation compressor which collapses loops, archives older turns into summaries, and prunes redundant tool output. This frees token space in the context window while preserving task context and decisions. The compressed history replaces the current conversation.",
+   "aliases": [
+    "compact"
+   ]
   },
   "save": {
    "action": "core.session.save",
@@ -38,7 +57,11 @@
   "quit": {
    "action": "core.quit",
    "help": "Save all windows and exit.",
-   "man": "Saves all open windows to the session store, cleans up background jobs, and exits the application. Unsaved conversation data is persisted before shutdown."
+   "man": "Saves all open windows to the session store, cleans up background jobs, and exits the application. Unsaved conversation data is persisted before shutdown.",
+   "aliases": [
+    "exit",
+    "q"
+   ]
   },
   "window": {
    "action": "core.window",
@@ -65,7 +88,11 @@
      "help": "Rename the current window.",
      "man": "Prompts for a new title for the current chat window. The title is displayed in the window tab bar."
     }
-   }
+   },
+   "aliases": [
+    "win",
+    "w"
+   ]
   },
   "get": {
    "action": "core.config.get",
@@ -491,7 +518,10 @@
      "help": "Find files by glob pattern in the given directory.",
      "man": "Recursively searches for files matching a glob pattern (e.g. '**/*.cpp') starting from the given directory. Results are displayed with relative paths."
     }
-   }
+   },
+   "aliases": [
+    "f"
+   ]
   },
   "system": {
    "action": "os.system",
@@ -558,7 +588,10 @@
      "help": "Show system information (kernel, architecture, hostname).",
      "man": "Displays system information including kernel name, hostname, kernel release, and hardware architecture."
     }
-   }
+   },
+   "aliases": [
+    "sy"
+   ]
   },
   "provider": {
    "action": "core.provider",
@@ -590,7 +623,10 @@
      "help": "Test the provider connection by probing the API endpoint.",
      "man": "Sends a probe request to the provider's API endpoint to verify connectivity and reports the server's model info."
     }
-   }
+   },
+   "aliases": [
+    "p"
+   ]
   },
   "session": {
    "action": "core.session",
@@ -763,7 +799,11 @@
   "sessions": {
    "action": "core.session.list",
    "help": "Browse and load a saved session.",
-   "man": "Alias for '/session list': opens the session browser showing all saved conversations with titles, timestamps, and message counts."
+   "man": "Alias for '/session list': opens the session browser showing all saved conversations with titles, timestamps, and message counts.",
+   "aliases": [
+    "load",
+    "open"
+   ]
   }
  }
 }

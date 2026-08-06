@@ -653,22 +653,25 @@ void Tui::refresh_completions() {
 
 void Tui::run() {
     git_refresh();
-    refresh_model_list();
-    refresh_policy_feed();
-    refresh_job_feed();
     draw();
     draw_input("");
     flush();
     detect_server(false);
     timeout(50);
 
-    // Build the setting registry and command tree.
+    // Build the setting registry and command tree FIRST, then merge the
+    // live feeds. Merging feeds before the rebuild wiped their leaves
+    // (models, policy rules, providers, job ids) from the tree.
     build_settings();
     (void)commands();  // force command tree build
     // Load completion metadata from JSON (help text, choices, ranges).
     // This is the single source of truth for completion metadata — code edits
     // cannot break completion unless the JSON file is damaged.
     refresh_completions();
+    refresh_model_list();
+    refresh_policy_feed();
+    refresh_job_feed();
+    refresh_provider_feed();
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
     CommandLine cl;
@@ -710,6 +713,16 @@ void Tui::run() {
             } else {
                 leaf_part = dotted;
             }
+            // Descend on exact child match (the drawer shows the child's
+            // children) so drawer rows and completions stay 1:1 for Enter.
+            if (!leaf_part.empty()) {
+                std::string exact = ns_part.empty() ? leaf_part
+                                                    : ns_part + "." + leaf_part;
+                if (!settings_.children_of(exact).empty()) {
+                    ns_part = exact;
+                    leaf_part.clear();
+                }
+            }
             auto completions = settings_.complete(ns_part);
             std::vector<std::string> stripped;
             for (const auto& c : completions) {
@@ -721,13 +734,10 @@ void Tui::run() {
             cl.set_completions(stripped);
             return;
         }
-        // Default: top-level command names (including aliases).
-        std::vector<std::string> names;
-        for (const auto& c : commands()) {
-            names.push_back(c.name);
-            for (const auto& a : c.aliases)
-                names.push_back(a);
-        }
+        // Default: top-level command names from the tree (children of the
+        // root), including JSON-declared aliases — never a hardcoded list.
+        std::vector<std::string> names = settings_.complete("");
+        for (const auto& a : settings_.top_level_aliases()) names.push_back(a);
         cl.set_completions(names);
     };
     update_completions();

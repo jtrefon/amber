@@ -77,6 +77,11 @@ public:
     // e.g. children_of("set.policy") → ["approval", "mode", "timeout"]
     std::vector<std::string> children_of(const std::string& key) const;
 
+    // Aliases declared in the JSON ("aliases": ["w"]) for top-level
+    // commands, so the no-space completion branch stays tree-driven.
+    std::vector<std::string> top_level_aliases() const;
+    const std::vector<std::string>& aliases_for(const std::string& key) const;
+
     // Access choices and ranges loaded from JSON (for help display).
     const std::vector<std::string>& choices_for(const std::string& key) const;
     bool range_for(const std::string& key, double& lo, double& hi) const;
@@ -101,6 +106,7 @@ private:
 
     // Per-command completion lists (from JSON).
     std::map<std::string, std::vector<std::string>> command_choices_;
+    std::map<std::string, std::vector<std::string>> command_aliases_;
     std::map<std::string, std::pair<double,double>> command_ranges_;
     std::map<std::string, std::vector<std::string>> command_subcommands_;
 };

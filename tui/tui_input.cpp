@@ -995,48 +995,26 @@ const std::vector<Command>& Tui::commands() {
 }
 
 void Tui::build_commands() {
-    commands_ = {
-        {"help", "core.help", {"?", "h"}, "[command]",
-         "list commands, or show detail for one"},
-        {"settings", "core.settings", {"server", "endpoint"}, "",
-         "configure provider, model, API key, and connection test"},
-        {"mcp", "core.mcp", {}, "[subcommand]",
-         "manage MCP servers (list|show|connect|disconnect|refresh|prompts|enable|disable|trust)"},
-        {"prompt", "core.prompt", {}, "[server name k=v...]",
-         "invoke an MCP prompt template (fills the input line)"},
-        {"plugin", "core.plugin", {}, "[subcommand]",
-         "manage plugins (list|status|enable|disable|get|set|info|install|uninstall)"},
-        {"new", "core.session.reset", {"clear", "reset"}, "",
-         "clear the current conversation and start fresh"},
-        {"close", "core.window.close", {}, "",
-         "close the current window"},
-        {"window", "core.window", {"win", "w"}, "new|close|list|rename <name>",
-         "manage chat windows"},
-        {"stop", "core.stop", {"cancel", "kill"}, "",
-         "terminate the current tool and agent loop"},
-        {"set", "core.config.set", {}, "<option> <value>",
-         "set runtime options: detection, display, toolfold, policy (mode|tool <name> <level>|timeout <N>), compression, provider, model, think"},
-        {"get", "core.config.get", {}, "<option>",
-         "show current setting: config, model, provider, toolfold, policy (mode|timeout|<tool>), display, compression, detection"},
-        {"compress", "core.compress", {"compact"}, "",
-         "compress conversation history to free context space"},
-        {"job", "core.job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
-         "manage background processes (servers, builds) started by the agent"},
-{"save", "core.session.save", {}, "",
-         "persist the current conversation"},
-        {"sessions", "core.session.list", {"load", "open"}, "",
-         "browse and load a saved session"},
-        {"quit", "core.quit", {"exit", "q"}, "",
-         "save all windows and exit"},
-        {"provider", "core.provider", {"p"}, "list|add|edit|delete|test",
-         "manage API providers"},
-        {"session", "core.session", {}, "list|save|load|delete|rename <id> <title>",
-         "manage saved sessions"},
-        {"files", "core.files", {"f"}, "ls|tree|open|find <path>",
-         "browse and view files in the workspace"},
-        {"system", "core.system", {"sy"}, "exec|delete|rmdir|mkdir|mv|cp|info|ps|kill|df|uptime|uname",
-         "system operations (file mgmt, processes, disk)"},
-    };
+    commands_.clear();
+    // Display-only command list, generated from the JSON tree — the tree
+    // is the single source of truth; nothing here is hardcoded.
+    for (const auto& name : settings_.complete("")) {
+        palette::Command c;
+        c.name = name;
+        c.help = settings_.help_for(name);
+        c.aliases = settings_.aliases_for(name);
+        const auto kids = settings_.children_of(name);
+        if (!kids.empty()) {
+            std::string args;
+            for (size_t i = 0; i < kids.size(); ++i) {
+                if (i > 0) args += "|";
+                args += kids[i];
+            }
+            if (args.size() > 40) args = "option";
+            c.args = "<" + args + ">";
+        }
+        commands_.push_back(std::move(c));
+    }
     register_builtin_actions();
 }
 

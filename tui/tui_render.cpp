@@ -2,6 +2,8 @@
 #include "tui.h"
 #include "welcome.h"
 
+#include "tui/drawer_rows.h"
+
 #include <algorithm>
 #include <cmath>
 #include <ctime>
@@ -580,145 +582,11 @@ void Tui::draw_drawer(const std::string& input) {
     }
 
     int bar_row = height() - 2;
-    std::string token = drawer_token(input);
     bool arg_mode = drawer_has_arg(input);
-    std::vector<std::string> rows;
+    // Rows are pure data from the command tree (children + help + choices)
+    // so the drawer stays 1:1 with completions and is unit-testable.
+    std::vector<std::string> rows = drawer_rows(input, settings_);
 
-    auto append_choices = [&](std::string& line, const std::string& key) {
-        const auto& ch = settings_.choices_for(key);
-        if (!ch.empty()) {
-            line += "  [";
-            for (size_t i = 0; i < ch.size(); ++i) {
-                if (i > 0) line += "|";
-                line += ch[i];
-            }
-            line += "]";
-        } else {
-            double rlo, rhi;
-            if (settings_.range_for(key, rlo, rhi))
-                line += "  [" + std::to_string((int)rlo) + "-" + std::to_string((int)rhi) + "]";
-        }
-    };
-
-    // Check if we're inside a command namespace.
-    // Extract the namespace path: "/get policy mode" → "get.policy"
-    std::string ns_path;
-    size_t sp = input.find(' ', 1);
-    if (sp != std::string::npos) {
-        ns_path = input.substr(1);  // skip /
-        // Strip trailing spaces so rfind finds the real word boundary.
-        while (!ns_path.empty() && ns_path.back() == ' ')
-            ns_path.pop_back();
-        std::string partial;
-        size_t last_sp = ns_path.rfind(' ');
-        if (last_sp != std::string::npos) {
-            partial = ns_path.substr(last_sp + 1);
-            ns_path.resize(last_sp);
-        }
-        // Convert space-separated to the full dotted path: "get policy" →
-        // "get.policy". Namespaces are indexed by their full display path.
-        std::string lookup_key;
-        {
-            size_t p = 0;
-            while (p < ns_path.size()) {
-                size_t spc = ns_path.find(' ', p);
-                if (spc == std::string::npos) { lookup_key += ns_path.substr(p); break; }
-                if (!lookup_key.empty()) lookup_key += ".";
-                lookup_key += ns_path.substr(p, spc - p);
-                p = spc + 1;
-            }
-        }
-        auto kids = settings_.children_of(lookup_key);
-        if (!kids.empty()) {
-            // If partial exactly matches a child that has its own children,
-            // descend into that child's namespace.
-            if (!partial.empty()) {
-                std::string sub_key = lookup_key + "." + partial;
-                auto sub = settings_.children_of(sub_key);
-                if (!sub.empty()) {
-                    for (const auto& sk : sub) {
-                        std::string full_key = sub_key;
-                        full_key += ".";
-                        full_key += sk;
-                        std::string h = settings_.help_for(full_key);
-                        std::string line = "  ";
-                        line += sk;
-                        if (!h.empty()) {
-                            if (sk.size() < 34) line.append(34 - sk.size(), ' ');
-                            line += "  ";
-                            line += h;
-                        }
-                        append_choices(line, full_key);
-                        rows.push_back(line);
-                    }
-                    goto render;
-                }
-            }
-            for (const auto& k : kids) {
-                if (!partial.empty() && k.rfind(partial, 0) != 0) continue;
-                std::string full_key = lookup_key;
-                full_key += ".";
-                full_key += k;
-                std::string h = settings_.help_for(full_key);
-                std::string line = "  ";
-                line += k;
-                if (!h.empty()) {
-                    if (k.size() < 34) line.append(34 - k.size(), ' ');
-                    line += "  ";
-                    line += h;
-                }
-                append_choices(line, full_key);
-                rows.push_back(line);
-            }
-            if (rows.empty())
-                rows.emplace_back("  (no matching option  -  Esc to cancel)");
-            goto render;
-        }
-        // Check if we're at a non-namespace command with args (usage row).
-        std::vector<const Command*> cmds = filter_commands(token);
-        const Command* c = cmds.empty() ? nullptr : cmds.front();
-        if (c)
-            rows.push_back("  " + usage(*c) + "   " + c->help);
-        else
-            rows.emplace_back("  (no such command)");
-        goto render;
-    }
-
-    // No space yet: show flat command list, or namespace children if the
-    // token itself is a command with children in the JSON.
-    {
-        auto kids = settings_.children_of(token);
-        if (!kids.empty()) {
-            for (const auto& k : kids) {
-                std::string full_key = token;
-                full_key += ".";
-                full_key += k;
-                std::string h = settings_.help_for(full_key);
-                std::string line = "  ";
-                line += k;
-                if (!h.empty()) {
-                    if (k.size() < 34) line.append(34 - k.size(), ' ');
-                    line += "  ";
-                    line += h;
-                }
-                append_choices(line, full_key);
-                rows.push_back(line);
-            }
-            if (rows.empty())
-                rows.emplace_back("  (no matching option  -  Esc to cancel)");
-            goto render;
-        }
-        // Fall back to flat command list.
-        auto matches = filter_commands(token);
-        for (auto* c : matches) {
-            std::string u = usage(*c);
-            if (u.size() < 34) u.append(34 - u.size(), ' ');
-            rows.push_back("  " + u + "  " + c->help);
-        }
-        if (rows.empty()) rows.emplace_back("  (no matching command  -  Esc to cancel)");
-    }
-
-render:
     int nsel = arg_mode ? 0 : static_cast<int>(rows.size());
     if (drawer_sel_ >= nsel) drawer_sel_ = std::max(0, nsel - 1);
     if (drawer_sel_ < 0) drawer_sel_ = 0;

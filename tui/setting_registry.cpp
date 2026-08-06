@@ -150,6 +150,11 @@ void SettingRegistry::index_node(const nlohmann::json& node,
         man_text = node["man"].get<std::string>();
     if (node.contains("action") && node["action"].is_string())
         action = node["action"].get<std::string>();
+    std::vector<std::string> aliases;
+    if (node.contains("aliases") && node["aliases"].is_array())
+        for (const auto& a : node["aliases"])
+            aliases.push_back(a.get<std::string>());
+
     if (node.contains("choices") && node["choices"].is_array())
         for (const auto& c : node["choices"])
             choices.push_back(c.get<std::string>());
@@ -168,8 +173,10 @@ void SettingRegistry::index_node(const nlohmann::json& node,
     std::string key_path = display_path;
     if (!key_path.empty() &&
         (key_path.find('.') != std::string::npos ||
-         !node.contains("children") || !help_text.empty()))
+         !node.contains("children") || !help_text.empty())) {
         idx(key_path, help_text, man_text, choices, rlo, rhi, has_range);
+        if (!aliases.empty()) command_aliases_[key_path] = aliases;
+    }
 
     auto union_into = [](std::vector<std::string>& dst,
                          const std::vector<std::string>& src) {
@@ -263,7 +270,24 @@ void SettingRegistry::reset_completion_index() {
     key_children_.clear();
     command_choices_.clear();
     command_ranges_.clear();
+    command_aliases_.clear();
     command_subcommands_.clear();
+}
+
+const std::vector<std::string>& SettingRegistry::aliases_for(
+    const std::string& key) const {
+    static const std::vector<std::string> empty;
+    std::string rk = resolve_key(key);
+    auto it = command_aliases_.find(rk);
+    return it != command_aliases_.end() ? it->second : empty;
+}
+
+std::vector<std::string> SettingRegistry::top_level_aliases() const {
+    std::vector<std::string> out;
+    for (const auto& [path, aliases] : command_aliases_)
+        if (path.find('.') == std::string::npos)
+            for (const auto& a : aliases) out.push_back(a);
+    return out;
 }
 
 const std::vector<std::string>& SettingRegistry::choices_for(const std::string& key) const {
