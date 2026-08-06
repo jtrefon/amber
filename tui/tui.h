@@ -338,6 +338,17 @@ private:
     // client while the worker thread is mid-request (use-after-free). Shows
     // a status line and returns true when the agent is busy.
     bool busy_reject(const std::string& what);
+    // One restored tool call awaiting its result message (name + args from
+    // the assistant message's tool_calls).
+    struct RestoredCall {
+        std::string name;
+        agent::json args;
+    };
+    // Render one restored session message as scrollback lines. Assistant
+    // tool_calls queue RestoredCall entries; tool messages emit a single
+    // timestamped result line (describe + summary, no exit status).
+    void restore_message_lines(const agent::Message& m,
+                               std::vector<RestoredCall>& pending);
     // Effective compression threshold: the pipeline default when unset —
     // single source via load_compression_config (never a local magic number).
     double compression_threshold_effective() const {

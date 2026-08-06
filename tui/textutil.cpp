@@ -33,7 +33,6 @@ bool glyph::utf8() {
     return v;
 }
 
-const char* glyph::tool()     { return utf8() ? "\u2728" : "*"; }
 const char* glyph::arrow()    { return utf8() ? "\u2192" : "->"; }
 const char* glyph::middot()   { return utf8() ? "\u00b7" : "-"; }
 const char* glyph::emdash()   { return utf8() ? "\u2014" : "-"; }

@@ -432,7 +432,6 @@ std::string Agent::confirm_turn(const std::string& candidate,
     emit_context_event(context_events_, context_);
 
     if (!check_tool_calls.is_null() && !check_tool_calls.empty()) {
-        if (hooks_.on_status) hooks_.on_status("continuing investigation");
         bool any_ran = dispatch_tool_calls(check_tool_calls, cfg_, registry_,
                                            hooks_, log_, session_approved_,
                                            &policy_, &context_);
@@ -489,7 +488,6 @@ bool Agent::dispatch_with_loop_detection(
     if (hooks_.on_assistant && !content.empty())
         hooks_.on_assistant(content);
     if (hooks_.on_state) hooks_.on_state(RunState::Tooling);
-    if (hooks_.on_status) hooks_.on_status("assistant requested tools");
     if (hooks_.on_debug)
         hooks_.on_debug("dispatching " + std::to_string(tool_calls.size()) +
                         " tool call(s)");

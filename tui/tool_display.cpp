@@ -91,4 +91,36 @@ std::string reasoning_badge(const std::string& effort) {
     return "(" + effort + ")";
 }
 
+rich::Line result_line(const std::string& name, const agent::json& args,
+                       bool ok, const std::string& output,
+                       const std::string& error, bool exit_known) {
+    rich::Line ln;
+    rich::Run icon;
+    icon.pair = ok ? P_GIT_PLUS : P_GIT_MINUS;
+    icon.text = ok ? text::glyph::check() : text::glyph::cross();
+    rich::Run rest;
+    rest.pair = P_STATUS;
+    rest.text = " " + describe_tool_call(name, args) + "  " +
+                text::glyph::arrow() + " ";
+    if (!ok) {
+        rest.text += "error: " + error;
+    } else {
+        int lines = 1;
+        for (char c : output)
+            if (c == '\n') ++lines;
+        std::string preview = output;
+        size_t nl = preview.find('\n');
+        if (nl != std::string::npos) preview.resize(nl);
+        if (preview.size() > 60) {
+            preview.resize(57);
+            preview += "...";
+        }
+        if (exit_known) rest.text += "exit 0  ";
+        rest.text += "(" + std::to_string(lines) + " lines)  " + preview;
+    }
+    ln.runs.push_back(std::move(icon));
+    ln.runs.push_back(std::move(rest));
+    return ln;
+}
+
 } // namespace tui::tool_display

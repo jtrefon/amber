@@ -225,35 +225,9 @@ bool Tui::drain_events() {
             running_tool_desc_.clear();
             // Summary line: colored success/failure icon + one-line report,
             // closed IN PLACE on the open line (single line per tool call).
-            auto build_result =
-                [](const std::string& name, const agent::json& args,
-                   const agent::ToolResult& r) -> rich::Line {
-                rich::Line ln;
-                rich::Run icon;
-                icon.pair = r.ok ? P_GIT_PLUS : P_GIT_MINUS;
-                icon.text = r.ok ? text::glyph::check() : text::glyph::cross();
-                rich::Run rest;
-                rest.pair = P_STATUS;
-                rest.text = " " + tool_display::describe_tool_call(name, args) +
-                            "  " + text::glyph::arrow() + " ";
-                if (!r.ok) {
-                    rest.text += "error: " + r.error;
-                } else {
-                    int lines = 1;
-                    for (char c : r.output) if (c == '\n') ++lines;
-                    std::string preview = r.output;
-                    size_t nl = preview.find('\n');
-                    if (nl != std::string::npos) preview.resize(nl);
-                    if (preview.size() > 60) { preview.resize(57); preview += "..."; }
-                    rest.text += "exit 0  (" + std::to_string(lines) +
-                                 " lines)  " + preview;
-                }
-                ln.runs.push_back(std::move(icon));
-                ln.runs.push_back(std::move(rest));
-                return ln;
-            };
-            rich::Line summary = build_result(ev.tool_name, ev.tool_args,
-                                              ev.tool_result);
+            rich::Line summary = tool_display::result_line(
+                ev.tool_name, ev.tool_args, ev.tool_result.ok,
+                ev.tool_result.output, ev.tool_result.error);
             // Match the pending line for this call (name + args, FIFO).
             std::string fp = ev.tool_args.dump();
             size_t match = std::string::npos;

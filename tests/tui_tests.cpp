@@ -597,3 +597,52 @@ TEST(tool_display_reasoning_badge_mapping) {
     ASSERT_EQ(tui::tool_display::reasoning_badge("high"), "(high)");
     ASSERT_EQ(tui::tool_display::reasoning_badge("turbo"), "(turbo)");
 }
+
+namespace {
+
+std::string join_runs(const tui::rich::Line& ln) {
+    std::string out;
+    for (const auto& r : ln.runs) out += r.text;
+    return out;
+}
+
+} // namespace
+
+TEST(tool_display_result_line_shows_command) {
+    auto ln = tui::tool_display::result_line(
+        "bash", agent::json{{"command", "grep -rn Foo src/"}}, true,
+        "line1\nline2\n", "");
+    std::string t = join_runs(ln);
+    ASSERT(t.find("grep -rn Foo src/") != std::string::npos);
+    ASSERT(t.find("bash") == std::string::npos);
+    ASSERT(t.find("exit 0") != std::string::npos);
+    ASSERT(t.find("3 lines") != std::string::npos);
+    ASSERT(!ln.runs.empty());
+    ASSERT_EQ(ln.runs[0].pair, tui::P_GIT_PLUS);
+}
+
+TEST(tool_display_result_line_error_path) {
+    auto ln = tui::tool_display::result_line(
+        "read", agent::json{{"path", "include/agent/config.h"}}, false, "",
+        "permission denied");
+    std::string t = join_runs(ln);
+    ASSERT(t.find("read include/agent/config.h") != std::string::npos);
+    ASSERT(t.find("error: permission denied") != std::string::npos);
+    ASSERT_EQ(ln.runs[0].pair, tui::P_GIT_MINUS);
+}
+
+TEST(tool_display_result_line_preview_truncated) {
+    std::string big(200, 'x');
+    auto ln = tui::tool_display::result_line(
+        "bash", agent::json{{"command", "ls"}}, true, big, "");
+    ASSERT(join_runs(ln).find("...") != std::string::npos);
+}
+
+TEST(tool_display_result_line_restore_omits_exit_status) {
+    auto ln = tui::tool_display::result_line(
+        "bash", agent::json{{"command", "ls -la"}}, true, "a\nb\nc\n", "",
+        false);
+    std::string t = join_runs(ln);
+    ASSERT(t.find("exit 0") == std::string::npos);
+    ASSERT(t.find("4 lines") != std::string::npos);
+}

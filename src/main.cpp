@@ -206,8 +206,8 @@ int main(int argc, char** argv) {
     hooks.on_reasoning = [](const std::string& t) {
         std::cerr << "[think] " << t;
     };
-    hooks.on_tool_call = [](const std::string& n, const agent::json& args) {
-        (void)n; (void)args;
+    hooks.on_tool_call = [](const std::string& n, const agent::json&) {
+        std::cerr << "[tool] " << n << "\n";
     };
     hooks.on_tool_result = [](const std::string& n, const agent::ToolResult& r) {
         std::string s = "[tool] " + n + " ";

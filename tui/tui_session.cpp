@@ -2,6 +2,7 @@
 #include "tui.h"
 #include "tui/dialog.h"
 #include "tui/confirm_panel.h"
+#include "tool_display.h"
 
 #include <ctime>
 #include <cstdlib>
@@ -9,6 +10,56 @@
 #include <vector>
 
 namespace tui {
+
+// Render one restored session message as scrollback lines. Assistant
+// tool_calls queue RestoredCall entries; tool messages emit a single
+// timestamped result line (describe + summary, no exit status).
+void Tui::restore_message_lines(const agent::Message& m,
+                                std::vector<RestoredCall>& pending) {
+    if (m.role == "user") {
+        append_line(P_USER, "> " + m.content);
+        return;
+    }
+    if (m.role == "assistant") {
+        if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
+            for (const auto& tc : m.tool_calls) {
+                RestoredCall c;
+                auto fn = tc.value("function", agent::json::object());
+                c.name = fn.value("name", "?");
+                auto args = fn.value("arguments", agent::json::object());
+                if (args.is_string()) {
+                    auto parsed = agent::json::parse(args.get<std::string>(),
+                                                     nullptr, false);
+                    args = parsed.is_discarded() ? agent::json::object()
+                                                 : std::move(parsed);
+                }
+                c.args = std::move(args);
+                pending.push_back(std::move(c));
+            }
+        }
+        if (!m.content.empty())
+            append_markdown(m.content);
+        return;
+    }
+    if (m.role == "tool") {
+        if (!pending.empty()) {
+            RestoredCall c = std::move(pending.front());
+            pending.erase(pending.begin());
+            rich::Line ln = tool_display::result_line(c.name, c.args, true,
+                                                      m.content, "", false);
+            rich::Run ts;
+            ts.text = timestamp();
+            ts.pair = P_REASONING;
+            ts.dim = true;
+            ln.runs.insert(ln.runs.begin(), std::move(ts));
+            append_rich(ln);
+        } else {
+            std::string preview = m.content;
+            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
+            append_line(P_STATUS, "  \u2514 " + m.name + ": " + preview);
+        }
+    }
+}
 
 agent::Session Tui::snapshot(Window& w) const {
     agent::Session s;
@@ -97,27 +148,9 @@ void Tui::load_session(const std::string& id) {
         stats_.completion_tokens = get_num("completion_tokens", -1);
         stats_.valid = true;
     }
-    for (const auto& m : s.messages) {
-        if (m.role == "user") {
-            append_line(P_USER, "> " + m.content);
-        } else if (m.role == "assistant") {
-            if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
-                for (const auto& tc : m.tool_calls) {
-                    std::string fn = tc.value("function", json::object())
-                                       .value("name", "?");
-                    append_line(P_STATUS,
-                                std::string(text::glyph::tool()) + " " + fn);
-                }
-            }
-            if (!m.content.empty()) {
-                append_markdown(m.content);
-            }
-        } else if (m.role == "tool") {
-            std::string preview = m.content;
-            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-            append_line(P_STATUS, "  \u2514 " + m.name + ": " + preview);
-        }
-    }
+    std::vector<RestoredCall> pending;
+    for (const auto& m : s.messages)
+        restore_message_lines(m, pending);
     if (!s.messages.empty()) {
         win().scroll_top = max_scroll();
     }
@@ -402,26 +435,9 @@ void Tui::lazy_load_active() {
     }
     w.lines.clear();
     pending_tools_.clear();  // spinner lines belong to the old scrollback
-    for (const auto& m : s.messages) {
-        if (m.role == "user")
-            append_line(P_USER, "> " + m.content);
-        else if (m.role == "assistant") {
-            if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
-                for (const auto& tc : m.tool_calls) {
-                    std::string fn = tc.value("function", json::object())
-                                       .value("name", "?");
-                    append_line(P_STATUS, std::string(text::glyph::tool())
-                                + " " + fn);
-                }
-            }
-            if (!m.content.empty())
-                append_markdown(m.content);
-        } else if (m.role == "tool") {
-            std::string preview = m.content;
-            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-            append_line(P_STATUS, "  \u2514\u2500 " + m.name + ": " + preview);
-        }
-    }
+    std::vector<RestoredCall> pending;
+    for (const auto& m : s.messages)
+        restore_message_lines(m, pending);
     if (!s.messages.empty())
         win().scroll_top = max_scroll();
 }

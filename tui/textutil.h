@@ -37,9 +37,6 @@ namespace glyph {
 // True iff the process locale's character set is UTF-8.
 bool utf8();
 
-// Sparkle bullet used to prefix tool-call / tool-result lines.
-const char* tool();
-
 // Right arrow used in tool-result summaries ("→ ✓").
 const char* arrow();
 
