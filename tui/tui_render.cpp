@@ -130,13 +130,10 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     std::string wtag = "[" + std::to_string(active_ + 1) + "/" +
                        std::to_string(windows_.size()) + "]";
     segs.push_back({wtag, P_BANNER, 3});
-    segs.push_back({" [" + cfg_.model + "]", P_BAR_DIM | A_BOLD, 5});
-
-    // Reasoning-strength badge, separate from the model so the strings never
-    // visually concatenate: [model]  ·high — color-coded, always shown.
+    // Model + reasoning strength in ONE bracket, color-coded by strength:
+    // [model(high)] — the effort never visually concatenates with anything.
     auto badge = tool_display::reasoning_badge(cfg_.reasoning_effort);
-    if (!badge.text.empty())
-        segs.push_back({"  " + badge.text, badge.pair, 6});
+    segs.push_back({" [" + cfg_.model + badge.text + "]", badge.pair, 5});
 
     // Agent mode label with full words and colour coding.
     std::string mode_txt;
@@ -259,10 +256,13 @@ void Tui::draw() {
     }
 
     // Sticky working row: messenger-style indicator pinned at the BOTTOM of
-    // the history while the agent is busy. Output streams in above it and it
-    // disappears when the turn ends (idle). Optionally names the tool being
-    // executed: "◐ working 12s · grep -rn X src/".
-    if (agent_busy_.load()) {
+    // the history while the agent is busy and no output is being displayed
+    // yet (working_visible_ clears on the first stream token and re-appears
+    // while a tool runs). Output streams in above it; the row disappears the
+    // moment the reply displays. Optionally names the running tool:
+    // "◐ working 12s · grep -rn X src/". Foreground pair only — no banner
+    // background in the scrollback.
+    if (agent_busy_.load() && working_visible_) {
         auto now = std::chrono::steady_clock::now();
         size_t secs = static_cast<size_t>(
             std::chrono::duration_cast<std::chrono::seconds>(
@@ -272,7 +272,7 @@ void Tui::draw() {
             running_tool_desc_);
         rich::Line wl;
         rich::Run r;
-        r.pair = P_GAUGE_WARN;
+        r.pair = P_STATUS;
         r.text = label;
         wl.runs.push_back(std::move(r));
         view.push_back(std::move(wl));

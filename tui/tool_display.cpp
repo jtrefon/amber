@@ -89,7 +89,7 @@ std::string working_label(const std::string& frame, size_t elapsed_secs,
 
 Badge reasoning_badge(const std::string& effort) {
     Badge b;
-    b.text = "\u00b7" + effort;
+    b.text = "(" + effort + ")";
     if (effort == "low")          b.pair = P_GAUGE_OK;
     else if (effort == "medium")  b.pair = P_GAUGE_WARN;
     else if (effort == "high")    b.pair = P_GAUGE_CRIT;

@@ -1197,6 +1197,14 @@ void Tui::register_builtin_actions() {
     register_action("core.config.set.reasoning.effort", [this](const std::string& v) {
         cmd_set_reasoning_effort(v);
     });
+    // Bare /set reasoning <val>: same handler as the effort leaf so
+    // "/set reasoning high" works, not just the fully-qualified path.
+    register_action("core.config.set.reasoning", [this](const std::string& v) {
+        if (v == "off" || v == "low" || v == "medium" || v == "high")
+            cmd_set_reasoning_effort(v);
+        else
+            append_line(P_STATUS, "usage: /set reasoning <off|low|medium|high>");
+    });
     register_action("core.config.get.reasoning",
         [this](const std::string&) { cmd_get_reasoning(); });
     register_action("core.config.get.compression",

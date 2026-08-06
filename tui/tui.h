@@ -383,9 +383,13 @@ public:
     long live_ctx_offset_ = 0;   // running token count during streaming
     agent::ServerInfo last_detected_;
     int anim_phase_ = 0;
-    // Turn start of the global "working" indicator (input-line spinner +
+    // Turn start of the global "working" indicator (history-row spinner +
     // elapsed seconds); set when the agent becomes busy, cleared on idle.
     std::chrono::steady_clock::time_point working_since_{};
+    // Whether the working row is currently shown: true while busy and no
+    // output is being displayed yet; cleared on the first stream token and
+    // re-set while a tool runs.
+    bool working_visible_ = false;
     bool dirty_ = true;          // coalesce redraws into one flush per tick
     // Wall-clock timestamp of the last status-bar repaint, so the clock and
     // progress wave keep ticking while the agent is blocked on a call that

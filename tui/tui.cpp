@@ -188,6 +188,7 @@ bool Tui::drain_events() {
                 win().scroll_top = max_scroll();
             break;
         case AgentEvent::Token:
+            working_visible_ = false;  // output is displaying — row retires
             if (!win().reason_folded && !win().reason_buf.empty())
                 fold_reasoning();
             win().stream_color = P_ASSISTANT;
@@ -202,6 +203,7 @@ bool Tui::drain_events() {
             running_tool_ = ev.tool_name;
             running_tool_desc_ = tool_display::describe_tool_call(
                 ev.tool_name, ev.tool_args);
+            working_visible_ = true;
             flush_stream();
             // One "open" line per advertised call, animated together: round
             // spinner + a human description of what is actually running
@@ -414,6 +416,7 @@ void Tui::send_async(const std::string& raw_prompt) {
 
     agent_busy_.store(true);
     working_since_ = std::chrono::steady_clock::now();
+    working_visible_ = true;
     agent_cancel_.store(false);
 
     ensure_chat_window();
@@ -753,8 +756,17 @@ void Tui::run() {
                 auto now = std::chrono::steady_clock::now();
                 if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
                     last_status_tick_ = now;
-                    advance_tool_spinners();
-                    tick_clock();
+                    if (agent_busy_.load()) {
+                        // Full redraw while busy: the sticky working row and
+                        // tool spinners animate even during a quiet wait when
+                        // no events arrive (events alone used to leave the
+                        // chat area stale until the first output token).
+                        advance_tool_spinners();
+                        draw();
+                    } else {
+                        advance_tool_spinners();
+                        tick_clock();
+                    }
                 }
             }
             draw_input(cl.text(), cl.cursor(), cl.shadow());
