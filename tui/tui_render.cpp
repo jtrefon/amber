@@ -541,10 +541,10 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
         int input_w = prompt_w + display_cols(s);
         int shadow_start = input_w - scroll_off;
         if (shadow_start >= 0 && shadow_start < w) {
-            attron(A_DIM | COLOR_PAIR(P_GRAY));
+            attron(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
             mvaddnstr(y, shadow_start, shadow.c_str(),
                        std::min(static_cast<int>(shadow.size()), w - shadow_start));
-            attroff(A_DIM | COLOR_PAIR(P_GRAY));
+            attroff(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
         }
     }
 
