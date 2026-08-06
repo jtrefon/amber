@@ -29,15 +29,9 @@ std::string elapsed_label(size_t secs);
 std::string working_label(const std::string& frame, size_t elapsed_secs,
                           const std::string& task = {});
 
-// Reasoning-strength badge: "(<effort>)" text and its color pair, composed
-// inside the model bracket ([model(high)]). off -> dim, low -> ok,
-// medium -> warn, high -> critical; unknown efforts fall back to dim.
-// Always shown, including the off state.
-struct Badge {
-    std::string text;
-    int pair = 0;
-};
-Badge reasoning_badge(const std::string& effort);
+// Reasoning-strength badge text: "(<effort>)", composed inside the model
+// bracket ([model(high)]). Always shown, including the off state.
+std::string reasoning_badge(const std::string& effort);
 
 } // namespace tui::tool_display
 

@@ -130,10 +130,13 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     std::string wtag = "[" + std::to_string(active_ + 1) + "/" +
                        std::to_string(windows_.size()) + "]";
     segs.push_back({wtag, P_BANNER, 3});
-    // Model + reasoning strength in ONE bracket, color-coded by strength:
-    // [model(high)] — the effort never visually concatenates with anything.
-    auto badge = tool_display::reasoning_badge(cfg_.reasoning_effort);
-    segs.push_back({" [" + cfg_.model + badge.text + "]", badge.pair, 5});
+    // Model + reasoning strength in ONE bracket: [model(high)] — the effort
+    // never visually concatenates with anything. Green bracket; the
+    // strength color-coding was too loud at high.
+    segs.push_back({" [" + cfg_.model +
+                        tool_display::reasoning_badge(cfg_.reasoning_effort) +
+                        "]",
+                    P_GAUGE_OK, 5});
 
     // Agent mode label with full words and colour coding.
     std::string mode_txt;

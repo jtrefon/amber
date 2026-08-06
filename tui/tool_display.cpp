@@ -87,14 +87,8 @@ std::string working_label(const std::string& frame, size_t elapsed_secs,
     return out;
 }
 
-Badge reasoning_badge(const std::string& effort) {
-    Badge b;
-    b.text = "(" + effort + ")";
-    if (effort == "low")          b.pair = P_GAUGE_OK;
-    else if (effort == "medium")  b.pair = P_GAUGE_WARN;
-    else if (effort == "high")    b.pair = P_GAUGE_CRIT;
-    else                          b.pair = P_BAR_DIM;
-    return b;
+std::string reasoning_badge(const std::string& effort) {
+    return "(" + effort + ")";
 }
 
 } // namespace tui::tool_display

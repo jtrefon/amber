@@ -591,16 +591,9 @@ TEST(tool_display_working_label_task_omitted_when_empty) {
 
 TEST(tool_display_reasoning_badge_mapping) {
     // The badge composes INSIDE the model bracket: [model(high)].
-    auto off = tui::tool_display::reasoning_badge("off");
-    ASSERT_EQ(off.text, "(off)");
-    ASSERT_EQ(off.pair, tui::P_BAR_DIM);
-    ASSERT_EQ(tui::tool_display::reasoning_badge("low").text, "(low)");
-    ASSERT_EQ(tui::tool_display::reasoning_badge("low").pair, tui::P_GAUGE_OK);
-    ASSERT_EQ(tui::tool_display::reasoning_badge("medium").pair,
-              tui::P_GAUGE_WARN);
-    ASSERT_EQ(tui::tool_display::reasoning_badge("high").pair,
-              tui::P_GAUGE_CRIT);
-    auto unk = tui::tool_display::reasoning_badge("turbo");
-    ASSERT_EQ(unk.text, "(turbo)");
-    ASSERT_EQ(unk.pair, tui::P_BAR_DIM);
+    ASSERT_EQ(tui::tool_display::reasoning_badge("off"), "(off)");
+    ASSERT_EQ(tui::tool_display::reasoning_badge("low"), "(low)");
+    ASSERT_EQ(tui::tool_display::reasoning_badge("medium"), "(medium)");
+    ASSERT_EQ(tui::tool_display::reasoning_badge("high"), "(high)");
+    ASSERT_EQ(tui::tool_display::reasoning_badge("turbo"), "(turbo)");
 }
