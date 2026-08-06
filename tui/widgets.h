@@ -48,6 +48,7 @@ enum Pair {
     P_MD_LINK,      // link text
     P_MD_TABLE,     // table rows
     P_MD_HR,        // horizontal rule
+    P_INPUT_SHADOW, // faded completion hint (gray on default bg)
     // Grayscale art pairs (24 levels, 0=black .. 23=near-white).
     P_GRAY = 100,     // grayscale art base (0 + 24 levels)
 };

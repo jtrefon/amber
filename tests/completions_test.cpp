@@ -25,6 +25,7 @@ int failed = 0;
         }                                                                         \
     } while (0)
 
+#include "tui/drawer_rows.h"
 #include "tui/setting_registry.h"
 
 // ── Test: JSON loads and produces expected actions ─────────────────
@@ -520,6 +521,60 @@ TEST(test_merge_preserves_static_tree_children) {
     ASSERT(children["live_srv"]["children"].contains("do_thing"));
 }
 
+TEST(test_feed_leaves_visible_after_merge) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    // Simulate the provider feed merge (the startup wiring must not wipe it).
+    nlohmann::json subtree;
+    subtree["set"]["children"]["provider"]["children"]["zz_feed_provider"]
+        ["action"] = "core.config.set.provider.zz_feed_provider";
+    subtree["set"]["children"]["provider"]["children"]["zz_feed_provider"]
+        ["help"] = "feed-provider help text";
+    reg.merge_completions_json(subtree);
+
+    auto kids = reg.children_of("set.provider");
+    bool found = false;
+    for (const auto& k : kids)
+        if (k == "zz_feed_provider") found = true;
+    ASSERT(found);
+    ASSERT(!reg.help_for("set.provider.zz_feed_provider").empty());
+    // The completion path must surface it too.
+    auto completions = reg.complete("set.provider");
+    bool found2 = false;
+    for (const auto& c : completions)
+        if (c == "set.provider.zz_feed_provider") found2 = true;
+    ASSERT(found2);
+}
+
+// ── Test: drawer rows = children + short description (the contract) ──
+
+TEST(test_drawer_rows_children_and_help) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto rows = tui::drawer_rows("/get model l", reg);
+    bool found = false;
+    for (const auto& r : rows)
+        if (r.find("list") != std::string::npos &&
+            r.find("all models") != std::string::npos)
+            found = true;
+    ASSERT(found);
+}
+
+// ── Test: no-space branch completes top-level names from the tree ──
+
+TEST(test_complete_top_level_from_tree) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto top = reg.complete("");
+    bool has_set = false, has_get = false;
+    for (const auto& c : top) {
+        has_set |= (c == "set");
+        has_get |= (c == "get");
+    }
+    ASSERT(has_set);
+    ASSERT(has_get);
+}
+
 int main() {
     try {
     test_json_loads_all_commands();
@@ -547,6 +602,9 @@ int main() {
     test_job_feed_leaves();
     test_full_path_namespaces_are_distinct();
     test_merge_preserves_static_tree_children();
+    test_feed_leaves_visible_after_merge();
+    test_drawer_rows_children_and_help();
+    test_complete_top_level_from_tree();
     } catch (const std::exception& e) {
         std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
         failed++;
@@ -688,3 +746,14 @@ TEST(test_get_mcp_learn_tree_nodes) {
     ASSERT(!reg.help_for("get.learn").empty());
     ASSERT(!reg.man_for("mcp").empty());
 }
+
+// ── Test: get provider list node ─────────────────────────────────
+
+TEST(test_get_provider_list_node) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    ASSERT(!reg.help_for("provider.list").empty());
+}
+
+// ── Test: feed leaves are visible to the drawer/completion queries ──
+

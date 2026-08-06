@@ -270,6 +270,51 @@ static int test_tab_dotted_suffix_appends() {
     return 0;
 }
 
+// ── Test: shadow with dotted namespace + leaf partial (real flow) ──
+static int test_shadow_dotted_partial() {
+    tui::CommandLine cl;
+    cl.set_completions({"deepseek-chat", "deepseek-reasoner"});
+    cl.set_text("/set model d");
+    ASSERT_EQ(cl.shadow(), "eepseek-chat");
+    return 0;
+}
+
+// ── Test: shadow must never be a single letter for a multi-char word ──
+static int test_shadow_never_single_letter() {
+    tui::CommandLine cl;
+    cl.set_completions({"policy", "provider"});
+    cl.set_text("/set p");
+    std::string s = cl.shadow();
+    ASSERT(s.size() > 1);
+    ASSERT_EQ(s, "olicy");
+    return 0;
+}
+
+// ── Test: tab cycle replaces only the partial token ──
+static int test_tab_cycle_replaces_only_token() {
+    tui::CommandLine cl;
+    cl.set_completions({"policy", "provider"});
+    cl.set_text("/set p");
+    cl.on_tab();   // accept shadow → /set policy
+    ASSERT_EQ(cl.text(), "/set policy");
+    cl.on_tab();   // cycle → provider
+    ASSERT_EQ(cl.text(), "/set provider");
+    cl.on_tab();   // cycle back → policy
+    ASSERT_EQ(cl.text(), "/set policy");
+    return 0;
+}
+
+// ── Test: enter dispatches the drawer row (descend case, empty partial) ──
+static int test_enter_dispatches_drawer_row_descend() {
+    tui::CommandLine cl;
+    cl.set_completions({"approval", "mode", "rule", "timeout"});
+    cl.set_text("/set policy ");
+    auto r = cl.on_enter();
+    ASSERT(r.action == tui::CommandLine::Result::Dispatch);
+    ASSERT_EQ(r.dispatch_text, "/set policy approval");
+    return 0;
+}
+
 int main() {
     int failed = 0;
     failed += run_test("basic insertion", test_basic_insertion);
@@ -294,8 +339,13 @@ int main() {
     failed += run_test("drawer enter preserves prefix", test_enter_drawer_preserves_prefix);
     failed += run_test("tab no-match no append", test_tab_no_match_no_append);
     failed += run_test("tab dotted suffix appends", test_tab_dotted_suffix_appends);
+    failed += run_test("shadow dotted partial", test_shadow_dotted_partial);
+    failed += run_test("shadow never single letter", test_shadow_never_single_letter);
+    failed += run_test("tab cycle replaces only token", test_tab_cycle_replaces_only_token);
+    failed += run_test("enter dispatches drawer row descend", test_enter_dispatches_drawer_row_descend);
 
     std::cout << "\n" << (failed ? "FAILED" : "ALL PASSED")
               << " (" << failed << " failures)\n";
     return failed;
 }
+

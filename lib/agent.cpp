@@ -86,6 +86,18 @@ void Agent::set_reasoning_effort(const std::string& effort) {
     client_ = make_client(cfg_, client_factory_);
 }
 
+void Agent::set_connection(const std::string& api_base,
+                           const std::string& api_key,
+                           const std::string& model) {
+    cfg_.api_base = api_base;
+    if (!api_key.empty()) cfg_.api_key = api_key;
+    if (!model.empty()) {
+        cfg_.model = model;
+        cfg_.model_explicit = true;
+    }
+    client_ = make_client(cfg_, client_factory_);
+}
+
 void Agent::ensure_system_prompt() {
     if (!context_.empty()) return;
 

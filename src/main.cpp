@@ -48,7 +48,11 @@ int main(int argc, char** argv) {
         std::ifstream gf(global_path);
         if (gf) {
             tmp.load(global_path);
-            overlay_global_config(cfg, tmp);
+            auto providers = agent::make_default_provider_service(cfg);
+            if (!tmp.provider_name.empty()) {
+                auto sel = providers->select(tmp.provider_name);
+                if (sel.ok()) agent::apply_selection(cfg, sel);
+            }
         }
     }
 

@@ -12,6 +12,7 @@
 #include "agent/registry.h"
 #include "agent/agent.h"
 #include "agent/prompt.h"
+#include "agent/providers.h"
 #include "agent/statusbar.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
