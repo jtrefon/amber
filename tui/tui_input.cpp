@@ -16,6 +16,10 @@
 #include <unistd.h>
 
 namespace tui {
+// Provider edit form (Server URL / API Key / Model / Context). Returns
+// true when the user saved, false on cancel.
+static bool edit_provider_form(agent::Config& cfg, const std::string& title);
+
 
 namespace {
 
@@ -467,16 +471,11 @@ void Tui::refresh_provider_feed() {
     // Providers are dynamic: built-in presets plus every saved provider
     // file under ~/.config/amber/providers/. Merge them as feed leaves so
     // /set provider <name> completes and dispatches from the JSON tree.
-    std::set<std::string> names;
-    for (auto* p : agent::provider::all)
-        if (p->name != "custom") names.insert(p->name);
-    const auto saved = agent::list_saved_providers();
-    for (const auto& s2 : saved) names.insert(s2);
-
     nlohmann::json subtree = nlohmann::json::object();
     auto& leaves =
         subtree["set"]["children"]["provider"]["children"];
-    for (const auto& name : names) {
+    for (const auto& p : providers_->available()) {
+        const std::string& name = p.name;
         const std::string action = "core.config.set.provider." + name;
         nlohmann::json& leaf = leaves[name];
         leaf["action"] = action;
@@ -1000,54 +999,32 @@ const std::vector<Command>& Tui::commands() {
 }
 
 void Tui::build_commands() {
-    commands_ = {
-        {"help", "core.help", {"?", "h"}, "[command]",
-         "list commands, or show detail for one"},
-        {"settings", "core.settings", {"server", "endpoint"}, "",
-         "configure provider, model, API key, and connection test"},
-        {"mcp", "core.mcp", {}, "[subcommand]",
-         "manage MCP servers (list|show|connect|disconnect|refresh|prompts|enable|disable|trust)"},
-        {"prompt", "core.prompt", {}, "[server name k=v...]",
-         "invoke an MCP prompt template (fills the input line)"},
-        {"plugin", "core.plugin", {}, "[subcommand]",
-         "manage plugins (list|status|enable|disable|get|set|info|install|uninstall)"},
-        {"new", "core.session.reset", {"clear", "reset"}, "",
-         "clear the current conversation and start fresh"},
-        {"close", "core.window.close", {}, "",
-         "close the current window"},
-        {"window", "core.window", {"win", "w"}, "new|close|list|rename <name>",
-         "manage chat windows"},
-        {"stop", "core.stop", {"cancel", "kill"}, "",
-         "terminate the current tool and agent loop"},
-        {"set", "core.config.set", {}, "<option> <value>",
-         "set runtime options: detection, display, toolfold, policy (mode|tool <name> <level>|timeout <N>), compression, provider, model, think"},
-        {"get", "core.config.get", {}, "<option>",
-         "show current setting: config, model, provider, toolfold, policy (mode|timeout|<tool>), display, compression, detection"},
-        {"compress", "core.compress", {"compact"}, "",
-         "compress conversation history to free context space"},
-        {"job", "core.job", {}, "[ls|kill <id>|read <id>|start <cmd>]",
-         "manage background processes (servers, builds) started by the agent"},
-{"save", "core.session.save", {}, "",
-         "persist the current conversation"},
-        {"sessions", "core.session.list", {"load", "open"}, "",
-         "browse and load a saved session"},
-        {"quit", "core.quit", {"exit", "q"}, "",
-         "save all windows and exit"},
-        {"provider", "core.provider", {"p"}, "list|add|edit|delete|test",
-         "manage API providers"},
-        {"session", "core.session", {}, "list|save|load|delete|rename <id> <title>",
-         "manage saved sessions"},
-        {"files", "core.files", {"f"}, "ls|tree|open|find <path>",
-         "browse and view files in the workspace"},
-        {"system", "core.system", {"sy"}, "exec|delete|rmdir|mkdir|mv|cp|info|ps|kill|df|uptime|uname",
-         "system operations (file mgmt, processes, disk)"},
-    };
+    commands_.clear();
+    // Display-only command list, generated from the JSON tree — the tree
+    // is the single source of truth; nothing here is hardcoded.
+    for (const auto& name : settings_.complete("")) {
+        palette::Command c;
+        c.name = name;
+        c.help = settings_.help_for(name);
+        c.aliases = settings_.aliases_for(name);
+        const auto kids = settings_.children_of(name);
+        if (!kids.empty()) {
+            std::string args;
+            for (size_t i = 0; i < kids.size(); ++i) {
+                if (i > 0) args += "|";
+                args += kids[i];
+            }
+            if (args.size() > 40) args = "option";
+            c.args = "<" + args + ">";
+        }
+        commands_.push_back(std::move(c));
+    }
     register_builtin_actions();
 }
 
 void Tui::register_action(const std::string& action,
                           std::function<void(const std::string&)> handler) {
-    action_handlers_[action] = std::move(handler);
+    action_registry_.register_action(action, std::move(handler));
 }
 
 void Tui::register_builtin_actions() {
@@ -1302,6 +1279,8 @@ void Tui::register_builtin_actions() {
     register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.provider",
         [this](const std::string&) { cmd_get_provider(); });
+    register_action("core.config.get.provider.list",
+        [this](const std::string&) { cmd_provider_list(); });
     register_action("core.config.get.toolfold",
         [this](const std::string&) { cmd_get_toolfold(); });
     register_action("core.config.get.policy",
@@ -1440,8 +1419,7 @@ bool Tui::handle_slash(const std::string& line) {
         arg += tokens[i];
     }
 
-    auto it = action_handlers_.find(action);
-    if (it == action_handlers_.end()) {
+    if (!action_registry_.has(action)) {
         // Documented in the tree but no handler: show the node's manual page.
         if (node->contains("man") && (*node)["man"].is_string()) {
             append_line(P_STATUS, "/" + tokens[0] + ": " +
@@ -1451,7 +1429,7 @@ bool Tui::handle_slash(const std::string& line) {
         }
         return true;
     }
-    it->second(arg);
+    action_registry_.dispatch(action, arg);
     return true;
 }
 
@@ -1483,7 +1461,9 @@ void Tui::cmd_model_set(const std::string& arg) {
     }
     std::string global = agent::global_config_path();
     cfg_.save_global(global);
-    append_line(P_STATUS, "model set to " + arg + " (saved to " + global + ")");
+    providers_->remember_model(cfg_.provider_name, arg);
+    append_line(P_STATUS, "model set to " + arg + " (remembered for " +
+                              cfg_.provider_name + ")");
 }
 
 void Tui::cmd_get_model() {
@@ -1543,37 +1523,74 @@ void Tui::cmd_provider(const std::string& a) {
                      " (" + cfg_.api_base + ")");
         return;
     }
-    if (!agent::is_known_provider(a)) {
-        append_line(P_STATUS, "unknown provider: " + a +
-                     " (try: openrouter, kilocode, custom, or add a "
-                     "provider file under ~/.config/amber/providers/)");
-        return;
+    auto sel = providers_->select(a);
+    if (!sel.ok()) {
+        // First-run flow for the custom provider: seed its dedicated file
+        // from the current connection, then confirm via the same provider
+        // form used everywhere else. Esc leaves the seeded file behind for
+        // external editing — never a dead end.
+        if (a == "custom" &&
+            sel.error.find("no endpoint") != std::string::npos) {
+            agent::seed_custom_provider(cfg_);
+            agent::Config prov_cfg;
+            prov_cfg.provider_name = "custom";
+            prov_cfg.api_base = cfg_.api_base;
+            prov_cfg.api_key = cfg_.api_key;
+            prov_cfg.model = cfg_.model;
+            prov_cfg.model_explicit = cfg_.model_explicit;
+            prov_cfg.context_size = cfg_.context_size;
+            prov_cfg.context_explicit = cfg_.context_explicit;
+            if (!edit_provider_form(prov_cfg,
+                                    "Configure custom provider")) {
+                refresh_provider_feed();
+                append_line(P_STATUS,
+                            "custom provider file created at " +
+                                agent::global_config_dir() +
+                                "/providers/custom.conf \u2014 edit it or "
+                                "re-run /set provider custom");
+                return;
+            }
+            providers_->save(agent::Provider{
+                prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+                !prov_cfg.api_key.empty(), prov_cfg.model,
+                prov_cfg.context_size, false});
+            sel = providers_->select("custom");
+            if (!sel.ok()) {
+                append_line(P_STATUS, "error: " + sel.error);
+                return;
+            }
+        } else {
+            append_line(P_STATUS, "error: " + sel.error);
+            return;
+        }
     }
-    const auto* prov = agent::provider::find(a);
-    if (a == "custom") {
-        append_line(P_STATUS, "provider set to custom (use /set or amber.conf to configure)");
-        return;
-    }
-    cfg_.apply_provider(a);
-    if (prov && prov->requires_key && cfg_.api_key.empty()) {
-        append_line(P_STATUS, "warning: " + a + " requires an API key (set AMBER_API_KEY)");
-    }
+    agent::apply_selection(cfg_, sel);
+    if (!sel.warning.empty())
+        append_line(P_STATUS, "warning: " + sel.warning);
+    for (auto& w : windows_)
+        if (w->agent)
+            w->agent->set_connection(cfg_.api_base, cfg_.api_key, cfg_.model);
     std::string global = agent::global_config_path();
     cfg_.save_global(global);
     refresh_provider_feed();
-    append_line(P_STATUS, "provider switched to " + a + " (saved to " + global + ")");
+    append_line(P_STATUS, "provider switched to " + a +
+                              " (model: " + cfg_.model + ")");
 }
 
 void Tui::cmd_provider_list() {
-    auto providers = agent::list_saved_providers();
-    std::string msg;
-    for (auto& p : providers) msg += p + " ";
-    append_line(P_STATUS, "providers: " + (msg.empty() ? "(none)" : msg));
+    for (const auto& p : providers_->available()) {
+        std::string line = "  " + p.name +
+                           (p.name == cfg_.provider_name ? " *" : "") +
+                           "  (" +
+                           (p.api_base.empty() ? "unconfigured" : p.api_base) +
+                           ")";
+        append_line(P_STATUS, line);
+    }
 }
 
 void Tui::cmd_provider_delete(const std::string& name) {
     if (name.empty()) { append_line(P_STATUS, "usage: /provider delete <name>"); return; }
-    agent::delete_provider(name);
+    providers_->remove(name);
     refresh_provider_feed();
     append_line(P_STATUS, "deleted provider: " + name);
 }
@@ -1581,10 +1598,8 @@ void Tui::cmd_provider_delete(const std::string& name) {
 void Tui::cmd_provider_test(const std::string& name) {
     if (name.empty()) { append_line(P_STATUS, "usage: /provider test <name>"); return; }
     append_line(P_STATUS, "testing " + name + "...");
-    agent::Config test_cfg = cfg_;
-    agent::load_provider(name, test_cfg);
-    agent::ServerInfo info = agent::probe_server(test_cfg);
-    append_line(P_STATUS, name + ": " + (info.ok ? "OK" : "FAILED"));
+    const bool ok = providers_->validate(name);
+    append_line(P_STATUS, name + ": " + (ok ? "OK" : "FAILED"));
 }
 
 void Tui::cmd_session_load(const std::string& id) {
@@ -2064,37 +2079,24 @@ void Tui::settings_screen() {
     // Step 1: Build provider list from saved + built-in presets
     // DEBUG: the fact you can see this message means the NEW settings_screen is running
     append_line(P_STATUS, "Loading provider list...");
-    auto saved = agent::list_saved_providers();
+    const auto providers = providers_->available();
 
     std::vector<std::string> prov_display;
     std::vector<std::string> prov_id;
-    int active_idx = -1;
 
-    // Built-in presets
-    auto add_preset = [&](const std::string& id, const std::string& label) {
-        prov_display.push_back((cfg_.provider_name == id ? "> " : "  ") + label);
-        prov_id.push_back(id);
-        if (cfg_.provider_name == id) active_idx = static_cast<int>(prov_id.size() - 1);
-    };
-    for (auto* p : agent::provider::all)
-        if (p->name != "custom")
-            add_preset(p->name, p->name + "  (" + p->api_base + ")");
-    add_preset("custom", "Custom      (user-defined)");
-
-    // User-saved providers
-    for (const auto& s : saved) {
-        if (s == "openrouter" || s == "kilocode" || s == "custom") continue;
-        prov_display.push_back((cfg_.provider_name == s ? "> " : "  ") + s);
-        prov_id.push_back(s);
-        if (cfg_.provider_name == s) active_idx = static_cast<int>(prov_id.size() - 1);
+    for (const auto& p : providers) {
+        std::string label = p.name + "  (" +
+                            (p.api_base.empty() ? "unconfigured" : p.api_base) +
+                            ")";
+        prov_display.push_back((cfg_.provider_name == p.name ? "> " : "  ") +
+                               label);
+        prov_id.push_back(p.name);
     }
 
     // Add "Add new..." option at the end
     int add_new_idx = static_cast<int>(prov_id.size());
     prov_display.emplace_back("  + Add new provider...");
     prov_id.emplace_back("");  // sentinel
-
-    if (active_idx < 0) active_idx = 2;  // default to custom
 
     // Step 2: Select provider or action
     ModalScope scope;
@@ -2139,27 +2141,20 @@ void Tui::settings_screen() {
         std::string new_name = name_field[0].value;
         if (new_name.empty()) return;
 
-        // Check if preset exists
+        // Seed from the provider domain (built-in or saved).
         agent::Config prov_cfg;
-        bool is_preset = false;
-        for (auto* p : agent::provider::all) {
-            if (p->name == new_name) {
-                prov_cfg.provider_name = p->name;
-                prov_cfg.api_base = p->api_base;
-                prov_cfg.model = p->default_model;
-                is_preset = true;
-                break;
-            }
-        }
-        if (!is_preset) {
-            // Try to load saved provider
-            if (!agent::load_provider(new_name, prov_cfg)) {
-                prov_cfg.provider_name = new_name;
-            }
+        prov_cfg.provider_name = new_name;
+        if (auto p = providers_->find(new_name)) {
+            prov_cfg.api_base = p->api_base;
+            prov_cfg.api_key = p->api_key;
+            prov_cfg.model = p->default_model;
         }
         if (!edit_provider_form(prov_cfg, "Edit: " + new_name)) return;
         prov_cfg.provider_name = new_name;
-        agent::save_provider(prov_cfg);
+        providers_->save(agent::Provider{
+            prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+            !prov_cfg.api_key.empty(), prov_cfg.model, prov_cfg.context_size,
+            false});
         cfg_.provider_name = new_name;
         cfg_.api_base = prov_cfg.api_base;
         cfg_.api_key = prov_cfg.api_key;
@@ -2176,7 +2171,8 @@ void Tui::settings_screen() {
     if (selected_id.empty()) return;
 
     // Step 3: Show actions for selected provider
-    bool is_preset = (selected_id == "openrouter" || selected_id == "kilocode" || selected_id == "custom");
+    auto sel_provider = providers_->find(selected_id);
+    const bool is_preset = sel_provider && sel_provider->builtin;
     std::vector<std::string> actions = {"Activate & edit", "Test connection"};
     if (!is_preset) {
         actions.emplace_back("Delete provider");
@@ -2185,43 +2181,32 @@ void Tui::settings_screen() {
     if (action < 0) return;
 
     if (action == 0) {
-        // Activate & edit — start from preset defaults, overlay current values
+        // Activate & edit — seed from the provider domain, overlay current
+        // values when it is already the active provider.
         agent::Config prov_cfg;
-        if (is_preset) {
-            prov_cfg.provider_name = selected_id;
+        prov_cfg.provider_name = selected_id;
+        if (sel_provider) {
+            prov_cfg.api_base = sel_provider->api_base;
+            prov_cfg.api_key = sel_provider->api_key;
+            prov_cfg.model = sel_provider->default_model;
+        }
+        if (cfg_.provider_name == selected_id) {
             prov_cfg.api_base = cfg_.api_base;
             prov_cfg.api_key = cfg_.api_key;
             prov_cfg.model = cfg_.model;
-            prov_cfg.model_explicit = cfg_.model_explicit;
-            // If not already using this preset, seed with its defaults
-            if (cfg_.provider_name != selected_id) {
-                prov_cfg.apply_provider(selected_id);
-                if (prov_cfg.api_key.empty()) prov_cfg.api_key = cfg_.api_key;
-            }
-        } else {
-            agent::load_provider(selected_id, prov_cfg);
         }
         if (!edit_provider_form(prov_cfg, "Edit: " + selected_id)) return;
 
-        if (is_preset) {
-            cfg_.provider_name = selected_id;
-            if (selected_id != "custom") {
-                cfg_.apply_provider(selected_id);
-            }
-            cfg_.api_base = prov_cfg.api_base;
-            cfg_.api_key = prov_cfg.api_key;
-            if (!prov_cfg.model.empty()) {
-                cfg_.model = prov_cfg.model;
-                cfg_.model_explicit = true;
-            }
-        } else {
-            prov_cfg.provider_name = selected_id;
-            agent::save_provider(prov_cfg);
-            cfg_.provider_name = selected_id;
-            cfg_.api_base = prov_cfg.api_base;
-            cfg_.api_key = prov_cfg.api_key;
+        providers_->save(agent::Provider{
+            prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+            !prov_cfg.api_key.empty(), prov_cfg.model, prov_cfg.context_size,
+            is_preset});
+        cfg_.provider_name = selected_id;
+        cfg_.api_base = prov_cfg.api_base;
+        cfg_.api_key = prov_cfg.api_key;
+        if (!prov_cfg.model.empty()) {
             cfg_.model = prov_cfg.model;
-            cfg_.model_explicit = !prov_cfg.model.empty();
+            cfg_.model_explicit = true;
         }
         cfg_.save_global(agent::global_config_path());
         refresh_provider_feed();
@@ -2241,7 +2226,7 @@ void Tui::settings_screen() {
         std::string msg = "Delete provider \"" + selected_id + "\"?";
         tui::ConfirmPanel confirm("Delete Provider", msg);
         if (confirm.run()) {
-            agent::delete_provider(selected_id);
+            providers_->remove(selected_id);
             refresh_provider_feed();
             append_line(P_STATUS, "provider '" + selected_id + "' deleted");
         }

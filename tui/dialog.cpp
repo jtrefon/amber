@@ -48,6 +48,8 @@ void init_pairs() {
     init_pair(P_MD_LINK,    COLOR_WHITE,   -1);
     init_pair(P_MD_TABLE,   COLOR_WHITE,   -1);
     init_pair(P_MD_HR,      COLOR_CYAN,    -1);
+    // The completion hint must be visible: gray on the default background.
+    init_pair(P_INPUT_SHADOW, 245, -1);
 }
 
 Dialog::Dialog(int h, int w, const std::string& title)

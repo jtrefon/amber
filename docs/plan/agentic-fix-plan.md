@@ -361,6 +361,17 @@ tests: `agent_loop_tool_envelope_lean` (large payload not echoed),
 `agent_loop_tool_envelope_small_args_echoed` (small args echoed).
 Next: P3 (schema-first tools).
 
+## 6e. Verdict (2026-08-05): model class, not harness
+
+DeepSeek (deepseek-chat) on the same 28-scenario corpus as the Nemotron
+550B A/Bs, no harness changes: score 93.9/100 (+8.8), redundant 24→2,
+failures 15.5→3, steps −34%, plan efficiency 52→75. The efficiency gap
+that motivated P1–P4 was the model class: free-tier/27B models are not
+RL-trained tool users. Harness structure (P2v2) moved the ceiling ~1
+point; the model moves it ~9. Conclusion: keep the harness lean and
+correct; further agentic gains come from the model tier, not prompt
+engineering (P1/P3/P4 verdicts stand: nudges don't move weak models).
+
 ## 6d. P4 status (2026-08-05, MECHANISM SHIPPED, flag-gated — adoption is framing-dependent)
 
 Sub-agents built and shipped: `task` tool + `SubAgentExecutor` with

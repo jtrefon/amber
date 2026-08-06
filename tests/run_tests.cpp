@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <cstdlib>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -227,35 +228,34 @@ TEST(config_context_default_is_auto) {
 // ---------------------------------------------------------------------------
 
 TEST(config_provider_openrouter_preset) {
-    agent::Config c;
-    c.apply_provider("openrouter");
-    ASSERT_EQ(c.provider_name, "openrouter");
-    ASSERT_EQ(c.api_base, "https://openrouter.ai/api/v1");
-    ASSERT(!c.model.empty());
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto sel = svc->select("openrouter");
+    ASSERT(sel.ok());
+    ASSERT_EQ(sel.provider.api_base, "https://openrouter.ai/api/v1");
+    ASSERT(!sel.provider.default_model.empty());
 }
 
 TEST(config_provider_kilocode_preset) {
     // Kilo's OpenAI-compatible gateway (docs: kilo.ai/docs/gateway). The
     // old api.kilocode.ai/v1 endpoint 404'd on every request.
-    agent::Config c;
-    c.apply_provider("kilocode");
-    ASSERT_EQ(c.provider_name, "kilocode");
-    ASSERT_EQ(c.api_base, "https://api.kilo.ai/api/gateway");
-    ASSERT(!c.model.empty());
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto sel = svc->select("kilocode");
+    ASSERT(sel.ok());
+    ASSERT_EQ(sel.provider.api_base, "https://api.kilo.ai/api/gateway");
+    ASSERT(!sel.provider.default_model.empty());
 }
 
-TEST(config_provider_unknown_falls_back_to_custom) {
-    agent::Config c;
-    c.api_base = "http://my-server:8080/v1";
-    c.apply_provider("nonexistent");
-    ASSERT_EQ(c.provider_name, "custom");  // unchanged
-    ASSERT_EQ(c.api_base, "http://my-server:8080/v1");
+TEST(config_provider_unknown_is_loud_error) {
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto sel = svc->select("nonexistent");
+    ASSERT_FALSE(sel.ok());  // never a silent fallback
 }
 
 TEST(config_global_save_roundtrip_preserves_provider) {
     std::string path = "/tmp/amber_global_test.conf";
     agent::Config c;
-    c.apply_provider("openrouter");
+    c.provider_name = "openrouter";
+    c.api_base = "https://openrouter.ai/api/v1";
     c.api_key = "sk-test-123";
     ASSERT_TRUE(c.save_global(path));
 
@@ -267,15 +267,14 @@ TEST(config_global_save_roundtrip_preserves_provider) {
     std::remove(path.c_str());
 }
 
-TEST(config_validate_requires_api_key_for_openrouter) {
-    agent::Config c;
-    c.apply_provider("openrouter");
-    c.api_key.clear();
-    auto errs = c.validate();
-    bool found = false;
-    for (const auto& e : errs)
-        if (e.find("api_key") != std::string::npos) found = true;
-    ASSERT(found);
+TEST(provider_service_missing_key_is_warning) {
+    // The key-required policy lives in the domain: select() warns, never
+    // fails, when a key-requiring provider has no key (the user may set
+    // one via env / F10 without switching again).
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto sel = svc->select("openrouter");
+    ASSERT(sel.ok());
+    ASSERT(sel.warning.find("API key") != std::string::npos);
 }
 
 TEST(config_validate_skips_api_key_for_custom) {
@@ -421,97 +420,245 @@ TEST(registry_register_and_find) {
     ASSERT(r.find("nonexistent") == nullptr);
 }
 
-TEST(provider_apply_carries_saved_api_key) {
-    // /set provider <saved> must activate the saved provider's key too —
-    // switching with an empty key leaves the probe failing (401) and the
-    // model list empty.
-    const std::string dir = agent::global_config_dir() + "/providers";
-    std::filesystem::create_directories(dir);
-    const std::string path = dir + "/zzz_key_provider.conf";
-    {
-        std::ofstream f(path);
-        f << "provider=zzz_key_provider\n"
-             "api_base=http://127.0.0.1:9999/v1\n"
-             "api_key=sk-zzz-secret\n";
+// ---------------------------------------------------------------------------
+// Provider domain (hexagonal: service + fake adapters)
+// ---------------------------------------------------------------------------
+
+class FakeProviderRepo : public agent::ProviderRepository {
+public:
+    std::vector<agent::Provider> items;
+    std::vector<agent::Provider> saved;
+    bool save_ret = true;
+
+    std::vector<agent::Provider> all() const override { return items; }
+    std::optional<agent::Provider> find(const std::string& n) const override {
+        for (const auto& p : items)
+            if (p.name == n) return p;
+        return std::nullopt;
     }
-    agent::Config c;
-    c.apply_provider("zzz_key_provider");
-    ASSERT_EQ(c.provider_name, "zzz_key_provider");
-    ASSERT_EQ(c.api_base, "http://127.0.0.1:9999/v1");
-    ASSERT_EQ(c.api_key, "sk-zzz-secret");
-    // A key-less saved provider must not clobber a manually set key.
-    const std::string path2 = dir + "/zzz_nokey_provider.conf";
-    {
-        std::ofstream f(path2);
-        f << "provider=zzz_nokey_provider\n"
-             "api_base=http://127.0.0.1:9998/v1\n";
+    bool save(const agent::Provider& p) override {
+        saved.push_back(p);
+        return save_ret;
     }
-    agent::Config c2;
-    c2.api_key = "sk-existing";
-    c2.apply_provider("zzz_nokey_provider");
-    ASSERT_EQ(c2.api_key, "sk-existing");
-    std::remove(path.c_str());
-    std::remove(path2.c_str());
+    bool remove(const std::string& n) override {
+        items.erase(
+            std::remove_if(items.begin(), items.end(),
+                           [&](const agent::Provider& p) {
+                               return p.name == n;
+                           }),
+            items.end());
+        return true;
+    }
+};
+
+std::vector<std::unique_ptr<agent::ProviderRepository>> make_repos(
+    std::unique_ptr<agent::ProviderRepository> repo) {
+    std::vector<std::unique_ptr<agent::ProviderRepository>> v;
+    v.push_back(std::move(repo));
+    return v;
 }
 
-TEST(provider_key_survives_empty_global_overlay) {
-    // Startup order: apply the saved provider (key from the provider file),
-    // then overlay the global config. An EMPTY global key must never
-    // clobber the provider key — that left probes failing with 401.
-    const std::string dir = agent::global_config_dir() + "/providers";
-    std::filesystem::create_directories(dir);
-    const std::string path = dir + "/zzz_overlay_provider.conf";
-    {
-        std::ofstream f(path);
-        f << "provider=zzz_overlay_provider\n"
-             "api_base=http://127.0.0.1:9997/v1\n"
-             "api_key=sk-provider-key\n";
+class FakeModelCatalog : public agent::ModelCatalog {
+public:
+    std::vector<std::string> list_models(
+        const agent::Provider&) const override {
+        return {"m1", "m2"};
     }
-    agent::Config global;               // provider set, key EMPTY
-    global.provider_name = "zzz_overlay_provider";
+};
+
+agent::Provider test_provider(const std::string& name, const std::string& base,
+                              const std::string& model = "") {
+    agent::Provider p;
+    p.name = name;
+    p.api_base = base;
+    p.api_key = "sk-" + name;
+    p.default_model = model;
+    return p;
+}
+
+TEST(provider_service_select_applies_connection) {
+    auto repo = std::make_unique<FakeProviderRepo>();
+    repo->items.push_back(test_provider("alpha", "https://alpha.test/v1"));
+    auto svc = agent::ProviderService(
+        make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+
+    auto sel = svc.select("alpha");
+    ASSERT(sel.ok());
+    ASSERT_EQ(sel.provider.api_base, "https://alpha.test/v1");
+    ASSERT_EQ(sel.provider.api_key, "sk-alpha");
+
     agent::Config cfg;
-    agent::overlay_global_config(cfg, global);
-    ASSERT_EQ(cfg.api_key, "sk-provider-key");
-    ASSERT_EQ(cfg.api_base, "http://127.0.0.1:9997/v1");
-
-    // A non-empty global key wins over the provider file.
-    agent::Config global2 = global;
-    global2.api_key = "sk-global-key";
-    agent::Config cfg2;
-    agent::overlay_global_config(cfg2, global2);
-    ASSERT_EQ(cfg2.api_key, "sk-global-key");
-    std::remove(path.c_str());
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.provider_name, "alpha");
+    ASSERT_EQ(cfg.api_base, "https://alpha.test/v1");
+    ASSERT_EQ(cfg.api_key, "sk-alpha");
 }
 
-TEST(provider_is_known_includes_saved) {
-    ASSERT(agent::is_known_provider("openrouter"));
-    ASSERT(agent::is_known_provider("kilocode"));
-    ASSERT(agent::is_known_provider("custom"));
-    // A provider saved under the providers dir is known too (the /set
-    // provider gate must not reject user-added providers).
+TEST(provider_service_select_unknown_fails) {
+    auto svc = agent::ProviderService(
+        make_repos(std::make_unique<FakeProviderRepo>()),
+        std::make_unique<FakeModelCatalog>());
+    auto sel = svc.select("does-not-exist");
+    ASSERT_FALSE(sel.ok());
+    ASSERT(sel.error.find("unknown provider") != std::string::npos);
+}
+
+TEST(provider_service_select_unconfigured_fails) {
+    // A provider with no endpoint (the unconfigured-custom case) is a
+    // loud error, never a silent fallback to another provider.
+    auto repo = std::make_unique<FakeProviderRepo>();
+    repo->items.push_back(test_provider("custom", ""));
+    auto svc = agent::ProviderService(
+        make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+    auto sel = svc.select("custom");
+    ASSERT_FALSE(sel.ok());
+    ASSERT(sel.error.find("no endpoint") != std::string::npos);
+}
+
+TEST(provider_service_auto_loads_last_model) {
+    auto repo = std::make_unique<FakeProviderRepo>();
+    repo->items.push_back(test_provider("alpha", "https://alpha.test/v1",
+                                        "alpha-last-model"));
+    auto svc = agent::ProviderService(
+        make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+    auto sel = svc.select("alpha");
+    agent::Config cfg;
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.model, "alpha-last-model");
+    ASSERT(cfg.model_explicit);
+}
+
+TEST(provider_service_remember_model_persists) {
+    auto repo = std::make_unique<FakeProviderRepo>();
+    repo->items.push_back(test_provider("alpha", "https://alpha.test/v1"));
+    auto* raw = repo.get();
+    auto svc = agent::ProviderService(
+        make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+    ASSERT(svc.remember_model("alpha", "new-model"));
+    ASSERT_EQ(raw->saved.size(), 1u);
+    ASSERT_EQ(raw->saved[0].name, "alpha");
+    ASSERT_EQ(raw->saved[0].default_model, "new-model");
+}
+
+TEST(provider_service_available_merges_and_dedups) {
+    auto repo1 = std::make_unique<FakeProviderRepo>();
+    repo1->items.push_back(test_provider("shared", "https://one.test/v1"));
+    auto repo2 = std::make_unique<FakeProviderRepo>();
+    repo2->items.push_back(test_provider("shared", "https://two.test/v1"));
+    repo2->items.push_back(test_provider("unique", "https://u.test/v1"));
+    std::vector<std::unique_ptr<agent::ProviderRepository>> repos;
+    repos.push_back(std::move(repo1));
+    repos.push_back(std::move(repo2));
+    auto svc = agent::ProviderService(std::move(repos),
+                                      std::make_unique<FakeModelCatalog>());
+    auto all = svc.available();
+    size_t shared = 0;
+    for (const auto& p : all)
+        if (p.name == "shared") shared++;
+    ASSERT_EQ(shared, 1u);  // de-duplicated
+    ASSERT_EQ(all.size(), 2u);
+    // Later repository wins on collision.
+    for (const auto& p : all)
+        if (p.name == "shared")
+            ASSERT_EQ(p.api_base, "https://two.test/v1");
+}
+
+TEST(provider_custom_is_builtin_preset) {
+    // Custom follows the same lifecycle as every other provider: always
+    // present (built-in preset), selectable, and loud+actionable when
+    // unconfigured — never a silent fallback, never missing.
+    // Hermetic: a seeded custom.conf in the real config dir would shadow
+    // the built-in preset (file providers are not builtin), so the preset
+    // path is tested against a clean XDG_CONFIG_HOME.
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_preset", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_preset");
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    bool found = false;
+    for (const auto& p : svc->available())
+        if (p.name == "custom") {
+            found = true;
+            ASSERT(p.builtin);
+        }
+    ASSERT(found);
+    auto sel = svc->select("custom");
+    ASSERT_FALSE(sel.ok());
+    ASSERT(sel.error.find("no endpoint") != std::string::npos);
+}
+
+TEST(provider_custom_file_override_wins) {
+    // The dedicated file (later repo) overrides the built-in preset, like
+    // deepseek.conf does for its preset class.
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_ovr", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_ovr");
+    agent::Config conn;
+    conn.api_base = "https://custom.test/v1";
+    conn.api_key = "sk-custom";
+    conn.model = "custom-model";
+    ASSERT(agent::seed_custom_provider(conn));
+
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto sel = svc->select("custom");
+    ASSERT(sel.ok());
+    ASSERT_EQ(sel.provider.api_base, "https://custom.test/v1");
+    ASSERT_EQ(sel.provider.api_key, "sk-custom");
+    ASSERT_EQ(sel.provider.default_model, "custom-model");
+
+    // Removing the file restores the unconfigured preset.
+    std::filesystem::remove(agent::global_config_dir() +
+                            "/providers/custom.conf");
+    auto svc2 = agent::make_default_provider_service(agent::Config{});
+    auto sel2 = svc2->select("custom");
+    ASSERT_FALSE(sel2.ok());
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_ovr");
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+TEST(provider_custom_seed_writes_all_keys) {
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_seed", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_seed");
+    agent::Config conn;
+    conn.api_base = "https://seed.test/v1";
+    conn.api_key = "sk-seed";
+    conn.model = "seed-model";
+    conn.context_size = 12345;
+    ASSERT(agent::seed_custom_provider(conn));
+    const std::string path =
+        agent::global_config_dir() + "/providers/custom.conf";
+    std::ifstream f(path);
+    ASSERT(f.good());
+    std::string content((std::istreambuf_iterator<char>(f)),
+                        std::istreambuf_iterator<char>());
+    ASSERT(content.find("provider=custom") != std::string::npos);
+    ASSERT(content.find("api_base=https://seed.test/v1") != std::string::npos);
+    ASSERT(content.find("api_key=sk-seed") != std::string::npos);
+    ASSERT(content.find("default_model=seed-model") != std::string::npos);
+    ASSERT(content.find("default_context_size=12345") != std::string::npos);
+    // An empty connection still writes a complete template.
+    agent::Config empty;
+    empty.api_base.clear();
+    ASSERT(agent::seed_custom_provider(empty));
+    std::filesystem::remove_all("/tmp/amber_xdg_custom_seed");
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+TEST(file_provider_repository_roundtrip) {
     const std::string dir = agent::global_config_dir() + "/providers";
     std::filesystem::create_directories(dir);
-    const std::string path = dir + "/zzz_test_provider.conf";
-    {
-        std::ofstream f(path);
-        f << "provider=zzz_test_provider\n"
-             "api_base=http://127.0.0.1:9999/v1\n";
-    }
-    ASSERT(agent::is_known_provider("zzz_test_provider"));
-    std::remove(path.c_str());
-    ASSERT_FALSE(agent::is_known_provider("zzz_test_provider"));
-    ASSERT_FALSE(agent::is_known_provider("nonexistent_provider_xyz"));
-}
-
-TEST(registry_task_tool_opt_in) {
-    agent::ToolRegistry r;
-    agent::JobService jobs;
-    agent::TodoStore todos;
-    agent::SubAgentExecutor ex;
-    agent::register_default_tools(r, jobs, todos, agent::CancellationToken{},
-                                  false, ex, true);
-    ASSERT_EQ(r.tools().size(), 8u);
-    ASSERT(r.find("task") != nullptr);
+    auto repo = agent::make_file_provider_repository();
+    ASSERT(repo != nullptr);
+    agent::Provider p = test_provider("zzz_roundtrip",
+                                      "https://roundtrip.test/v1",
+                                      "last-model");
+    p.requires_key = true;
+    ASSERT(repo->save(p));
+    auto found = repo->find("zzz_roundtrip");
+    ASSERT(found.has_value());
+    ASSERT_EQ(found->api_base, "https://roundtrip.test/v1");
+    ASSERT_EQ(found->api_key, "sk-zzz_roundtrip");
+    ASSERT_EQ(found->default_model, "last-model");
+    ASSERT(found->requires_key);
+    ASSERT(repo->remove("zzz_roundtrip"));
+    ASSERT_FALSE(repo->find("zzz_roundtrip").has_value());
 }
 
 TEST(registry_repeated_registration_dedups) {
@@ -3537,4 +3684,21 @@ TEST(agent_set_reasoning_effort_rebuilds_client) {
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, nullptr, factory);
     ag.set_reasoning_effort("high");
     ASSERT_EQ(factory_seen, "high");
+}
+
+TEST(provider_custom_unconfigured_is_error) {
+    // No user connection anywhere (no env, no amber.conf endpoint, no
+    // custom global config): select("custom") must FAIL loudly — never
+    // resolve to the Config DTO defaults (localhost:8000).
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_none", 1);
+    unsetenv("AMBER_API_BASE");
+    unsetenv("AMBER_API_KEY");
+    unsetenv("AMBER_MODEL");
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto sel = svc->select("custom");
+    unsetenv("XDG_CONFIG_HOME");
+    ASSERT_FALSE(sel.ok());
+    // Loud, actionable failure — never a silent fallback to the DTO
+    // default endpoint, and never "unknown": custom is a known preset.
+    ASSERT(sel.error.find("no endpoint") != std::string::npos);
 }

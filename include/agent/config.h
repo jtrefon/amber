@@ -14,32 +14,6 @@ namespace agent {
 // orchestration depth. Switchable at runtime via /mode.
 enum class AgentMode : std::uint8_t { Read, Write, Yolo };
 
-// Known LLM provider definitions.
-struct Provider {
-    std::string name;
-    std::string api_base;
-    std::string default_model;
-    bool requires_key;
-};
-
-namespace provider {
-
-inline const Provider openrouter  = {"openrouter",  "https://openrouter.ai/api/v1",   "openai/gpt-4o",        true};
-inline const Provider kilocode   = {"kilocode",   "https://api.kilo.ai/api/gateway", "kilo-auto/free",       true};
-inline const Provider custom     = {"custom",     "",                                "",                     false};
-
-inline const Provider* all[] = { &openrouter, &kilocode, &custom };
-inline constexpr int count = 3;
-
-inline const Provider* find(const std::string& name) {
-    for (auto* p : all) if (p->name == name) return p;
-    return &custom;
-}
-
-} // namespace provider
-
-// True for built-in presets AND providers saved under ~/.config/amber/
-// providers/<name>.conf (the saved set is dynamic — user-added).
 // Runtime configuration for the harness. Sourced from command-line flags,
 // environment variables, and global/project config files.
 // The library layer is intentionally free of any UI concerns.
@@ -166,8 +140,6 @@ struct Config {
     void load(const std::string& path);
     void apply_environment();
 
-    // Apply a named provider preset (sets api_base, default_model, etc.).
-    void apply_provider(const std::string& name);
 
     // Persist the LLM provider settings (api_base, api_key, model) to a global
     // config file. Provider settings live globally because they are not project-
@@ -193,38 +165,8 @@ struct Config {
 // and TUI to load/store LLM provider settings across all projects.
 std::string global_config_path();
 
-// True for built-in presets AND providers saved under ~/.config/amber/
-// providers/<name>.conf (the saved set is dynamic — user-added).
-bool is_known_provider(const std::string& name);
-
-// Startup overlay: apply the global config's provider preset, then layer
-// non-empty global fields on top. Empty fields NEVER clobber — an empty
-// global api_key must not null a key the provider file just supplied.
-void overlay_global_config(Config& cfg, const Config& global);
-
 // Directory holding global amber state (~/.config/amber, or $XDG_CONFIG_HOME/amber).
 std::string global_config_dir();
-
-// ---------------------------------------------------------------------------
-// Provider storage — each provider is a key=value file under
-// ~/.config/amber/providers/<name>.conf with fields:
-//   name, api_base, api_key, default_model, requires_key
-// ---------------------------------------------------------------------------
-
-// Directory containing all saved provider configs.
-std::string providers_dir();
-
-// List all saved provider names (filenames without .conf extension).
-std::vector<std::string> list_saved_providers();
-
-// Load a saved provider config into a Config object. Returns false if not found.
-bool load_provider(const std::string& name, Config& out);
-
-// Save a provider config. Creates/overwrites the file.
-bool save_provider(const Config& cfg);
-
-// Delete a saved provider config. Returns false if not found.
-bool delete_provider(const std::string& name);
 
 } // namespace agent
 

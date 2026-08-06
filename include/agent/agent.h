@@ -133,6 +133,8 @@ public:
     // injected factory — the next turn talks to the new model.
     void set_model(const std::string& model);
     void set_reasoning_effort(const std::string& effort);
+    void set_connection(const std::string& api_base,
+                        const std::string& api_key, const std::string& model);
 
     void set_compression_threshold(double t) {
         cfg_.compression_threshold = t;

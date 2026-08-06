@@ -6,6 +6,24 @@
 
 namespace tui {
 
+namespace {
+
+// Shared completion match: `partial` matches `name` when it is a prefix,
+// or (for dotted partials) when the suffix after the last dot matches.
+// An empty partial matches everything (the drawer rows are the filter).
+bool completion_matches(const std::string& name, const std::string& p) {
+    if (p.empty()) return true;
+    if (name.size() >= p.size() && name.substr(0, p.size()) == p)
+        return true;
+    size_t dot = p.rfind('.');
+    if (dot == std::string::npos || dot + 1 >= p.size()) return false;
+    const std::string suffix = p.substr(dot + 1);
+    return name.size() >= suffix.size() &&
+           name.substr(0, suffix.size()) == suffix;
+}
+
+} // namespace
+
 CommandLine::CommandLine() = default;
 
 // ── Internal helpers ────────────────────────────────────────────────
@@ -62,20 +80,6 @@ void CommandLine::recompute() {
     std::string partial = input_.substr(tok_start);
     if (partial.empty()) return;
 
-    // Helper: match `partial` against a candidate completion `name`.
-    // When partial is dotted (e.g. "detection.l") but completions are
-    // leaf-level ("loop"), try matching only the suffix after the last dot.
-    auto matches = [&](const std::string& name, const std::string& p) -> bool {
-        if (p.empty()) return false;
-        if (name.size() >= p.size() && name.substr(0, p.size()) == p)
-            return true;
-        size_t dot = p.rfind('.');
-        if (dot == std::string::npos || dot + 1 >= p.size()) return false;
-        std::string suffix = p.substr(dot + 1);
-        return name.size() >= suffix.size() &&
-               name.substr(0, suffix.size()) == suffix;
-    };
-
     // First, try cycle matches (set by Tab cycling).
     if (!cycle_matches_.empty() && cycle_index_ < cycle_matches_.size()) {
         const std::string& match = cycle_matches_[cycle_index_];
@@ -93,7 +97,7 @@ void CommandLine::recompute() {
 
     // Fallback: compute shadow from the current completion context.
     for (const auto& name : completions_) {
-        if (matches(name, partial)) {
+        if (completion_matches(name, partial)) {
             size_t dot = partial.rfind('.');
             std::string p = (dot == std::string::npos || dot + 1 >= partial.size())
                             ? partial : partial.substr(dot + 1);
@@ -252,19 +256,9 @@ CommandLine::Result CommandLine::on_enter() {
         size_t tok_start = input_.rfind(' ');
         tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
         std::string partial = input_.substr(tok_start);
-        auto matches = [&](const std::string& name, const std::string& p) -> bool {
-            if (p.empty()) return false;
-            if (name.size() >= p.size() && name.substr(0, p.size()) == p)
-                return true;
-            size_t dot = p.rfind('.');
-            if (dot == std::string::npos || dot + 1 >= p.size()) return false;
-            std::string suffix = p.substr(dot + 1);
-            return name.size() >= suffix.size() &&
-                   name.substr(0, suffix.size()) == suffix;
-        };
         std::vector<std::string> filtered;
         for (const auto& name : completions_) {
-            if (matches(name, partial))
+            if (completion_matches(name, partial))
                 filtered.push_back(name);
         }
         if (drawer_sel_ < static_cast<int>(filtered.size())) {
