@@ -27,7 +27,16 @@ const char* env_or(const char* name, const char* fallback) {
 
 // Layered user connection: env > amber.conf > global (custom only).
 bool user_connection(Config& out) {
+    // The Config DTO carries defaults (api_base=localhost:8000,
+    // model=gpt-4o-mini) that must never count as a user connection —
+    // start from empty so only real sources resolve.
+    out.api_base.clear();
+    out.api_key.clear();
+    out.model.clear();
     Config scratch;
+    scratch.api_base.clear();
+    scratch.api_key.clear();
+    scratch.model.clear();
     std::ifstream gc(global_config_path());
     if (gc) scratch.load(global_config_path());
     if (scratch.provider_name.empty() || scratch.provider_name == "custom") {
@@ -35,13 +44,16 @@ bool user_connection(Config& out) {
         out.api_key = scratch.api_key;
         out.model = scratch.model;
     }
+    Config proj_holder;
+    proj_holder.api_base.clear();
+    proj_holder.api_key.clear();
+    proj_holder.model.clear();
     std::ifstream ac("amber.conf");
     if (ac) {
-        Config proj;
-        proj.load("amber.conf");
-        if (!proj.api_base.empty()) out.api_base = proj.api_base;
-        if (!proj.api_key.empty()) out.api_key = proj.api_key;
-        if (!proj.model.empty()) out.model = proj.model;
+        proj_holder.load("amber.conf");
+        if (!proj_holder.api_base.empty()) out.api_base = proj_holder.api_base;
+        if (!proj_holder.api_key.empty()) out.api_key = proj_holder.api_key;
+        if (!proj_holder.model.empty()) out.model = proj_holder.model;
     }
     const char* base = env_or("AMBER_API_BASE", nullptr);
     if (base) out.api_base = base;

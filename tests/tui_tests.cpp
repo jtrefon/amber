@@ -5,6 +5,7 @@
 // test binary has no dependency on tui/ headers.
 
 #include "agent.h"
+#include "tui/action_registry.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/rich.h"
@@ -439,4 +440,24 @@ TEST(textutil_spinner_frames) {
     }
     ASSERT(std::string(tui::text::glyph::spinner_square(0)) !=
            std::string(tui::text::glyph::spinner_square(1)));
+}
+
+// ── Test: action registry is idempotent (feeds re-merge on refresh) ──
+
+TEST(action_registry_idempotent_register) {
+    tui::ActionRegistry reg;
+    std::vector<std::string> calls;
+    reg.register_action("core.test.a", [&](const std::string&) {
+        calls.emplace_back("first");
+    });
+    // Re-registering the same key (a feed refresh while the handler runs)
+    // must NOT replace the live lambda.
+    reg.register_action("core.test.a", [&](const std::string&) {
+        calls.emplace_back("second");
+    });
+    ASSERT(reg.has("core.test.a"));
+    ASSERT(reg.dispatch("core.test.a", "x"));
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0], "first");
+    ASSERT_FALSE(reg.dispatch("core.test.missing", ""));
 }

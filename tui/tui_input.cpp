@@ -1020,7 +1020,7 @@ void Tui::build_commands() {
 
 void Tui::register_action(const std::string& action,
                           std::function<void(const std::string&)> handler) {
-    action_handlers_[action] = std::move(handler);
+    action_registry_.register_action(action, std::move(handler));
 }
 
 void Tui::register_builtin_actions() {
@@ -1415,8 +1415,7 @@ bool Tui::handle_slash(const std::string& line) {
         arg += tokens[i];
     }
 
-    auto it = action_handlers_.find(action);
-    if (it == action_handlers_.end()) {
+    if (!action_registry_.has(action)) {
         // Documented in the tree but no handler: show the node's manual page.
         if (node->contains("man") && (*node)["man"].is_string()) {
             append_line(P_STATUS, "/" + tokens[0] + ": " +
@@ -1426,7 +1425,7 @@ bool Tui::handle_slash(const std::string& line) {
         }
         return true;
     }
-    it->second(arg);
+    action_registry_.dispatch(action, arg);
     return true;
 }
 

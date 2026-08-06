@@ -3620,3 +3620,19 @@ TEST(agent_set_reasoning_effort_rebuilds_client) {
     ag.set_reasoning_effort("high");
     ASSERT_EQ(factory_seen, "high");
 }
+
+TEST(provider_custom_unconfigured_is_error) {
+    // No user connection anywhere (no env, no amber.conf endpoint, no
+    // custom global config): select("custom") must FAIL loudly — never
+    // resolve to the Config DTO defaults (localhost:8000).
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_none", 1);
+    unsetenv("AMBER_API_BASE");
+    unsetenv("AMBER_API_KEY");
+    unsetenv("AMBER_MODEL");
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto sel = svc->select("custom");
+    unsetenv("XDG_CONFIG_HOME");
+    ASSERT_FALSE(sel.ok());
+    // Loud failure — never a silent fallback to the DTO default endpoint.
+    ASSERT(sel.error.find("unknown provider") != std::string::npos);
+}

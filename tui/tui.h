@@ -15,6 +15,7 @@
 #include "rich.h"
 #include "canvas.h"
 #include "markdown.h"
+#include "action_registry.h"
 #include "setting_registry.h"
 
 #include <atomic>
@@ -220,7 +221,7 @@ private:
     void build_commands();
     ToolFold tool_fold_ = ToolFold::Auto;  // global tool-call display mode
     const tui::Command* find_command(const std::string& name);
-    std::map<std::string, std::function<void(const std::string&)>> action_handlers_;
+    ActionRegistry action_registry_;
     std::string plugin_state_name(agent::PluginState st) const;
     bool handle_slash(const std::string& line);
     // Action-driven dispatch: handlers register per JSON tree action path.
