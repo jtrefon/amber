@@ -13,8 +13,11 @@ namespace agent {
 ServerInfo probe_server(const Config& cfg);
 
 // Parse a /v1/models JSON body into ServerInfo. Pure and network-free so the
-// extraction logic can be unit-tested without a live server.
-ServerInfo parse_models(const std::string& body);
+// extraction logic can be unit-tested without a live server. When
+// `preferred_model` is non-empty the matching entry wins; otherwise the
+// first entry reporting a positive context is used (fallback: first entry).
+ServerInfo parse_models(const std::string& body,
+                        const std::string& preferred_model = "");
 
 // Return all model IDs from a /v1/models response. Pure, no network.
 std::vector<std::string> parse_model_list(const std::string& body);

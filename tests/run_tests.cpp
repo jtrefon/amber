@@ -2202,6 +2202,8 @@ TEST(apply_classification_truncates_long_summaries) {
         msg("system", "Amber"),
         msg("user", "middle task"),
         msg("assistant", "mid work"),
+        msg("user", "later task"),
+        msg("assistant", "later work"),
         msg("user", "current task"),
         msg("assistant", "working"),
     };
@@ -2252,9 +2254,10 @@ TEST(sanitize_tool_pairs_stubs_missing_result) {
         msg("user", "next"),
     };
     agent::sanitize_tool_pairs(hist);
-    ASSERT_EQ(hist.size(), 4u);
-    ASSERT_EQ(hist[2].role, "tool");  // stub injected before the user turn
-    ASSERT_EQ(hist[3].role, "user");
+    ASSERT_EQ(hist.size(), 5u);
+    ASSERT_EQ(hist[2].role, "assistant");  // the tool_calls message
+    ASSERT_EQ(hist[3].role, "tool");       // stub injected before the user turn
+    ASSERT_EQ(hist[4].role, "user");
 }
 
 TEST(prune_tool_io_removes_bulky_output_outside_tail) {
@@ -2322,6 +2325,7 @@ TEST(compression_gate_min_turns) {
 TEST(compression_gate_default_threshold_is_70_percent) {
     // Default: on by default, firing at 70% of the window.
     agent::CompressionConfig cc;
+    cc.min_turns = 1;
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 262144;
@@ -2339,6 +2343,7 @@ TEST(compression_gate_does_not_cap_large_window) {
     // on a 262k window ("compression at 8% of context"). The honest gate
     // must not fire there.
     agent::CompressionConfig cc;
+    cc.min_turns = 1;
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 262144;
@@ -2353,6 +2358,7 @@ TEST(compression_gate_unknown_window_never_fires) {
     // No window, no guessing: compression only runs on /compress or after
     // the server teaches the real limit via an overflow rejection.
     agent::CompressionConfig cc;
+    cc.min_turns = 1;
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;  // context_size == 0
     cfg.prompt_tokens_used = 100000;
@@ -2364,6 +2370,7 @@ TEST(compression_gate_unknown_window_never_fires) {
 
 TEST(compression_gate_respects_threshold_setter) {
     agent::CompressionConfig cc;
+    cc.min_turns = 1;
     auto gate = agent::make_compression_gate(cc);
     gate->set_threshold(0.9);
     agent::Config cfg;
@@ -4008,9 +4015,11 @@ TEST(compression_gate_explicit_window_honored) {
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
-TEST(compression_gate_unknown_window_uses_fallback_budget) {
-    // No probe, no explicit config: the 32k fallback budget keeps the gate
-    // alive so compression still fires instead of being disabled entirely.
+TEST(compression_gate_unknown_window_never_auto_fires) {
+    // No probe, no explicit config: the gate must not guess a window — an
+    // arbitrary fallback budget fired at a tiny fraction of modern 128k+
+    // models ("compression at 8% of context"). Compression still runs via
+    // /compress and the 400-overflow learner teaches the real window.
     agent::CompressionConfig cc;
     cc.threshold = 0.5;
     cc.cooldown_turns = 0;
@@ -4021,10 +4030,10 @@ TEST(compression_gate_unknown_window_uses_fallback_budget) {
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
-    cfg.prompt_tokens_used = 15000;    // ~47% of 32000: below threshold
+    cfg.prompt_tokens_used = 15000;
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-    cfg.prompt_tokens_used = 16001;    // ~50% of 32000: above threshold
-    ASSERT(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 100000;   // even a huge estimate must not fire
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
 }
 
 TEST(compression_gate_first_compress_not_cooldown_blocked) {

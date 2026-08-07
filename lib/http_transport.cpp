@@ -233,9 +233,12 @@ std::string post_completion(Config& cfg, const std::string& payload,
     if (ttfb) *ttfb = t0;
     if (total) *total = t1;
     if (http_code < 200 || http_code >= 300) {
-        // Try to learn context_size from HTTP 400 overflow errors.
-        // This lets an unknown-context server teach us its limit.
-        if (http_code == 400 && (!cfg.context_explicit || cfg.context_size <= 0)) {
+        // Try to learn context_size from HTTP 400 overflow errors. The
+        // rejection is the runtime truth — it clamps even an explicitly
+        // configured window (e.g. a model whose trained n_ctx exceeds the
+        // server's actual --ctx-size). The host pulls the learned value via
+        // LLMClient::learned_context_size().
+        if (http_code == 400) {
             int learned = parse_context_size_from_error(response);
             if (learned > 0) {
                 cfg.context_size = learned;
@@ -250,13 +253,22 @@ std::string post_completion(Config& cfg, const std::string& payload,
 
 // Run a streaming completion: POST `payload`, feed SSE bytes to `parser`, and
 // finalize. Fills `stats` (timings + token counts). Throws on transport error.
-void stream_completion(const Config& cfg, const std::string& payload,
+void stream_completion(Config& cfg, const std::string& payload,
                        StreamParser& parser, Stats* stats, long& status_out) {
     double ttfb = 0, total = 0;
     curl_exec(cfg, payload, true, 300L,
               stream_write_cb, &parser,
               status_out, ttfb, total, "error-stream");
     if (status_out < 200 || status_out >= 300) {
+        // Same overflow learning as the buffered path: the rejection teaches
+        // the runtime window regardless of any configured value.
+        if (status_out == 400) {
+            int learned = parse_context_size_from_error(parser.raw_body_);
+            if (learned > 0) {
+                cfg.context_size = learned;
+                cfg.context_explicit = true;
+            }
+        }
         bool retryable = status_out == 429 || status_out >= 500;
         throw ApiError(status_out, retryable,
                        describe_http_error(status_out, parser.raw_body_));

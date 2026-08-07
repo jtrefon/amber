@@ -1,6 +1,7 @@
 
 #include "agent/conversation_log.h"
 #include <chrono>
+#include <filesystem>
 
 namespace agent {
 
@@ -20,6 +21,10 @@ void ConversationLog::open(const std::string& path) {
     size_t pos = resolved.find(tok);
     if (pos != std::string::npos)
         resolved.replace(pos, tok.size(), session_);
+    // The default path lives under .amber/logs/, which may not exist yet.
+    std::error_code ec;
+    std::filesystem::create_directories(
+        std::filesystem::path(resolved).parent_path(), ec);
     out_.open(resolved, std::ios::app);
     if (out_.is_open())
         event("session_start", {{"session", session_}});

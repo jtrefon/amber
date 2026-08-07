@@ -3,12 +3,13 @@
 #define AGENT_AGENT_H
 
 #include <cstdint>
-#include <memory>
-#include <vector>
-#include <functional>
-#include <string>
 #include <fstream>
+#include <functional>
+#include <map>
+#include <memory>
 #include <set>
+#include <string>
+#include <vector>
 #include "agent/config.h"
 #include "agent/registry.h"
 #include "agent/llm.h"
@@ -131,8 +132,10 @@ public:
 
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the
-    // injected factory — the next turn talks to the new model.
-    void set_model(const std::string& model);
+    // injected factory — the next turn talks to the new model. `window` is
+    // the new model's probed context window (0 = unknown); it feeds the
+    // compression gate unless the user set context_size explicitly.
+    void set_model(const std::string& model, int window = 0);
     void set_reasoning_effort(const std::string& effort);
     void set_connection(const std::string& api_base,
                         const std::string& api_key, const std::string& model);
@@ -241,6 +244,15 @@ private:
     // Calls apply_memory_ops, apply_skill_ops, decay_all, then save.
     // Updates last_extraction_ for UI reporting.
     void apply_compression_result(const CompressionResponse& cr);
+
+    // Resolve the effective context window for the gate and gauge: the
+    // active model's probed window (when the user did not set context_size
+    // explicitly), clamped by any window the server taught us via a 400
+    // overflow rejection. An unknown window stays 0 (no auto-compression).
+    void resolve_window();
+
+    // Per-model probed windows (model id -> context), fed by /set model.
+    std::map<std::string, int> model_windows_;
 
     Config cfg_;
     ToolRegistry& registry_;
