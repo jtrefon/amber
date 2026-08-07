@@ -241,7 +241,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
 
     auto process_one = [&](const Call& c, ToolResult res) {
         if (!res.ok) all_ok = false;
-        if (hooks.on_tool_result) hooks.on_tool_result(c.fn, res);
+        if (hooks.on_tool_result) hooks.on_tool_result(c.fn, res, c.args);
         if (hooks.on_debug)
             hooks.on_debug("tool_result: " + c.fn + " (" +
                             (res.ok ? "ok" : "error") + ")");

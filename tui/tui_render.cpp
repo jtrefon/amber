@@ -1,6 +1,7 @@
 
 #include "tui.h"
 #include "welcome.h"
+#include "tool_display.h"
 
 #include "tui/drawer_rows.h"
 
@@ -129,7 +130,13 @@ std::vector<Tui::Seg> Tui::bar_segments() const {
     std::string wtag = "[" + std::to_string(active_ + 1) + "/" +
                        std::to_string(windows_.size()) + "]";
     segs.push_back({wtag, P_BANNER, 3});
-    segs.push_back({" [" + cfg_.model + "]", P_BAR_DIM | A_BOLD, 5});
+    // Model + reasoning strength in ONE bracket: [model(high)] — the effort
+    // never visually concatenates with anything. Green bracket; the
+    // strength color-coding was too loud at high.
+    segs.push_back({" [" + cfg_.model +
+                        tool_display::reasoning_badge(cfg_.reasoning_effort) +
+                        "]",
+                    P_GAUGE_OK, 5});
 
     // Agent mode label with full words and colour coding.
     std::string mode_txt;
@@ -249,6 +256,29 @@ void Tui::draw() {
         } else {
             append_rich_to(view, win().stream_buf, win().stream_color, width());
         }
+    }
+
+    // Sticky working row: messenger-style indicator pinned at the BOTTOM of
+    // the history while the agent is busy and no output is being displayed
+    // yet (working_visible_ clears on the first stream token and re-appears
+    // while a tool runs). Output streams in above it; the row disappears the
+    // moment the reply displays. Optionally names the running tool:
+    // "◐ working 12s · grep -rn X src/". Foreground pair only — no banner
+    // background in the scrollback.
+    if (agent_busy_.load() && working_visible_) {
+        auto now = std::chrono::steady_clock::now();
+        size_t secs = static_cast<size_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(
+                now - working_since_).count());
+        std::string label = tool_display::working_label(
+            text::glyph::spinner_round(anim_phase_), secs,
+            running_tool_desc_);
+        rich::Line wl;
+        rich::Run r;
+        r.pair = P_STATUS;
+        r.text = label;
+        wl.runs.push_back(std::move(r));
+        view.push_back(std::move(wl));
     }
 
     chat_canvas_.resize(chat_top(), chat_height(), width());
@@ -431,9 +461,8 @@ void Tui::advance_tool_spinners() {
         auto& runs = win().lines[pt.index].runs;
         if (runs.empty()) continue;
         // The body run is the LAST run (runs[0] is the timestamp).
-        const char* frame = pt.style ? text::glyph::spinner_round(pt.frame)
-                                     : text::glyph::spinner_square(pt.frame);
-        runs.back().text = std::string(frame) + pt.tail;
+        runs.back().text = std::string(text::glyph::spinner_round(pt.frame)) +
+                           pt.tail;
         changed = true;
     }
     pending_tools_.erase(
@@ -476,7 +505,7 @@ void Tui::draw_input(const std::string& s, size_t cursor, const std::string& sha
 
     // Always show project name. Git branch and diff stats when available.
     auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
-    decor("\u250c\u2500[");
+    decor("\u2514\u2500[");
     put(git_project_, P_USER);
     if (!git_branch_.empty()) {
         decor("]\u2500[");

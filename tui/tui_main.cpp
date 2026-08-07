@@ -46,7 +46,13 @@ int main(int argc, char** argv) {
         if (sf) tmp.load(global_path);
         // The provider domain resolves the active provider and auto-loads
         // its last-used model; the user's explicit choice is remembered
-        // per provider (default_model), so it survives restarts.
+        // per provider (default_model), so it survives restarts. The
+        // user's explicit context window applies regardless of the
+        // provider default.
+        if (tmp.context_explicit && tmp.context_size > 0) {
+            cfg.context_size = tmp.context_size;
+            cfg.context_explicit = true;
+        }
         auto providers = agent::make_default_provider_service(cfg);
         if (!tmp.provider_name.empty()) {
             auto sel = providers->select(tmp.provider_name);

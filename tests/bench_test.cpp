@@ -237,7 +237,8 @@ TEST(recorder_pairs_tool_call_and_result) {
     Recorder rec;
     agent::AgentHooks hooks = rec.hooks();
     hooks.on_tool_call("read", {{"path", "a.txt"}});
-    hooks.on_tool_result("read", agent::ToolResult{true, "hello", "", agent::json{}});
+    hooks.on_tool_result("read", agent::ToolResult{true, "hello", "", agent::json{}},
+                       agent::json::object());
     ASSERT_EQ(rec.stream().tools.size(), 1u);
     const bench::ToolEvent& e = rec.stream().tools[0];
     ASSERT_EQ(e.name, "read");
@@ -252,8 +253,10 @@ TEST(recorder_concurrent_pairing_out_of_order) {
     agent::AgentHooks hooks = rec.hooks();
     hooks.on_tool_call("read", {{"path", "a.txt"}});
     hooks.on_tool_call("search", {{"query", "x"}});
-    hooks.on_tool_result("search", agent::ToolResult{true, "hit", "", agent::json{}});
-    hooks.on_tool_result("read", agent::ToolResult{true, "text", "", agent::json{}});
+    hooks.on_tool_result("search", agent::ToolResult{true, "hit", "", agent::json{}},
+                       agent::json::object());
+    hooks.on_tool_result("read", agent::ToolResult{true, "text", "", agent::json{}},
+                       agent::json::object());
     ASSERT_EQ(rec.stream().tools.size(), 2u);
     bool seen_read = false, seen_search = false;
     for (const auto& e : rec.stream().tools) {
@@ -269,9 +272,11 @@ TEST(recorder_denied_and_timeout_flags) {
     Recorder rec;
     agent::AgentHooks hooks = rec.hooks();
     hooks.on_tool_call("bash", {{"command", "rm -rf /"}});
-    hooks.on_tool_result("bash", agent::ToolResult{false, "", "denied", agent::json{{"denied", true}}});
+    hooks.on_tool_result("bash", agent::ToolResult{false, "", "denied", agent::json{{"denied", true}}},
+                       agent::json::object());
     hooks.on_tool_call("read", {{"path", "a.txt"}});
-    hooks.on_tool_result("read", agent::ToolResult{false, "", "timeout", agent::json{{"timeout", true}}});
+    hooks.on_tool_result("read", agent::ToolResult{false, "", "timeout", agent::json{{"timeout", true}}},
+                       agent::json::object());
     ASSERT_EQ(rec.stream().tools.size(), 2u);
     ASSERT(rec.stream().tools[0].denied);
     ASSERT(rec.stream().tools[1].timeout);

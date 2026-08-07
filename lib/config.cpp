@@ -142,6 +142,12 @@ bool Config::save_settings(const std::string& path) const {
     f << "thinking=" << thinking << "\n";
     f << "thinking_budget=" << thinking_budget << "\n";
     f << "reasoning_effort=" << reasoning_effort << "\n";
+    if (compression_threshold_explicit)
+        f << "compression_threshold=" << compression_threshold << "\n";
+    if (compression_min_turns_explicit)
+        f << "compression_min_turns=" << compression_min_turns << "\n";
+    if (compression_cooldown_turns_explicit)
+        f << "compression_cooldown_turns=" << compression_cooldown_turns << "\n";
     f << "show_reasoning=" << (show_reasoning ? 1 : 0) << "\n";
     f << "system_prompt=" << system_prompt_path << "\n";
     f << "tools_prompt=" << tools_prompt_path << "\n";
