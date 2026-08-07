@@ -133,11 +133,6 @@
       }
      }
     },
-    "toolfold": {
-     "action": "core.config.get.toolfold",
-     "help": "Show the current tool result folding mode.",
-     "man": "Displays the current tool-fold mode (always/auto/never). Tool folding controls whether long tool outputs are collapsed in the scrollback."
-    },
     "policy": {
      "action": "core.config.get.policy",
      "help": "Permission and approval settings.",
@@ -284,16 +279,6 @@
       }
      }
     },
-    "toolfold": {
-     "action": "core.config.set.toolfold",
-     "help": "Tool result folding mode.",
-     "man": "Controls how tool execution results are displayed. 'always' folds all results, 'auto' folds only long outputs, 'never' shows everything unfolded.",
-     "choices": [
-      "always",
-      "auto",
-      "never"
-     ]
-    },
     "policy": {
      "action": "core.config.set.policy",
      "help": "Permission and approval settings.",
@@ -322,7 +307,7 @@
       "timeout": {
        "action": "core.config.set.policy.timeout",
        "help": "Approval dialog timeout in seconds.",
-       "man": "Sets how many seconds the approval dialog waits before auto-selecting the default choice. 0 means no timeout \u2014 the dialog waits indefinitely for user input.",
+       "man": "Sets how many seconds the approval dialog waits before auto-selecting the default choice. 0 means no timeout — the dialog waits indefinitely for user input.",
        "type": "int",
        "range": [
         0,
@@ -444,17 +429,17 @@
     "model": {
      "action": "core.config.set.model",
      "help": "Switch the active AI model.",
-     "man": "The set-model branch switches the active model. Type '/set model' followed by a model id from the provider's model list, or Tab/space to open the picker drawer \u2014 every model the server offers is listed with its context window size, selectable with Up/Down and Enter. Bare '/set model' reports the current model."
+     "man": "The set-model branch switches the active model. Type '/set model' followed by a model id from the provider's model list, or Tab/space to open the picker drawer — every model the server offers is listed with its context window size, selectable with Up/Down and Enter. Bare '/set model' reports the current model."
     },
     "subagent": {
      "action": "core.config.set.subagent",
      "help": "Sub-agent (task tool) execution settings.",
-     "man": "Controls how the task tool runs focused worker agents. Parallel runs concurrent sub-agents, capped by max. Serial runs them one at a time: sequential requests share the system-prompt prefix, which keeps provider prompt caches warm \u2014 important for cache-sensitive providers (e.g. DeepSeek discounts cached hits ~90%; parallel requests with distinct prefixes pay full price each).",
+     "man": "Controls how the task tool runs focused worker agents. Parallel runs concurrent sub-agents, capped by max. Serial runs them one at a time: sequential requests share the system-prompt prefix, which keeps provider prompt caches warm — important for cache-sensitive providers (e.g. DeepSeek discounts cached hits ~90%; parallel requests with distinct prefixes pay full price each).",
      "children": {
       "parallel": {
        "action": "core.config.set.subagent.parallel",
        "help": "Run sub-agents concurrently (on) or serially (off).",
-       "man": "When on, task calls run in parallel up to the max cap. When off, task calls run one at a time in request order \u2014 cache-friendly for providers that discount cached prompt tokens. Toggle with 'toggle'.",
+       "man": "When on, task calls run in parallel up to the max cap. When off, task calls run one at a time in request order — cache-friendly for providers that discount cached prompt tokens. Toggle with 'toggle'.",
        "choices": [
         "on",
         "off",

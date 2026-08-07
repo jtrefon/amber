@@ -13,9 +13,6 @@
 
 namespace tui {
 
-// How tool calls and results are displayed in the scrollback.
-enum class ToolFold { Always, Auto, Never };
-
 // One chat window: an independent conversation with its own scrollback, live
 // streaming state, persistent (stateful) Agent, and session identity. Windows
 // are switchable IRC-style; the active one is drawn.
