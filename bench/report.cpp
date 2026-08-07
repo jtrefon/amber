@@ -34,6 +34,7 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
             << " d" << r.difficulty
             << " bullseye=" << r.kpi.bullseye
             << " steps=" << r.kpi.steps
+            << " cd=" << r.kpi.bash_cd_prefix
             << " wasted=" << r.kpi.wasted
             << " wall=" << r.kpi.wall_ms << "ms"
             << " retries=" << r.kpi.retries
@@ -100,6 +101,7 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["arg_precision"] = r.kpi.arg_precision;
         j["steps"] = r.kpi.steps;
         j["compressions"] = r.kpi.compressions;
+        j["bash_cd_prefix"] = r.kpi.bash_cd_prefix;
         j["tool_calls_total"] = r.kpi.tool_calls;
         j["tool_failures"] = r.kpi.tool_failures;
         j["tool_denied"] = r.kpi.tool_denied;
@@ -210,6 +212,10 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
     out << "| metric | total | per scenario |\n|---|---|---|\n";
     out << "| tool calls | " << tot_tools << " | "
         << (n ? (tot_tools / static_cast<double>(n)) : 0.0) << " |\n";
+    int tot_cd = 0;
+    for (const auto& r : reports) tot_cd += r.kpi.bash_cd_prefix;
+    out << "| bash cd-prefix calls | " << tot_cd << " | "
+        << (n ? (tot_cd / static_cast<double>(n)) : 0.0) << " |\n";
     out << "| tool failures | " << tot_fail << " | "
         << (n ? (tot_fail / static_cast<double>(n)) : 0.0) << " |\n";
     out << "| tool denials | " << tot_denied << " | "

@@ -3193,9 +3193,12 @@ TEST(environment_card_sorts_tools) {
     size_t gpp = card.find("g++");
     size_t git = card.find("git");
     size_t make = card.find("make");
-    ASSERT(docker != std::string::npos && gpp != std::string::npos &&
-           git != std::string::npos && make != std::string::npos);
-    ASSERT(docker < gpp && gpp < git && git < make);
+    ASSERT_TRUE(docker != std::string::npos);
+    ASSERT_TRUE(gpp != std::string::npos);
+    ASSERT_TRUE(git != std::string::npos);
+    ASSERT_TRUE(make != std::string::npos);
+    bool ordered = docker < gpp && gpp < git && git < make;
+    ASSERT_TRUE(ordered);
 }
 
 TEST(environment_card_omits_unknown_fields) {

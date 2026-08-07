@@ -125,6 +125,10 @@ Execute a shell command. Approval required only in READ mode (where
 bash is blocked entirely); in WRITE and YOLO modes commands run
 immediately.
 
+Every call runs in a fresh shell whose working directory is the workspace
+root — commands already start there, so a `cd <workspace> &&` prefix is
+unnecessary and the directory does not carry over between calls.
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `command` | string | yes | — | Shell command (run via `/bin/sh -c`) |
