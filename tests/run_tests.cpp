@@ -3138,15 +3138,20 @@ TEST(search_tool_explicit_path_inside_excluded) {
 
 // ---------------------------------------------------------------------------
 // Environment card ([I-9]): a compact session-fixed system-prompt section
-// telling the agent its OS, user, working directory, resources, and which
-// tools exist — so it can act in its environment without probing.
+// telling the agent its OS, user + privilege, the workspace root (where bash
+// commands run), the date, resources, and which tools exist — so it can act
+// in its environment without probing.
 // ---------------------------------------------------------------------------
 
 TEST(environment_card_renders_compact) {
     agent::EnvironmentInfo info;
     info.os = "Ubuntu 24.04 (Linux 6.8.0-45-generic x86_64)";
-    info.user_host = "jack@box";
-    info.cwd = "/home/jack/project";
+    info.user = "jack";
+    info.root = false;
+    info.sudo_passwordless = false;
+    info.workspace = "/home/jack/project";
+    info.date = "2026-08-07";
+    info.timezone = "UTC+2";
     info.resources = "8 cores \u00b7 16 GB RAM";
     info.tools = {"git", "python3", "make", "g++"};
 
@@ -3154,14 +3159,43 @@ TEST(environment_card_renders_compact) {
     ASSERT_FALSE(card.empty());
     ASSERT(card.find("## Environment") == 0);
     ASSERT(card.find("OS: Ubuntu 24.04") != std::string::npos);
-    ASSERT(card.find("User: jack@box") != std::string::npos);
-    ASSERT(card.find("Working directory: /home/jack/project") !=
-           std::string::npos);
+    ASSERT(card.find("User: jack (non-root)") != std::string::npos);
+    ASSERT(card.find("Workspace: /home/jack/project") != std::string::npos);
+    ASSERT(card.find("Date: 2026-08-07 (UTC+2)") != std::string::npos);
     ASSERT(card.find("8 cores") != std::string::npos);
-    ASSERT(card.find("Tools available: git, python3, make, g++") !=
+    ASSERT(card.find("Tools available: g++, git, make, python3") !=
            std::string::npos);
     // Compact: well under a couple of hundred tokens.
     ASSERT(card.size() < 600u);
+}
+
+TEST(environment_card_reports_privilege) {
+    agent::EnvironmentInfo info;
+    info.user = "root";
+    info.root = true;
+    std::string card = agent::render_environment_card(info);
+    ASSERT(card.find("User: root") != std::string::npos);
+
+    info.user = "jack";
+    info.root = false;
+    info.sudo_passwordless = true;
+    card = agent::render_environment_card(info);
+    ASSERT(card.find("User: jack (non-root, passwordless sudo)") !=
+           std::string::npos);
+}
+
+TEST(environment_card_sorts_tools) {
+    agent::EnvironmentInfo info;
+    info.os = "Linux";
+    info.tools = {"git", "docker", "make", "g++"};
+    std::string card = agent::render_environment_card(info);
+    size_t docker = card.find("docker");
+    size_t gpp = card.find("g++");
+    size_t git = card.find("git");
+    size_t make = card.find("make");
+    ASSERT(docker != std::string::npos && gpp != std::string::npos &&
+           git != std::string::npos && make != std::string::npos);
+    ASSERT(docker < gpp && gpp < git && git < make);
 }
 
 TEST(environment_card_omits_unknown_fields) {
@@ -3171,6 +3205,7 @@ TEST(environment_card_omits_unknown_fields) {
     info.os = "Linux";
     card = agent::render_environment_card(info);
     ASSERT(card.find("User:") == std::string::npos);
+    ASSERT(card.find("Workspace:") == std::string::npos);
     ASSERT(card.find("Tools") == std::string::npos);
 }
 
@@ -3179,9 +3214,10 @@ TEST(environment_probe_collects_facts) {
     auto info = agent::probe_environment();
     ASSERT_FALSE(info.os.empty());
     ASSERT(info.os.find("Linux") != std::string::npos);
-    ASSERT_FALSE(info.user_host.empty());
-    char buf[4096];
-    ASSERT_EQ(info.cwd, std::string(getcwd(buf, sizeof buf) ? buf : ""));
+    ASSERT_FALSE(info.user.empty());
+    ASSERT_EQ(info.workspace, agent::Workspace::root());
+    ASSERT_FALSE(info.date.empty());
+    ASSERT_FALSE(info.timezone.empty());
     ASSERT_FALSE(info.resources.empty());
     ASSERT(!info.tools.empty());  // git or python3 present in CI
     ASSERT_FALSE(agent::render_environment_card(info).empty());
