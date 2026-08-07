@@ -3,10 +3,10 @@
 
 namespace agent {
 
-Message build_classify_request() {
+Message build_classify_request(bool update_previous) {
     Message req;
     req.role = "user";
-    req.content = R"JSON(Analyze the conversation above. Your job is to reduce token waste while preserving everything the agent needs to continue working.
+    std::string body = R"JSON(Analyze the conversation above. Your job is to reduce token waste while preserving everything the agent needs to continue working.
 
 == STEP 1: Identify the current task ==
 Read the last 3-5 turns. What is the agent actively working on right now?
@@ -20,13 +20,27 @@ For every contiguous block of turns, assign one of:
   "context" = ARCHIVE WITH ONE-LINE SUMMARY — build config, project structure,
               workflows discovered, settled decisions
 
+Summaries must be at most 200 characters.
+
 Respond with ONLY this JSON array — no text outside it, no markdown fences:
 [
   {"turns": "0-5", "tag": "prune", "summary": ""},
   {"turns": "6-8", "tag": "core", "summary": ""},
   {"turns": "9-10", "tag": "context", "summary": "investigated config paths"}
 ])JSON";
+    if (update_previous) {
+        // A previous compression is visible above as a system message with
+        // an archive. Extend it: keep its existing entries, only classify
+        // turns AFTER that message, and never tag the compressed-context
+        // message itself.
+        body += R"JSON(
 
+The conversation above already contains a "Compressed conversation context"
+system message. Update it: classify only the turns that came AFTER that
+message, leave the existing archive entries alone, and tag the
+compressed-context message itself as "core".)JSON";
+    }
+    req.content = std::move(body);
     return req;
 }
 

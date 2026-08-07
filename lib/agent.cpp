@@ -10,6 +10,7 @@
 #include "agent/tools.h"
 #include "agent/model_probe.h"
 #include "agent/data_path.h"
+#include "agent/workspace.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -75,10 +76,30 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
     register_skill_tools(registry_, *skills_);
 }
 
-void Agent::set_model(const std::string& model) {
+void Agent::set_model(const std::string& model, int window) {
     cfg_.model = model;
     cfg_.model_explicit = true;
+    if (window > 0) model_windows_[model] = window;
     client_ = make_client(cfg_, client_factory_);
+}
+
+void Agent::resolve_window() {
+    // Tier 1: the active model's probed window (unless the user pinned
+    // context_size explicitly). Tier 2: anything the server taught us via
+    // a 400 overflow rejection clamps the result — the rejection is the
+    // runtime truth (a model's trained n_ctx may exceed the server's
+    // actual --ctx-size). Unknown stays 0: the gate never guesses.
+    if (!cfg_.context_explicit) {
+        auto it = model_windows_.find(cfg_.model);
+        if (it != model_windows_.end() && it->second > 0)
+            cfg_.context_size = it->second;
+    }
+    if (client_) {
+        const int learned = client_->learned_context_size();
+        if (learned > 0 &&
+            (cfg_.context_size == 0 || learned < cfg_.context_size))
+            cfg_.context_size = learned;
+    }
 }
 
 void Agent::set_reasoning_effort(const std::string& effort) {
@@ -238,7 +259,17 @@ Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
 
     // Check compression gate. If triggered, compress and persist.
     if (gate_ && compression_) {
+        resolve_window();
         if (gate_->should_compress(context_, cfg_)) {
+            if (hooks_.on_debug) {
+                double tokens = 0, budget = 0, threshold = 0;
+                gate_->last_decision(tokens, budget, threshold);
+                hooks_.on_debug("gate: tokens=" +
+                                std::to_string(static_cast<long>(tokens)) +
+                                " window=" +
+                                std::to_string(static_cast<long>(budget)) +
+                                " threshold=" + std::to_string(threshold));
+            }
             if (run_compression(std::function<void()>(), nullptr)) {
                 // Build prompt_copy from the new compressed context for
                 // the current LLM call.
@@ -387,6 +418,11 @@ bool Agent::run_compression(std::function<void()> progress_cb,
         context_.push(std::move(m));
     emit_context_event(context_events_, context_);
 
+    // The cached server prompt count describes the PRE-compression context;
+    // reset it so the gate evaluates the new context honestly (falls back
+    // to the estimate until the next chat refreshes it).
+    cfg_.prompt_tokens_used = -1;
+
     // Apply memory/skill ops from the LLM classification response.
     apply_compression_result(cr);
 
@@ -469,7 +505,14 @@ std::string Agent::confirm_turn(const std::string& candidate,
 }
 
 void Agent::log_and_push_user_prompt(const std::string& prompt) {
-    if (!log_.enabled()) log_.open(cfg_.log_path);
+    if (!log_.enabled()) {
+        // Default-on transcript: nothing the agent saw is ever lost, even
+        // when the user never configured log_path. Per-session file under
+        // the workspace's .amber dir; {ts} expands to the session id.
+        std::string path = cfg_.log_path;
+        if (path.empty()) path = Workspace::local_dir() + "/logs/{ts}.jsonl";
+        log_.open(path);
+    }
     log_.event("user", {{"content", prompt}, {"model", cfg_.model}});
     Message msg;
     msg.role = "user";

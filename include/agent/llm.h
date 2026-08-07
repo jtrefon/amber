@@ -87,8 +87,19 @@ public:
         Stats* stats = nullptr) = 0;
 
     // Parse a /v1/models JSON body into ServerInfo. Exposed (and static) so the
-    // extraction logic can be unit-tested without a live server.
-    static ServerInfo parse_models(const std::string& body);
+    // extraction logic can be unit-tested without a live server. When
+    // `preferred_model` is non-empty the matching entry wins (a router may
+    // list models without context metadata ahead of the active one); otherwise
+    // the first entry that reports a positive context is used, falling back
+    // to the first entry.
+    static ServerInfo parse_models(const std::string& body,
+                                   const std::string& preferred_model = "");
+
+    // Context window the server taught us via a 400 overflow rejection
+    // (parse_context_size_from_error), or 0 when none was learned yet.
+    // The learned limit is the runtime truth: it clamps any configured or
+    // probed window so the gate and gauge never overshoot.
+    virtual int learned_context_size() const { return 0; }
 };
 
 // Real libcurl implementation over an OpenAI-compatible /chat/completions
@@ -105,9 +116,11 @@ public:
         const std::vector<Message>& messages, const std::vector<Tool*>& tools,
         const std::function<void(const StreamChunk&)>& on_chunk,
         Stats* stats = nullptr) override;
+    int learned_context_size() const override { return learned_; }
 
 private:
     Config cfg_;
+    int learned_ = 0;  // window taught by a 400 overflow rejection
 };
 
 // Merge probed server info into a Config, filling ONLY values the user did not

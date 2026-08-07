@@ -160,7 +160,8 @@ public:
         else
             out << body;
         r.meta = {{"job_id", id}, {"state", static_cast<int>(info.state)},
-                   {"delta", !body.empty()}};
+                   {"delta", !body.empty()},
+                   {"duration_ms", info.seconds_since_start * 1000}};
         r.ok = true;
         r.output = out.str();
         return r;

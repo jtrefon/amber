@@ -77,7 +77,8 @@ CURLcode fetch_models(const Config& cfg, std::string& response) {
 
 } // namespace
 
-ServerInfo parse_models(const std::string& body) {
+ServerInfo parse_models(const std::string& body,
+                        const std::string& preferred_model) {
     ServerInfo info;
     json j = json::parse(body, nullptr, false);
     if (j.is_discarded()) return info;
@@ -85,7 +86,33 @@ ServerInfo parse_models(const std::string& body) {
     const json* arr = model_array(j);
     if (!arr || arr->empty()) return info;
 
-    ModelInfo m = parse_entry((*arr)[0]);
+    // The active model's entry wins (a router may list models without
+    // context metadata ahead of the one in use); otherwise the first entry
+    // that reports a positive window; otherwise the first entry.
+    const json* chosen = nullptr;
+    if (!preferred_model.empty()) {
+        for (const auto& e : *arr) {
+            if (!e.is_object()) continue;
+            for (const char* k : {"id", "model", "name"}) {
+                if (e.contains(k) && e[k].is_string() &&
+                    e[k].get<std::string>() == preferred_model) {
+                    chosen = &e;
+                    break;
+                }
+            }
+            if (chosen) break;
+        }
+    }
+    if (!chosen) {
+        for (const auto& e : *arr)
+            if (e.is_object() && parse_entry(e).context > 0) {
+                chosen = &e;
+                break;
+            }
+    }
+    if (!chosen) chosen = &(*arr)[0];
+
+    ModelInfo m = parse_entry(*chosen);
     info.model = m.id;
     info.context_size = m.context;
     info.context_train = m.context_train;

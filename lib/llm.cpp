@@ -15,8 +15,9 @@ HttpLLMClient::HttpLLMClient(Config cfg) : cfg_(std::move(cfg)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 
-ServerInfo LLMClient::parse_models(const std::string& body) {
-    return agent::parse_models(body);
+ServerInfo LLMClient::parse_models(const std::string& body,
+                                   const std::string& preferred_model) {
+    return agent::parse_models(body, preferred_model);
 }
 
 ServerInfo HttpLLMClient::probe_server() const {
@@ -32,7 +33,9 @@ Message HttpLLMClient::chat(const std::vector<Message>& messages,
     debug_log(cfg_.debug_log, "request", payload);
 
     double ttfb = 0, total = 0;
+    const int ctx_before = cfg_.context_size;
     std::string response = post_completion(cfg_, payload, false, &ttfb, &total);
+    if (cfg_.context_size != ctx_before) learned_ = cfg_.context_size;
     debug_log(cfg_.debug_log, "response", response);
 
     Message out = message_from_completion(response);
@@ -53,7 +56,9 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
     StreamParser parser(out, on_chunk, cfg_.debug_log);
 
     long status = 0;
+    const int ctx_before = cfg_.context_size;
     stream_completion(cfg_, payload, parser, stats, status);
+    if (cfg_.context_size != ctx_before) learned_ = cfg_.context_size;
     debug_log(cfg_.debug_log, "response-stream",
               "http=" + std::to_string(status) +
                   " content=" + out.content +

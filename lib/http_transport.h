@@ -36,7 +36,9 @@ std::string post_completion(Config& cfg, const std::string& payload,
 
 // Run a streaming completion: POST `payload`, feed SSE bytes to `parser`, and
 // finalize. Fills `stats` (timings + token counts). Throws on transport error.
-void stream_completion(const Config& cfg, const std::string& payload,
+// `cfg` is non-const so a 400 overflow rejection can teach the runtime
+// context window (the host pulls it via LLMClient::learned_context_size()).
+void stream_completion(Config& cfg, const std::string& payload,
                        StreamParser& parser, Stats* stats, long& status_out);
 
 // Parse a buffered /chat/completions JSON body into a Message, throwing on a

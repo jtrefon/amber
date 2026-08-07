@@ -1,14 +1,19 @@
 
 #include "agent/environment.h"
+#include "agent/workspace.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstring>
+#include <ctime>
 #include <fstream>
 #include <pwd.h>
 #include <sstream>
 #include <string>
 #include <sys/sysinfo.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 namespace agent {
@@ -27,6 +32,16 @@ std::string shell_out(const std::string& cmd) {
            (out.back() == '\n' || out.back() == '\r' || out.back() == ' '))
         out.pop_back();
     return out;
+}
+
+// True when `cmd` exits 0; false on spawn failure or non-zero status.
+bool shell_ok(const std::string& cmd) {
+    FILE* p = popen(cmd.c_str(), "r");
+    if (!p) return false;
+    std::array<char, 512> buf{};
+    while (fgets(buf.data(), static_cast<int>(buf.size()), p)) {}
+    int rc = pclose(p);
+    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
 }
 
 std::string distro_name() {
@@ -55,18 +70,12 @@ std::string os_string() {
     return out;
 }
 
-std::string user_host_string() {
-    std::string out;
-    if (const char* user = std::getenv("USER")) out = user;
-    if (out.empty()) {
-        if (struct passwd* pw = getpwuid(getuid())) out = pw->pw_name;
+std::string user_string() {
+    if (const char* user = std::getenv("USER")) {
+        if (*user) return user;
     }
-    char host[256] = {};
-    if (gethostname(host, sizeof host) == 0) {
-        if (!out.empty()) out += "@";
-        out += host;
-    }
-    return out;
+    if (struct passwd* pw = getpwuid(getuid())) return pw->pw_name;
+    return "";
 }
 
 std::string resources_string() {
@@ -81,16 +90,40 @@ std::string resources_string() {
     return buf;
 }
 
+std::string date_string() {
+    std::time_t t = std::time(nullptr);
+    struct tm tm {};
+    if (!localtime_r(&t, &tm)) return "";
+    char buf[32];
+    if (!std::strftime(buf, sizeof buf, "%Y-%m-%d", &tm)) return "";
+    return buf;
+}
+
+std::string timezone_string() {
+    std::time_t t = std::time(nullptr);
+    struct tm tm {};
+    if (!localtime_r(&t, &tm)) return "";
+    long off = tm.tm_gmtoff;
+    int hours = static_cast<int>(off / 3600);
+    std::string s = "UTC";
+    if (hours >= 0) s += "+";
+    s += std::to_string(hours);
+    return s;
+}
+
 std::vector<std::string> present_tools() {
     static const char* kTools[] = {"git", "python3", "node",   "npm",
                                    "make", "cmake",   "gcc",    "g++",
                                    "clang++", "curl", "jq",     "tree",
-                                   "docker", "tmux"};
-    std::string cmd = "command -v";
+                                   "docker", "tmux",  "rg",     "fd"};
+    // One `command -v` per tool: dash only prints the first match when given
+    // several arguments at once.
+    std::string cmd = "for t in";
     for (const char* t : kTools) {
         cmd += " ";
         cmd += t;
     }
+    cmd += "; do command -v \"$t\" 2>/dev/null; done";
     std::string out = shell_out(cmd);
     std::vector<std::string> names;
     std::istringstream ss(out);
@@ -107,9 +140,12 @@ std::vector<std::string> present_tools() {
 EnvironmentInfo probe_environment() {
     EnvironmentInfo info;
     info.os = os_string();
-    info.user_host = user_host_string();
-    char buf[4096];
-    if (getcwd(buf, sizeof buf)) info.cwd = buf;
+    info.user = user_string();
+    info.root = (geteuid() == 0);
+    if (!info.root) info.sudo_passwordless = shell_ok("sudo -n true 2>/dev/null");
+    info.workspace = Workspace::root();
+    info.date = date_string();
+    info.timezone = timezone_string();
     info.resources = resources_string();
     info.tools = present_tools();
     return info;
@@ -124,14 +160,31 @@ std::string render_environment_card(const EnvironmentInfo& info) {
         any = true;
     };
     if (!info.os.empty()) add("OS: " + info.os);
-    if (!info.user_host.empty()) add("User: " + info.user_host);
-    if (!info.cwd.empty()) add("Working directory: " + info.cwd);
+    if (!info.workspace.empty())
+        add("Workspace: " + info.workspace + " (bash commands run here)");
+    if (!info.user.empty()) {
+        if (info.root) {
+            add("User: root");
+        } else {
+            std::string role = info.sudo_passwordless
+                                   ? "non-root, passwordless sudo"
+                                   : "non-root";
+            add("User: " + info.user + " (" + role + ")");
+        }
+    }
+    if (!info.date.empty()) {
+        std::string line = "Date: " + info.date;
+        if (!info.timezone.empty()) line += " (" + info.timezone + ")";
+        add(line);
+    }
     if (!info.resources.empty()) add("Resources: " + info.resources);
     if (!info.tools.empty()) {
+        std::vector<std::string> sorted = info.tools;
+        std::sort(sorted.begin(), sorted.end());
         std::string t;
-        for (size_t i = 0; i < info.tools.size(); ++i) {
+        for (size_t i = 0; i < sorted.size(); ++i) {
             if (i) t += ", ";
-            t += info.tools[i];
+            t += sorted[i];
         }
         add("Tools available: " + t);
     }
