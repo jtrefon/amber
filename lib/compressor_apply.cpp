@@ -24,7 +24,9 @@ std::vector<Message> apply_classification(
         size_t end = std::min(seg.turn_end, history.size() - 1);
         for (size_t i = start; i <= end; ++i) {
             tags[i] = seg.tag;
-            summaries[i] = seg.summary;
+            summaries[i] = seg.summary.size() > kMaxSummaryChars
+                               ? seg.summary.substr(0, kMaxSummaryChars)
+                               : seg.summary;
         }
     }
 
@@ -56,8 +58,23 @@ std::vector<Message> apply_classification(
     std::vector<ArchiveSeg> archive_segments;
     size_t prune_count = 0;
 
+    // Archive entries from a previous compressed-context message carry over:
+    // re-compression updates the archive instead of replacing it. The old
+    // compressed message itself is consumed (never duplicated in the output).
+    json previous_archive = json::array();
     size_t start_idx = saved_system.role == "system" ? 1 : 0;
     for (size_t i = start_idx; i < history.size(); ++i) {
+        if (history[i].content.compare(
+                0, sizeof(kCompressedContextPrefix) - 1,
+                kCompressedContextPrefix) == 0) {
+            auto prev = json::parse(
+                history[i].content.substr(sizeof(kCompressedContextPrefix) - 1),
+                nullptr, false);
+            if (!prev.is_discarded() && prev.is_object() &&
+                prev.contains("archive") && prev["archive"].is_array())
+                previous_archive = prev["archive"];
+            continue;
+        }
         switch (tags[i]) {
             case Classification::core:
                 core.push_back(history[i]);
@@ -78,8 +95,9 @@ std::vector<Message> apply_classification(
         }
     }
 
-    // Build archive JSON
-    json archive_json = json::array();
+    // Build archive JSON: previous entries first (re-compression carries
+    // them forward), then the new segments from this pass.
+    json archive_json = previous_archive;
     for (const auto& seg : archive_segments) {
         json entry;
         std::string range = (seg.start == seg.end)
@@ -128,7 +146,70 @@ std::vector<Message> apply_classification(
     if (saved_system.role == "system")
         core.insert(core.begin(), std::move(saved_system));
 
+    // Repair tool_call/tool_result group splits introduced by pruning or
+    // misclassification so the rebuilt history stays API-valid.
+    sanitize_tool_pairs(core);
+
     return core;
+}
+
+std::size_t prune_tool_io(std::vector<Message>& history) {
+    // Tail = everything from the second-to-last user message onward (same
+    // guard as apply_classification). Older bulky tool outputs are replaced
+    // with a short placeholder; the session log retains the original.
+    size_t last_user = history.size();
+    size_t prev_user = history.size();
+    for (size_t i = 1; i < history.size(); ++i) {
+        if (history[i].role == "user") {
+            prev_user = last_user;
+            last_user = i;
+        }
+    }
+    const size_t guard = prev_user < history.size() ? prev_user : last_user;
+    std::size_t replaced = 0;
+    for (size_t i = 1; i < guard; ++i) {
+        Message& m = history[i];
+        if (m.role == "tool" && m.content.size() > 200) {
+            m.content = kToolOutputOmitted;
+            ++replaced;
+        }
+    }
+    return replaced;
+}
+
+void sanitize_tool_pairs(std::vector<Message>& history) {
+    std::vector<Message> out;
+    out.reserve(history.size());
+    for (size_t i = 0; i < history.size(); ++i) {
+        const Message& m = history[i];
+        if (m.role == "tool") {
+            // A tool result is only valid directly after an assistant
+            // message carrying tool_calls; anything else is an orphan.
+            if (out.empty() || out.back().role != "assistant" ||
+                out.back().tool_calls.is_null() ||
+                !out.back().tool_calls.is_array() ||
+                out.back().tool_calls.empty())
+                continue;
+            out.push_back(m);
+            continue;
+        }
+        out.push_back(m);
+        // An assistant tool_calls message whose result was pruned gets a
+        // stub result before the next non-tool message.
+        if (m.role == "assistant" && !m.tool_calls.is_null() &&
+            m.tool_calls.is_array() && !m.tool_calls.empty() &&
+            (i + 1 >= history.size() || history[i + 1].role != "tool")) {
+            Message stub;
+            stub.role = "tool";
+            stub.content = kToolOutputOmitted;
+            if (m.tool_calls[0].is_object() &&
+                m.tool_calls[0].contains("id") &&
+                m.tool_calls[0]["id"].is_string())
+                stub.tool_call_id = m.tool_calls[0]["id"].get<std::string>();
+            out.push_back(std::move(stub));
+        }
+    }
+    history.swap(out);
 }
 
 void apply_memory_ops(MemoryStore& store,

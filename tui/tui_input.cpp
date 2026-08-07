@@ -1443,10 +1443,17 @@ void Tui::cmd_model_set(const std::string& arg) {
         append_line(P_STATUS, "model: " + cfg_.model + " \u2014 /model <name> or /set model to switch");
         return;
     }
-    auto models = agent::list_models(cfg_);
+    auto models = agent::list_model_info(cfg_);
     bool found = false;
-    for (const auto& m : models)
-        if (m == arg) { found = true; break; }
+    int window = 0;
+    for (const auto& m : models) {
+        if (m.id != arg) continue;
+        found = true;
+        // Carry the new model's probed context window so the compression
+        // gate re-resolves (Hermes pattern: on every model switch).
+        window = m.context ? m.context : m.context_train;
+        break;
+    }
     if (!found) {
         append_line(P_STATUS, "model \"" + arg + "\" not found in provider's model list");
         return;
@@ -1457,7 +1464,7 @@ void Tui::cmd_model_set(const std::string& arg) {
         if (!w->agent) continue;
         // The running agent's LLM client holds a config snapshot — rebuild it
         // so the next turn actually talks to the new model.
-        w->agent->set_model(arg);
+        w->agent->set_model(arg, window);
     }
     std::string global = agent::global_config_path();
     cfg_.save_global(global);

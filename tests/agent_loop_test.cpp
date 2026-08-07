@@ -255,6 +255,62 @@ TEST(agent_loop_compression_trigger) {
     (void)ag.context().get_all();
 }
 
+// A window learned from a 400 overflow rejection clamps the configured one:
+// the runtime truth wins (a model's trained n_ctx can exceed the server's
+// actual --ctx-size), so the gate fires at 70% of the LEARNED window.
+TEST(agent_loop_learned_window_clamps_gate) {
+    class LearnedFake : public agent_test::FakeLLMClient {
+    public:
+        int learned_context_size() const override { return 131072; }
+    };
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 262144;  // configured from model metadata (trained)
+    cfg.compression_threshold = 0.7;
+    cfg.compression_min_turns = 2;
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto gate = agent::make_compression_gate(comp_cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<LearnedFake>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (int i = 0; i < 21; ++i) {
+        push_text(*fake, "warm");
+        push_text(*fake, "done");
+    }
+    // One warm reply reports 95k prompt tokens: 72% of the LEARNED 131072
+    // window (fire) but only 36% of the configured 262144 (no fire without
+    // the clamp).
+    {
+        agent_test::FakeReply r;
+        r.prompt_tokens = 95000;
+        fake->script.push_back(std::move(r));
+    }
+    {
+        agent_test::FakeReply r;
+        r.content =
+            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+            R"("memories":[],"skills":[]})";
+        fake->script.push_back(std::move(r));
+    }
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+    push_text(*fake, "compressed after learned clamp");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    {}, {}, std::move(fake));
+    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+
+    std::string reply = ag.run("next");
+    ASSERT_EQ(reply, "compressed after learned clamp");
+    bool saw_compression = false;
+    for (const auto& req : raw->requests)
+        for (const auto& m : req)
+            if (m.content.find("Classify ALL turn ranges") !=
+                std::string::npos)
+                saw_compression = true;
+    ASSERT(saw_compression);
+}
+
 // The pipeline must forward BOTH the classification segments and the
 // memory/skill ops to the caller — previously only the ops survived, so the
 // reported core/context/prune counts were always zero.
@@ -457,8 +513,10 @@ TEST(agent_loop_cancel_during_backoff) {
 }
 
 // [AL-11] Unknown n_ctx: the gate falls back to a conservative budget instead
-// of disabling compression entirely.
-TEST(agent_loop_unknown_context_fallback) {
+// An unknown context window disables AUTO-compression (no guessed budget —
+// an arbitrary fallback fired at a tiny fraction of modern windows). Manual
+// /compress and the 400-overflow learner still cover it.
+TEST(agent_loop_unknown_context_never_auto_fires) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     cfg.context_size = 0;  // server never reported n_ctx
@@ -472,38 +530,25 @@ TEST(agent_loop_unknown_context_fallback) {
     auto compressor = agent::make_compressor(comp_cfg);
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
-    // A few warm turns stay under the fallback budget (3200 tokens at
-    // threshold 0.1); the first compression fires on the big prompt. (The
-    // old script used 21 warm turns to bypass a cooldown bug that blocked
-    // the first compression until turn 20 — that bug is fixed.)
     for (int i = 0; i < 5; ++i) {
         push_text(*fake, "warm");
         push_text(*fake, "done");
     }
-    {
-        agent_test::FakeReply r;
-        r.content =
-            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
-            R"("memories":[],"skills":[]})";
-        fake->script.push_back(std::move(r));
-    }
-    push_text(*fake, R"({"memories":[],"skills":[]})");
-    push_text(*fake, "after fallback compression");
-    push_text(*fake, "done");
+    push_text(*fake, "direct reply");
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
                     {}, {}, std::move(fake));
     for (int i = 0; i < 5; ++i) ag.run("warm " + std::to_string(i));
 
     std::string big_prompt(8000, 'x');
     std::string reply = ag.run(big_prompt);
-    ASSERT_EQ(reply, "after fallback compression");
+    ASSERT_EQ(reply, "direct reply");
     bool saw_compression = false;
     for (const auto& req : raw->requests)
         for (const auto& m : req)
             if (m.content.find("Classify ALL turn ranges") !=
                 std::string::npos)
                 saw_compression = true;
-    ASSERT(saw_compression);
+    ASSERT_FALSE(saw_compression);
     (void)ag.context().get_all();
 }
 

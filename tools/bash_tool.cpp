@@ -111,6 +111,13 @@ bool parse_bash_args(const json& a, std::string& command, int& timeout,
     return true;
 }
 
+// Milliseconds since a steady-clock start point.
+long elapsed_ms(const std::chrono::steady_clock::time_point& t0) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - t0)
+        .count();
+}
+
 // Fork the shell command; on success return its pid and hand back the read end
 // of the pipe via `read_fd`. Returns -1 (with r.error set) on spawn failure.
 pid_t spawn_command(const std::string& command, const std::string& cwd,
@@ -127,11 +134,12 @@ pid_t spawn_command(const std::string& command, const std::string& cwd,
 // Assemble the combined output (with truncation notice), then either report the
 // timeout or the child's exit code into `r`.
 void format_result(std::string output, bool timed_out, int code, int timeout,
-                   ToolResult& r) {
+                   long elapsed_ms, ToolResult& r) {
     bool truncated = output.size() >= kMaxOutput;
     if (truncated) output.resize(kMaxOutput);
 
-    r.meta = {{"exit", code}, {"truncated", truncated}};
+    r.meta = {{"exit", code}, {"truncated", truncated},
+              {"duration_ms", elapsed_ms}};
 
     std::ostringstream out;
     out << output;
@@ -227,6 +235,7 @@ private:
         std::string command;
         int timeout = 60;
         if (!parse_bash_args(a, command, timeout, r)) return r;
+        const auto t0 = std::chrono::steady_clock::now();
 
         // When wired to a host JobService, run the command through it so the
         // process is visible in /job and on the status bar while it runs, and
@@ -271,7 +280,8 @@ private:
             bool killed = j && j->info().state == JobState::Killed;
             timed_out = timed_out || killed;
             jobs_->stop(id);  // erase: bash returns output inline, not via /job
-            format_result(std::move(output), timed_out, code, timeout, r);
+            format_result(std::move(output), timed_out, code, timeout,
+                          elapsed_ms(t0), r);
             return r;
         }
 
@@ -295,7 +305,8 @@ private:
         int code = WIFEXITED(status)    ? WEXITSTATUS(status)
                    : WIFSIGNALED(status) ? 128 + WTERMSIG(status)
                                           : -1;
-        format_result(std::move(output), timed_out, code, timeout, r);
+        format_result(std::move(output), timed_out, code, timeout,
+                      elapsed_ms(t0), r);
         return r;
     }
 };

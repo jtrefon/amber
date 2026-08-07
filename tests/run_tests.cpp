@@ -959,6 +959,40 @@ TEST(probe_parse_models_malformed_is_not_ok) {
     ASSERT_FALSE(agent::LLMClient::parse_models(R"({"data":[]})").ok);
 }
 
+// The window must come from the ACTIVE model, not from the first entry in
+// the server's list (a router may list models without context metadata
+// ahead of the one the user actually runs).
+TEST(probe_prefers_the_active_model) {
+    std::string body = R"({"data":[{"id":"Devstral-Small-2-24B","object":"model",)"
+        R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
+        R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
+    agent::ServerInfo info =
+        agent::LLMClient::parse_models(body, "Qwopus3.6-27B-Fusion");
+    ASSERT_TRUE(info.ok);
+    ASSERT_EQ(info.model, "Qwopus3.6-27B-Fusion");
+    ASSERT_EQ(info.context_size, 262144);
+}
+
+TEST(probe_active_model_without_meta_is_unknown) {
+    std::string body = R"({"data":[{"id":"Devstral-Small-2-24B","object":"model",)"
+        R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
+        R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
+    agent::ServerInfo info =
+        agent::LLMClient::parse_models(body, "Devstral-Small-2-24B");
+    ASSERT_TRUE(info.ok);
+    ASSERT_EQ(info.model, "Devstral-Small-2-24B");
+    ASSERT_EQ(info.context_size, 0);  // honest: no metadata, no fabrication
+}
+
+TEST(probe_falls_back_to_first_model_with_context) {
+    std::string body = R"({"data":[{"id":"Devstral-Small-2-24B","object":"model",)"
+        R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
+        R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
+    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    ASSERT_TRUE(info.ok);
+    ASSERT_EQ(info.context_size, 262144);
+}
+
 // The model LIST parser keeps per-model context info so the /set model drawer
 // can show "id (ctx N)" inline instead of bare ids.
 TEST(probe_parse_model_list_with_ctx) {
@@ -2111,6 +2145,146 @@ TEST(apply_classification_keeps_recent_turns_verbatim) {
     ASSERT(kept_previous);
 }
 
+TEST(apply_classification_carries_previous_archive) {
+    // Re-compression updates the archive: entries from the previous
+    // compressed-context message survive beside the new ones, and the old
+    // compressed message is consumed (never duplicated in the output).
+    agent::json old_archive = agent::json::array();
+    old_archive.push_back({{"turns", "0-2"}, {"summary", "old work"}});
+    agent::json old_ctx;
+    old_ctx["type"] = "compressed_context";
+    old_ctx["version"] = 1;
+    old_ctx["archive"] = old_archive;
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("system", std::string(agent::kCompressedContextPrefix) + "\n" +
+                          old_ctx.dump()),
+        msg("user", "middle task"),
+        msg("assistant", "mid work"),
+        msg("user", "later task"),
+        msg("assistant", "later work"),
+        msg("user", "current task"),
+        msg("assistant", "working"),
+    };
+    agent::CompressionResponse cr;
+    cr.segments.push_back(
+        {2, 3, agent::Classification::context, "new investigation"});
+    auto result = agent::apply_classification(hist, cr);
+    std::string body;
+    for (const auto& m : result)
+        if (m.content.compare(0, sizeof(agent::kCompressedContextPrefix) - 1,
+                              agent::kCompressedContextPrefix) == 0)
+            body = m.content;
+    ASSERT_FALSE(body.empty());
+    auto j = agent::json::parse(
+        body.substr(sizeof(agent::kCompressedContextPrefix) - 1), nullptr,
+        false);
+    ASSERT(j.is_object());
+    ASSERT_EQ(j["archive"].size(), 2u);  // old entry + new entry
+    bool old_found = false, new_found = false;
+    for (const auto& e : j["archive"]) {
+        if (e["summary"] == "old work") old_found = true;
+        if (e["summary"] == "new investigation") new_found = true;
+    }
+    ASSERT(old_found);
+    ASSERT(new_found);
+    // The old compressed-context message must not survive separately.
+    int prefix_count = 0;
+    for (const auto& m : result)
+        if (m.content.compare(0, sizeof(agent::kCompressedContextPrefix) - 1,
+                              agent::kCompressedContextPrefix) == 0)
+            ++prefix_count;
+    ASSERT_EQ(prefix_count, 1);
+}
+
+TEST(apply_classification_truncates_long_summaries) {
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "middle task"),
+        msg("assistant", "mid work"),
+        msg("user", "later task"),
+        msg("assistant", "later work"),
+        msg("user", "current task"),
+        msg("assistant", "working"),
+    };
+    agent::CompressionResponse cr;
+    cr.segments.push_back({1, 2, agent::Classification::context,
+                           std::string(500, 'x')});
+    auto result = agent::apply_classification(hist, cr);
+    std::string body;
+    for (const auto& m : result)
+        if (m.content.compare(0, sizeof(agent::kCompressedContextPrefix) - 1,
+                              agent::kCompressedContextPrefix) == 0)
+            body = m.content;
+    ASSERT_FALSE(body.empty());
+    auto j = agent::json::parse(
+        body.substr(sizeof(agent::kCompressedContextPrefix) - 1), nullptr,
+        false);
+    ASSERT(j.is_object());
+    ASSERT_EQ(j["archive"].size(), 1u);
+    std::string summary = j["archive"][0]["summary"].get<std::string>();
+    ASSERT(summary.size() <= agent::kMaxSummaryChars);
+}
+
+TEST(sanitize_tool_pairs_drops_orphan_tool_message) {
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "task"),
+        msg("tool", "orphan result"),  // no preceding assistant tool_calls
+        msg("user", "next"),
+    };
+    agent::sanitize_tool_pairs(hist);
+    ASSERT_EQ(hist.size(), 3u);
+    ASSERT_EQ(hist[1].role, "user");
+    ASSERT_EQ(hist[2].role, "user");
+}
+
+TEST(sanitize_tool_pairs_stubs_missing_result) {
+    agent::Message call;
+    call.role = "assistant";
+    call.tool_calls = json::array();
+    call.tool_calls.push_back({{"id", "call_1"},
+                               {"type", "function"},
+                               {"function",
+                                {{"name", "bash"}, {"arguments", "{}"}}}});
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "task"),
+        call,                  // tool_calls whose result was pruned
+        msg("user", "next"),
+    };
+    agent::sanitize_tool_pairs(hist);
+    ASSERT_EQ(hist.size(), 5u);
+    ASSERT_EQ(hist[2].role, "assistant");  // the tool_calls message
+    ASSERT_EQ(hist[3].role, "tool");       // stub injected before the user turn
+    ASSERT_EQ(hist[4].role, "user");
+}
+
+TEST(prune_tool_io_removes_bulky_output_outside_tail) {
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "task a"),
+        msg("assistant", "a done"),
+        msg("tool", std::string(500, 'a'), "bash"),   // bulky, old
+        msg("user", "task b"),
+        msg("assistant", "b done"),
+        msg("tool", "short", "bash"),                  // short, old
+        msg("user", "current task"),
+        msg("assistant", "working"),
+        msg("tool", std::string(500, 'b'), "bash"),    // bulky, in tail
+    };
+    agent::prune_tool_io(hist);
+    size_t omitted = 0;
+    for (const auto& m : hist) {
+        if (m.content.find("[tool output omitted") != std::string::npos)
+            ++omitted;
+    }
+    ASSERT_EQ(omitted, 1u);
+    ASSERT_EQ(hist[3].content.find("aa"), std::string::npos);  // pruned
+    ASSERT_EQ(hist[6].content, "short");                       // kept
+    ASSERT(hist[9].content.size() == 500u);                    // tail kept
+}
+
 TEST(compression_gate_below_threshold) {
     agent::CompressionConfig cc;
     cc.threshold = 0.75;
@@ -2146,6 +2320,68 @@ TEST(compression_gate_min_turns) {
     agent::Context ctx;
     ctx.push(msg("user", "hello"));
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_default_threshold_is_70_percent) {
+    // Default: on by default, firing at 70% of the window.
+    agent::CompressionConfig cc;
+    cc.min_turns = 1;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 262144;
+    cfg.turn_counter = 25;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    cfg.prompt_tokens_used = 183000;  // ~69.8%
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 184000;  // ~70.2%
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_does_not_cap_large_window) {
+    // Regression: the old unconditional 32k budget cap fired at ~16k tokens
+    // on a 262k window ("compression at 8% of context"). The honest gate
+    // must not fire there.
+    agent::CompressionConfig cc;
+    cc.min_turns = 1;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 262144;
+    cfg.prompt_tokens_used = 30000;
+    cfg.turn_counter = 25;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_unknown_window_never_fires) {
+    // No window, no guessing: compression only runs on /compress or after
+    // the server teaches the real limit via an overflow rejection.
+    agent::CompressionConfig cc;
+    cc.min_turns = 1;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;  // context_size == 0
+    cfg.prompt_tokens_used = 100000;
+    cfg.turn_counter = 25;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_respects_threshold_setter) {
+    agent::CompressionConfig cc;
+    cc.min_turns = 1;
+    auto gate = agent::make_compression_gate(cc);
+    gate->set_threshold(0.9);
+    agent::Config cfg;
+    cfg.context_size = 100000;
+    cfg.turn_counter = 25;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    cfg.prompt_tokens_used = 89000;
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 91000;
+    ASSERT(gate->should_compress(ctx, cfg));
 }
 
 // ---------------------------------------------------------------------------
@@ -3138,15 +3374,20 @@ TEST(search_tool_explicit_path_inside_excluded) {
 
 // ---------------------------------------------------------------------------
 // Environment card ([I-9]): a compact session-fixed system-prompt section
-// telling the agent its OS, user, working directory, resources, and which
-// tools exist — so it can act in its environment without probing.
+// telling the agent its OS, user + privilege, the workspace root (where bash
+// commands run), the date, resources, and which tools exist — so it can act
+// in its environment without probing.
 // ---------------------------------------------------------------------------
 
 TEST(environment_card_renders_compact) {
     agent::EnvironmentInfo info;
     info.os = "Ubuntu 24.04 (Linux 6.8.0-45-generic x86_64)";
-    info.user_host = "jack@box";
-    info.cwd = "/home/jack/project";
+    info.user = "jack";
+    info.root = false;
+    info.sudo_passwordless = false;
+    info.workspace = "/home/jack/project";
+    info.date = "2026-08-07";
+    info.timezone = "UTC+2";
     info.resources = "8 cores \u00b7 16 GB RAM";
     info.tools = {"git", "python3", "make", "g++"};
 
@@ -3154,14 +3395,46 @@ TEST(environment_card_renders_compact) {
     ASSERT_FALSE(card.empty());
     ASSERT(card.find("## Environment") == 0);
     ASSERT(card.find("OS: Ubuntu 24.04") != std::string::npos);
-    ASSERT(card.find("User: jack@box") != std::string::npos);
-    ASSERT(card.find("Working directory: /home/jack/project") !=
-           std::string::npos);
+    ASSERT(card.find("User: jack (non-root)") != std::string::npos);
+    ASSERT(card.find("Workspace: /home/jack/project") != std::string::npos);
+    ASSERT(card.find("Date: 2026-08-07 (UTC+2)") != std::string::npos);
     ASSERT(card.find("8 cores") != std::string::npos);
-    ASSERT(card.find("Tools available: git, python3, make, g++") !=
+    ASSERT(card.find("Tools available: g++, git, make, python3") !=
            std::string::npos);
     // Compact: well under a couple of hundred tokens.
     ASSERT(card.size() < 600u);
+}
+
+TEST(environment_card_reports_privilege) {
+    agent::EnvironmentInfo info;
+    info.user = "root";
+    info.root = true;
+    std::string card = agent::render_environment_card(info);
+    ASSERT(card.find("User: root") != std::string::npos);
+
+    info.user = "jack";
+    info.root = false;
+    info.sudo_passwordless = true;
+    card = agent::render_environment_card(info);
+    ASSERT(card.find("User: jack (non-root, passwordless sudo)") !=
+           std::string::npos);
+}
+
+TEST(environment_card_sorts_tools) {
+    agent::EnvironmentInfo info;
+    info.os = "Linux";
+    info.tools = {"git", "docker", "make", "g++"};
+    std::string card = agent::render_environment_card(info);
+    size_t docker = card.find("docker");
+    size_t gpp = card.find("g++");
+    size_t git = card.find("git");
+    size_t make = card.find("make");
+    ASSERT_TRUE(docker != std::string::npos);
+    ASSERT_TRUE(gpp != std::string::npos);
+    ASSERT_TRUE(git != std::string::npos);
+    ASSERT_TRUE(make != std::string::npos);
+    bool ordered = docker < gpp && gpp < git && git < make;
+    ASSERT_TRUE(ordered);
 }
 
 TEST(environment_card_omits_unknown_fields) {
@@ -3171,6 +3444,7 @@ TEST(environment_card_omits_unknown_fields) {
     info.os = "Linux";
     card = agent::render_environment_card(info);
     ASSERT(card.find("User:") == std::string::npos);
+    ASSERT(card.find("Workspace:") == std::string::npos);
     ASSERT(card.find("Tools") == std::string::npos);
 }
 
@@ -3179,9 +3453,10 @@ TEST(environment_probe_collects_facts) {
     auto info = agent::probe_environment();
     ASSERT_FALSE(info.os.empty());
     ASSERT(info.os.find("Linux") != std::string::npos);
-    ASSERT_FALSE(info.user_host.empty());
-    char buf[4096];
-    ASSERT_EQ(info.cwd, std::string(getcwd(buf, sizeof buf) ? buf : ""));
+    ASSERT_FALSE(info.user.empty());
+    ASSERT_EQ(info.workspace, agent::Workspace::root());
+    ASSERT_FALSE(info.date.empty());
+    ASSERT_FALSE(info.timezone.empty());
     ASSERT_FALSE(info.resources.empty());
     ASSERT(!info.tools.empty());  // git or python3 present in CI
     ASSERT_FALSE(agent::render_environment_card(info).empty());
@@ -3740,9 +4015,11 @@ TEST(compression_gate_explicit_window_honored) {
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
-TEST(compression_gate_unknown_window_uses_fallback_budget) {
-    // No probe, no explicit config: the 32k fallback budget keeps the gate
-    // alive so compression still fires instead of being disabled entirely.
+TEST(compression_gate_unknown_window_never_auto_fires) {
+    // No probe, no explicit config: the gate must not guess a window — an
+    // arbitrary fallback budget fired at a tiny fraction of modern 128k+
+    // models ("compression at 8% of context"). Compression still runs via
+    // /compress and the 400-overflow learner teaches the real window.
     agent::CompressionConfig cc;
     cc.threshold = 0.5;
     cc.cooldown_turns = 0;
@@ -3753,10 +4030,10 @@ TEST(compression_gate_unknown_window_uses_fallback_budget) {
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
-    cfg.prompt_tokens_used = 15000;    // ~47% of 32000: below threshold
+    cfg.prompt_tokens_used = 15000;
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-    cfg.prompt_tokens_used = 16001;    // ~50% of 32000: above threshold
-    ASSERT(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 100000;   // even a huge estimate must not fire
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
 }
 
 TEST(compression_gate_first_compress_not_cooldown_blocked) {

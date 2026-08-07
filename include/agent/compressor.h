@@ -23,7 +23,15 @@ struct ExtractionItem;
 
 // Single source of truth for the default compression threshold. The gate,
 // load_compression_config, and the UIs all read this value.
-inline constexpr double kDefaultCompressionThreshold = 0.50;
+inline constexpr double kDefaultCompressionThreshold = 0.70;
+
+// Longest summary the pipeline accepts from the classifier; anything longer
+// is truncated so a slop response cannot bloat the archive message.
+inline constexpr std::size_t kMaxSummaryChars = 200;
+
+// Placeholder that replaces bulky old tool outputs in Phase-0 pruning. The
+// session log retains the original content.
+inline constexpr char kToolOutputOmitted[] = "[tool output omitted \u2014 session log retains the original]";
 
 // Prefix of the compressed-context message produced by apply_classification;
 // enforce_headroom locates it by this prefix to append archive entries.
@@ -113,15 +121,20 @@ public:
     }
     virtual void set_threshold(double t) { (void)t; }
     virtual void set_min_turns(int n) { (void)n; }
+    // Last decision inputs (tokens, window, threshold) for the host's
+    // gate-fire debug log. Default no-op for custom gates.
+    virtual void last_decision(double& /*tokens*/, double& /*budget*/,
+                               double& /*threshold*/) const {}
 };
 
 class CompressionStrategy {
 public:
     virtual ~CompressionStrategy() = default;
-    // Compress the conversation in `context`. Appends classify/extract
-    // requests to the LIVE context so the LLM call extends the KV cache
-    // instead of forcing a full prefill. After the LLM responds the
-    // temporary request messages are removed.
+    // Compress the conversation in `context`. Pure: the context is only
+    // READ — classify/extract requests are assembled from a working copy of
+    // the snapshot, so a failed pipeline leaves the context untouched by
+    // construction (spec invariant 7). The caller rebuilds the context from
+    // the returned message list on success.
     // Returns the compressed message list.
     virtual std::vector<Message> compress(
         Context& context,
@@ -138,9 +151,23 @@ public:
 // Collapse detected loops in history (modifies in place).
 void collapse_loops(std::vector<Message>& history);
 
+// Phase-0 cheap pass: replace bulky tool outputs (>200 chars) OUTSIDE the
+// protected tail (everything from the second-to-last user message onward)
+// with a short placeholder. No LLM call; returns the number of messages
+// replaced. The session log retains the original content.
+std::size_t prune_tool_io(std::vector<Message>& history);
+
+// Repair tool_call/tool_result group splits left by classification: orphaned
+// tool messages (no preceding assistant tool_calls) are removed, and
+// assistant tool_calls whose results were pruned get a stub tool message
+// injected so the message sequence stays API-valid.
+void sanitize_tool_pairs(std::vector<Message>& history);
+
 // Build a classification-only request (returns array of turn tags).
-// This is the first step of the multi-step pipeline.
-Message build_classify_request();
+// This is the first step of the multi-step pipeline. When `update_previous`
+// is true the conversation already carries a compressed-context message:
+// the classifier is told to extend its archive instead of re-summarizing.
+Message build_classify_request(bool update_previous = false);
 
 // Build an extraction request (returns memories + skills).
 // This is the second step, appended after the classification response.

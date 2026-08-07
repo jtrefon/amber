@@ -21,6 +21,7 @@ struct Kpi {
     double arg_precision = 0.0;
     int steps = 0;
     int compressions = 0;     // context compactions that ran
+    int bash_cd_prefix = 0;   // bash calls prefixed with `cd <workspace> &&` (redundant)
     int tool_calls = 0;       // executed tool calls (all statuses)
     int tool_failures = 0;    // calls that returned an error
     int tool_denied = 0;      // calls denied by the approval gate
