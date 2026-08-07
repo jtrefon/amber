@@ -646,3 +646,20 @@ TEST(tool_display_result_line_shows_lines_tail) {
     ASSERT(t.find("ls -la") != std::string::npos);
     ASSERT(t.find("4 lines") != std::string::npos);
 }
+
+TEST(tool_display_gauge_server_wins) {
+    // Server-reported prompt_tokens is the truth when known — the estimate
+    // must never switch the gauge mid-turn.
+    ASSERT_EQ(tui::tool_display::gauge_tokens(60064, 54346, 0), 60064);
+    ASSERT_EQ(tui::tool_display::gauge_tokens(0, 54346, 0), 54346);
+}
+
+TEST(tool_display_gauge_falls_back_to_estimate) {
+    // Before the first stats (server unknown = -1) the estimate shows.
+    ASSERT_EQ(tui::tool_display::gauge_tokens(-1, 54346, 0), 54346);
+}
+
+TEST(tool_display_gauge_adds_streamed_delta) {
+    ASSERT_EQ(tui::tool_display::gauge_tokens(60064, 54346, 512), 60576);
+    ASSERT_EQ(tui::tool_display::gauge_tokens(-1, 54346, 100), 54446);
+}

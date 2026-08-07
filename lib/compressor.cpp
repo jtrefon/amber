@@ -201,6 +201,18 @@ public:
         if (observer) observer->on_compress_start(copy.size(), 0);
 
         // Step 1: collapse loops (C++ side, free, on the working copy).
+        // NOTE on segment alignment: collapse runs BEFORE the classifier
+        // sees the history (the classify request extends the LIVE context,
+        // which still contains the loops). The classification segments are
+        // therefore indexed against the uncollapsed history while
+        // apply_classification below runs on the collapsed copy — indices
+        // after the first collapse point are shifted. This is safe in
+        // practice because collapse only removes loop content and the
+        // keep-recent guard in apply_classification protects the last two
+        // user turns (everything from the second-to-last user onward), so
+        // shifted segments land in the guarded region. Do not reorder
+        // collapse after apply: pruning part of a loop would then suppress
+        // the collapse entirely and leave loop remnants in the output.
         size_t pre_loop = copy.size();
         collapse_loops(copy);
         if (observer) {

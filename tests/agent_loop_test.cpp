@@ -1026,3 +1026,64 @@ TEST(agent_loop_subagent_nesting_guard) {
     ASSERT_EQ(executor.launched(), 1);
     ASSERT(script->empty());
 }
+
+// A stale server prompt_tokens count must not re-trigger compression:
+// run_compression resets the cached count so the gate evaluates the NEW
+// context honestly. Exercised via the manual path (compress_now) with a
+// preset high count — the only place a compression is not immediately
+// followed by a chat that would refresh the count.
+TEST(agent_loop_no_compression_refire_after_compress) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 262144;
+    cfg.compression_threshold = 0.5;
+    cfg.compression_threshold_explicit = true;
+    cfg.compression_min_turns = 1;
+    cfg.compression_min_turns_explicit = true;
+    cfg.compression_cooldown_turns = 0;
+    cfg.compression_cooldown_turns_explicit = true;
+    cfg.prompt_tokens_used = 200000;  // stale "full window" from a past chat
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto gate = agent::make_compression_gate(comp_cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    {
+        agent_test::FakeReply r;
+        r.content =
+            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+            R"("memories":[],"skills":[]})";
+        fake->script.push_back(std::move(r));
+    }
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+    push_text(*fake, "second reply");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    {}, {}, std::move(fake));
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    agent::Message user;
+    user.role = "user";
+    user.content = "warm";
+    agent::Message asst;
+    asst.role = "assistant";
+    asst.content = "hi";
+    ag.set_context({std::move(sys), std::move(user), std::move(asst)});
+    ag.compress_now();
+    // No chat ran since the compression: the stale 200k count must NOT
+    // re-fire the gate — the shrunken context is far below the threshold.
+    std::string second = ag.run("second");
+    ASSERT_EQ(second, "second reply");
+    size_t classify_calls = 0;
+    for (const auto& req : raw->requests)
+        for (const auto& m : req)
+            if (m.content.find("Classify ALL turn ranges") !=
+                std::string::npos)
+                ++classify_calls;
+    ASSERT_EQ(classify_calls, size_t{1});
+    (void)ag.context().get_all();
+}
+
+

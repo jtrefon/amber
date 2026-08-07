@@ -394,7 +394,8 @@ public:
     int policy_timeout_ = 60;
     agent::RunState state_ = agent::RunState::Idle;
     agent::Stats stats_;
-    long ctx_used_ = -1;
+    long ctx_used_ = -1;         // server prompt_tokens; -1 until known
+    long ctx_estimate_ = 0;      // live chars/4 estimate from context events
     long live_ctx_offset_ = 0;   // running token count during streaming
     agent::ServerInfo last_detected_;
     int anim_phase_ = 0;

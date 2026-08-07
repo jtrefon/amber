@@ -122,4 +122,11 @@ rich::Line result_line(const std::string& name, const agent::json& args,
     return ln;
 }
 
+long gauge_tokens(long server_prompt_tokens, long estimate, long streamed) {
+    // A non-positive server count is degenerate/unknown — fall back to the
+    // estimate (same > 0 convention as the compression gate).
+    long base = server_prompt_tokens > 0 ? server_prompt_tokens : estimate;
+    return base + streamed;
+}
+
 } // namespace tui::tool_display

@@ -329,7 +329,8 @@ void Tui::draw_status_bar(const std::string& tail) {
     std::vector<Seg> segs = bar_segments();
 
     bool have_ctx = (cfg_.context_size > 0);
-    long ctx_used = ctx_used_ >= 0 ? ctx_used_ + live_ctx_offset_ : live_ctx_offset_;
+    long ctx_used = tool_display::gauge_tokens(ctx_used_, ctx_estimate_,
+                                               live_ctx_offset_);
     double frac = have_ctx
                       ? static_cast<double>(ctx_used) / cfg_.context_size
                       : 0.0;

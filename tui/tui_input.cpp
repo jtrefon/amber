@@ -951,6 +951,7 @@ void Tui::register_builtin_actions() {
         win().reason_folded = false;
         win().scroll_top = 0;
         ctx_used_ = -1;
+        ctx_estimate_ = 0;
         live_ctx_offset_ = 0;
         append_line(P_STATUS, "conversation cleared \u2014 next message starts fresh");
         drawer_open_ = false;

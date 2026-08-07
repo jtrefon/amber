@@ -3882,3 +3882,19 @@ TEST(config_save_settings_persists_compression) {
     ASSERT_EQ(d.compression_cooldown_turns, 12);
     std::remove(path.c_str());
 }
+
+TEST(enforce_headroom_unknown_window_is_noop) {
+    // context_size 0 = unknown window: headroom must drop nothing.
+    agent::Message ctx_msg;
+    ctx_msg.role = "system";
+    ctx_msg.content =
+        "Compressed conversation context:\n{\"archive\":[],\"facts\":{}}";
+    std::vector<agent::Message> msgs = {
+        msg("system", "Amber"),
+        msg("user", std::string(4000, 'a')),
+        ctx_msg,
+    };
+    auto out = agent::enforce_headroom(msgs, 0);
+    ASSERT_EQ(out.size(), msgs.size());
+    ASSERT_EQ(out[1].content, msgs[1].content);
+}

@@ -33,6 +33,12 @@ std::string working_label(const std::string& frame, size_t elapsed_secs,
 // bracket ([model(high)]). Always shown, including the off state.
 std::string reasoning_badge(const std::string& effort);
 
+// Context gauge value: the server-reported prompt_tokens when known
+// (>= 0), else the local estimate; the streaming delta is always added.
+// Single source so the gauge never switches metrics mid-turn.
+long gauge_tokens(long server_prompt_tokens, long estimate,
+                  long streamed);
+
 // One closed tool-result line: icon (check/cross) + description + arrow +
 // "(N lines) preview" or "error: ...". The icon conveys success — no
 // redundant "exit 0" text. Shared by the live ToolResult event and session

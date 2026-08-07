@@ -387,6 +387,11 @@ bool Agent::run_compression(std::function<void()> progress_cb,
         context_.push(std::move(m));
     emit_context_event(context_events_, context_);
 
+    // The cached server prompt count describes the PRE-compression context;
+    // reset it so the gate evaluates the new context honestly (falls back
+    // to the estimate until the next chat refreshes it).
+    cfg_.prompt_tokens_used = -1;
+
     // Apply memory/skill ops from the LLM classification response.
     apply_compression_result(cr);
 

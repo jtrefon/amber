@@ -134,6 +134,12 @@ Window& Tui::new_window(const std::string& title) {
         std::move(compressor), std::move(gate),
         std::move(mem_store), std::move(retriever));
     w->agent->policy().init(agent::Workspace::local_dir() + "/policy.json");
+    // ONE subscription per window: keeps the estimate fresh for the gauge
+    // (server truth in ctx_used_ is never clobbered — see gauge_tokens).
+    w->agent->context_events().subscribe(
+        [this](size_t tokens, size_t) {
+            ctx_estimate_ = static_cast<long>(tokens);
+        });
     windows_.push_back(std::move(w));
     active_ = windows_.size() - 1;
     return *windows_.back();
@@ -282,7 +288,8 @@ bool Tui::drain_events() {
         case AgentEvent::CompressResult: {
             auto& r = ev.compress_result;
             state_ = agent::RunState::Idle;
-            ctx_used_ = static_cast<long>(r.tokens_after);
+            ctx_used_ = -1;  // server count is stale post-compression
+            ctx_estimate_ = static_cast<long>(r.tokens_after);
             if (r.messages_before == 0) {
                 append_line(P_STATUS, "compress: no compressor configured");
             } else if (r.messages_after >= r.messages_before) {
@@ -497,12 +504,6 @@ void Tui::agent_worker(const std::string& prompt) {
         (void)args;
         return f.get();
     };
-
-    // Subscribe to context change events for live token count updates.
-    win().agent->context_events().subscribe(
-        [this](size_t tokens, size_t) {
-            ctx_used_ = static_cast<long>(tokens);
-        });
 
     try {
         if (!agent_cancel_.load()) {
