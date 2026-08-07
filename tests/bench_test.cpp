@@ -282,6 +282,21 @@ TEST(recorder_denied_and_timeout_flags) {
     ASSERT(rec.stream().tools[1].timeout);
 }
 
+TEST(recorder_counts_workspace_cd_prefix) {
+    Recorder rec;
+    agent::AgentHooks hooks = rec.hooks();
+    const std::string root = agent::Workspace::root();
+    hooks.on_tool_call("bash", {{"command", "cd " + root + " && grep foo ."}});
+    hooks.on_tool_call("bash", {{"command", "cd " + root + "&& ls"}});
+    hooks.on_tool_call("bash", {{"command", "cd " + root + "/ && ls"}});
+    hooks.on_tool_call("bash", {{"command", "cd " + root}});
+    hooks.on_tool_call("bash", {{"command", "cd /tmp && ls"}});
+    hooks.on_tool_call("bash", {{"command", "cd " + root + "x && ls"}});
+    hooks.on_tool_call("bash", {{"command", "ls"}});
+    hooks.on_tool_call("read", {{"path", "a.txt"}});
+    ASSERT_EQ(rec.stream().bash_cd_prefix, 4);
+}
+
 TEST(recorder_status_parsing) {
     Recorder rec;
     rec.on_status("LLM error - retrying (2/3) in 1s");
@@ -751,6 +766,7 @@ TEST(kpi_tool_aggregation_from_stream) {
     stream.calls.push_back({"read", {{"path", "b.txt"}}, 0, "error"});
     stream.calls.push_back({"bash", {{"command", "ls"}}, 0, "denied"});
     stream.calls.push_back({"read", {{"path", "a.txt"}}, 0, "ok"});
+    stream.bash_cd_prefix = 2;
 
     OracleResult oracle;
     oracle.success = true;
@@ -771,6 +787,7 @@ TEST(kpi_tool_aggregation_from_stream) {
     ASSERT_EQ(k.tool_failures, 1);
     ASSERT_EQ(k.tool_denied, 1);
     ASSERT_EQ(k.redundant, 1);  // read a.txt twice
+    ASSERT_EQ(k.bash_cd_prefix, 2);
 }
 
 TEST(report_markdown_agentic_profile) {

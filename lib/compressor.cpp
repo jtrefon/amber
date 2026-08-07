@@ -9,12 +9,6 @@
 #include <string>
 namespace agent {
 
-// When the server never reported n_ctx and no explicit config set the window
-// (context_size <= 0), the gate falls back to this conservative budget so
-// compression still runs instead of being disabled entirely. A known window
-// (probed or explicit) is always the budget.
-constexpr size_t kFallbackContextBudget = 32000;
-
 // =========================================================================
 // DefaultCompressionGate
 // =========================================================================
@@ -42,19 +36,30 @@ public:
 
     void set_min_turns(int n) override { cfg_.min_turns = n; }
 
+    // Last decision inputs, for the host's gate-fire debug log.
+    void last_decision(double& tokens, double& budget,
+                       double& threshold) const override {
+        tokens = last_tokens_;
+        budget = last_budget_;
+        threshold = last_threshold_;
+    }
+
 private:
     bool threshold_exceeded(const Context& context,
-                             const Config& agent_cfg) const {
-        // The budget is the REAL window — probed n_ctx or explicit config.
-        // The fallback only engages when the window is genuinely unknown, so
-        // the threshold stays an honest fraction of the context the model
-        // actually has.
-        double budget = agent_cfg.context_size > 0
-            ? static_cast<double>(agent_cfg.context_size)
-            : static_cast<double>(kFallbackContextBudget);
+                            const Config& agent_cfg) const {
+        // The budget is the window the model actually has: the active
+        // model's probed context or an explicit config, clamped by anything
+        // the server taught us via an overflow rejection. An unknown window
+        // disables auto-compression — the gate never guesses (no arbitrary
+        // fallback budget); /compress and the 400-overflow learner cover it.
+        auto budget = static_cast<double>(agent_cfg.context_size);
+        if (budget <= 0) return false;
         double tokens = agent_cfg.prompt_tokens_used > 0
             ? static_cast<double>(agent_cfg.prompt_tokens_used)
             : static_cast<double>(context.token_count());
+        last_tokens_ = tokens;
+        last_budget_ = budget;
+        last_threshold_ = cfg_.threshold;
         double utilisation = tokens / budget;
         return utilisation >= cfg_.threshold;
     }
@@ -77,6 +82,9 @@ private:
 
     CompressionConfig cfg_;
     mutable size_t last_compress_turn_ = 0;
+    mutable double last_tokens_ = 0;
+    mutable double last_budget_ = 0;
+    mutable double last_threshold_ = 0;
 };
 
 // =========================================================================
@@ -178,6 +186,27 @@ void CompressionReporter::pump() {
     if (progress_) progress_();
 }
 
+namespace {
+
+// True when the history already carries a compressed-context message from a
+// previous compression (re-compression updates its archive).
+bool has_compressed_context(const std::vector<Message>& msgs) {
+    for (const auto& m : msgs)
+        if (m.content.compare(0, sizeof(kCompressedContextPrefix) - 1,
+                              kCompressedContextPrefix) == 0)
+            return true;
+    return false;
+}
+
+// Append one message to a request vector (classify/extract tails).
+std::vector<Message> append_message(std::vector<Message> base,
+                                    Message m) {
+    base.push_back(std::move(m));
+    return base;
+}
+
+} // namespace
+
 // =========================================================================
 // CompressionPipeline  —  orchestrates the full LLM-based compression
 // =========================================================================
@@ -192,45 +221,47 @@ public:
         CompressionResponse* response_out) override {
 
         // Pristine snapshot: the spec's atomicity invariant — any classify
-        // failure returns the ORIGINAL history untouched (no loop collapse,
-        // no partial apply). A working copy carries the mutations.
+        // failure returns the ORIGINAL history untouched. The context is
+        // only ever read; all mutations happen on the working copy, which
+        // is also the exact message list the classifier sees — segment
+        // indices stay aligned between request and apply.
         auto msgs = context.get_all();
         std::vector<Message> original(msgs.begin(), msgs.end());
         std::vector<Message> copy = original;
 
-        if (observer) observer->on_compress_start(copy.size(), 0);
+        if (observer)
+            observer->on_compress_start(copy.size(), estimate_tokens(copy));
 
-        // Step 1: collapse loops (C++ side, free, on the working copy).
+        // Step 1: collapse loops + Phase-0 tool-output pruning (C++ side,
+        // free, on the working copy). Both run BEFORE the classifier so the
+        // classify request and the apply pass consume the SAME message
+        // list — no index shift between them.
         size_t pre_loop = copy.size();
         collapse_loops(copy);
         if (observer) {
             size_t removed = pre_loop - copy.size();
             if (removed > 0) observer->on_loop_collapse(removed);
         }
+        prune_tool_io(copy);
 
-        // Step 2: classify turns — append to LIVE context so the LLM
-        // extends the KV cache from the current conversation prefix.
+        // Step 2: classify turns — the request is assembled from the
+        // working copy, so the LLM sees exactly what apply will consume.
         CompressionResponse cr;
         {
-            Message class_req = build_classify_request();
-            context.push(class_req);
+            Message class_req =
+                build_classify_request(has_compressed_context(copy));
+            auto request = append_message(copy, class_req);
 
             if (observer) observer->on_llm_request_sent();
             Message class_reply;
             try {
-                // Build request from the LIVE context (cached prefix
-                // + classify prompt at the tail → KV extension)
-                auto live = context.get_all();
-                std::vector<Message> req(live.begin(), live.end());
-                class_reply = client.chat(req, {});
+                class_reply = client.chat(request, {});
             } catch (const std::exception& e) {
-                context.pop();
                 cr.error = std::string("LLM call failed: ") + e.what();
                 if (observer) observer->on_error(cr.error);
                 if (response_out) *response_out = std::move(cr);
                 return original;
             }
-            context.pop();  // remove classify request, restore context
 
             // Parse classification
             cr = parse_compression_response(class_reply.content);
@@ -251,27 +282,32 @@ public:
             if (observer) observer->on_apply_result({});
         }
 
-        // Step 3: extract memories/skills (second LLM call).
-        // Both calls share the SAME original context so they extend the
-        // KV cache from the same prefix — no full prefill between them.
+        // Step 3: extract memories/skills (second LLM call). The request
+        // replays the classify pair (request + stored reply) before the
+        // extract prompt — the extract step says "Review the classification
+        // above", and the shared prefix keeps the server's prompt cache
+        // warm across both calls.
         {
+            Message class_req =
+                build_classify_request(has_compressed_context(copy));
             Message ext_req = build_extract_request();
-            context.push(ext_req);
+            auto request = append_message(copy, class_req);
+            Message stored_reply;
+            stored_reply.role = "assistant";
+            stored_reply.content = "(classification consumed)";
+            request = append_message(std::move(request), std::move(stored_reply));
+            request = append_message(std::move(request), ext_req);
 
             if (observer) observer->on_llm_request_sent();
             Message ext_reply;
             try {
-                auto live = context.get_all();
-                std::vector<Message> req(live.begin(), live.end());
-                ext_reply = client.chat(req, {});
+                ext_reply = client.chat(request, {});
             } catch (const std::exception&) {
                 // Extraction failure is non-fatal — classification result used
                 // (spec CP-08: degraded but safe).
-                context.pop();
                 if (response_out) *response_out = std::move(cr);
                 return copy;
             }
-            context.pop();  // remove extract request
 
             // Merge extraction ops into the classification response so the
             // caller receives segments AND ops in one object.

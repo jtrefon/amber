@@ -897,6 +897,106 @@ Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is deri
 
 ---
 
+## Task 16: Startup environment card v2 — workspace anchor, privilege, date, cd-prefix KPI (I-9)
+
+### Problem
+
+The agent habitually prefixed every bash call with `cd <workspace> && ...` —
+always redundant because every bash call already runs in a fresh shell rooted
+at `Workspace::root()`. Root causes: the environment card reported the amber
+process `getcwd()` (a different value source than where commands run, wrong
+under `AMBER_WORKSPACE`), the card never stated the fresh-shell invariant, and
+no result feedback corrected the habit. The card also lacked decisive facts
+(distro/arch, root/privilege, date) and advertised nothing the model could not
+guess itself.
+
+### Target architecture
+
+- `EnvironmentInfo`: OS/distro+arch, user, `root`, `sudo_passwordless`,
+  `workspace` (= `Workspace::root()`), `date`, `timezone`, `resources`,
+  sorted non-universal tool list. Hostname and universal-POSIX tools dropped
+  (noise).
+- Card line: `Workspace: <path> (bash commands run here)`; `tools.md` states
+  the invariant: fresh shell per call, working directory is the workspace
+  root, `cd <workspace> &&` unnecessary and non-persistent.
+- Bash/process_read results carry `duration_ms` in `meta` (temporal awareness
+  without per-message timestamps).
+- Bench: `bash_cd_prefix` KPI (EventStream → Kpi → JSON/text/markdown reports)
+  so prompt changes are measured before/after, not eyeballed.
+- Sudo password flow: explicitly NOT built (persistent credentials contradict
+  the untrusted-LLM threat model; revisit one-shot askpass only on evidence).
+- Rationale: Anthropic context engineering (smallest set of high-signal
+  tokens; just-in-time over upfront) + Codex CLI precedent (cwd/shell/date/
+  timezone/workspace-roots injected; CPU/RAM/disk/arch dropped).
+
+### Verification
+
+- [x] `make clean && make && make test && make lint && make analyze` — zero warnings
+- [x] RED commit: tests pin the new card spec (workspace root, privilege
+  variants, date, sorted tools) before implementation
+- [x] Card renders `Workspace: <root> (bash commands run here)`; probe equals
+  `Workspace::root()`, not process cwd
+- [x] `command -v` per-tool loop fixes a latent dash bug (multi-arg
+  `command -v` prints only the first match)
+- [x] `recorder_counts_workspace_cd_prefix` + KPI wiring test green
+- [ ] Live-mode before/after bench: `bash_cd_prefix` rate should drop to ~0
+  (hermetic runs unaffected; requires a live endpoint)
+
+### Shipped
+
+- 2026-08-07: `feat/startup-environment-card` (red c6ad72c, green below).
+
+---
+
+## Task 17: Compression trigger final — 70% of the active model's real window (I-7/I-9)
+
+### Problem
+
+Compression fired at ~8% of the context window. Root cause: the running
+binary carried the legacy "cap the budget at 32k regardless of n_ctx" gate
+(3a85e53) — with a 262144 window that fires at 16k tokens (~6-9%). The honest
+gate (#29) existed on origin/main but never reached the binary (stale-base
+rebuild, same story as the provider engine). Residual defects: the probe
+read the FIRST model's metadata instead of the active model's (routers list
+models without meta first), `meta.n_ctx` is the trained window not the
+runtime `--ctx-size`, and the 400-overflow learner wrote into the client's
+Config copy where the gate could never see it — and its guard skipped
+learning when the window was explicitly configured.
+
+### Target architecture
+
+- Default threshold 0.70 of the ACTIVE model's window (kDefaultCompressionThreshold;
+  the /set display already reads it via load_compression_config).
+- Window resolution (Agent::resolve_window): active model's probed window
+  (fed by /set model, per-model) → clamped by anything the server teaches
+  via a 400 overflow rejection (learner now always fires and propagates via
+  LLMClient::learned_context_size) → unknown window = NO auto-compression
+  (gate never guesses; /compress + the learner cover it). The 32k fallback
+  and the unconditional cap are deleted.
+- Pipeline: requests assembled from the working copy (context only read;
+  atomicity by construction); Phase-0 cheap tool-output pruning (>200 chars,
+  outside the tail); archive carry-forward across compressions (update, not
+  replace); summary length cap; tool_call/tool_result pair sanitize; default-on
+  conversation transcript (.amber/logs/{ts}.jsonl) so pruned content is never
+  truly lost.
+- Research-grounded: Hermes/opencode/Codex/Claude Code compaction designs
+  (docs in the PR; 50-85% triggers, per-model windows, pruning-first).
+
+### Verification
+
+- [x] RED commit pins: 70% default, no cap on large windows, unknown window
+  never auto-fires, probe prefers the active model, archive carry-forward,
+  summary truncation, pair sanitize, Phase-0 pruning, learned-window clamp
+- [x] `make clean && make && make test && make lint && make analyze` — zero warnings
+- [ ] Live session: gate fires at ~70% of the runtime window (learner clamps
+  the trained 262144 to the real --ctx-size after the first overflow)
+
+### Shipped
+
+- 2026-08-07: `feat/startup-environment-card` (green commit).
+
+---
+
 ## Dependency Graph
 
 ```

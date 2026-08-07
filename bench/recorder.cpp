@@ -3,6 +3,8 @@
 
 #include <chrono>
 
+#include "agent/workspace.h"
+
 namespace bench {
 
 namespace {
@@ -18,6 +20,26 @@ long parse_attempt(const std::string& text) noexcept {
     } catch (...) {
         return 0;
     }
+}
+
+// True when a bash command starts with `cd <workspace-root> && ...` — the
+// redundant cwd-anchor habit the environment card teaches away. Other `cd`
+// targets (e.g. `cd /tmp && ...`) are not counted.
+bool is_workspace_cd(const std::string& cmd) noexcept {
+    const std::string root = agent::Workspace::root();
+    if (root.empty()) return false;
+    size_t i = cmd.find_first_not_of(" \t");
+    if (i == std::string::npos || cmd.compare(i, 3, "cd ") != 0) return false;
+    i += 3;
+    while (i < cmd.size() && cmd[i] == ' ') ++i;
+    if (i + root.size() > cmd.size() ||
+        cmd.compare(i, root.size(), root) != 0)
+        return false;
+    size_t end = i + root.size();
+    while (end < cmd.size() && cmd[end] == '/') ++end;
+    if (end == cmd.size()) return true;                    // bare `cd <root>`
+    if (cmd[end] == '&') return cmd.compare(end, 2, "&&") == 0;
+    return cmd[end] == ' ' && cmd.compare(end + 1, 2, "&&") == 0;
 }
 
 long parse_iteration(const std::string& text) noexcept {
@@ -55,6 +77,10 @@ void Recorder::on_tool_call(const std::string& name, const agent::json& args) {
     const long t = now_ms();
     pending_.push_back({fingerprint(name, args), name, args, t});
     stream_.calls.push_back({name, args, t, ""});
+    if (name == "bash" && args.is_object() && args.contains("command") &&
+        args["command"].is_string() &&
+        is_workspace_cd(args["command"].get<std::string>()))
+        ++stream_.bash_cd_prefix;
 }
 
 void Recorder::on_tool_result(const std::string& name,
