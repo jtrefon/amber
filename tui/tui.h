@@ -107,17 +107,20 @@ private:
     // e.g. bash), surfaced on the status bar so a synchronous command that is
     // not a JobService background job is still visible while it runs.
     std::string running_tool_;
+    // Human-readable description of the running tool call (describe_tool_call
+    // output), shown in the sticky working row while the tool executes.
+    std::string running_tool_desc_;
 
     // One advertised tool call = one pending scrollback line. All advertised
-    // calls animate together (the spinner glyph is swapped in-place each
-    // 150ms tick); each line's icon flips to success/failure when its result
-    // lands. Scrollback-only — the agent's immutable context stays sealed.
+    // calls animate together (the round spinner glyph is swapped in-place
+    // each 150ms tick); each line's icon flips to success/failure when its
+    // result lands. Scrollback-only — the agent's immutable context stays
+    // sealed.
     struct PendingToolLine {
         size_t index = std::string::npos;  // index into win().lines
         std::string name;
         std::string fingerprint;  // args dump — identity for result matching
-        int style = 0;            // 0 square corners (core), 1 round (bash)
-        std::string tail;         // " name args" after the spinner glyph
+        std::string tail;         // " <description>" after the spinner glyph
         int frame = 0;
     };
     std::vector<PendingToolLine> pending_tools_;
@@ -219,7 +222,6 @@ private:
     // ---- slash command framework ----------------------------------------
     const std::vector<tui::Command>& commands();
     void build_commands();
-    ToolFold tool_fold_ = ToolFold::Auto;  // global tool-call display mode
     const tui::Command* find_command(const std::string& name);
     ActionRegistry action_registry_;
     std::string plugin_state_name(agent::PluginState st) const;
@@ -266,7 +268,6 @@ private:
     void cmd_get_model_list();
     void cmd_get_model_context();
     void cmd_get_provider();
-    void cmd_get_toolfold();
     void cmd_get_policy(const std::string& arg);
     void cmd_get_policy_rule(const std::string& arg);
     void cmd_set_policy_rule(const std::string& arg);
@@ -333,6 +334,21 @@ private:
     void job_read(const std::string& id);
     void job_start(const std::string& cmd);
     void request_quit();
+    // Rejects configuration changes that would rebuild the agent's LLM
+    // client while the worker thread is mid-request (use-after-free). Shows
+    // a status line and returns true when the agent is busy.
+    bool busy_reject(const std::string& what);
+    // One restored tool call awaiting its result message (name + args from
+    // the assistant message's tool_calls).
+    struct RestoredCall {
+        std::string name;
+        agent::json args;
+    };
+    // Render one restored session message as scrollback lines. Assistant
+    // tool_calls queue RestoredCall entries; tool messages emit a single
+    // timestamped result line (describe + summary, no exit status).
+    void restore_message_lines(const agent::Message& m,
+                               std::vector<RestoredCall>& pending);
     // Effective compression threshold: the pipeline default when unset —
     // single source via load_compression_config (never a local magic number).
     double compression_threshold_effective() const {
@@ -382,6 +398,13 @@ public:
     long live_ctx_offset_ = 0;   // running token count during streaming
     agent::ServerInfo last_detected_;
     int anim_phase_ = 0;
+    // Turn start of the global "working" indicator (history-row spinner +
+    // elapsed seconds); set when the agent becomes busy, cleared on idle.
+    std::chrono::steady_clock::time_point working_since_{};
+    // Whether the working row is currently shown: true while busy and no
+    // output is being displayed yet; cleared on the first stream token and
+    // re-set while a tool runs.
+    bool working_visible_ = false;
     bool dirty_ = true;          // coalesce redraws into one flush per tick
     // Wall-clock timestamp of the last status-bar repaint, so the clock and
     // progress wave keep ticking while the agent is blocked on a call that

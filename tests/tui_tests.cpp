@@ -10,6 +10,7 @@
 #include "tui/palette.h"
 #include "tui/rich.h"
 #include "tui/markdown.h"
+#include "tui/tool_display.h"
 #include "tests/test_util.h"
 
 // ---------------------------------------------------------------------------
@@ -432,14 +433,12 @@ TEST(col_to_byte_git_prompt) {
 
 
 TEST(textutil_spinner_frames) {
-    // Square corners (core tools) and round (bash) spinner cycles; the ASCII
-    // fallback must also yield a full frame cycle so animation never stalls.
-    for (int i = 0; i < 4; ++i) {
-        ASSERT(!std::string(tui::text::glyph::spinner_square(i)).empty());
+    // The round spinner cycle; the ASCII fallback must also yield a full
+    // frame cycle so animation never stalls.
+    for (int i = 0; i < 4; ++i)
         ASSERT(!std::string(tui::text::glyph::spinner_round(i)).empty());
-    }
-    ASSERT(std::string(tui::text::glyph::spinner_square(0)) !=
-           std::string(tui::text::glyph::spinner_square(1)));
+    ASSERT(std::string(tui::text::glyph::spinner_round(0)) !=
+           std::string(tui::text::glyph::spinner_round(1)));
 }
 
 // ── Test: action registry is idempotent (feeds re-merge on refresh) ──
@@ -460,4 +459,190 @@ TEST(action_registry_idempotent_register) {
     ASSERT_EQ(calls.size(), 1u);
     ASSERT_EQ(calls[0], "first");
     ASSERT_FALSE(reg.dispatch("core.test.missing", ""));
+}
+
+// ---------------------------------------------------------------------------
+// Tool display: human-readable call description + single-line close
+// (feat/tool-display-revamp)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+tui::rich::Line ts_line(const std::string& body) {
+    tui::rich::Line ln;
+    ln.runs.push_back({"[10:00:00] ", tui::P_REASONING, false, true});
+    tui::rich::Run r;
+    r.pair = tui::P_STATUS;
+    r.text = body;
+    ln.runs.push_back(std::move(r));
+    return ln;
+}
+
+} // namespace
+
+TEST(tool_display_bash_shows_command_not_name) {
+    std::string d = tui::tool_display::describe_tool_call(
+        "bash", agent::json{{"command", "grep -rn CancellationToken src/ include/"}});
+    ASSERT(d.find("bash") == std::string::npos);
+    ASSERT(d.find("grep -rn CancellationToken src/ include/") !=
+           std::string::npos);
+}
+
+TEST(tool_display_bash_long_command_truncated) {
+    std::string long_cmd(300, 'x');
+    std::string d = tui::tool_display::describe_tool_call(
+        "bash", agent::json{{"command", long_cmd}});
+    ASSERT(d.size() < long_cmd.size());
+    ASSERT(d.find("…") != std::string::npos);
+}
+
+TEST(tool_display_read_shows_path) {
+    std::string d = tui::tool_display::describe_tool_call(
+        "read", agent::json{{"path", "include/agent/config.h"}});
+    ASSERT_EQ(d, "read include/agent/config.h");
+}
+
+TEST(tool_display_write_shows_path) {
+    std::string d = tui::tool_display::describe_tool_call(
+        "write", agent::json{{"path", "lib/compressor.cpp"},
+                             {"edits", agent::json::array()}});
+    ASSERT_EQ(d, "write lib/compressor.cpp");
+}
+
+TEST(tool_display_search_shows_pattern_and_path) {
+    std::string d = tui::tool_display::describe_tool_call(
+        "search", agent::json{{"pattern", "CancellationToken"},
+                              {"path", "src/"}});
+    ASSERT_EQ(d, "search CancellationToken in src/");
+    std::string d2 = tui::tool_display::describe_tool_call(
+        "search", agent::json{{"pattern", "foo"}});
+    ASSERT_EQ(d2, "search foo");
+}
+
+TEST(tool_display_unknown_tool_falls_back) {
+    std::string d = tui::tool_display::describe_tool_call(
+        "todowrite", agent::json{{"task", "x"}});
+    ASSERT(d.find("todowrite") == 0);
+    ASSERT(!d.empty());
+}
+
+TEST(tool_display_empty_args_safe) {
+    ASSERT(!tui::tool_display::describe_tool_call("bash", agent::json::object())
+                .empty());
+    ASSERT(!tui::tool_display::describe_tool_call("bash", agent::json::array())
+                .empty());
+}
+
+TEST(tool_display_close_keeps_timestamp) {
+    tui::rich::Line open = ts_line("◐ ls -la");
+    tui::rich::Line summary;
+    tui::rich::Run icon;
+    icon.pair = tui::P_GIT_PLUS;
+    icon.text = "✓";
+    tui::rich::Run rest;
+    rest.pair = tui::P_STATUS;
+    rest.text = " ls -la → exit 0 (3 lines)";
+    summary.runs.push_back(std::move(icon));
+    summary.runs.push_back(std::move(rest));
+    tui::rich::Line closed = tui::tool_display::close_tool_line(open, summary);
+    ASSERT(!closed.runs.empty());
+    ASSERT_EQ(closed.runs[0].text, "[10:00:00] ");
+    ASSERT(closed.runs[0].dim);
+    ASSERT(closed.runs.size() >= 3u);
+}
+
+TEST(tool_display_elapsed_label_formatting) {
+    ASSERT_EQ(tui::tool_display::elapsed_label(0), "0s");
+    ASSERT_EQ(tui::tool_display::elapsed_label(12), "12s");
+    ASSERT_EQ(tui::tool_display::elapsed_label(65), "1m 05s");
+    ASSERT_EQ(tui::tool_display::elapsed_label(3725), "1h 02m");
+}
+
+TEST(tool_display_working_label) {
+    std::string w = tui::tool_display::working_label("◐", 12);
+    ASSERT(w.find("◐") == 0);
+    ASSERT(w.find("working") != std::string::npos);
+    ASSERT(w.find("12s") != std::string::npos);
+}
+
+TEST(tool_display_working_label_with_task) {
+    std::string w = tui::tool_display::working_label(
+        "◐", 12, "grep -rn CancellationToken src/");
+    ASSERT(w.find("◐") == 0);
+    ASSERT(w.find("working") != std::string::npos);
+    ASSERT(w.find("12s") != std::string::npos);
+    ASSERT(w.find("· grep -rn CancellationToken src/") != std::string::npos);
+}
+
+TEST(tool_display_working_label_task_truncated) {
+    std::string long_task(80, 'x');
+    std::string w = tui::tool_display::working_label("◐", 5, long_task);
+    size_t pos = w.find("· ");
+    ASSERT(pos != std::string::npos);
+    std::string shown = w.substr(pos + std::string("· ").size());
+    ASSERT(tui::text::display_cols(shown) <= 40);
+    ASSERT(shown.find("…") != std::string::npos);
+}
+
+TEST(tool_display_working_label_task_omitted_when_empty) {
+    std::string w = tui::tool_display::working_label("◐", 5, "");
+    ASSERT(w.find("·") == std::string::npos);
+}
+
+TEST(tool_display_reasoning_badge_mapping) {
+    // The badge composes INSIDE the model bracket: [model(high)].
+    ASSERT_EQ(tui::tool_display::reasoning_badge("off"), "(off)");
+    ASSERT_EQ(tui::tool_display::reasoning_badge("low"), "(low)");
+    ASSERT_EQ(tui::tool_display::reasoning_badge("medium"), "(medium)");
+    ASSERT_EQ(tui::tool_display::reasoning_badge("high"), "(high)");
+    ASSERT_EQ(tui::tool_display::reasoning_badge("turbo"), "(turbo)");
+}
+
+namespace {
+
+std::string join_runs(const tui::rich::Line& ln) {
+    std::string out;
+    for (const auto& r : ln.runs) out += r.text;
+    return out;
+}
+
+} // namespace
+
+TEST(tool_display_result_line_shows_command) {
+    auto ln = tui::tool_display::result_line(
+        "bash", agent::json{{"command", "grep -rn Foo src/"}}, true,
+        "line1\nline2\n", "");
+    std::string t = join_runs(ln);
+    ASSERT(t.find("grep -rn Foo src/") != std::string::npos);
+    ASSERT(t.find("bash") == std::string::npos);
+    // The icon conveys success — the redundant "exit 0" text is gone.
+    ASSERT(t.find("exit 0") == std::string::npos);
+    ASSERT(t.find("3 lines") != std::string::npos);
+    ASSERT(!ln.runs.empty());
+    ASSERT_EQ(ln.runs[0].pair, tui::P_GIT_PLUS);
+}
+
+TEST(tool_display_result_line_error_path) {
+    auto ln = tui::tool_display::result_line(
+        "read", agent::json{{"path", "include/agent/config.h"}}, false, "",
+        "permission denied");
+    std::string t = join_runs(ln);
+    ASSERT(t.find("read include/agent/config.h") != std::string::npos);
+    ASSERT(t.find("error: permission denied") != std::string::npos);
+    ASSERT_EQ(ln.runs[0].pair, tui::P_GIT_MINUS);
+}
+
+TEST(tool_display_result_line_preview_truncated) {
+    std::string big(200, 'x');
+    auto ln = tui::tool_display::result_line(
+        "bash", agent::json{{"command", "ls"}}, true, big, "");
+    ASSERT(join_runs(ln).find("...") != std::string::npos);
+}
+
+TEST(tool_display_result_line_shows_lines_tail) {
+    auto ln = tui::tool_display::result_line(
+        "bash", agent::json{{"command", "ls -la"}}, true, "a\nb\nc\n", "");
+    std::string t = join_runs(ln);
+    ASSERT(t.find("ls -la") != std::string::npos);
+    ASSERT(t.find("4 lines") != std::string::npos);
 }
