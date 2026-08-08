@@ -1,0 +1,66 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Roadmap" description="amber roadmap — what's coming next">
+  <NavBar />
+  <main>
+    <h1>Roadmap</h1>
+
+    <section class="section">
+      <p>
+        amber is a bare-metal C++ agent harness. The roadmap is about expanding what
+        the harness can do, not about adding more UI polish.
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>Near Term</h2>
+      <ul class="feature-list">
+        <li>Long-duration research projects — tmux integration, days/weeks of autonomous work</li>
+        <li>Semantic search backends — real embedding models for code search</li>
+        <li>Plugin system expansion — more tool types, more search modes</li>
+        <li>Cross-platform considerations — Windows WSL, macOS support</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Mid Term</h2>
+      <ul class="feature-list">
+        <li>Multi-agent orchestration — sub-agents with shared context, parallel execution</li>
+        <li>Advanced compression — selective pruning, context-aware summarization</li>
+        <li>Better MCP transport — full stdio and HTTP support with lifecycle management</li>
+        <li>Real-time collaboration — multiple users on the same agent instance</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Far Term</h2>
+      <ul class="feature-list">
+        <li>Self-hosted LLM support — local inference, quantized models, VRAM management</li>
+        <li>Distributed agent clusters — multiple agents working on the same project</li>
+        <li>Custom model training — fine-tuning on project-specific data</li>
+        <li>Web UI — browser-based access to the terminal agent</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Not on the Roadmap</h2>
+      <p>Some things amber is not going to do:</p>
+      <ul class="feature-list">
+        <li>Python bindings — amber is C++, not a Python wrapper</li>
+        <li>Mobile apps — terminal-native, not mobile-native</li>
+        <li>Chatbot interfaces — amber is an agent harness, not a chat UI</li>
+      </ul>
+    </section>
+  </main>
+</BaseLayout>

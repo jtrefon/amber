@@ -43,3 +43,6 @@ logs/
 
 .DS_Store
 include/agent/version.h
+website/node_modules/
+website/.astro/
+website/dist/
