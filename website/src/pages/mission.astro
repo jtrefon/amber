@@ -1,0 +1,54 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Mission" description="amber mission and vision — why this exists">
+  <NavBar />
+  <main>
+    <h1>Mission & Vision</h1>
+
+    <section class="section">
+      <p>
+        amber exists because the AI agent space is full of Python wrappers around OpenAI's API,
+        Node.js scripts, and React frontends with Flask backends. None of them are built for
+        the reality of Linux servers with real work to do.
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>Mission</h2>
+      <p>
+        Build a bare-metal C++ agent harness that runs on Linux servers, connects to LLMs,
+        executes shell commands, reads files, and compresses context — all in one process,
+        zero Python dependency.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Vision</h2>
+      <p>
+        A terminal-native agent runtime that feels like it was built by someone who has spent
+        28 years in tech. Not a SaaS product. Not a chatbot. A tool for people who understand
+        what happens when you run <code>rm -rf</code> at 3 AM.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>What We Believe</h2>
+      <ul class="feature-list">
+        <li><strong>Compiled code matters.</strong> C++17 with libcurl, ncurses, zero Python dependency.</li>
+        <li><strong>Terminal is a feature.</strong> BitchX-inspired IRC-style UI, not a web frontend.</li>
+        <li><strong>Real benchmarking.</strong> amber-bench with KPI aggregation, not marketing numbers.</li>
+        <li><strong>Compression that works.</strong> Classify-then-extract with live UI progress.</li>
+        <li><strong>Open source.</strong> Apache 2.0. Fork it, modify it, make it yours.</li>
+      </ul>
+    </section>
+  </main>
+</BaseLayout>
