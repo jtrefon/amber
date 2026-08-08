@@ -153,3 +153,49 @@ jobs:
           name: amber-linux-deb
           path: dist/*.deb*
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Website build — validates the Astro site builds cleanly on every PR/push.
+  # Catches broken links, template errors, or missing assets before merge.
+  # ---------------------------------------------------------------------------
+  website-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        run: cd website && npm ci
+
+      - name: Build
+        run: cd website && npm run build
+
+      - name: Upload dist artifact (for deploy)
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+  # ---------------------------------------------------------------------------
+  # Website deploy — pushes the built site to GitHub Pages on main.
+  # ---------------------------------------------------------------------------
+  website-deploy:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    needs: [website-build]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

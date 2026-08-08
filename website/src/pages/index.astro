@@ -1,0 +1,181 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+import AsciiHero from '../components/AsciiHero.astro';
+import TerminalWindow from '../components/TerminalWindow.astro';
+
+const terminalSession = `$ ./amber
+───────────────────────────────────────────────────────────────
+ amber 0.3.1  |  Apache 2.0  |  C++17  |  ncurses
+───────────────────────────────────────────────────────────────
+
+[system] Loading configuration...
+[system] Provider: custom:local-llama (llama-turboq)
+[system] Model: Qwopus-27B-Fusion
+[system] Workspace: /home/jack/projects
+[system] Ready.
+
+amber ~ $ /set model qwopus-27b
+[model] Switched to qwopus-27b
+
+amber ~ $ Search for TODO comments in src/
+[tool] search_files: pattern="TODO" in /home/jack/projects/src/
+  → 12 matches found in 4 files
+
+[agent] I found 12 TODO comments. Here's a summary:
+  - src/agent/context.cpp:12 — Optimize hash chain lookup
+  - src/tui/drawer.cpp:45 — Add scroll buffering
+  - src/tools/search.cpp:88 — Support regex alternation
+  ...
+
+[compress] Classify: 248 messages → core: 12, context: 18, prune: 218
+[compress] Extract: 3 memory ops, 2 skill ops
+[compress] Prune: replaced 218 bulky outputs with placeholders
+[compress] Headroom: 25% enforced (186/736 tokens)
+[compress] Done: 248 → 30 messages (87.9% reduction)
+
+amber ~ $ █`;
+---
+
+<BaseLayout title="amber" description="an AI agent harness for Linux servers — built in C++ with bare-metal performance">
+  <NavBar />
+  <main>
+    <AsciiHero />
+
+    <hr class="divider-thick" />
+
+    <!-- Live Terminal Session -->
+    <section class="section">
+      <h2>See It In Action</h2>
+      <p>
+        amber runs directly in your terminal. Watch tool calls, compression status,
+        and approval dialogs in real time.
+      </p>
+
+      <TerminalWindow title="amber — jack@server ~" content={terminalSession} />
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Why C++? Section -->
+    <section class="section">
+      <h2>Why C++?</h2>
+      <p>
+        Not a Python wrapper around OpenAI's API. Not a Node.js script. Not a React frontend
+        with a Flask backend. This is compiled C++17 with libcurl, ncurses, and zero Python
+        dependency. Bare-metal performance for an agent that runs shell commands, reads files,
+        and talks to LLMs — all in one process.
+      </p>
+      <div class="terminal">
+        <pre>┌─ libagent_core.a ──────────────────────────────────────────┐
+│  Agent loop · LLM client · Tool registry · Compression    │
+│  Context integrity (FNV-1a hash chain) · MCP transport     │
+└───────────────────────────────────────────────────────────┘
+         │              │              │
+    ┌────▼─────┐  ┌────▼─────┐  ┌────▼─────┐
+    │ amber    │  │amber-cli │  │amber-bench│
+    │ (TUI)    │  │(headless)│  │(KPI harness)│
+    └──────────┘  └──────────┘  └──────────┘</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Features -->
+    <section class="section">
+      <h2>Architecture</h2>
+      <ul class="feature-list">
+        <li>Compression pipeline — classify-then-extract with memory/skill ops, live UI progress</li>
+        <li>Context integrity — FNV-1a hash chain seals every message, catches in-place mutations</li>
+        <li>Security model — workspace confinement, approval gating, process isolation</li>
+        <li>Real benchmarking — amber-bench with KPI aggregation across 31 scenarios</li>
+        <li>MCP integration — stdio and HTTP transports, ServerManager for lifecycle</li>
+        <li>Sub-agent architecture — parallel/serial mode with cache-friendly prefix optimization</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Benchmarks preview -->
+    <section class="section">
+      <h2>Benchmarks</h2>
+      <p>Tested against Qwen, Nemotron, Laguna, Gemma — real data, real scenarios.</p>
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Score</th>
+            <th>Pass</th>
+            <th>Tools</th>
+            <th>Redun</th>
+            <th>Steps</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Qwen3.6-27B dense</td>
+            <td><strong>910</strong></td>
+            <td>24/25</td>
+            <td>104</td>
+            <td>10</td>
+            <td>115</td>
+          </tr>
+          <tr>
+            <td>qwopus-27b</td>
+            <td>900</td>
+            <td>24/25</td>
+            <td>109</td>
+            <td>17</td>
+            <td>121</td>
+          </tr>
+          <tr>
+            <td>Qwen3.6-27B MTP</td>
+            <td>901</td>
+            <td>24/25</td>
+            <td>104</td>
+            <td>11</td>
+            <td>117</td>
+          </tr>
+          <tr>
+            <td>gemma4-31b</td>
+            <td>903</td>
+            <td>24/25</td>
+            <td>103</td>
+            <td>4</td>
+            <td>127</td>
+          </tr>
+          <tr>
+            <td>Qwen3.6-35B MoE (A3B)</td>
+            <td>877</td>
+            <td>23/25</td>
+            <td>137</td>
+            <td>16</td>
+            <td>145</td>
+          </tr>
+          <tr>
+            <td>NVIDIA Nemotron 550B</td>
+            <td>806</td>
+            <td>21/25</td>
+            <td>133</td>
+            <td>15</td>
+            <td>149</td>
+          </tr>
+        </tbody>
+      </table>
+      <p><a href="/benchmarks">Full benchmark results →</a></p>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Quick Start -->
+    <section class="section">
+      <h2>Quick Start</h2>
+      <div class="terminal">
+        <pre>git clone https://github.com/trefon/amber
+cd amber
+make && ./amber</pre>
+      </div>
+      <p><a href="/install">Full install guide →</a></p>
+    </section>
+  </main>
+</BaseLayout>

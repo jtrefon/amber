@@ -1,0 +1,138 @@
+---
+---
+
+<div class="ascii-hero">
+  <!-- Real ASCII art from art.ans via iframe -->
+  <div class="ascii-art-container">
+    <iframe src="/ascii-hero.html" class="ascii-iframe" title="Amber ASCII Art" loading="eager"></iframe>
+  </div>
+
+  <p class="tagline">
+    an AI agent harness for Linux servers<span class="cursor">█</span>
+  </p>
+  <p class="pitch">
+    Built in C++. Bare-metal performance. Open source (Apache 2.0).<br />
+    A terminal-native agent runtime with a BitchX-inspired TUI, real<br />
+    benchmarking, and a compression pipeline that actually works.
+  </p>
+  <div class="cta-row">
+    <a href="/install" class="cta">Install</a>
+    <a href="https://github.com/trefon/amber" target="_blank" rel="noopener" class="cta outline">GitHub</a>
+  </div>
+</div>
+
+<style>
+  .ascii-hero {
+    text-align: center;
+    padding: 32px 0 32px;
+  }
+
+  .ascii-art-container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 24px;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
+  .ascii-iframe {
+    border: 1px solid #333;
+    background: #0a0a0a;
+    width: 100%;
+    max-width: 900px;
+    height: 200px;
+    overflow: hidden;
+    border-radius: 0;
+    transition: transform 0.3s ease-out;
+  }
+
+  /* Scroll-triggered animation: ASCII art shifts up as you scroll */
+  .ascii-art-container.scrolled .ascii-iframe {
+    transform: translateY(-4px);
+  }
+
+  .ascii-hero .tagline {
+    color: #ff6b35;
+    font-size: 1.1em;
+    font-weight: bold;
+    margin-bottom: 16px;
+  }
+
+  .ascii-hero .cursor {
+    display: inline-block;
+    width: 0.6em;
+    height: 1.2em;
+    background: #00ff41;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  .ascii-hero .pitch {
+    color: #888888;
+    font-size: 0.95em;
+    line-height: 1.7;
+    margin-bottom: 32px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .cta-row {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+  }
+
+  .cta {
+    display: inline-block;
+    background: #1a1a1a;
+    border: 1px solid #00ff41;
+    padding: 10px 24px;
+    color: #00ff41;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.2s;
+  }
+
+  .cta:hover {
+    background: rgba(0, 255, 65, 0.1);
+  }
+
+  .cta.outline {
+    border-color: #888888;
+    color: #888888;
+  }
+
+  .cta.outline:hover {
+    border-color: #00ff41;
+    color: #00ff41;
+  }
+</style>
+
+<script is:inline>
+  // Scroll-triggered ASCII animation
+  const artContainer = document.querySelector('.ascii-art-container');
+  let ticking = false;
+
+  window.addEventListener('scroll', () => {
+    if (!ticking) {
+      window.requestAnimationFrame(() => {
+        if (window.scrollY > 50) {
+          artContainer.classList.add('scrolled');
+        } else {
+          artContainer.classList.remove('scrolled');
+        }
+        ticking = false;
+      });
+      ticking = true;
+    }
+  });
+</script>
