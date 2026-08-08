@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # ---------------------------------------------------------------------------
   # Static analysis — clang-tidy (per-file). Runs only on the clang toolchain
