@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <style>
+      .bg { fill: #0a0a0a; }
+      .border { stroke: #333; stroke-width: 2; fill: none; }
+      .title { fill: #ff6b35; font-family: 'Courier New', monospace; font-size: 48px; font-weight: bold; }
+      .subtitle { fill: #e0e0e0; font-family: 'Courier New', monospace; font-size: 24px; }
+      .dim { fill: #888; font-family: 'Courier New', monospace; font-size: 20px; }
+      .green { fill: #00ff41; font-family: 'Courier New', monospace; font-size: 20px; }
+      .code { fill: #e0e0e0; font-family: 'Courier New', monospace; font-size: 22px; }
+      .prompt { fill: #00ff41; font-family: 'Courier New', monospace; font-size: 22px; }
+      .cursor { fill: #00ff41; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect class="bg" width="1200" height="630" />
+
+  <!-- Terminal window -->
+  <rect x="60" y="40" width="1080" height="550" rx="0" fill="#111" stroke="#333" stroke-width="1" />
+
+  <!-- Terminal header -->
+  <rect x="60" y="40" width="1080" height="36" fill="#1a1a1a" stroke="#333" stroke-width="1" />
+  <circle cx="90" cy="58" r="8" fill="#ff5f56" />
+  <circle cx="114" cy="58" r="8" fill="#ffbd2e" />
+  <circle cx="138" cy="58" r="8" fill="#27c93f" />
+  <text x="600" y="64" text-anchor="middle" class="dim">amber ~/website</text>
+
+  <!-- Content -->
+  <text x="100" y="140" class="title">amber</text>
+  <text x="100" y="190" class="subtitle">an AI agent harness for Linux servers</text>
+
+  <line x1="100" y1="220" x2="1100" y2="220" stroke="#00ff41" stroke-width="2" />
+
+  <text x="100" y="270" class="dim">Built in C++. Bare-metal performance. Open source (Apache 2.0).</text>
+  <text x="100" y="310" class="dim">A terminal-native agent runtime with a BitchX-inspired TUI,</text>
+  <text x="100" y="350" class="dim">real benchmarking, and a compression pipeline that actually works.</text>
+
+  <!-- Code block -->
+  <text x="100" y="430" class="prompt">amber ~ $</text>
+  <text x="260" y="430" class="code">git clone https://github.com/trefon/amber</text>
+
+  <text x="100" y="470" class="prompt">amber ~ $</text>
+  <text x="260" y="470" class="code">cd amber &amp;&amp; make &amp;&amp; ./amber</text>
+
+  <!-- Blinking cursor -->
+  <rect x="540" y="452" width="12" height="22" class="cursor" />
+
+  <!-- Bottom bar -->
+  <rect x="60" y="570" width="1080" height="20" fill="#1a1a1a" stroke="#333" stroke-width="1" />
+  <text x="100" y="585" class="green" font-size="14">amber 0.3.1</text>
+  <text x="250" y="585" class="dim" font-size="14">Apache 2.0</text>
+  <text x="370" y="585" class="dim" font-size="14">C++17</text>
+  <text x="1050" y="585" class="dim" font-size="14" text-anchor="end">amber-agent.dev</text>
+</svg>

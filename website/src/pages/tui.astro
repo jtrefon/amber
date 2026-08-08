@@ -1,0 +1,133 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="TUI" description="amber terminal UI — BitchX-inspired IRC-style agent runtime">
+  <NavBar />
+  <main>
+    <h1>The TUI</h1>
+
+    <section class="section">
+      <p>
+        amber's terminal UI is BitchX-inspired — IRC-style multi-window chat with slash commands,
+        a command drawer, and a status bar. It's not a web frontend. It's a terminal application
+        that runs on Linux servers, connects to LLMs, and lets you watch the agent work in real time.
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>Status Bar</h2>
+      <p>The status bar sits at the bottom of the screen, always visible:</p>
+      <div class="terminal">
+        <pre>───── amber 0.3.1 ───── Apache 2.0 ───── C++17 ───── utf-8 ───── ncurses ───── 2026 ─────</pre>
+      </div>
+      <p>Connection state indicator, version number, and current section. Static but present.</p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Slash Commands</h2>
+      <p>
+        Type <code>/</code> to open the command drawer. Commands are JSON-driven — no hardcoded
+        completions. The tree structure supports unlimited nesting:
+      </p>
+      <div class="terminal">
+        <pre>/set model              # switch models
+/set provider           # switch providers
+/get model list         # list available models
+/set policy rule        # manage permission rules
+/get job status         # check running jobs</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Command Drawer</h2>
+      <p>
+        The drawer shows available commands with short help text. It's not a modal dialog —
+        it's a terminal drawer that slides up from the bottom, like BitchX's command list.
+      </p>
+      <div class="terminal">
+        <pre>─────────────────────────────────────────────────────────────
+  /set model           Switch LLM model
+  /set provider        Switch LLM provider
+  /get model list      List available models
+  /get job status      Check running jobs
+  /set policy rule     Manage permission rules
+─────────────────────────────────────────────────────────────</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Tool Call Visibility</h2>
+      <p>
+        You don't just see what the agent says — you see what it's doing. Tool calls are
+        displayed as they execute, with output capping and timeout enforcement.
+      </p>
+      <div class="terminal">
+        <pre>[tool] read_file: /home/jack/projects/readme.md
+  → 42 lines read, 1.2KB
+[tool] search_files: pattern="TODO" in /home/jack/projects/
+  → 12 matches found
+[tool] bash: grep -rnI "fixme" /home/jack/projects/
+  → 3 matches in 2 files</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Compression Status</h2>
+      <p>
+        When the compression pipeline runs, you see live progress — not a spinner, actual
+        status updates as the pipeline classifies, extracts, and prunes:
+      </p>
+      <div class="terminal">
+        <pre>[compress] Classify: 248 messages → core: 12, context: 18, prune: 218
+[compress] Extract: 3 memory ops, 2 skill ops
+[compress] Prune: replaced 218 bulky outputs with placeholders
+[compress] Headroom: 25% enforced (186/736 tokens)
+[compress] Done: 248 → 30 messages (87.9% reduction)</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Approval Dialogs</h2>
+      <p>
+        The agent asks before running shell commands. Approval dialogs appear as modal prompts
+        with the command text, workspace path, and a yes/no choice:
+      </p>
+      <div class="terminal">
+        <pre>─────────────────────────────────────────────────────────────
+  Approval required: bash tool
+
+  Command: rm -rf /home/jack/projects/build
+  Workspace: /home/jack/projects
+  Timeout: 60s
+
+  [Y]es  [N]o  [A]lways allow  [E]xit
+─────────────────────────────────────────────────────────────</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Multi-Window Chat</h2>
+      <p>
+        Like BitchX, amber supports multiple chat windows. Each window can connect to a
+        different LLM or run a different agent task. Window switching is via <code>F1-F12</code>
+        keys or the window list.
+      </p>
+    </section>
+  </main>
+</BaseLayout>

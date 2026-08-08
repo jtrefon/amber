@@ -1,0 +1,139 @@
+---
+const { title = 'amber', description = 'an AI agent harness for Linux servers' } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content={description} />
+  <meta name="theme-color" content="#00ff41" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <title>{title} — an AI agent harness for Linux</title>
+
+  <!-- Open Graph -->
+  <meta property="og:title" content={`${title} — an AI agent harness for Linux`} />
+  <meta property="og:description" content={description} />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://amber-agent.dev" />
+  <meta property="og:image" content="https://amber-agent.dev/og-image.webp" />
+  <meta property="og:image:type" content="image/webp" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={`${title} — an AI agent harness for Linux`} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content="https://amber-agent.dev/og-image.webp" />
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "amber",
+    "description": "A C++17 AI agent harness for Linux servers with a BitchX-inspired TUI, real benchmarking, and a compression pipeline that actually works.",
+    "url": "https://amber-agent.dev",
+    "operatingSystem": "Linux",
+    "programmingLanguage": "C++",
+    "applicationCategory": "DeveloperApplication",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "license": "https://www.apache.org/licenses/LICENSE-2.0"
+  }
+  </script>
+</head>
+<body>
+  <div class="content-wrapper">
+    <slot />
+  </div>
+
+  <!-- Nav Drawer Overlay -->
+  <div id="nav-drawer" class="nav-drawer">
+    <div class="nav-drawer-content">
+      <div class="nav-drawer-header">
+        <span class="nav-prefix">amber ~/nav $</span>
+        <button id="nav-drawer-close" class="drawer-close">&times;</button>
+      </div>
+      <nav class="nav-drawer-links">
+        <a href="/">Home</a>
+        <a href="/install">Install</a>
+        <a href="/benchmarks">Benchmarks</a>
+        <a href="/tui">TUI</a>
+        <a href="/architecture">Architecture</a>
+        <a href="/manual">Manual</a>
+        <a href="/roadmap">Roadmap</a>
+        <a href="/mission">Mission</a>
+        <a href="/contributors">Contributors</a>
+        <a href="/conduct">Code of Conduct</a>
+        <a href="/standards">Coding Standards</a>
+        <a href="https://github.com/trefon/amber" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <div class="status-left">
+      <span><span class="status-dot"></span>amber 0.3.1</span>
+      <span>Apache 2.0</span>
+      <span>C++17</span>
+    </div>
+    <div class="status-right">
+      <span>utf-8</span>
+      <span>ncurses</span>
+      <span>{new Date().getFullYear()}</span>
+    </div>
+  </div>
+
+  <script is:inline>
+    (function() {
+      const drawer = document.getElementById('nav-drawer');
+      const closeBtn = document.getElementById('nav-drawer-close');
+      let isOpen = false;
+
+      function openDrawer() {
+        isOpen = true;
+        drawer.classList.add('open');
+      }
+
+      function closeDrawer() {
+        isOpen = false;
+        drawer.classList.remove('open');
+      }
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === '/' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          if (document.activeElement.tagName === 'INPUT' ||
+              document.activeElement.tagName === 'TEXTAREA') return;
+          e.preventDefault();
+          if (isOpen) {
+            closeDrawer();
+          } else {
+            openDrawer();
+          }
+        }
+        if (e.key === 'Escape' && isOpen) {
+          closeDrawer();
+        }
+      });
+
+      closeBtn.addEventListener('click', closeDrawer);
+
+      drawer.addEventListener('click', function(e) {
+        if (e.target === drawer) {
+          closeDrawer();
+        }
+      });
+    })();
+  </script>
+
+  <!-- Styles are in global.css -->
+</body>
+</html>

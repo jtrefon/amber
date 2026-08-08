@@ -1,0 +1,89 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Coding Standards" description="amber coding standards — how we write code">
+  <NavBar />
+  <main>
+    <h1>Coding Standards</h1>
+
+    <section class="section">
+      <p>
+        amber is C++17. Four-space indentation, no tabs, 100-column soft limit. The
+        <code>.clang-format</code> file is the source of truth — run it on any code you touch.
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>General</h2>
+      <ul class="feature-list">
+        <li><strong>C++17.</strong> No C++20 features yet. Stay portable.</li>
+        <li><strong>clang-format.</strong> Run <code>clang-format -i &lt;files&gt;</code> on code you touch.</li>
+        <li><strong>No tabs.</strong> Four-space indentation only.</li>
+        <li><strong>100-column soft limit.</strong> Wrap long lines, but don't break early.</li>
+        <li><strong>No comments that restate the code.</strong> If the code is clear, don't comment it.</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>File Organization</h2>
+      <ul class="feature-list">
+        <li><strong>lib/</strong> + <strong>include/agent/</strong> — the UI-free core. No UI concerns here.</li>
+        <li><strong>tui/</strong> — the ncurses client. Depends on the library through <code>AgentHooks</code>, never the reverse.</li>
+        <li><strong>bench/</strong> — the KPI harness. Same layering rules.</li>
+        <li><strong>tools/</strong> — tool implementations (read, write, search, bash).</li>
+        <li><strong>prompts/</strong> — system/tool prompts in Markdown, loaded at runtime.</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Naming Conventions</h2>
+      <ul class="feature-list">
+        <li><strong>snake_case</strong> for variables, functions, and files.</li>
+        <li><strong>PascalCase</strong> for classes and types.</li>
+        <li><strong>UPPER_SNAKE_CASE</strong> for macros and constants.</li>
+        <li><strong>_suffix</strong> for private member variables.</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>SPDX Headers</h2>
+      <p>Every new source file must carry the SPDX header:</p>
+      <div class="terminal">
+        <pre>// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Jacek Trefon (www.trefon.com)</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Commit Messages</h2>
+      <ul class="feature-list">
+        <li><strong>Imperative mood.</strong> "fix drawer scroll" not "fixed drawer scroll".</li>
+        <li><strong>Scoped prefixes.</strong> <code>tui: fix drawer scroll</code>, <code>bench: add scenario</code>.</li>
+        <li><strong>Tests for behavior changes</strong> go in <code>tests/run_tests.cpp</code>.</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Linting</h2>
+      <p>Both must come back clean before a commit:</p>
+      <div class="terminal">
+        <pre>make lint     # run clang-tidy over project sources
+make analyze  # run cppcheck as a second opinion</pre>
+      </div>
+    </section>
+  </main>
+</BaseLayout>

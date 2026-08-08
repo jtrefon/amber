@@ -1,0 +1,153 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Architecture" description="amber architecture — C++17 bare-metal agent harness">
+  <NavBar />
+  <main>
+    <h1>Architecture</h1>
+
+    <section class="section">
+      <p>
+        amber is a C++17 agent harness — not a Python wrapper, not a Node.js script, not a React
+        frontend with a Flask backend. Compiled C++ with libcurl, ncurses, and zero Python dependency.
+      </p>
+      <div class="terminal">
+        <pre>┌─ libagent_core.a ──────────────────────────────────────────┐
+│  Agent loop · LLM client · Tool registry · Compression    │
+│  Context integrity (FNV-1a hash chain) · MCP transport     │
+└───────────────────────────────────────────────────────────┘
+         │              │              │
+    ┌────▼─────┐  ┌────▼─────┐  ┌────▼─────┐
+    │ amber    │  │amber-cli │  │amber-bench│
+    │ (TUI)    │  │(headless)│  │(KPI harness)│
+    └──────────┘  └──────────┘  └──────────┘</pre>
+      </div>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>Context Integrity</h2>
+      <p>
+        The Context class uses an FNV-1a hash chain to seal every message. Once on the stack,
+        messages can never be modified in-place. The only operations are push (append), pop
+        (remove top — LIFO), clear, and get_all (read-only). get_all() recomputes the entire
+        chain and asserts the final hash matches chain_hash_. Any in-place modification of a
+        sealed message breaks every subsequent link and triggers an assertion.
+      </p>
+      <div class="terminal">
+        <pre>h_0 = FNV(0              || msg_0)
+h_1 = FNV(h_0            || msg_1)
+h_2 = FNV(h_1            || msg_2)
+...
+chain_hash_ = h_n-1</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Compression Pipeline</h2>
+      <p>
+        Two-phase pipeline: classify-then-extract. Phase 1 classifies the conversation into
+        core/context/prune segments. Phase 2 extracts memory and skill operations. The pipeline
+        is pure — the context is only READ. Classify/extract requests are assembled from a
+        working copy of the snapshot, so a failed pipeline leaves the context untouched by
+        construction.
+      </p>
+      <ul class="feature-list">
+        <li>Classify: segments the conversation by importance</li>
+        <li>Extract: pulls memory/skill ops from the LLM</li>
+        <li>Prune: replaces bulky tool outputs with placeholders</li>
+        <li>Headroom: enforces 25% headroom after compression</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Tool Registry</h2>
+      <p>
+        Tools are registered by the host (library or UI) and looked up by name when the model
+        requests an invocation. Each tool has a name, description, parameter schema, and an
+        execute method. The bash tool is approval-gated — each call must be approved by the
+        host before it runs. If no approval handler is installed the call is denied (fail-safe).
+      </p>
+      <div class="terminal">
+        <pre>Tool interface:
+  name() → string
+  description() → string
+  parameters_schema() → json
+  requires_approval(args) → bool
+  is_read_only() → bool
+  execute(arguments) → ToolResult</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Security Model</h2>
+      <ul class="feature-list">
+        <li>Workspace confinement: read/write confine paths to the workspace root</li>
+        <li>Approval gating: bash tool requires explicit user approval</li>
+        <li>Process isolation: commands run in their own process group</li>
+        <li>Output capping: command output capped at 64 KiB</li>
+        <li>Timeout: default 60s timeout on shell commands</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Compression Observer</h2>
+      <p>
+        CompressionObserver is notified of compression pipeline progress. All methods have
+        default no-op implementations so consumers only override what they need. The UI can
+        display live progress during compression.
+      </p>
+      <div class="terminal">
+        <pre>CompressionObserver interface:
+  on_compress_start(msgs_before, tokens_before)
+  on_loop_collapse(removed)
+  on_llm_request_sent()
+  on_llm_reply_received(elapsed_ms)
+  on_parse_result(compression_response)
+  on_apply_result(compression_result)
+  on_error(msg)
+  on_compress_done(compression_result)</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Sub-Agent Architecture</h2>
+      <p>
+        SubAgentExecutor runs focused sub-agents with their own context and a custom system
+        prompt. Execution mode is runtime-configurable:
+      </p>
+      <ul class="feature-list">
+        <li>Serial: sub-agents run one at a time — sequential requests share the system-prompt prefix, keeping provider prompt caches warm</li>
+        <li>Parallel: sub-agents run concurrently, capped by max()</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Build System</h2>
+      <p>Standard configure + make. The GNUmakefile auto-runs ./configure to generate Makefile from Makefile.in:</p>
+      <div class="terminal">
+        <pre>make          # build everything (lib + cli + tui)
+make test     # run unit tests
+make lint     # run clang-tidy
+make analyze  # run cppcheck
+make clean    # remove .o / .d / binaries
+make distclean # also removes the generated Makefile</pre>
+      </div>
+    </section>
+  </main>
+</BaseLayout>

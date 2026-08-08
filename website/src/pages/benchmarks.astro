@@ -1,0 +1,177 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Benchmarks" description="amber benchmark results — real data, real scenarios">
+  <NavBar />
+  <main>
+    <h1>Benchmarks</h1>
+
+    <section class="section">
+      <p>
+        amber-bench is the KPI harness — how well the agent loop, tool schemas, and prompts
+        drive each model to the correct solution. This is a harness score, not a model leaderboard:
+        every scenario runs through the same engine, and the score measures the harness+model pair
+        over 31 scenarios across 6 suites (agent failures, terminal work, tool selection, prompt
+        adherence, coding, refactoring).
+      </p>
+      <p>
+        Scoring: each scenario earns 0-100 from four sub-scores — correctness (bullseye + hidden-test
+        artifact), efficiency (steps/wasted/redundant vs expected), robustness (retries/recoveries/hard-stops),
+        and adherence (prompt-checks minus forbidden-tool use). The model score is the difficulty-weighted
+        aggregate (1-5 per scenario), scaled to /1000.
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>Results</h2>
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Score</th>
+            <th>Pass</th>
+            <th>Agentic</th>
+            <th>Plan%</th>
+            <th>Tools</th>
+            <th>Redun</th>
+            <th>Steps</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Qwen3.6-27B dense</td>
+            <td><strong>910</strong></td>
+            <td>24/25</td>
+            <td>68</td>
+            <td>46</td>
+            <td>104</td>
+            <td>10</td>
+            <td>115</td>
+          </tr>
+          <tr>
+            <td>qwopus-27b</td>
+            <td>900</td>
+            <td>24/25</td>
+            <td>62</td>
+            <td>44</td>
+            <td>109</td>
+            <td>17</td>
+            <td>121</td>
+          </tr>
+          <tr>
+            <td>Qwen3.6-27B MTP</td>
+            <td>901</td>
+            <td>24/25</td>
+            <td>66</td>
+            <td>47</td>
+            <td>104</td>
+            <td>11</td>
+            <td>117</td>
+          </tr>
+          <tr>
+            <td>gemma4-31b</td>
+            <td>903</td>
+            <td>24/25</td>
+            <td>72</td>
+            <td>47</td>
+            <td>103</td>
+            <td>4</td>
+            <td>127</td>
+          </tr>
+          <tr>
+            <td>Qwen3.6-35B MoE (A3B)</td>
+            <td>877</td>
+            <td>23/25</td>
+            <td>59</td>
+            <td>35</td>
+            <td>137</td>
+            <td>16</td>
+            <td>145</td>
+          </tr>
+          <tr>
+            <td>ornith-1.0-35b</td>
+            <td>837</td>
+            <td>22/25</td>
+            <td>63</td>
+            <td>39</td>
+            <td>124</td>
+            <td>25</td>
+            <td>153</td>
+          </tr>
+          <tr>
+            <td>kilo-auto/free</td>
+            <td>861</td>
+            <td>23/25</td>
+            <td>63</td>
+            <td>42</td>
+            <td>115</td>
+            <td>6</td>
+            <td>121</td>
+          </tr>
+          <tr>
+            <td>NVIDIA Nemotron 550B (free)</td>
+            <td>806</td>
+            <td>21/25</td>
+            <td>58</td>
+            <td>36</td>
+            <td>133</td>
+            <td>15</td>
+            <td>149</td>
+          </tr>
+          <tr>
+            <td>gemma4-12b-q4</td>
+            <td>726</td>
+            <td>20/25</td>
+            <td>70</td>
+            <td>47</td>
+            <td>103</td>
+            <td>11</td>
+            <td>127</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Key Findings</h2>
+      <ul class="feature-list">
+        <li><strong>Qwen3.6-27B dense leads</strong> — 910/1000, beating the 550B Nemotron by 104 points despite 20x fewer parameters</li>
+        <li><strong>The agentic gap is real</strong> — 2.48x optimal tool calls, ~20% tool failures with 27B models</li>
+        <li><strong>Frontier models collapse the gap</strong> — DeepSeek through the same harness: 93.9/100, 103 tools, 2 redundant calls, 3 failures</li>
+        <li><strong>Compression pipeline works</strong> — 900/1000 score survives context compression without degradation</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Scenario Breakdown</h2>
+      <p>31 scenarios across 6 suites:</p>
+      <ul class="feature-list">
+        <li><strong>Coding (5)</strong> — fizzbuzz, sorting, ring buffer, LCS, graph BFS</li>
+        <li><strong>Prompt adherence (6)</strong> — envelope format, banned tool refusal, verify-after-action, multi-constraint, verify-before-claim</li>
+        <li><strong>Refactoring (4)</strong> — extract method, polymorphism-over-switch, adapter, strategy</li>
+        <li><strong>Terminal work (6)</strong> — ls count files, grep extract value, compile run cpp, env inventory, pipeline transform, multi-dir count</li>
+        <li><strong>Tool selection (7)</strong> — search vs bash grep, read vs cat, write vs rewrite, process vs blocking, write-verify-loop</li>
+        <li><strong>Agent failures (5)</strong> — redundant call elimination, mistake-then-recover, mid-stream dropout, parallel vs sequential</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Reproducing</h2>
+      <div class="terminal">
+        <pre>./amber-bench run --live --profile qwopus-27b --out results/qwopus-27b.json
+./amber-bench run --live --profile qwen35-dense --out results/qwen35-dense.json
+./amber-bench report results/*.json --format markdown</pre>
+      </div>
+    </section>
+  </main>
+</BaseLayout>

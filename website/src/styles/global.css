@@ -1,0 +1,374 @@
+/* === Amber Terminal Aesthetic === */
+
+/* Reset */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a0a;
+  --bg-light: #111111;
+  --bg-lighter: #1a1a1a;
+  --text: #e0e0e0;
+  --text-dim: #888888;
+  --green: #00ff41;
+  --amber: #ff6b35;
+  --gold: #f7c948;
+  --red: #ff3333;
+  --border: #333333;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+html {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+body {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+a {
+  color: var(--green);
+  text-decoration: none;
+  border-bottom: 1px solid var(--green);
+}
+
+a:hover {
+  background: rgba(0, 255, 65, 0.1);
+}
+
+/* Content wrapper — padding for status bar */
+.content-wrapper {
+  padding-bottom: 48px;
+}
+
+/* Terminal-style code blocks */
+.terminal {
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-x: auto;
+  position: relative;
+}
+
+.terminal::before {
+  content: 'amber ~ $';
+  display: block;
+  color: var(--green);
+  margin-bottom: 8px;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.terminal pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* Section dividers */
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 48px 0;
+}
+
+.divider-thick {
+  border: none;
+  border-top: 2px solid var(--green);
+  margin: 48px 0;
+}
+
+/* Blinking cursor */
+.cursor {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.2em;
+  background: var(--green);
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Status bar */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: var(--bg-lighter);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  z-index: 100;
+}
+
+.status-bar .status-left {
+  display: flex;
+  gap: 16px;
+}
+
+.status-bar .status-right {
+  margin-left: auto;
+  display: flex;
+  gap: 16px;
+}
+
+.status-bar .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+  margin-right: 4px;
+}
+
+/* Nav bar */
+.nav-bar {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--green);
+  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 12px;
+}
+
+.nav-bar .nav-prefix {
+  color: var(--amber);
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.nav-bar a {
+  color: var(--green);
+  border-bottom: none;
+}
+
+.nav-bar a:hover {
+  background: rgba(0, 255, 65, 0.15);
+  color: var(--green);
+}
+
+.nav-bar a.active {
+  color: var(--gold);
+}
+
+.nav-bar .nav-hint {
+  margin-left: auto;
+  color: #555;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+}
+
+/* Hero section */
+.hero {
+  text-align: center;
+  padding: 48px 0;
+}
+
+.hero h1 {
+  font-size: 1.4em;
+  font-weight: bold;
+  color: var(--green);
+  margin-bottom: 16px;
+}
+
+.hero .subtitle {
+  color: var(--text-dim);
+  font-size: 1em;
+  margin-bottom: 32px;
+}
+
+.hero .cta {
+  display: inline-block;
+  background: var(--bg-lighter);
+  border: 1px solid var(--green);
+  padding: 10px 24px;
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hero .cta:hover {
+  background: rgba(0, 255, 65, 0.1);
+}
+
+/* Benchmark table */
+.bench-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 16px 0;
+}
+
+.bench-table th,
+.bench-table td {
+  padding: 6px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.bench-table th {
+  color: var(--green);
+  font-weight: bold;
+}
+
+.bench-table td {
+  color: var(--text);
+}
+
+.bench-table tr:hover {
+  background: var(--bg-light);
+}
+
+/* Content sections */
+.section {
+  margin: 48px 0;
+}
+
+.section h2 {
+  font-size: 1.2em;
+  color: var(--amber);
+  margin-bottom: 16px;
+}
+
+.section h3 {
+  font-size: 1em;
+  color: var(--gold);
+  margin: 24px 0 8px;
+}
+
+.section p {
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+/* Feature list */
+.feature-list {
+  list-style: none;
+  padding: 0;
+}
+
+.feature-list li {
+  padding: 4px 0;
+  padding-left: 16px;
+  position: relative;
+}
+
+.feature-list li::before {
+  content: '>';
+  position: absolute;
+  left: 0;
+  color: var(--green);
+}
+
+/* Footer */
+.footer {
+  margin-top: 64px;
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* Nav Drawer */
+.nav-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 10, 10, 0.95);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+}
+
+.nav-drawer.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.nav-drawer-content {
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  padding: 24px 32px;
+  max-width: 400px;
+  width: 90%;
+}
+
+.nav-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-prefix {
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.drawer-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.drawer-close:hover {
+  color: var(--green);
+}
+
+.nav-drawer-links a {
+  display: block;
+  padding: 8px 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  border-bottom: none;
+}
+
+.nav-drawer-links a:hover {
+  color: var(--green);
+  background: none;
+}

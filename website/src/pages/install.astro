@@ -1,0 +1,94 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Install" description="Install amber on Linux — from source in minutes">
+  <NavBar />
+  <main>
+    <h1>Install</h1>
+
+    <section class="section">
+      <h2>Dependencies</h2>
+      <p>amber requires a C++17 compiler and a few development libraries:</p>
+      <div class="terminal">
+        <pre># Debian / Ubuntu
+sudo apt install build-essential libcurl4-openssl-dev libncurses-dev
+
+# Arch Linux
+sudo pacman -S base-devel curl ncurses
+
+# Fedora
+sudo dnf install gcc-c++ libcurl-devel ncurses-devel</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Build & Run</h2>
+      <div class="terminal">
+        <pre>git clone https://github.com/trefon/amber
+cd amber
+make
+
+# Run the TUI
+./amber
+
+# Run headless
+./amber-cli
+
+# Run benchmarks
+./amber-bench run --profile qwopus-27b</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Configuration</h2>
+      <p>amber reads from <code>amber.conf</code> in the project root and <code>~/.config/amber/</code> for global settings:</p>
+      <div class="terminal">
+        <pre># amber.conf (project-local — only data paths)
+system_prompt=prompts/system.md
+tools_prompt=prompts/tools.md
+git_prompt=prompts/git.md
+
+# Provider config lives in ~/.config/amber/providers/
+# Example: ~/.config/amber/providers/llama.conf
+api_base=http://localhost:8080/v1
+model=Qwopus-27B-Fusion</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>What Happens Next</h2>
+      <p>When you run <code>./amber</code>, you'll see the welcome screen, the command drawer, and the slash command system:</p>
+      <ul class="feature-list">
+        <li><code>/set model</code> — switch models at runtime</li>
+        <li><code>/get model list</code> — list available models</li>
+        <li><code>/set provider</code> — switch provider configurations</li>
+        <li><code>/set detection namespace</code> — toggle loop/duplicate detection</li>
+        <li><code>/compress</code> — force compression of conversation history</li>
+        <li><code>/set policy</code> — configure approval rules</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Build System</h2>
+      <p>amber uses a standard <code>configure</code> + <code>make</code> build system. The <code>GNUmakefile</code> auto-runs <code>./configure</code> to generate <code>Makefile</code> from <code>Makefile.in</code>:</p>
+      <div class="terminal">
+        <pre>make          # build everything (lib + cli + tui)
+make test     # run unit tests
+make lint     # run clang-tidy
+make analyze  # run cppcheck
+make clean    # remove .o / .d / binaries
+make distclean # also removes the generated Makefile</pre>
+      </div>
+    </section>
+  </main>
+</BaseLayout>

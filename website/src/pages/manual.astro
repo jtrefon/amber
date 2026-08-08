@@ -1,0 +1,84 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Manual" description="amber manual — slash commands, configuration, and usage reference">
+  <NavBar />
+  <main>
+    <h1>Manual</h1>
+
+    <section class="section">
+      <p>
+        This is the command reference for amber's TUI. All slash commands are JSON-driven —
+        no hardcoded completions. The tree structure supports unlimited nesting.
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>Model & Provider</h2>
+      <div class="terminal">
+        <pre>/set model              # switch LLM model
+/set provider           # switch LLM provider
+/get model list         # list available models</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Policy & Permissions</h2>
+      <div class="terminal">
+        <pre>/set policy rule        # manage permission rules
+/get policy rule        # view current rules</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Jobs</h2>
+      <div class="terminal">
+        <pre>/get job status         # check running jobs
+/get job list           # list all jobs</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>MCP Servers</h2>
+      <div class="terminal">
+        <pre>/set mcp server         # configure MCP servers
+/get mcp list           # list connected servers</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Configuration</h2>
+      <p>Configuration is stored in <code>amber.conf</code> in the workspace root:</p>
+      <div class="terminal">
+        <pre>model = qwopus-27b
+provider = custom:local-llama
+workspace = /home/jack/projects
+approval = ask           # ask / always / never</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Environment Variables</h2>
+      <ul class="feature-list">
+        <li><code>AMBER_WORKSPACE</code> — override the workspace root</li>
+        <li><code>AMBER_MODEL</code> — override the default model</li>
+        <li><code>AMBER_PROVIDER</code> — override the default provider</li>
+        <li><code>AMBER_APPROVAL</code> — override approval mode (ask/always/never)</li>
+      </ul>
+    </section>
+  </main>
+</BaseLayout>
