@@ -38,7 +38,7 @@
 
   <!-- Code block -->
   <text x="100" y="430" class="prompt">amber ~ $</text>
-  <text x="260" y="430" class="code">git clone https://github.com/trefon/amber</text>
+  <text x="260" y="430" class="code">git clone https://github.com/jtrefon/amber</text>
 
   <text x="100" y="470" class="prompt">amber ~ $</text>
   <text x="260" y="470" class="code">cd amber &amp;&amp; make &amp;&amp; ./amber</text>

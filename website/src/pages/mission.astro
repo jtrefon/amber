@@ -3,16 +3,28 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 ---
 
-<BaseLayout title="Mission" description="amber mission and vision — why this exists">
+<BaseLayout title="Mission" description="amber mission and vision — AI on Linux, unleashed">
   <NavBar />
   <main>
-    <h1>Mission & Vision</h1>
+    <h1>Mission &amp; Vision</h1>
 
     <section class="section">
+      <h2>The North Star</h2>
+      <p class="lead">
+        AI on Linux, unleashed.
+      </p>
       <p>
-        amber exists because the AI agent space is full of Python wrappers around OpenAI's API,
-        Node.js scripts, and React frontends with Flask backends. None of them are built for
-        the reality of Linux servers with real work to do.
+        amber is a single agentic tool for the terminal: one tool, one interface,
+        one mental model. It writes, edits, refactors, and reviews code. It manages
+        servers, runs commands, and monitors systems. It searches codebases, reads
+        docs, and manages itself — sessions, config, providers, jobs. It persists:
+        leave it running for days and come back to results.
+      </p>
+      <p>
+        Linux is the armour: stability, longevity, tool integration, the entire UNIX
+        philosophy. AI is the brain. Other harnesses stack Python, Node, or hosted
+        SaaS layers on top of that. amber is compiled C++17 — one process, one
+        binary, no interpreter, no account, no telemetry.
       </p>
     </section>
 
@@ -21,34 +33,108 @@ import NavBar from '../components/NavBar.astro';
     <section class="section">
       <h2>Mission</h2>
       <p>
-        Build a bare-metal C++ agent harness that runs on Linux servers, connects to LLMs,
-        executes shell commands, reads files, and compresses context — all in one process,
-        zero Python dependency.
+        Build a bare-metal C++17 agent harness for Linux that reads, writes,
+        searches, runs commands, and compresses context across arbitrarily long
+        sessions — engineered for stability, benchmarked with real data, and
+        trusted with a single fix or an entire project.
       </p>
-    </section>
-
-    <hr class="divider" />
-
-    <section class="section">
-      <h2>Vision</h2>
       <p>
-        A terminal-native agent runtime that feels like it was built by someone who has spent
-        28 years in tech. Not a SaaS product. Not a chatbot. A tool for people who understand
-        what happens when you run <code>rm -rf</code> at 3 AM.
+        The agent runs until it is done. Background jobs survive. You drive it with
+        commands; it reports back in the scrollback. Every action has a command
+        path; every command produces UI feedback. Help is one <code>?</code> away
+        at any depth — you never retype a path.
       </p>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>What We Believe</h2>
+      <h2>The Spirit</h2>
+      <p>
+        God-like power wrapped in a terminal, delivered through an interface
+        inspired by BitchX and the golden age of IRC. Fast, keyboard-driven,
+        dense, beautiful. The drawer pops on <code>/</code>, filters as you type,
+        and <code>/q</code>, <code>/sl</code> become muscle memory again. The
+        interface anticipates. It helps. It gets out of your way when you know
+        what you are doing.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Who It Is For</h2>
       <ul class="feature-list">
-        <li><strong>Compiled code matters.</strong> C++17 with libcurl, ncurses, zero Python dependency.</li>
-        <li><strong>Terminal is a feature.</strong> BitchX-inspired IRC-style UI, not a web frontend.</li>
-        <li><strong>Real benchmarking.</strong> amber-bench with KPI aggregation, not marketing numbers.</li>
-        <li><strong>Compression that works.</strong> Classify-then-extract with live UI progress.</li>
-        <li><strong>Open source.</strong> Apache 2.0. Fork it, modify it, make it yours.</li>
+        <li><strong>Developers</strong> — from a single file to a monorepo</li>
+        <li><strong>System administrators</strong> — server management, automation, deployment</li>
+        <li><strong>Security professionals</strong> — auditing, tooling, long-running investigations</li>
+        <li><strong>Researchers</strong> — data analysis, experiments that run for days</li>
+        <li><strong>Anyone</strong> who SSHes into a box and wants an AI partner</li>
       </ul>
+      <p>
+        amber is free and open source (Apache 2.0) — for everyone, without
+        discrimination. If you live in a terminal, it is yours.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>What We Stand For</h2>
+      <table class="stand-table">
+        <thead>
+          <tr>
+            <th>We are</th>
+            <th>We are not</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Terminal-native</td><td>A web app</td></tr>
+          <tr><td>Keyboard-first</td><td>Mouse-driven</td></tr>
+          <tr><td>Local-first, self-hosted</td><td>SaaS or telemetry</td></tr>
+          <tr><td>Linux-powered</td><td>A Windows or macOS port</td></tr>
+          <tr><td>Composable with UNIX tools</td><td>A walled garden</td></tr>
+          <tr><td>Insert-always</td><td>A modal editor</td></tr>
+          <tr><td>Compiled, integrated</td><td>A plugin platform</td></tr>
+        </tbody>
+      </table>
     </section>
   </main>
 </BaseLayout>
+
+<style>
+  .section p.lead {
+    color: #00ff41;
+    font-size: 1.4em;
+    font-weight: bold;
+  }
+
+  .stand-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 16px 0;
+  }
+
+  .stand-table th,
+  .stand-table td {
+    padding: 8px 16px;
+    text-align: left;
+    border-bottom: 1px solid #333333;
+  }
+
+  .stand-table th {
+    color: #00ff41;
+    font-weight: bold;
+    border-bottom: 2px solid #333333;
+  }
+
+  .stand-table td:first-child {
+    color: #00ff41;
+    width: 55%;
+  }
+
+  .stand-table td:last-child {
+    color: #888888;
+  }
+</style>

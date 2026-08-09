@@ -1,30 +1,30 @@
 ---
+import asciiArt from '../data/ascii-hero.html?raw';
 ---
 
 <div class="ascii-hero">
-  <!-- Real ASCII art from art.ans via iframe -->
   <div class="ascii-art-container">
-    <iframe src="/ascii-hero.html" class="ascii-iframe" title="Amber ASCII Art" loading="eager"></iframe>
+    <Fragment set:html={asciiArt} />
   </div>
 
   <p class="tagline">
     an AI agent harness for Linux servers<span class="cursor">█</span>
   </p>
   <p class="pitch">
-    Built in C++. Bare-metal performance. Open source (Apache 2.0).<br />
-    A terminal-native agent runtime with a BitchX-inspired TUI, real<br />
-    benchmarking, and a compression pipeline that actually works.
+    The only C++17 agent harness in the field — compiled, not scripted.<br />
+    One binary, no Python, no Node, no accounts, no telemetry.<br />
+    A BitchX-inspired TUI, real benchmarks, compression that works.
   </p>
   <div class="cta-row">
     <a href="/install" class="cta">Install</a>
-    <a href="https://github.com/trefon/amber" target="_blank" rel="noopener" class="cta outline">GitHub</a>
+    <a href="https://github.com/jtrefon/amber" target="_blank" rel="noopener" class="cta outline">GitHub</a>
   </div>
 </div>
 
 <style>
   .ascii-hero {
     text-align: center;
-    padding: 32px 0 32px;
+    padding: 32px 0;
   }
 
   .ascii-art-container {
@@ -35,20 +35,14 @@
     max-width: 100%;
   }
 
-  .ascii-iframe {
-    border: 1px solid #333;
+  .ascii-art-container :global(pre.ascii-art) {
     background: #0a0a0a;
-    width: 100%;
-    max-width: 900px;
-    height: 200px;
-    overflow: hidden;
-    border-radius: 0;
-    transition: transform 0.3s ease-out;
-  }
-
-  /* Scroll-triggered animation: ASCII art shifts up as you scroll */
-  .ascii-art-container.scrolled .ascii-iframe {
-    transform: translateY(-4px);
+    margin: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7px;
+    line-height: 1;
+    letter-spacing: 0;
+    user-select: none;
   }
 
   .ascii-hero .tagline {
@@ -78,7 +72,7 @@
     font-size: 0.95em;
     line-height: 1.7;
     margin-bottom: 32px;
-    max-width: 500px;
+    max-width: 560px;
     margin-left: auto;
     margin-right: auto;
   }
@@ -116,23 +110,3 @@
     color: #00ff41;
   }
 </style>
-
-<script is:inline>
-  // Scroll-triggered ASCII animation
-  const artContainer = document.querySelector('.ascii-art-container');
-  let ticking = false;
-
-  window.addEventListener('scroll', () => {
-    if (!ticking) {
-      window.requestAnimationFrame(() => {
-        if (window.scrollY > 50) {
-          artContainer.classList.add('scrolled');
-        } else {
-          artContainer.classList.remove('scrolled');
-        }
-        ticking = false;
-      });
-      ticking = true;
-    }
-  });
-</script>
