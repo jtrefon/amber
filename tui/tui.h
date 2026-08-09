@@ -17,6 +17,8 @@
 #include "markdown.h"
 #include "action_registry.h"
 #include "setting_registry.h"
+#include "agent_event.h"
+#include "event_router.h"
 
 #include <atomic>
 #include <chrono>
@@ -37,38 +39,6 @@ class ToolRegistry;
 
 namespace tui {
 using palette::Command;
-
-// Inter-thread event emitted by the agent worker and consumed on the UI
-// thread during the main event loop.
-struct AgentEvent {
-    enum Type {
-        Token,
-        Reasoning,
-        StateChange,
-        ToolCall,
-        ToolResult,
-        Status,
-        Stats,
-        Assistant,
-        Approval,
-        Error,
-        Done,
-        CompressResult,
-    };
-    Type type;
-    std::string text;
-    agent::RunState state = agent::RunState::Idle;
-    agent::Stats stats{};
-    std::string tool_name;
-    agent::ToolResult tool_result{};
-    agent::json tool_args;
-    std::string error_msg;
-    agent::CompressionResult compress_result{};
-
-    // Worker thread blocks on this promise until the UI thread
-    // shows the approval dialog and resolves it.
-    std::shared_ptr<std::promise<agent::Approval>> approval_promise;
-};
 
 // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
@@ -94,8 +64,9 @@ private:
     void resolve_approval(const AgentEvent& ev);
     void send_async(const std::string& raw_prompt);
     std::string expand_at_references(const std::string& raw) const;
-    void agent_worker(const std::string& prompt);
-    void compress_worker();
+    void agent_worker(Window& my_win, size_t window_id,
+                      const std::string& prompt);
+    void compress_worker(Window& my_win, size_t window_id);
 
     std::queue<AgentEvent> event_queue_;
     std::mutex event_mtx_;
@@ -117,7 +88,8 @@ private:
     // result lands. Scrollback-only — the agent's immutable context stays
     // sealed.
     struct PendingToolLine {
-        size_t index = std::string::npos;  // index into win().lines
+        size_t index = std::string::npos;  // index into the origin window's lines
+        size_t window_id = std::string::npos;  // origin window
         std::string name;
         std::string fingerprint;  // args dump — identity for result matching
         std::string tail;         // " <description>" after the spinner glyph
@@ -152,8 +124,9 @@ private:
     int chat_top() const;
     int chat_height() const;
     int lines_per_page() const;
-    int stream_lines() const;
-    int max_scroll() const;
+    int stream_lines(const Window& w) const;
+    int max_scroll(const Window& w) const;
+    int max_scroll() const { return max_scroll(win()); }
 
     // ---- low-level helpers ----------------------------------------------
     static size_t utf8_len(const std::string& s, size_t i);
@@ -162,14 +135,19 @@ private:
     void append_line(int color, const std::string& text);
     void append_line_ts(int color, const std::string& text,
                         const std::string& ts);
+    // Window-targeted variant used by event routing: appends (with timestamp)
+    // to a specific window's scrollback and returns the appended index.
+    size_t append_line_to(Window& w, int color, const std::string& text);
+    size_t append_line_to(Window& w, int color, const std::string& text,
+                          const std::string& ts);
     void append_rich(const rich::Line& l);
-    void append_markdown(const std::string& md);
+    void append_markdown(Window& w, const std::string& md);
     // Append a plain color run as a wrapped RichLine into an existing view
     // vector (used for the live stream preview inside draw()).
     static void append_rich_to(std::vector<rich::Line>& view,
                                const std::string& text, int color, int w);
     void banner(const std::string& text);
-    void trim_lines();
+    static void trim_lines(Window& w);
 
     // ---- rendering ------------------------------------------------------
     // Stage-only redraw helpers write to stdscr without flushing; flush()
@@ -201,8 +179,8 @@ private:
     std::vector<const tui::Command*> filter_commands(const std::string& token);
 
     // ---- streaming helpers ----------------------------------------------
-    void fold_reasoning();
-    void flush_stream();
+    void fold_reasoning(Window& w);
+    void flush_stream(Window& w);
 
     // ---- session persistence --------------------------------------------
     agent::Session snapshot(Window& w) const;

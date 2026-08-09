@@ -16,6 +16,7 @@ namespace tui {
 // timestamped result line (describe + summary, no exit status).
 void Tui::restore_message_lines(const agent::Message& m,
                                 std::vector<RestoredCall>& pending) {
+    Window& w = win();
     if (m.role == "user") {
         append_line(P_USER, "> " + m.content);
         return;
@@ -38,7 +39,7 @@ void Tui::restore_message_lines(const agent::Message& m,
             }
         }
         if (!m.content.empty())
-            append_markdown(m.content);
+            append_markdown(w, m.content);
         return;
     }
     if (m.role == "tool") {
@@ -130,7 +131,9 @@ void Tui::load_session(const std::string& id) {
     if (utilisation > 0.40) {
         append_line(P_STATUS, "large session — background compression started");
         switch_to(windows_.size() - 1);
-        compress_worker();
+        Window* my_win = &w;
+        size_t my_id = active_;
+        compress_worker(*my_win, my_id);
     }
     if (!s.meta.empty())
         w.agent->meta_ = s.meta;
@@ -447,6 +450,7 @@ void Tui::lazy_load_active() {
 }
 
 void Tui::switch_to(size_t idx) {
+    if (busy_reject("window switch")) return;
     if (idx >= windows_.size() || idx == active_) return;
     active_ = idx;
     pending_tools_.clear();  // spinner indices belong to the old window
@@ -455,6 +459,9 @@ void Tui::switch_to(size_t idx) {
 }
 
 void Tui::close_window() {
+    // Destroying a Window while the agent worker is inside its Agent::run()
+    // is a use-after-free; wait until the run finishes.
+    if (busy_reject("window close")) return;
     if (windows_.size() <= 1) {
         append_line(P_STATUS, "cannot close the last window");
         return;
