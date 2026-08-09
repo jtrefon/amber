@@ -7,6 +7,7 @@
 #include "agent/mcp_client.h"
 #include "agent/mcp_config.h"
 #include "agent/mcp_tools.h"
+#include "agent/mcp_commands.h"
 #include "agent/registry.h"
 #include "agent/workspace.h"
 #include "mcp_test_util.h"
@@ -197,7 +198,7 @@ TEST(mcp_reconnect_server_tools_no_stale_adapters) {
     // tool set.
     reg.register_tool(std::make_unique<DecoyTool>());
 
-    ASSERT_EQ(agent::reconnect_server_tools(reg, mgr, "echo"), 1u);
+    ASSERT_EQ(agent::mcp_connect(mgr, reg, "echo"), "");
     ASSERT(reg.find("mcp_echo_echo_tool") != nullptr);
     ASSERT(reg.find("mcp_echo_stale_tool") == nullptr);
     mgr.shutdown_all();

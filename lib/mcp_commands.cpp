@@ -54,6 +54,11 @@ std::vector<std::string> mcp_show_lines(const ServerManager& mgr,
 
 std::string mcp_connect(ServerManager& mgr, ToolRegistry& reg,
                         const std::string& server) {
+    // Unregister the old adapters BEFORE the reconnect: the new server's
+    // tool set may no longer advertise tools that used to exist, and a stale
+    // McpToolAdapter would keep referencing the erased MCPClient
+    // (use-after-free on the next call).
+    unregister_server_tools(reg, server);
     std::string err = mgr.connect(server);
     if (!err.empty()) return err;
     register_server_tools(reg, mgr, server);

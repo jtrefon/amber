@@ -5,6 +5,7 @@
 #include "agent/workspace.h"
 #include "agent/archive_util.h"
 
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <dirent.h>
@@ -280,10 +281,25 @@ bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
         shutdown_session(s);
         return false;
     }
-    // Read exactly one line (the initialize response).
+    // Read exactly one line (the initialize response), with a deadline like
+    // the tool-call path — a plugin that neither responds nor exits must not
+    // hang enable/connect forever.
     s.in_buf.clear();
     char buf[4096];
+    int timeout = kCallTimeoutSec * 1000;
     while (s.in_buf.find('\n') == std::string::npos) {
+        struct pollfd pfd{s.out_fd, POLLIN, 0};
+        int rc = poll(&pfd, 1, timeout);
+        if (rc == 0) {
+            info.error = "plugin initialize timed out";
+            shutdown_session(s);
+            return false;
+        }
+        if (rc < 0) {
+            info.error = "plugin poll failed";
+            shutdown_session(s);
+            return false;
+        }
         ssize_t n = read(s.out_fd, buf, sizeof buf);
         if (n <= 0) {
             info.error = "plugin exited during handshake";
@@ -306,10 +322,23 @@ bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
 }
 
 PluginManager::Session& PluginManager::session(PluginInfo& info) {
-    auto it = sessions_.find(info.id);
-    if (it != sessions_.end()) return *it->second;
+    // Two concurrent first calls (parallel tool dispatch) must not race the
+    // map insert or spawn two processes for one plugin. The handshake runs
+    // OUTSIDE the lock (blocking poll/read, up to the call deadline); a loser
+    // of the double-check race shuts down its extra process.
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        auto it = sessions_.find(info.id);
+        if (it != sessions_.end()) return *it->second;
+    }
     auto s = std::make_unique<Session>();
     spawn_and_handshake(info, *s);
+    std::scoped_lock lk(sessions_mtx_);
+    auto it = sessions_.find(info.id);
+    if (it != sessions_.end()) {
+        shutdown_session(*s);
+        return *it->second;
+    }
     sessions_[info.id] = std::move(s);
     return *sessions_[info.id];
 }
@@ -355,7 +384,7 @@ ToolResult PluginManager::call_tool(const PluginInfo& info,
     if (s.pid < 0) return {false, "", "plugin not running: " + infos->error};
 
     std::scoped_lock lock(s.mtx);
-    static long next_id = 2;
+    static std::atomic<long> next_id{2};
     json req = {{"id", next_id++},
                 {"method", "tool.call"},
                 {"params", {{"name", name}, {"args", args}}}};
@@ -426,10 +455,13 @@ bool PluginManager::disable(const std::string& id, ToolRegistry& reg) {
     if (!info) return false;
     if (info->state == PluginState::Disabled) return true;
     reg.unregister_tools_with_prefix("plugin_" + id + "_");
-    auto it = sessions_.find(id);
-    if (it != sessions_.end()) {
-        shutdown_session(*it->second);
-        sessions_.erase(it);
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        auto it = sessions_.find(id);
+        if (it != sessions_.end()) {
+            shutdown_session(*it->second);
+            sessions_.erase(it);
+        }
     }
     info->state = PluginState::Disabled;
     state_[id]["enabled"] = false;

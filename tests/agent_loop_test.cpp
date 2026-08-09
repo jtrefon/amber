@@ -1087,9 +1087,10 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
                                   false, executor, true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "reply ok"}});
-    push_text(script, "ok");
-    push_text(script, "done");
-    push_text(script, "yes");
+    push_text(script, "ok");          // the sub-agent's reply
+    push_text(script, "done");        // the parent's reply
+    push_text(script, "done");        // parent probe
+    push_text(script, "yes");         // probe confirmation
 
     auto parent = std::make_unique<SharedScriptFake>();
     parent->script = script;

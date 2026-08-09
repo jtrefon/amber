@@ -108,6 +108,7 @@ private:
 
     std::vector<PluginInfo> plugins_;
     std::map<std::string, std::unique_ptr<Session>> sessions_;
+    std::mutex sessions_mtx_;   // guards sessions_ (parallel tool dispatch)
     json state_;
 };
 

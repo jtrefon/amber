@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <csignal>
+#include <poll.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -131,18 +132,22 @@ void StdioTransport::shutdown() {
                 stdin_fd_ = -1;
             }
             terminate_child();
-            if (stdout_fd_ >= 0) {
-                close(stdout_fd_);
-                stdout_fd_ = -1;
-            }
-            if (stderr_fd_ >= 0) {
-                close(stderr_fd_);
-                stderr_fd_ = -1;
-            }
         }
     }
+    // The reader threads poll their fds and exit within one poll interval of
+    // closed_; only AFTER they have joined is it safe to close stdout/stderr
+    // — closing them earlier could recycle an fd number while a thread is
+    // still blocked on it (garbage from an unrelated fd).
     if (stdout_thread_.joinable()) stdout_thread_.join();
     if (stderr_thread_.joinable()) stderr_thread_.join();
+    if (stdout_fd_ >= 0) {
+        close(stdout_fd_);
+        stdout_fd_ = -1;
+    }
+    if (stderr_fd_ >= 0) {
+        close(stderr_fd_);
+        stderr_fd_ = -1;
+    }
 }
 
 std::string StdioTransport::failure_reason() const {
@@ -155,6 +160,13 @@ void StdioTransport::stdout_loop() {
     std::string buf;
     char tmp[4096];
     while (!closed_.load()) {
+        // Poll with a short timeout instead of blocking in read(): shutdown
+        // must never close this fd while a thread is blocked on it.
+        struct pollfd pfd{stdout_fd_, POLLIN, 0};
+        int pr = poll(&pfd, 1, 100);
+        if (pr < 0) break;
+        if (pr == 0) continue;  // timeout — re-check closed_
+        if (!(pfd.revents & POLLIN)) break;
         ssize_t n = read(stdout_fd_, tmp, sizeof tmp);
         if (n <= 0) break;
         buf.append(tmp, static_cast<size_t>(n));
@@ -176,6 +188,13 @@ void StdioTransport::stderr_loop() {
     char tmp[4096];
     std::string tail;
     while (!closed_.load()) {
+        // Poll with a short timeout instead of blocking in read(): shutdown
+        // must never close this fd while a thread is blocked on it.
+        struct pollfd pfd{stderr_fd_, POLLIN, 0};
+        int pr = poll(&pfd, 1, 100);
+        if (pr < 0) break;
+        if (pr == 0) continue;  // timeout — re-check closed_
+        if (!(pfd.revents & POLLIN)) break;
         ssize_t n = read(stderr_fd_, tmp, sizeof tmp);
         if (n <= 0) break;
         tail.append(tmp, static_cast<size_t>(n));
