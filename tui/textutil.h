@@ -3,6 +3,7 @@
 #define AMBER_TUI_TEXTUTIL_H
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -11,6 +12,13 @@
 // in isolation (single responsibility: text measurement and layout).
 namespace tui {
 namespace text {
+
+// Strict numeric parsing for /set values: the whole string must parse as an
+// integer/double in [min, max]. Returns nullopt for garbage, empty input,
+// trailing junk, or out-of-range values — setters must never throw on input.
+std::optional<int> parse_setting_int(const std::string& v, int min, int max);
+std::optional<double> parse_setting_double(const std::string& v, double min,
+                                           double max);
 
 // Byte length of the UTF-8 sequence starting at index i. A truncated or invalid
 // sequence is treated as a single byte so callers always make progress.

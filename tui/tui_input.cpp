@@ -31,27 +31,27 @@ std::string mode_name(agent::AgentMode m) {
 
 } // namespace
 
-void Tui::fold_reasoning() {
-    if (win().reason_folded) return;
-    win().reason_folded = true;
-    if (win().reason_buf.empty()) return;
+void Tui::fold_reasoning(Window& w) {
+    if (w.reason_folded) return;
+    w.reason_folded = true;
+    if (w.reason_buf.empty()) return;
     size_t words = 1;
-    for (char ch : win().reason_buf) if (ch == ' ') ++words;
+    for (char ch : w.reason_buf) if (ch == ' ') ++words;
     append_line_ts(P_REASONING,
                    "[thought for " + std::to_string(words) + " words]",
-                   win().stream_ts.empty() ? timestamp() : win().stream_ts);
-    win().reason_buf.clear();
+                   w.stream_ts.empty() ? timestamp() : w.stream_ts);
+    w.reason_buf.clear();
 }
 
- void Tui::flush_stream() {
-      if (!win().reason_folded && !win().reason_buf.empty()) fold_reasoning();
-      if (win().stream_buf.empty()) return;
+ void Tui::flush_stream(Window& w) {
+      if (!w.reason_folded && !w.reason_buf.empty()) fold_reasoning(w);
+      if (w.stream_buf.empty()) return;
     // Commit the streamed reply through the Markdown renderer so headings,
     // code fences, lists, etc. survive into the scrollback (the live preview
     // in draw() already renders it as Markdown).
-    append_markdown(win().stream_buf);
-    win().stream_buf.clear();
-    win().stream_ts.clear();
+    append_markdown(w, w.stream_buf);
+    w.stream_buf.clear();
+    w.stream_ts.clear();
     draw();
 }
 
@@ -167,7 +167,12 @@ void Tui::cmd_set(const std::string& arg) {
         std::string val = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
         const Setting* s = settings_.find(key);
         if (s && s->setter && !val.empty()) {
-            s->setter(std::string(val));
+            try {
+                s->setter(std::string(val));
+            } catch (const std::exception& e) {
+                append_line(P_STATUS, s->key + ": " + e.what());
+                return;
+            }
             append_line(P_STATUS, s->key + ": " + s->getter() + "  \u2014  " + s->help);
             cfg_.save_settings(settings_path_);
             return;
@@ -1098,44 +1103,45 @@ void Tui::register_builtin_actions() {
         append_line(P_STATUS, "policy approval: " + v);
     });
     register_action("core.config.set.policy.timeout", [this](const std::string& v) {
-        int n = std::atoi(v.c_str());
-        if (v.empty() || n < 0) {
-            append_line(P_STATUS, "usage: /set policy timeout <N>");
+        auto n = text::parse_setting_int(v, 0, 999);
+        if (!n) {
+            append_line(P_STATUS, "policy.timeout: invalid value (0-999): " + v);
             return;
         }
-        policy_timeout_ = n;
-        append_line(P_STATUS, "policy timeout: " + std::to_string(n) + "s");
+        policy_timeout_ = *n;
+        append_line(P_STATUS, "policy timeout: " + std::to_string(*n) + "s");
     });
     register_action("core.config.set.policy", [this](const std::string& a) { cmd_set(a); });
     register_action("core.config.set.provider", [this](const std::string& a) { cmd_provider(a); });
     register_action("core.config.set.policy.rule",
         [this](const std::string& a) { cmd_set_policy_rule(a); });
     register_action("core.config.set.compression.threshold", [this](const std::string& v) {
-        double t = std::atof(v.c_str());
-        if (t <= 0.0 || t > 1.0 || v.empty()) {
-            append_line(P_STATUS, "usage: /set compression threshold <0.1-1.0>");
+        auto t = text::parse_setting_double(v, 0.1, 1.0);
+        if (!t) {
+            append_line(P_STATUS, "compression.threshold: invalid value (0.1-1.0): " + v);
             return;
         }
-        cfg_.compression_threshold = t;
+        double tv = *t;
+        cfg_.compression_threshold = tv;
         cfg_.compression_threshold_explicit = true;
         for (auto& w : windows_)
-            if (w->agent) w->agent->set_compression_threshold(t);
-        append_line(P_STATUS, "compression threshold: " + std::to_string(t));
+            if (w->agent) w->agent->set_compression_threshold(tv);
+        append_line(P_STATUS, "compression threshold: " + std::to_string(tv));
         if (!cfg_.save_settings(settings_path_))
             append_line(P_STATUS, "warning: could not save to " + settings_path_);
         draw();
     });
     register_action("core.config.set.compression.min_turns", [this](const std::string& v) {
-        int n = std::atoi(v.c_str());
-        if (v.empty()) {
-            append_line(P_STATUS, "usage: /set compression min_turns <0-999> (0 = disabled)");
+        auto n = text::parse_setting_int(v, 0, 999);
+        if (!n) {
+            append_line(P_STATUS, "compression.min_turns: invalid value (0-999): " + v);
             return;
         }
-        cfg_.compression_min_turns = n;
+        cfg_.compression_min_turns = *n;
         cfg_.compression_min_turns_explicit = true;
         for (auto& w : windows_)
-            if (w->agent) w->agent->set_compression_min_turns(n);
-        append_line(P_STATUS, "compression min_turns: " + std::to_string(n));
+            if (w->agent) w->agent->set_compression_min_turns(*n);
+        append_line(P_STATUS, "compression min_turns: " + std::to_string(*n));
         if (!cfg_.save_settings(settings_path_))
             append_line(P_STATUS, "warning: could not save to " + settings_path_);
         draw();
@@ -1344,7 +1350,13 @@ bool Tui::handle_slash(const std::string& line) {
         }
         return true;
     }
-    action_registry_.dispatch(action, arg);
+    try {
+        action_registry_.dispatch(action, arg);
+    } catch (const std::exception& e) {
+        // No slash command may crash the TUI (uncaught exceptions from
+        // setters used to abort() with the terminal left in raw mode).
+        append_line(P_STATUS, std::string("command error: ") + e.what());
+    }
     return true;
 }
 
@@ -1845,7 +1857,9 @@ void Tui::cmd_compress(const std::string&) {
     }
     append_line(P_STATUS, "compressing...");
     state_ = agent::RunState::Waiting;
-    compress_worker();
+    Window* my_win = &w;
+    size_t my_id = active_;
+    compress_worker(*my_win, my_id);
 }
 
 void Tui::cmd_job(const std::string& rest) {
@@ -2208,10 +2222,13 @@ void Tui::build_settings() {
         {}, 1, 16,
         [this](){ return std::to_string(subagents_.max()); },
         [this](const std::string& v) {
-            int n = std::atoi(v.c_str());
-            if (n < 1 || n > 16) return;
-            subagents_.set_max(n);
-            cfg_.subagent_max = n;
+            auto n = text::parse_setting_int(v, 1, 16);
+            if (!n) {
+                append_line(P_STATUS, "subagent.max: invalid value (1-16): " + v);
+                return;
+            }
+            subagents_.set_max(*n);
+            cfg_.subagent_max = *n;
             cfg_.save_settings(settings_path_);
         });
     add("display.markdown", "Markdown rendering", "<on|off>", Setting::Choice,
@@ -2232,7 +2249,12 @@ void Tui::build_settings() {
     add("policy.timeout", "Approval dialog timeout", "<0-999>", Setting::Int, {}, 0, 999,
         [this]() -> std::string { return std::to_string(policy_timeout_); },
         [this](const std::string& v) {
-            policy_timeout_ = std::stoi(v);
+            auto n = text::parse_setting_int(v, 0, 999);
+            if (!n) {
+                append_line(P_STATUS, "policy.timeout: invalid value (0-999): " + v);
+                return;
+            }
+            policy_timeout_ = *n;
             cfg_.save_settings(settings_path_);
         });
     add("policy.approval", "Enable permission gating in Write mode", "<on|off|toggle>", Setting::Choice,
@@ -2258,7 +2280,12 @@ void Tui::build_settings() {
             return std::to_string(compression_threshold_effective());
         },
         [this](const std::string& v) {
-            cfg_.compression_threshold = std::stod(v);
+            auto n = text::parse_setting_double(v, 0.1, 1.0);
+            if (!n) {
+                append_line(P_STATUS, "compression.threshold: invalid value (0.1-1.0): " + v);
+                return;
+            }
+            cfg_.compression_threshold = *n;
             cfg_.save_settings(settings_path_);
             for (auto& w : windows_) if (w && w->agent) w->agent->set_compression_threshold(cfg_.compression_threshold);
         });
@@ -2266,7 +2293,12 @@ void Tui::build_settings() {
         "<1-999>", Setting::Int, {}, 1, 999,
         [this]() -> std::string { return std::to_string(cfg_.compression_min_turns > 0 ? cfg_.compression_min_turns : 10); },
         [this](const std::string& v) {
-            cfg_.compression_min_turns = std::stoi(v);
+            auto n = text::parse_setting_int(v, 1, 999);
+            if (!n) {
+                append_line(P_STATUS, "compression.min_turns: invalid value (1-999): " + v);
+                return;
+            }
+            cfg_.compression_min_turns = *n;
             cfg_.save_settings(settings_path_);
             for (auto& w : windows_) if (w && w->agent) w->agent->set_compression_min_turns(cfg_.compression_min_turns);
         });

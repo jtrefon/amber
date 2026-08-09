@@ -1,12 +1,38 @@
 
 #include "textutil.h"
 
+#include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <cwchar>
 #include <langinfo.h>
 
 
 namespace tui::text {
+
+std::optional<int> parse_setting_int(const std::string& v, int min, int max) {
+    errno = 0;
+    char* end = nullptr;
+    long n = std::strtol(v.c_str(), &end, 10);
+    if (errno != 0 || end == v.c_str() ||
+        end != v.c_str() + v.size())
+        return std::nullopt;
+    if (n < min || n > max) return std::nullopt;
+    return static_cast<int>(n);
+}
+
+std::optional<double> parse_setting_double(const std::string& v, double min,
+                                           double max) {
+    errno = 0;
+    char* end = nullptr;
+    double d = std::strtod(v.c_str(), &end);
+    if (errno != 0 || end == v.c_str() ||
+        end != v.c_str() + v.size())
+        return std::nullopt;
+    if (d < min || d > max) return std::nullopt;
+    return d;
+}
+
 
 namespace {
 bool detect_utf8() {
