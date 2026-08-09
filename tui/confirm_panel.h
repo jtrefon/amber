@@ -3,13 +3,14 @@
 #define AMBER_TUI_CONFIRM_PANEL_H
 
 #include "tui/panel.h"
-#include "tui/approval_model.h"
 
 #include <agent/agent.h>
 
 #include <string>
 
 namespace tui {
+
+class ApprovalModel;
 
 // Approval dialog: 4 options with countdown timer and keyboard shortcuts.
 // Returns the selected Approval value.

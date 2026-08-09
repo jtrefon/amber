@@ -21,7 +21,7 @@ struct Window {
     // never reused. AgentEvent::window_id and PendingToolLine::window_id
     // carry this value so events follow their window across windows_ erasures
     // (a vector index would shift when another window is closed).
-    size_t id = 0;
+    size_t id = std::string::npos;  // unassigned until the Tui sets it
     std::string title = "chat";
     std::string session_id;          // set once persisted / loaded
     bool dirty = false;              // has unsaved changes since last save

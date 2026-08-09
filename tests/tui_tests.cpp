@@ -742,8 +742,7 @@ TEST(parse_setting_int_rejects_out_of_range) {
 TEST(parse_setting_double_accepts_valid) {
     auto v = tui::text::parse_setting_double("0.5", 0.1, 1.0);
     ASSERT(v.has_value());
-    ASSERT(v.value() >= 0.49);
-    ASSERT(v.value() <= 0.51);
+    ASSERT_EQ(v.value(), 0.5);
 }
 
 TEST(parse_setting_double_rejects_garbage) {

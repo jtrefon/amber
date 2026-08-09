@@ -118,7 +118,6 @@ Tui::~Tui() {
     std::fflush(stdout);
 
     save_workspace_now();
-    save_window_sessions();
 
     agent_cancel_ = true;
     // Resolve every pending approval (queued and undrained) with Deny so a
@@ -129,8 +128,13 @@ Tui::~Tui() {
         deny_all_pending_approvals(event_queue_);
         deny_all_pending_approvals(pending_approvals_);
     }
+    // Join FIRST, then snapshot: snapshot(w) reads the agent's context, which
+    // the worker mutates — saving before the join races the worker and can
+    // persist a torn conversation. endwin() before the stderr progress so the
+    // save messages do not write while ncurses owns the screen.
     if (agent_thread_.joinable()) agent_thread_.join();
     endwin();
+    save_window_sessions();
 }
 
 Window& Tui::new_window(const std::string& title) {
@@ -155,6 +159,7 @@ Window& Tui::new_window(const std::string& title) {
 
 Window& Tui::open_welcome_window() {
     auto w = std::make_unique<Window>();
+    w->id = next_window_id_++;
     w->title = "amber";
     w->read_only = true;
     w->welcome_art = true;
@@ -201,92 +206,22 @@ bool Tui::drain_events() {
                 running_tool_.clear();
             break;
         case AgentEvent::Reasoning:
-            if (!w) break;
-            w->reason_buf += ev.text;
-            if (!w->reason_folded && show_reasoning_)
-                w->scroll_top = max_scroll(*w);
+            on_reasoning(w, ev);
             break;
         case AgentEvent::Token:
-            if (!w) break;
-            working_visible_ = false;  // output is displaying — row retires
-            if (!w->reason_folded && !w->reason_buf.empty())
-                fold_reasoning(*w);
-            w->stream_color = P_ASSISTANT;
-            w->stream_buf += ev.text;
-            live_ctx_offset_ += (static_cast<long>(ev.text.size()) / 4) + 1;
-            w->scroll_top = max_scroll(*w);
+            on_token(w, ev);
             break;
         case AgentEvent::Status:
             append_line(P_STATUS, ev.text);
             break;
-        case AgentEvent::ToolCall: {
-            if (!w) break;
-            running_tool_ = ev.tool_name;
-            running_tool_desc_ = tool_display::describe_tool_call(
-                ev.tool_name, ev.tool_args);
-            working_visible_ = true;
-            flush_stream(*w);
-            // One "open" line per advertised call, animated together: round
-            // spinner + a human description of what is actually running
-            // (bash -> the command, read/write -> path, search -> pattern).
-            PendingToolLine pt;
-            pt.name = ev.tool_name;
-            pt.fingerprint = ev.tool_args.dump();
-            pt.frame = 0;
-            pt.tail = " " + tool_display::describe_tool_call(ev.tool_name,
-                                                             ev.tool_args);
-            const char* frame = text::glyph::spinner_round(0);
-            pt.window_id = ev.window_id;
-            pt.index = append_line_to(*w, P_STATUS,
-                                      std::string(frame) + pt.tail);
-            pending_tools_.push_back(std::move(pt));
+        case AgentEvent::ToolCall:
+            on_tool_call(w, ev);
             break;
-        }
-        case AgentEvent::ToolResult: {
-            if (!w) break;
-            running_tool_.clear();
-            running_tool_desc_.clear();
-            // Summary line: colored success/failure icon + one-line report,
-            // closed IN PLACE on the open line (single line per tool call).
-            rich::Line summary = tool_display::result_line(
-                ev.tool_name, ev.tool_args, ev.tool_result.ok,
-                ev.tool_result.output, ev.tool_result.error);
-            // Match the pending line for this call (name + args, FIFO).
-            std::string fp = ev.tool_args.dump();
-            size_t match = std::string::npos;
-            for (size_t i = 0; i < pending_tools_.size(); ++i)
-                if (pending_tools_[i].name == ev.tool_name &&
-                    pending_tools_[i].fingerprint == fp) {
-                    match = i; break;
-                }
-            if (match == std::string::npos)
-                for (size_t i = 0; i < pending_tools_.size(); ++i)
-                    if (pending_tools_[i].name == ev.tool_name) {
-                        match = i; break;
-                    }
-            if (match != std::string::npos) {
-                auto& pt = pending_tools_[match];
-                Window* ow = window_by_id(pt.window_id);
-                if (ow && pt.index < ow->lines.size()) {
-                    size_t li = pt.index;
-                    // Close in place: keep the open line's timestamp run.
-                    ow->lines[li] = tool_display::close_tool_line(
-                        ow->lines[li], std::move(summary));
-                    pending_tools_.erase(pending_tools_.begin() + match);
-                } else {
-                    append_rich_to(*w, summary);
-                }
-            } else {
-                append_rich_to(*w, summary);
-            }
-            // Tool may have modified files — refresh git state for prompt.
-            git_refresh();
+        case AgentEvent::ToolResult:
+            on_tool_result(w, ev);
             break;
-        }
         case AgentEvent::Assistant:
-            if (!w) break;
-            if (w->stream_buf.empty())
-                append_markdown(*w, ev.text);
+            on_assistant(w, ev);
             break;
         case AgentEvent::Stats:
             stats_ = ev.stats;
@@ -296,45 +231,14 @@ bool Tui::drain_events() {
             }
             break;
         case AgentEvent::Error:
-            if (!w) break;
-            state_ = agent::RunState::Error;
-            flush_stream(*w);
-            append_line_to(*w, P_STATUS, std::string("error: ") + ev.error_msg);
+            on_error(w, ev);
             break;
         case AgentEvent::Done:
-            if (!w) break;
-            if (state_ != agent::RunState::Error)
-                state_ = agent::RunState::Idle;
-            running_tool_.clear();
-            flush_stream(*w);
-            w->dirty = true;
-            autosave(*w);
+            on_done(w, ev);
             break;
-        case AgentEvent::CompressResult: {
-            if (!w) break;
-            auto& r = ev.compress_result;
-            state_ = agent::RunState::Idle;
-            ctx_used_ = static_cast<long>(r.tokens_after);
-            if (r.messages_before == 0) {
-                append_line(P_STATUS, "compress: no compressor configured");
-            } else if (r.messages_after >= r.messages_before) {
-                append_line(P_STATUS, "compress: nothing to prune ("
-                            + std::to_string(r.messages_before)
-                            + " messages, ~" + std::to_string(r.tokens_before)
-                            + " tokens)");
-            } else {
-                append_line(P_STATUS,
-                    "compress: " + std::to_string(r.messages_before)
-                    + " \u2192 " + std::to_string(r.messages_after)
-                    + " msgs, ~" + std::to_string(r.tokens_before)
-                    + " \u2192 ~" + std::to_string(r.tokens_after) + " tokens"
-                    + "  (core:" + std::to_string(r.core_count)
-                    + " ctx:" + std::to_string(r.context_count)
-                    + " prune:" + std::to_string(r.prune_count) + ")");
-            }
-            w->dirty = true;
+        case AgentEvent::CompressResult:
+            on_compress_result(w, ev);
             break;
-        }
         case AgentEvent::Approval: {
             // While a modal dialog is open the main thread is not in the event
             // loop; queue the approval so we don't nest ncurses dialogs or
@@ -454,6 +358,138 @@ void Tui::send_async(const std::string& raw_prompt) {
     });
 }
 
+void Tui::on_reasoning(Window* w, const AgentEvent& ev) {
+    if (!w) return;
+    w->reason_buf += ev.text;
+    if (!w->reason_folded && show_reasoning_)
+        w->scroll_top = max_scroll(*w);
+}
+
+void Tui::on_token(Window* w, const AgentEvent& ev) {
+    if (!w) return;
+    working_visible_ = false;  // output is displaying — row retires
+    if (!w->reason_folded && !w->reason_buf.empty())
+        fold_reasoning(*w);
+    w->stream_color = P_ASSISTANT;
+    w->stream_buf += ev.text;
+    live_ctx_offset_ += (static_cast<long>(ev.text.size()) / 4) + 1;
+    w->scroll_top = max_scroll(*w);
+}
+
+void Tui::on_tool_call(Window* w, const AgentEvent& ev) {
+    if (!w) return;
+    running_tool_ = ev.tool_name;
+    running_tool_desc_ = tool_display::describe_tool_call(
+        ev.tool_name, ev.tool_args);
+    working_visible_ = true;
+    flush_stream(*w);
+    // One "open" line per advertised call, animated together: round
+    // spinner + a human description of what is actually running
+    // (bash -> the command, read/write -> path, search -> pattern).
+    PendingToolLine pt;
+    pt.name = ev.tool_name;
+    pt.fingerprint = ev.tool_args.dump();
+    pt.frame = 0;
+    pt.tail = " " + tool_display::describe_tool_call(ev.tool_name,
+                                                     ev.tool_args);
+    const char* frame = text::glyph::spinner_round(0);
+    pt.window_id = ev.window_id;
+    pt.index = append_line_to(*w, P_STATUS,
+                              std::string(frame) + pt.tail);
+    pending_tools_.push_back(std::move(pt));
+}
+
+void Tui::on_tool_result(Window* w, const AgentEvent& ev) {
+    if (!w) return;
+    running_tool_.clear();
+    running_tool_desc_.clear();
+    // Summary line: colored success/failure icon + one-line report,
+    // closed IN PLACE on the open line (single line per tool call).
+    rich::Line summary = tool_display::result_line(
+        ev.tool_name, ev.tool_args, ev.tool_result.ok,
+        ev.tool_result.output, ev.tool_result.error);
+    // Match the pending line for this call (same window + name + args, FIFO).
+    std::string fp = ev.tool_args.dump();
+    size_t match = std::string::npos;
+    for (size_t i = 0; i < pending_tools_.size(); ++i)
+        if (pending_tools_[i].window_id == ev.window_id &&
+            pending_tools_[i].name == ev.tool_name &&
+            pending_tools_[i].fingerprint == fp) {
+            match = i; break;
+        }
+    if (match == std::string::npos)
+        for (size_t i = 0; i < pending_tools_.size(); ++i)
+            if (pending_tools_[i].window_id == ev.window_id &&
+                pending_tools_[i].name == ev.tool_name) {
+                match = i; break;
+            }
+    if (match != std::string::npos) {
+        auto& pt = pending_tools_[match];
+        Window* ow = window_by_id(pt.window_id);
+        if (ow && pt.index < ow->lines.size()) {
+            size_t li = pt.index;
+            // Close in place: keep the open line's timestamp run.
+            ow->lines[li] = tool_display::close_tool_line(
+                ow->lines[li], std::move(summary));
+            pending_tools_.erase(pending_tools_.begin() + match);
+        } else {
+            append_rich_to(*w, summary);
+        }
+    } else {
+        append_rich_to(*w, summary);
+    }
+    // Tool may have modified files — refresh git state for prompt.
+    git_refresh();
+}
+
+void Tui::on_assistant(Window* w, const AgentEvent& ev) {
+    if (!w) return;
+    if (w->stream_buf.empty())
+        append_markdown(*w, ev.text);
+}
+
+void Tui::on_error(Window* w, const AgentEvent& ev) {
+    if (!w) return;
+    state_ = agent::RunState::Error;
+    flush_stream(*w);
+    append_line_to(*w, P_STATUS, std::string("error: ") + ev.error_msg);
+}
+
+void Tui::on_done(Window* w, const AgentEvent& ev) {
+    if (!w) return;
+    if (state_ != agent::RunState::Error)
+        state_ = agent::RunState::Idle;
+    running_tool_.clear();
+    flush_stream(*w);
+    w->dirty = true;
+    autosave(*w);
+}
+
+void Tui::on_compress_result(Window* w, const AgentEvent& ev) {
+    if (!w) return;
+    auto& r = ev.compress_result;
+    state_ = agent::RunState::Idle;
+    ctx_used_ = static_cast<long>(r.tokens_after);
+    if (r.messages_before == 0) {
+        append_line_to(*w, P_STATUS, "compress: no compressor configured");
+    } else if (r.messages_after >= r.messages_before) {
+        append_line_to(*w, P_STATUS, "compress: nothing to prune ("
+                            + std::to_string(r.messages_before)
+                            + " messages, ~" + std::to_string(r.tokens_before)
+                            + " tokens)");
+    } else {
+        append_line_to(*w, P_STATUS,
+            "compress: " + std::to_string(r.messages_before)
+            + " \u2192 " + std::to_string(r.messages_after)
+            + " msgs, ~" + std::to_string(r.tokens_before)
+            + " \u2192 ~" + std::to_string(r.tokens_after) + " tokens"
+            + "  (core:" + std::to_string(r.core_count)
+            + " ctx:" + std::to_string(r.context_count)
+            + " prune:" + std::to_string(r.prune_count) + ")");
+    }
+    w->dirty = true;
+}
+
 void Tui::agent_worker(Window& my_win, size_t window_id,
                        const std::string& prompt) {
     agent::AgentHooks hooks;
@@ -554,6 +590,14 @@ void Tui::agent_worker(Window& my_win, size_t window_id,
         ev.error_msg = e.what();
         std::scoped_lock lk(event_mtx_);
         event_queue_.push(std::move(ev));
+    } catch (...) {
+        // A non-std exception must never escape a thread entry (terminate).
+        AgentEvent ev;
+        ev.type = AgentEvent::Error;
+        ev.window_id = window_id;
+        ev.error_msg = "agent thread terminated unexpectedly";
+        std::scoped_lock lk(event_mtx_);
+        event_queue_.push(std::move(ev));
     }
 
     AgentEvent done;
@@ -588,6 +632,9 @@ void Tui::compress_worker(Window& my_win, size_t window_id) {
             // must still be reported so state_ does not stay Waiting.
             ev.type = AgentEvent::Error;
             ev.error_msg = e.what();
+        } catch (...) {
+            ev.type = AgentEvent::Error;
+            ev.error_msg = "compress thread terminated unexpectedly";
         }
         {
             std::scoped_lock lk(event_mtx_);
@@ -772,9 +819,21 @@ void Tui::run() {
         // the terminal). Turn it into a graceful save + teardown here, on the
         // main thread, where file I/O and endwin are safe.
         if (g_signal_state.consume()) {
-            // Persist per-window conversation sessions (the destructor path
-            // is skipped) and exit with the shell-conventional 128+sig status.
-            save_window_sessions();
+            // Persist per-window conversation sessions and exit with the
+            // shell-conventional 128+sig status. snapshot() races the worker,
+            // so only save when it has finished (agent_busy_ is cleared as
+            // its last action); a mid-run signal exits without the final
+            // turn's session — bounded shutdown beats a torn save.
+            agent_cancel_ = true;
+            {
+                std::scoped_lock lk(event_mtx_);
+                deny_all_pending_approvals(event_queue_);
+                deny_all_pending_approvals(pending_approvals_);
+            }
+            if (agent_thread_.joinable() && !agent_busy_.load()) {
+                agent_thread_.join();
+                save_window_sessions();
+            }
             save_workspace_now();
             endwin();
             _Exit(128 + g_signal_state.signal());
@@ -1114,9 +1173,7 @@ void Tui::save_window_sessions() {
 }
 
 Window* Tui::window_by_id(size_t id) {
-    for (auto& w : windows_)
-        if (w && w->id == id) return w.get();
-    return nullptr;
+    return find_window(windows_, id);
 }
 
 } // namespace tui

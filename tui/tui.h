@@ -59,6 +59,17 @@ public:
 private:
     // ---- thread / event machinery ---------------------------------------
     bool drain_events();       // pop and process all pending events
+    // Per-event handlers for drain_events' window-scoped cases; w is the
+    // routed origin window (nullptr when it no longer exists). Global-state
+    // cases (StateChange/Stats/Status/Approval) stay in drain_events.
+    void on_reasoning(Window* w, const AgentEvent& ev);
+    void on_token(Window* w, const AgentEvent& ev);
+    void on_tool_call(Window* w, const AgentEvent& ev);
+    void on_tool_result(Window* w, const AgentEvent& ev);
+    void on_assistant(Window* w, const AgentEvent& ev);
+    void on_error(Window* w, const AgentEvent& ev);
+    void on_done(Window* w, const AgentEvent& ev);
+    void on_compress_result(Window* w, const AgentEvent& ev);
 
     void resolve_approval(const AgentEvent& ev);
     void send_async(const std::string& raw_prompt);

@@ -39,21 +39,28 @@ int ListPanel::run() {
     timeout(-1);
     draw_items();
     show();
+    run_input_loop();
+    hide();
+    remap_filtered_selection();
+    return selection_;
+}
+
+void ListPanel::run_input_loop() {
     int ch;
     while ((ch = getch()) != ERR) {
         if (handle_key(ch)) break;
     }
-    hide();
-    if (!filter_.empty()) {
-        // If filtering, map selected index to original items_
-        auto f = filtered();
-        if (selection_ >= 0 && selection_ < static_cast<int>(f.size())) {
-            for (int i = 0; i < static_cast<int>(items_.size()); ++i)
-                if (items_[i] == f[selection_])
-                    { selection_ = i; break; }
-        }
+}
+
+void ListPanel::remap_filtered_selection() {
+    if (filter_.empty()) return;
+    // If filtering, map selected index to original items_
+    auto f = filtered();
+    if (selection_ >= 0 && selection_ < static_cast<int>(f.size())) {
+        for (int i = 0; i < static_cast<int>(items_.size()); ++i)
+            if (items_[i] == f[selection_])
+                { selection_ = i; break; }
     }
-    return selection_;
 }
 
 bool ListPanel::handle_key(int ch) {
