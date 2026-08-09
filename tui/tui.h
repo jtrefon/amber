@@ -83,6 +83,16 @@ private:
     std::thread agent_thread_;
     std::atomic<bool> agent_busy_{false};
     std::atomic<bool> agent_cancel_{false};
+    // Teardown latch: set under event_mtx_ before the approval queues are
+    // drained, so a worker racing the destructor cannot queue an approval
+    // after the drain (its promise would never resolve and join() would
+    // deadlock).
+    bool shutting_down_ = false;
+
+    // Locate the pending tool line for (window, name, args): fingerprint match
+    // first, then name-only FIFO fallback. npos when nothing matches.
+    size_t find_pending_tool(size_t window_id, const std::string& name,
+                             const std::string& fingerprint) const;
 
     // Name of the tool currently executing on the agent worker (foreground,
     // e.g. bash), surfaced on the status bar so a synchronous command that is

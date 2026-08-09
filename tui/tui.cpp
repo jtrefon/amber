@@ -34,6 +34,27 @@
 namespace tui {
 
 namespace {
+// One-line compression result summary for the status bar.
+std::string compress_summary(const agent::CompressionResult& r) {
+    if (r.messages_before == 0)
+        return "compress: no compressor configured";
+    if (r.messages_after >= r.messages_before)
+        return "compress: nothing to prune ("
+               + std::to_string(r.messages_before)
+               + " messages, ~" + std::to_string(r.tokens_before)
+               + " tokens)";
+    return "compress: " + std::to_string(r.messages_before)
+           + " \u2192 " + std::to_string(r.messages_after)
+           + " msgs, ~" + std::to_string(r.tokens_before)
+           + " \u2192 ~" + std::to_string(r.tokens_after) + " tokens"
+           + "  (core:" + std::to_string(r.core_count)
+           + " ctx:" + std::to_string(r.context_count)
+           + " prune:" + std::to_string(r.prune_count) + ")";
+}
+
+} // namespace
+
+namespace {
 // Process-global signal state. The handler may only touch async-signal-safe
 // machinery: set the flag, restore the terminal, arm the alarm fallback. The
 // main event loop turns the flag into a graceful teardown (workspace save +
@@ -125,6 +146,7 @@ Tui::~Tui() {
     // join below deadlocks forever.
     {
         std::scoped_lock lk(event_mtx_);
+        shutting_down_ = true;
         deny_all_pending_approvals(event_queue_);
         deny_all_pending_approvals(pending_approvals_);
     }
@@ -409,20 +431,8 @@ void Tui::on_tool_result(Window* w, const AgentEvent& ev) {
         ev.tool_name, ev.tool_args, ev.tool_result.ok,
         ev.tool_result.output, ev.tool_result.error);
     // Match the pending line for this call (same window + name + args, FIFO).
-    std::string fp = ev.tool_args.dump();
-    size_t match = std::string::npos;
-    for (size_t i = 0; i < pending_tools_.size(); ++i)
-        if (pending_tools_[i].window_id == ev.window_id &&
-            pending_tools_[i].name == ev.tool_name &&
-            pending_tools_[i].fingerprint == fp) {
-            match = i; break;
-        }
-    if (match == std::string::npos)
-        for (size_t i = 0; i < pending_tools_.size(); ++i)
-            if (pending_tools_[i].window_id == ev.window_id &&
-                pending_tools_[i].name == ev.tool_name) {
-                match = i; break;
-            }
+    size_t match = find_pending_tool(ev.window_id, ev.tool_name,
+                                     ev.tool_args.dump());
     if (match != std::string::npos) {
         auto& pt = pending_tools_[match];
         Window* ow = window_by_id(pt.window_id);
@@ -470,23 +480,7 @@ void Tui::on_compress_result(Window* w, const AgentEvent& ev) {
     auto& r = ev.compress_result;
     state_ = agent::RunState::Idle;
     ctx_used_ = static_cast<long>(r.tokens_after);
-    if (r.messages_before == 0) {
-        append_line_to(*w, P_STATUS, "compress: no compressor configured");
-    } else if (r.messages_after >= r.messages_before) {
-        append_line_to(*w, P_STATUS, "compress: nothing to prune ("
-                            + std::to_string(r.messages_before)
-                            + " messages, ~" + std::to_string(r.tokens_before)
-                            + " tokens)");
-    } else {
-        append_line_to(*w, P_STATUS,
-            "compress: " + std::to_string(r.messages_before)
-            + " \u2192 " + std::to_string(r.messages_after)
-            + " msgs, ~" + std::to_string(r.tokens_before)
-            + " \u2192 ~" + std::to_string(r.tokens_after) + " tokens"
-            + "  (core:" + std::to_string(r.core_count)
-            + " ctx:" + std::to_string(r.context_count)
-            + " prune:" + std::to_string(r.prune_count) + ")");
-    }
+    append_line_to(*w, P_STATUS, compress_summary(r));
     w->dirty = true;
 }
 
@@ -555,9 +549,9 @@ void Tui::agent_worker(Window& my_win, size_t window_id,
         ev.text = s;
         push_event(std::move(ev));
     };
-    hooks.on_approval = [this, push_event](const std::string& name,
-                                           const agent::json& args,
-                                           const std::string& summary) -> agent::Approval {
+    hooks.on_approval = [this, window_id](const std::string& name,
+                                          const agent::json& args,
+                                          const std::string& summary) -> agent::Approval {
         if (agent_cancel_.load()) return agent::Approval::Deny;
         auto p = std::make_shared<std::promise<agent::Approval>>();
         auto f = p->get_future();
@@ -565,7 +559,16 @@ void Tui::agent_worker(Window& my_win, size_t window_id,
         ev.type = AgentEvent::Approval;
         ev.text = summary;
         ev.approval_promise = p;
-        push_event(std::move(ev));
+        {
+            // The teardown check and the enqueue must be atomic: a worker
+            // that checked agent_cancel_ before the destructor drained the
+            // queues would push an approval nothing ever resolves and block
+            // this thread on f.get() forever, hanging ~Tui's join().
+            std::scoped_lock lk(event_mtx_);
+            if (shutting_down_) return agent::Approval::Deny;
+            ev.window_id = window_id;
+            event_queue_.push(std::move(ev));
+        }
         (void)name;
         (void)args;
         return f.get();
@@ -827,15 +830,18 @@ void Tui::run() {
             agent_cancel_ = true;
             {
                 std::scoped_lock lk(event_mtx_);
+                shutting_down_ = true;
                 deny_all_pending_approvals(event_queue_);
                 deny_all_pending_approvals(pending_approvals_);
             }
+            // endwin() first: the session-save progress writes to stderr and
+            // must not interleave with a terminal ncurses still controls.
+            endwin();
             if (agent_thread_.joinable() && !agent_busy_.load()) {
                 agent_thread_.join();
                 save_window_sessions();
             }
             save_workspace_now();
-            endwin();
             _Exit(128 + g_signal_state.signal());
         }
         bool had_events = drain_events();
@@ -1158,6 +1164,20 @@ void Tui::run() {
         if (ch == KEY_PPAGE) { win().scroll_top = std::max(0, win().scroll_top - lines_per_page()); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
         if (dirty_) { flush(); dirty_ = false; }
     }
+}
+
+size_t Tui::find_pending_tool(size_t window_id, const std::string& name,
+                              const std::string& fingerprint) const {
+    for (size_t i = 0; i < pending_tools_.size(); ++i)
+        if (pending_tools_[i].window_id == window_id &&
+            pending_tools_[i].name == name &&
+            pending_tools_[i].fingerprint == fingerprint)
+            return i;
+    for (size_t i = 0; i < pending_tools_.size(); ++i)
+        if (pending_tools_[i].window_id == window_id &&
+            pending_tools_[i].name == name)
+            return i;
+    return std::string::npos;
 }
 
 void Tui::save_window_sessions() {
