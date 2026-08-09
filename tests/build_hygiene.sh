@@ -26,13 +26,14 @@ else
 fi
 
 # P2
-if make -n -B ws_test 2>/dev/null | grep -q -- '-MMD'; then
+test_out=$(make -n -B test 2>/dev/null)
+if echo "$test_out" | grep -E 'ws_test' | grep -q -- '-MMD'; then
     ok "ws_test compiles with -MMD"
 else
     warn "P2: ws_test compiles without -MMD dependency generation"
 fi
-for p in tools/plugins/sysinfo/sysinfo-plugin tools/plugins/cdp/cdp-plugin; do
-    if make -n -B "$p" 2>/dev/null | grep -q -- '-MMD'; then
+for p in sysinfo-plugin cdp-plugin; do
+    if echo "$test_out" | grep -E "$p" | grep -q -- '-MMD'; then
         ok "$p compiles with -MMD"
     else
         warn "P2: $p compiles without -MMD dependency generation"

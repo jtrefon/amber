@@ -217,16 +217,16 @@ CDP_PLUGIN = $(BUILD_DIR)/tools/plugins/cdp/cdp-plugin
 all: lib cli tui bench $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
 
 $(SYSINFO_PLUGIN): tools/plugins/sysinfo/main.cpp
-	$(CXX) $(CXXFLAGS) -I$(SRC_DIR)/include -o $@ tools/plugins/sysinfo/main.cpp
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -o $@ tools/plugins/sysinfo/main.cpp
 
 $(CDP_PLUGIN): tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp tools/plugins/cdp/ws_client.h
-	$(CXX) $(CXXFLAGS) -I$(SRC_DIR)/include -Itools/plugins/cdp -o $@ tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -Itools/plugins/cdp -o $@ tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp
 
 check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 	sh $(SRC_DIR)/tests/build_hygiene.sh
 
-test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test
+test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/bench_test
 
 $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
@@ -253,10 +253,10 @@ $(BUILD_DIR)/$(BENCH_BIN): $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) 
 	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/ws_test: tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp tools/plugins/cdp/ws_client.h
-	$(CXX) $(CXXFLAGS) -Itools/plugins/cdp -o $@ tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -Itools/plugins/cdp -o $@ tools/plugins/cdp/ws_test.cpp tools/plugins/cdp/ws_client.cpp
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
 
 lib: $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 
@@ -323,7 +323,11 @@ $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 -include $(BENCH_TEST_OBJ:.o=.d)
 -include $(CL_TEST_OBJ:.o=.d)
 -include $(E2E_TEST_OBJ:.o=.d)
--include $(COMP_TEST_OBJ:.o=.d)
+-include $(TUI_TEST_OBJ:.o=.d)
+-include $(PLUGIN_TEST_OBJ:.o=.d)
+-include $(BUILD_DIR)/ws_test.d
+-include $(SYSINFO_PLUGIN).d
+-include $(CDP_PLUGIN).d
 
 datadir    = $(datarootdir)/amber
 
@@ -361,12 +365,16 @@ uninstall:
 	rm -rf $(DESTDIR)$(docdir)
 
 clean:
-	rm -f $(BUILD_DIR)/lib/*.o $(BUILD_DIR)/src/*.o $(BUILD_DIR)/tui/*.o $(BUILD_DIR)/tests/*.o
-	rm -f $(BUILD_DIR)/bench/*.o
-	rm -f $(BUILD_DIR)/tools/*.o $(BUILD_DIR)/tools/search/*.o
-	rm -f $(BUILD_DIR)/lib/*.d $(BUILD_DIR)/src/*.d $(BUILD_DIR)/tui/*.d \
-	      $(BUILD_DIR)/tui/setting_registry.o \
-	      $(BUILD_DIR)/tui/setting_registry.d \
-	      $(BUILD_DIR)/bench/*.d \
-	      $(BUILD_DIR)/tests/*.d $(BUILD_DIR)/tools/*.d $(BUILD_DIR)/tools/search/*.d \
-	rm -f $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/libagent.a
+	rm -f $(BUILD_DIR)/lib/*.o $(BUILD_DIR)/lib/*.d
+	rm -f $(BUILD_DIR)/src/*.o $(BUILD_DIR)/src/*.d
+	rm -f $(BUILD_DIR)/tui/*.o $(BUILD_DIR)/tui/*.d
+	rm -f $(BUILD_DIR)/tests/*.o $(BUILD_DIR)/tests/*.d
+	rm -f $(BUILD_DIR)/bench/*.o $(BUILD_DIR)/bench/*.d
+	rm -f $(BUILD_DIR)/tools/*.o $(BUILD_DIR)/tools/*.d
+	rm -f $(BUILD_DIR)/tools/search/*.o $(BUILD_DIR)/tools/search/*.d
+	rm -f $(BUILD_DIR)/third_party/md4c/*.o $(BUILD_DIR)/third_party/md4c/*.d
+	rm -f $(SYSINFO_PLUGIN) $(SYSINFO_PLUGIN).d $(CDP_PLUGIN) $(CDP_PLUGIN).d
+	rm -f $(CORE_LIB) $(TOOLS_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)
+	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/smoketest
+	rm -f $(BUILD_DIR)/run_command_line_test $(BUILD_DIR)/run_completions_test $(BUILD_DIR)/run_e2e_test
+	rm -f amber-smoke.txt
