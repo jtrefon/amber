@@ -96,10 +96,10 @@ else
 fi
 
 # P4
-if [ -f compile_commands.json ]; then
-    warn "P4: compile_commands.json is present (stale machine-specific flags)"
+if git ls-files --error-unmatch -- compile_commands.json >/dev/null 2>&1; then
+    warn "P4: compile_commands.json is tracked (stale machine-specific flags)"
 else
-    ok "compile_commands.json absent"
+    ok "compile_commands.json is not tracked"
 fi
 if grep -q 'compile_commands' .gitignore; then
     ok "compile_commands.json is gitignored"

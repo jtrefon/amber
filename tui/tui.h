@@ -17,6 +17,7 @@
 #include "markdown.h"
 #include "action_registry.h"
 #include "setting_registry.h"
+#include "agent_event.h"
 
 #include <atomic>
 #include <chrono>
@@ -38,38 +39,6 @@ class ToolRegistry;
 namespace tui {
 using palette::Command;
 
-// Inter-thread event emitted by the agent worker and consumed on the UI
-// thread during the main event loop.
-struct AgentEvent {
-    enum Type {
-        Token,
-        Reasoning,
-        StateChange,
-        ToolCall,
-        ToolResult,
-        Status,
-        Stats,
-        Assistant,
-        Approval,
-        Error,
-        Done,
-        CompressResult,
-    };
-    Type type;
-    std::string text;
-    agent::RunState state = agent::RunState::Idle;
-    agent::Stats stats{};
-    std::string tool_name;
-    agent::ToolResult tool_result{};
-    agent::json tool_args;
-    std::string error_msg;
-    agent::CompressionResult compress_result{};
-
-    // Worker thread blocks on this promise until the UI thread
-    // shows the approval dialog and resolves it.
-    std::shared_ptr<std::promise<agent::Approval>> approval_promise;
-};
-
 // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
 // function creates it and calls run().
@@ -90,18 +59,48 @@ public:
 private:
     // ---- thread / event machinery ---------------------------------------
     bool drain_events();       // pop and process all pending events
+    // Per-event handlers for drain_events' window-scoped cases; w is the
+    // routed origin window (nullptr when it no longer exists). Global-state
+    // cases (StateChange/Stats/Status/Approval) stay in drain_events.
+    void on_reasoning(Window* w, const AgentEvent& ev);
+    void on_token(Window* w, const AgentEvent& ev);
+    void on_tool_call(Window* w, const AgentEvent& ev);
+    void on_tool_result(Window* w, const AgentEvent& ev);
+    void on_assistant(Window* w, const AgentEvent& ev);
+    void on_error(Window* w, const AgentEvent& ev);
+    void on_done(Window* w, const AgentEvent& ev);
+    void on_compress_result(Window* w, const AgentEvent& ev);
 
     void resolve_approval(const AgentEvent& ev);
     void send_async(const std::string& raw_prompt);
     std::string expand_at_references(const std::string& raw) const;
-    void agent_worker(const std::string& prompt);
-    void compress_worker();
+    void agent_worker(Window& my_win, size_t window_id,
+                      const std::string& prompt);
+    void compress_worker(Window& my_win, size_t window_id);
+    // Hook factory for agent_worker: builds the AgentHooks that stamp events
+    // with the origin window and funnel them into the queue.
+    agent::AgentHooks make_agent_hooks(size_t window_id);
+    // Runs one compression pass on the worker thread and publishes the
+    // result/error event (the caller queues it and clears the busy flag).
+    AgentEvent run_compression(Window& my_win, size_t window_id);
+    // Resolve one approval queued while a modal was open (called per pump).
+    void pump_pending_approvals();
 
     std::queue<AgentEvent> event_queue_;
     std::mutex event_mtx_;
     std::thread agent_thread_;
     std::atomic<bool> agent_busy_{false};
     std::atomic<bool> agent_cancel_{false};
+    // Teardown latch: set under event_mtx_ before the approval queues are
+    // drained, so a worker racing the destructor cannot queue an approval
+    // after the drain (its promise would never resolve and join() would
+    // deadlock).
+    bool shutting_down_ = false;
+
+    // Locate the pending tool line for (window, name, args): fingerprint match
+    // first, then name-only FIFO fallback. npos when nothing matches.
+    size_t find_pending_tool(size_t window_id, const std::string& name,
+                             const std::string& fingerprint) const;
 
     // Name of the tool currently executing on the agent worker (foreground,
     // e.g. bash), surfaced on the status bar so a synchronous command that is
@@ -117,7 +116,8 @@ private:
     // result lands. Scrollback-only — the agent's immutable context stays
     // sealed.
     struct PendingToolLine {
-        size_t index = std::string::npos;  // index into win().lines
+        size_t index = std::string::npos;  // index into the origin window's lines
+        size_t window_id = std::string::npos;  // origin window
         std::string name;
         std::string fingerprint;  // args dump — identity for result matching
         std::string tail;         // " <description>" after the spinner glyph
@@ -152,8 +152,9 @@ private:
     int chat_top() const;
     int chat_height() const;
     int lines_per_page() const;
-    int stream_lines() const;
-    int max_scroll() const;
+    int stream_lines(const Window& w) const;
+    int max_scroll(const Window& w) const;
+    int max_scroll() const { return max_scroll(win()); }
 
     // ---- low-level helpers ----------------------------------------------
     static size_t utf8_len(const std::string& s, size_t i);
@@ -162,14 +163,21 @@ private:
     void append_line(int color, const std::string& text);
     void append_line_ts(int color, const std::string& text,
                         const std::string& ts);
+    // Window-targeted variant used by event routing: appends (with timestamp)
+    // to a specific window's scrollback and returns the appended index.
+    size_t append_line_to(Window& w, int color, const std::string& text);
+    size_t append_line_to(Window& w, int color, const std::string& text,
+                          const std::string& ts);
     void append_rich(const rich::Line& l);
-    void append_markdown(const std::string& md);
+    void append_markdown(Window& w, const std::string& md);
     // Append a plain color run as a wrapped RichLine into an existing view
     // vector (used for the live stream preview inside draw()).
     static void append_rich_to(std::vector<rich::Line>& view,
                                const std::string& text, int color, int w);
+    // Window-targeted append for routed events (drain_events fallbacks).
+    void append_rich_to(Window& w, const rich::Line& l);
     void banner(const std::string& text);
-    void trim_lines();
+    void trim_lines(Window& w);
 
     // ---- rendering ------------------------------------------------------
     // Stage-only redraw helpers write to stdscr without flushing; flush()
@@ -201,12 +209,16 @@ private:
     std::vector<const tui::Command*> filter_commands(const std::string& token);
 
     // ---- streaming helpers ----------------------------------------------
-    void fold_reasoning();
-    void flush_stream();
+    void fold_reasoning(Window& w);
+    void flush_stream(Window& w);
 
     // ---- session persistence --------------------------------------------
     agent::Session snapshot(Window& w) const;
     void autosave();
+    void autosave(Window& w);
+    // Save every dirty window's conversation; used by the destructor and the
+    // deferred signal-exit path (which skips ~Tui).
+    void save_window_sessions();
     void save_session();
     void load_session(const std::string& id);
     void session_browser();
@@ -218,6 +230,8 @@ private:
     void close_window();
     Window& win();
     const Window& win() const;
+    Window* window_by_id(size_t id);
+    size_t next_window_id_ = 0;
 
     // ---- slash command framework ----------------------------------------
     const std::vector<tui::Command>& commands();
@@ -305,6 +319,11 @@ private:
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
     void cmd_get(const std::string& arg);
+    // Single implementation for each compression setting; both the action
+    // handlers and the SettingRegistry setters delegate here so the two
+    // paths can never disagree.
+    void apply_compression_threshold(const std::string& v);
+    void apply_compression_min_turns(const std::string& v);
     void cmd_skills_set(const std::string& rest);
     void cmd_skills_get(const std::string& sub);
     void cmd_mcp(const std::string& rest);

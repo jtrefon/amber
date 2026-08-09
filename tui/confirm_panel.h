@@ -10,6 +10,8 @@
 
 namespace tui {
 
+class ApprovalModel;
+
 // Approval dialog: 4 options with countdown timer and keyboard shortcuts.
 // Returns the selected Approval value.
 class ApprovalPanel : public Panel {
@@ -21,6 +23,9 @@ public:
     agent::Approval run();
 
 private:
+    // Key dispatch for the dialog loop; returns true when the dialog should
+    // close. The model is the single source of truth for the selection.
+    bool handle_dialog_key(int ch, ApprovalModel& model);
     std::string summary_;
     int timeout_sec_;
     int sel_ = 0;           // 0=AllowOnce, 1=AllowSession, 2=AlwaysAllow, 3=AlwaysDeny

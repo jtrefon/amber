@@ -63,6 +63,26 @@ void init_pairs();
 // Pass nullptr to detach.
 void set_modal_flag(bool* flag);
 
+// The main event loop ticks getch with this non-blocking timeout. Modal
+// dialogs that read stdscr switch to blocking and MUST restore this value on
+// every exit path — a dialog that leaves the timeout at -1 freezes the tick
+// (streaming render, spinners, countdown); a dialog that leaves it at 50 ms
+// auto-closes after 50 ms without a keypress. Tui::run() is the single
+// production writer; keep the two in sync.
+inline constexpr int kTickTimeoutMs = 50;
+
+// RAII: restores the main-loop tick timeout when a stdscr-modal exits.
+// Non-copyable/non-movable (like ModalScope) so the timeout can never be
+// restored twice.
+struct BlockingInputGuard {
+    BlockingInputGuard() = default;
+    ~BlockingInputGuard() { timeout(kTickTimeoutMs); }
+    BlockingInputGuard(const BlockingInputGuard&) = delete;
+    BlockingInputGuard& operator=(const BlockingInputGuard&) = delete;
+    BlockingInputGuard(BlockingInputGuard&&) = delete;
+    BlockingInputGuard& operator=(BlockingInputGuard&&) = delete;
+};
+
 // RAII guard: marks the modal flag set on construction, cleared on destruction,
 // so a modal primitive always releases it even on early return.
 struct ModalScope {

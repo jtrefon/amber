@@ -16,18 +16,18 @@ int Tui::width() const { int y, x; getmaxyx(stdscr, y, x); (void)y; return x; }
 int Tui::chat_top() const { return 0; }
 int Tui::chat_height() const { return std::max(1, height() - 2); }
 int Tui::lines_per_page() const { return chat_height(); }
-int Tui::stream_lines() const {
-    return win().stream_buf.empty()
+int Tui::stream_lines(const Window& w) const {
+    return w.stream_buf.empty()
                ? 0
-               : static_cast<int>(wrap_text(win().stream_buf, width()).size());
+               : static_cast<int>(wrap_text(w.stream_buf, width()).size());
 }
-int Tui::max_scroll() const {
+int Tui::max_scroll(const Window& w) const {
     // Count wrapped screen lines from committed rich lines.
     // Each rich::Line may wrap to multiple screen rows.
     int total = 0;
-    for (const auto& line : win().lines)
+    for (const auto& line : w.lines)
         total += static_cast<int>(rich::wrap(line, width()).size());
-    total += stream_lines();
+    total += stream_lines(w);
     int m = total - chat_height();
     return m < 0 ? 0 : m;
 }
@@ -51,6 +51,13 @@ void Tui::append_line(int color, const std::string& text) {
 }
 void Tui::append_line_ts(int color, const std::string& text,
                          const std::string& ts) {
+    append_line_to(win(), color, text, ts);
+}
+size_t Tui::append_line_to(Window& w, int color, const std::string& text) {
+    return append_line_to(w, color, text, timestamp());
+}
+size_t Tui::append_line_to(Window& w, int color, const std::string& text,
+                           const std::string& ts) {
     // Build one RichLine with a dim timestamp run followed by the body run,
     // then wrap it to the current width so wrapped continuations align.
     rich::Line head;
@@ -59,19 +66,25 @@ void Tui::append_line_ts(int color, const std::string& text,
     rich::Run body; body.pair = color; body.text = text;
     head.runs.push_back(body);
     auto wrapped = rich::wrap(head, width());
-    for (auto& l : wrapped) win().lines.push_back(std::move(l));
-    trim_lines();
-    int max = max_scroll();
-    if (win().scroll_top >= max - 2)
-        win().scroll_top = max;
+    size_t first = w.lines.size();
+    for (auto& l : wrapped) w.lines.push_back(std::move(l));
+    trim_lines(w);
+    int max = max_scroll(w);
+    if (w.scroll_top >= max - 2)
+        w.scroll_top = max;
+    return first;
 }
 void Tui::append_rich(const rich::Line& l) {
-    win().lines.push_back(l);
-    trim_lines();
-    win().scroll_top = max_scroll();
+    append_rich_to(win(), l);
 }
-void Tui::append_markdown(const std::string& md) {
-    if (win().markdown_on) {
+
+void Tui::append_rich_to(Window& w, const rich::Line& l) {
+    w.lines.push_back(l);
+    trim_lines(w);
+    w.scroll_top = max_scroll(w);
+}
+void Tui::append_markdown(Window& w, const std::string& md) {
+    if (w.markdown_on) {
         // Render the assistant reply as Markdown, then prepend a faint
         // timestamp run to the first rendered line so it stays on the same
         // line as the reply (matching user/tool/status lines) instead of
@@ -79,19 +92,19 @@ void Tui::append_markdown(const std::string& md) {
         auto lines = md::render(md, md_style_);
         if (!lines.empty()) {
             rich::Run ts;
-            ts.text = (win().stream_ts.empty() ? timestamp()
-                                               : win().stream_ts) + " ";
+            ts.text = (w.stream_ts.empty() ? timestamp()
+                                           : w.stream_ts) + " ";
             ts.pair = P_REASONING;
             ts.dim = true;
             lines.front().runs.insert(lines.front().runs.begin(),
                                       std::move(ts));
-            for (auto& l : lines) win().lines.push_back(std::move(l));
+            for (auto& l : lines) w.lines.push_back(std::move(l));
         }
     } else {
-        append_line(P_ASSISTANT, md);
+        append_line_to(w, P_ASSISTANT, md);
     }
-    trim_lines();
-    win().scroll_top = max_scroll();
+    trim_lines(w);
+    w.scroll_top = max_scroll(w);
 }
 void Tui::banner(const std::string& text) {
     rich::Line l;
@@ -107,10 +120,20 @@ void Tui::append_rich_to(std::vector<rich::Line>& view, const std::string& text,
     l.runs.push_back(r);
     for (auto& x : rich::wrap(l, w)) view.push_back(std::move(x));
 }
-void Tui::trim_lines() {
-    if (win().lines.size() > 10000)
-        win().lines.erase(win().lines.begin(),
-                          win().lines.begin() + 5000);
+void Tui::trim_lines(Window& w) {
+    if (w.lines.size() <= 10000) return;
+    w.lines.erase(w.lines.begin(), w.lines.begin() + 5000);
+    // Pending tool lines hold indices into this window's scrollback; shift
+    // surviving entries by the trimmed amount and invalidate the rest so
+    // spinner animation can never write to a moved line.
+    for (auto& pt : pending_tools_) {
+        if (pt.window_id != w.id) continue;
+        if (pt.index < 5000) {
+            pt.index = std::string::npos;
+        } else {
+            pt.index -= 5000;
+        }
+    }
 }
 
 int Tui::display_cols(const std::string& s) { return text::display_cols(s); }
@@ -453,12 +476,13 @@ void Tui::advance_tool_spinners() {
     if (pending_tools_.empty()) return;
     bool changed = false;
     for (auto& pt : pending_tools_) {
-        if (pt.index >= win().lines.size()) {
+        Window* w = window_by_id(pt.window_id);
+        if (!w || pt.index >= w->lines.size()) {
             pt.index = std::string::npos;
             continue;
         }
         ++pt.frame;
-        auto& runs = win().lines[pt.index].runs;
+        auto& runs = w->lines[pt.index].runs;
         if (runs.empty()) continue;
         // The body run is the LAST run (runs[0] is the timestamp).
         runs.back().text = std::string(text::glyph::spinner_round(pt.frame)) +
