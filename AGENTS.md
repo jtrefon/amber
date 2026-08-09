@@ -21,6 +21,9 @@ driven by an OpenAI-compatible LLM API.
   nlohmann/json header). Both must come back clean before a commit.
 - CI blocks on `make && make test` under **both** `g++` and `clang++`
   (`CXX=g++` / `CXX=clang++`).
+- `make lint` (clang-tidy) and `make analyze` (cppcheck) gate CI as separate
+  compiler-agnostic jobs (single run each, independent of the compiler matrix),
+  before the build/test matrix.
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops
   the generated `Makefile`.
 

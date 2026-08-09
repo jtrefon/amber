@@ -74,7 +74,7 @@ depth**. Switchable at runtime via `/mode read|write|yolo`.
 | Mode  | Tools Available          | Approval        | Self‑Review | Use Case |
 |-------|--------------------------|-----------------|-------------|----------|
 | read  | search, grep, read only  | none            | off         | Ask questions about code |
-| write | all                      | on by default   | on          | Normal development |
+| write | all                      | on by default   | off         | Normal development |
 | yolo  | all                      | auto‑approve    | off         | Trusted, repetitive tasks |
 
 ### `/mode read`
@@ -90,7 +90,7 @@ depth**. Switchable at runtime via `/mode read|write|yolo`.
 - Approval-gated tools (bash) show a confirmation dialog unless granted
   session-wide approval.
 - No automatic self-review is performed (evaluator-optimizer loop; see
-  "Planned" below).
+  "Evaluator-Optimizer (self-review) — not implemented" below).
 
 ### `/mode yolo`
 
@@ -130,7 +130,7 @@ for independent operations like "grep for X, read file Y, search for Z."
 
 ### 3. Evaluator-Optimizer (self-review) — not implemented
 
-```
+```text
                ┌──────────────────────────────────────┐
                │                                      │
  generate ──► evaluate ──► needs revision? ──yes──► feedback
