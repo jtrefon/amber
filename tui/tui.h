@@ -77,6 +77,14 @@ private:
     void agent_worker(Window& my_win, size_t window_id,
                       const std::string& prompt);
     void compress_worker(Window& my_win, size_t window_id);
+    // Hook factory for agent_worker: builds the AgentHooks that stamp events
+    // with the origin window and funnel them into the queue.
+    agent::AgentHooks make_agent_hooks(size_t window_id);
+    // Runs one compression pass on the worker thread and publishes the
+    // result/error event (the caller queues it and clears the busy flag).
+    AgentEvent run_compression(Window& my_win, size_t window_id);
+    // Resolve one approval queued while a modal was open (called per pump).
+    void pump_pending_approvals();
 
     std::queue<AgentEvent> event_queue_;
     std::mutex event_mtx_;

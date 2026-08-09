@@ -138,8 +138,6 @@ Tui::~Tui() {
     std::fputs("\033[?1007l", stdout);
     std::fflush(stdout);
 
-    save_workspace_now();
-
     agent_cancel_ = true;
     // Resolve every pending approval (queued and undrained) with Deny so a
     // worker blocked on its promise can finish and be joined; otherwise the
@@ -153,10 +151,13 @@ Tui::~Tui() {
     // Join FIRST, then snapshot: snapshot(w) reads the agent's context, which
     // the worker mutates — saving before the join races the worker and can
     // persist a torn conversation. endwin() before the stderr progress so the
-    // save messages do not write while ncurses owns the screen.
+    // save messages do not write while ncurses owns the screen. Sessions
+    // before the workspace: the workspace records session_ids that
+    // save_window_sessions may just have (re)assigned.
     if (agent_thread_.joinable()) agent_thread_.join();
     endwin();
     save_window_sessions();
+    save_workspace_now();
 }
 
 Window& Tui::new_window(const std::string& title) {
@@ -234,7 +235,8 @@ bool Tui::drain_events() {
             on_token(w, ev);
             break;
         case AgentEvent::Status:
-            append_line(P_STATUS, ev.text);
+            // Worker status belongs to the conversation that emitted it.
+            if (w) append_line_to(*w, P_STATUS, ev.text);
             break;
         case AgentEvent::ToolCall:
             on_tool_call(w, ev);
@@ -276,15 +278,18 @@ bool Tui::drain_events() {
         }
     }
 
-    // Resolve any approvals queued while a modal was open. Only one per pump so
-    // a nested approval (during the approval dialog) queues and resolves on a
-    // later tick rather than re-entering this loop.
-    if (!modal_open_ && !pending_approvals_.empty()) {
-        AgentEvent ev = std::move(pending_approvals_.front());
-        pending_approvals_.pop();
-        resolve_approval(ev);
-    }
+    pump_pending_approvals();
     return true;
+}
+
+void Tui::pump_pending_approvals() {
+    // Resolve any approvals queued while a modal was open. Only one per pump
+    // so a nested approval (during the approval dialog) queues and resolves
+    // on a later tick rather than re-entering this loop.
+    if (modal_open_ || pending_approvals_.empty()) return;
+    AgentEvent ev = std::move(pending_approvals_.front());
+    pending_approvals_.pop();
+    resolve_approval(ev);
 }
 
 void Tui::resolve_approval(const AgentEvent& ev) {
@@ -484,8 +489,7 @@ void Tui::on_compress_result(Window* w, const AgentEvent& ev) {
     w->dirty = true;
 }
 
-void Tui::agent_worker(Window& my_win, size_t window_id,
-                       const std::string& prompt) {
+agent::AgentHooks Tui::make_agent_hooks(size_t window_id) {
     agent::AgentHooks hooks;
 
     // Push one event for the origin window unless cancellation is pending.
@@ -574,6 +578,13 @@ void Tui::agent_worker(Window& my_win, size_t window_id,
         return f.get();
     };
 
+    return hooks;
+}
+
+void Tui::agent_worker(Window& my_win, size_t window_id,
+                       const std::string& prompt) {
+    agent::AgentHooks hooks = make_agent_hooks(window_id);
+
     // Subscribe to context change events for live token count updates.
     my_win.agent->context_events().subscribe(
         [this](size_t tokens, size_t) {
@@ -623,22 +634,7 @@ void Tui::compress_worker(Window& my_win, size_t window_id) {
     working_since_ = std::chrono::steady_clock::now();
     working_visible_ = true;
     agent_thread_ = std::thread([this, my_win = &my_win, window_id]() {
-        AgentEvent ev;
-        ev.type = AgentEvent::CompressResult;
-        ev.window_id = window_id;
-        try {
-            if (my_win->agent)
-                ev.compress_result = my_win->agent->compress_now();
-        } catch (const std::exception& e) {
-            // Same degradation as agent_worker: an exception must never
-            // escape a std::thread entry (std::terminate) and the result
-            // must still be reported so state_ does not stay Waiting.
-            ev.type = AgentEvent::Error;
-            ev.error_msg = e.what();
-        } catch (...) {
-            ev.type = AgentEvent::Error;
-            ev.error_msg = "compress thread terminated unexpectedly";
-        }
+        AgentEvent ev = run_compression(*my_win, window_id);
         {
             std::scoped_lock lk(event_mtx_);
             event_queue_.push(std::move(ev));
@@ -647,6 +643,26 @@ void Tui::compress_worker(Window& my_win, size_t window_id) {
         // drains the queue — an event pushed after the flag flip is lost.
         agent_busy_.store(false);
     });
+}
+
+AgentEvent Tui::run_compression(Window& my_win, size_t window_id) {
+    AgentEvent ev;
+    ev.type = AgentEvent::CompressResult;
+    ev.window_id = window_id;
+    try {
+        if (my_win.agent)
+            ev.compress_result = my_win.agent->compress_now();
+    } catch (const std::exception& e) {
+        // Same degradation as agent_worker: an exception must never escape a
+        // std::thread entry (std::terminate) and the result must still be
+        // reported so state_ does not stay Waiting.
+        ev.type = AgentEvent::Error;
+        ev.error_msg = e.what();
+    } catch (...) {
+        ev.type = AgentEvent::Error;
+        ev.error_msg = "compress thread terminated unexpectedly";
+    }
+    return ev;
 }
 
 void Tui::git_refresh() {
@@ -1168,16 +1184,15 @@ void Tui::run() {
 
 size_t Tui::find_pending_tool(size_t window_id, const std::string& name,
                               const std::string& fingerprint) const {
-    for (size_t i = 0; i < pending_tools_.size(); ++i)
-        if (pending_tools_[i].window_id == window_id &&
-            pending_tools_[i].name == name &&
-            pending_tools_[i].fingerprint == fingerprint)
-            return i;
-    for (size_t i = 0; i < pending_tools_.size(); ++i)
-        if (pending_tools_[i].window_id == window_id &&
-            pending_tools_[i].name == name)
-            return i;
-    return std::string::npos;
+    size_t fallback = std::string::npos;
+    for (size_t i = 0; i < pending_tools_.size(); ++i) {
+        if (pending_tools_[i].window_id != window_id ||
+            pending_tools_[i].name != name)
+            continue;
+        if (pending_tools_[i].fingerprint == fingerprint) return i;
+        if (fallback == std::string::npos) fallback = i;
+    }
+    return fallback;
 }
 
 void Tui::save_window_sessions() {
