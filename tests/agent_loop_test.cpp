@@ -1102,7 +1102,7 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
     executor.set_config(cfg);
 
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
-    agent::Tool* before = reg.find("read_skill");
+    std::shared_ptr<agent::Tool> before = reg.find("read_skill");
     ASSERT(before != nullptr);  // the parent registers its skill tools
 
     std::string reply = ag.run("delegate");

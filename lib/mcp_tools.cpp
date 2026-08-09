@@ -186,7 +186,7 @@ json mcp_completion_subtree(const ToolRegistry& reg) {
                 "expose. Live server tools appear under their server name."},
         {"children", json::object()}};
     json& children = mcp_node["children"];
-    for (const auto& t : reg.tools()) {
+    for (const auto& t : reg.snapshot_tools()) {
         std::string n = t->name();
         if (n.rfind("mcp_", 0) != 0) continue;
         std::string rest = n.substr(4);

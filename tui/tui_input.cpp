@@ -415,7 +415,7 @@ void Tui::refresh_policy_feed() {
     // Set side: every registered tool (rule or not) is a value leaf; the
     // get side shows only tools that have a stored rule.
     std::set<std::string> tools;
-    for (const auto& t : reg_.tools()) tools.insert(t->name());
+    for (const auto& t : reg_.snapshot_tools()) tools.insert(t->name());
     for (const auto& [tool, _] : rule_help) tools.insert(tool);
 
     nlohmann::json subtree = nlohmann::json::object();

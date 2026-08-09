@@ -70,6 +70,9 @@ public:
 
     // Kill the process group; joins the reader. Idempotent.
     void kill();
+    // Kill-once state transition (signal + latch); false when another caller
+    // already killed. The join stays in kill() so only the killer joins.
+    bool begin_kill();
 
     // If running and past its idle or hard deadline, kill it and record why.
     // Returns true if this call ended the job.
@@ -79,6 +82,9 @@ private:
     Job() = default;
     bool begin(std::string& err);
     void reader_loop();
+    // EOF path: wait the grace period for the child to exit on its own, then
+    // terminate and reap its group; never leaves an unreaped child.
+    void reap_after_eof();
     void set_state(JobState s);
     long sec_since(const std::chrono::steady_clock::time_point& tp) const;
 

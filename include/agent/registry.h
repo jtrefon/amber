@@ -24,13 +24,16 @@ namespace agent {
 class ToolRegistry {
 public:
     void register_tool(std::unique_ptr<Tool> tool);
-    Tool* find(const std::string& name) const;
-    bool empty() const noexcept { return tools_.empty(); }
+    // Shared lease: the caller keeps the tool alive across a concurrent
+    // unregister/replacement (dispatch holds the lease through execute()).
+    std::shared_ptr<Tool> find(const std::string& name) const;
+    bool empty() const;
 
     // Build the tools[] payload for the chat/completions request.
     json schema() const;
 
-    const std::vector<std::unique_ptr<Tool>>& tools() const { return tools_; }
+    // Snapshot of the owned tools, consistent under the registry lock.
+    std::vector<std::shared_ptr<Tool>> snapshot_tools() const;
 
     // Remove every tool whose name starts with `prefix` (e.g. "mcp_github_").
     // Returns the number removed.
@@ -38,7 +41,7 @@ public:
 
 private:
     mutable std::mutex mtx_;
-    std::vector<std::unique_ptr<Tool>> tools_;
+    std::vector<std::shared_ptr<Tool>> tools_;
 };
 
 } // namespace agent

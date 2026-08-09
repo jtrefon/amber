@@ -612,7 +612,7 @@ std::string Agent::try_confirm(const std::string& candidate,
 
 std::vector<Tool*> Agent::resolve_tools() {
     std::vector<Tool*> tools;
-    for (const auto& t : registry_.tools()) tools.push_back(t.get());
+    for (const auto& t : registry_.snapshot_tools()) tools.push_back(t.get());
     return tools;
 }
 

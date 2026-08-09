@@ -95,7 +95,9 @@ private:
         std::string in_buf;
         std::mutex mtx;
     };
-    Session& session(PluginInfo& info);
+    // Shared lease: callers hold the session alive across a concurrent
+    // disable() (which erases and shuts it down).
+    std::shared_ptr<Session> session(PluginInfo& info);
     bool spawn_and_handshake(PluginInfo& info, Session& s);
     ToolResult call_tool(const PluginInfo& info, const std::string& name,
                          const json& args);
@@ -107,7 +109,7 @@ private:
     void shutdown_session(Session& s);
 
     std::vector<PluginInfo> plugins_;
-    std::map<std::string, std::unique_ptr<Session>> sessions_;
+    std::map<std::string, std::shared_ptr<Session>> sessions_;
     std::mutex sessions_mtx_;   // guards sessions_ (parallel tool dispatch)
     json state_;
 };

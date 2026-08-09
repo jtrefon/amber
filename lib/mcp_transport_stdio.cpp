@@ -119,6 +119,9 @@ bool StdioTransport::respond_error(int id, const McpError& error) {
 }
 
 void StdioTransport::shutdown() {
+    // Concurrent shutdown() calls (UI thread / agent thread) must not join or
+    // close twice — one teardown, everyone waits.
+    std::call_once(shutdown_once_, [this]() {
     bool was_closed = closed_.exchange(true);
     if (!was_closed) {
         {
@@ -148,6 +151,7 @@ void StdioTransport::shutdown() {
         close(stderr_fd_);
         stderr_fd_ = -1;
     }
+    });
 }
 
 std::string StdioTransport::failure_reason() const {
@@ -254,10 +258,9 @@ void StdioTransport::fail(const std::string& reason) {
     cv_.notify_all();
     if (closed_.exchange(true)) return;
     if (pid_ > 0) terminate_child();
-    if (stderr_fd_ >= 0) {
-        close(stderr_fd_);
-        stderr_fd_ = -1;
-    }
+    // No fd closes here: stderr_fd_ stays open until shutdown has joined the
+    // reader thread (closing it while stderr_loop may be blocked on it would
+    // race — see shutdown).
 }
 
 } // namespace agent

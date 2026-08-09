@@ -321,7 +321,7 @@ bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
     return true;
 }
 
-PluginManager::Session& PluginManager::session(PluginInfo& info) {
+std::shared_ptr<PluginManager::Session> PluginManager::session(PluginInfo& info) {
     // Two concurrent first calls (parallel tool dispatch) must not race the
     // map insert or spawn two processes for one plugin. The handshake runs
     // OUTSIDE the lock (blocking poll/read, up to the call deadline); a loser
@@ -329,18 +329,18 @@ PluginManager::Session& PluginManager::session(PluginInfo& info) {
     {
         std::scoped_lock lk(sessions_mtx_);
         auto it = sessions_.find(info.id);
-        if (it != sessions_.end()) return *it->second;
+        if (it != sessions_.end()) return it->second;
     }
-    auto s = std::make_unique<Session>();
+    auto s = std::make_shared<Session>();
     spawn_and_handshake(info, *s);
     std::scoped_lock lk(sessions_mtx_);
     auto it = sessions_.find(info.id);
     if (it != sessions_.end()) {
         shutdown_session(*s);
-        return *it->second;
+        return it->second;
     }
-    sessions_[info.id] = std::move(s);
-    return *sessions_[info.id];
+    sessions_[info.id] = s;
+    return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -380,34 +380,34 @@ ToolResult PluginManager::call_tool(const PluginInfo& info,
     for (auto& p : plugins_)
         if (p.id == info.id) infos = &p;
     if (!infos) return {false, "", "plugin not found"};
-    Session& s = session(*infos);
-    if (s.pid < 0) return {false, "", "plugin not running: " + infos->error};
+    std::shared_ptr<Session> s = session(*infos);
+    if (s->pid < 0) return {false, "", "plugin not running: " + infos->error};
 
-    std::scoped_lock lock(s.mtx);
+    std::scoped_lock lock(s->mtx);
     static std::atomic<long> next_id{2};
     json req = {{"id", next_id++},
                 {"method", "tool.call"},
                 {"params", {{"name", name}, {"args", args}}}};
     std::string line = req.dump() + "\n";
-    if (write(s.in_fd, line.data(), line.size()) != (ssize_t)line.size())
+    if (write(s->in_fd, line.data(), line.size()) != (ssize_t)line.size())
         return {false, "", "plugin write failed (process died?)"};
 
     // Wait for the response line with a deadline.
     int timeout = kCallTimeoutSec * 1000;
-    while (s.in_buf.find('\n') == std::string::npos) {
-        struct pollfd pfd {s.out_fd, POLLIN, 0};
+    while (s->in_buf.find('\n') == std::string::npos) {
+        struct pollfd pfd {s->out_fd, POLLIN, 0};
         int rc = poll(&pfd, 1, timeout);
         if (rc == 0) return {false, "", "plugin call timed out"};
         if (rc < 0) return {false, "", "plugin poll failed"};
         char buf[4096];
         // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
-        ssize_t n = read(s.out_fd, buf, sizeof buf);
+        ssize_t n = read(s->out_fd, buf, sizeof buf);
         if (n <= 0) return {false, "", "plugin exited during call"};
-        s.in_buf.append(buf, (size_t)n);
+        s->in_buf.append(buf, (size_t)n);
     }
-    size_t nl = s.in_buf.find('\n');
-    std::string resp_line = s.in_buf.substr(0, nl);
-    s.in_buf.erase(0, nl + 1);
+    size_t nl = s->in_buf.find('\n');
+    std::string resp_line = s->in_buf.substr(0, nl);
+    s->in_buf.erase(0, nl + 1);
     json resp = json::parse(resp_line, nullptr, false);
     if (resp.is_discarded() || !resp.contains("result"))
         return {false, "", "malformed plugin response"};
@@ -427,8 +427,8 @@ bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {
     if (info->state == PluginState::Incompatible) return false;
     if (info->state == PluginState::Enabled) return true;
 
-    Session& s = session(*info);
-    if (s.pid < 0) {
+    std::shared_ptr<Session> s = session(*info);
+    if (s->pid < 0) {
         info->state = PluginState::Incompatible;
         return false;
     }
@@ -455,13 +455,20 @@ bool PluginManager::disable(const std::string& id, ToolRegistry& reg) {
     if (!info) return false;
     if (info->state == PluginState::Disabled) return true;
     reg.unregister_tools_with_prefix("plugin_" + id + "_");
+    std::shared_ptr<Session> session;
     {
         std::scoped_lock lk(sessions_mtx_);
         auto it = sessions_.find(id);
         if (it != sessions_.end()) {
-            shutdown_session(*it->second);
+            session = it->second;
             sessions_.erase(it);
         }
+    }
+    if (session) {
+        // Serialize with an in-flight call_tool (which holds s->mtx across its
+        // descriptor I/O) so teardown never closes fds mid-write.
+        std::scoped_lock lk(session->mtx);
+        shutdown_session(*session);
     }
     info->state = PluginState::Disabled;
     state_[id]["enabled"] = false;
@@ -563,7 +570,7 @@ std::string PluginManager::uninstall(const std::string& id) {
 
 std::string plugin_tools_advertisement(const ToolRegistry& reg) {
     std::string out;
-    for (const std::unique_ptr<Tool>& tool : reg.tools()) {
+    for (const std::shared_ptr<Tool>& tool : reg.snapshot_tools()) {
         if (tool->name().rfind("plugin_", 0) != 0) continue;
         out += "- `" + tool->name() + "`: " + tool->description() + "\n";
     }

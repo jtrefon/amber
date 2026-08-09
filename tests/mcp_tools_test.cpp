@@ -116,7 +116,7 @@ TEST(mcp_register_server_tools_end_to_end) {
     agent::ToolRegistry reg;
     size_t n = agent::register_server_tools(reg, mgr, "echo");
     ASSERT_EQ(n, 1u);
-    agent::Tool* tool = reg.find("mcp_echo_echo_tool");
+    auto tool = reg.find("mcp_echo_echo_tool");
     ASSERT(tool != nullptr);
     ASSERT(tool->is_read_only() == false);
     auto r = tool->execute({{"text", "hi"}});

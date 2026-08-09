@@ -151,7 +151,9 @@ public:
             return r;
         }
         bool all = a.value("all", false);
-        std::string body = all ? jobs_.output(id) : jobs_.read_delta(id);
+        // Read from the held reference (the service map entry may already be
+        // gone via a concurrent stop).
+        std::string body = all ? job->output() : job->read_delta();
         JobInfo info = job->info();
         std::ostringstream out;
         out << status_line(info) << "\n";

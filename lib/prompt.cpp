@@ -33,14 +33,14 @@ std::string render_tools_markdown(const ToolRegistry& registry) {
         // Decision table
         << "| Tool | Use when |\n"
            "|------|----------|\n";
-    for (const auto& t : registry.tools())
+    for (const auto& t : registry.snapshot_tools())
         out << "| `" << t->name() << "` | "
             << t->description().substr(0, t->description().find('\n'))
             << " |\n";
     out << "\n";
 
     // Per-tool reference
-    for (const auto& t : registry.tools()) {
+    for (const auto& t : registry.snapshot_tools()) {
         out << "## " << t->name() << "\n\n";
         out << t->description() << "\n\n";
         json p = t->parameters_schema();
