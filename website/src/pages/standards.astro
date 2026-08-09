@@ -3,7 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 ---
 
-<BaseLayout title="Coding Standards" description="amber coding standards — how we write code">
+<BaseLayout title="Coding Standards" description="amber coding standards, how we write code">
   <NavBar />
   <main>
     <h1>Coding Standards</h1>
@@ -11,7 +11,7 @@ import NavBar from '../components/NavBar.astro';
     <section class="section">
       <p>
         amber is C++17. Four-space indentation, no tabs, 100-column soft limit. The
-        <code>.clang-format</code> file is the source of truth — run it on any code you touch.
+        <code>.clang-format</code> file is the source of truth, run it on any code you touch.
       </p>
     </section>
 
@@ -33,11 +33,11 @@ import NavBar from '../components/NavBar.astro';
     <section class="section">
       <h2>File Organization</h2>
       <ul class="feature-list">
-        <li><strong>lib/</strong> + <strong>include/agent/</strong> — the UI-free core. No UI concerns here.</li>
-        <li><strong>tui/</strong> — the ncurses client. Depends on the library through <code>AgentHooks</code>, never the reverse.</li>
-        <li><strong>bench/</strong> — the KPI harness. Same layering rules.</li>
-        <li><strong>tools/</strong> — tool implementations (read, write, search, bash).</li>
-        <li><strong>prompts/</strong> — system/tool prompts in Markdown, loaded at runtime.</li>
+        <li><strong>lib/</strong> + <strong>include/agent/</strong>, the UI-free core. No UI concerns here.</li>
+        <li><strong>tui/</strong>, the ncurses client. Depends on the library through <code>AgentHooks</code>, never the reverse.</li>
+        <li><strong>bench/</strong>, the KPI harness. Same layering rules.</li>
+        <li><strong>tools/</strong>, tool implementations (read, write, search, bash).</li>
+        <li><strong>prompts/</strong>, system/tool prompts in Markdown, loaded at runtime.</li>
       </ul>
     </section>
 
