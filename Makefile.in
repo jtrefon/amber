@@ -224,6 +224,7 @@ $(CDP_PLUGIN): tools/plugins/cdp/main.cpp tools/plugins/cdp/ws_client.cpp tools/
 
 check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
+	sh $(SRC_DIR)/tests/build_hygiene.sh
 
 test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/bench_test
