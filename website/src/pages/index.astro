@@ -99,7 +99,7 @@ amber ~ $ █`;
     <!-- Benchmarks preview -->
     <section class="section">
       <h2>Benchmarks</h2>
-      <p>Tested against Qwen, Nemotron, Laguna, Gemma — real data, real scenarios.</p>
+      <p>One harness, 31 scenarios, 9 models — scored, not claimed. Every model runs the same engine.</p>
       <table class="bench-table">
         <thead>
           <tr>
@@ -121,48 +121,24 @@ amber ~ $ █`;
             <td>115</td>
           </tr>
           <tr>
-            <td>qwopus-27b</td>
-            <td>900</td>
-            <td>24/25</td>
-            <td>109</td>
-            <td>17</td>
-            <td>121</td>
-          </tr>
-          <tr>
-            <td>Qwen3.6-27B MTP</td>
-            <td>901</td>
-            <td>24/25</td>
-            <td>104</td>
-            <td>11</td>
-            <td>117</td>
-          </tr>
-          <tr>
             <td>gemma4-31b</td>
-            <td>903</td>
+            <td><strong>903</strong></td>
             <td>24/25</td>
             <td>103</td>
             <td>4</td>
             <td>127</td>
           </tr>
           <tr>
-            <td>Qwen3.6-35B MoE (A3B)</td>
-            <td>877</td>
-            <td>23/25</td>
-            <td>137</td>
-            <td>16</td>
-            <td>145</td>
-          </tr>
-          <tr>
-            <td>NVIDIA Nemotron 550B</td>
-            <td>806</td>
-            <td>21/25</td>
-            <td>133</td>
-            <td>15</td>
-            <td>149</td>
+            <td>Qwen3.6-27B MTP</td>
+            <td><strong>901</strong></td>
+            <td>24/25</td>
+            <td>104</td>
+            <td>11</td>
+            <td>117</td>
           </tr>
         </tbody>
       </table>
-      <p><a href="/benchmarks">Full benchmark results →</a></p>
+      <p>A 27B model beating a 550B Nemotron by 104 points. <a href="/benchmarks">Full results and methodology →</a></p>
     </section>
 
     <hr class="divider" />
@@ -171,7 +147,7 @@ amber ~ $ █`;
     <section class="section">
       <h2>Quick Start</h2>
       <div class="terminal">
-        <pre>git clone https://github.com/trefon/amber
+        <pre>git clone https://github.com/jtrefon/amber
 cd amber
 make && ./amber</pre>
       </div>
