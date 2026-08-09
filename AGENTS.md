@@ -12,7 +12,8 @@ driven by an OpenAI-compatible LLM API.
 - `make` builds everything (`lib cli tui`). The binaries and archive land in the
   repo root (`amber`, `amber-cli`, `libagent_core.a`, `libagent_tools.a`) — in-tree, not in a `build/`.
 - `make test` builds and runs the unit suite (`run_tests`). `make check` is a
-  separate, lighter tool smoke test (`smoketest`) — do not confuse the two.
+  separate, lighter gate (`smoketest` + `tests/build_hygiene.sh` build
+  invariants) — do not confuse the two.
 - `make lint` runs **clang-tidy** over every project source (third_party
   excluded) using the `.clang-tidy` config in the repo root. It is fast enough
   to gate changes on. `make analyze` runs **cppcheck** as an independent,
@@ -361,23 +362,24 @@ behavior change: prove it with a before/after benchmark run (see
 Last reviewed against the limits above. The architecture and SOLID posture are
 **sound** (clean hexagonal boundaries, correct abstraction, no core↔UI coupling),
 but several files exceed the hard size limits and must be split before we can
-claim 0-debt conformance:
+claim 0-debt conformance. Line counts below are enforced by
+`tests/build_hygiene.sh` (`make check`) — if they drift, refresh the table:
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 2263 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 4161 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 269 | OK, but `list()` mixes POSIX `opendir` with JSON — consider an `fs` helper. |
-| `tui/tui_render.cpp` | 661 | Method implementations (not a class); exempt from class-size rule. |
-| `tui/tui_input.cpp` | 1520 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_render.cpp` | 655 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2275 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `request_builder`, `sse_parser`,
   `http_transport`, `model_probe`, `debug_log` (+ `llm.cpp` keeps the class).
-- `lib/agent.cpp` (473 → 200, now 601): `run` decomposed into `confirm_turn`,
+- `lib/agent.cpp` (473 → 200, now 773): `run` decomposed into `confirm_turn`,
   `dispatch_tool_calls`, `agent_helpers`, `tool_recovery`; `compress_now` now
   delegates to `CompressionPipeline::compress()` via `compression_->compress()`.
-- `tui/tui.cpp` (1245 → 171, now 935): god-class `Tui` split into `tui.h` (declaration,
-  152 lines) + `tui_render.cpp`, `tui_input.cpp`, `tui_session.cpp`,
+- `tui/tui.cpp` (1245 → 171, now 1044): god-class `Tui` split into `tui.h` (declaration,
+  +420 lines) + `tui_render.cpp`, `tui_input.cpp`, `tui_session.cpp`,
   `tui_main.cpp`. No file defines a class >200 lines.
 - `tui/widgets.cpp` (333): split into `dialog.cpp`, `form_edit.cpp`,
   `info_dialog.cpp`, `menu_select.cpp`.

@@ -33,10 +33,10 @@
 ## Legend
 
 ```
-[done]  — Not started, ready for assignment
-[done] — Assigned and actively being worked
+[todo]     — Not started, ready for assignment
+[wip]      — Assigned and actively being worked
 [done]     — Code merged, all checks pass, no known regressions
-[done]  — Blocked on another task or external dependency
+[blocked]  — Blocked on another task or external dependency
 ```
 
 ---
