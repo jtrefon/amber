@@ -93,7 +93,12 @@ std::string SubAgentExecutor::run_task(const std::string& prompt,
     launched_.fetch_add(1);
     t_in_subagent = true;
     try {
-        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_);
+        // Skill tools stay with the parent session: registering them here
+        // would bind read_skill/list_skills/write_skill to this sub's
+        // SkillCatalog, replace the parent's bindings in the shared registry,
+        // and dangle once the sub is destroyed.
+        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_,
+                  false);
         sub.set_context({std::move(sys)});
         result = sub.run(prompt);
     } catch (const std::exception& e) {

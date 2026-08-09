@@ -87,7 +87,7 @@ std::string mcp_adapter_name(const std::string& server,
 
 size_t register_server_tools(ToolRegistry& reg, ServerManager& mgr,
                              const std::string& server) {
-    MCPClient* client = mgr.client(server);
+    auto client = mgr.client(server);
     if (!client) return 0;
     size_t n = 0;
     for (const auto& def : client->tools()) {
@@ -150,7 +150,7 @@ public:
             out.error = "missing 'server' or 'uri'";
             return out;
         }
-        MCPClient* client = mgr_.client(server);
+        auto client = mgr_.client(server);
         if (!client) {
             out.ok = false;
             out.error = "mcp server '" + server + "' not connected";
@@ -186,7 +186,7 @@ json mcp_completion_subtree(const ToolRegistry& reg) {
                 "expose. Live server tools appear under their server name."},
         {"children", json::object()}};
     json& children = mcp_node["children"];
-    for (const auto& t : reg.tools()) {
+    for (const auto& t : reg.snapshot_tools()) {
         std::string n = t->name();
         if (n.rfind("mcp_", 0) != 0) continue;
         std::string rest = n.substr(4);

@@ -32,7 +32,7 @@ std::vector<std::string> mcp_show_lines(const ServerManager& mgr,
                                         const std::string& server,
                                         std::string& error) {
     std::vector<std::string> lines;
-    const MCPClient* client = mgr.client(server);
+    auto client = mgr.client(server);
     if (!client) {
         error = "server '" + server + "' not connected";
         return lines;
@@ -54,6 +54,11 @@ std::vector<std::string> mcp_show_lines(const ServerManager& mgr,
 
 std::string mcp_connect(ServerManager& mgr, ToolRegistry& reg,
                         const std::string& server) {
+    // Unregister the old adapters BEFORE the reconnect: the new server's
+    // tool set may no longer advertise tools that used to exist, and a stale
+    // McpToolAdapter would keep referencing the erased MCPClient
+    // (use-after-free on the next call).
+    unregister_server_tools(reg, server);
     std::string err = mgr.connect(server);
     if (!err.empty()) return err;
     register_server_tools(reg, mgr, server);
@@ -91,7 +96,7 @@ std::string mcp_trust(ServerManager& mgr, const std::string& server,
 std::string mcp_prompt(ServerManager& mgr, const std::string& server,
                        const std::string& name, const json& arguments,
                        std::string& out_text) {
-    MCPClient* client = mgr.client(server);
+    auto client = mgr.client(server);
     if (!client) return "server '" + server + "' not connected";
     const McpPromptDef* def = nullptr;
     for (const auto& p : client->prompts()) {

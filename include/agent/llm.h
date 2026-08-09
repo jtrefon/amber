@@ -74,7 +74,7 @@ public:
     // tool_calls). Throws std::runtime_error on transport/API failure. When
     // `stats` is non-null it is filled with per-request telemetry.
     virtual Message chat(const std::vector<Message>& messages,
-                         const std::vector<Tool*>& tools,
+                         const std::vector<std::shared_ptr<Tool>>& tools,
                          Stats* stats = nullptr) = 0;
 
     // Streaming request: invokes `on_chunk` for every parsed SSE event and
@@ -82,7 +82,7 @@ public:
     // text as it arrives, enabling live TUI rendering. When `stats` is non-null
     // it is filled with per-request telemetry after completion.
     virtual Message chat_stream(
-        const std::vector<Message>& messages, const std::vector<Tool*>& tools,
+        const std::vector<Message>& messages, const std::vector<std::shared_ptr<Tool>>& tools,
         const std::function<void(const StreamChunk&)>& on_chunk,
         Stats* stats = nullptr) = 0;
 
@@ -110,10 +110,10 @@ public:
 
     ServerInfo probe_server() const override;
     Message chat(const std::vector<Message>& messages,
-                 const std::vector<Tool*>& tools,
+                 const std::vector<std::shared_ptr<Tool>>& tools,
                  Stats* stats = nullptr) override;
     Message chat_stream(
-        const std::vector<Message>& messages, const std::vector<Tool*>& tools,
+        const std::vector<Message>& messages, const std::vector<std::shared_ptr<Tool>>& tools,
         const std::function<void(const StreamChunk&)>& on_chunk,
         Stats* stats = nullptr) override;
     int learned_context_size() const override { return learned_; }

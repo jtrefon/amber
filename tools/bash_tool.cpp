@@ -262,7 +262,7 @@ private:
                     cancel_token_.clear();
                     break;
                 }
-                Job* j = jobs_->get(id);
+                std::shared_ptr<Job> j = jobs_->get(id);
                 if (!j) break;
                 JobInfo i = j->info();
                 if (j->is_done()) break;
@@ -272,11 +272,11 @@ private:
                 }
                 usleep(50000);
             }
-            // Read before erasing so a timed-out command still returns whatever
-            // output it produced.
-            std::string output = jobs_->output(id);
-            int code = jobs_->exit_code(id);
-            Job* j = jobs_->get(id);
+            // Re-acquire the lease (a concurrent stop may have erased the
+            // entry, in which case the job was killed and reaped).
+            std::shared_ptr<Job> j = jobs_->get(id);
+            std::string output = j ? j->output() : std::string();
+            int code = j ? j->exit_code() : 0;
             bool killed = j && j->info().state == JobState::Killed;
             timed_out = timed_out || killed;
             jobs_->stop(id);  // erase: bash returns output inline, not via /job

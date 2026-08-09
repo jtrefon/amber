@@ -1,4 +1,5 @@
 
+#include <csignal>
 #include "agent.h"
 #include "agent/tools.h"
 #include "agent/search_backend.h"
@@ -331,7 +332,7 @@ TEST(request_body_survives_invalid_utf8) {
     tool.content = bad;
     msgs.push_back(tool);
 
-    std::vector<agent::Tool*> no_tools;
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
     json body = build_chat_body(c, msgs, no_tools, false);
     std::string payload;
     bool threw = false;
@@ -357,7 +358,7 @@ TEST(request_builder_merges_consecutive_system_messages) {
     agent::Message s2; s2.role = "system"; s2.content = "memories block"; msgs.push_back(s2);
     agent::Message u; u.role = "user"; u.content = "hi"; msgs.push_back(u);
 
-    std::vector<agent::Tool*> no_tools;
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
     json body = build_chat_body(c, msgs, no_tools, false);
     const auto& wire = body["messages"];
     ASSERT_EQ(wire.size(), 2u);
@@ -389,7 +390,7 @@ TEST(request_builder_assistant_message_always_has_content) {
     t.content = "";  // empty tool result
     msgs.push_back(t);
 
-    std::vector<agent::Tool*> no_tools;
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
     json body = build_chat_body(c, msgs, no_tools, false);
     ASSERT(body.contains("messages"));
     for (auto& m : body["messages"]) {
@@ -409,7 +410,7 @@ TEST(registry_register_and_find) {
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
-    ASSERT_EQ(r.tools().size(), 7u);
+    ASSERT_EQ(r.snapshot_tools().size(), 7u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -669,11 +670,11 @@ TEST(registry_repeated_registration_dedups) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
-    const size_t first = r.tools().size();
+    const size_t first = r.snapshot_tools().size();
     agent::register_default_tools(r, jobs, todos);
-    ASSERT_EQ(r.tools().size(), first);  // no duplicates
+    ASSERT_EQ(r.snapshot_tools().size(), first);  // no duplicates
     std::set<std::string> names;
-    for (const auto& t : r.tools()) names.insert(t->name());
+    for (const auto& t : r.snapshot_tools()) names.insert(t->name());
     ASSERT_EQ(names.size(), first);      // schema names unique
 }
 
@@ -1546,7 +1547,7 @@ TEST(agent_denies_gated_tool_without_handler) {
         return agent::Approval::AllowSession;
     };
     ag.set_hooks(hooks);
-    auto* t = reg.find("bash");
+    auto t = reg.find("bash");
     ASSERT_TRUE(t != nullptr);
     ASSERT_TRUE(t->requires_approval({{"command", "rm -rf /tmp/test"}}));
     ASSERT_FALSE(t->requires_approval({{"command", "ls"}}));
@@ -1716,7 +1717,7 @@ TEST(job_service_caps_output_at_one_mib) {
         "head -c 2000000 /dev/zero | tr '\\0' 'A'", "/tmp");
     ASSERT_FALSE(id.empty());
     std::this_thread::sleep_for(std::chrono::milliseconds(400));
-    agent::Job* j = jobs.get(id);
+    std::shared_ptr<agent::Job> j = jobs.get(id);
     ASSERT(j != nullptr);
     agent::JobInfo info = j->info();
     ASSERT(info.truncated);
@@ -4158,4 +4159,96 @@ TEST(config_save_settings_persists_compression) {
     ASSERT(d.compression_cooldown_turns_explicit);
     ASSERT_EQ(d.compression_cooldown_turns, 12);
     std::remove(path.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// Thread-safety: registry + job lifecycle (top-5 item #2 races)
+// ---------------------------------------------------------------------------
+
+namespace {
+// Minimal no-op tool for concurrency probes.
+class ProbeTool : public agent::Tool {
+public:
+    explicit ProbeTool(std::string name) : name_(std::move(name)) {}
+    std::string name() const noexcept override { return name_; }
+    std::string description() const noexcept override { return "probe"; }
+    agent::json parameters_schema() const override {
+        return agent::json::object();
+    }
+    agent::ToolResult execute(const agent::json&) const override {
+        return {true, "ok", ""};
+    }
+private:
+    std::string name_;
+};
+} // namespace
+
+// Concurrent register/find/schema from dispatch workers and the host thread.
+// Unsynchronized vector mutation is UB; the count assertion is the regression
+// guard (TSan is the authoritative detector, not run in CI).
+TEST(registry_concurrent_register_find) {
+    agent::ToolRegistry reg;
+    constexpr int kThreads = 8;
+    constexpr int kPerThread = 25;
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    for (int t = 0; t < kThreads; ++t)
+        threads.emplace_back([&reg, t]() {
+            for (int i = 0; i < kPerThread; ++i) {
+                reg.register_tool(std::make_unique<ProbeTool>(
+                    "probe_" + std::to_string(t) + "_" + std::to_string(i)));
+                (void)reg.find("probe_0_0");
+                (void)reg.schema();
+            }
+        });
+    for (auto& th : threads) th.join();
+    ASSERT_EQ(reg.snapshot_tools().size(), static_cast<size_t>(kThreads * kPerThread));
+    ASSERT(reg.find("probe_7_24") != nullptr);
+}
+
+// JobService::get returns a shared reference: a caller holding it must stay
+// safe when the service erases the job (concurrent stop()/kill).
+TEST(job_service_get_holds_live_reference) {
+    agent::JobService jobs;
+    std::string id = jobs.start("echo hello", "", 60, 30);
+    ASSERT(!id.empty());
+    std::shared_ptr<agent::Job> j = jobs.get(id);
+    ASSERT(j != nullptr);
+    ASSERT(jobs.stop(id));
+    // The held job was killed but its snapshot stays queryable — no dangling
+    // pointer into the service's map.
+    agent::JobInfo info = j->info();
+    ASSERT(info.state != agent::JobState::Failed);
+}
+
+// A held tool lease must survive a concurrent unregister: dispatch keeps the
+// shared_ptr through execute() while the host removes the tool.
+TEST(registry_lease_survives_unregister) {
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<ProbeTool>("probe_lease"));
+    std::shared_ptr<agent::Tool> held = reg.find("probe_lease");
+    ASSERT(held != nullptr);
+    ASSERT_EQ(reg.unregister_tools_with_prefix("probe_"), 1u);
+    ASSERT(reg.find("probe_lease") == nullptr);
+    auto r = held->execute(agent::json::object());
+    ASSERT(r.ok);
+}
+
+// A child that closes stdout but keeps running must be terminated and reaped
+// by the EOF path — never marked Done with a live orphan (which would zombie).
+TEST(job_eof_daemon_is_terminated) {
+    agent::JobService jobs;
+    std::string id = jobs.start("exec 1>&- 2>&-; sleep 30", "/tmp", 60, 30);
+    ASSERT(!id.empty());
+    // Past the 2s reap grace: the EOF path force-kills the group.
+    std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+    auto j = jobs.get(id);
+    ASSERT(j != nullptr);
+    agent::JobInfo info = j->info();
+    // The daemon was terminated and reaped — either the reader forced it
+    // (Killed) or the reap landed before the transition (Done). Never an
+    // unreaped-child Done with a bogus exit code.
+    ASSERT(info.state != agent::JobState::Running);
+    ASSERT_EQ(info.exit_code, 128 + SIGKILL);
+    jobs.stop(id);
 }

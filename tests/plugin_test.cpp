@@ -103,9 +103,9 @@ TEST(plugin_enable_registers_and_runs_tools) {
     ASSERT(mgr.enable("fake", reg));
     ASSERT(mgr.find("fake")->state == agent::PluginState::Enabled);
 
-    agent::Tool* echo = reg.find("plugin_fake_echo");
+    auto echo = reg.find("plugin_fake_echo");
     ASSERT(echo != nullptr);
-    agent::Tool* fail = reg.find("plugin_fake_fail");
+    auto fail = reg.find("plugin_fake_fail");
     ASSERT(fail != nullptr);
     ASSERT_EQ(echo->name(), "plugin_fake_echo");
 
@@ -211,19 +211,19 @@ TEST(sysinfo_plugin_reports_host_facts) {
     agent::ToolRegistry reg;
     REQUIRE(mgr.enable("sysinfo", reg));
 
-    agent::Tool* mem = reg.find("plugin_sysinfo_mem");
+    auto mem = reg.find("plugin_sysinfo_mem");
     REQUIRE(mem != nullptr);
     auto r = mem->execute({});
     ASSERT(r.ok);
     ASSERT(r.output.find("MB") != std::string::npos);
 
-    agent::Tool* cpu = reg.find("plugin_sysinfo_cpu");
+    auto cpu = reg.find("plugin_sysinfo_cpu");
     REQUIRE(cpu != nullptr);
     auto rc = cpu->execute({});
     ASSERT(rc.ok);
     ASSERT(rc.output.find("load") != std::string::npos);
 
-    agent::Tool* net = reg.find("plugin_sysinfo_net");
+    auto net = reg.find("plugin_sysinfo_net");
     REQUIRE(net != nullptr);
     auto rn = net->execute({});
     ASSERT(rn.ok);
@@ -255,7 +255,7 @@ TEST(cdp_plugin_protocol_roundtrip) {
     agent::ToolRegistry reg;
     REQUIRE(mgr.enable("cdp", reg));
 
-    agent::Tool* targets = reg.find("plugin_cdp_list_targets");
+    auto targets = reg.find("plugin_cdp_list_targets");
     REQUIRE(targets != nullptr);
     auto r = targets->execute({});
     // Either a live list (Chrome running) or a clean connection error.

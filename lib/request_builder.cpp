@@ -47,7 +47,7 @@ void sanitize_tool_schema(json& schema) {
 }
 
 json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
-                     const std::vector<Tool*>& tools, bool stream) {
+                     const std::vector<std::shared_ptr<Tool>>& tools, bool stream) {
     json body = {
         {"model", cfg.model},
         {"temperature", cfg.temperature},
@@ -124,7 +124,7 @@ json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
 
     if (!tools.empty()) {
         json tarr = json::array();
-        for (auto* t : tools) {
+        for (const auto& t : tools) {
             json params = t->parameters_schema();
             sanitize_tool_schema(params);
             tarr.push_back({{"type", "function"},

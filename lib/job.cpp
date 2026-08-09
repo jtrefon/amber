@@ -104,22 +104,27 @@ std::string Job::output() const {
 }
 
 void Job::kill() {
-    bool was_running = false;
-    {
-        std::scoped_lock lk(mtx_);
-        was_running = (state_ == JobState::Running || state_ == JobState::Starting);
-    }
+    if (!begin_kill()) return;
+    if (reader_.joinable()) reader_.join();
+}
+
+// Kill-once state transition: exactly one caller signals the process group
+// and flips the latch (two concurrent kill() calls must not both reach
+// reader_.join(), which is UB).
+bool Job::begin_kill() {
+    std::scoped_lock lk(mtx_);
+    if (kill_done_) return false;
+    bool was_running =
+        (state_ == JobState::Running || state_ == JobState::Starting);
     if (was_running) {
         kill_process_group(pid_);
-        if (reader_.joinable()) reader_.join();
-        std::scoped_lock lk(mtx_);
         if (state_ != JobState::Done) {
             exit_code_ = -1;
             state_ = JobState::Killed;
         }
-    } else if (reader_.joinable()) {
-        reader_.join();
     }
+    kill_done_ = true;
+    return true;
 }
 
 bool Job::check_timeouts() {
@@ -137,6 +142,32 @@ bool Job::check_timeouts() {
     return false;
 }
 
+// EOF on the output pipe: wait the grace period for the child to exit on
+// its own; a daemon that merely closed stdout is still alive — terminate and
+// reap its group so no unreaped child is ever marked Done (an orphan would
+// never be reaped and would zombie once it finally exits).
+void Job::reap_after_eof() {
+    int status = 0;
+    pid_t w = waitpid(pid_, &status, WNOHANG);
+    for (int i = 0; w != pid_ && i < kEofReapGraceMs / 50; ++i) {
+        if (kill_done_.load()) break;
+        usleep(50000);
+        w = waitpid(pid_, &status, WNOHANG);
+    }
+    if (w != pid_) {
+        begin_kill();  // signals the group (no-op if kill() already did)
+        for (int i = 0; w != pid_ && i < 100; ++i) {
+            usleep(20000);
+            w = waitpid(pid_, &status, WNOHANG);
+        }
+    }
+    if (w == pid_) {
+        std::scoped_lock lk(mtx_);
+        if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
+        else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
+    }
+}
+
 void Job::reader_loop() {
     std::array<char, 4096> buf{};
     while (true) {
@@ -151,17 +182,8 @@ void Job::reader_loop() {
             last_output_ = std::chrono::steady_clock::now();
             continue;
         }
-        if (n == 0) {  // EOF: child closed the pipe. Reap it (non-blocking) to
-                        // capture the exit code; if it is merely a daemon that
-                        // closed stdout while still running, leave exit_code_ at
-                        // its default and let the state transition handle it.
-            int status = 0;
-            if (waitpid(pid_, &status, WNOHANG) == pid_) {
-                std::scoped_lock lk(mtx_);
-                if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
-                else if (WIFSIGNALED(status))
-                    exit_code_ = 128 + WTERMSIG(status);
-            }
+        if (n == 0) {  // EOF: the child closed the pipe.
+            reap_after_eof();
             break;
         }
         if (errno != EAGAIN && errno != EWOULDBLOCK) break;
@@ -169,8 +191,11 @@ void Job::reader_loop() {
         int status = 0;
         pid_t w = waitpid(pid_, &status, WNOHANG);
         if (w == pid_) {
-            if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
-            else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
+            {
+                std::scoped_lock lk(mtx_);
+                if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
+                else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
+            }
             // Drain any final buffered bytes before declaring done.
             while ((n = read(read_fd_, buf.data(), buf.size())) > 0) {
                 std::scoped_lock lk(mtx_);
@@ -217,12 +242,12 @@ std::string JobService::start(const std::string& command,
 }
 
 bool JobService::stop(const std::string& id) {
-    std::unique_ptr<Job> job;
+    std::shared_ptr<Job> job;
     {
         std::scoped_lock lk(mtx_);
         auto it = jobs_.find(id);
         if (it == jobs_.end()) return false;
-        job = std::move(it->second);
+        job = it->second;
         jobs_.erase(it);
     }
     job->kill();
@@ -230,19 +255,21 @@ bool JobService::stop(const std::string& id) {
 }
 
 void JobService::check_timeouts() {
-    std::vector<Job*> running;
+    // Shared references: a concurrent stop() must not destroy a job while it
+    // is being inspected after the lock is released.
+    std::vector<std::shared_ptr<Job>> running;
     {
         std::scoped_lock lk(mtx_);
         for (auto& kv : jobs_)
-            if (!kv.second->is_done()) running.push_back(kv.second.get());
+            if (!kv.second->is_done()) running.push_back(kv.second);
     }
-    for (auto* j : running) j->check_timeouts();
+    for (const auto& j : running) j->check_timeouts();
 }
 
-Job* JobService::get(const std::string& id) {
+std::shared_ptr<Job> JobService::get(const std::string& id) {
     std::scoped_lock lk(mtx_);
     auto it = jobs_.find(id);
-    return it == jobs_.end() ? nullptr : it->second.get();
+    return it == jobs_.end() ? nullptr : it->second;
 }
 
 std::string JobService::read_delta(const std::string& id) {

@@ -3,6 +3,7 @@
 #define AGENT_MCP_CONFIG_H
 
 #include <map>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <vector>
@@ -64,7 +65,7 @@ public:
 
     std::string connect(const std::string& name);
     void disconnect(const std::string& name);
-    std::string refresh(const std::string& name);
+    std::string refresh(const std::string& name) const;
 
     // Runtime policy toggles, persisted to the project config immediately.
     std::string set_trusted(const std::string& name, bool trusted);
@@ -79,15 +80,22 @@ public:
     bool trusted(const std::string& name) const;
     bool enabled(const std::string& name) const;
 
-    MCPClient* client(const std::string& name);
-    const MCPClient* client(const std::string& name) const;
+    // Shared lease: tool adapters hold it across a disconnect so an
+    // in-flight call never touches a destroyed client.
+    std::shared_ptr<MCPClient> client(const std::string& name) const;
 
     // Disconnect everything (session end).
     void shutdown_all();
 
 private:
+    // Guards configs_/clients_/connect_gen_: the UI thread mutates them while
+    // worker threads may take client leases (client()) or read status.
+    mutable std::mutex mtx_;
     std::map<std::string, McpServerConfig> configs_;
-    std::map<std::string, std::unique_ptr<MCPClient>> clients_;
+    std::map<std::string, std::shared_ptr<MCPClient>> clients_;
+    // Per-server connect generation: a stale handshake (started before a
+    // disable/remove/re-connect) must not install its client afterwards.
+    std::map<std::string, uint64_t> connect_gen_;
     const CancellationToken* cancel_token_ = nullptr;
 };
 

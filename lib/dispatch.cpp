@@ -172,7 +172,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         std::string id, fn;
         json args;
         bool args_ok = true;
-        Tool* tool = nullptr;
+        std::shared_ptr<Tool> tool;  // lease: alive across concurrent unregister
         bool approved = false;
         std::string denied_reason;
     };
@@ -185,7 +185,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         if (hooks.on_debug) hooks.on_debug("tool_call: " + c.fn);
         log.event("tool_call", {{"name", c.fn}, {"id", c.id}, {"args", c.args}});
 
-        c.tool = registry.find(c.fn);
+        c.tool = registry.find(c.fn);  // shared lease: survives unregister mid-dispatch
         if (!c.tool) {
             c.denied_reason = "unknown tool: " + c.fn;
         } else if (cfg.mode == agent::AgentMode::Read && !c.tool->is_read_only()) {

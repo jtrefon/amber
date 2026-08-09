@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -126,7 +127,9 @@ private:
     std::vector<McpToolDef> tools_;
     std::vector<McpResourceDef> resources_;
     std::vector<McpPromptDef> prompts_;
-    bool list_changed_ = false;
+    // Set by the transport thread (server notifications), read on the
+    // agent thread — must be atomic.
+    std::atomic<bool> list_changed_ = false;
 };
 
 // Flatten MCP tool/resource content blocks into one text payload, capped at
