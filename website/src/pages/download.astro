@@ -36,13 +36,32 @@ amber</pre>
         </div>
 
         <div class="download-card">
-          <h3>Any distro</h3>
+          <h3>Any distro (tarball)</h3>
           <p class="pkg-name">amber-0.3.1-linux-x86_64.tar.gz</p>
           <a class="download-btn" href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-0.3.1-linux-x86_64.tar.gz" rel="noopener">download tarball</a>
           <div class="terminal">
             <pre>sudo tar -xzf amber-0.3.1-linux-x86_64.tar.gz -C /
 amber</pre>
           </div>
+          <p class="card-note">
+            Prebuilt binaries for every other distro. The tarball is the staged
+            install tree: binaries, the portable libraries, headers, and runtime
+            data, extracted straight to <code>/</code>.
+          </p>
+        </div>
+
+        <div class="download-card">
+          <h3>Arch Linux</h3>
+          <p class="pkg-name">PKGBUILD (builds from source)</p>
+          <a class="download-btn" href="https://raw.githubusercontent.com/jtrefon/amber/main/packaging/arch/PKGBUILD" rel="noopener">get PKGBUILD</a>
+          <div class="terminal">
+            <pre>curl -O https://raw.githubusercontent.com/jtrefon/amber/main/packaging/arch/PKGBUILD
+makepkg -si</pre>
+          </div>
+          <p class="card-note">
+            pacman package, built locally with makepkg (runs the unit suite in
+            check()). Not on the AUR yet; the PKGBUILD is the standard way in.
+          </p>
         </div>
       </div>
       <p>
@@ -61,18 +80,20 @@ amber</pre>
     <section class="section">
       <h2>In the box</h2>
       <p>
-        The package installs three binaries and the runtime data
+        The packages install the prebuilt binaries and the runtime data
         (prompts, command tree, completions) under <code>/usr/share/amber</code>:
       </p>
       <ul class="feature-list">
         <li><strong>amber</strong> - the interactive TUI (ncurses, BitchX-style)</li>
         <li><strong>amber-cli</strong> - the headless agent for scripts, cron, CI</li>
-        <li><strong>amber-bench</strong> - the benchmark and KPI harness</li>
+        <li><strong>libagent_core.a + libagent_tools.a</strong> - the portable agent engine, as static libraries</li>
+        <li><strong>include/agent/*</strong> - the library headers, for embedding amber in your own C++ project</li>
       </ul>
-      <div class="terminal">
-        <pre>$ amber-bench run        # hermetic benchmark corpus, no model needed
-$ amber-bench run --live # benchmark against your configured model</pre>
-      </div>
+      <p>
+        <code>amber-bench</code>, the benchmark and KPI harness, is a development
+        tool and ships in the source tree: <code>make && ./amber-bench run</code>
+        (hermetic mode needs no model).
+      </p>
     </section>
 
     <hr class="divider" />
@@ -120,6 +141,13 @@ $ amber-bench run --live # benchmark against your configured model</pre>
     font-size: 12px;
     margin-bottom: 12px;
     word-break: break-all;
+  }
+
+  .download-card .card-note {
+    color: #9a7c47;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 12px 0;
   }
 
   .download-card .terminal {

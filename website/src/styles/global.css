@@ -289,11 +289,25 @@ main > h1::before {
   margin-left: auto;
   display: flex;
   gap: 16px;
+  align-items: center;
 }
 
-.status-bar .status-right span::before {
+.status-bar .status-right span::before,
+.status-bar .status-right a::before {
   content: '│ ';
   color: var(--amber-dim);
+}
+
+.status-bar .status-credit {
+  color: var(--text-dim);
+  border-bottom: none;
+  white-space: nowrap;
+}
+
+.status-bar .status-credit:hover {
+  color: var(--amber);
+  background: none;
+  text-shadow: 0 0 6px var(--glow);
 }
 
 .status-bar .status-dot {
@@ -442,16 +456,6 @@ main > h1::before {
   text-shadow: 0 0 6px var(--glow-soft);
 }
 
-/* Footer */
-.footer {
-  margin-top: 64px;
-  padding: 24px 0;
-  border-top: 1px solid var(--line);
-  font-size: 12px;
-  color: var(--text-faint);
-  text-align: center;
-}
-
 /* Nav Drawer */
 .nav-drawer {
   position: fixed;
@@ -566,4 +570,12 @@ main > h1::before {
   font-size: 1.4em;
   font-weight: bold;
   text-shadow: 0 0 10px var(--glow);
+}
+
+/* Narrow screens: keep the credit, drop the filler segments */
+@media (max-width: 720px) {
+  .status-bar .status-right span:nth-child(1),
+  .status-bar .status-right span:nth-child(2) {
+    display: none;
+  }
 }

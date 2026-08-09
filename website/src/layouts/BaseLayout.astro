@@ -55,17 +55,6 @@ const canonical = new URL(Astro.url.pathname, Astro.site).href;
     <slot />
   </div>
 
-  <footer class="footer">
-    <p>
-      amber: an AI agent harness for Linux &middot; Apache 2.0 &middot; C++17
-    </p>
-    <p>
-      Created and maintained by <a href="https://www.trefon.com" rel="noopener">Jacek Trefon</a> &middot;
-      <a href="mailto:hello@trefon.com">hello@trefon.com</a> &middot;
-      <a href="https://github.com/jtrefon/amber" rel="noopener">GitHub</a>
-    </p>
-  </footer>
-
   <!-- Nav Drawer Overlay -->
   <div id="nav-drawer" class="nav-drawer">
     <div class="nav-drawer-content">
@@ -101,6 +90,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site).href;
     <div class="status-right">
       <span>utf-8</span>
       <span>ncurses</span>
+      <a href="https://www.trefon.com" rel="noopener" class="status-credit">Jacek Trefon www.trefon.com</a>
       <span>{new Date().getFullYear()}</span>
     </div>
   </div>
