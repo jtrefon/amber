@@ -19,9 +19,11 @@ public:
 
     int run();  // Returns selected index, or -1 on cancel
 
-    bool handle_key(int ch) override;
-
 private:
+    bool handle_key(int ch) override;
+    void run_input_loop();
+    void remap_filtered_selection();
+
     std::vector<std::string> items_;
     std::string filter_;
     int selection_ = 0;

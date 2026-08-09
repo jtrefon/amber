@@ -2,6 +2,7 @@
 #include "tui/confirm_panel.h"
 #include "tui/widgets.h"
 #include "tui/dialog.h"
+#include "tui/approval_model.h"
 
 
 
@@ -87,72 +88,70 @@ void ApprovalPanel::draw() {
 agent::Approval ApprovalPanel::run() {
     curs_set(0);
     ModalScope scope;
+    // This dialog switches stdscr to (near-)blocking reads; restore the main
+    // loop's tick timeout on every exit path or the UI freezes after the
+    // first approval.
+    BlockingInputGuard input_guard;
 
-    auto t0 = std::chrono::steady_clock::now();
+    // Seed the model with the panel's (already clamped) initial selection so
+    // Enter resolves what is highlighted.
+    ApprovalModel model(timeout_sec_, sel_, ApprovalModel::steady_seconds);
+    sel_ = model.selection();
 
     draw();
-    int ch;
-    bool done = false;
-
-    while (!done) {
-        // Compute remaining timeout
-        if (timeout_sec_ > 0 && remaining_ > 0) {
-            auto elapsed = std::chrono::steady_clock::now() - t0;
-            int elapsed_s = static_cast<int>(
-                std::chrono::duration_cast<std::chrono::seconds>(elapsed).count());
-            int new_remaining = std::max(0, timeout_sec_ - elapsed_s);
-            if (new_remaining != remaining_) {
-                remaining_ = new_remaining;
-                draw();
-            }
-            if (remaining_ == 0) {
-                // Auto-confirm default
-                break;
-            }
+    while (true) {
+        model.poll();
+        int rem = model.remaining_sec();
+        if (rem != remaining_) {
+            remaining_ = rem;
+            sel_ = model.selection();
+            draw();
         }
-
-        // Use half-second timeout for timer updates
-        timeout(-1);  // blocking
-        ch = getch();
-
-        switch (ch) {
-        case '\t':
-        case KEY_RIGHT:
-            sel_ = (sel_ + 1) % 4;
-            draw();
-            break;
-        default:
-            break;
-        case KEY_LEFT:
-            sel_ = (sel_ + 3) % 4;
-            draw();
-            break;
-        case '1': sel_ = 0; done = true; break;
-        case '2': sel_ = 1; done = true; break;
-        case '3': sel_ = 2; done = true; break;
-        case '4': sel_ = 3; done = true; break;
-        case '\n':
-        case '\r':
-            done = true;
-            break;
-        case 27:  // Esc — cancel/deny
+        if (model.timed_out()) {
+            // Fail-safe: a timed-out dialog denies; it never auto-confirms
+            // the default selection.
             sel_ = -1;
-            done = true;
             break;
         }
+        // Poll at 250 ms while a countdown runs so the timer advances
+        // without keypresses; block when waiting indefinitely.
+        timeout(timeout_sec_ > 0 ? 250 : -1);
+        int ch = getch();
+        if (ch == ERR) continue;
+        if (handle_dialog_key(ch, model)) break;
     }
 
     hide();
     curs_set(1);
 
-    if (sel_ < 0) return agent::Approval::Deny;
-    static const agent::Approval map[] = {
-        agent::Approval::AllowOnce,
-        agent::Approval::AllowSession,
-        agent::Approval::AlwaysAllow,
-        agent::Approval::AlwaysDeny
-    };
-    return map[sel_];
+    return model.resolve(sel_);
+}
+
+// Returns true when the dialog should close; updates selection and redraws
+// otherwise. The model is the single source of truth for the selection;
+// sel_ mirrors it so draw() never needs the model.
+bool ApprovalPanel::handle_dialog_key(int ch, ApprovalModel& model) {
+    if (ch == '\t' || ch == KEY_RIGHT || ch == KEY_LEFT) {
+        model.select(model.selection() +
+                     (ch == KEY_LEFT ? -1 : 1));
+        sel_ = model.selection();
+        draw();
+        return false;
+    }
+    if (ch >= '1' && ch <= '4') {
+        model.select(ch - '1');
+        sel_ = model.selection();
+        return true;
+    }
+    if (ch == '\n' || ch == '\r') {
+        sel_ = model.selection();
+        return true;
+    }
+    if (ch == 27) {  // Esc — cancel/deny
+        sel_ = -1;
+        return true;
+    }
+    return false;
 }
 
 agent::Approval approve_dialog(const std::string& summary,
@@ -173,6 +172,9 @@ ConfirmPanel::ConfirmPanel(const std::string& title,
 bool ConfirmPanel::run() {
     curs_set(0);
     ModalScope scope;
+    // Blocking read; restore the main loop's tick timeout on exit.
+    BlockingInputGuard input_guard;
+    timeout(-1);
     werase(content());
     int x = (content_cols() - static_cast<int>(message_.size())) / 2;
     if (x < 0) x = 0;

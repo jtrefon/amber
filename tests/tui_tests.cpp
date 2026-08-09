@@ -11,7 +11,13 @@
 #include "tui/rich.h"
 #include "tui/markdown.h"
 #include "tui/tool_display.h"
+#include "tui/approval_model.h"
+#include "tui/signal_guard.h"
+#include "tui/event_router.h"
 #include "tests/test_util.h"
+
+#include <future>
+#include <queue>
 
 // ---------------------------------------------------------------------------
 // TUI text utilities (UTF-8 wrapping / width / decoding)
@@ -645,4 +651,189 @@ TEST(tool_display_result_line_shows_lines_tail) {
     std::string t = join_runs(ln);
     ASSERT(t.find("ls -la") != std::string::npos);
     ASSERT(t.find("4 lines") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Approval dialog model (timeout fail-safe + countdown)
+// ---------------------------------------------------------------------------
+
+namespace {
+double fake_now = 0.0;
+tui::ApprovalModel make_model(int timeout_sec, int default_idx) {
+    fake_now = 0.0;
+    return {timeout_sec, default_idx, []() { return fake_now; }};
+}
+} // namespace
+
+TEST(approval_timeout_auto_denies) {
+    auto m = make_model(2, 0);  // 2s timeout, default selection AllowOnce
+    fake_now = 2.0;
+    m.poll();
+    ASSERT(m.timed_out());
+    // Fail-safe: a timed-out dialog must DENY, never auto-confirm the default.
+    ASSERT(m.resolve(m.selection()) == agent::Approval::Deny);
+}
+
+TEST(approval_timeout_zero_waits_forever) {
+    auto m = make_model(0, 0);
+    fake_now = 1000.0;
+    m.poll();
+    ASSERT(!m.timed_out());
+}
+
+TEST(approval_verdict_mapping) {
+    auto m = make_model(0, 0);
+    ASSERT(m.resolve(0) == agent::Approval::AllowOnce);
+    ASSERT(m.resolve(1) == agent::Approval::AllowSession);
+    ASSERT(m.resolve(2) == agent::Approval::AlwaysAllow);
+    ASSERT(m.resolve(3) == agent::Approval::AlwaysDeny);
+    ASSERT(m.resolve(-1) == agent::Approval::Deny);  // Esc / cancel
+}
+
+TEST(approval_selection_clamps) {
+    auto m = make_model(0, 0);
+    m.select(99);
+    ASSERT_EQ(m.selection(), 3);
+    m.select(-5);
+    ASSERT_EQ(m.selection(), 0);
+    m.select(2);
+    ASSERT_EQ(m.selection(), 2);
+}
+
+TEST(approval_countdown_decrements) {
+    auto m = make_model(5, 0);
+    fake_now = 2.0;
+    m.poll();
+    ASSERT_EQ(m.remaining_sec(), 3);
+    fake_now = 6.0;
+    m.poll();
+    ASSERT(m.timed_out());
+    ASSERT_EQ(m.remaining_sec(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Setting value parsing (numeric setters must never throw)
+// ---------------------------------------------------------------------------
+
+TEST(parse_setting_int_accepts_valid) {
+    auto v = tui::text::parse_setting_int("42", 0, 999);
+    ASSERT(v.has_value());
+    ASSERT_EQ(*v, 42);
+    auto lo = tui::text::parse_setting_int("0", 0, 999);
+    ASSERT(lo.has_value());
+    ASSERT_EQ(*lo, 0);
+    auto hi = tui::text::parse_setting_int("999", 0, 999);
+    ASSERT(hi.has_value());
+    ASSERT_EQ(*hi, 999);
+}
+
+TEST(parse_setting_int_rejects_garbage) {
+    ASSERT(!tui::text::parse_setting_int("abc", 0, 999).has_value());
+    ASSERT(!tui::text::parse_setting_int("", 0, 999).has_value());
+    ASSERT(!tui::text::parse_setting_int("12x", 0, 999).has_value());
+}
+
+TEST(parse_setting_int_rejects_out_of_range) {
+    ASSERT(!tui::text::parse_setting_int("-1", 0, 999).has_value());
+    ASSERT(!tui::text::parse_setting_int("1000", 0, 999).has_value());
+    ASSERT(!tui::text::parse_setting_int("5", 1, 4).has_value());
+}
+
+TEST(parse_setting_double_accepts_valid) {
+    auto v = tui::text::parse_setting_double("0.5", 0.1, 1.0);
+    ASSERT(v.has_value());
+    ASSERT_EQ(v.value(), 0.5);
+}
+
+TEST(parse_setting_double_rejects_garbage) {
+    ASSERT(!tui::text::parse_setting_double("x", 0.1, 1.0).has_value());
+    ASSERT(!tui::text::parse_setting_double("", 0.1, 1.0).has_value());
+    ASSERT(!tui::text::parse_setting_double("2.0", 0.1, 1.0).has_value());
+    ASSERT(!tui::text::parse_setting_double("nan", 0.1, 1.0).has_value());
+    ASSERT(!tui::text::parse_setting_double("inf", 0.1, 1.0).has_value());
+    ASSERT(!tui::text::parse_setting_double("-inf", 0.1, 1.0).has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Signal state (async-signal-safe shutdown flag)
+// ---------------------------------------------------------------------------
+
+TEST(signal_state_consume_once) {
+    tui::SignalState s;
+    s.raise(SIGTERM);
+    s.raise(SIGTERM);
+    ASSERT(s.consume());
+    ASSERT_EQ(s.signal(), SIGTERM);
+    ASSERT(!s.consume());
+}
+
+// ---------------------------------------------------------------------------
+// Event routing (window-stamped events) + approval deny-on-shutdown
+// ---------------------------------------------------------------------------
+
+TEST(route_event_targets_stamped_window) {
+    std::vector<std::unique_ptr<tui::Window>> windows;
+    windows.push_back(std::make_unique<tui::Window>());
+    windows.push_back(std::make_unique<tui::Window>());
+    windows[0]->id = 10;
+    windows[1]->id = 11;
+    tui::AgentEvent ev;
+    ev.window_id = 11;
+    ASSERT(route_event(windows, ev, 0) == windows[1].get());
+}
+
+TEST(route_event_drops_unknown_window) {
+    std::vector<std::unique_ptr<tui::Window>> windows;
+    windows.push_back(std::make_unique<tui::Window>());
+    tui::AgentEvent ev;
+    ev.window_id = 7;
+    ASSERT(route_event(windows, ev, 0) == nullptr);
+}
+
+TEST(route_event_npos_routes_to_active) {
+    std::vector<std::unique_ptr<tui::Window>> windows;
+    windows.push_back(std::make_unique<tui::Window>());
+    windows.push_back(std::make_unique<tui::Window>());
+    tui::AgentEvent ev;
+    ev.window_id = std::string::npos;
+    ASSERT(route_event(windows, ev, 1) == windows[1].get());
+}
+
+TEST(route_event_survives_window_erase) {
+    // Stamped events must follow their window, not a vector index that
+    // shifts when another window is closed.
+    std::vector<std::unique_ptr<tui::Window>> windows;
+    windows.push_back(std::make_unique<tui::Window>());
+    windows.push_back(std::make_unique<tui::Window>());
+    windows.push_back(std::make_unique<tui::Window>());
+    windows[0]->id = 10;
+    windows[1]->id = 11;
+    windows[2]->id = 12;
+    tui::Window* stamped = windows[2].get();
+    tui::AgentEvent ev;
+    ev.window_id = 12;
+    windows.erase(windows.begin());  // close window 0
+    ASSERT(route_event(windows, ev, 0) == stamped);
+}
+
+TEST(deny_all_pending_approvals_resolves_all) {
+    std::queue<tui::AgentEvent> q;
+    for (int i = 0; i < 3; ++i) {
+        tui::AgentEvent ev;
+        ev.type = tui::AgentEvent::Approval;
+        ev.approval_promise =
+            std::make_shared<std::promise<agent::Approval>>();
+        q.push(std::move(ev));
+    }
+    std::vector<std::future<agent::Approval>> futures;
+    std::queue<tui::AgentEvent> copy = q;
+    while (!copy.empty()) {
+        futures.push_back(copy.front().approval_promise->get_future());
+        copy.pop();
+    }
+    deny_all_pending_approvals(q);
+    ASSERT(q.empty());
+    for (auto& f : futures) {
+        ASSERT(f.get() == agent::Approval::Deny);
+    }
 }
