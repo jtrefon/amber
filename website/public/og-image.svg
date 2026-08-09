@@ -1,15 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
     <style>
-      .bg { fill: #0a0a0a; }
-      .border { stroke: #333; stroke-width: 2; fill: none; }
-      .title { fill: #ff6b35; font-family: 'Courier New', monospace; font-size: 48px; font-weight: bold; }
-      .subtitle { fill: #e0e0e0; font-family: 'Courier New', monospace; font-size: 24px; }
-      .dim { fill: #888; font-family: 'Courier New', monospace; font-size: 20px; }
-      .green { fill: #00ff41; font-family: 'Courier New', monospace; font-size: 20px; }
-      .code { fill: #e0e0e0; font-family: 'Courier New', monospace; font-size: 22px; }
-      .prompt { fill: #00ff41; font-family: 'Courier New', monospace; font-size: 22px; }
-      .cursor { fill: #00ff41; }
+      .bg { fill: #000000; }
+      .border { stroke: #33260e; stroke-width: 2; fill: none; }
+      .title { fill: #ffb000; font-family: 'Courier New', monospace; font-size: 48px; font-weight: bold; }
+      .subtitle { fill: #e8cf9c; font-family: 'Courier New', monospace; font-size: 24px; }
+      .dim { fill: #9a7c47; font-family: 'Courier New', monospace; font-size: 20px; }
+      .green { fill: #ffb000; font-family: 'Courier New', monospace; font-size: 20px; }
+      .code { fill: #e8cf9c; font-family: 'Courier New', monospace; font-size: 22px; }
+      .prompt { fill: #ffb000; font-family: 'Courier New', monospace; font-size: 22px; }
+      .cursor { fill: #ffb000; }
+      .line { stroke: #6b4f1f; }
     </style>
   </defs>
 
@@ -17,20 +18,21 @@
   <rect class="bg" width="1200" height="630" />
 
   <!-- Terminal window -->
-  <rect x="60" y="40" width="1080" height="550" rx="0" fill="#111" stroke="#333" stroke-width="1" />
+  <rect x="60" y="40" width="1080" height="550" rx="0" fill="#0a0700" stroke="#33260e" stroke-width="1" />
 
   <!-- Terminal header -->
-  <rect x="60" y="40" width="1080" height="36" fill="#1a1a1a" stroke="#333" stroke-width="1" />
-  <circle cx="90" cy="58" r="8" fill="#ff5f56" />
-  <circle cx="114" cy="58" r="8" fill="#ffbd2e" />
-  <circle cx="138" cy="58" r="8" fill="#27c93f" />
+  <rect x="60" y="40" width="1080" height="36" fill="#120c02" stroke="#33260e" stroke-width="1" />
+  <rect x="84" y="52" width="8" height="8" fill="#6b4f1f" />
+  <rect x="100" y="52" width="8" height="8" fill="#ffb000" />
+  <rect x="116" y="52" width="8" height="8" fill="#6b4f1f" />
   <text x="600" y="64" text-anchor="middle" class="dim">amber ~/website</text>
 
   <!-- Content -->
   <text x="100" y="140" class="title">amber</text>
   <text x="100" y="190" class="subtitle">an AI agent harness for Linux servers</text>
 
-  <line x1="100" y1="220" x2="1100" y2="220" stroke="#00ff41" stroke-width="2" />
+  <line x1="100" y1="220" x2="1100" y2="220" stroke="#6b4f1f" stroke-width="2" stroke-dasharray="8 6" />
+  <text x="600" y="226" text-anchor="middle" fill="#ffb000" font-size="14">◆</text>
 
   <text x="100" y="270" class="dim">Built in C++. Bare-metal performance. Open source (Apache 2.0).</text>
   <text x="100" y="310" class="dim">A terminal-native agent runtime with a BitchX-inspired TUI,</text>
@@ -47,9 +49,9 @@
   <rect x="540" y="452" width="12" height="22" class="cursor" />
 
   <!-- Bottom bar -->
-  <rect x="60" y="570" width="1080" height="20" fill="#1a1a1a" stroke="#333" stroke-width="1" />
+  <rect x="60" y="570" width="1080" height="20" fill="#120c02" stroke="#33260e" stroke-width="1" />
   <text x="100" y="585" class="green" font-size="14">amber 0.3.1</text>
   <text x="250" y="585" class="dim" font-size="14">Apache 2.0</text>
   <text x="370" y="585" class="dim" font-size="14">C++17</text>
-  <text x="1050" y="585" class="dim" font-size="14" text-anchor="end">amber-agent.dev</text>
+  <text x="1050" y="585" class="dim" font-size="14" text-anchor="end">jtrefon.github.io/amber</text>
 </svg>

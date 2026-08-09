@@ -17,14 +17,25 @@ The nostalgia leaks through in the details, not as a gimmick.
 
 ## Aesthetic Direction
 
-### Primary Palette
-- Background: `#0a0a0a` (dark terminal)
-- Accent: `#00ff41` (terminal green)
-- Highlights: `#ff6b35` (amber), `#f7c948` (warm gold)
-- Text: `#e0e0e0` (terminal white)
-- Borders: `#333333` (terminal border)
-- Monospace fonts throughout: JetBrains Mono or IBM Plex Mono
-- No rounded corners. No gradients. No stock photos.
+### Primary Palette — amber CRT phosphor (2026-08-09 revision)
+
+The aesthetic is now driven by the amber monochrome monitors of the P3-phosphor
+era (IBM 5151, ZX Spectrum, the BBS/IRC nights) — the name "amber" is the old
+monitor, not the modern orange hex. Black glass, amber text, box-drawn frames,
+scanlines, phosphor glow:
+
+- Background: `#000000` (pure black — matches the art.ans robot's black canvas)
+- Bright phosphor: `#ffb000` (primary accent, headings, links, cursor)
+- Hot phosphor: `#ffcf4d` (hovers, h2 titles, status dot)
+- Text: `#e8cf9c` (warm phosphor white)
+- Dim text: `#9a7c47`
+- Faint: `#5c4823`
+- Frame lines: `#33260e` / `#6b4f1f` (borders, dashes, `┌─` bars)
+- Monospace fonts throughout: JetBrains Mono (self-hosted)
+- No rounded corners. No gradients (flat CRT wash only). No stock photos.
+- CRT details: scanline overlay (`body::after`), phosphor text-shadow glow,
+  blinking `█` cursor, dashed rule dividers with a glowing `◆`, box-drawn
+  `┌─ title ─┐` section frames.
 
 ### The "Leak" — Where Nostalgia Bleeds Through
 
@@ -227,6 +238,11 @@ Positioning and mechanics locked in review:
   `set:html`), not an iframe. No JS.
 - **Fonts are self-hosted** (`/fonts/jetbrains-mono-*.woff2` from @fontsource) —
   no Google Fonts CDN, per the <1s load promise.
+- **Base path** (`site: 'https://jtrefon.github.io/amber'` in `astro.config.mjs`)
+  — project Pages serve under `/amber/`, so Astro emits `/amber/_astro/...` asset
+  URLs. Without it every stylesheet 404s and the site renders as bare HTML
+  (the bug that shipped the unstyled site). OG tags point at the live Pages URL;
+  flip to `amber-agent.dev` when the custom domain lands.
 
 ## Interactive Islands (Astro + React/Svelte)
 

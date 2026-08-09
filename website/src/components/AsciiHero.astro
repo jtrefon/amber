@@ -3,6 +3,7 @@ import asciiArt from '../data/ascii-hero.html?raw';
 ---
 
 <div class="ascii-hero">
+  <p class="art-meta">[ art.ans · 120×33 · ANSI/256 ]</p>
   <div class="ascii-art-container">
     <Fragment set:html={asciiArt} />
   </div>
@@ -16,27 +17,40 @@ import asciiArt from '../data/ascii-hero.html?raw';
     A BitchX-inspired TUI, real benchmarks, compression that works.
   </p>
   <div class="cta-row">
-    <a href="/install" class="cta">Install</a>
-    <a href="https://github.com/jtrefon/amber" target="_blank" rel="noopener" class="cta outline">GitHub</a>
+    <a href="/install" class="cta">./install</a>
+    <a href="https://github.com/jtrefon/amber" target="_blank" rel="noopener" class="cta outline">github.com/jtrefon/amber</a>
   </div>
 </div>
 
 <style>
   .ascii-hero {
     text-align: center;
-    padding: 32px 0;
+    padding: 32px 0 24px;
+  }
+
+  .art-meta {
+    color: #6b4f1f;
+    font-size: 11px;
+    letter-spacing: 2px;
+    margin: 0 auto 8px;
+    text-align: center;
   }
 
   .ascii-art-container {
     display: flex;
     justify-content: center;
-    margin-bottom: 24px;
+    margin: 0 auto;
     overflow-x: auto;
     max-width: 100%;
+    background: #000000;
+    border: 1px solid #33260e;
+    box-shadow:
+      0 0 30px rgba(255, 176, 0, 0.07),
+      inset 0 0 40px rgba(255, 176, 0, 0.03);
   }
 
   .ascii-art-container :global(pre.ascii-art) {
-    background: #0a0a0a;
+    background: #000000;
     margin: 0;
     font-family: 'JetBrains Mono', monospace;
     font-size: 7px;
@@ -46,17 +60,19 @@ import asciiArt from '../data/ascii-hero.html?raw';
   }
 
   .ascii-hero .tagline {
-    color: #ff6b35;
-    font-size: 1.1em;
+    color: #ffb000;
+    font-size: 1.15em;
     font-weight: bold;
-    margin-bottom: 16px;
+    margin: 28px 0 16px;
+    text-shadow: 0 0 10px rgba(255, 176, 0, 0.5);
   }
 
   .ascii-hero .cursor {
     display: inline-block;
     width: 0.6em;
     height: 1.2em;
-    background: #00ff41;
+    background: #ffb000;
+    box-shadow: 0 0 10px rgba(255, 176, 0, 0.6);
     margin-left: 2px;
     vertical-align: text-bottom;
     animation: blink 1s step-end infinite;
@@ -68,9 +84,9 @@ import asciiArt from '../data/ascii-hero.html?raw';
   }
 
   .ascii-hero .pitch {
-    color: #888888;
+    color: #9a7c47;
     font-size: 0.95em;
-    line-height: 1.7;
+    line-height: 1.8;
     margin-bottom: 32px;
     max-width: 560px;
     margin-left: auto;
@@ -81,32 +97,38 @@ import asciiArt from '../data/ascii-hero.html?raw';
     display: flex;
     gap: 16px;
     justify-content: center;
+    flex-wrap: wrap;
   }
 
   .cta {
     display: inline-block;
-    background: #1a1a1a;
-    border: 1px solid #00ff41;
+    background: #0a0700;
+    border: 1px solid #ffb000;
     padding: 10px 24px;
-    color: #00ff41;
+    color: #ffb000;
     font-family: 'JetBrains Mono', monospace;
     font-size: 13px;
     cursor: pointer;
     text-decoration: none;
-    transition: background 0.2s;
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.5);
+    transition: background 0.2s, color 0.2s;
   }
 
   .cta:hover {
-    background: rgba(0, 255, 65, 0.1);
+    background: rgba(255, 176, 0, 0.12);
+    color: #ffcf4d;
+    border-color: #ffcf4d;
   }
 
   .cta.outline {
-    border-color: #888888;
-    color: #888888;
+    border-color: #6b4f1f;
+    color: #9a7c47;
+    text-shadow: none;
   }
 
   .cta.outline:hover {
-    border-color: #00ff41;
-    color: #00ff41;
+    border-color: #ffb000;
+    color: #ffb000;
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.5);
   }
 </style>
