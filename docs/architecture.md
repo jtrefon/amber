@@ -74,7 +74,7 @@ depth**. Switchable at runtime via `/mode read|write|yolo`.
 | Mode  | Tools Available          | Approval        | Self‑Review | Use Case |
 |-------|--------------------------|-----------------|-------------|----------|
 | read  | search, grep, read only  | none            | off         | Ask questions about code |
-| write | all                      | on by default   | on          | Normal development |
+| write | all                      | on by default   | off         | Normal development |
 | yolo  | all                      | auto‑approve    | off         | Trusted, repetitive tasks |
 
 ### `/mode read`
@@ -89,8 +89,8 @@ depth**. Switchable at runtime via `/mode read|write|yolo`.
 - All tools registered.
 - Approval-gated tools (bash) show a confirmation dialog unless granted
   session-wide approval.
-- After a tool produces output, the evaluator-optimizer loop may run a
-  self-review before committing changes to disk.
+- No automatic self-review is performed (evaluator-optimizer loop; see
+  "Evaluator-Optimizer (self-review) — not implemented" below).
 
 ### `/mode yolo`
 
@@ -128,26 +128,28 @@ for independent operations like "grep for X, read file Y, search for Z."
 - The agent thread blocks on `std::future::get()` for each result (in order).
 - A failed tool does not cancel siblings — all results are collected.
 
-### 3. Evaluator-Optimizer (self-review)
+### 3. Evaluator-Optimizer (self-review) — not implemented
 
-```
+```text
                ┌──────────────────────────────────────┐
                │                                      │
-generate ──► evaluate ──► needs revision? ──yes──► feedback
+ generate ──► evaluate ──► needs revision? ──yes──► feedback
     │                                                  │
     │                                                  │
     └────── no (accept) ◄──────────────────────────────┘
 ```
 
-After a write tool produces output, a second LLM call reviews the result
-for correctness, completeness, and safety before the changes are finalised.
-The review prompt is minimal — the evaluator LLM sees the tool call, its
-output, and a short rubric.
+Proposed design: after a write tool produces output, a second LLM call reviews
+the result for correctness, completeness, and safety before the changes are
+finalised. The review prompt would be minimal — the evaluator LLM sees the
+tool call, its output, and a short rubric.
 
-**Trigger conditions:**
+**Trigger conditions (proposed):**
 - A write tool (write, edit, bash) returned successfully.
 - Mode is `write` (always) or `yolo` (never).
 - Self-review is not skipped due to quota / iteration limit.
+
+**Status:** not implemented — no evaluator code exists in the tree.
 
 ### 4. Chain (planned)
 
@@ -250,11 +252,7 @@ Agent hook fires → build AgentEvent → lock(mutex) → queue.push() → unloc
 
 - **Routing / model selection** — route simple queries to a small model,
   complex coding to the full reasoning model.
-- **Sub-agents** — spawn child agent sessions for independent sub-tasks.
 - **Human-in-the-loop checkpoints** — pause at configurable points for
   user review (before file writes, before bash execution in `write` mode).
-- **Context compression** — tree-shaking conversation history to maximise
-  context space while preserving task state. See
-  [`docs/architecture/context-compression.md`](architecture/context-compression.md).
 - **Tool dependency graphs** — let tools declare prerequisites so the
   dispatcher can parallelize or order them intelligently.
