@@ -286,20 +286,21 @@ struct EchoManager {
     agent::ServerManager mgr;
     agent::ToolRegistry reg;
 
-    EchoManager() {
-        char buf[4096];
-        cwd = getcwd(buf, sizeof buf) ? buf : ".";
-        ws = "/tmp/amber_mcp_cmd_ws";
-        run_cmd("rm -rf " + ws);
-        agent::Workspace::set_root(ws);
-        agent::McpServerConfig cfg;
-        cfg.name = "echo";
-        cfg.type = "stdio";
-        cfg.command = "python3";
-        cfg.args = {"tests/fixtures/mcp_echo.py"};
-        cfg.cwd = cwd;
-        mgr = agent::ServerManager({{"echo", cfg}});
-    }
+    EchoManager()
+        : mgr({{"echo", [&]() {
+                   char buf[4096];
+                   cwd = getcwd(buf, sizeof buf) ? buf : ".";
+                   ws = "/tmp/amber_mcp_cmd_ws";
+                   run_cmd("rm -rf " + ws);
+                   agent::Workspace::set_root(ws);
+                   agent::McpServerConfig cfg;
+                   cfg.name = "echo";
+                   cfg.type = "stdio";
+                   cfg.command = "python3";
+                   cfg.args = {"tests/fixtures/mcp_echo.py"};
+                   cfg.cwd = cwd;
+                   return cfg;
+               }()}}) {}
 };
 
 } // namespace

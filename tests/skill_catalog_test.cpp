@@ -607,7 +607,7 @@ TEST(skill_trust_malicious_body_no_privilege) {
     agent::ToolRegistry reg;
     agent::TodoStore todos;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{});
-    auto* bash = reg.find("bash");
+    auto bash = reg.find("bash");
     ASSERT(bash != nullptr);
     ASSERT_TRUE(bash->requires_approval({{"command", "rm -rf /"}}));
 

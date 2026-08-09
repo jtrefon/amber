@@ -52,7 +52,8 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<MemoryStore> memory_store,
              std::unique_ptr<MemoryRetriever> retriever,
              std::unique_ptr<LLMClient> client,
-             LLMClientFactory client_factory)
+             LLMClientFactory client_factory,
+             bool register_skills)
     : cfg_(std::move(cfg)), registry_(registry),
       client_factory_(std::move(client_factory)),
       client_(nullptr),
@@ -73,7 +74,7 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
         learned.assign(top.begin(), top.end());
     }
     skills_->discover(learned);
-    register_skill_tools(registry_, *skills_);
+    if (register_skills) register_skill_tools(registry_, *skills_);
 }
 
 void Agent::set_model(const std::string& model, int window) {
@@ -223,7 +224,7 @@ void Agent::set_context(std::vector<Message> messages) {
     emit_context_event(context_events_, context_);
 }
 
-Message Agent::chat_once(const std::vector<Tool*>& tools, bool display) {
+Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display) {
     Message reply;
     Stats stats;
     if (hooks_.on_debug) hooks_.on_debug("chat: request");
@@ -447,7 +448,7 @@ bool Agent::run_compression(std::function<void()> progress_cb,
 }
 
 std::string Agent::confirm_turn(const std::string& candidate,
-                                const std::vector<Tool*>& tools) {
+                                const std::vector<std::shared_ptr<Tool>>& tools) {
     Message done_msg;
     done_msg.role = "user";
     done_msg.content =
@@ -601,7 +602,7 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
 }
 
 std::string Agent::try_confirm(const std::string& candidate,
-                                const std::vector<Tool*>& tools) {
+                                const std::vector<std::shared_ptr<Tool>>& tools) {
     std::string accepted = confirm_turn(candidate, tools);
     if (accepted.empty()) return {};
     if (hooks_.on_assistant) hooks_.on_assistant(accepted);
@@ -609,10 +610,10 @@ std::string Agent::try_confirm(const std::string& candidate,
     return accepted;
 }
 
-std::vector<Tool*> Agent::resolve_tools() {
-    std::vector<Tool*> tools;
-    for (const auto& t : registry_.tools()) tools.push_back(t.get());
-    return tools;
+std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
+    // Keep the snapshot's ownership leases: raw pointers into a temporary
+    // snapshot would dangle the moment the registry mutates.
+    return registry_.snapshot_tools();
 }
 
 // One LLM round-trip with graceful recovery for request-side 4xx failures:
@@ -621,7 +622,7 @@ std::vector<Tool*> Agent::resolve_tools() {
 // server-known model id when the configured one is rejected) and retry.
 // `display` controls whether the exchange paints into the scrollback;
 // `strict` makes internal exchanges rethrow instead of faking a reply.
-Message Agent::chat_with_recovery(const std::vector<Tool*>& tools,
+Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools,
                                   const char* stage, bool display,
                                   bool strict) {
     auto chat = [this, &tools, display]() {

@@ -59,6 +59,7 @@ private:
     int stderr_fd_ = -1;
 
     std::atomic<bool> closed_{false};
+    std::once_flag shutdown_once_;   // single teardown across concurrent calls
     mutable std::mutex mtx_;
     std::condition_variable cv_;
     std::map<int, McpMessage> pending_;

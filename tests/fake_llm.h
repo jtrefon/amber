@@ -40,7 +40,7 @@ public:
     }
 
     agent::Message chat(const std::vector<agent::Message>& messages,
-                        const std::vector<agent::Tool*>& tools,
+                        const std::vector<std::shared_ptr<agent::Tool>>& tools,
                         agent::Stats* stats = nullptr) override {
         ++chat_calls;
         requests.push_back(messages);
@@ -67,7 +67,7 @@ public:
 
     agent::Message chat_stream(
         const std::vector<agent::Message>& messages,
-        const std::vector<agent::Tool*>& tools,
+        const std::vector<std::shared_ptr<agent::Tool>>& tools,
         const std::function<void(const agent::StreamChunk&)>& on_chunk,
         agent::Stats* stats = nullptr) override {
         (void)on_chunk;

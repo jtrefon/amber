@@ -13,7 +13,7 @@ namespace agent {
 // Config, the message history, and the tool set. Kept separate from the
 // transport so the wire format is unit-testable without libcurl.
 json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
-                     const std::vector<Tool*>& tools, bool stream);
+                     const std::vector<std::shared_ptr<Tool>>& tools, bool stream);
 
 // Repair a tool parameters_schema in place so the server's grammar builder
 // never sees null types or arrays without items (llama.cpp 400s with "type

@@ -7,6 +7,7 @@
 #include "agent/mcp_client.h"
 #include "agent/mcp_config.h"
 #include "agent/mcp_tools.h"
+#include "agent/mcp_commands.h"
 #include "agent/registry.h"
 #include "agent/workspace.h"
 #include "mcp_test_util.h"
@@ -115,7 +116,7 @@ TEST(mcp_register_server_tools_end_to_end) {
     agent::ToolRegistry reg;
     size_t n = agent::register_server_tools(reg, mgr, "echo");
     ASSERT_EQ(n, 1u);
-    agent::Tool* tool = reg.find("mcp_echo_echo_tool");
+    auto tool = reg.find("mcp_echo_echo_tool");
     ASSERT(tool != nullptr);
     ASSERT(tool->is_read_only() == false);
     auto r = tool->execute({{"text", "hi"}});
@@ -154,5 +155,83 @@ TEST(mcp_read_resource_tool) {
     auto bad = tool->execute({{"server", "nope"}, {"uri", "doc://x"}});
     ASSERT_FALSE(bad.ok);
     ASSERT(bad.error.find("not connected") != std::string::npos);
+    mgr.shutdown_all();
+}
+
+namespace {
+// Decoy adapter that used to exist on the server but is no longer advertised
+// — the reconnect path must drop it instead of leaving it dangling.
+class DecoyTool : public agent::Tool {
+public:
+    std::string name() const noexcept override { return "mcp_echo_stale_tool"; }
+    std::string description() const noexcept override { return "decoy"; }
+    agent::json parameters_schema() const override {
+        return agent::json::object();
+    }
+    agent::ToolResult execute(const agent::json&) const override {
+        return {true, "ok", ""};
+    }
+};
+} // namespace
+
+// Reconnecting a server must unregister the old adapters first: a tool the
+// new server no longer advertises would otherwise keep a stale McpToolAdapter
+// bound to the erased MCPClient (use-after-free on the next call).
+TEST(mcp_reconnect_server_tools_no_stale_adapters) {
+    char buf[4096];
+    std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    std::string ws = "/tmp/amber_mcp_reconnect_ws";
+    run_cmd("rm -rf " + ws);
+    agent::Workspace::set_root(ws);
+    agent::McpServerConfig cfg;
+    cfg.name = "echo";
+    cfg.type = "stdio";
+    cfg.command = "python3";
+    cfg.args = {"tests/fixtures/mcp_echo.py"};
+    cfg.cwd = cwd;
+    agent::ServerManager mgr({{"echo", cfg}});
+    ASSERT_EQ(mgr.connect("echo"), "");
+
+    agent::ToolRegistry reg;
+    ASSERT_EQ(agent::register_server_tools(reg, mgr, "echo"), 1u);
+    // A stale adapter with the server's prefix, left over from an older
+    // tool set.
+    reg.register_tool(std::make_unique<DecoyTool>());
+
+    ASSERT_EQ(agent::mcp_connect(mgr, reg, "echo"), "");
+    ASSERT(reg.find("mcp_echo_echo_tool") != nullptr);
+    ASSERT(reg.find("mcp_echo_stale_tool") == nullptr);
+    mgr.shutdown_all();
+}
+
+// An adapter lease (shared_ptr<Tool> from the registry) keeps its MCPClient
+// alive across a disconnect: executing through the held adapter after
+// mgr.disconnect() must never touch a destroyed client — it fails cleanly.
+TEST(mcp_adapter_lease_survives_disconnect) {
+    char buf[4096];
+    std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    std::string ws = "/tmp/amber_mcp_lease_ws";
+    run_cmd("rm -rf " + ws);
+    agent::Workspace::set_root(ws);
+    agent::McpServerConfig cfg;
+    cfg.name = "echo";
+    cfg.type = "stdio";
+    cfg.command = "python3";
+    cfg.args = {"tests/fixtures/mcp_echo.py"};
+    cfg.cwd = cwd;
+    agent::ServerManager mgr({{"echo", cfg}});
+    ASSERT_EQ(mgr.connect("echo"), "");
+
+    agent::ToolRegistry reg;
+    ASSERT_EQ(agent::register_server_tools(reg, mgr, "echo"), 1u);
+    std::shared_ptr<agent::Tool> held = reg.find("mcp_echo_echo_tool");
+    ASSERT(held != nullptr);
+
+    mgr.disconnect("echo");
+    // The lease keeps the client alive: a clean transport error, not a
+    // dangling-reference crash.
+    auto r = held->execute({{"text", "hi"}});
+    ASSERT(!r.ok);
+    ASSERT(!r.error.empty());
     mgr.shutdown_all();
 }

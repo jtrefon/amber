@@ -11,7 +11,7 @@ int main() {
 
     // read tool
     {
-        agent::Tool* rd = reg.find("read");
+        auto rd = reg.find("read");
         assert(rd);
         auto r = rd->execute({{"path", "prompts/system.md"}, {"limit", 3}});
         assert(r.ok);
@@ -21,7 +21,7 @@ int main() {
 
     // write tool (create file within workspace root)
     {
-        agent::Tool* wr = reg.find("write");
+        auto wr = reg.find("write");
         assert(wr);
         auto r = wr->execute({
             {"path", "amber-smoke.txt"},
@@ -42,7 +42,7 @@ int main() {
 
     // search tool
     {
-        agent::Tool* se = reg.find("search");
+        auto se = reg.find("search");
         assert(se);
         auto r = se->execute({{"pattern", "register_default_tools"},
                               {"path", "."}, {"glob", "*.cpp"}});
@@ -52,7 +52,7 @@ int main() {
 
     // semantic mode (lexical index + cosine ranking)
     {
-        agent::Tool* se = reg.find("search");
+        auto se = reg.find("search");
         assert(se);
         auto r = se->execute({{"pattern", "register the default tools"},
                               {"path", "."}, {"glob", "*.cpp"},
