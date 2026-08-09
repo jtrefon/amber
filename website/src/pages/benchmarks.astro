@@ -3,21 +3,21 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 ---
 
-<BaseLayout title="Benchmarks" description="amber benchmark results — real data, real scenarios">
+<BaseLayout title="Benchmarks" description="amber benchmark results, real data, real scenarios">
   <NavBar />
   <main>
     <h1>Benchmarks</h1>
 
     <section class="section">
       <p>
-        amber-bench is the KPI harness — how well the agent loop, tool schemas, and prompts
+        amber-bench is the KPI harness, how well the agent loop, tool schemas, and prompts
         drive each model to the correct solution. This is a harness score, not a model leaderboard:
         every scenario runs through the same engine, and the score measures the harness+model pair
         over 31 scenarios across 6 suites (agent failures, terminal work, tool selection, prompt
         adherence, coding, refactoring).
       </p>
       <p>
-        Scoring: each scenario earns 0-100 from four sub-scores — correctness (bullseye + hidden-test
+        Scoring: each scenario earns 0-100 from four sub-scores, correctness (bullseye + hidden-test
         artifact), efficiency (steps/wasted/redundant vs expected), robustness (retries/recoveries/hard-stops),
         and adherence (prompt-checks minus forbidden-tool use). The model score is the difficulty-weighted
         aggregate (1-5 per scenario), scaled to /1000.
@@ -141,10 +141,10 @@ import NavBar from '../components/NavBar.astro';
     <section class="section">
       <h2>Key Findings</h2>
       <ul class="feature-list">
-        <li><strong>Qwen3.6-27B dense leads</strong> — 910/1000, beating the 550B Nemotron by 104 points despite 20x fewer parameters</li>
-        <li><strong>The agentic gap is real</strong> — 2.48x optimal tool calls, ~20% tool failures with 27B models</li>
-        <li><strong>Frontier models collapse the gap</strong> — DeepSeek through the same harness: 93.9/100, 103 tools, 2 redundant calls, 3 failures</li>
-        <li><strong>Compression pipeline works</strong> — 900/1000 score survives context compression without degradation</li>
+        <li><strong>Qwen3.6-27B dense leads</strong>, 910/1000, beating the 550B Nemotron by 104 points despite 20x fewer parameters</li>
+        <li><strong>The agentic gap is real</strong>, 2.48x optimal tool calls, ~20% tool failures with 27B models</li>
+        <li><strong>Frontier models collapse the gap</strong>, DeepSeek through the same harness: 93.9/100, 103 tools, 2 redundant calls, 3 failures</li>
+        <li><strong>Compression pipeline works</strong>, 900/1000 score survives context compression without degradation</li>
       </ul>
     </section>
 
@@ -154,12 +154,12 @@ import NavBar from '../components/NavBar.astro';
       <h2>Scenario Breakdown</h2>
       <p>31 scenarios across 6 suites:</p>
       <ul class="feature-list">
-        <li><strong>Coding (5)</strong> — fizzbuzz, sorting, ring buffer, LCS, graph BFS</li>
-        <li><strong>Prompt adherence (6)</strong> — envelope format, banned tool refusal, verify-after-action, multi-constraint, verify-before-claim</li>
-        <li><strong>Refactoring (4)</strong> — extract method, polymorphism-over-switch, adapter, strategy</li>
-        <li><strong>Terminal work (6)</strong> — ls count files, grep extract value, compile run cpp, env inventory, pipeline transform, multi-dir count</li>
-        <li><strong>Tool selection (7)</strong> — search vs bash grep, read vs cat, write vs rewrite, process vs blocking, write-verify-loop</li>
-        <li><strong>Agent failures (5)</strong> — redundant call elimination, mistake-then-recover, mid-stream dropout, parallel vs sequential</li>
+        <li><strong>Coding (5)</strong>, fizzbuzz, sorting, ring buffer, LCS, graph BFS</li>
+        <li><strong>Prompt adherence (6)</strong>, envelope format, banned tool refusal, verify-after-action, multi-constraint, verify-before-claim</li>
+        <li><strong>Refactoring (4)</strong>, extract method, polymorphism-over-switch, adapter, strategy</li>
+        <li><strong>Terminal work (6)</strong>, ls count files, grep extract value, compile run cpp, env inventory, pipeline transform, multi-dir count</li>
+        <li><strong>Tool selection (7)</strong>, search vs bash grep, read vs cat, write vs rewrite, process vs blocking, write-verify-loop</li>
+        <li><strong>Agent failures (5)</strong>, redundant call elimination, mistake-then-recover, mid-stream dropout, parallel vs sequential</li>
       </ul>
     </section>
 

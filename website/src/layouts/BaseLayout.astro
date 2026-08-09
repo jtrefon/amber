@@ -2,6 +2,7 @@
 import '../styles/global.css';
 
 const { title = 'amber', description = 'an AI agent harness for Linux servers' } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
 ---
 
 <!doctype html>
@@ -10,12 +11,13 @@ const { title = 'amber', description = 'an AI agent harness for Linux servers' }
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content={description} />
-  <meta name="theme-color" content="#00ff41" />
+  <meta name="theme-color" content="#ffb000" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <title>{title} — an AI agent harness for Linux</title>
+  <link rel="canonical" href={canonical} />
+  <title>{title} | an AI agent harness for Linux</title>
 
   <!-- Open Graph -->
-  <meta property="og:title" content={`${title} — an AI agent harness for Linux`} />
+  <meta property="og:title" content={`${title} | an AI agent harness for Linux`} />
   <meta property="og:description" content={description} />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://jtrefon.github.io/amber/" />
@@ -24,7 +26,7 @@ const { title = 'amber', description = 'an AI agent harness for Linux servers' }
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content={`${title} — an AI agent harness for Linux`} />
+  <meta name="twitter:title" content={`${title} | an AI agent harness for Linux`} />
   <meta name="twitter:description" content={description} />
   <meta name="twitter:image" content="https://jtrefon.github.io/amber/og-image.webp" />
 
@@ -53,6 +55,17 @@ const { title = 'amber', description = 'an AI agent harness for Linux servers' }
     <slot />
   </div>
 
+  <footer class="footer">
+    <p>
+      amber: an AI agent harness for Linux &middot; Apache 2.0 &middot; C++17
+    </p>
+    <p>
+      Created and maintained by <a href="https://www.trefon.com" rel="noopener">Jacek Trefon</a> &middot;
+      <a href="mailto:hello@trefon.com">hello@trefon.com</a> &middot;
+      <a href="https://github.com/jtrefon/amber" rel="noopener">GitHub</a>
+    </p>
+  </footer>
+
   <!-- Nav Drawer Overlay -->
   <div id="nav-drawer" class="nav-drawer">
     <div class="nav-drawer-content">
@@ -62,6 +75,7 @@ const { title = 'amber', description = 'an AI agent harness for Linux servers' }
       </div>
       <nav class="nav-drawer-links">
         <a href="/">Home</a>
+        <a href="/download">Download</a>
         <a href="/install">Install</a>
         <a href="/benchmarks">Benchmarks</a>
         <a href="/tui">TUI</a>

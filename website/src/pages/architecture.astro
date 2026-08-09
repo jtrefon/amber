@@ -3,15 +3,23 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 ---
 
-<BaseLayout title="Architecture" description="amber architecture — C++17 bare-metal agent harness">
+<BaseLayout title="Architecture" description="amber architecture, C++17 bare-metal agent harness">
   <NavBar />
   <main>
     <h1>Architecture</h1>
 
     <section class="section">
       <p>
-        amber is a C++17 agent harness — not a Python wrapper, not a Node.js script, not a React
+        amber is a C++17 agent harness, not a Python wrapper, not a Node.js script, not a React
         frontend with a Flask backend. Compiled C++ with libcurl, ncurses, and zero Python dependency.
+      </p>
+      <p>
+        The engine is a portable library, <code>libagent_core.a</code>, with no UI and no
+        main(). The three binaries are thin shells over it: <code>amber</code> (interactive
+        TUI), <code>amber-cli</code> (headless, for workflows and scheduling), and
+        <code>amber-bench</code> (benchmark and KPI harness). Embed the library in your own
+        C++ project and you get the agent loop, tool registry, compression pipeline, and MCP
+        transport without a terminal in sight.
       </p>
       <div class="terminal">
         <pre>┌─ libagent_core.a ──────────────────────────────────────────┐
@@ -33,7 +41,7 @@ import NavBar from '../components/NavBar.astro';
       <p>
         The Context class uses an FNV-1a hash chain to seal every message. Once on the stack,
         messages can never be modified in-place. The only operations are push (append), pop
-        (remove top — LIFO), clear, and get_all (read-only). get_all() recomputes the entire
+        (remove top, LIFO), clear, and get_all (read-only). get_all() recomputes the entire
         chain and asserts the final hash matches chain_hash_. Any in-place modification of a
         sealed message breaks every subsequent link and triggers an assertion.
       </p>
@@ -53,7 +61,7 @@ chain_hash_ = h_n-1</pre>
       <p>
         Two-phase pipeline: classify-then-extract. Phase 1 classifies the conversation into
         core/context/prune segments. Phase 2 extracts memory and skill operations. The pipeline
-        is pure — the context is only READ. Classify/extract requests are assembled from a
+        is pure, the context is only READ. Classify/extract requests are assembled from a
         working copy of the snapshot, so a failed pipeline leaves the context untouched by
         construction.
       </p>
@@ -72,7 +80,7 @@ chain_hash_ = h_n-1</pre>
       <p>
         Tools are registered by the host (library or UI) and looked up by name when the model
         requests an invocation. Each tool has a name, description, parameter schema, and an
-        execute method. The bash tool is approval-gated — each call must be approved by the
+        execute method. The bash tool is approval-gated, each call must be approved by the
         host before it runs. If no approval handler is installed the call is denied (fail-safe).
       </p>
       <div class="terminal">
@@ -130,7 +138,7 @@ chain_hash_ = h_n-1</pre>
         prompt. Execution mode is runtime-configurable:
       </p>
       <ul class="feature-list">
-        <li>Serial: sub-agents run one at a time — sequential requests share the system-prompt prefix, keeping provider prompt caches warm</li>
+        <li>Serial: sub-agents run one at a time, sequential requests share the system-prompt prefix, keeping provider prompt caches warm</li>
         <li>Parallel: sub-agents run concurrently, capped by max()</li>
       </ul>
     </section>

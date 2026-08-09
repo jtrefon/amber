@@ -23,9 +23,9 @@ amber ~ $ Search for TODO comments in src/
   → 12 matches found in 4 files
 
 [agent] I found 12 TODO comments. Here's a summary:
-  - src/agent/context.cpp:12 — Optimize hash chain lookup
-  - src/tui/drawer.cpp:45 — Add scroll buffering
-  - src/tools/search.cpp:88 — Support regex alternation
+  - src/agent/context.cpp:12, Optimize hash chain lookup
+  - src/tui/drawer.cpp:45, Add scroll buffering
+  - src/tools/search.cpp:88, Support regex alternation
   ...
 
 [compress] Classify: 248 messages → core: 12, context: 18, prune: 218
@@ -37,7 +37,7 @@ amber ~ $ Search for TODO comments in src/
 amber ~ $ █`;
 ---
 
-<BaseLayout title="amber" description="an AI agent harness for Linux servers — built in C++ with bare-metal performance">
+<BaseLayout title="amber" description="an AI agent harness for Linux servers, built in C++ with bare-metal performance">
   <NavBar />
   <main>
     <AsciiHero />
@@ -52,7 +52,7 @@ amber ~ $ █`;
         and approval dialogs in real time.
       </p>
 
-      <TerminalWindow title="amber — jack@server ~" content={terminalSession} />
+      <TerminalWindow title="amber, jack@server ~" content={terminalSession} />
     </section>
 
     <hr class="divider" />
@@ -64,7 +64,7 @@ amber ~ $ █`;
         Not a Python wrapper around OpenAI's API. Not a Node.js script. Not a React frontend
         with a Flask backend. This is compiled C++17 with libcurl, ncurses, and zero Python
         dependency. Bare-metal performance for an agent that runs shell commands, reads files,
-        and talks to LLMs — all in one process.
+        and talks to LLMs, all in one process.
       </p>
       <div class="terminal">
         <pre>┌─ libagent_core.a ──────────────────────────────────────────┐
@@ -81,16 +81,63 @@ amber ~ $ █`;
 
     <hr class="divider" />
 
+    <!-- Four parts -->
+    <section class="section">
+      <h2>One Harness, Four Parts</h2>
+      <p>
+        amber is not a monolith. The core is a portable library, and the three
+        clients are thin shells over it. Use the whole stack, or embed just the
+        library in your own project.
+      </p>
+      <div class="four-parts">
+        <div class="part">
+          <h3>libagent_core.a</h3>
+          <p class="part-tag">the engine, as a library</p>
+          <p>
+            Agent loop, LLM client, tool registry, compression pipeline, MCP
+            transport, hash-chained context. Link it into your own C++ project:
+            your harness, your tools, your rules.
+          </p>
+        </div>
+        <div class="part">
+          <h3>amber-cli</h3>
+          <p class="part-tag">headless agent</p>
+          <p>
+            For workflows, cron jobs, CI pipelines, and scheduled routing.
+            Pipe input in, get answers out, no TTY required.
+          </p>
+        </div>
+        <div class="part">
+          <h3>amber-bench</h3>
+          <p class="part-tag">benchmark &amp; KPI harness</p>
+          <p>
+            31 scenarios, oracle scoring, hermetic mode that runs without any
+            model. Prove harness changes with numbers, not anecdotes.
+          </p>
+        </div>
+        <div class="part">
+          <h3>amber</h3>
+          <p class="part-tag">the interactive TUI</p>
+          <p>
+            The flagship: IRC-style windows, slash commands, jobs, sessions,
+            approval dialogs, compression telemetry, all in one terminal.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
     <!-- Features -->
     <section class="section">
       <h2>Architecture</h2>
       <ul class="feature-list">
-        <li>Compression pipeline — classify-then-extract with memory/skill ops, live UI progress</li>
-        <li>Context integrity — FNV-1a hash chain seals every message, catches in-place mutations</li>
-        <li>Security model — workspace confinement, approval gating, process isolation</li>
-        <li>Real benchmarking — amber-bench with KPI aggregation across 31 scenarios</li>
-        <li>MCP integration — stdio and HTTP transports, ServerManager for lifecycle</li>
-        <li>Sub-agent architecture — parallel/serial mode with cache-friendly prefix optimization</li>
+        <li>Compression pipeline, classify-then-extract with memory/skill ops, live UI progress</li>
+        <li>Context integrity, FNV-1a hash chain seals every message, catches in-place mutations</li>
+        <li>Security model, workspace confinement, approval gating, process isolation</li>
+        <li>Real benchmarking, amber-bench with KPI aggregation across 31 scenarios</li>
+        <li>MCP integration, stdio and HTTP transports, ServerManager for lifecycle</li>
+        <li>Sub-agent architecture, parallel/serial mode with cache-friendly prefix optimization</li>
       </ul>
     </section>
 
@@ -99,7 +146,7 @@ amber ~ $ █`;
     <!-- Benchmarks preview -->
     <section class="section">
       <h2>Benchmarks</h2>
-      <p>One harness, 31 scenarios, 9 models — scored, not claimed. Every model runs the same engine.</p>
+      <p>One harness, 31 scenarios, 9 models, scored, not claimed. Every model runs the same engine.</p>
       <table class="bench-table">
         <thead>
           <tr>
@@ -145,13 +192,65 @@ amber ~ $ █`;
 
     <!-- Quick Start -->
     <section class="section">
-      <h2>Quick Start</h2>
+      <h2>Get Amber</h2>
+      <p>
+        Prebuilt binaries for Debian/Ubuntu, Fedora/RHEL, and every other
+        distro. No compiler required.
+      </p>
       <div class="terminal">
-        <pre>git clone https://github.com/jtrefon/amber
-cd amber
-make && ./amber</pre>
+        <pre># Debian / Ubuntu
+sudo dpkg -i amber_0.3.1_amd64.deb
+amber
+
+# Fedora / RHEL
+sudo rpm -i amber_0.3.1.x86_64.rpm
+amber</pre>
       </div>
-      <p><a href="/install">Full install guide →</a></p>
+      <p>
+        <a class="cta-link" href="/download">Download binaries →</a>
+        &nbsp;or&nbsp;
+        <a href="/install">build from source</a>
+      </p>
     </section>
   </main>
 </BaseLayout>
+
+<style>
+  .four-parts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+  }
+
+  .part {
+    border: 1px solid #33260e;
+    background: #0a0700;
+    padding: 16px;
+  }
+
+  .part h3 {
+    color: #ffcf4d;
+    font-size: 0.95em;
+    margin: 0 0 4px;
+    text-shadow: 0 0 8px rgba(255, 176, 0, 0.45);
+  }
+
+  .part .part-tag {
+    color: #6b4f1f;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .part p {
+    color: #9a7c47;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .cta-link {
+    font-weight: bold;
+  }
+</style>

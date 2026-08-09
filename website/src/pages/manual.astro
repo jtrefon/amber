@@ -3,82 +3,245 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 ---
 
-<BaseLayout title="Manual" description="amber manual — slash commands, configuration, and usage reference">
+<BaseLayout title="Manual" description="amber manual: the full slash-command reference, configuration, and environment variables">
   <NavBar />
   <main>
     <h1>Manual</h1>
 
     <section class="section">
       <p>
-        This is the command reference for amber's TUI. All slash commands are JSON-driven —
-        no hardcoded completions. The tree structure supports unlimited nesting.
+        Every slash command in amber comes from one JSON tree
+        (<code>completions.json</code>). Nothing is hardcoded, nothing is special-cased:
+        the drawer, Tab completion, and the <code>?</code> help pages are all derived
+        from the same tree. Press <code>/</code> to open the drawer, type
+        <code>?</code> at any depth for the full help page.
       </p>
     </section>
 
     <hr class="divider-thick" />
 
     <section class="section">
-      <h2>Model & Provider</h2>
-      <div class="terminal">
-        <pre>/set model              # switch LLM model
-/set provider           # switch LLM provider
-/get model list         # list available models</pre>
-      </div>
+      <h2>Model &amp; Provider</h2>
+      <table class="cmd-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>/set model</td><td>Switch the active AI model at runtime</td></tr>
+          <tr><td>/get model</td><td>Show the active model name</td></tr>
+          <tr><td>/get model list</td><td>List all models the server offers</td></tr>
+          <tr><td>/get model context</td><td>Show the active model's context window size</td></tr>
+          <tr><td>/set provider</td><td>Switch the active LLM provider</td></tr>
+          <tr><td>/get provider</td><td>Show provider name and API base URL</td></tr>
+          <tr><td>/get provider list</td><td>List available providers</td></tr>
+          <tr><td>/provider list</td><td>List all saved API providers</td></tr>
+          <tr><td>/provider add</td><td>Add a new provider (settings form)</td></tr>
+          <tr><td>/provider edit</td><td>Edit a provider's configuration</td></tr>
+          <tr><td>/provider delete</td><td>Delete a saved provider</td></tr>
+          <tr><td>/provider test</td><td>Probe the provider's API endpoint</td></tr>
+        </tbody>
+      </table>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>Policy & Permissions</h2>
-      <div class="terminal">
-        <pre>/set policy rule        # manage permission rules
-/get policy rule        # view current rules</pre>
-      </div>
+      <h2>Sessions &amp; Jobs</h2>
+      <table class="cmd-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>/session list</td><td>Browse saved sessions</td></tr>
+          <tr><td>/session save</td><td>Save the conversation as a named session</td></tr>
+          <tr><td>/session load</td><td>Load a session by ID</td></tr>
+          <tr><td>/session delete</td><td>Delete a saved session</td></tr>
+          <tr><td>/session rename</td><td>Rename a saved session</td></tr>
+          <tr><td>/job list</td><td>List running and finished background jobs</td></tr>
+          <tr><td>/job start</td><td>Start a background job with a shell command</td></tr>
+          <tr><td>/job read</td><td>Read a job's output (all, or since last read)</td></tr>
+          <tr><td>/job kill</td><td>Stop a running job by ID</td></tr>
+          <tr><td>/save</td><td>Save the current conversation</td></tr>
+          <tr><td>/compress</td><td>Force compression of conversation history</td></tr>
+        </tbody>
+      </table>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>Jobs</h2>
-      <div class="terminal">
-        <pre>/get job status         # check running jobs
-/get job list           # list all jobs</pre>
-      </div>
+      <h2>Policy &amp; Permissions</h2>
+      <table class="cmd-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>/get policy mode</td><td>Agent access mode (read / write / yolo)</td></tr>
+          <tr><td>/set policy mode</td><td>Set the agent access mode</td></tr>
+          <tr><td>/get policy approval</td><td>Master switch for permission gating</td></tr>
+          <tr><td>/set policy approval</td><td>Toggle permission gating</td></tr>
+          <tr><td>/get policy timeout</td><td>Approval dialog timeout in seconds</td></tr>
+          <tr><td>/set policy timeout</td><td>Set the approval dialog timeout</td></tr>
+          <tr><td>/get policy rule</td><td>Show a tool's permission rule</td></tr>
+          <tr><td>/set policy rule</td><td>Set or clear a tool's permission rule</td></tr>
+        </tbody>
+      </table>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>MCP Servers</h2>
-      <div class="terminal">
-        <pre>/set mcp server         # configure MCP servers
-/get mcp list           # list connected servers</pre>
-      </div>
+      <h2>Files &amp; System</h2>
+      <table class="cmd-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>/files ls</td><td>List directory contents with sizes and mtimes</td></tr>
+          <tr><td>/files tree</td><td>Directory tree, recursive, max depth 4</td></tr>
+          <tr><td>/files open</td><td>View file content inline (first 4 KiB)</td></tr>
+          <tr><td>/files find</td><td>Find files by glob pattern</td></tr>
+          <tr><td>/system exec</td><td>Execute a shell command, capture output</td></tr>
+          <tr><td>/system mkdir</td><td>Create a directory (including parents)</td></tr>
+          <tr><td>/system delete</td><td>Delete a file or empty directory</td></tr>
+          <tr><td>/system rmdir</td><td>Recursively delete a directory tree</td></tr>
+          <tr><td>/system mv</td><td>Move or rename a file or directory</td></tr>
+          <tr><td>/system cp</td><td>Copy a file or directory (recursive)</td></tr>
+          <tr><td>/system info</td><td>File metadata: type, size, permissions</td></tr>
+          <tr><td>/system ps</td><td>List running processes (top 20 by memory)</td></tr>
+          <tr><td>/system kill</td><td>Send SIGTERM to a process by PID</td></tr>
+          <tr><td>/system df</td><td>Disk usage for a path</td></tr>
+          <tr><td>/system uptime</td><td>Uptime and load averages</td></tr>
+          <tr><td>/system uname</td><td>Kernel, architecture, hostname</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>MCP &amp; Plugins</h2>
+      <table class="cmd-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>/mcp list</td><td>List configured MCP servers and connection state</td></tr>
+          <tr><td>/mcp show</td><td>Details for one MCP server</td></tr>
+          <tr><td>/mcp connect</td><td>Connect to a server, register its tools</td></tr>
+          <tr><td>/mcp disconnect</td><td>Disconnect and unregister its tools</td></tr>
+          <tr><td>/mcp refresh</td><td>Reconnect all enabled MCP servers</td></tr>
+          <tr><td>/mcp prompts</td><td>List prompt templates exposed by a server</td></tr>
+          <tr><td>/mcp enable / disable</td><td>Enable or disable a configured server</td></tr>
+          <tr><td>/mcp trust</td><td>Mark a server as trusted</td></tr>
+          <tr><td>/plugin list</td><td>List installed plugins and their state</td></tr>
+          <tr><td>/plugin install / uninstall</td><td>Install or remove a plugin archive</td></tr>
+          <tr><td>/plugin enable / disable</td><td>Load or unload a plugin</td></tr>
+          <tr><td>/plugin get / set</td><td>Read or change a plugin setting</td></tr>
+          <tr><td>/plugin info</td><td>Show plugin manifest details</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Skills, Learning &amp; Engine</h2>
+      <table class="cmd-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>/get skills show</td><td>List loaded skills</td></tr>
+          <tr><td>/set skills create / delete</td><td>Create or delete a skill package</td></tr>
+          <tr><td>/set skills install / uninstall</td><td>Install or remove a skill pack (tar.gz, path or URL)</td></tr>
+          <tr><td>/set skills refresh</td><td>Reload the skill catalog from disk</td></tr>
+          <tr><td>/set skills interop</td><td>Toggle .claude/skills interop</td></tr>
+          <tr><td>/get learn</td><td>Show learned skills and memories</td></tr>
+          <tr><td>/set think</td><td>Thinking / reasoning display mode</td></tr>
+          <tr><td>/get think</td><td>Show the current display mode</td></tr>
+          <tr><td>/set reasoning effort</td><td>Reasoning effort: off / low / medium / high</td></tr>
+          <tr><td>/get reasoning</td><td>Show reasoning effort</td></tr>
+          <tr><td>/get compression threshold</td><td>Context utilisation threshold for compression</td></tr>
+          <tr><td>/set compression threshold</td><td>Set the compression trigger threshold</td></tr>
+          <tr><td>/get compression min_turns</td><td>Minimum turns before compression activates</td></tr>
+          <tr><td>/set compression min_turns</td><td>Set the minimum turns</td></tr>
+          <tr><td>/set subagent parallel</td><td>Sub-agents concurrent (on) or serial (off)</td></tr>
+          <tr><td>/set subagent max</td><td>Maximum concurrent sub-agents</td></tr>
+          <tr><td>/set display markdown</td><td>Toggle markdown rendering of responses</td></tr>
+          <tr><td>/set detection loop / duplicate</td><td>Tool-loop and duplicate call detection</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Windows</h2>
+      <table class="cmd-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>/new</td><td>Open a new chat window</td></tr>
+          <tr><td>/close</td><td>Close the current window</td></tr>
+          <tr><td>/stop</td><td>Stop the agent's current work</td></tr>
+          <tr><td>/window list</td><td>List all open windows</td></tr>
+          <tr><td>/window rename</td><td>Rename the current window</td></tr>
+          <tr><td>Alt+1 .. Alt+9</td><td>Switch windows, BitchX style</td></tr>
+          <tr><td>/quit</td><td>Leave (alias: /q)</td></tr>
+        </tbody>
+      </table>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
       <h2>Configuration</h2>
-      <p>Configuration is stored in <code>amber.conf</code> in the workspace root:</p>
+      <p>
+        Project settings live in <code>amber.conf</code> in the workspace root.
+        Provider credentials live outside the project, per provider file:
+      </p>
       <div class="terminal">
-        <pre>model = qwopus-27b
-provider = custom:local-llama
-workspace = /home/jack/projects
-approval = ask           # ask / always / never</pre>
+        <pre># amber.conf (project-local, only data paths)
+system_prompt=prompts/system.md
+tools_prompt=prompts/tools.md
+git_prompt=prompts/git.md
+
+# ~/.config/amber/providers/&lt;name&gt;.conf
+api_base=http://localhost:8080/v1
+model=Qwopus-27B-Fusion</pre>
       </div>
-    </section>
-
-    <hr class="divider" />
-
-    <section class="section">
-      <h2>Environment Variables</h2>
+      <h3>Environment variables</h3>
       <ul class="feature-list">
-        <li><code>AMBER_WORKSPACE</code> — override the workspace root</li>
-        <li><code>AMBER_MODEL</code> — override the default model</li>
-        <li><code>AMBER_PROVIDER</code> — override the default provider</li>
-        <li><code>AMBER_APPROVAL</code> — override approval mode (ask/always/never)</li>
+        <li><code>AMBER_WORKSPACE</code> - override the workspace root (defaults to the working directory)</li>
+        <li><code>AMBER_MODEL</code> - override the default model</li>
+        <li><code>AMBER_PROVIDER</code> - override the default provider</li>
+        <li><code>AMBER_STREAM</code> - set 0 to disable SSE streaming</li>
+        <li><code>AMBER_APPROVAL</code> - approval mode override</li>
       </ul>
     </section>
   </main>
 </BaseLayout>
+
+<style>
+  .cmd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 16px 0;
+  }
+
+  .cmd-table th,
+  .cmd-table td {
+    padding: 6px 12px;
+    text-align: left;
+    border-bottom: 1px solid #33260e;
+    vertical-align: top;
+  }
+
+  .cmd-table th {
+    color: #ffcf4d;
+    font-weight: bold;
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.15);
+  }
+
+  .cmd-table td:first-child {
+    color: #ffb000;
+    white-space: nowrap;
+  }
+
+  .cmd-table td:last-child {
+    color: #e8cf9c;
+  }
+
+  .cmd-table tr:hover {
+    background: rgba(255, 176, 0, 0.05);
+  }
+</style>

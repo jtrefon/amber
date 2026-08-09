@@ -3,7 +3,7 @@
    (IBM 5151, ZX Spectrum, the BBS/IRC nights). Black glass, amber
    text, box-drawn frames, scanlines, phosphor glow. */
 
-/* Self-hosted JetBrains Mono — no external CDN calls */
+/* Self-hosted JetBrains Mono, no external CDN calls */
 @font-face {
   font-family: 'JetBrains Mono';
   src: url('/fonts/jetbrains-mono-400.woff2') format('woff2');
@@ -65,7 +65,7 @@ body {
   background: var(--bg);
 }
 
-/* CRT scanlines — the glass surface */
+/* CRT scanlines, the glass surface */
 body::after {
   content: '';
   position: fixed;
@@ -105,12 +105,12 @@ a:hover {
   text-shadow: 0 0 6px var(--glow);
 }
 
-/* Content wrapper — padding for status bar */
+/* Content wrapper, padding for status bar */
 .content-wrapper {
   padding-bottom: 48px;
 }
 
-/* Page titles — big glowing phosphor */
+/* Page titles, big glowing phosphor */
 main > h1 {
   color: var(--amber-bright);
   font-size: 1.5em;
@@ -126,7 +126,7 @@ main > h1::before {
   text-shadow: none;
 }
 
-/* Terminal-style code blocks — dark glass panes */
+/* Terminal-style code blocks, dark glass panes */
 .terminal {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -159,7 +159,7 @@ main > h1::before {
   color: var(--text);
 }
 
-/* Section frames — box-drawn panels with ┌─ title ─┐ bars */
+/* Section frames, box-drawn panels with ┌─ title ─┐ bars */
 .section {
   position: relative;
   border: 1px solid var(--line);
@@ -211,7 +211,7 @@ main > h1::before {
 .section > .terminal,
 .section > .bench-table { margin-top: 8px; }
 
-/* Section dividers — dotted rule with a glowing diamond */
+/* Section dividers, dotted rule with a glowing diamond */
 .divider,
 .divider-thick {
   border: none;
@@ -257,7 +257,7 @@ main > h1::before {
   50% { opacity: 0; }
 }
 
-/* Status bar — the bottom rule of the glass */
+/* Status bar, the bottom rule of the glass */
 .status-bar {
   position: fixed;
   bottom: 0;
@@ -307,7 +307,7 @@ main > h1::before {
   animation: blink 2s step-end infinite;
 }
 
-/* Nav bar — the prompt line */
+/* Nav bar, the prompt line */
 .nav-bar {
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
@@ -422,7 +422,7 @@ main > h1::before {
   background: rgba(255, 176, 0, 0.05);
 }
 
-/* Feature list — IRC /whois style */
+/* Feature list, IRC /whois style */
 .feature-list {
   list-style: none;
   padding: 0;
