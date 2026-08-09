@@ -1114,3 +1114,31 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
     ASSERT(reg.find("list_skills") != nullptr);
     ASSERT(reg.find("write_skill") != nullptr);
 }
+
+// [item-5] Cancellation must stop the run cleanly: no fabricated
+// "[error during generation: cancelled by user]" message may be pushed into
+// the session context.
+TEST(agent_loop_cancel_does_not_fabricate_message) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply f;
+    f.error = "server down";
+    f.retryable = true;
+    fake->script.push_back(std::move(f));
+    push_text(*fake, "done");
+
+    std::thread canceller([&cfg]() {
+        usleep(150 * 1000);
+        cfg.cancel_token.request();
+    });
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    std::string reply = ag.run("hi");
+    canceller.join();
+
+    for (const auto& m : ag.context().get_all())
+        ASSERT(m.content.find("[error during generation") ==
+               std::string::npos);
+    (void)reply;
+}

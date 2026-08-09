@@ -1,5 +1,6 @@
 
 #include <csignal>
+#include <future>
 #include "agent.h"
 #include "agent/tools.h"
 #include "agent/search_backend.h"
@@ -4251,4 +4252,138 @@ TEST(job_eof_daemon_is_terminated) {
     ASSERT(info.state != agent::JobState::Running);
     ASSERT_EQ(info.exit_code, 128 + SIGKILL);
     jobs.stop(id);
+}
+
+// ---------------------------------------------------------------------------
+// Crash/hang/OOM robustness cluster (top-5 item #5)
+// ---------------------------------------------------------------------------
+
+// A malicious/buggy server streams a tool-call delta with a huge sparse
+// index; the parser must cap it, never allocate a billion empty slots.
+TEST(sse_tool_call_index_capped) {
+    agent::Message m;
+    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    agent::json delta = {{"tool_calls", agent::json::array({
+        {{"index", 100000}, {"id", "bomb"}, {"type", "function"},
+         {"function", {{"name", "search"}, {"arguments", "{}"}}}}
+    })}};
+    agent::json choice = {{"delta", delta}};
+    std::string data =
+        "data: " +
+        agent::json{{"choices", agent::json::array({choice})}}.dump() +
+        "\n\n";
+    p.on_write(data.data(), 1, data.size());
+    ASSERT(m.tool_calls.size() <= agent::kMaxToolCallsPerMessage);
+}
+
+// The raw stream accumulation is diagnostics-only; it must be bounded.
+TEST(sse_raw_body_bounded) {
+    agent::Message m;
+    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    std::string junk(1024 * 1024, 'x');
+    p.on_write(junk.data(), 1, junk.size());
+    ASSERT(p.raw_body().size() <= agent::kMaxRawBodyBytes);
+}
+
+// One bad line must not discard the whole config or crash startup.
+TEST(config_bad_line_skipped_rest_parsed) {
+    std::string path = "/tmp/amber_cfg_badline.txt";
+    {
+        std::ofstream f(path);
+        f << "model=\"my-model\"\n";
+        f << "temperature=hot\n";      // unparseable numeric
+        f << "max_tool_iterations=5\n";
+    }
+    agent::Config c;
+    bool threw = false;
+    try {
+        c.load(path);
+    } catch (...) {
+        threw = true;
+    }
+    ASSERT(!threw);
+    ASSERT_EQ(c.model, "my-model");
+    ASSERT_EQ(c.max_tool_iterations, 5);
+    // The bad key falls back to its default and is reported.
+    ASSERT(!c.warnings.empty());
+    std::remove(path.c_str());
+}
+
+// One bad timeout_s in a server conf must skip that server, not all servers.
+TEST(mcp_config_bad_timeout_skips_that_server) {
+    char buf[4096];
+    std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    std::string ws = "/tmp/amber_mcp_badtimeout_ws";
+    std::string home = "/tmp/amber_mcp_badtimeout_home";
+    run_cmd("rm -rf " + ws + " " + home);
+    agent::Workspace::set_root(ws);
+    setenv("HOME", home.c_str(), 1);
+    unsetenv("XDG_CONFIG_HOME");
+    unsetenv("AMBER_MCP_SERVERS");
+    run_cmd("mkdir -p " + ws + "/.amber/mcp " + home + "/.config/amber/mcp");
+    {
+        std::ofstream f(ws + "/.amber/mcp/good.conf");
+        f << "type=stdio\ncommand=/usr/bin/good\ntimeout_s=30\n";
+    }
+    {
+        std::ofstream f(ws + "/.amber/mcp/bad.conf");
+        f << "type=stdio\ncommand=/usr/bin/bad\ntimeout_s=hot\n";
+    }
+    bool threw = false;
+    std::map<std::string, agent::McpServerConfig> servers;
+    try {
+        servers = agent::load_mcp_servers();
+    } catch (...) {
+        threw = true;
+    }
+    ASSERT(!threw);
+    ASSERT(servers.count("good") == 1u);
+    ASSERT_EQ(servers["good"].timeout_s, 30);
+}
+
+// A named pipe must be rejected up front, not block the agent forever.
+TEST(read_tool_rejects_fifo) {
+    agent::Workspace::set_root("/tmp/amber_read_fifo_ws");
+    run_cmd("rm -rf /tmp/amber_read_fifo_ws && mkdir -p /tmp/amber_read_fifo_ws");
+    run_cmd("mkfifo /tmp/amber_read_fifo_ws/pipe.txt");
+    auto tool = agent::make_read_tool();
+    auto future = std::async(std::launch::async, [&tool]() {
+        return tool->execute({{"path", "pipe.txt"}});
+    });
+    ASSERT(future.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    auto r = future.get();
+    ASSERT(!r.ok);
+    ASSERT(!r.error.empty());
+}
+
+// A single enormous line must be truncated, not flooded into the context.
+TEST(read_tool_truncates_long_lines) {
+    agent::Workspace::set_root("/tmp/amber_read_longline_ws");
+    run_cmd("rm -rf /tmp/amber_read_longline_ws && mkdir -p /tmp/amber_read_longline_ws");
+    {
+        std::ofstream f("/tmp/amber_read_longline_ws/big.txt");
+        f << std::string(100 * 1024, 'a') << "\n";
+    }
+    auto tool = agent::make_read_tool();
+    auto r = tool->execute({{"path", "big.txt"}});
+    ASSERT(r.ok);
+    ASSERT(r.output.size() < 64 * 1024);
+    ASSERT(r.output.find("...") != std::string::npos);
+}
+
+// Saving a session must not delete the index file (deleting it forces a full
+// re-parse of every session on the next list()).
+TEST(session_save_keeps_index) {
+    std::string dir = "/tmp/amber_session_index_ws/.amber/sessions";
+    run_cmd("rm -rf /tmp/amber_session_index_ws && mkdir -p " + dir);
+    agent::Workspace::set_root("/tmp/amber_session_index_ws");
+    agent::SessionStore store(dir);
+    {
+        std::ofstream f(dir + "/index.json");
+        f << "{\"sessions\": []}\n";
+    }
+    agent::Session s;
+    s.title = "t";
+    ASSERT(store.save(s));
+    ASSERT(std::filesystem::exists(dir + "/index.json"));
 }
