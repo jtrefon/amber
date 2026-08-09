@@ -2,9 +2,11 @@
 #ifndef AGENT_REGISTRY_H
 #define AGENT_REGISTRY_H
 
-#include <vector>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
+
 #include "agent/tool.h"
 
 namespace agent {
@@ -12,6 +14,13 @@ namespace agent {
 // Owns the set of available tools and renders their OpenAI-compatible schema.
 // Tools are registered by the host (library or UI) and looked up by name when
 // the model requests an invocation.
+//
+// Thread safety: register/find/schema/unregister are mutex-guarded. Tool
+// dispatch runs on worker threads while the host may register tools (MCP
+// connects, plugin enables, skill refresh) and parallel sub-agents construct
+// their own agents — unsynchronized vector mutation would be a data race.
+// tools() returns the live vector; only dereference it when no other thread
+// can be registering (host threads are quiescent, or after a join).
 class ToolRegistry {
 public:
     void register_tool(std::unique_ptr<Tool> tool);
@@ -28,6 +37,7 @@ public:
     size_t unregister_tools_with_prefix(const std::string& prefix);
 
 private:
+    mutable std::mutex mtx_;
     std::vector<std::unique_ptr<Tool>> tools_;
 };
 

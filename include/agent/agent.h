@@ -94,7 +94,14 @@ public:
           std::unique_ptr<MemoryStore> memory_store = {},
           std::unique_ptr<MemoryRetriever> retriever = {},
           std::unique_ptr<LLMClient> client = {},
-          LLMClientFactory client_factory = {});
+          LLMClientFactory client_factory = {},
+          bool register_skills = true);
+    // The agent registers its skill tools (read_skill/list_skills/write_skill)
+    // into the shared registry, bound to its own SkillCatalog. Hosts that
+    // construct short-lived agents sharing a parent's registry (sub-agents)
+    // pass false: the sub's registration would REPLACE the parent's bindings
+    // with references that dangle once the sub is destroyed (use-after-free
+    // on the next skill call).
 
     // Run one turn to completion, appending to the ongoing conversation.
     // Context from previous turns is retained (the agent is stateful). Returns

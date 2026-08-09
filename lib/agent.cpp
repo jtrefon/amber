@@ -52,7 +52,8 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<MemoryStore> memory_store,
              std::unique_ptr<MemoryRetriever> retriever,
              std::unique_ptr<LLMClient> client,
-             LLMClientFactory client_factory)
+             LLMClientFactory client_factory,
+             bool register_skills)
     : cfg_(std::move(cfg)), registry_(registry),
       client_factory_(std::move(client_factory)),
       client_(nullptr),
@@ -73,7 +74,7 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
         learned.assign(top.begin(), top.end());
     }
     skills_->discover(learned);
-    register_skill_tools(registry_, *skills_);
+    if (register_skills) register_skill_tools(registry_, *skills_);
 }
 
 void Agent::set_model(const std::string& model, int window) {
