@@ -247,6 +247,20 @@ Positioning and mechanics locked in review:
   the v0.3.1 release assets (.deb / .rpm / tarball + checksums + CDP plugin).
   The homepage "Get amber" section leads with `dpkg -i`/`rpm -i`; building from
   source is the fallback, never the gate. Bump the version strings with each release.
+  Facts to keep straight (verified against the v0.3.1 tarball):
+  - The tarball is a staged install tree (binaries + libs + headers + data),
+    extracted to `/` with `sudo tar -xzf ... -C /`. It does NOT run from an
+    arbitrary location: the binaries need the data files at the install prefix.
+  - The packages ship `amber`, `amber-cli`, `libagent_core.a`/`libagent_tools.a`
+    and headers. `amber-bench` is dev-only and is not installed.
+- **Arch Linux** — supported via `packaging/arch/PKGBUILD` (source build from the
+  release tag, `check()` runs the unit suite, sha256 pinned). Not on the AUR.
+  Download page card: `curl -O ...PKGBUILD && makepkg -si`.
+- **Footer is the status bar, nothing else.** The fixed status bar is the footer;
+  there is no scrolling `<footer>` element (a second footer was added once and
+  removed). Creator credit lives in the status bar right side:
+  `Jacek Trefon www.trefon.com` (links to trefon.com). No email addresses on the
+  site; no mailto links.
 - **Manual** (`/manual`) — rebuilt from the real command tree (`completions.json`,
   the single source of truth): model/provider, sessions/jobs, policy, files/system,
   MCP/plugins, skills/engine, windows, config, env vars. Never hand-write commands
@@ -254,7 +268,6 @@ Positioning and mechanics locked in review:
 - **One harness, four parts** — homepage section promoting `libagent_core.a`
   (portable library), `amber-cli` (headless/workflow), `amber-bench` (KPI harness),
   `amber` (TUI). The library's embeddability is a first-class selling point.
-- **Footer** — creator credit: Jacek Trefon, www.trefon.com, hello@trefon.com, GitHub.
 - **No emdashes** — "—" is banned from rendered copy (SEO hygiene); use commas,
   colons, or hyphens. `rg "—" website/src` must return nothing.
 - **SEO baseline**: robots.txt (Allow all + sitemap), per-page canonical tags,
