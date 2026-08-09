@@ -1,4 +1,7 @@
-/* === Amber Terminal Aesthetic === */
+/* === amber: CRT phosphor terminal aesthetic ===
+   Inspired by the amber monochrome monitors of the P3-phosphor era
+   (IBM 5151, ZX Spectrum, the BBS/IRC nights). Black glass, amber
+   text, box-drawn frames, scanlines, phosphor glow. */
 
 /* Self-hosted JetBrains Mono — no external CDN calls */
 @font-face {
@@ -29,17 +32,19 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0a0a0a;
-  --bg-light: #111111;
-  --bg-lighter: #1a1a1a;
-  --text: #e0e0e0;
-  --text-dim: #888888;
-  --green: #00ff41;
-  --amber: #ff6b35;
-  --gold: #f7c948;
-  --red: #ff3333;
-  --border: #333333;
-  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --bg: #000000;
+  --panel: #0a0700;
+  --panel-2: #120c02;
+  --text: #e8cf9c;
+  --text-dim: #9a7c47;
+  --text-faint: #5c4823;
+  --amber: #ffb000;
+  --amber-bright: #ffcf4d;
+  --amber-dim: #6b4f1f;
+  --line: #33260e;
+  --glow: rgba(255, 176, 0, 0.45);
+  --glow-soft: rgba(255, 176, 0, 0.15);
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Cascadia Mono', 'Courier New', monospace;
 }
 
 html {
@@ -57,16 +62,47 @@ body {
   max-width: 900px;
   margin: 0 auto;
   padding: 0 24px;
+  background: var(--bg);
 }
 
+/* CRT scanlines — the glass surface */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.18) 0px,
+    rgba(0, 0, 0, 0.18) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+::selection {
+  background: rgba(255, 176, 0, 0.28);
+  color: var(--amber-bright);
+}
+
+/* Phosphor-tinted scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--line); border: 1px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }
+
 a {
-  color: var(--green);
+  color: var(--amber);
   text-decoration: none;
-  border-bottom: 1px solid var(--green);
+  border-bottom: 1px solid var(--line);
+  transition: color 0.15s, text-shadow 0.15s;
 }
 
 a:hover {
-  background: rgba(0, 255, 65, 0.1);
+  color: var(--amber-bright);
+  background: rgba(255, 176, 0, 0.08);
+  text-shadow: 0 0 6px var(--glow);
 }
 
 /* Content wrapper — padding for status bar */
@@ -74,25 +110,45 @@ a:hover {
   padding-bottom: 48px;
 }
 
-/* Terminal-style code blocks */
+/* Page titles — big glowing phosphor */
+main > h1 {
+  color: var(--amber-bright);
+  font-size: 1.5em;
+  font-weight: bold;
+  letter-spacing: 1px;
+  margin: 8px 0 24px;
+  text-shadow: 0 0 10px var(--glow);
+}
+
+main > h1::before {
+  content: '█ ';
+  color: var(--amber-dim);
+  text-shadow: none;
+}
+
+/* Terminal-style code blocks — dark glass panes */
 .terminal {
-  background: var(--bg-light);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--line);
   padding: 16px 20px;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
   overflow-x: auto;
   position: relative;
+  box-shadow:
+    inset 0 0 30px rgba(255, 176, 0, 0.04),
+    0 0 16px rgba(255, 176, 0, 0.05);
 }
 
 .terminal::before {
   content: 'amber ~ $';
   display: block;
-  color: var(--green);
+  color: var(--amber-bright);
   margin-bottom: 8px;
   font-weight: bold;
   font-size: 12px;
+  text-shadow: 0 0 6px var(--glow);
 }
 
 .terminal pre {
@@ -103,17 +159,85 @@ a:hover {
   color: var(--text);
 }
 
-/* Section dividers */
-.divider {
+/* Section frames — box-drawn panels with ┌─ title ─┐ bars */
+.section {
+  position: relative;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 176, 0, 0.03), transparent 45%);
+  padding: 26px 22px 18px;
+  margin: 36px 0;
+  box-shadow: 0 0 14px rgba(255, 176, 0, 0.04);
+}
+
+.section h2 {
+  position: absolute;
+  top: -12px;
+  left: 14px;
+  margin: 0;
+  padding: 0 10px;
+  background: var(--bg);
+  font-size: 1.05em;
+  font-weight: bold;
+  color: var(--amber-bright);
+  letter-spacing: 1px;
+  text-shadow: 0 0 8px var(--glow);
+}
+
+.section h2::before {
+  content: '┌─ ';
+  color: var(--amber-dim);
+  text-shadow: none;
+}
+
+.section h2::after {
+  content: ' ─┐';
+  color: var(--amber-dim);
+  text-shadow: none;
+}
+
+.section h3 {
+  font-size: 1em;
+  color: var(--amber);
+  margin: 20px 0 8px;
+}
+
+.section p {
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.section p:last-child { margin-bottom: 0; }
+
+.section > .terminal,
+.section > .bench-table { margin-top: 8px; }
+
+/* Section dividers — dotted rule with a glowing diamond */
+.divider,
+.divider-thick {
   border: none;
-  border-top: 1px solid var(--border);
-  margin: 48px 0;
+  border-top: 1px dashed var(--line);
+  margin: 44px 0;
+  position: relative;
 }
 
 .divider-thick {
-  border: none;
-  border-top: 2px solid var(--green);
-  margin: 48px 0;
+  border-top: 2px dashed var(--amber-dim);
+  margin: 52px 0;
+}
+
+.divider::after,
+.divider-thick::after {
+  content: '◆';
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg);
+  padding: 0 10px;
+  color: var(--amber);
+  font-size: 10px;
+  line-height: 1.4;
+  text-shadow: 0 0 8px var(--glow);
 }
 
 /* Blinking cursor */
@@ -121,10 +245,11 @@ a:hover {
   display: inline-block;
   width: 0.6em;
   height: 1.2em;
-  background: var(--green);
-  animation: blink 1s step-end infinite;
-  vertical-align: text-bottom;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--glow);
   margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
 }
 
 @keyframes blink {
@@ -132,15 +257,15 @@ a:hover {
   50% { opacity: 0; }
 }
 
-/* Status bar */
+/* Status bar — the bottom rule of the glass */
 .status-bar {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   height: 24px;
-  background: var(--bg-lighter);
-  border-top: 1px solid var(--border);
+  background: var(--panel);
+  border-top: 1px solid var(--line);
   display: flex;
   align-items: center;
   padding: 0 16px;
@@ -155,27 +280,39 @@ a:hover {
   gap: 16px;
 }
 
+.status-bar .status-left span:not(:first-child)::before {
+  content: '│ ';
+  color: var(--amber-dim);
+}
+
 .status-bar .status-right {
   margin-left: auto;
   display: flex;
   gap: 16px;
 }
 
-.status-bar .status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-  display: inline-block;
-  margin-right: 4px;
+.status-bar .status-right span::before {
+  content: '│ ';
+  color: var(--amber-dim);
 }
 
-/* Nav bar */
+.status-bar .status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
+  background: var(--amber);
+  box-shadow: 0 0 6px var(--glow);
+  display: inline-block;
+  margin-right: 4px;
+  animation: blink 2s step-end infinite;
+}
+
+/* Nav bar — the prompt line */
 .nav-bar {
   padding: 12px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   font-size: 13px;
-  color: var(--green);
+  color: var(--amber);
   margin-bottom: 32px;
   display: flex;
   align-items: center;
@@ -184,32 +321,39 @@ a:hover {
 }
 
 .nav-bar .nav-prefix {
-  color: var(--amber);
+  color: var(--amber-bright);
   font-weight: bold;
   margin-right: 4px;
+  text-shadow: 0 0 6px var(--glow);
 }
 
 .nav-bar a {
-  color: var(--green);
+  color: var(--amber);
   border-bottom: none;
 }
 
 .nav-bar a:hover {
-  background: rgba(0, 255, 65, 0.15);
-  color: var(--green);
+  background: rgba(255, 176, 0, 0.12);
+  color: var(--amber-bright);
 }
 
 .nav-bar a.active {
-  color: var(--gold);
+  color: var(--amber-bright);
+  text-shadow: 0 0 8px var(--glow);
 }
 
 .nav-bar .nav-hint {
   margin-left: auto;
-  color: #555;
+  color: var(--text-faint);
   font-size: 11px;
   font-family: var(--font-mono);
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   padding: 2px 8px;
+}
+
+.nav-bar .nav-hint::before {
+  content: '[/] ';
+  color: var(--amber-dim);
 }
 
 /* Hero section */
@@ -221,7 +365,8 @@ a:hover {
 .hero h1 {
   font-size: 1.4em;
   font-weight: bold;
-  color: var(--green);
+  color: var(--amber-bright);
+  text-shadow: 0 0 12px var(--glow);
   margin-bottom: 16px;
 }
 
@@ -233,17 +378,19 @@ a:hover {
 
 .hero .cta {
   display: inline-block;
-  background: var(--bg-lighter);
-  border: 1px solid var(--green);
+  background: var(--panel);
+  border: 1px solid var(--amber);
   padding: 10px 24px;
-  color: var(--green);
+  color: var(--amber);
   font-family: var(--font-mono);
   font-size: 13px;
   cursor: pointer;
+  text-shadow: 0 0 6px var(--glow);
 }
 
 .hero .cta:hover {
-  background: rgba(0, 255, 65, 0.1);
+  background: rgba(255, 176, 0, 0.12);
+  color: var(--amber-bright);
 }
 
 /* Benchmark table */
@@ -258,12 +405,13 @@ a:hover {
 .bench-table td {
   padding: 6px 12px;
   text-align: left;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
 }
 
 .bench-table th {
-  color: var(--green);
+  color: var(--amber-bright);
   font-weight: bold;
+  text-shadow: 0 0 6px var(--glow-soft);
 }
 
 .bench-table td {
@@ -271,32 +419,10 @@ a:hover {
 }
 
 .bench-table tr:hover {
-  background: var(--bg-light);
+  background: rgba(255, 176, 0, 0.05);
 }
 
-/* Content sections */
-.section {
-  margin: 48px 0;
-}
-
-.section h2 {
-  font-size: 1.2em;
-  color: var(--amber);
-  margin-bottom: 16px;
-}
-
-.section h3 {
-  font-size: 1em;
-  color: var(--gold);
-  margin: 24px 0 8px;
-}
-
-.section p {
-  margin-bottom: 12px;
-  color: var(--text);
-}
-
-/* Feature list */
+/* Feature list — IRC /whois style */
 .feature-list {
   list-style: none;
   padding: 0;
@@ -312,16 +438,17 @@ a:hover {
   content: '>';
   position: absolute;
   left: 0;
-  color: var(--green);
+  color: var(--amber);
+  text-shadow: 0 0 6px var(--glow-soft);
 }
 
 /* Footer */
 .footer {
   margin-top: 64px;
   padding: 24px 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   text-align: center;
 }
 
@@ -332,7 +459,7 @@ a:hover {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(10, 10, 10, 0.95);
+  background: rgba(0, 0, 0, 0.96);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -348,11 +475,12 @@ a:hover {
 }
 
 .nav-drawer-content {
-  background: var(--bg-light);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--amber-dim);
   padding: 24px 32px;
   max-width: 400px;
   width: 90%;
+  box-shadow: 0 0 40px rgba(255, 176, 0, 0.08);
 }
 
 .nav-drawer-header {
@@ -361,14 +489,15 @@ a:hover {
   align-items: center;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px dashed var(--line);
 }
 
 .nav-prefix {
-  color: var(--amber);
+  color: var(--amber-bright);
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: bold;
+  text-shadow: 0 0 6px var(--glow);
 }
 
 .drawer-close {
@@ -381,7 +510,8 @@ a:hover {
 }
 
 .drawer-close:hover {
-  color: var(--green);
+  color: var(--amber);
+  text-shadow: 0 0 8px var(--glow);
 }
 
 .nav-drawer-links a {
@@ -394,6 +524,46 @@ a:hover {
 }
 
 .nav-drawer-links a:hover {
-  color: var(--green);
+  color: var(--amber-bright);
   background: none;
+  text-shadow: 0 0 6px var(--glow);
+}
+
+/* Mission "we are / we are not" table */
+.stand-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 16px 0;
+}
+
+.stand-table th,
+.stand-table td {
+  padding: 8px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.stand-table th {
+  color: var(--amber-bright);
+  font-weight: bold;
+  border-bottom: 2px dashed var(--amber-dim);
+  text-shadow: 0 0 6px var(--glow-soft);
+}
+
+.stand-table td:first-child {
+  color: var(--amber);
+  width: 55%;
+}
+
+.stand-table td:last-child {
+  color: var(--text-dim);
+}
+
+/* Mission lead paragraph */
+.section p.lead {
+  color: var(--amber-bright);
+  font-size: 1.4em;
+  font-weight: bold;
+  text-shadow: 0 0 10px var(--glow);
 }
