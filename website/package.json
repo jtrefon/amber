@@ -5,7 +5,7 @@
   "description": "amber: an AI agent harness for Linux servers",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && node scripts/add-base.mjs",
     "preview": "astro preview"
   },
   "dependencies": {
