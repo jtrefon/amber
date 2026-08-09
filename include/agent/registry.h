@@ -19,8 +19,9 @@ namespace agent {
 // dispatch runs on worker threads while the host may register tools (MCP
 // connects, plugin enables, skill refresh) and parallel sub-agents construct
 // their own agents — unsynchronized vector mutation would be a data race.
-// tools() returns the live vector; only dereference it when no other thread
-// can be registering (host threads are quiescent, or after a join).
+// snapshot_tools() returns an independent snapshot of the owned tools, safe
+// to use after the registry lock is released; find() returns a shared lease
+// that survives a concurrent unregister/replacement.
 class ToolRegistry {
 public:
     void register_tool(std::unique_ptr<Tool> tool);

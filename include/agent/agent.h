@@ -194,7 +194,7 @@ private:
     // One model round-trip (stream or buffered). When `display` is false the
     // token/reasoning/assistant hooks are suppressed so the exchange (e.g. the
     // internal confirmation check) never paints into the scrollback.
-    Message chat_once(const std::vector<Tool*>& tools, bool display = true);
+    Message chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display = true);
 
     // Hooks with the display callbacks removed, for silent internal exchanges.
     const AgentHooks& silent_hooks() const;
@@ -203,7 +203,7 @@ private:
     // requests, or return the accepted final text. Empty return means "keep
     // iterating the main loop".
     std::string confirm_turn(const std::string& candidate,
-                             const std::vector<Tool*>& tools);
+                             const std::vector<std::shared_ptr<Tool>>& tools);
 
     // Log the user event and push the user message to history.
     void log_and_push_user_prompt(const std::string& prompt);
@@ -226,16 +226,16 @@ private:
 
     // Run confirm_turn and either break with the final reply or continue.
     std::string try_confirm(const std::string& candidate,
-                            const std::vector<Tool*>& tools);
+                            const std::vector<std::shared_ptr<Tool>>& tools);
 
     // Build the tools vector and the chat lambda for the run loop.
-    std::vector<Tool*> resolve_tools();
+    std::vector<std::shared_ptr<Tool>> resolve_tools();
 
     // One LLM round-trip with graceful recovery for request-side 4xx: the
     // retry loop repairs the request once (drop tools on template-parser
     // rejection, swap to a server-known model on name rejection). `strict`
     // makes internal exchanges rethrow instead of faking a reply.
-    Message chat_with_recovery(const std::vector<Tool*>& tools,
+    Message chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools,
                                const char* stage, bool display, bool strict);
 
     // Push a generated reply into context, log, and fire context event.

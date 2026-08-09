@@ -300,14 +300,9 @@ bool ServerManager::enabled(const std::string& name) const {
     return it != configs_.end() && it->second.enabled;
 }
 
-MCPClient* ServerManager::client(const std::string& name) {
+std::shared_ptr<MCPClient> ServerManager::client(const std::string& name) const {
     auto it = clients_.find(name);
-    return it == clients_.end() ? nullptr : it->second.get();
-}
-
-const MCPClient* ServerManager::client(const std::string& name) const {
-    auto it = clients_.find(name);
-    return it == clients_.end() ? nullptr : it->second.get();
+    return it == clients_.end() ? nullptr : it->second;
 }
 
 void ServerManager::shutdown_all() {

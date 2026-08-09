@@ -253,7 +253,7 @@ void Tui::cmd_get(const std::string& arg) {
         } else if (sub.rfind(" prompts ", 0) == 0 ||
                    sub.rfind(".prompts ", 0) == 0) {
             std::string server = sub.substr(sub.find(' ') + 1);
-            const agent::MCPClient* c = mcp_servers_.client(server);
+            auto c = mcp_servers_.client(server);
             if (!c) {
                 append_line(P_STATUS, "server '" + server + "' not connected");
             } else {
@@ -810,7 +810,7 @@ void Tui::cmd_mcp_refresh(const std::string& server) {
 
 void Tui::cmd_mcp_prompts(const std::string& server) {
     if (server.empty()) { append_line(P_STATUS, "usage: /mcp prompts <server>"); draw(); return; }
-    const agent::MCPClient* c = mcp_servers_.client(server);
+    auto c = mcp_servers_.client(server);
     if (!c) {
         append_line(P_STATUS, "server '" + server + "' not connected");
     } else {
@@ -855,7 +855,7 @@ void Tui::cmd_prompt_list() {
     bool any = false;
     for (const auto& st : mcp_servers_.snapshot()) {
         if (!st.connected) continue;
-        const agent::MCPClient* c = mcp_servers_.client(st.name);
+        auto c = mcp_servers_.client(st.name);
         if (!c) continue;
         for (const auto& p : c->prompts()) {
             any = true;

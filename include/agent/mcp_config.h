@@ -79,15 +79,16 @@ public:
     bool trusted(const std::string& name) const;
     bool enabled(const std::string& name) const;
 
-    MCPClient* client(const std::string& name);
-    const MCPClient* client(const std::string& name) const;
+    // Shared lease: tool adapters hold it across a disconnect so an
+    // in-flight call never touches a destroyed client.
+    std::shared_ptr<MCPClient> client(const std::string& name) const;
 
     // Disconnect everything (session end).
     void shutdown_all();
 
 private:
     std::map<std::string, McpServerConfig> configs_;
-    std::map<std::string, std::unique_ptr<MCPClient>> clients_;
+    std::map<std::string, std::shared_ptr<MCPClient>> clients_;
     const CancellationToken* cancel_token_ = nullptr;
 };
 

@@ -25,7 +25,7 @@ ServerInfo HttpLLMClient::probe_server() const {
 }
 
 Message HttpLLMClient::chat(const std::vector<Message>& messages,
-                        const std::vector<Tool*>& tools, Stats* stats) {
+                        const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats) {
     json body = build_chat_body(cfg_, messages, tools, false);
     // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
     // nlohmann throws type_error.316 on dump() unless we replace bad bytes.
@@ -44,7 +44,7 @@ Message HttpLLMClient::chat(const std::vector<Message>& messages,
 }
 
 Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
-                               const std::vector<Tool*>& tools,
+                               const std::vector<std::shared_ptr<Tool>>& tools,
                                const std::function<void(const StreamChunk&)>& on_chunk,
                                Stats* stats) {
     json body = build_chat_body(cfg_, messages, tools, true);

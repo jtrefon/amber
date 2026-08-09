@@ -32,7 +32,7 @@ std::vector<std::string> mcp_show_lines(const ServerManager& mgr,
                                         const std::string& server,
                                         std::string& error) {
     std::vector<std::string> lines;
-    const MCPClient* client = mgr.client(server);
+    auto client = mgr.client(server);
     if (!client) {
         error = "server '" + server + "' not connected";
         return lines;
@@ -96,7 +96,7 @@ std::string mcp_trust(ServerManager& mgr, const std::string& server,
 std::string mcp_prompt(ServerManager& mgr, const std::string& server,
                        const std::string& name, const json& arguments,
                        std::string& out_text) {
-    MCPClient* client = mgr.client(server);
+    auto client = mgr.client(server);
     if (!client) return "server '" + server + "' not connected";
     const McpPromptDef* def = nullptr;
     for (const auto& p : client->prompts()) {

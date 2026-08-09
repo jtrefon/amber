@@ -800,7 +800,7 @@ public:
     }
 
     agent::Message chat(const std::vector<agent::Message>&,
-                        const std::vector<agent::Tool*>& tools,
+                        const std::vector<std::shared_ptr<agent::Tool>>& tools,
                         agent::Stats* stats = nullptr) override {
         tool_counts.push_back(tools.size());
         if (track) {
@@ -831,7 +831,7 @@ public:
 
     agent::Message chat_stream(
         const std::vector<agent::Message>&,
-        const std::vector<agent::Tool*>&,
+        const std::vector<std::shared_ptr<agent::Tool>>&,
         const std::function<void(const agent::StreamChunk&)>&,
         agent::Stats* stats = nullptr) override {
         return chat({}, {}, stats);

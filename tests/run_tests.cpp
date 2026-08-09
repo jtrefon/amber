@@ -332,7 +332,7 @@ TEST(request_body_survives_invalid_utf8) {
     tool.content = bad;
     msgs.push_back(tool);
 
-    std::vector<agent::Tool*> no_tools;
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
     json body = build_chat_body(c, msgs, no_tools, false);
     std::string payload;
     bool threw = false;
@@ -358,7 +358,7 @@ TEST(request_builder_merges_consecutive_system_messages) {
     agent::Message s2; s2.role = "system"; s2.content = "memories block"; msgs.push_back(s2);
     agent::Message u; u.role = "user"; u.content = "hi"; msgs.push_back(u);
 
-    std::vector<agent::Tool*> no_tools;
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
     json body = build_chat_body(c, msgs, no_tools, false);
     const auto& wire = body["messages"];
     ASSERT_EQ(wire.size(), 2u);
@@ -390,7 +390,7 @@ TEST(request_builder_assistant_message_always_has_content) {
     t.content = "";  // empty tool result
     msgs.push_back(t);
 
-    std::vector<agent::Tool*> no_tools;
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
     json body = build_chat_body(c, msgs, no_tools, false);
     ASSERT(body.contains("messages"));
     for (auto& m : body["messages"]) {
