@@ -32,7 +32,7 @@ if echo "$test_out" | grep -E 'ws_test' | grep -q -- '-MMD'; then
 else
     warn "P2: ws_test compiles without -MMD dependency generation"
 fi
-for p in sysinfo-plugin cdp-plugin; do
+for p in sysinfo-plugin 'tools/plugins/cdp'; do
     if echo "$test_out" | grep -E "$p" | grep -q -- '-MMD'; then
         ok "$p compiles with -MMD"
     else
