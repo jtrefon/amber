@@ -88,11 +88,14 @@ public:
     void shutdown_all();
 
 private:
-    // Guards configs_/clients_: the UI thread mutates them while worker
-    // threads may take client leases (client()) or read status.
+    // Guards configs_/clients_/connect_gen_: the UI thread mutates them while
+    // worker threads may take client leases (client()) or read status.
     mutable std::mutex mtx_;
     std::map<std::string, McpServerConfig> configs_;
     std::map<std::string, std::shared_ptr<MCPClient>> clients_;
+    // Per-server connect generation: a stale handshake (started before a
+    // disable/remove/re-connect) must not install its client afterwards.
+    std::map<std::string, uint64_t> connect_gen_;
     const CancellationToken* cancel_token_ = nullptr;
 };
 

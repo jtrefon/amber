@@ -17,6 +17,18 @@ namespace agent {
 
 namespace {
 
+// Build the transport for a server config (stdio vs http).
+std::unique_ptr<McpTransport> make_transport(const McpServerConfig& cfg) {
+    int timeout_ms = cfg.timeout_s * 1000;
+    if (cfg.type == "stdio") {
+        std::string cwd = cfg.cwd.empty() ? Workspace::root() : cfg.cwd;
+        return std::make_unique<StdioTransport>(cfg.command, cfg.args, cwd,
+                                                nullptr, timeout_ms);
+    }
+    return std::make_unique<HttpTransport>(cfg.url, cfg.auth_token, timeout_ms,
+                                           nullptr);
+}
+
 std::string mcp_dir(bool project) {
     return project ? Workspace::local_dir() + "/mcp"
                    : global_config_dir() + "/mcp";
@@ -186,8 +198,11 @@ void ServerManager::connect_all() {
 
 std::string ServerManager::connect(const std::string& name) {
     // Copy the config under the lock; the transport spawn and handshake run
-    // outside it (blocking I/O must never hold the manager mutex).
+    // outside it (blocking I/O must never hold the manager mutex). The
+    // generation guard ensures a stale handshake (a disable/remove/second
+    // connect happened while it was in flight) never installs its client.
     McpServerConfig cfg;
+    uint64_t gen = 0;
     {
         std::scoped_lock lk(mtx_);
         auto it = configs_.find(name);
@@ -195,25 +210,24 @@ std::string ServerManager::connect(const std::string& name) {
         if (!it->second.enabled) return "server '" + name + "' is disabled";
         if (!it->second.error.empty()) return it->second.error;
         cfg = it->second;
+        gen = ++connect_gen_[name];
     }
     disconnect(name);
-    std::unique_ptr<McpTransport> transport;
-    std::string transport_error;
-    int timeout_ms = cfg.timeout_s * 1000;
-    if (cfg.type == "stdio") {
-        std::string cwd = cfg.cwd.empty() ? Workspace::root() : cfg.cwd;
-        transport = std::make_unique<StdioTransport>(cfg.command, cfg.args,
-                                                     cwd, nullptr,
-                                                     timeout_ms);
-    } else {
-        transport = std::make_unique<HttpTransport>(cfg.url, cfg.auth_token,
-                                                    timeout_ms, nullptr);
-    }
-    auto client = std::make_shared<MCPClient>(name, std::move(transport),
-                                              transport_error, cancel_token_);
+    auto transport = make_transport(cfg);
+    auto client = std::make_shared<MCPClient>(name, std::move(transport), "",
+                                              cancel_token_);
     std::string err = client->connect();
-    std::scoped_lock lk(mtx_);
-    clients_[name] = std::move(client);
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = configs_.find(name);
+        if (it == configs_.end() || !it->second.enabled ||
+            connect_gen_[name] != gen) {
+            client->disconnect();
+            return "server '" + name +
+                   "' was disabled or reconfigured while connecting";
+        }
+        clients_[name] = std::move(client);
+    }
     return err;
 }
 
@@ -241,9 +255,13 @@ std::string ServerManager::set_trusted(const std::string& name, bool trusted) {
     std::scoped_lock lk(mtx_);
     auto it = configs_.find(name);
     if (it == configs_.end()) return "unknown server '" + name + "'";
-    it->second.trusted = trusted;
-    if (!save_mcp_server(it->second)) return "could not save config for '" +
+    // Persist the candidate first; a failed write must leave the active
+    // session unchanged.
+    McpServerConfig candidate = it->second;
+    candidate.trusted = trusted;
+    if (!save_mcp_server(candidate)) return "could not save config for '" +
                                                  name + "'";
+    it->second = std::move(candidate);
     return "";
 }
 
@@ -252,9 +270,11 @@ std::string ServerManager::set_enabled(const std::string& name, bool enabled) {
         std::scoped_lock lk(mtx_);
         auto it = configs_.find(name);
         if (it == configs_.end()) return "unknown server '" + name + "'";
-        it->second.enabled = enabled;
-        if (!save_mcp_server(it->second)) return "could not save config for '" +
+        McpServerConfig candidate = it->second;
+        candidate.enabled = enabled;
+        if (!save_mcp_server(candidate)) return "could not save config for '" +
                                                      name + "'";
+        it->second = std::move(candidate);
     }
     if (!enabled) disconnect(name);
     return "";
@@ -264,22 +284,26 @@ std::string ServerManager::add_server(McpServerConfig cfg) {
     validate(cfg);
     if (cfg.name.empty()) return "missing server name";
     if (!cfg.error.empty()) return cfg.error;
-    {
-        std::scoped_lock lk(mtx_);
-        configs_[cfg.name] = cfg;
-    }
     if (!save_mcp_server(cfg)) return "could not save config for '" +
                                           cfg.name + "'";
+    std::scoped_lock lk(mtx_);
+    configs_[cfg.name] = std::move(cfg);
     return "";
 }
 
 std::string ServerManager::remove_server(const std::string& name) {
     {
         std::scoped_lock lk(mtx_);
-        if (configs_.erase(name) == 0) return "unknown server '" + name + "'";
+        if (configs_.count(name) == 0) return "unknown server '" + name + "'";
+    }
+    // Delete persistence first; on failure keep the active entry.
+    if (!delete_mcp_server(name)) return "could not delete config for '" +
+                                             name + "'";
+    {
+        std::scoped_lock lk(mtx_);
+        configs_.erase(name);
     }
     disconnect(name);
-    delete_mcp_server(name);
     return "";
 }
 
