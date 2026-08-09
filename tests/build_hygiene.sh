@@ -49,15 +49,44 @@ if awk '/^-include/{print}' Makefile.in | grep -q 'PLUGIN_TEST_OBJ'; then
 else
     warn "P2: PLUGIN_TEST_OBJ missing from the -include list (stale plugin_test.o risk)"
 fi
+if awk '/^-include/{print}' Makefile.in | grep -q 'COMP_TEST_OBJ'; then
+    ok "completions_test.d is in the -include list"
+else
+    warn "P2: COMP_TEST_OBJ missing from the -include list (stale completions_test.o risk)"
+fi
+if echo "$test_out" | grep -E 'md4c/md4c' | grep -q -- '-MMD'; then
+    ok "md4c compiles with -MMD"
+else
+    warn "P2: md4c compiles without -MMD dependency generation"
+fi
+if awk '/^-include/{print}' Makefile.in | grep -q 'md4c'; then
+    ok "md4c.d is in the -include list"
+else
+    warn "P2: md4c.d missing from the -include list (stale md4c.o risk)"
+fi
+for v in CDP_MAIN_OBJ CDP_WS_OBJ WS_TEST_OBJ; do
+    if awk '/^-include/{print}' Makefile.in | grep -q "$v"; then
+        ok "$v .d is in the -include list"
+    else
+        warn "P2: $v missing from the -include list (stale plugin/ws_test object risk)"
+    fi
+done
 
 # P3
-artifacts="run_tests command_line_test e2e_test completions_test plugin_test ws_test bench_test smoketest run_command_line_test run_completions_test run_e2e_test amber-cli amber amber-bench sysinfo-plugin cdp-plugin"
+artifacts="run_tests command_line_test e2e_test completions_test plugin_test ws_test bench_test smoketest run_command_line_test run_completions_test run_e2e_test amber-cli amber amber-bench sysinfo-plugin cdp-plugin libagent_core.a libagent_tools.a"
 clean_out=$(make -n clean 2>/dev/null)
 for f in $artifacts; do
     if echo "$clean_out" | grep -qF "$f"; then
         ok "make clean removes $f"
     else
         warn "P3: 'make clean' does not remove $f"
+    fi
+done
+for p in 'lib/*.o' 'lib/*.d' 'src/*.o' 'tui/*.o' 'tests/*.o' 'tests/*.d' 'bench/*.o' 'bench/*.d' 'tools/*.o' 'tools/search/*.o' 'third_party/md4c/*.o' 'tools/plugins/cdp/*.o' 'tools/plugins/cdp/*.d'; do
+    if echo "$clean_out" | grep -qF "$p"; then
+        ok "make clean removes $p"
+    else
+        warn "P3: 'make clean' does not remove $p"
     fi
 done
 if echo "$clean_out" | grep -q 'libagent\.a'; then
