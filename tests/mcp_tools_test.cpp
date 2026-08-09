@@ -156,3 +156,49 @@ TEST(mcp_read_resource_tool) {
     ASSERT(bad.error.find("not connected") != std::string::npos);
     mgr.shutdown_all();
 }
+
+namespace {
+// Decoy adapter that used to exist on the server but is no longer advertised
+// — the reconnect path must drop it instead of leaving it dangling.
+class DecoyTool : public agent::Tool {
+public:
+    std::string name() const noexcept override { return "mcp_echo_stale_tool"; }
+    std::string description() const noexcept override { return "decoy"; }
+    agent::json parameters_schema() const override {
+        return agent::json::object();
+    }
+    agent::ToolResult execute(const agent::json&) const override {
+        return {true, "ok", ""};
+    }
+};
+} // namespace
+
+// Reconnecting a server must unregister the old adapters first: a tool the
+// new server no longer advertises would otherwise keep a stale McpToolAdapter
+// bound to the erased MCPClient (use-after-free on the next call).
+TEST(mcp_reconnect_server_tools_no_stale_adapters) {
+    char buf[4096];
+    std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    std::string ws = "/tmp/amber_mcp_reconnect_ws";
+    run_cmd("rm -rf " + ws);
+    agent::Workspace::set_root(ws);
+    agent::McpServerConfig cfg;
+    cfg.name = "echo";
+    cfg.type = "stdio";
+    cfg.command = "python3";
+    cfg.args = {"tests/fixtures/mcp_echo.py"};
+    cfg.cwd = cwd;
+    agent::ServerManager mgr({{"echo", cfg}});
+    ASSERT_EQ(mgr.connect("echo"), "");
+
+    agent::ToolRegistry reg;
+    ASSERT_EQ(agent::register_server_tools(reg, mgr, "echo"), 1u);
+    // A stale adapter with the server's prefix, left over from an older
+    // tool set.
+    reg.register_tool(std::make_unique<DecoyTool>());
+
+    ASSERT_EQ(agent::reconnect_server_tools(reg, mgr, "echo"), 1u);
+    ASSERT(reg.find("mcp_echo_echo_tool") != nullptr);
+    ASSERT(reg.find("mcp_echo_stale_tool") == nullptr);
+    mgr.shutdown_all();
+}

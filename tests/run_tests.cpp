@@ -4159,3 +4159,63 @@ TEST(config_save_settings_persists_compression) {
     ASSERT_EQ(d.compression_cooldown_turns, 12);
     std::remove(path.c_str());
 }
+
+// ---------------------------------------------------------------------------
+// Thread-safety: registry + job lifecycle (top-5 item #2 races)
+// ---------------------------------------------------------------------------
+
+namespace {
+// Minimal no-op tool for concurrency probes.
+class ProbeTool : public agent::Tool {
+public:
+    explicit ProbeTool(std::string name) : name_(std::move(name)) {}
+    std::string name() const noexcept override { return name_; }
+    std::string description() const noexcept override { return "probe"; }
+    agent::json parameters_schema() const override {
+        return agent::json::object();
+    }
+    agent::ToolResult execute(const agent::json&) const override {
+        return {true, "ok", ""};
+    }
+private:
+    std::string name_;
+};
+} // namespace
+
+// Concurrent register/find/schema from dispatch workers and the host thread.
+// Unsynchronized vector mutation is UB; the count assertion is the regression
+// guard (TSan is the authoritative detector, not run in CI).
+TEST(registry_concurrent_register_find) {
+    agent::ToolRegistry reg;
+    constexpr int kThreads = 8;
+    constexpr int kPerThread = 25;
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t)
+        threads.emplace_back([&reg, t]() {
+            for (int i = 0; i < kPerThread; ++i) {
+                reg.register_tool(std::make_unique<ProbeTool>(
+                    "probe_" + std::to_string(t) + "_" + std::to_string(i)));
+                (void)reg.find("probe_0_0");
+                (void)reg.schema();
+            }
+        });
+    for (auto& th : threads) th.join();
+    ASSERT_EQ(reg.tools().size(), static_cast<size_t>(kThreads * kPerThread));
+    ASSERT(reg.find("probe_7_24") != nullptr);
+}
+
+// JobService::get returns a shared reference: a caller holding it must stay
+// safe when the service erases the job (concurrent stop()/kill).
+TEST(job_service_get_holds_live_reference) {
+    agent::JobService jobs;
+    std::string id = jobs.start("echo hello", "", 60, 30);
+    ASSERT(!id.empty());
+    std::shared_ptr<agent::Job> j = jobs.get(id);
+    ASSERT(j != nullptr);
+    ASSERT(jobs.stop(id));
+    // The held job was killed but its snapshot stays queryable — no dangling
+    // pointer into the service's map.
+    agent::JobInfo info = j->info();
+    ASSERT(info.state == agent::JobState::Killed ||
+           info.state == agent::JobState::Done);
+}

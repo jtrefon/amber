@@ -1071,3 +1071,45 @@ TEST(agent_loop_subagent_nesting_guard) {
     ASSERT_EQ(executor.launched(), 1);
     ASSERT(script->empty());
 }
+
+// A sub-agent must never touch the shared registry's tool set: its Agent
+// constructor used to re-register skill tools bound to the sub-agent's own
+// SkillCatalog, replacing the parent's bindings with ones that dangle once
+// the sub-agent is destroyed (use-after-free on the next skill call).
+TEST(agent_loop_subagent_does_not_touch_shared_registry) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  false, executor, true);
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    push_tool_call(script, "task", {{"prompt", "reply ok"}});
+    push_text(script, "ok");
+    push_text(script, "done");
+    push_text(script, "yes");
+
+    auto parent = std::make_unique<SharedScriptFake>();
+    parent->script = script;
+    executor.set_factory([script](const agent::Config&) {
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = script;
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    });
+    executor.set_config(cfg);
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    agent::Tool* before = reg.find("read_skill");
+    ASSERT(before != nullptr);  // the parent registers its skill tools
+
+    std::string reply = ag.run("delegate");
+    ASSERT_EQ(reply, "done");
+
+    // The sub-agent must leave the parent's bindings untouched — same
+    // instance, not a replacement pointing at a dead catalog.
+    ASSERT(reg.find("read_skill") == before);
+    ASSERT(reg.find("list_skills") != nullptr);
+    ASSERT(reg.find("write_skill") != nullptr);
+}
