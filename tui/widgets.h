@@ -72,8 +72,15 @@ void set_modal_flag(bool* flag);
 inline constexpr int kTickTimeoutMs = 50;
 
 // RAII: restores the main-loop tick timeout when a stdscr-modal exits.
+// Non-copyable/non-movable (like ModalScope) so the timeout can never be
+// restored twice.
 struct BlockingInputGuard {
+    BlockingInputGuard() = default;
     ~BlockingInputGuard() { timeout(kTickTimeoutMs); }
+    BlockingInputGuard(const BlockingInputGuard&) = delete;
+    BlockingInputGuard& operator=(const BlockingInputGuard&) = delete;
+    BlockingInputGuard(BlockingInputGuard&&) = delete;
+    BlockingInputGuard& operator=(BlockingInputGuard&&) = delete;
 };
 
 // RAII guard: marks the modal flag set on construction, cleared on destruction,

@@ -75,9 +75,13 @@ size_t Tui::append_line_to(Window& w, int color, const std::string& text,
     return first;
 }
 void Tui::append_rich(const rich::Line& l) {
-    win().lines.push_back(l);
-    trim_lines(win());
-    win().scroll_top = max_scroll();
+    append_rich_to(win(), l);
+}
+
+void Tui::append_rich_to(Window& w, const rich::Line& l) {
+    w.lines.push_back(l);
+    trim_lines(w);
+    w.scroll_top = max_scroll(w);
 }
 void Tui::append_markdown(Window& w, const std::string& md) {
     if (w.markdown_on) {
@@ -117,9 +121,19 @@ void Tui::append_rich_to(std::vector<rich::Line>& view, const std::string& text,
     for (auto& x : rich::wrap(l, w)) view.push_back(std::move(x));
 }
 void Tui::trim_lines(Window& w) {
-    if (w.lines.size() > 10000)
-        w.lines.erase(w.lines.begin(),
-                      w.lines.begin() + 5000);
+    if (w.lines.size() <= 10000) return;
+    w.lines.erase(w.lines.begin(), w.lines.begin() + 5000);
+    // Pending tool lines hold indices into this window's scrollback; shift
+    // surviving entries by the trimmed amount and invalidate the rest so
+    // spinner animation can never write to a moved line.
+    for (auto& pt : pending_tools_) {
+        if (pt.window_id != w.id) continue;
+        if (pt.index < 5000) {
+            pt.index = std::string::npos;
+        } else {
+            pt.index -= 5000;
+        }
+    }
 }
 
 int Tui::display_cols(const std::string& s) { return text::display_cols(s); }
@@ -462,9 +476,7 @@ void Tui::advance_tool_spinners() {
     if (pending_tools_.empty()) return;
     bool changed = false;
     for (auto& pt : pending_tools_) {
-        Window* w = pt.window_id < windows_.size()
-                        ? windows_[pt.window_id].get()
-                        : nullptr;
+        Window* w = window_by_id(pt.window_id);
         if (!w || pt.index >= w->lines.size()) {
             pt.index = std::string::npos;
             continue;

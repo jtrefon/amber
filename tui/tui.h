@@ -18,7 +18,6 @@
 #include "action_registry.h"
 #include "setting_registry.h"
 #include "agent_event.h"
-#include "event_router.h"
 
 #include <atomic>
 #include <chrono>
@@ -146,8 +145,10 @@ private:
     // vector (used for the live stream preview inside draw()).
     static void append_rich_to(std::vector<rich::Line>& view,
                                const std::string& text, int color, int w);
+    // Window-targeted append for routed events (drain_events fallbacks).
+    void append_rich_to(Window& w, const rich::Line& l);
     void banner(const std::string& text);
-    static void trim_lines(Window& w);
+    void trim_lines(Window& w);
 
     // ---- rendering ------------------------------------------------------
     // Stage-only redraw helpers write to stdscr without flushing; flush()
@@ -185,6 +186,10 @@ private:
     // ---- session persistence --------------------------------------------
     agent::Session snapshot(Window& w) const;
     void autosave();
+    void autosave(Window& w);
+    // Save every dirty window's conversation; used by the destructor and the
+    // deferred signal-exit path (which skips ~Tui).
+    void save_window_sessions();
     void save_session();
     void load_session(const std::string& id);
     void session_browser();
@@ -196,6 +201,8 @@ private:
     void close_window();
     Window& win();
     const Window& win() const;
+    Window* window_by_id(size_t id);
+    size_t next_window_id_ = 0;
 
     // ---- slash command framework ----------------------------------------
     const std::vector<tui::Command>& commands();
@@ -283,6 +290,11 @@ private:
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
     void cmd_get(const std::string& arg);
+    // Single implementation for each compression setting; both the action
+    // handlers and the SettingRegistry setters delegate here so the two
+    // paths can never disagree.
+    void apply_compression_threshold(const std::string& v);
+    void apply_compression_min_turns(const std::string& v);
     void cmd_skills_set(const std::string& rest);
     void cmd_skills_get(const std::string& sub);
     void cmd_mcp(const std::string& rest);

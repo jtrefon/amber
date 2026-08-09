@@ -93,7 +93,10 @@ agent::Approval ApprovalPanel::run() {
     // first approval.
     BlockingInputGuard input_guard;
 
-    ApprovalModel model(timeout_sec_, 0, ApprovalModel::steady_seconds);
+    // Seed the model with the panel's (already clamped) initial selection so
+    // Enter resolves what is highlighted.
+    ApprovalModel model(timeout_sec_, sel_, ApprovalModel::steady_seconds);
+    sel_ = model.selection();
 
     draw();
     while (true) {
@@ -115,33 +118,40 @@ agent::Approval ApprovalPanel::run() {
         timeout(timeout_sec_ > 0 ? 250 : -1);
         int ch = getch();
         if (ch == ERR) continue;
-        if (ch == '\t' || ch == KEY_RIGHT) {
-            model.select(model.selection() + 1);
-            sel_ = model.selection();
-            draw();
-            continue;
-        }
-        if (ch == KEY_LEFT) {
-            model.select(model.selection() - 1);
-            sel_ = model.selection();
-            draw();
-            continue;
-        }
-        if (ch >= '1' && ch <= '4') {
-            model.select(ch - '1');
-            break;
-        }
-        if (ch == '\n' || ch == '\r') break;
-        if (ch == 27) {  // Esc — cancel/deny
-            sel_ = -1;
-            break;
-        }
+        if (handle_dialog_key(ch, model)) break;
     }
 
     hide();
     curs_set(1);
 
     return model.resolve(sel_);
+}
+
+// Returns true when the dialog should close; updates selection and redraws
+// otherwise. The model is the single source of truth for the selection;
+// sel_ mirrors it so draw() never needs the model.
+bool ApprovalPanel::handle_dialog_key(int ch, ApprovalModel& model) {
+    if (ch == '\t' || ch == KEY_RIGHT || ch == KEY_LEFT) {
+        model.select(model.selection() +
+                     (ch == KEY_LEFT ? -1 : 1));
+        sel_ = model.selection();
+        draw();
+        return false;
+    }
+    if (ch >= '1' && ch <= '4') {
+        model.select(ch - '1');
+        sel_ = model.selection();
+        return true;
+    }
+    if (ch == '\n' || ch == '\r') {
+        sel_ = model.selection();
+        return true;
+    }
+    if (ch == 27) {  // Esc — cancel/deny
+        sel_ = -1;
+        return true;
+    }
+    return false;
 }
 
 agent::Approval approve_dialog(const std::string& summary,

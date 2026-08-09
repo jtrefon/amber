@@ -6,6 +6,7 @@
 #include "confirm_panel.h"
 #include "tool_display.h"
 #include "signal_guard.h"
+#include "event_router.h"
 
 #include <agent.h>
 #include <agent/mcp_tools.h>
@@ -46,8 +47,8 @@ TerminalGuard g_terminal_guard;
 // graceful exit. No file I/O, no allocations, no locks — only async-signal-
 // safe calls. If the loop never consumes the flag (modal block), the SIGALRM
 // fallback terminates the process.
-static void signal_handler(int) {
-    g_signal_state.raise();
+static void signal_handler(int sig) {
+    g_signal_state.raise(sig);
     g_terminal_guard.restore();
     alarm(2);
 }
@@ -117,6 +118,7 @@ Tui::~Tui() {
     std::fflush(stdout);
 
     save_workspace_now();
+    save_window_sessions();
 
     agent_cancel_ = true;
     // Resolve every pending approval (queued and undrained) with Deny so a
@@ -128,21 +130,12 @@ Tui::~Tui() {
         deny_all_pending_approvals(pending_approvals_);
     }
     if (agent_thread_.joinable()) agent_thread_.join();
-
-    for (const auto & window : windows_) {
-        Window& w = *window;
-        if (!w.dirty || !w.agent || w.agent->context().get_all().empty()) continue;
-        std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
-        std::fflush(stderr);
-        agent::Session s = snapshot(w);
-        if (store_.save(s)) w.session_id = s.id;
-    }
-    std::fprintf(stderr, "\rsession save complete\n");
     endwin();
 }
 
 Window& Tui::new_window(const std::string& title) {
     auto w = std::make_unique<Window>();
+    w->id = next_window_id_++;
     w->title = title;
     auto comp_cfg = agent::load_compression_config(cfg_);
     auto gate = agent::make_compression_gate(comp_cfg);
@@ -196,11 +189,10 @@ bool Tui::drain_events() {
     if (batch.empty()) return false;
 
     for (auto& ev : batch) {
-        // Deliver to the event's origin window (npos = active at drain time);
-        // events whose window is gone are dropped rather than routed to a
-        // stranger window.
+        // Deliver to the event's origin window (npos = active at drain time).
+        // Window-state cases need w and skip when it is gone; global-state
+        // cases (StateChange, Stats) and active-window Status lines still run.
         Window* w = route_event(windows_, ev, active_);
-        if (!w) continue;
         switch (ev.type) {
         case AgentEvent::StateChange:
             state_ = ev.state;
@@ -209,11 +201,13 @@ bool Tui::drain_events() {
                 running_tool_.clear();
             break;
         case AgentEvent::Reasoning:
+            if (!w) break;
             w->reason_buf += ev.text;
             if (!w->reason_folded && show_reasoning_)
                 w->scroll_top = max_scroll(*w);
             break;
         case AgentEvent::Token:
+            if (!w) break;
             working_visible_ = false;  // output is displaying — row retires
             if (!w->reason_folded && !w->reason_buf.empty())
                 fold_reasoning(*w);
@@ -226,6 +220,7 @@ bool Tui::drain_events() {
             append_line(P_STATUS, ev.text);
             break;
         case AgentEvent::ToolCall: {
+            if (!w) break;
             running_tool_ = ev.tool_name;
             running_tool_desc_ = tool_display::describe_tool_call(
                 ev.tool_name, ev.tool_args);
@@ -248,6 +243,7 @@ bool Tui::drain_events() {
             break;
         }
         case AgentEvent::ToolResult: {
+            if (!w) break;
             running_tool_.clear();
             running_tool_desc_.clear();
             // Summary line: colored success/failure icon + one-line report,
@@ -270,9 +266,7 @@ bool Tui::drain_events() {
                     }
             if (match != std::string::npos) {
                 auto& pt = pending_tools_[match];
-                Window* ow = pt.window_id < windows_.size()
-                                 ? windows_[pt.window_id].get()
-                                 : nullptr;
+                Window* ow = window_by_id(pt.window_id);
                 if (ow && pt.index < ow->lines.size()) {
                     size_t li = pt.index;
                     // Close in place: keep the open line's timestamp run.
@@ -280,16 +274,17 @@ bool Tui::drain_events() {
                         ow->lines[li], std::move(summary));
                     pending_tools_.erase(pending_tools_.begin() + match);
                 } else {
-                    append_rich(summary);
+                    append_rich_to(*w, summary);
                 }
             } else {
-                append_rich(summary);
+                append_rich_to(*w, summary);
             }
             // Tool may have modified files — refresh git state for prompt.
             git_refresh();
             break;
         }
         case AgentEvent::Assistant:
+            if (!w) break;
             if (w->stream_buf.empty())
                 append_markdown(*w, ev.text);
             break;
@@ -301,19 +296,22 @@ bool Tui::drain_events() {
             }
             break;
         case AgentEvent::Error:
+            if (!w) break;
             state_ = agent::RunState::Error;
             flush_stream(*w);
-            append_line(P_STATUS, std::string("error: ") + ev.error_msg);
+            append_line_to(*w, P_STATUS, std::string("error: ") + ev.error_msg);
             break;
         case AgentEvent::Done:
+            if (!w) break;
             if (state_ != agent::RunState::Error)
                 state_ = agent::RunState::Idle;
             running_tool_.clear();
             flush_stream(*w);
-            autosave();
             w->dirty = true;
+            autosave(*w);
             break;
         case AgentEvent::CompressResult: {
+            if (!w) break;
             auto& r = ev.compress_result;
             state_ = agent::RunState::Idle;
             ctx_used_ = static_cast<long>(r.tokens_after);
@@ -447,9 +445,10 @@ void Tui::send_async(const std::string& raw_prompt) {
 
     // Capture the window on the UI thread: the worker must never read
     // windows_/active_ (the UI thread mutates them) — it gets its own Window*
-    // and stamps every event with its window id so drain_events can route.
+    // and stamps every event with the window's stable id so drain_events can
+    // route even after other windows close.
     Window* my_win = &w;
-    size_t my_id = active_;
+    size_t my_id = w.id;
     agent_thread_ = std::thread([this, my_win, my_id, prompt] {
         agent_worker(*my_win, my_id, prompt);
     });
@@ -459,98 +458,78 @@ void Tui::agent_worker(Window& my_win, size_t window_id,
                        const std::string& prompt) {
     agent::AgentHooks hooks;
 
-    hooks.on_reasoning = [this, window_id](const std::string& d) {
+    // Push one event for the origin window unless cancellation is pending.
+    auto push_event = [this, window_id](AgentEvent ev) {
         if (agent_cancel_.load()) return;
+        ev.window_id = window_id;
+        std::scoped_lock lk(event_mtx_);
+        event_queue_.push(std::move(ev));
+    };
+
+    hooks.on_reasoning = [push_event](const std::string& d) {
         AgentEvent ev;
         ev.type = AgentEvent::Reasoning;
-        ev.window_id = window_id;
         ev.text = d;
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
+        push_event(std::move(ev));
     };
-    hooks.on_token = [this, window_id](const std::string& d) {
-        if (agent_cancel_.load()) return;
+    hooks.on_token = [push_event](const std::string& d) {
         AgentEvent ev;
         ev.type = AgentEvent::Token;
-        ev.window_id = window_id;
         ev.text = d;
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
+        push_event(std::move(ev));
     };
-    hooks.on_state = [this, window_id](agent::RunState s) {
-        if (agent_cancel_.load()) return;
+    hooks.on_state = [push_event](agent::RunState s) {
         AgentEvent ev;
         ev.type = AgentEvent::StateChange;
-        ev.window_id = window_id;
         ev.state = s;
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
+        push_event(std::move(ev));
     };
-    hooks.on_stats = [this, window_id](const agent::Stats& s) {
-        if (agent_cancel_.load()) return;
+    hooks.on_stats = [push_event](const agent::Stats& s) {
         AgentEvent ev;
         ev.type = AgentEvent::Stats;
-        ev.window_id = window_id;
         ev.stats = s;
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
+        push_event(std::move(ev));
     };
-    hooks.on_status = [this, window_id](const std::string& s) {
-        if (agent_cancel_.load()) return;
+    hooks.on_status = [push_event](const std::string& s) {
         AgentEvent ev;
         ev.type = AgentEvent::Status;
-        ev.window_id = window_id;
         ev.text = s;
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
+        push_event(std::move(ev));
     };
-    hooks.on_tool_call = [this, window_id](const std::string& n, const agent::json& a) {
-        if (agent_cancel_.load()) return;
+    hooks.on_tool_call = [push_event](const std::string& n, const agent::json& a) {
         AgentEvent ev;
         ev.type = AgentEvent::ToolCall;
-        ev.window_id = window_id;
         ev.tool_name = n;
         ev.tool_args = a;
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
+        push_event(std::move(ev));
     };
-    hooks.on_tool_result = [this, window_id](const std::string& n,
-                                  const agent::ToolResult& r,
-                                  const agent::json& a) {
-        if (agent_cancel_.load()) return;
+    hooks.on_tool_result = [push_event](const std::string& n,
+                                        const agent::ToolResult& r,
+                                        const agent::json& a) {
         AgentEvent ev;
         ev.type = AgentEvent::ToolResult;
-        ev.window_id = window_id;
         ev.tool_name = n;
         ev.tool_args = a;
         ev.tool_result = r;
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
+        push_event(std::move(ev));
     };
-    hooks.on_assistant = [this, window_id](const std::string& s) {
-        if (agent_cancel_.load()) return;
+    hooks.on_assistant = [push_event](const std::string& s) {
         AgentEvent ev;
         ev.type = AgentEvent::Assistant;
-        ev.window_id = window_id;
         ev.text = s;
-        std::scoped_lock lk(event_mtx_);
-        event_queue_.push(std::move(ev));
+        push_event(std::move(ev));
     };
-    hooks.on_approval = [this, window_id](const std::string& name,
-                               const agent::json& args,
-                               const std::string& summary) -> agent::Approval {
+    hooks.on_approval = [this, push_event](const std::string& name,
+                                           const agent::json& args,
+                                           const std::string& summary) -> agent::Approval {
         if (agent_cancel_.load()) return agent::Approval::Deny;
         auto p = std::make_shared<std::promise<agent::Approval>>();
         auto f = p->get_future();
-        {
-            AgentEvent ev;
-            ev.type = AgentEvent::Approval;
-            ev.window_id = window_id;
-            ev.text = summary;
-            ev.approval_promise = p;
-            std::scoped_lock lk(event_mtx_);
-            event_queue_.push(std::move(ev));
-        }
+        AgentEvent ev;
+        ev.type = AgentEvent::Approval;
+        ev.text = summary;
+        ev.approval_promise = p;
+        push_event(std::move(ev));
         (void)name;
         (void)args;
         return f.get();
@@ -600,14 +579,23 @@ void Tui::compress_worker(Window& my_win, size_t window_id) {
         AgentEvent ev;
         ev.type = AgentEvent::CompressResult;
         ev.window_id = window_id;
-        if (my_win->agent) {
-            ev.compress_result = my_win->agent->compress_now();
+        try {
+            if (my_win->agent)
+                ev.compress_result = my_win->agent->compress_now();
+        } catch (const std::exception& e) {
+            // Same degradation as agent_worker: an exception must never
+            // escape a std::thread entry (std::terminate) and the result
+            // must still be reported so state_ does not stay Waiting.
+            ev.type = AgentEvent::Error;
+            ev.error_msg = e.what();
         }
-        agent_busy_.store(false);
         {
             std::scoped_lock lk(event_mtx_);
             event_queue_.push(std::move(ev));
         }
+        // Push BEFORE clearing busy: send_async observes idle, joins, then
+        // drains the queue — an event pushed after the flag flip is lost.
+        agent_busy_.store(false);
     });
 }
 
@@ -784,9 +772,12 @@ void Tui::run() {
         // the terminal). Turn it into a graceful save + teardown here, on the
         // main thread, where file I/O and endwin are safe.
         if (g_signal_state.consume()) {
+            // Persist per-window conversation sessions (the destructor path
+            // is skipped) and exit with the shell-conventional 128+sig status.
+            save_window_sessions();
             save_workspace_now();
             endwin();
-            _Exit(0);
+            _Exit(128 + g_signal_state.signal());
         }
         bool had_events = drain_events();
         jobs_.check_timeouts();
@@ -1108,6 +1099,24 @@ void Tui::run() {
         if (ch == KEY_PPAGE) { win().scroll_top = std::max(0, win().scroll_top - lines_per_page()); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
         if (dirty_) { flush(); dirty_ = false; }
     }
+}
+
+void Tui::save_window_sessions() {
+    for (const auto& window : windows_) {
+        Window& w = *window;
+        if (!w.dirty || !w.agent || w.agent->context().get_all().empty()) continue;
+        std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
+        std::fflush(stderr);
+        agent::Session s = snapshot(w);
+        if (store_.save(s)) w.session_id = s.id;
+    }
+    std::fprintf(stderr, "\rsession save complete\n");
+}
+
+Window* Tui::window_by_id(size_t id) {
+    for (auto& w : windows_)
+        if (w && w->id == id) return w.get();
+    return nullptr;
 }
 
 } // namespace tui

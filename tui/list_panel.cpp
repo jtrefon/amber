@@ -32,6 +32,11 @@ std::vector<std::string> ListPanel::filtered() const {
 }
 
 int ListPanel::run() {
+    // Blocking read; restore the main loop's tick timeout on exit. Without
+    // this, the list auto-closes after the 50 ms tick when no approval
+    // dialog has switched stdscr to blocking yet.
+    BlockingInputGuard input_guard;
+    timeout(-1);
     draw_items();
     show();
     int ch;

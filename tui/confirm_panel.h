@@ -3,6 +3,7 @@
 #define AMBER_TUI_CONFIRM_PANEL_H
 
 #include "tui/panel.h"
+#include "tui/approval_model.h"
 
 #include <agent/agent.h>
 
@@ -21,6 +22,9 @@ public:
     agent::Approval run();
 
 private:
+    // Key dispatch for the dialog loop; returns true when the dialog should
+    // close. The model is the single source of truth for the selection.
+    bool handle_dialog_key(int ch, ApprovalModel& model);
     std::string summary_;
     int timeout_sec_;
     int sel_ = 0;           // 0=AllowOnce, 1=AllowSession, 2=AlwaysAllow, 3=AlwaysDeny

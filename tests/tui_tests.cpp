@@ -761,9 +761,10 @@ TEST(parse_setting_double_rejects_garbage) {
 
 TEST(signal_state_consume_once) {
     tui::SignalState s;
-    s.raise();
-    s.raise();
+    s.raise(SIGTERM);
+    s.raise(SIGTERM);
     ASSERT(s.consume());
+    ASSERT_EQ(s.signal(), SIGTERM);
     ASSERT(!s.consume());
 }
 

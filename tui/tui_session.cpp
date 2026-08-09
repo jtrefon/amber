@@ -86,7 +86,10 @@ agent::Session Tui::snapshot(Window& w) const {
 }
 
 void Tui::autosave() {
-    Window& w = win();
+    autosave(win());
+}
+
+void Tui::autosave(Window& w) {
     if (!w.dirty || !w.agent || w.agent->context().empty()) return;
     agent::Session s = snapshot(w);
     if (store_.save(s)) {
@@ -132,7 +135,7 @@ void Tui::load_session(const std::string& id) {
         append_line(P_STATUS, "large session — background compression started");
         switch_to(windows_.size() - 1);
         Window* my_win = &w;
-        size_t my_id = active_;
+        size_t my_id = w.id;
         compress_worker(*my_win, my_id);
     }
     if (!s.meta.empty())
@@ -450,8 +453,8 @@ void Tui::lazy_load_active() {
 }
 
 void Tui::switch_to(size_t idx) {
-    if (busy_reject("window switch")) return;
     if (idx >= windows_.size() || idx == active_) return;
+    if (busy_reject("window switch")) return;
     active_ = idx;
     pending_tools_.clear();  // spinner indices belong to the old window
     lazy_load_active();

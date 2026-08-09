@@ -2,6 +2,7 @@
 #include "textutil.h"
 
 #include <cerrno>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
@@ -29,6 +30,9 @@ std::optional<double> parse_setting_double(const std::string& v, double min,
     if (errno != 0 || end == v.c_str() ||
         end != v.c_str() + v.size())
         return std::nullopt;
+    // strtod parses "nan"/"inf" fully with errno 0; every comparison with
+    // NaN is false so the range check alone would accept it.
+    if (!std::isfinite(d)) return std::nullopt;
     if (d < min || d > max) return std::nullopt;
     return d;
 }

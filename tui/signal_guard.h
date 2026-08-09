@@ -13,15 +13,21 @@ namespace tui {
 // the process still dies if the loop cannot run (e.g. blocked in a modal).
 class SignalState {
 public:
-    void raise() noexcept { flag_ = 1; }
+    void raise(int sig) noexcept {
+        flag_ = 1;
+        sig_ = sig;
+    }
     bool consume() noexcept {
         if (!flag_) return false;
         flag_ = 0;
         return true;
     }
+    // Signal number recorded by raise(); valid only after consume().
+    int signal() const noexcept { return sig_; }
 
 private:
     volatile std::sig_atomic_t flag_ = 0;
+    volatile std::sig_atomic_t sig_ = 0;
 };
 
 // Captures the terminal's termios before initscr() switches it to raw mode.

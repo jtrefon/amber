@@ -17,6 +17,11 @@ namespace tui {
 // streaming state, persistent (stateful) Agent, and session identity. Windows
 // are switchable IRC-style; the active one is drawn.
 struct Window {
+    // Stable identity: assigned monotonically by the Tui at creation and
+    // never reused. AgentEvent::window_id and PendingToolLine::window_id
+    // carry this value so events follow their window across windows_ erasures
+    // (a vector index would shift when another window is closed).
+    size_t id = 0;
     std::string title = "chat";
     std::string session_id;          // set once persisted / loaded
     bool dirty = false;              // has unsaved changes since last save

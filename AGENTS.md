@@ -372,8 +372,8 @@ claim 0-debt conformance. Line counts below are enforced by
 |------|------:|-------|
 | `tests/run_tests.cpp` | 4161 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 269 | OK, but `list()` mixes POSIX `opendir` with JSON — consider an `fs` helper. |
-| `tui/tui_render.cpp` | 667 | Method implementations (not a class); exempt from class-size rule. |
-| `tui/tui_input.cpp` | 2307 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_render.cpp` | 679 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2295 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `request_builder`, `sse_parser`,

@@ -37,15 +37,14 @@ void Tui::fold_reasoning(Window& w) {
     if (w.reason_buf.empty()) return;
     size_t words = 1;
     for (char ch : w.reason_buf) if (ch == ' ') ++words;
-    append_line_ts(P_REASONING,
-                   "[thought for " + std::to_string(words) + " words]",
-                   w.stream_ts.empty() ? timestamp() : w.stream_ts);
+    append_line_to(w, P_REASONING,
+                   "[thought for " + std::to_string(words) + " words]");
     w.reason_buf.clear();
 }
 
- void Tui::flush_stream(Window& w) {
-      if (!w.reason_folded && !w.reason_buf.empty()) fold_reasoning(w);
-      if (w.stream_buf.empty()) return;
+void Tui::flush_stream(Window& w) {
+    if (!w.reason_folded && !w.reason_buf.empty()) fold_reasoning(w);
+    if (w.stream_buf.empty()) return;
     // Commit the streamed reply through the Markdown renderer so headings,
     // code fences, lists, etc. survive into the scrollback (the live preview
     // in draw() already renders it as Markdown).
@@ -1116,35 +1115,10 @@ void Tui::register_builtin_actions() {
     register_action("core.config.set.policy.rule",
         [this](const std::string& a) { cmd_set_policy_rule(a); });
     register_action("core.config.set.compression.threshold", [this](const std::string& v) {
-        auto t = text::parse_setting_double(v, 0.1, 1.0);
-        if (!t) {
-            append_line(P_STATUS, "compression.threshold: invalid value (0.1-1.0): " + v);
-            return;
-        }
-        double tv = *t;
-        cfg_.compression_threshold = tv;
-        cfg_.compression_threshold_explicit = true;
-        for (auto& w : windows_)
-            if (w->agent) w->agent->set_compression_threshold(tv);
-        append_line(P_STATUS, "compression threshold: " + std::to_string(tv));
-        if (!cfg_.save_settings(settings_path_))
-            append_line(P_STATUS, "warning: could not save to " + settings_path_);
-        draw();
+        apply_compression_threshold(v);
     });
     register_action("core.config.set.compression.min_turns", [this](const std::string& v) {
-        auto n = text::parse_setting_int(v, 0, 999);
-        if (!n) {
-            append_line(P_STATUS, "compression.min_turns: invalid value (0-999): " + v);
-            return;
-        }
-        cfg_.compression_min_turns = *n;
-        cfg_.compression_min_turns_explicit = true;
-        for (auto& w : windows_)
-            if (w->agent) w->agent->set_compression_min_turns(*n);
-        append_line(P_STATUS, "compression min_turns: " + std::to_string(*n));
-        if (!cfg_.save_settings(settings_path_))
-            append_line(P_STATUS, "warning: could not save to " + settings_path_);
-        draw();
+        apply_compression_min_turns(v);
     });
     register_action("core.config.set.compression", [this](const std::string& a) { cmd_set(a); });
     register_action("core.config.set.think", [this](const std::string& v) {
@@ -1858,7 +1832,7 @@ void Tui::cmd_compress(const std::string&) {
     append_line(P_STATUS, "compressing...");
     state_ = agent::RunState::Waiting;
     Window* my_win = &w;
-    size_t my_id = active_;
+    size_t my_id = w.id;
     compress_worker(*my_win, my_id);
 }
 
@@ -2170,6 +2144,38 @@ void Tui::settings_screen() {
     }
 }
 
+void Tui::apply_compression_threshold(const std::string& v) {
+    auto t = text::parse_setting_double(v, 0.1, 1.0);
+    if (!t) {
+        append_line(P_STATUS, "compression.threshold: invalid value (0.1-1.0): " + v);
+        return;
+    }
+    cfg_.compression_threshold = *t;
+    cfg_.compression_threshold_explicit = true;
+    for (auto& w : windows_)
+        if (w && w->agent) w->agent->set_compression_threshold(*t);
+    append_line(P_STATUS, "compression threshold: " + std::to_string(*t));
+    if (!cfg_.save_settings(settings_path_))
+        append_line(P_STATUS, "warning: could not save to " + settings_path_);
+    draw();
+}
+
+void Tui::apply_compression_min_turns(const std::string& v) {
+    auto n = text::parse_setting_int(v, 0, 999);
+    if (!n) {
+        append_line(P_STATUS, "compression.min_turns: invalid value (0-999): " + v);
+        return;
+    }
+    cfg_.compression_min_turns = *n;
+    cfg_.compression_min_turns_explicit = true;
+    for (auto& w : windows_)
+        if (w && w->agent) w->agent->set_compression_min_turns(*n);
+    append_line(P_STATUS, "compression min_turns: " + std::to_string(*n));
+    if (!cfg_.save_settings(settings_path_))
+        append_line(P_STATUS, "warning: could not save to " + settings_path_);
+    draw();
+}
+
 void Tui::build_settings() {
     settings_ = tui::SettingRegistry{};
     auto add = [&](const std::string& key, const std::string& help,
@@ -2279,29 +2285,11 @@ void Tui::build_settings() {
         [this]() -> std::string {
             return std::to_string(compression_threshold_effective());
         },
-        [this](const std::string& v) {
-            auto n = text::parse_setting_double(v, 0.1, 1.0);
-            if (!n) {
-                append_line(P_STATUS, "compression.threshold: invalid value (0.1-1.0): " + v);
-                return;
-            }
-            cfg_.compression_threshold = *n;
-            cfg_.save_settings(settings_path_);
-            for (auto& w : windows_) if (w && w->agent) w->agent->set_compression_threshold(cfg_.compression_threshold);
-        });
+        [this](const std::string& v) { apply_compression_threshold(v); });
     add("compression.min_turns", "Minimum turns before compression",
-        "<1-999>", Setting::Int, {}, 1, 999,
+        "<0-999> (0 = disabled)", Setting::Int, {}, 0, 999,
         [this]() -> std::string { return std::to_string(cfg_.compression_min_turns > 0 ? cfg_.compression_min_turns : 10); },
-        [this](const std::string& v) {
-            auto n = text::parse_setting_int(v, 1, 999);
-            if (!n) {
-                append_line(P_STATUS, "compression.min_turns: invalid value (1-999): " + v);
-                return;
-            }
-            cfg_.compression_min_turns = *n;
-            cfg_.save_settings(settings_path_);
-            for (auto& w : windows_) if (w && w->agent) w->agent->set_compression_min_turns(cfg_.compression_min_turns);
-        });
+        [this](const std::string& v) { apply_compression_min_turns(v); });
 }
 
 } // namespace tui

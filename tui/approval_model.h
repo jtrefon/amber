@@ -4,6 +4,7 @@
 #include <agent/agent.h>
 
 #include <chrono>
+#include <cmath>
 #include <functional>
 
 namespace tui {
@@ -48,7 +49,10 @@ public:
     int remaining_sec() const noexcept {
         if (timeout_sec_ <= 0 || timed_out_) return 0;
         double rem = deadline_ - clock_();
-        return rem <= 0 ? 0 : static_cast<int>(rem);
+        // Round up so the countdown shows 1s until the deadline actually
+        // passes (truncation showed 0s a fraction early and the timeout
+        // fired while the display still said 0).
+        return rem <= 0 ? 0 : static_cast<int>(std::ceil(rem));
     }
 
     // Final verdict for a closed dialog; sel < 0 means cancel/Esc → Deny. A
