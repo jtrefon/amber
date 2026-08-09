@@ -46,3 +46,6 @@ include/agent/version.h
 website/node_modules/
 website/.astro/
 website/dist/
+
+# Generated build metadata (machine-specific; clangd falls back to compile_flags.txt)
+compile_commands.json
