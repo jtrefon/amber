@@ -96,7 +96,13 @@ private:
     std::size_t read_cursor_ = 0;
     bool truncated_ = false;
     int exit_code_ = 0;
+    // Kill-once latch (read by kill() and the reader's reap grace loop).
+    std::atomic<bool> kill_done_ = false;
     static constexpr std::size_t kCap = 1 << 20;  // 1 MiB output cap
+    // After the child closes its output, keep trying to reap it for this
+    // long before the Done transition (a still-running daemon would
+    // otherwise be orphaned and never reaped).
+    static constexpr int kEofReapGraceMs = 2000;
     std::chrono::steady_clock::time_point start_;
     std::chrono::steady_clock::time_point last_output_;
 
@@ -119,7 +125,10 @@ public:
     // Scan running jobs and end any past their deadline.
     void check_timeouts();
 
-    Job* get(const std::string& id);
+    // Shared reference: a caller may hold it across a concurrent stop()
+    // (the service erases its map entry; the job stays alive and queryable
+    // until the last reference drops).
+    std::shared_ptr<Job> get(const std::string& id);
     std::string read_delta(const std::string& id);
     std::string output(const std::string& id) const;
     int exit_code(const std::string& id) const;
@@ -132,7 +141,7 @@ public:
 
 private:
     mutable std::mutex mtx_;
-    std::map<std::string, std::unique_ptr<Job>> jobs_;
+    std::map<std::string, std::shared_ptr<Job>> jobs_;
     long counter_ = 0;
 };
 

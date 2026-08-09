@@ -104,22 +104,24 @@ std::string Job::output() const {
 }
 
 void Job::kill() {
-    bool was_running = false;
+    // Kill-once: the state check and the join happen under one critical
+    // section so two concurrent kill() calls cannot both reach
+    // reader_.join() (joining the same thread twice is UB).
     {
         std::scoped_lock lk(mtx_);
-        was_running = (state_ == JobState::Running || state_ == JobState::Starting);
-    }
-    if (was_running) {
-        kill_process_group(pid_);
-        if (reader_.joinable()) reader_.join();
-        std::scoped_lock lk(mtx_);
-        if (state_ != JobState::Done) {
-            exit_code_ = -1;
-            state_ = JobState::Killed;
+        if (kill_done_) return;
+        bool was_running =
+            (state_ == JobState::Running || state_ == JobState::Starting);
+        if (was_running) {
+            kill_process_group(pid_);
+            if (state_ != JobState::Done) {
+                exit_code_ = -1;
+                state_ = JobState::Killed;
+            }
         }
-    } else if (reader_.joinable()) {
-        reader_.join();
+        kill_done_ = true;
     }
+    if (reader_.joinable()) reader_.join();
 }
 
 bool Job::check_timeouts() {
@@ -151,12 +153,22 @@ void Job::reader_loop() {
             last_output_ = std::chrono::steady_clock::now();
             continue;
         }
-        if (n == 0) {  // EOF: child closed the pipe. Reap it (non-blocking) to
-                        // capture the exit code; if it is merely a daemon that
-                        // closed stdout while still running, leave exit_code_ at
-                        // its default and let the state transition handle it.
+        if (n == 0) {  // EOF: the child closed the pipe. Reap it (non-blocking)
+                        // to capture the exit code; if it is merely a daemon
+                        // that closed stdout while still running, poll for a
+                        // bounded grace period so the kill path can still reap
+                        // it (an immediate Done transition would orphan it).
             int status = 0;
-            if (waitpid(pid_, &status, WNOHANG) == pid_) {
+            pid_t w = waitpid(pid_, &status, WNOHANG);
+            if (w != pid_) {
+                for (int i = 0; i < kEofReapGraceMs / 50; ++i) {
+                    if (kill_done_) break;
+                    usleep(50000);
+                    w = waitpid(pid_, &status, WNOHANG);
+                    if (w == pid_) break;
+                }
+            }
+            if (w == pid_) {
                 std::scoped_lock lk(mtx_);
                 if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
                 else if (WIFSIGNALED(status))
@@ -169,8 +181,11 @@ void Job::reader_loop() {
         int status = 0;
         pid_t w = waitpid(pid_, &status, WNOHANG);
         if (w == pid_) {
-            if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
-            else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
+            {
+                std::scoped_lock lk(mtx_);
+                if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
+                else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
+            }
             // Drain any final buffered bytes before declaring done.
             while ((n = read(read_fd_, buf.data(), buf.size())) > 0) {
                 std::scoped_lock lk(mtx_);
@@ -217,12 +232,12 @@ std::string JobService::start(const std::string& command,
 }
 
 bool JobService::stop(const std::string& id) {
-    std::unique_ptr<Job> job;
+    std::shared_ptr<Job> job;
     {
         std::scoped_lock lk(mtx_);
         auto it = jobs_.find(id);
         if (it == jobs_.end()) return false;
-        job = std::move(it->second);
+        job = it->second;
         jobs_.erase(it);
     }
     job->kill();
@@ -239,10 +254,10 @@ void JobService::check_timeouts() {
     for (auto* j : running) j->check_timeouts();
 }
 
-Job* JobService::get(const std::string& id) {
+std::shared_ptr<Job> JobService::get(const std::string& id) {
     std::scoped_lock lk(mtx_);
     auto it = jobs_.find(id);
-    return it == jobs_.end() ? nullptr : it->second.get();
+    return it == jobs_.end() ? nullptr : it->second;
 }
 
 std::string JobService::read_delta(const std::string& id) {

@@ -262,7 +262,7 @@ private:
                     cancel_token_.clear();
                     break;
                 }
-                Job* j = jobs_->get(id);
+                std::shared_ptr<Job> j = jobs_->get(id);
                 if (!j) break;
                 JobInfo i = j->info();
                 if (j->is_done()) break;
@@ -276,7 +276,7 @@ private:
             // output it produced.
             std::string output = jobs_->output(id);
             int code = jobs_->exit_code(id);
-            Job* j = jobs_->get(id);
+            std::shared_ptr<Job> j = jobs_->get(id);
             bool killed = j && j->info().state == JobState::Killed;
             timed_out = timed_out || killed;
             jobs_->stop(id);  // erase: bash returns output inline, not via /job

@@ -144,7 +144,7 @@ public:
             return r;
         }
         std::string id = a["id"].get<std::string>();
-        Job* job = jobs_.get(id);
+        std::shared_ptr<Job> job = jobs_.get(id);
         if (!job) {
             r.ok = false;
             r.error = "no such job: " + id;
