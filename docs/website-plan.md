@@ -76,7 +76,7 @@ Then the pitch - three lines max:
 Then a terminal window showing amber running - a real terminal capture, not a mockup.
 This is your "what is this" moment.
 
-**CTA:** `git clone https://github.com/trefon/cpp-agent && cd cpp-agent && make && ./amber`
+**CTA:** `git clone https://github.com/jtrefon/amber && cd amber && make && ./amber`
 
 ### 2. "Why C++?" / The Architecture
 
@@ -128,8 +128,8 @@ Terminal-style, step-by-step:
 sudo apt install build-essential libcurl4-openssl-dev libncurses-dev
 
 # Clone and build
-git clone https://github.com/trefon/cpp-agent
-cd cpp-agent
+git clone https://github.com/jtrefon/amber
+cd amber
 make
 
 # Run
@@ -196,7 +196,37 @@ The visitor should understand what amber is, why it's different, and how to try 
 ## Domain
 
 `amber-agent.org` or `amber-agent.dev` - ties to the project name without conflicting
-with "amber" the general term.
+with "amber" the general term. (Currently deployed on GitHub Pages at
+`jtrefon.github.io/amber`; custom domain is aspirational — `astro.config.mjs`,
+OG tags and JSON-LD already reference `amber-agent.dev`.)
+
+## Decisions (2026-08-09)
+
+Positioning and mechanics locked in review:
+
+- **Claim the lane, not the throne.** No "replaces Claude Code/Codex/Aider"
+  language on the site. Homepage pitch: *"The only C++17 agent harness in the
+  field — compiled, not scripted. One binary, no Python, no Node, no accounts,
+  no telemetry. A BitchX-inspired TUI, real benchmarks, compression that works."*
+  The "replacement" framing stays in `docs/spec/VISION.md` as far-term vision.
+- **Nostalgia: name it once, show it always.** One BitchX/IRC mention in the
+  homepage pitch; everything else is carried by the visuals (drawer, status bar,
+  aliases, `Alt+1..9` window switching — the real keybind, per `tui/tui.cpp`).
+- **Mission page** is the web distillation of `docs/spec/VISION.md` +
+  `MISSION.md`: north star ("AI on Linux, unleashed"), mission, spirit, who it's
+  for (devs, sysadmins, security, researchers — "for everyone, without
+  discrimination"), and the we-are/we-are-not table.
+- **Roadmap is bound by the mission.** Windows/macOS, web/GUI, plugin loaders,
+  SaaS/telemetry, mobile are "Not on the Roadmap" (they were previously listed
+  as future work, contradicting the mission's feature filter).
+- **Repo URL is `github.com/jtrefon/amber`** — never `trefon/amber` (404).
+- **Benchmarks**: homepage shows top 3 rows + link; the benchmarks page is the
+  full 9-model table. "31 scenarios, 6 suites" is the count everywhere.
+- **ASCII hero** is rendered inline as static HTML (`website/src/data/ascii-hero.html`,
+  generated from `art.ans` by the 256-color converter, injected via `?raw` +
+  `set:html`), not an iframe. No JS.
+- **Fonts are self-hosted** (`/fonts/jetbrains-mono-*.woff2` from @fontsource) —
+  no Google Fonts CDN, per the <1s load promise.
 
 ## Interactive Islands (Astro + React/Svelte)
 
