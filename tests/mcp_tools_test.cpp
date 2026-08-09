@@ -203,3 +203,35 @@ TEST(mcp_reconnect_server_tools_no_stale_adapters) {
     ASSERT(reg.find("mcp_echo_stale_tool") == nullptr);
     mgr.shutdown_all();
 }
+
+// An adapter lease (shared_ptr<Tool> from the registry) keeps its MCPClient
+// alive across a disconnect: executing through the held adapter after
+// mgr.disconnect() must never touch a destroyed client — it fails cleanly.
+TEST(mcp_adapter_lease_survives_disconnect) {
+    char buf[4096];
+    std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    std::string ws = "/tmp/amber_mcp_lease_ws";
+    run_cmd("rm -rf " + ws);
+    agent::Workspace::set_root(ws);
+    agent::McpServerConfig cfg;
+    cfg.name = "echo";
+    cfg.type = "stdio";
+    cfg.command = "python3";
+    cfg.args = {"tests/fixtures/mcp_echo.py"};
+    cfg.cwd = cwd;
+    agent::ServerManager mgr({{"echo", cfg}});
+    ASSERT_EQ(mgr.connect("echo"), "");
+
+    agent::ToolRegistry reg;
+    ASSERT_EQ(agent::register_server_tools(reg, mgr, "echo"), 1u);
+    std::shared_ptr<agent::Tool> held = reg.find("mcp_echo_echo_tool");
+    ASSERT(held != nullptr);
+
+    mgr.disconnect("echo");
+    // The lease keeps the client alive: a clean transport error, not a
+    // dangling-reference crash.
+    auto r = held->execute({{"text", "hi"}});
+    ASSERT(!r.ok);
+    ASSERT(!r.error.empty());
+    mgr.shutdown_all();
+}

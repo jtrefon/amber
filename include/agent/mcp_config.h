@@ -3,6 +3,7 @@
 #define AGENT_MCP_CONFIG_H
 
 #include <map>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <vector>
@@ -64,7 +65,7 @@ public:
 
     std::string connect(const std::string& name);
     void disconnect(const std::string& name);
-    std::string refresh(const std::string& name);
+    std::string refresh(const std::string& name) const;
 
     // Runtime policy toggles, persisted to the project config immediately.
     std::string set_trusted(const std::string& name, bool trusted);
@@ -87,6 +88,9 @@ public:
     void shutdown_all();
 
 private:
+    // Guards configs_/clients_: the UI thread mutates them while worker
+    // threads may take client leases (client()) or read status.
+    mutable std::mutex mtx_;
     std::map<std::string, McpServerConfig> configs_;
     std::map<std::string, std::shared_ptr<MCPClient>> clients_;
     const CancellationToken* cancel_token_ = nullptr;

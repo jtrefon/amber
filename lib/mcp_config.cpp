@@ -185,13 +185,18 @@ void ServerManager::connect_all() {
 }
 
 std::string ServerManager::connect(const std::string& name) {
-    auto it = configs_.find(name);
-    if (it == configs_.end()) return "unknown server '" + name + "'";
-    if (!it->second.enabled) return "server '" + name + "' is disabled";
-    if (!it->second.error.empty()) return it->second.error;
-
+    // Copy the config under the lock; the transport spawn and handshake run
+    // outside it (blocking I/O must never hold the manager mutex).
+    McpServerConfig cfg;
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = configs_.find(name);
+        if (it == configs_.end()) return "unknown server '" + name + "'";
+        if (!it->second.enabled) return "server '" + name + "' is disabled";
+        if (!it->second.error.empty()) return it->second.error;
+        cfg = it->second;
+    }
     disconnect(name);
-    const McpServerConfig& cfg = it->second;
     std::unique_ptr<McpTransport> transport;
     std::string transport_error;
     int timeout_ms = cfg.timeout_s * 1000;
@@ -204,27 +209,36 @@ std::string ServerManager::connect(const std::string& name) {
         transport = std::make_unique<HttpTransport>(cfg.url, cfg.auth_token,
                                                     timeout_ms, nullptr);
     }
-    auto client = std::make_unique<MCPClient>(name, std::move(transport),
+    auto client = std::make_shared<MCPClient>(name, std::move(transport),
                                               transport_error, cancel_token_);
     std::string err = client->connect();
+    std::scoped_lock lk(mtx_);
     clients_[name] = std::move(client);
     return err;
 }
 
 void ServerManager::disconnect(const std::string& name) {
-    auto it = clients_.find(name);
-    if (it == clients_.end()) return;
-    it->second->disconnect();
-    clients_.erase(it);
+    std::shared_ptr<MCPClient> client;
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = clients_.find(name);
+        if (it == clients_.end()) return;
+        client = it->second;
+        clients_.erase(it);
+    }
+    // Teardown outside the lock: the client lease keeps it alive while any
+    // adapter is mid-call.
+    client->disconnect();
 }
 
-std::string ServerManager::refresh(const std::string& name) {
-    auto it = clients_.find(name);
-    if (it == clients_.end()) return "server '" + name + "' not connected";
-    return it->second->refresh();
+std::string ServerManager::refresh(const std::string& name) const {
+    auto client = this->client(name);
+    if (!client) return "server '" + name + "' not connected";
+    return client->refresh();
 }
 
 std::string ServerManager::set_trusted(const std::string& name, bool trusted) {
+    std::scoped_lock lk(mtx_);
     auto it = configs_.find(name);
     if (it == configs_.end()) return "unknown server '" + name + "'";
     it->second.trusted = trusted;
@@ -234,12 +248,15 @@ std::string ServerManager::set_trusted(const std::string& name, bool trusted) {
 }
 
 std::string ServerManager::set_enabled(const std::string& name, bool enabled) {
-    auto it = configs_.find(name);
-    if (it == configs_.end()) return "unknown server '" + name + "'";
-    it->second.enabled = enabled;
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = configs_.find(name);
+        if (it == configs_.end()) return "unknown server '" + name + "'";
+        it->second.enabled = enabled;
+        if (!save_mcp_server(it->second)) return "could not save config for '" +
+                                                     name + "'";
+    }
     if (!enabled) disconnect(name);
-    if (!save_mcp_server(it->second)) return "could not save config for '" +
-                                                 name + "'";
     return "";
 }
 
@@ -247,14 +264,20 @@ std::string ServerManager::add_server(McpServerConfig cfg) {
     validate(cfg);
     if (cfg.name.empty()) return "missing server name";
     if (!cfg.error.empty()) return cfg.error;
-    configs_[cfg.name] = cfg;
+    {
+        std::scoped_lock lk(mtx_);
+        configs_[cfg.name] = cfg;
+    }
     if (!save_mcp_server(cfg)) return "could not save config for '" +
                                           cfg.name + "'";
     return "";
 }
 
 std::string ServerManager::remove_server(const std::string& name) {
-    if (configs_.erase(name) == 0) return "unknown server '" + name + "'";
+    {
+        std::scoped_lock lk(mtx_);
+        if (configs_.erase(name) == 0) return "unknown server '" + name + "'";
+    }
     disconnect(name);
     delete_mcp_server(name);
     return "";
@@ -262,6 +285,7 @@ std::string ServerManager::remove_server(const std::string& name) {
 
 std::vector<McpServerStatus> ServerManager::snapshot() const {
     std::vector<McpServerStatus> out;
+    std::scoped_lock lk(mtx_);
     for (const auto& kv : configs_) {
         McpServerStatus st;
         st.name = kv.first;
@@ -287,27 +311,36 @@ std::vector<McpServerStatus> ServerManager::snapshot() const {
 }
 
 bool ServerManager::has_server(const std::string& name) const {
+    std::scoped_lock lk(mtx_);
     return configs_.count(name) > 0;
 }
 
 bool ServerManager::trusted(const std::string& name) const {
+    std::scoped_lock lk(mtx_);
     auto it = configs_.find(name);
     return it != configs_.end() && it->second.trusted;
 }
 
 bool ServerManager::enabled(const std::string& name) const {
+    std::scoped_lock lk(mtx_);
     auto it = configs_.find(name);
     return it != configs_.end() && it->second.enabled;
 }
 
 std::shared_ptr<MCPClient> ServerManager::client(const std::string& name) const {
+    std::scoped_lock lk(mtx_);
     auto it = clients_.find(name);
     return it == clients_.end() ? nullptr : it->second;
 }
 
 void ServerManager::shutdown_all() {
-    for (auto& kv : clients_) kv.second->disconnect();
-    clients_.clear();
+    std::vector<std::shared_ptr<MCPClient>> all;
+    {
+        std::scoped_lock lk(mtx_);
+        for (auto& kv : clients_) all.push_back(kv.second);
+        clients_.clear();
+    }
+    for (auto& c : all) c->disconnect();
 }
 
 } // namespace agent
