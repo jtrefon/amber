@@ -197,6 +197,8 @@ void curl_exec(const Config& cfg, const std::string& payload,
     curl_easy_getinfo(c.get(), CURLINFO_TOTAL_TIME, &total);
     if (rc != CURLE_OK) {
         debug_log(cfg.debug_log, debug_tag, std::string(curl_easy_strerror(rc)));
+        if (cfg.cancel_token.is_requested())
+            throw CancelledError("request cancelled by user");
         throw std::runtime_error(std::string("curl error: ") +
                                  curl_easy_strerror(rc));
     }

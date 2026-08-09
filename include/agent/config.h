@@ -138,6 +138,10 @@ struct Config {
     // Load from a simple KEY=VALUE config file, then overlay env vars
     // (AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL, ...).
     void load(const std::string& path);
+
+    // Non-fatal parse problems encountered by load() (one bad numeric value
+    // skips that key with its default, never the whole file).
+    std::vector<std::string> warnings;
     void apply_environment();
 
 

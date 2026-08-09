@@ -505,10 +505,10 @@ TEST(agent_loop_cancel_during_backoff) {
     canceller.join();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - t0);
-    ASSERT(reply.find("cancelled") != std::string::npos);
-    // Only the first generation attempt ran (the backoff wait was aborted);
-    // the second call is the loop's confirmation probe, not a retry.
-    ASSERT_EQ(raw->chat_calls, 2);
+    // Cancellation now stops the turn cleanly: no fabricated message, no
+    // probe round-trip — one aborted generation attempt, empty reply.
+    ASSERT(reply.empty());
+    ASSERT_EQ(raw->chat_calls, 1);
     ASSERT(elapsed.count() < 900);
 }
 

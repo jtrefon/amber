@@ -132,13 +132,23 @@ bool SessionStore::save(Session& s) const {
     if (s.id.empty()) s.id = new_id();
     if (s.created_ms == 0) s.created_ms = now_ms();
     s.updated_ms = now_ms();
-    std::ofstream f(path_for(s.id), std::ios::trunc);
-    if (!f) return false;
-    // Replace invalid UTF-8 rather than throw (model output can be dirty).
-    f << s.to_json().dump(2, ' ', false, json::error_handler_t::replace);
+    // Atomic write (tmp + rename): a crash mid-save must never corrupt or
+    // lose the session file.
+    const std::string target = path_for(s.id);
+    const std::string tmp = target + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::trunc);
+        if (!f) return false;
+        // Replace invalid UTF-8 rather than throw (model output can be dirty).
+        f << s.to_json().dump(2, ' ', false, json::error_handler_t::replace);
+        if (!f) return false;
+    }
+    if (std::rename(tmp.c_str(), target.c_str()) != 0) {
+        ::remove(tmp.c_str());
+        return false;
+    }
     cache_valid_ = false;
-    ::remove(index_path().c_str());
-    return static_cast<bool>(f);
+    return true;
 }
 
 bool SessionStore::load(const std::string& id, Session& out) const {
@@ -155,7 +165,6 @@ bool SessionStore::load(const std::string& id, Session& out) const {
 
 bool SessionStore::remove(const std::string& id) const {
     cache_valid_ = false;
-    ::remove(index_path().c_str());
     return ::remove(path_for(id).c_str()) == 0;
 }
 
@@ -216,10 +225,19 @@ void SessionStore::rebuild_index() const {
 
 bool SessionStore::save_workspace(const WorkspaceState& ws) const {
     if (!ensure_dir()) return false;
-    std::ofstream f(workspace_path(), std::ios::trunc);
-    if (!f) return false;
-    f << ws.to_json().dump(2);
-    return static_cast<bool>(f);
+    const std::string target = workspace_path();
+    const std::string tmp = target + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::trunc);
+        if (!f) return false;
+        f << ws.to_json().dump(2);
+        if (!f) return false;
+    }
+    if (std::rename(tmp.c_str(), target.c_str()) != 0) {
+        ::remove(tmp.c_str());
+        return false;
+    }
+    return true;
 }
 
 WorkspaceState SessionStore::load_workspace() const {

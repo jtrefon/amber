@@ -4280,7 +4280,7 @@ TEST(sse_tool_call_index_capped) {
 TEST(sse_raw_body_bounded) {
     agent::Message m;
     agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
-    std::string junk(1024 * 1024, 'x');
+    std::string junk(std::size_t(1024) * 1024, 'x');
     p.on_write(junk.data(), 1, junk.size());
     ASSERT(p.raw_body().size() <= agent::kMaxRawBodyBytes);
 }
@@ -4311,8 +4311,6 @@ TEST(config_bad_line_skipped_rest_parsed) {
 
 // One bad timeout_s in a server conf must skip that server, not all servers.
 TEST(mcp_config_bad_timeout_skips_that_server) {
-    char buf[4096];
-    std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
     std::string ws = "/tmp/amber_mcp_badtimeout_ws";
     std::string home = "/tmp/amber_mcp_badtimeout_home";
     run_cmd("rm -rf " + ws + " " + home);
@@ -4362,12 +4360,12 @@ TEST(read_tool_truncates_long_lines) {
     run_cmd("rm -rf /tmp/amber_read_longline_ws && mkdir -p /tmp/amber_read_longline_ws");
     {
         std::ofstream f("/tmp/amber_read_longline_ws/big.txt");
-        f << std::string(100 * 1024, 'a') << "\n";
+        f << std::string(std::size_t(100) * 1024, 'a') << "\n";
     }
     auto tool = agent::make_read_tool();
     auto r = tool->execute({{"path", "big.txt"}});
     ASSERT(r.ok);
-    ASSERT(r.output.size() < 64 * 1024);
+    ASSERT(r.output.size() < std::size_t(64) * 1024);
     ASSERT(r.output.find("...") != std::string::npos);
 }
 

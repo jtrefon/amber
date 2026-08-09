@@ -9,6 +9,14 @@
 
 namespace agent {
 
+// A single response never carries more tool calls than this; a sparse index
+// delta (malicious or buggy server) must not allocate unbounded slots.
+inline constexpr int kMaxToolCallsPerMessage = 64;
+
+// raw_body_ is diagnostics-only; cap it so a long stream cannot grow memory
+// without bound.
+inline constexpr std::size_t kMaxRawBodyBytes = std::size_t(64) * 1024;
+
 // Mutable state threaded through the streaming write callback so SSE events are
 // parsed and dispatched incrementally, as bytes arrive from the network.
 struct SseState {
@@ -41,6 +49,9 @@ public:
 
     long prompt_tokens() const { return st_.prompt_tokens; }
     long completion_tokens() const { return st_.completion_tokens; }
+
+    // The bounded raw byte accumulation (error diagnostics).
+    const std::string& raw_body() const { return raw_body_; }
 
     void dispatch_event(const std::string& data);
     void segment_think(const std::string& text, StreamChunk& chunk);
