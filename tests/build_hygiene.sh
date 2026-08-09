@@ -82,7 +82,7 @@ for f in $artifacts; do
         warn "P3: 'make clean' does not remove $f"
     fi
 done
-for p in 'lib/*.o' 'lib/*.d' 'src/*.o' 'tui/*.o' 'tests/*.o' 'tests/*.d' 'bench/*.o' 'bench/*.d' 'tools/*.o' 'tools/search/*.o' 'third_party/md4c/*.o' 'tools/plugins/cdp/*.o' 'tools/plugins/cdp/*.d'; do
+for p in 'lib/*.o' 'lib/*.d' 'src/*.o' 'src/*.d' 'tui/*.o' 'tui/*.d' 'tests/*.o' 'tests/*.d' 'bench/*.o' 'bench/*.d' 'tools/*.o' 'tools/*.d' 'tools/search/*.o' 'tools/search/*.d' 'third_party/md4c/*.o' 'third_party/md4c/*.d' 'tools/plugins/cdp/*.o' 'tools/plugins/cdp/*.d' 'ws_test.d' 'sysinfo-plugin.d'; do
     if echo "$clean_out" | grep -qF "$p"; then
         ok "make clean removes $p"
     else
