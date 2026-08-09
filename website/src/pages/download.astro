@@ -1,0 +1,147 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Download" description="Download amber: Debian/Ubuntu .deb, Fedora/RHEL .rpm, or the static tarball. Binaries, not a build.">
+  <NavBar />
+  <main>
+    <h1>Download</h1>
+
+    <section class="section">
+      <p>
+        Prebuilt binaries for Linux x86_64. No compiler, no runtime, no interpreter.
+        Latest release: <strong>v0.3.1</strong>. Packages are built by the release
+        pipeline and checksummed (SHA-256).
+      </p>
+      <div class="download-grid">
+        <div class="download-card">
+          <h3>Debian / Ubuntu</h3>
+          <p class="pkg-name">amber_0.3.1_amd64.deb</p>
+          <a class="download-btn" href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber_0.3.1_amd64.deb" rel="noopener">download .deb</a>
+          <div class="terminal">
+            <pre>sudo dpkg -i amber_0.3.1_amd64.deb
+amber</pre>
+          </div>
+        </div>
+
+        <div class="download-card">
+          <h3>Fedora / RHEL</h3>
+          <p class="pkg-name">amber_0.3.1.x86_64.rpm</p>
+          <a class="download-btn" href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber_0.3.1.x86_64.rpm" rel="noopener">download .rpm</a>
+          <div class="terminal">
+            <pre>sudo rpm -i amber_0.3.1.x86_64.rpm
+amber</pre>
+          </div>
+        </div>
+
+        <div class="download-card">
+          <h3>Any distro</h3>
+          <p class="pkg-name">amber-0.3.1-linux-x86_64.tar.gz</p>
+          <a class="download-btn" href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-0.3.1-linux-x86_64.tar.gz" rel="noopener">download tarball</a>
+          <div class="terminal">
+            <pre>sudo tar -xzf amber-0.3.1-linux-x86_64.tar.gz -C /
+amber</pre>
+          </div>
+        </div>
+      </div>
+      <p>
+        Checksums: <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber_0.3.1_amd64.deb.sha256" rel="noopener">.deb sha256</a>,
+        <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber_0.3.1.x86_64.rpm.sha256" rel="noopener">.rpm sha256</a>,
+        <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-0.3.1-linux-x86_64.tar.gz.sha256" rel="noopener">.tar.gz sha256</a>.
+      </p>
+      <p>
+        Newer versions: <a href="https://github.com/jtrefon/amber/releases" rel="noopener">all releases on GitHub</a>.
+        Prefer to build? <a href="/install">Build from source</a>.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>In the box</h2>
+      <p>
+        The package installs three binaries and the runtime data
+        (prompts, command tree, completions) under <code>/usr/share/amber</code>:
+      </p>
+      <ul class="feature-list">
+        <li><strong>amber</strong> - the interactive TUI (ncurses, BitchX-style)</li>
+        <li><strong>amber-cli</strong> - the headless agent for scripts, cron, CI</li>
+        <li><strong>amber-bench</strong> - the benchmark and KPI harness</li>
+      </ul>
+      <div class="terminal">
+        <pre>$ amber-bench run        # hermetic benchmark corpus, no model needed
+$ amber-bench run --live # benchmark against your configured model</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>CDP browser plugin</h2>
+      <p>
+        Optional Chrome DevTools Protocol plugin for browser automation:
+      </p>
+      <div class="terminal">
+        <pre>sudo dpkg -i amber-plugin-cdp_0.3.1_amd64.deb</pre>
+      </div>
+      <p>
+        <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-plugin-cdp_0.3.1_amd64.deb" rel="noopener">download .deb</a> ·
+        <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-plugin-cdp_0.3.1.x86_64.rpm" rel="noopener">download .rpm</a>
+      </p>
+    </section>
+  </main>
+</BaseLayout>
+
+<style>
+  .download-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+    margin: 20px 0;
+  }
+
+  .download-card {
+    border: 1px solid #33260e;
+    background: #0a0700;
+    padding: 18px 18px 6px;
+    box-shadow: 0 0 14px rgba(255, 176, 0, 0.04);
+  }
+
+  .download-card h3 {
+    color: #ffcf4d;
+    font-size: 1em;
+    margin: 0 0 6px;
+    text-shadow: 0 0 8px rgba(255, 176, 0, 0.45);
+  }
+
+  .download-card .pkg-name {
+    color: #9a7c47;
+    font-size: 12px;
+    margin-bottom: 12px;
+    word-break: break-all;
+  }
+
+  .download-card .terminal {
+    margin-top: 12px;
+    font-size: 12px;
+  }
+
+  .download-btn {
+    display: inline-block;
+    background: #120c02;
+    border: 1px solid #ffb000;
+    padding: 8px 16px;
+    color: #ffb000;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-decoration: none;
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.5);
+  }
+
+  .download-btn:hover {
+    background: rgba(255, 176, 0, 0.12);
+    color: #ffcf4d;
+    border-color: #ffcf4d;
+  }
+</style>

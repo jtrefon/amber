@@ -243,6 +243,25 @@ Positioning and mechanics locked in review:
   URLs. Without it every stylesheet 404s and the site renders as bare HTML
   (the bug that shipped the unstyled site). OG tags point at the live Pages URL;
   flip to `amber-agent.dev` when the custom domain lands.
+- **Download page** (`/download`) — binaries first, source second. Direct links to
+  the v0.3.1 release assets (.deb / .rpm / tarball + checksums + CDP plugin).
+  The homepage "Get amber" section leads with `dpkg -i`/`rpm -i`; building from
+  source is the fallback, never the gate. Bump the version strings with each release.
+- **Manual** (`/manual`) — rebuilt from the real command tree (`completions.json`,
+  the single source of truth): model/provider, sessions/jobs, policy, files/system,
+  MCP/plugins, skills/engine, windows, config, env vars. Never hand-write commands
+  that contradict the tree.
+- **One harness, four parts** — homepage section promoting `libagent_core.a`
+  (portable library), `amber-cli` (headless/workflow), `amber-bench` (KPI harness),
+  `amber` (TUI). The library's embeddability is a first-class selling point.
+- **Footer** — creator credit: Jacek Trefon, www.trefon.com, hello@trefon.com, GitHub.
+- **No emdashes** — "—" is banned from rendered copy (SEO hygiene); use commas,
+  colons, or hyphens. `rg "—" website/src` must return nothing.
+- **SEO baseline**: robots.txt (Allow all + sitemap), per-page canonical tags,
+  h1 on the homepage hero, meta descriptions everywhere. Lighthouse (live):
+  SEO 100, Performance 98, Accessibility 91. Site is not yet indexed (DuckDuckGo
+  "no results", Aug 2026); submit to Google Search Console + Bing Webmaster Tools
+  after the custom domain is live.
 
 ## Interactive Islands (Astro + React/Svelte)
 
