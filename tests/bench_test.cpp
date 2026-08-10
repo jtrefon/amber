@@ -1693,3 +1693,39 @@ TEST(difficulty_six_scenario_loads) {
     ASSERT(s.has_value());
     ASSERT_EQ(s->difficulty, 6);
 }
+
+
+// ---------------------------------------------------------------------------
+// Oracle path normalization (found by the local baseline)
+// ---------------------------------------------------------------------------
+
+// A live agent reads workspace files via their ABSOLUTE path (the tools
+// resolve them); an oracle expecting a bare relative name must still match.
+TEST(oracle_matches_bare_filename_against_absolute_path) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"read", {{"path", "Review.cpp"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "/tmp/amber_bench_ws_arch-01/Review.cpp"}}, 0,
+         "ok"}};
+    bench::OracleResult r = bench::score_oracle(oracle, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 0);
+}
+
+// And the reverse: an expected absolute path matches a relative call.
+TEST(oracle_absolute_path_matches_relative_call) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"read", {{"path", "/tmp/amber_bench_ws_x/notes.txt"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "notes.txt"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 1.0);
+}
+
+// Non-filename expected values keep exact semantics (no basename hijack).
+TEST(oracle_non_filename_keeps_exact_match) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"read", {{"path", "sub/dir/file.txt"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "/tmp/other/file.txt"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 0.0);
+}
