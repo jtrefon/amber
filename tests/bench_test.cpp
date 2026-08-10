@@ -1262,8 +1262,9 @@ TEST(checks_any_of_parse_and_pass) {
     ASSERT_EQ(bench::adherence(s->checks, "unrelated"), 0.0);
 }
 
-// The p-03 write oracle must require path AND edits — a bare-path write
-// cannot satisfy the append step.
+// The p-03 write oracle matches by target path (args_subset): any write to
+// a.txt satisfies the step, a write to a different file is rejected, and the
+// read-back step still must follow.
 TEST(p03_oracle_write_requires_edits) {
     std::string err;
     auto s = bench::load_scenario(
@@ -1273,5 +1274,31 @@ TEST(p03_oracle_write_requires_edits) {
     const auto& write = s->oracle[0];
     ASSERT_EQ(write.tool, "write");
     ASSERT(write.args.contains("path"));
-    ASSERT(write.args.contains("edits"));
+    ASSERT(write.args_subset);
+
+    // Positive: a path-only write to a.txt satisfies the write step.
+    std::vector<bench::ToolCallEvent> ok_calls = {
+        {"write", {{"path", "a.txt"}}, 0, "ok"},
+        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(s->oracle, ok_calls).bullseye, 1.0);
+    // Negative: a write to a different file cannot satisfy the step.
+    std::vector<bench::ToolCallEvent> bad_calls = {
+        {"write", {{"path", "other.txt"}}, 0, "ok"},
+        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    ASSERT(bench::score_oracle(s->oracle, bad_calls).bullseye < 1.0);
+}
+
+// A planned tool called more often than the plan allows costs one unit per
+// excess call.
+TEST(agentic_penalizes_excess_planned_tools) {
+    Scenario s;
+    s.optimal_plan = {{"read", 1}, {"write", 1}};
+    Kpi k = perfect_kpi();
+    bench::EventStream stream;
+    stream.calls.push_back({"read", {{"path", "a.txt"}}, 0, "ok"});
+    stream.calls.push_back({"read", {{"path", "b.txt"}}, 0, "ok"});
+    stream.calls.push_back({"write", {{"path", "c.txt"}}, 0, "ok"});
+    bench::Agentic a = bench::compute_agentic(stream, k, s);
+    ASSERT(a.has_plan);
+    ASSERT_NEAR(a.score, 90.0, 0.01);  // one excess read
 }

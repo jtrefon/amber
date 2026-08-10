@@ -93,10 +93,13 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
 
 // Agentic performance: distance from the scenario's optimal tool plan.
 // The plan is the scenario's declared `optimal_plan` (tool -> count), or the
-// oracle's tool mix when absent. Deviation is actual calls minus plan;
-// plan_ratio is plan/actual (1.0 = perfect). The score (0..100) is a strict
-// plan-adherence lens — separate from the model-performance Score:
-//   100 - 10*extra_calls - 20*redundant - 25*failures - 25*denied
+// oracle's tool mix when absent. plan_deviation is the sum of absolute
+// per-tool differences — every missing planned tool, every excess call of a
+// planned tool, and every call to an unplanned tool counts one unit (doing
+// nothing is a fully missed plan, not a perfect one). plan_ratio is
+// plan/actual (1.0 = perfect). The score (0..100) is a strict plan-adherence
+// lens — separate from the model-performance Score:
+//   100 - 10*deviation - 20*redundant - 25*failures - 25*denied
 //        - 30*retries - 50*hard_stop, clamped >= 0
 // Scenarios without a plan (empty oracle and no explicit plan) have
 // has_plan=false and are excluded from agentic aggregation.

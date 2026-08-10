@@ -166,9 +166,10 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
     return sc;
 }
 
-Agentic compute_agentic(const EventStream& stream, const Kpi& k,
-                        const Scenario& s) {
-    Agentic a;
+namespace {
+// Tool-count plan: the scenario's declared optimal_plan, or the oracle's
+// tool mix when absent. Empty when neither provides a baseline.
+std::map<std::string, int> tool_plan(const Scenario& s) {
     std::map<std::string, int> plan;
     if (s.optimal_plan.is_object() && !s.optimal_plan.empty()) {
         for (auto it = s.optimal_plan.begin(); it != s.optimal_plan.end(); ++it)
@@ -177,19 +178,14 @@ Agentic compute_agentic(const EventStream& stream, const Kpi& k,
     } else {
         for (const auto& step : s.oracle) ++plan[step.tool];
     }
-    if (plan.empty()) return a;
-    a.has_plan = true;
-    for (const auto& p : plan) a.plan_tools += p.second;
+    return plan;
+}
 
-    std::map<std::string, int> actual;
-    for (const auto& c : stream.calls) ++actual[c.name];
-    int actual_total = static_cast<int>(stream.calls.size());
-
-    a.plan_by_tool = plan;
-    a.actual_by_tool = actual;
-    // Per-tool deviation: every missing planned tool, every excess call of a
-    // planned tool, and every call to an unplanned tool costs one unit.
-    // Doing nothing is not a perfect plan — it is a fully missed one.
+// Per-tool absolute deviation: every missing planned tool, every excess call
+// of a planned tool, and every call to an unplanned tool costs one unit.
+// Doing nothing is not a perfect plan — it is a fully missed one.
+int tool_deviation(const std::map<std::string, int>& plan,
+                   const std::map<std::string, int>& actual) {
     int deviation = 0;
     for (const auto& [tool, want] : plan) {
         const auto it = actual.find(tool);
@@ -197,14 +193,10 @@ Agentic compute_agentic(const EventStream& stream, const Kpi& k,
     }
     for (const auto& [tool, got] : actual)
         if (!plan.count(tool)) deviation += got;
-    a.plan_deviation = deviation;
-    a.plan_ratio = actual_total > 0
-                       ? static_cast<double>(a.plan_tools) /
-                             static_cast<double>(actual_total)
-                       : 0.0;
-    a.efficiency_pct = a.plan_ratio * 100.0;
-    if (a.efficiency_pct > 100.0) a.efficiency_pct = 100.0;
+    return deviation;
+}
 
+double agentic_score(int deviation, const Kpi& k) {
     double score = 100.0;
     score -= 10.0 * deviation;
     score -= 20.0 * k.redundant;
@@ -212,7 +204,32 @@ Agentic compute_agentic(const EventStream& stream, const Kpi& k,
     score -= 25.0 * k.tool_denied;
     score -= 30.0 * k.retries;
     if (k.hard_stop) score -= 50.0;
-    a.score = score < 0.0 ? 0.0 : score;
+    return score < 0.0 ? 0.0 : score;
+}
+} // namespace
+
+Agentic compute_agentic(const EventStream& stream, const Kpi& k,
+                        const Scenario& s) {
+    Agentic a;
+    std::map<std::string, int> plan = tool_plan(s);
+    if (plan.empty()) return a;
+    a.has_plan = true;
+    for (const auto& p : plan) a.plan_tools += p.second;
+
+    std::map<std::string, int> actual;
+    for (const auto& c : stream.calls) ++actual[c.name];
+    const int actual_total = static_cast<int>(stream.calls.size());
+
+    a.plan_by_tool = plan;
+    a.actual_by_tool = actual;
+    a.plan_deviation = tool_deviation(plan, actual);
+    a.plan_ratio = actual_total > 0
+                       ? static_cast<double>(a.plan_tools) /
+                             static_cast<double>(actual_total)
+                       : 0.0;
+    a.efficiency_pct = a.plan_ratio * 100.0;
+    if (a.efficiency_pct > 100.0) a.efficiency_pct = 100.0;
+    a.score = agentic_score(a.plan_deviation, k);
     return a;
 }
 

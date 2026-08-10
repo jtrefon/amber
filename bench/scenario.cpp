@@ -37,7 +37,10 @@ bool parse_checks(const agent::json& j, Checks& out) {
             std::vector<std::string> group;
             if (g.is_array())
                 for (const auto& e : g)
-                    if (e.is_string()) group.push_back(e.get<std::string>());
+                    if (e.is_string()) {
+                        const std::string alt = e.get<std::string>();
+                        if (!alt.empty()) group.push_back(alt);
+                    }
             if (!group.empty()) out.must_contain_any.push_back(std::move(group));
         }
     }

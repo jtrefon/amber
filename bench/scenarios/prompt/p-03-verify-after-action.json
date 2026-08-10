@@ -16,9 +16,9 @@
     {
       "tool": "write",
       "args": {
-        "path": "a.txt",
-        "edits": "*"
-      }
+        "path": "a.txt"
+      },
+      "args_subset": true
     },
     {
       "tool": "read",

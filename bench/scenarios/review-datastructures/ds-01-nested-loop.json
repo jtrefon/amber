@@ -38,7 +38,8 @@
     "must_contain_any": [
       [
         "quadratic",
-        "O(n*m)"
+        "O(n*m)",
+        "O(n * m)"
       ],
       [
         "map",
