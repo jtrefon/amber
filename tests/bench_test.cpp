@@ -1490,3 +1490,56 @@ TEST(model_score_ci_deterministic) {
     std::vector<bench::ScenarioReport> agg = {bench::aggregate_repeats(runs)};
     ASSERT_EQ(bench::model_score_ci(agg), bench::model_score_ci(agg));
 }
+
+
+// ---------------------------------------------------------------------------
+// BENCH-02 — discrimination-weighted aggregation (the resolution engine)
+// ---------------------------------------------------------------------------
+
+// Scenarios everyone solves are participation trophies: weight ~ 0.
+TEST(discrimination_weights_zero_for_trophies) {
+    std::vector<std::vector<bench::ScenarioReport>> population;
+    for (int m = 0; m < 4; ++m) {
+        std::vector<bench::ScenarioReport> run;
+        run.push_back(score_report("trophy", 100.0 - m, 3));
+        run.push_back(score_report("trophy2", 99.0, 3));
+        run.push_back(score_report("split", 40.0 + 20.0 * m, 3));
+        population.push_back(std::move(run));
+    }
+    std::vector<double> w = bench::discrimination_weights(population);
+    ASSERT_EQ(w.size(), 3u);
+    ASSERT_NEAR(w[0], 0.0, 0.001);
+    ASSERT_NEAR(w[1], 0.0, 0.001);
+    ASSERT(w[2] > 5.0);
+}
+
+// The separator scenario dominates the delta between near-identical models.
+TEST(discriminative_score_ranks_by_separation) {
+    // Model A wins the trophies, loses the separator.
+    std::vector<bench::ScenarioReport> a;
+    a.push_back(score_report("trophy", 100.0, 3));
+    a.push_back(score_report("split", 40.0, 3));
+    std::vector<bench::ScenarioReport> b;
+    b.push_back(score_report("trophy", 90.0, 3));
+    b.push_back(score_report("split", 100.0, 3));
+    std::vector<std::vector<bench::ScenarioReport>> population = {a, b};
+
+    const std::vector<double> w = bench::discrimination_weights(population);
+    // Plain difficulty-weighted score ranks A above B...
+    ASSERT(bench::run_score(a) > bench::run_score(b));
+    // ...but the discriminative score must rank B above A: the separator
+    // dominates the delta and the trophy contributes ~nothing.
+    ASSERT(bench::run_score_discriminative(b, w) >
+           bench::run_score_discriminative(a, w));
+}
+
+// A single file has no population: the discriminative score falls back to
+// the plain difficulty-weighted score.
+TEST(discriminative_single_run_falls_back) {
+    std::vector<bench::ScenarioReport> run;
+    run.push_back(score_report("trophy", 100.0, 3));
+    run.push_back(score_report("split", 60.0, 3));
+    std::vector<double> empty;
+    ASSERT_NEAR(bench::run_score_discriminative(run, empty),
+                bench::run_score(run), 0.001);
+}
