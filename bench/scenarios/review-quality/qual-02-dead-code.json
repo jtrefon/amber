@@ -22,7 +22,7 @@
   "description": "quality-perception: dead code, commented-out code, unreachable branch",
   "setup": {
     "files": {
-      "Review.cpp": "int dispatch(int kind) {\n  // old parser, keep for reference\n  // parse_legacy(input);\n  if (kind == 1) return handle_a();\n  if (kind == 2) return handle_b();\n  return -1;\n}\nint unused_helper() { return 42; }\n"
+      "Review.cpp": "int dispatch(int kind) {\n  // old parser, keep for reference\n  // parse_legacy(input);\n  if (kind == 1) return handle_a();\n  if (kind == 2) return handle_b();\n  if (false) { log(\"never happens\"); }\n  return -1;\n}\nint unused_helper() { return 42; }\n"
     }
   },
   "prompt": "Read Review.cpp and identify the code-quality issues. Name each specific problem (which function, which line).",

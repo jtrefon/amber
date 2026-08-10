@@ -22,7 +22,7 @@
   "description": "quality-perception: switch-over-type -> strategy/visitor",
   "setup": {
     "files": {
-      "Review.cpp": "class Shape {\npublic: enum Kind { CIRCLE, SQUARE } kind;\n};\ndouble area(const Shape& s) {\n  switch (s.kind) {\n    case Shape::CIRCLE: return 3.14 * s.r * s.r;\n    case Shape::SQUARE: return s.side * s.side;\n  }\n  return 0.0;\n}\ndouble perimeter(const Shape& s) {\n  switch (s.kind) { /* same shape over again */ return 0.0; }\n}\n"
+      "Review.cpp": "class Shape {\npublic:\n  enum Kind { CIRCLE, SQUARE } kind;\n  double r = 0.0;    // circle radius\n  double side = 0.0; // square side\n};\ndouble area(const Shape& s) {\n  switch (s.kind) {\n    case Shape::CIRCLE: return 3.14 * s.r * s.r;\n    case Shape::SQUARE: return s.side * s.side;\n  }\n  return 0.0;\n}\ndouble perimeter(const Shape& s) {\n  switch (s.kind) {\n    case Shape::CIRCLE: return 2 * 3.14 * s.r;\n    case Shape::SQUARE: return 4 * s.side;\n  }\n  return 0.0;\n}\n"
     }
   },
   "prompt": "Read Review.cpp and identify the design problem with the shape handling. Name the pattern that would remove the repeated switches.",

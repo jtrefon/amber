@@ -22,7 +22,7 @@
   "description": "quality-perception: duplicated logic across two classes",
   "setup": {
     "files": {
-      "Review.cpp": "class CsvExporter {\npublic:\n  std::string quote(const std::string& f) {\n    if (f.find(',') != std::string::npos) return \"\\\"\" + f + \"\\\"\";\n    return f;\n  }\n};\nclass JsonExporter {\npublic:\n  std::string quote(const std::string& f) {\n    if (f.find('\\\"') != std::string::npos) return \"\\\\\\\"\" + f;\n    return f;\n  }\n};\n"
+      "Review.cpp": "class CsvExporter {\npublic:\n  std::string quote(const std::string& f) {\n    if (f.find(',') != std::string::npos) return \"\\\"\" + f + \"\\\"\";\n    return f;\n  }\n};\nclass TsvExporter {\npublic:\n  std::string quote(const std::string& f) {\n    if (f.find('\\t') != std::string::npos) return \"\\\"\" + f + \"\\\"\";\n    return f;\n  }\n};\n"
     }
   },
   "prompt": "Read Review.cpp and identify the maintainability problems. Name the specific duplication and where the shared logic should live.",

@@ -30,7 +30,8 @@
     "must_contain": [
       "magic",
       "constant",
-      "1000"
+      "1000",
+      "5000"
     ],
     "must_not_contain": [
       "premature",

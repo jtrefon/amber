@@ -103,35 +103,35 @@ int expected_steps(const Scenario& s) noexcept {
     return 5;
 }
 
+double correctness_score(const Kpi& k, const Scenario& s,
+                         double checks_ratio) noexcept {
+    if (!s.template_dir.empty()) {
+        return 100.0 * (0.5 * k.bullseye + 0.2 * k.arg_precision +
+                        0.3 * k.artifact_score);
+    }
+    // Argument fidelity joins bullseye; the checks_weight knob lets a
+    // review scenario (no meaningful tool-step oracle) put its issue
+    // checks at the center of correctness.
+    const double cw = s.checks_weight;
+    return 100.0 *
+           ((1.0 - cw) * (0.75 * k.bullseye + 0.25 * k.arg_precision) +
+            cw * checks_ratio);
+}
+
+double efficiency_score(const Kpi& k, const Scenario& s) noexcept {
+    const int excess = std::max(0, k.steps - expected_steps(s));
+    const double wasted_pen = s.template_dir.empty() ? 0.10 * k.wasted : 0.0;
+    return 100.0 * clamp01(1.0 - (0.10 * excess) - wasted_pen -
+                           (0.20 * k.redundant));
+}
+
 } // namespace
 
 Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
                     int forbidden_calls, double agentic_score) {
     Score sc;
-    const bool templated = !s.template_dir.empty();
-    if (templated) {
-        sc.correctness =
-            100.0 * (0.5 * k.bullseye + 0.2 * k.arg_precision +
-                     0.3 * k.artifact_score);
-    } else {
-        // Argument fidelity joins bullseye; the checks_weight knob lets a
-        // review scenario (no meaningful tool-step oracle) put its issue
-        // checks at the center of correctness.
-        const double cw = s.checks_weight;
-        sc.correctness =
-            100.0 * ((1.0 - cw) * (0.75 * k.bullseye + 0.25 * k.arg_precision) +
-                     cw * checks_ratio);
-    }
-
-    const int excess = std::max(0, k.steps - expected_steps(s));
-    if (templated) {
-        sc.efficiency =
-            100.0 * clamp01(1.0 - (0.10 * excess) - (0.20 * k.redundant));
-    } else {
-        sc.efficiency =
-            100.0 * clamp01(1.0 - (0.10 * excess) - (0.10 * k.wasted) -
-                            (0.20 * k.redundant));
-    }
+    sc.correctness = correctness_score(k, s, checks_ratio);
+    sc.efficiency = efficiency_score(k, s);
 
     sc.robustness =
         100.0 * clamp01(1.0 - (0.30 * k.retries) - (0.50 * k.recoveries) -

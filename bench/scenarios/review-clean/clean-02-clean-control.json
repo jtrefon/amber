@@ -29,7 +29,9 @@
   "checks": {
     "must_contain": [
       "fine",
-      "no major"
+      "no major",
+      "no duplicated",
+      "no significant"
     ],
     "must_not_contain": [
       "magic",

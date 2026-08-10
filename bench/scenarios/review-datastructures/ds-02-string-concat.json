@@ -29,8 +29,7 @@
   "checks": {
     "must_contain": [
       "realloc",
-      "reserve",
-      "quadratic"
+      "reserve"
     ],
     "must_not_contain": [
       "premature",

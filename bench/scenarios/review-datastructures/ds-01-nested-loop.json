@@ -30,6 +30,7 @@
     "must_contain": [
       "quadratic",
       "map",
+      "set",
       "nested"
     ],
     "must_not_contain": [

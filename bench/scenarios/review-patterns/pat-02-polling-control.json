@@ -30,7 +30,8 @@
     "must_contain": [
       "poll",
       "observer",
-      "callback"
+      "callback",
+      "condition"
     ],
     "must_not_contain": [
       "premature",

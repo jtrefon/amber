@@ -22,7 +22,7 @@
   "description": "quality-perception control: well-layered code, correct answer is nothing major",
   "setup": {
     "files": {
-      "Review.cpp": "class ReportParser {\npublic:\n  Report parse(const std::string& raw) { return Report{raw.size()}; }\n};\nclass ReportRenderer {\npublic:\n  void render(const Report& r, std::ostream& out) { out << r.size; }\n};\n"
+      "Review.cpp": "struct Report { int size = 0; };\nclass ReportParser {\npublic:\n  Report parse(const std::string& raw) { return Report{raw.size()}; }\n};\nclass ReportRenderer {\npublic:\n  void render(const Report& r, std::ostream& out) { out << r.size; }\n};\n"
     }
   },
   "prompt": "Read Review.cpp and list the design issues you find. Anchor each issue to the actual code. If the code is fine, say so explicitly.",

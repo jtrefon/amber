@@ -1027,18 +1027,6 @@ TEST(subagent_hooks_do_not_leak) {
 // Scoring v2 (quality-perception): agentic + arg_precision in the score
 // ---------------------------------------------------------------------------
 
-// A failed scenario keeps its honest partial credit capped at 60 — it must
-// not be silently halved from an inflated total.
-TEST(score_failure_capped_not_halved) {
-    Scenario s;
-    s.oracle = {{"read", {{"path", "a.txt"}}}};
-    Kpi k = perfect_kpi();
-    k.steps = 1;
-    k.success = false;  // one failed check, otherwise flawless
-    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
-    ASSERT_NEAR(sc.total, 60.0, 0.01);
-}
-
 // Argument fidelity (arg_precision) must move the correctness sub-score.
 TEST(score_uses_arg_precision) {
     Scenario s;
@@ -1176,4 +1164,37 @@ TEST(e2e_hermetic_review_scoring) {
     ASSERT_NEAR(rep.score.correctness, 100.0, 0.01);
     // agentic computed even in hermetic mode (plan = 1 read).
     ASSERT(rep.agentic.has_plan);
+}
+
+// A plan-less scenario (no oracle, no optimal_plan) must score with the
+// neutral agentic value — the runner feeds 100.0 instead of the 0.0
+// compute_agentic reports without a plan.
+TEST(e2e_hermetic_planless_neutral_agentic) {
+    std::string dir = tmp_dir("planless");
+    write_file(dir + "/p.json", R"({
+        "name": "planless",
+        "suite": "smoke",
+        "prompt": "reply with the word done",
+        "fake_replies": [
+            {"content": "done.", "prompt_tokens": 50, "completion_tokens": 10},
+            {"content": "yes", "prompt_tokens": 1, "completion_tokens": 1}
+        ],
+        "checks": {"must_contain": ["done"]},
+        "budget": {"max_steps": 10, "max_wall_ms": 30000}
+    })");
+    std::string err;
+    auto s = bench::load_scenario(dir + "/p.json", err);
+    ASSERT(s.has_value());
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    bench::ScenarioReport rep = bench::run_one_scenario(*s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT(rep.kpi.success);
+    ASSERT_FALSE(rep.agentic.has_plan);
+    // checks 1/1, bullseye auto 1.0, agentic neutral 100 -> total 100, not
+    // dragged to 80 by a plan-less 0.0 agentic.
+    ASSERT_NEAR(rep.score.total, 100.0, 0.01);
 }

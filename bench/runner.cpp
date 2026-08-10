@@ -330,8 +330,11 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     // both modes so the score is uniform (hermetic runs measure the engine's
     // scripted tool discipline, live runs the model's).
     rep.agentic = compute_agentic(recorder.stream(), kpi, s);
-    rep.score = compute_score(kpi, s, checks_ratio, forbidden,
-                              rep.agentic.score);
+    // A scenario without an oracle or optimal_plan has no economy baseline;
+    // feed the neutral score rather than dragging the total by 0.20.
+    const double agentic_score =
+        rep.agentic.has_plan ? rep.agentic.score : 100.0;
+    rep.score = compute_score(kpi, s, checks_ratio, forbidden, agentic_score);
 
     for (const auto& c : recorder.stream().calls) {
         std::string args = c.args.dump();
