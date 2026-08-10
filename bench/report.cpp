@@ -42,8 +42,7 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
     if (runs.empty()) return {};
     if (runs.size() == 1) return runs.front();
     ScenarioReport agg = runs.front();
-    auto repeat_n = static_cast<int>(runs.size());
-    agg.repeat_n = repeat_n;
+    agg.repeat_n = static_cast<int>(runs.size());
     agg.repeat_scores.clear();
     for (const auto& r : runs) agg.repeat_scores.push_back(r.score.total);
     agg.score_median = median(agg.repeat_scores);
@@ -70,7 +69,7 @@ double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept {
     double wsum = 0.0;
     double pooled = 0.0;
     for (const auto& r : reports) {
-        const double w = static_cast<double>(r.difficulty);
+        const auto w = static_cast<double>(r.difficulty);
         const double w2 = w * w;
         wsum += w;
         pooled += w2 * (r.score_stddev * r.score_stddev);
