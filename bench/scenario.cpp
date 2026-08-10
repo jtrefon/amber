@@ -142,7 +142,7 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     if (j.contains("optimal_plan") && j["optimal_plan"].is_object())
         s.optimal_plan = j["optimal_plan"];
     if (j.contains("difficulty") && j["difficulty"].is_number_integer())
-        s.difficulty = std::max(1, std::min(5, j["difficulty"].get<int>()));
+        s.difficulty = std::max(1, std::min(6, j["difficulty"].get<int>()));
     if (j.contains("expected_steps") && j["expected_steps"].is_number_integer())
         s.expected_steps = j["expected_steps"].get<int>();
     if (j.contains("budget") && j["budget"].is_object()) {

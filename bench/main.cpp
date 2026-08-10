@@ -25,7 +25,9 @@ void print_usage(const char* prog) {
               << "  run                         run scenarios (hermetic fake LLM by default)\n"
               << "  validate-template <scenario> prove a coding template's hidden tests pass\n"
               << "  report <results.json>...     re-render stored JSON report(s);\n"
-              << "                               multiple files render a model comparison\n\n"
+              << "                               multiple files render a model comparison\n"
+              << "  calibrate <results.json>...  reference-anchored calibration: headroom, anchor\n"
+              << "                               deviation, suggested difficulties\n\n"
               << "Options:\n"
               << "  --suite NAME     filter by suite\n"
               << "  --scenario NAME  run a single scenario\n"
@@ -250,6 +252,55 @@ int cmd_report(const std::vector<std::string>& files,
 
 } // namespace
 
+namespace {
+// Reference-anchored calibration table (BENCH-03): per-model scores, the
+// anchor deviation, the headroom, and per-scenario difficulty suggestions.
+// The reference defaults to the best model in the population.
+int cmd_calibrate(const std::vector<std::string>& files) {
+    std::vector<std::pair<bench::RunMeta, std::vector<bench::ScenarioReport>>> runs;
+    for (const auto& f : files) {
+        bench::RunMeta meta;
+        std::vector<bench::ScenarioReport> reports;
+        if (!parse_report_file(f, meta, reports)) return 1;
+        runs.emplace_back(std::move(meta), std::move(reports));
+    }
+    if (runs.empty()) {
+        std::cerr << "error: calibrate needs at least one results file\n";
+        return 1;
+    }
+    std::vector<std::vector<bench::ScenarioReport>> population;
+    population.reserve(runs.size());
+    for (const auto& run : runs) population.push_back(run.second);
+
+    size_t reference = 0;
+    for (size_t i = 1; i < runs.size(); ++i)
+        if (bench::run_score(runs[i].second) > bench::run_score(runs[reference].second))
+            reference = i;
+
+    std::cout << "# Calibration (reference: " << runs[reference].first.model
+              << ")\n\n";
+    for (const auto& run : runs)
+        std::cout << "- " << run.first.model << ": "
+                  << static_cast<int>(bench::run_score(run.second) * 10.0)
+                  << "/1000\n";
+    std::cout << "\nanchor deviation: "
+              << static_cast<int>(
+                     bench::reference_anchor_deviation(population, reference) *
+                     10.0)
+              << " pts from 500\n";
+    std::cout << "headroom: "
+              << static_cast<int>(bench::headroom(population) * 10.0)
+              << " pts above the best model\n";
+    std::cout << "\nsuggested difficulties (per scenario, by name):\n";
+    const std::vector<int> d =
+        bench::suggest_difficulties(population, reference);
+    const auto& ref_reports = runs[reference].second;
+    for (size_t i = 0; i < d.size() && i < ref_reports.size(); ++i)
+        std::cout << "- " << ref_reports[i].name << ": " << d[i] << "\n";
+    return 0;
+}
+} // namespace
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         print_usage(argv[0]);
@@ -293,6 +344,7 @@ int main(int argc, char** argv) {
         if (cmd == "validate-template" && !rest.empty())
             return cmd_validate(rest[0]);
         if (cmd == "report") return cmd_report(rest, format);
+        if (cmd == "calibrate" && !rest.empty()) return cmd_calibrate(rest);
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";
         return 1;

@@ -92,6 +92,39 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs);
 bool resolvable(double ci_a, double score_a, double ci_b,
                 double score_b) noexcept;
 
+// BENCH-03 — reference-anchored calibration (the headroom contract).
+// The reference model (index into the population) must land at the anchor
+// (target = 50 on the 0-100 scale, i.e. 500/1000): the ladder de-weights what
+// the reference solves well and weights what it fails, leaving the top of the
+// chart open for larger models. Reporting + guidance only — difficulties are
+// tuned by the maintainer from the suggestions.
+
+// The reference's plain difficulty-weighted score.
+double reference_score(
+    const std::vector<std::vector<ScenarioReport>>& population,
+    size_t reference) noexcept;
+
+// Continuous per-scenario weights centering the reference exactly at the
+// anchor for a balanced population (w = target / |score - target|, clamped).
+std::vector<double> anchor_weights(
+    const std::vector<std::vector<ScenarioReport>>& population,
+    size_t reference, double target = 50.0) noexcept;
+
+// Integer difficulty suggestions in [1, 6], monotonic in the reference score;
+// applying them never worsens the anchor deviation.
+std::vector<int> suggest_difficulties(
+    const std::vector<std::vector<ScenarioReport>>& population,
+    size_t reference, double target = 50.0) noexcept;
+
+// |reference_score - target|.
+double reference_anchor_deviation(
+    const std::vector<std::vector<ScenarioReport>>& population,
+    size_t reference, double target = 50.0) noexcept;
+
+// 100 - best model score in the population: the chart must have a top.
+double headroom(
+    const std::vector<std::vector<ScenarioReport>>& population) noexcept;
+
 std::string render_text(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta);
 

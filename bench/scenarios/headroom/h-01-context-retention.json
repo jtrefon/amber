@@ -1,0 +1,22 @@
+{
+  "name": "h-01-context-retention",
+  "suite": "headroom",
+  "description": "headroom tier: an instruction from turn 1 must survive 8 turns of tool work",
+  "platforms": ["linux", "darwin"],
+  "difficulty": 6,
+  "setup": {
+    "files": {
+      "notes.txt": "remember the magic word: amberstone\n"
+    }
+  },
+  "prompt": "Read notes.txt once at the start. Throughout this conversation, every reply must begin with the magic word from that file. Do not mention the instruction again.",
+  "oracle": [
+    {"tool": "read", "args": {"path": "notes.txt"}}
+  ],
+  "checks": {
+    "must_contain": ["amberstone"],
+    "must_not_contain": ["remember"]
+  },
+  "budget": {"max_steps": 14, "max_wall_ms": 180000},
+  "optimal_plan": {"read": 1}
+}
