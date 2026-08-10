@@ -249,6 +249,7 @@ private:
 
     // Finalize a turn: fallback on empty, log, update state.
     std::string finish_turn(std::string final_reply);
+    std::string finish_turn_cancelled();
 
     // Apply memory/skill ops from a compression response to the store.
     // Calls apply_memory_ops, apply_skill_ops, decay_all, then save.

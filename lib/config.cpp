@@ -8,9 +8,45 @@
 
 namespace agent {
 
+namespace {
+// Tolerant numeric parsing: one bad value skips that key (default kept) and
+// is reported in Config::warnings — it must never abort startup or discard
+// the whole config file.
+bool parse_num(const std::string& key, const std::string& val,
+               std::vector<std::string>& warnings, long& out) {
+    try {
+        out = std::stol(val);
+        return true;
+    } catch (const std::exception&) {
+        warnings.push_back(key + "=\"" + val + "\" is not a number; using default");
+        return false;
+    }
+}
+} // namespace
+
 void Config::load(const std::string& path) {
     std::ifstream in(path);
     if (!in) return;
+    warnings.clear();
+    auto parse_int = [this](const std::string& k, const std::string& v,
+                            int& out) {
+        long n = 0;
+        if (parse_num(k, v, warnings, n)) out = static_cast<int>(n);
+    };
+    auto parse_uint = [this](const std::string& k, const std::string& v,
+                             size_t& out) {
+        long n = 0;
+        if (parse_num(k, v, warnings, n) && n >= 0)
+            out = static_cast<size_t>(n);
+    };
+    auto parse_double = [this](const std::string& k, const std::string& v,
+                               double& out) {
+        try {
+            out = std::stod(v);
+        } catch (const std::exception&) {
+            warnings.push_back(k + "=\"" + v + "\" is not a number; using default");
+        }
+    };
     std::string line;
     while (std::getline(in, line)) {
         if (line.empty() || line[0] == '#') continue;
@@ -31,30 +67,29 @@ void Config::load(const std::string& path) {
         else if (key == "system_prompt") system_prompt_path = val;
         else if (key == "tools_prompt") tools_prompt_path = val;
         else if (key == "git_prompt") git_prompt_path = val;
-        else if (key == "max_tool_iterations") max_tool_iterations = std::stoi(val);
-        else if (key == "temperature") temperature = std::stod(val);
-        else if (key == "max_tokens") max_tokens = std::stoul(val);
+        else if (key == "max_tool_iterations") parse_int(key, val, max_tool_iterations);
+        else if (key == "temperature") parse_double(key, val, temperature);
+        else if (key == "max_tokens") parse_uint(key, val, max_tokens);
         else if (key == "task_tool")
             task_tool = (val == "1" || val == "true" || val == "yes");
         else if (key == "subagent_parallel")
             subagent_parallel = (val == "1" || val == "true" || val == "yes");
-        else if (key == "subagent_max")
-            subagent_max = std::atoi(val.c_str());
+        else if (key == "subagent_max") parse_int(key, val, subagent_max);
         else if (key == "plan_tool")
             plan_tool = (val == "1" || val == "true" || val == "yes");
         else if (key == "stream") stream = (val == "1" || val == "true" || val == "yes");
         else if (key == "thinking") thinking = val;
-        else if (key == "thinking_budget") thinking_budget = std::stoi(val);
+        else if (key == "thinking_budget") parse_int(key, val, thinking_budget);
         else if (key == "context_size") {
             // 0 (or negative) means "auto-detect"; only a positive value counts
             // as an explicit override that suppresses server probing.
-            context_size = std::stoi(val);
+            parse_int(key, val, context_size);
             context_explicit = context_size > 0;
         }
         else if (key == "default_context_size") {
             // Provider-level default; does NOT set context_explicit so
             // server auto-detect and user-override can still win.
-            if (!val.empty()) default_context_size = std::stoi(val);
+            if (!val.empty()) parse_int(key, val, default_context_size);
         }
         else if (key == "log_path") log_path = val;
         else if (key == "debug_log") debug_log = val;
@@ -62,13 +97,13 @@ void Config::load(const std::string& path) {
         else if (key == "show_reasoning")
             show_reasoning = (val == "1" || val == "true" || val == "yes");
         else if (key == "compression_threshold") {
-            compression_threshold = std::stod(val);
+            parse_double(key, val, compression_threshold);
             compression_threshold_explicit = true;
         } else if (key == "compression_min_turns") {
-            compression_min_turns = std::stoi(val);
+            parse_int(key, val, compression_min_turns);
             compression_min_turns_explicit = true;
         } else if (key == "compression_cooldown_turns") {
-            compression_cooldown_turns = std::stoi(val);
+            parse_int(key, val, compression_cooldown_turns);
             compression_cooldown_turns_explicit = true;
         }
         else if (key == "experience_enabled")
@@ -76,19 +111,19 @@ void Config::load(const std::string& path) {
         else if (key == "experience_store_path")
             experience_store_path = val;
         else if (key == "experience_max_memories")
-            experience_max_memories = std::stoi(val);
+            parse_int(key, val, experience_max_memories);
         else if (key == "experience_max_skills")
-            experience_max_skills = std::stoi(val);
+            parse_int(key, val, experience_max_skills);
         else if (key == "experience_decay_rate")
-            experience_decay_rate = std::stod(val);
+            parse_double(key, val, experience_decay_rate);
         else if (key == "experience_promote_threshold")
-            experience_promote_threshold = std::stoi(val);
+            parse_int(key, val, experience_promote_threshold);
         else if (key == "skills_interop")
             skills_interop = (val == "1" || val == "true" || val == "yes");
         else if (key == "skills_max_discovery")
-            skills_max_discovery = std::stoi(val);
+            parse_int(key, val, skills_max_discovery);
         else if (key == "skills_body_budget_tokens")
-            skills_body_budget_tokens = std::stoi(val);
+            parse_int(key, val, skills_body_budget_tokens);
         else if (key == "provider")
             provider_name = val;
         else if (key == "policy_approval")

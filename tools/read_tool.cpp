@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <sys/stat.h>
 
 namespace agent {
 
@@ -59,6 +60,17 @@ public:
         // thousands of lines into the conversation (binary/generated files).
         if (limit > 2000) limit = 2000;
 
+        // A FIFO/socket would block the agent forever on open()/read —
+        // reject special files up front (confinement is lexical and cannot
+        // see the file type).
+        struct stat st{};
+        if (stat(path.c_str(), &st) == 0 && !S_ISREG(st.st_mode)) {
+            r.ok = false;
+            r.error = "not a regular file (named pipe/device) - refusing to block: " +
+                      Workspace::relative(path);
+            return r;
+        }
+
         std::ifstream in(path, std::ios::binary);
         if (!in) { r.ok = false; r.error = "cannot open: " + path; return r; }
 
@@ -80,6 +92,9 @@ public:
         in.clear();
         in.seekg(0);
 
+        // A single enormous line (minified JS, base64 blob) must not flood
+        // the conversation — truncate with a visible marker.
+        constexpr std::size_t kMaxLineBytes = 4096;
         std::string line;
         long lineno = 0;
         long printed = 0;
@@ -89,6 +104,11 @@ public:
             ++total;
             if (lineno + 1 < offset) { ++lineno; continue; }
             if (printed >= limit) break;
+            if (line.size() > kMaxLineBytes) {
+                const std::size_t cut = line.size() - kMaxLineBytes;
+                line.resize(kMaxLineBytes);
+                line += " ...(" + std::to_string(cut) + " bytes truncated)...";
+            }
             out << (lineno + 1) << ":\t" << line << "\n";
             ++lineno; ++printed;
         }

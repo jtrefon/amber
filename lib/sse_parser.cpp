@@ -161,6 +161,9 @@ void dispatch_event_impl(SseState& st, Message& out,
         if (out.tool_calls.is_null()) out.tool_calls = json::array();
         for (const auto& frag : chunk.tool_calls) {
             int idx = frag.value("index", 0);
+            // Sparse-index guard: a huge index must not allocate a billion
+            // empty slots; out-of-range fragments are dropped.
+            if (idx < 0 || idx >= kMaxToolCallsPerMessage) continue;
             while (static_cast<int>(out.tool_calls.size()) <= idx)
                 out.tool_calls.push_back(json::object());
             json& slot = out.tool_calls[idx];
@@ -186,7 +189,8 @@ void dispatch_event_impl(SseState& st, Message& out,
 
 size_t StreamParser::on_write(const char* data, size_t size, size_t nmemb) {
     const std::string raw(data, size * nmemb);
-    raw_body_.append(raw);
+    if (raw_body_.size() < kMaxRawBodyBytes)
+        raw_body_.append(raw.substr(0, kMaxRawBodyBytes - raw_body_.size()));
     if (!debug_path_.empty())
         debug_log(debug_path_, "sse-raw", raw);
     st_.buffer.append(raw);

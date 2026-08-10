@@ -664,6 +664,14 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
                            adapt);
 }
 
+// Cancellation path: returns a true empty reply (no empty-turn
+// substitution — the stop was deliberate) and skips any further work.
+std::string Agent::finish_turn_cancelled() {
+    log_.event("turn_end", {{"reason", "cancelled"}});
+    if (hooks_.on_state) hooks_.on_state(RunState::Idle);
+    return "";
+}
+
 std::string Agent::finish_turn(std::string final_reply) {
     if (final_reply.empty()) {
         final_reply = empty_turn_reply(context_.get_all());
@@ -686,12 +694,26 @@ std::string Agent::run(const std::string& user_prompt) {
     std::string last_loop_key, last_text, final_reply;
 
     for (int iter = 0; iter < cfg_.max_tool_iterations; ++iter) {
+        // Cancellation ends the turn cleanly: no fabricated error message,
+        // no probe round-trip, nothing pushed into the context.
+        if (cfg_.cancel_token.is_requested()) {
+            if (hooks_.on_status)
+                hooks_.on_status("cancelled by user");
+            return finish_turn_cancelled();
+        }
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
-        Message reply = chat_with_recovery(tools, "generation",
-                                           /*display=*/true,
-                                           /*strict=*/false);
+        Message reply;
+        try {
+            reply = chat_with_recovery(tools, "generation",
+                                       /*display=*/true,
+                                       /*strict=*/false);
+        } catch (const CancelledError&) {
+            if (hooks_.on_status)
+                hooks_.on_status("cancelled by user");
+            return finish_turn_cancelled();
+        }
 
         // Extract tool_calls and content before push_reply (which moves reply).
         // Template-style tool calls arrive embedded in the content (e.g.

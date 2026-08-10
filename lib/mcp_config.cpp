@@ -58,7 +58,14 @@ void apply_field(McpServerConfig& cfg, const std::string& key,
     else if (key == "enabled") cfg.enabled = parse_bool(val);
     else if (key == "auto_connect") cfg.auto_connect = parse_bool(val);
     else if (key == "trusted") cfg.trusted = parse_bool(val);
-    else if (key == "timeout_s") cfg.timeout_s = std::stoi(val);
+    else if (key == "timeout_s") {
+        // One bad value must not fail every server's config load.
+        try {
+            cfg.timeout_s = std::stoi(val);
+        } catch (const std::exception&) {
+            cfg.error = "timeout_s '" + val + "' is not a number";
+        }
+    }
 }
 
 void validate(McpServerConfig& cfg) {
