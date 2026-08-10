@@ -1,0 +1,44 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "clean-01-magic-numbers",
+  "suite": "review-clean",
+  "description": "quality-perception: magic numbers and unclear names",
+  "setup": {
+    "files": {
+      "Review.cpp": "double tax(double amount) {\n  if (amount > 1000) return amount * 0.2;\n  return amount * 0.1;\n}\nint timeout_ms = 5000;  // why 5000?\n"
+    }
+  },
+  "prompt": "Read Review.cpp and identify the readability problems. Name each magic value and what should replace it.",
+  "checks": {
+    "must_contain": [
+      "magic",
+      "constant",
+      "1000",
+      "5000"
+    ],
+    "must_not_contain": [
+      "premature",
+      "rewrite"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}

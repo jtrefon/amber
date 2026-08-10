@@ -1,0 +1,43 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "pat-01-switch-over-type",
+  "suite": "review-patterns",
+  "description": "quality-perception: switch-over-type -> strategy/visitor",
+  "setup": {
+    "files": {
+      "Review.cpp": "class Shape {\npublic:\n  enum Kind { CIRCLE, SQUARE } kind;\n  double r = 0.0;    // circle radius\n  double side = 0.0; // square side\n};\ndouble area(const Shape& s) {\n  switch (s.kind) {\n    case Shape::CIRCLE: return 3.14 * s.r * s.r;\n    case Shape::SQUARE: return s.side * s.side;\n  }\n  return 0.0;\n}\ndouble perimeter(const Shape& s) {\n  switch (s.kind) {\n    case Shape::CIRCLE: return 2 * 3.14 * s.r;\n    case Shape::SQUARE: return 4 * s.side;\n  }\n  return 0.0;\n}\n"
+    }
+  },
+  "prompt": "Read Review.cpp and identify the design problem with the shape handling. Name the pattern that would remove the repeated switches.",
+  "checks": {
+    "must_contain": [
+      "switch",
+      "polymorph",
+      "strategy"
+    ],
+    "must_not_contain": [
+      "premature",
+      "rewrite"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}

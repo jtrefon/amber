@@ -1,0 +1,42 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "ds-02-string-concat",
+  "suite": "review-datastructures",
+  "description": "quality-perception: quadratic string concatenation in a loop",
+  "setup": {
+    "files": {
+      "Review.cpp": "#include <string>\nstd::string join(const std::vector<std::string>& parts) {\n  std::string out;\n  for (const auto& p : parts) out += p;  // repeated reallocation\n  return out;\n}\n"
+    }
+  },
+  "prompt": "Read Review.cpp and identify the performance problem in the loop. Name the cause and the idiomatic fix.",
+  "checks": {
+    "must_contain": [
+      "realloc",
+      "reserve"
+    ],
+    "must_not_contain": [
+      "premature",
+      "rewrite"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}

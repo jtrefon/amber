@@ -1,7 +1,7 @@
 {
   "name": "p-05-multi-constraint",
   "suite": "prompt",
-  "description": "four simultaneous output constraints; sloppy models lose adherence",
+  "description": "four simultaneous output constraints; sloppy models lose adherence (one file per line, done on its own line after)",
   "platforms": [
     "linux",
     "darwin"
@@ -18,8 +18,7 @@
   "prompt": "List the .txt files in this workspace sorted alphabetically. Constraints: one file per line, no bullet points, no markdown, no introductory text. Reply with the word done on its own line after the list.",
   "checks": {
     "must_contain": [
-      "a.txt\nb.txt\nc.txt",
-      "done"
+      "a.txt\nb.txt\nc.txt\ndone"
     ],
     "must_not_contain": [
       "- ",

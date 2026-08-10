@@ -48,6 +48,12 @@ struct Scenario {
     Checks checks;
     agent::json optimal_plan = agent::json::object();  // tool -> count; empty = oracle mix
     std::string template_dir;   // empty = no static template
+    // Weight of the textual checks in the correctness sub-score (0..1).
+    // Review scenarios (code-snippet issue lists) set 0.8 so the checks —
+    // recall of expected issues, precision against distractors — dominate
+    // over the single read-step bullseye. Default 0.2 reproduces the v2
+    // non-template formula.
+    double checks_weight = 0.2;
     int difficulty = 3;         // 1..5 — scoring weight
     int expected_steps = 0;     // 0 = oracle size (or 5) — efficiency baseline
     int max_steps = 0;          // 0 = unlimited

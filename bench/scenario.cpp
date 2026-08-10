@@ -114,6 +114,9 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
             s.oracle.push_back(std::move(step));
         }
     }
+    if (j.contains("checks_weight") && j["checks_weight"].is_number())
+        s.checks_weight =
+            std::max(0.0, std::min(1.0, j["checks_weight"].get<double>()));
     if (j.contains("forbidden_tools") && j["forbidden_tools"].is_array())
         for (const auto& t : j["forbidden_tools"])
             if (t.is_string()) s.forbidden_tools.push_back(t.get<std::string>());

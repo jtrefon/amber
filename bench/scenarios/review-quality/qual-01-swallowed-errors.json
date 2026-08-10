@@ -1,0 +1,43 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "qual-01-swallowed-errors",
+  "suite": "review-quality",
+  "description": "quality-perception: swallowed exceptions and ignored failures",
+  "setup": {
+    "files": {
+      "Review.cpp": "bool upload(const std::string& url, const std::string& body) {\n  try {\n    auto resp = http_post(url, body);\n    return resp.ok;\n  } catch (...) { return false; }\n}\nvoid backup() {\n  std::ofstream f(\"backup.dat\");\n  f << data();  // write failures ignored\n}\n"
+    }
+  },
+  "prompt": "Read Review.cpp and identify the error-handling problems. Name the specific functions and what they swallow.",
+  "checks": {
+    "must_contain": [
+      "catch",
+      "swallow",
+      "backup"
+    ],
+    "must_not_contain": [
+      "premature",
+      "performance"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}
