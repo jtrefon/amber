@@ -48,6 +48,21 @@ struct ScenarioReport {
 // With repeats, pass the aggregated (median) reports — see aggregate_repeats.
 double run_score(const std::vector<ScenarioReport>& reports) noexcept;
 
+// BENCH-02 — discrimination-weighted aggregation (the resolution engine).
+// Participation trophies must not move the score: each scenario's weight is
+// the standard deviation of its totals across the model population, so a
+// scenario everyone solves contributes ~0 and a separator dominates the
+// deltas between near-identical models.
+// Population = the per-model runs fed to a comparison (vector of runs, each
+// a vector of ScenarioReport). One weight per scenario, aligned by name.
+std::vector<double> discrimination_weights(
+    const std::vector<std::vector<ScenarioReport>>& population) noexcept;
+
+// Difficulty x discrimination weighted score. Empty weights fall back to the
+// plain difficulty-weighted score (single-file runs have no population).
+double run_score_discriminative(const std::vector<ScenarioReport>& reports,
+                                const std::vector<double>& weights) noexcept;
+
 // Median of a sample.
 double median(std::vector<double> values) noexcept;
 

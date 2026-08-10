@@ -21,6 +21,33 @@ double run_score(const std::vector<ScenarioReport>& reports) noexcept {
     return weight > 0 ? weighted / weight : 100.0;
 }
 
+std::vector<double> discrimination_weights(
+    const std::vector<std::vector<ScenarioReport>>& population) noexcept {
+    std::vector<double> weights;
+    if (population.empty()) return weights;
+    // Per scenario name: collect the totals across the models that ran it.
+    std::map<std::string, std::vector<double>> totals;
+    for (const auto& run : population)
+        for (const auto& r : run) totals[r.name].push_back(r.score.total);
+    // Align by the first run's scenario order.
+    for (const auto& r : population.front())
+        weights.push_back(stddev(totals[r.name]));
+    return weights;
+}
+
+double run_score_discriminative(const std::vector<ScenarioReport>& reports,
+                                const std::vector<double>& weights) noexcept {
+    if (weights.empty()) return run_score(reports);
+    double weighted = 0.0;
+    double weight_sum = 0.0;
+    for (size_t i = 0; i < reports.size() && i < weights.size(); ++i) {
+        const double w = weights[i] * static_cast<double>(reports[i].difficulty);
+        weighted += w * reports[i].score.total;
+        weight_sum += w;
+    }
+    return weight_sum > 0.0 ? weighted / weight_sum : run_score(reports);
+}
+
 double median(std::vector<double> values) noexcept {
     if (values.empty()) return 0.0;
     std::sort(values.begin(), values.end());
@@ -414,10 +441,19 @@ std::string render_markdown_comparison(
     if (runs.empty()) return "";
     std::ostringstream out;
     out << "# Benchmark: harness score by model\n\n";
+    // With a population of models, score by discrimination: participation
+    // trophies weigh ~0 and separators dominate the deltas (BENCH-02).
+    std::vector<std::vector<ScenarioReport>> population;
+    population.reserve(runs.size());
+    for (const auto& run : runs) population.push_back(run.second);
+    const std::vector<double> weights = discrimination_weights(population);
+    auto score_of = [&](const std::vector<ScenarioReport>& rep) {
+        return run_score_discriminative(rep, weights);
+    };
     for (const auto& run : runs) {
         const double ci = model_score_ci(run.second);
         out << "- **" << run.first.model << "**: "
-            << static_cast<int>(run_score(run.second) * 10.0) << "/1000";
+            << static_cast<int>(score_of(run.second) * 10.0) << "/1000";
         if (ci > 0.0) {
             std::ostringstream ci_s;
             ci_s << std::fixed << std::setprecision(1) << (ci * 10.0);
@@ -431,8 +467,8 @@ std::string render_markdown_comparison(
                "combined 95% CI):\n\n";
         for (size_t i = 0; i < runs.size(); ++i)
             for (size_t j = i + 1; j < runs.size(); ++j) {
-                const double sa = run_score(runs[i].second);
-                const double sb = run_score(runs[j].second);
+                const double sa = score_of(runs[i].second);
+                const double sb = score_of(runs[j].second);
                 const double ca = model_score_ci(runs[i].second);
                 const double cb = model_score_ci(runs[j].second);
                 std::string verdict;
@@ -484,7 +520,7 @@ std::string render_markdown_comparison(
         const int fail_pct = tools > 0 ? (100 * fail / tools) : 0;
         const int red_pct = tools > 0 ? (100 * red / tools) : 0;
         out << "| " << run.first.model << " | "
-            << static_cast<int>(run_score(run.second) * 10.0) << " | "
+            << static_cast<int>(score_of(run.second) * 10.0) << " | "
             << (ag_n ? static_cast<int>(ag_sum / ag_n) : 0) << " | "
             << static_cast<int>(plan_pct) << " | " << tools
             << " | " << fail_pct << " | " << red_pct << " | "
