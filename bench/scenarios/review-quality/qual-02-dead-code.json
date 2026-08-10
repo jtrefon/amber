@@ -30,7 +30,8 @@
     "must_contain": [
       "comment",
       "unused",
-      "legacy"
+      "legacy",
+      "unreachable"
     ],
     "must_not_contain": [
       "premature",

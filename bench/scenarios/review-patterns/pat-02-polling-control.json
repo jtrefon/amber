@@ -22,20 +22,24 @@
   "description": "quality-perception: polling where an observer fits",
   "setup": {
     "files": {
-      "Review.cpp": "#include <thread>\n#include <atomic>\nclass Server {\npublic:\n  std::atomic<bool> ready{false};\n  void start() { std::thread([this]{ /* eventually ready = true; */ }).detach(); }\n};\nvoid wait_ready(Server& s) {\n  while (!s.ready.load()) std::this_thread::sleep_for(std::chrono::milliseconds(50));\n}\n"
+      "Review.cpp": "#include <atomic>\n#include <chrono>\n#include <thread>\nclass Server {\npublic:\n  std::atomic<bool> ready{false};\n  // a background worker sets ready once initialization completes\n};\nvoid wait_ready(Server& s) {\n  while (!s.ready.load()) std::this_thread::sleep_for(std::chrono::milliseconds(50));\n}\n"
     }
   },
   "prompt": "Read Review.cpp and identify the design issue with how the caller learns the server is ready. Name the pattern that would replace the busy wait.",
   "checks": {
     "must_contain": [
-      "poll",
-      "observer",
-      "callback",
-      "condition"
+      "poll"
     ],
     "must_not_contain": [
       "premature",
       "rewrite"
+    ],
+    "must_contain_any": [
+      [
+        "observer",
+        "callback",
+        "condition_variable"
+      ]
     ]
   },
   "optimal_plan": {

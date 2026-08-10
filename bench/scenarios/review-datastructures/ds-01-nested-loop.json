@@ -28,14 +28,23 @@
   "prompt": "Read Review.cpp and identify the algorithmic problem. Name the complexity and the structure that would fix it.",
   "checks": {
     "must_contain": [
-      "quadratic",
-      "map",
       "set",
       "nested"
     ],
     "must_not_contain": [
       "premature",
       "rewrite"
+    ],
+    "must_contain_any": [
+      [
+        "quadratic",
+        "O(n*m)",
+        "O(n * m)"
+      ],
+      [
+        "map",
+        "unordered_set"
+      ]
     ]
   },
   "optimal_plan": {

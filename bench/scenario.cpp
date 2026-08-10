@@ -32,6 +32,18 @@ bool parse_checks(const agent::json& j, Checks& out) {
     if (j.contains("must_contain") && j["must_contain"].is_array())
         for (const auto& e : j["must_contain"])
             if (e.is_string()) out.must_contain.push_back(e.get<std::string>());
+    if (j.contains("must_contain_any") && j["must_contain_any"].is_array()) {
+        for (const auto& g : j["must_contain_any"]) {
+            std::vector<std::string> group;
+            if (g.is_array())
+                for (const auto& e : g)
+                    if (e.is_string()) {
+                        const std::string alt = e.get<std::string>();
+                        if (!alt.empty()) group.push_back(alt);
+                    }
+            if (!group.empty()) out.must_contain_any.push_back(std::move(group));
+        }
+    }
     if (j.contains("must_not_contain") && j["must_not_contain"].is_array())
         for (const auto& e : j["must_not_contain"])
             if (e.is_string()) out.must_not_contain.push_back(e.get<std::string>());
@@ -151,11 +163,20 @@ bool platform_supported(const Scenario& s) noexcept {
 
 bool checks_pass(const Checks& c, const std::string& text) noexcept {
     const std::string folded = lowercase(text);
+    const auto any_group = [&folded](const std::vector<std::string>& group) {
+        return std::any_of(group.begin(), group.end(),
+                           [&folded](const std::string& alt) {
+                               return folded.find(lowercase(alt)) !=
+                                      std::string::npos;
+                           });
+    };
     return std::all_of(c.must_contain.begin(), c.must_contain.end(),
                        [&folded](const std::string& need) {
                            return folded.find(lowercase(need)) !=
                                   std::string::npos;
                        }) &&
+           std::all_of(c.must_contain_any.begin(), c.must_contain_any.end(),
+                       any_group) &&
            std::all_of(c.must_not_contain.begin(), c.must_not_contain.end(),
                        [&folded](const std::string& banned) {
                            return folded.find(lowercase(banned)) ==
@@ -165,11 +186,18 @@ bool checks_pass(const Checks& c, const std::string& text) noexcept {
 
 double adherence(const Checks& c, const std::string& text) noexcept {
     const std::string folded = lowercase(text);
-    size_t total = c.must_contain.size() + c.must_not_contain.size();
+    size_t total = c.must_contain.size() + c.must_contain_any.size() +
+                   c.must_not_contain.size();
     if (total == 0) return 1.0;
     size_t passed = 0;
     for (const auto& need : c.must_contain)
         if (folded.find(lowercase(need)) != std::string::npos) ++passed;
+    for (const auto& group : c.must_contain_any)
+        for (const auto& alt : group)
+            if (folded.find(lowercase(alt)) != std::string::npos) {
+                ++passed;
+                break;
+            }
     for (const auto& banned : c.must_not_contain)
         if (folded.find(lowercase(banned)) == std::string::npos) ++passed;
     return static_cast<double>(passed) / static_cast<double>(total);
