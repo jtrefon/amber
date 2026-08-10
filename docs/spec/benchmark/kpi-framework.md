@@ -5,6 +5,8 @@ Owner: engine team
 Depends on: `AgentHooks`, `LLMClientFactory`, `ConversationLog`, `ToolRegistry` —
 all existing ports. **Zero engine changes required.**
 
+Mission: `benchmark/MISSION.md` (why the benchmark exists, what it measures, what
+"strong" means — the reference and baseline).
 Companion specs: `benchmark/corpus.md` (scenario taxonomy), `benchmark/kpi-catalog.md`
 (measurable indicators).
 

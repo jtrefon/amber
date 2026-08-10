@@ -159,6 +159,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 
 | File | Covers |
 |------|--------|
+| `benchmark/MISSION.md` | The benchmark's mission and vision: why it exists, the dimensions map, the model-library strategy, definitions of done — the reference and baseline for the harness |
 | `benchmark/kpi-framework.md` | Harness architecture: scenario schema, runner lifecycle, static-template engine, hermetic fake, phasing |
 | `benchmark/corpus.md` | Scenario taxonomy: 9 suites, scenario ladder (agent failures, terminal, tools, prompt, coding, refactor, skills, mcp, compression), P1 scope |
 | `benchmark/kpi-catalog.md` | Every measurable indicator: correctness, efficiency, robustness, resources, judgment-metric proxies |
