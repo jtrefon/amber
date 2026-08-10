@@ -1169,8 +1169,9 @@ TEST(e2e_hermetic_review_scoring) {
 // A plan-less scenario (no oracle, no optimal_plan) must score with the
 // neutral agentic value — the runner feeds 100.0 instead of the 0.0
 // compute_agentic reports without a plan.
-TEST(e2e_hermetic_planless_neutral_agentic) {
-    std::string dir = tmp_dir("planless");
+namespace {
+bench::Scenario planless_scenario(std::string& dir) {
+    dir = tmp_dir("planless");
     write_file(dir + "/p.json", R"({
         "name": "planless",
         "suite": "smoke",
@@ -1184,13 +1185,20 @@ TEST(e2e_hermetic_planless_neutral_agentic) {
     })");
     std::string err;
     auto s = bench::load_scenario(dir + "/p.json", err);
-    ASSERT(s.has_value());
+    assert(s.has_value());
+    return *s;
+}
+} // namespace
 
+TEST(e2e_hermetic_planless_neutral_agentic) {
+    std::string dir;
+    bench::Scenario s = planless_scenario(dir);
     bench::RunOptions opts;
     bench::RunMeta meta;
     meta.mode = "hermetic";
     meta.model = "fake";
-    bench::ScenarioReport rep = bench::run_one_scenario(*s, opts, meta, err);
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
     ASSERT_EQ(err, "");
     ASSERT(rep.kpi.success);
     ASSERT_FALSE(rep.agentic.has_plan);
