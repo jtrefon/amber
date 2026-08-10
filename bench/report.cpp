@@ -26,7 +26,7 @@ double median(std::vector<double> values) noexcept {
     const size_t n = values.size();
     return n % 2 == 1
                ? values[n / 2]
-               : (values[n / 2 - 1] + values[n / 2]) / 2.0;
+               : (values[(n / 2) - 1] + values[n / 2]) / 2.0;
 }
 
 double stddev(const std::vector<double>& values) noexcept {
@@ -49,7 +49,7 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
     agg.score_stddev = stddev(agg.repeat_scores);
     // The median run is the representative report (kpi/agentic/tool_calls).
     size_t best = 0;
-    double closest = std::numeric_limits<double>::max();
+    auto closest = std::numeric_limits<double>::max();
     for (size_t i = 0; i < runs.size(); ++i) {
         const double d = std::abs(runs[i].score.total - agg.score_median);
         if (d < closest) { closest = d; best = i; }
@@ -70,8 +70,9 @@ double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept {
     double pooled = 0.0;
     for (const auto& r : reports) {
         const double w = static_cast<double>(r.difficulty);
+    const double w2 = w * w;
         wsum += w;
-        pooled += w * w * r.score_stddev * r.score_stddev;
+        pooled += w2 * (r.score_stddev * r.score_stddev);
     }
     if (wsum <= 0.0) return 0.0;
     return 1.96 * std::sqrt(pooled) / wsum;
