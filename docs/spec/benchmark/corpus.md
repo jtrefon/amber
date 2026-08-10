@@ -7,6 +7,10 @@ Every scenario is a declarative JSON + optional static-template dir, scored by
 the harness — **no human judgment at scoring time**. Scenarios start a few per
 suite and grow over time; each suite covers one dimension of engine quality.
 
+
+Mission: `benchmark/MISSION.md` — the benchmark's purpose, dimensions map, and
+model-library strategy.
+
 ## Suites
 
 | Suite | Measures | Mode | Starter (P1) |
