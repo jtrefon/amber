@@ -1089,11 +1089,19 @@ FIX-015  (JSON-driven command engine) — independent
 - **Target architecture:** hermetic suite green on every commit (CI job); `.amber/bench/results` trend history with delta alerts when success/bullseye/latency regress beyond a threshold.
 - **Verification:** CI job exists and fails on a seeded hermetic regression; trend alert fires on a synthetic regression run.
 
-## Recommended execution order
+## Status
 
-1. **BENCH-01** (repeat medians — the noise floor every other claim needs)
-2. **BENCH-04** (v2 follow-ups — close the open review findings)
-3. **BENCH-02** (discrimination weighting) → **BENCH-03** (calibration anchor + headroom) — the resolution pair
-4. First real model runs against the calibrated instrument (calibration data, not competition)
-5. **BENCH-05** → **BENCH-06** → **BENCH-07** (coverage + the gate)
-6. Then harness work (Phase C): one measured change at a time, red-green, baseline deltas
+- **BENCH-01** (repeat medians + CI, the resolution floor) — shipped, PR #49
+- **BENCH-04** (v2 scoring follow-ups) — shipped, PR #48
+- **BENCH-02** (discrimination-weighted aggregation) — shipped, PR #50 (+ round-1 restore 6e2d680)
+- **BENCH-03** (reference-anchored calibration + headroom tier) — shipped, PR #51
+
+## Recommended execution order (remaining)
+
+1. **Calibration runs**: first real model runs under v2 scoring with
+   `amber-bench calibrate` — calibration data, not competition.
+2. **BENCH-05** (review suites to 5/category + per-suite matrix) → **BENCH-06**
+   (terminal/SD volume + context-dilution suite) → **BENCH-07** (regression
+   gate + trend history).
+3. Then harness work (Phase C): one measured change at a time, red-green,
+   baseline deltas.
