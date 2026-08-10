@@ -205,14 +205,14 @@ Agentic compute_agentic(const EventStream& stream, const Kpi& k,
     a.efficiency_pct = a.plan_ratio * 100.0;
     if (a.efficiency_pct > 100.0) a.efficiency_pct = 100.0;
 
-    a.score = 100.0;
-    a.score -= 10.0 * deviation;
-    a.score -= 20.0 * k.redundant;
-    a.score -= 25.0 * k.tool_failures;
-    a.score -= 25.0 * k.tool_denied;
-    a.score -= 30.0 * k.retries;
-    if (k.hard_stop) a.score -= 50.0;
-    if (a.score < 0.0) a.score = 0.0;
+    double score = 100.0;
+    score -= 10.0 * deviation;
+    score -= 20.0 * k.redundant;
+    score -= 25.0 * k.tool_failures;
+    score -= 25.0 * k.tool_denied;
+    score -= 30.0 * k.retries;
+    if (k.hard_stop) score -= 50.0;
+    a.score = score < 0.0 ? 0.0 : score;
     return a;
 }
 
