@@ -35,6 +35,13 @@
     "must_not_contain": [
       "premature",
       "rewrite"
+    ],
+    "must_contain_any": [
+      [
+        "strategy",
+        "visitor",
+        "polymorph"
+      ]
     ]
   },
   "optimal_plan": {

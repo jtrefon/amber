@@ -103,12 +103,24 @@ int expected_steps(const Scenario& s) noexcept {
     return 5;
 }
 
+double correctness_templated(const Kpi& k) noexcept;
+double correctness_plain(const Kpi& k, const Scenario& s,
+                         double checks_ratio) noexcept;
+
 double correctness_score(const Kpi& k, const Scenario& s,
                          double checks_ratio) noexcept {
-    if (!s.template_dir.empty()) {
-        return 100.0 * (0.5 * k.bullseye + 0.2 * k.arg_precision +
-                        0.3 * k.artifact_score);
-    }
+    return s.template_dir.empty()
+               ? correctness_plain(k, s, checks_ratio)
+               : correctness_templated(k);
+}
+
+double correctness_templated(const Kpi& k) noexcept {
+    return 100.0 * (0.5 * k.bullseye + 0.2 * k.arg_precision +
+                    0.3 * k.artifact_score);
+}
+
+double correctness_plain(const Kpi& k, const Scenario& s,
+                         double checks_ratio) noexcept {
     // Argument fidelity joins bullseye; the checks_weight knob lets a
     // review scenario (no meaningful tool-step oracle) put its issue
     // checks at the center of correctness.
@@ -117,7 +129,6 @@ double correctness_score(const Kpi& k, const Scenario& s,
            ((1.0 - cw) * (0.75 * k.bullseye + 0.25 * k.arg_precision) +
             cw * checks_ratio);
 }
-
 double efficiency_score(const Kpi& k, const Scenario& s) noexcept {
     const int excess = std::max(0, k.steps - expected_steps(s));
     const double wasted_pen = s.template_dir.empty() ? 0.10 * k.wasted : 0.0;
@@ -127,8 +138,14 @@ double efficiency_score(const Kpi& k, const Scenario& s) noexcept {
 
 } // namespace
 
+double total_score(const Score& sc, double agentic_score) noexcept {
+    return (0.40 * sc.correctness) + (0.25 * sc.efficiency) +
+           (0.20 * agentic_score) + (0.10 * sc.robustness) +
+           (0.05 * sc.adherence);
+}
+
 Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
-                    int forbidden_calls, double agentic_score) {
+                    int forbidden_calls, double agentic_score) noexcept {
     Score sc;
     sc.correctness = correctness_score(k, s, checks_ratio);
     sc.efficiency = efficiency_score(k, s);
@@ -140,9 +157,7 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
     sc.adherence =
         100.0 * clamp01(k.prompt_adherence - (0.25 * forbidden_calls));
 
-    sc.total = (0.40 * sc.correctness) + (0.25 * sc.efficiency) +
-               (0.20 * agentic_score) + (0.10 * sc.robustness) +
-               (0.05 * sc.adherence);
+    sc.total = total_score(sc, agentic_score);
     // A failed scenario (oracle miss, failed checks, budget breach, hard
     // stop) keeps its honest partial credit capped at 60 — near-miss
     // failures still cost, but are never silently halved from an inflated
@@ -152,7 +167,7 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
 }
 
 Agentic compute_agentic(const EventStream& stream, const Kpi& k,
-                        const Scenario& s) {
+                        const Scenario& s) noexcept {
     Agentic a;
     std::map<std::string, int> plan;
     if (s.optimal_plan.is_object() && !s.optimal_plan.empty()) {
@@ -172,7 +187,17 @@ Agentic compute_agentic(const EventStream& stream, const Kpi& k,
 
     a.plan_by_tool = plan;
     a.actual_by_tool = actual;
-    a.plan_deviation = actual_total - a.plan_tools;
+    // Per-tool deviation: every missing planned tool, every excess call of a
+    // planned tool, and every call to an unplanned tool costs one unit.
+    // Doing nothing is not a perfect plan — it is a fully missed one.
+    int deviation = 0;
+    for (const auto& [tool, want] : plan) {
+        const auto it = actual.find(tool);
+        deviation += std::abs(want - (it == actual.end() ? 0 : it->second));
+    }
+    for (const auto& [tool, got] : actual)
+        if (!plan.count(tool)) deviation += got;
+    a.plan_deviation = deviation;
     a.plan_ratio = actual_total > 0
                        ? static_cast<double>(a.plan_tools) /
                              static_cast<double>(actual_total)
@@ -181,7 +206,7 @@ Agentic compute_agentic(const EventStream& stream, const Kpi& k,
     if (a.efficiency_pct > 100.0) a.efficiency_pct = 100.0;
 
     a.score = 100.0;
-    a.score -= 10.0 * std::max(0, a.plan_deviation);
+    a.score -= 10.0 * deviation;
     a.score -= 20.0 * k.redundant;
     a.score -= 25.0 * k.tool_failures;
     a.score -= 25.0 * k.tool_denied;

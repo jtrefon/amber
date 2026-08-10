@@ -1185,7 +1185,7 @@ bench::Scenario planless_scenario(std::string& dir) {
     })");
     std::string err;
     auto s = bench::load_scenario(dir + "/p.json", err);
-    assert(s.has_value());
+    ASSERT(s.has_value());
     return *s;
 }
 } // namespace

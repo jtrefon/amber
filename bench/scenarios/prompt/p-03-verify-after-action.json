@@ -16,7 +16,8 @@
     {
       "tool": "write",
       "args": {
-        "path": "a.txt"
+        "path": "a.txt",
+        "edits": "*"
       }
     },
     {

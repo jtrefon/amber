@@ -89,7 +89,7 @@ struct Score {
 // (compute_agentic); callers pass 100.0 when the scenario has no plan.
 Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
                     int forbidden_calls,
-                    double agentic_score = 100.0);
+                    double agentic_score = 100.0) noexcept;
 
 // Agentic performance: distance from the scenario's optimal tool plan.
 // The plan is the scenario's declared `optimal_plan` (tool -> count), or the
@@ -112,7 +112,7 @@ struct Agentic {
 };
 
 Agentic compute_agentic(const EventStream& stream, const Kpi& k,
-                        const Scenario& s);
+                        const Scenario& s) noexcept;
 
 } // namespace bench
 
