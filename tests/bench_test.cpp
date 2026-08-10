@@ -1501,8 +1501,8 @@ TEST(discrimination_weights_zero_for_trophies) {
     std::vector<std::vector<bench::ScenarioReport>> population;
     for (int m = 0; m < 4; ++m) {
         std::vector<bench::ScenarioReport> run;
-        run.push_back(score_report("trophy", 100.0 - m, 3));
-        run.push_back(score_report("trophy2", 99.0, 3));
+        run.push_back(score_report("trophy", 100.0, 3));       // constant
+        run.push_back(score_report("trophy2", 99.0, 3));       // constant
         run.push_back(score_report("split", 40.0 + 20.0 * m, 3));
         population.push_back(std::move(run));
     }
@@ -1515,13 +1515,13 @@ TEST(discrimination_weights_zero_for_trophies) {
 
 // The separator scenario dominates the delta between near-identical models.
 TEST(discriminative_score_ranks_by_separation) {
-    // Model A wins the trophies, loses the separator.
+    // Model A wins the trophy (heavy difficulty), loses the separator.
     std::vector<bench::ScenarioReport> a;
-    a.push_back(score_report("trophy", 100.0, 3));
-    a.push_back(score_report("split", 40.0, 3));
+    a.push_back(score_report("trophy", 100.0, 5));
+    a.push_back(score_report("split", 30.0, 1));
     std::vector<bench::ScenarioReport> b;
-    b.push_back(score_report("trophy", 90.0, 3));
-    b.push_back(score_report("split", 100.0, 3));
+    b.push_back(score_report("trophy", 70.0, 5));
+    b.push_back(score_report("split", 100.0, 1));
     std::vector<std::vector<bench::ScenarioReport>> population = {a, b};
 
     const std::vector<double> w = bench::discrimination_weights(population);
