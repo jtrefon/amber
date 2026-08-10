@@ -1433,3 +1433,57 @@ TEST(repeat_two_runs_median_is_canonical) {
     ASSERT_NEAR(agg.score_median, 95.0, 0.01);
     ASSERT_NEAR(agg.score.total, 95.0, 0.01);
 }
+
+// The CI is a property of the MEDIAN estimator: more repeats shrink it.
+TEST(model_score_ci_shrinks_with_repeats) {
+    std::vector<bench::ScenarioReport> runs;
+    for (int i = 0; i < 3; ++i)
+        runs.push_back(score_report("a", 90.0 + i, 2));
+    for (int i = 0; i < 3; ++i)
+        runs.push_back(score_report("b", 80.0 + i, 2));
+    std::vector<bench::ScenarioReport> agg3;
+    for (const auto& name : {"a", "b"}) {
+        std::vector<bench::ScenarioReport> one;
+        for (const auto& r : runs)
+            if (r.name == name) one.push_back(r);
+        agg3.push_back(bench::aggregate_repeats(one));
+    }
+    const double ci3 = bench::model_score_ci(agg3);
+
+    // Nine runs of the same distributions must shrink the interval.
+    std::vector<bench::ScenarioReport> runs9;
+    for (int i = 0; i < 9; ++i) runs9.push_back(score_report("a", 90.0 + (i % 3), 2));
+    for (int i = 0; i < 9; ++i) runs9.push_back(score_report("b", 80.0 + (i % 3), 2));
+    std::vector<bench::ScenarioReport> agg9;
+    for (const auto& name : {"a", "b"}) {
+        std::vector<bench::ScenarioReport> one;
+        for (const auto& r : runs9)
+            if (r.name == name) one.push_back(r);
+        agg9.push_back(bench::aggregate_repeats(one));
+    }
+    const double ci9 = bench::model_score_ci(agg9);
+    ASSERT(ci3 > 0.0);
+    ASSERT(ci9 > 0.0);
+    ASSERT(ci9 < ci3);
+}
+
+// A single run cannot claim precision: the CI is missing, never zero.
+TEST(model_score_ci_missing_for_single_runs) {
+    std::vector<bench::ScenarioReport> one = {score_report("a", 91.0)};
+    ASSERT_EQ(bench::model_score_ci(one), -1.0);
+    const std::string text = bench::render_text(one, [&]() {
+        bench::RunMeta m;
+        m.mode = "hermetic";
+        m.model = "fake";
+        return m;
+    }());
+    ASSERT(text.find("no CI") != std::string::npos);
+}
+
+// The bootstrap is deterministic: identical inputs give identical CIs.
+TEST(model_score_ci_deterministic) {
+    std::vector<bench::ScenarioReport> runs;
+    for (int i = 0; i < 3; ++i) runs.push_back(score_report("a", 90.0 + i));
+    std::vector<bench::ScenarioReport> agg = {bench::aggregate_repeats(runs)};
+    ASSERT_EQ(bench::model_score_ci(agg), bench::model_score_ci(agg));
+}

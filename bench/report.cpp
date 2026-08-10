@@ -2,6 +2,7 @@
 #include "bench/report.h"
 
 #include <cmath>
+#include <iomanip>
 #include <limits>
 #include <numeric>
 #include <sstream>
@@ -84,17 +85,45 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
     return agg;
 }
 
-double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept {
-    double wsum = 0.0;
-    double pooled = 0.0;
+namespace {
+// Deterministic LCG so the bootstrap is reproducible across runs and tests.
+uint32_t lcg(uint32_t& state) noexcept {
+    state = state * 1664525u + 1013904223u;
+    return state;
+}
+
+// One bootstrap iteration: resample each scenario's repeat_scores, take the
+// per-scenario median, and return the difficulty-weighted model score.
+double bootstrap_weighted_score(const std::vector<ScenarioReport>& reports,
+                                uint32_t& rng) noexcept {
+    double weighted = 0.0;
+    int weight = 0;
     for (const auto& r : reports) {
-        const auto w = static_cast<double>(r.difficulty);
-        const double w2 = w * w;
-        wsum += w;
-        pooled += w2 * (r.score_stddev * r.score_stddev);
+        const auto& pool = r.repeat_scores;
+        std::vector<double> sample;
+        sample.reserve(pool.size());
+        for (size_t i = 0; i < pool.size(); ++i)
+            sample.push_back(pool[lcg(rng) % pool.size()]);
+        weighted += r.difficulty * median(std::move(sample));
+        weight += r.difficulty;
     }
-    if (wsum <= 0.0) return 0.0;
-    return 1.96 * std::sqrt(pooled) / wsum;
+    return weight > 0 ? weighted / weight : 100.0;
+}
+} // namespace
+
+// 95% CI for the median-of-medians model score, estimated by bootstrap
+// resampling of each scenario's repeat_scores (uncertainty shrinks as
+// repeat_n grows). Returns -1.0 when any scenario lacks repeat data — the CI
+// is missing, never silently zero (a single run must not claim precision).
+double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept {
+    for (const auto& r : reports)
+        if (r.repeat_n < 2 || r.repeat_scores.size() < 2) return -1.0;
+    uint32_t rng = 0xC0FFEEu;
+    std::vector<double> boot;
+    boot.reserve(200);
+    for (int i = 0; i < 200; ++i)
+        boot.push_back(bootstrap_weighted_score(reports, rng));
+    return 1.96 * stddev(boot);
 }
 
 bool resolvable(double ci_a, double score_a, double ci_b,
@@ -113,10 +142,15 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
         << (meta.profile.empty() ? "default" : meta.profile) << ", "
         << meta.model << "]\n";
     out << "engine " << meta.engine_version << " @ " << meta.timestamp << "\n";
+    const double ci = model_score_ci(reports);
     out << "model score: " << (run_score(reports) * 10.0) << "/1000";
-    if (model_score_ci(reports) > 0.0)
-        out << "  ±" << static_cast<int>(model_score_ci(reports) * 10.0)
-            << " (95% CI)";
+    if (ci > 0.0) {
+        std::ostringstream ci_s;
+        ci_s << std::fixed << std::setprecision(1) << (ci * 10.0);
+        out << "  ±" << ci_s.str() << " (95% CI)";
+    } else {
+        out << "  (single-run: no CI)";
+    }
     out << "\n";
     int passed = 0;
     for (const auto& r : reports) {
@@ -125,8 +159,13 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
         out << verdict << "  " << r.name << " (" << r.suite << ")"
             << "  score=" << static_cast<int>(r.score.total)
             << (r.repeat_n > 1
-                    ? " (median " + std::to_string(static_cast<int>(r.score_median))
-                          + ", σ " + std::to_string(static_cast<int>(r.score_stddev)) + ")"
+                    ? [&r]() {
+                          std::ostringstream ss;
+                          ss << std::fixed << std::setprecision(1)
+                             << " (median " << r.score_median << ", σ "
+                             << r.score_stddev << ")";
+                          return ss.str();
+                      }()
                     : "")
             << " d" << r.difficulty
             << " bullseye=" << r.kpi.bullseye
@@ -375,10 +414,14 @@ std::string render_markdown_comparison(
     std::ostringstream out;
     out << "# Benchmark: harness score by model\n\n";
     for (const auto& run : runs) {
+        const double ci = model_score_ci(run.second);
         out << "- **" << run.first.model << "**: "
             << static_cast<int>(run_score(run.second) * 10.0) << "/1000";
-        if (model_score_ci(run.second) > 0.0)
-            out << " ±" << static_cast<int>(model_score_ci(run.second) * 10.0);
+        if (ci > 0.0) {
+            std::ostringstream ci_s;
+            ci_s << std::fixed << std::setprecision(1) << (ci * 10.0);
+            out << " ±" << ci_s.str();
+        }
         out << "\n";
     }
     // The resolution rule: differences within the combined CI are noise.
@@ -391,12 +434,17 @@ std::string render_markdown_comparison(
                 const double sb = run_score(runs[j].second);
                 const double ca = model_score_ci(runs[i].second);
                 const double cb = model_score_ci(runs[j].second);
-                const bool yes = resolvable(ca, sa, cb, sb);
+                std::string verdict;
+                if (ca < 0.0 || cb < 0.0)
+                    verdict = "insufficient repeat data (run --repeat)";
+                else
+                    verdict = resolvable(ca, sa, cb, sb)
+                                  ? "**resolvable**"
+                                  : "within noise";
                 out << "- " << runs[i].first.model << " vs "
                     << runs[j].first.model << ": Δ="
                     << static_cast<int>(std::abs(sa - sb) * 10.0)
-                    << " → " << (yes ? "**resolvable**" : "within noise")
-                    << "\n";
+                    << " → " << verdict << "\n";
             }
     }
 

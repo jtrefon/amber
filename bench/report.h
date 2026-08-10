@@ -55,7 +55,8 @@ double median(std::vector<double> values) noexcept;
 double stddev(const std::vector<double>& values) noexcept;
 
 // Collapse N runs of one scenario into a single median report carrying the
-// population statistics. Returns the input unchanged when repeat_n <= 1.
+// population statistics. Single-run input still initializes the metadata
+// (repeat_n = 1, score_median = score, repeat_scores = {score}).
 ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs);
 
 // 95% confidence interval for a model score built from per-scenario medians

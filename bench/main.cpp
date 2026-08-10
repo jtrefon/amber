@@ -182,22 +182,40 @@ int cmd_validate(const std::string& name) {
     return (r.compile_ok && r.tests_passed == r.tests_total) ? 0 : 1;
 }
 
-bool parse_report_file(const std::string& file, bench::RunMeta& meta,
-                       std::vector<bench::ScenarioReport>& reports) {
+namespace {
+// Load and decode one stored report file; nullopt with a message on failure.
+std::optional<agent::json> load_report_json(const std::string& file,
+                                            std::string& err) {
     std::ifstream f(file);
     if (!f) {
-        std::cerr << "error: cannot open " << file << "\n";
+        err = "cannot open " + file;
+        return std::nullopt;
+    }
+    try {
+        return agent::json::parse(f);
+    } catch (const std::exception& e) {
+        err = file + ": " + e.what();
+        return std::nullopt;
+    }
+}
+} // namespace
+
+bool parse_report_file(const std::string& file, bench::RunMeta& meta,
+                       std::vector<bench::ScenarioReport>& reports) {
+    std::string err;
+    auto j = load_report_json(file, err);
+    if (!j) {
+        std::cerr << "error: " << err << "\n";
         return false;
     }
-    agent::json j;
     try {
-        j = agent::json::parse(f);
+        if (!bench::parse_report_json(*j, meta, reports)) {
+            std::cerr << "error: " << file
+                      << " is not an amber-bench report\n";
+            return false;
+        }
     } catch (const std::exception& e) {
         std::cerr << "error: " << file << ": " << e.what() << "\n";
-        return false;
-    }
-    if (!bench::parse_report_json(j, meta, reports)) {
-        std::cerr << "error: " << file << " is not an amber-bench report\n";
         return false;
     }
     return true;
