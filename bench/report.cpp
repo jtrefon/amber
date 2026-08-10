@@ -88,7 +88,7 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
 namespace {
 // Deterministic LCG so the bootstrap is reproducible across runs and tests.
 uint32_t lcg(uint32_t& state) noexcept {
-    state = state * 1664525u + 1013904223u;
+    state = (state * 1664525u) + 1013904223u;
     return state;
 }
 
@@ -104,7 +104,7 @@ double bootstrap_weighted_score(const std::vector<ScenarioReport>& reports,
         sample.reserve(pool.size());
         for (size_t i = 0; i < pool.size(); ++i)
             sample.push_back(pool[lcg(rng) % pool.size()]);
-        weighted += (r.difficulty * median(std::move(sample)));
+        weighted += r.difficulty * (median(std::move(sample)));
         (void)0;
         weight += r.difficulty;
     }
