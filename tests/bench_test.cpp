@@ -1302,3 +1302,191 @@ TEST(agentic_penalizes_excess_planned_tools) {
     ASSERT(a.has_plan);
     ASSERT_NEAR(a.score, 90.0, 0.01);  // one excess read
 }
+
+// ---------------------------------------------------------------------------
+// BENCH-01 — repeat medians + confidence intervals (the resolution floor)
+// ---------------------------------------------------------------------------
+
+static bench::ScenarioReport score_report(const std::string& name, double total,
+                                          int difficulty = 3) {
+    bench::ScenarioReport r;
+    r.name = name;
+    r.suite = "tools";
+    r.difficulty = difficulty;
+    r.score.total = total;
+    r.kpi.success = total >= 60.0;
+    return r;
+}
+
+// Three runs of one scenario aggregate into a single report: median score,
+// repeat count, and a positive standard deviation.
+TEST(repeat_aggregates_median_and_stddev) {
+    std::vector<bench::ScenarioReport> runs = {
+        score_report("s1", 90.0), score_report("s1", 95.0),
+        score_report("s1", 97.0)};
+    bench::ScenarioReport agg = bench::aggregate_repeats(runs);
+    ASSERT_EQ(agg.repeat_n, 3);
+    ASSERT_NEAR(agg.score_median, 95.0, 0.01);
+    ASSERT(agg.score_stddev > 0.0);
+}
+
+// With repeats, the model score is the difficulty-weighted mean of the
+// per-scenario MEDIANS — a single wild outlier must not skew it.
+TEST(model_score_uses_aggregated_medians) {
+    std::vector<bench::ScenarioReport> runs;
+    // scenario a: 90, 95, 97 (median 95); scenario b: 40, 80, 82 (median 80)
+    for (double s : {90.0, 95.0, 97.0}) runs.push_back(score_report("a", s, 2));
+    for (double s : {40.0, 80.0, 82.0}) runs.push_back(score_report("b", s, 2));
+    std::vector<bench::ScenarioReport> agg;
+    for (const auto& name : {"a", "b"}) {
+        std::vector<bench::ScenarioReport> one;
+        for (const auto& r : runs)
+            if (r.name == name) one.push_back(r);
+        agg.push_back(bench::aggregate_repeats(one));
+    }
+    // weighted mean of medians: (2*95 + 2*80)/4 = 87.5
+    ASSERT_NEAR(bench::run_score(agg), 87.5, 0.01);
+}
+
+// The resolution rule: two models differ meaningfully only when their gap
+// exceeds the combined confidence interval (~2-3 sigma).
+TEST(resolution_rule_enforces_noise_floor) {
+    // 9-point gap, noisy runs (sigma ~ 5 per model): not resolvable.
+    ASSERT_FALSE(bench::resolvable(10.0, 100.0, 10.0, 91.0));
+    // Same gap, tight runs (sigma ~ 1): resolvable.
+    ASSERT(bench::resolvable(2.0, 100.0, 2.0, 91.0));
+}
+
+// The JSON report exposes the aggregate fields when repeats were run.
+TEST(repeat_json_emits_median_and_ci) {
+    std::vector<bench::ScenarioReport> runs = {
+        score_report("s1", 90.0), score_report("s1", 95.0),
+        score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> agg = {
+        bench::aggregate_repeats(runs)};
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    std::string json = bench::render_json(agg, meta);
+    ASSERT(json.find("score_median") != std::string::npos);
+    ASSERT(json.find("score_stddev") != std::string::npos);
+    ASSERT(json.find("model_score_ci") != std::string::npos);
+}
+
+// A stored JSON report round-trips: the repeat fields and the model CI
+// survive render_json -> parse_report_json, and legacy files (no repeat
+// fields) default score_median to score.
+TEST(repeat_json_roundtrip_preserves_fields) {
+    std::vector<bench::ScenarioReport> runs = {
+        score_report("s1", 90.0), score_report("s1", 95.0),
+        score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> agg = {
+        bench::aggregate_repeats(runs)};
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    const std::string json = bench::render_json(agg, meta);
+
+    agent::json j = agent::json::parse(json, nullptr, false);
+    ASSERT(!j.is_discarded());
+    bench::RunMeta meta2;
+    std::vector<bench::ScenarioReport> back;
+    ASSERT(bench::parse_report_json(j, meta2, back));
+    ASSERT_EQ(back.size(), 1u);
+    ASSERT_EQ(back[0].repeat_n, 3);
+    ASSERT_NEAR(back[0].score_median, 95.0, 0.01);
+    ASSERT(back[0].score_stddev > 0.0);
+    ASSERT_EQ(back[0].repeat_scores.size(), 3u);
+
+    // Legacy file: score_median defaults to score.
+    agent::json legacy = agent::json::object();
+    legacy["scenarios"] = agent::json::array({
+        {{"name", "s1"}, {"suite", "tools"}, {"score", 91.0}}});
+    std::vector<bench::ScenarioReport> legacy_back;
+    ASSERT(bench::parse_report_json(legacy, meta2, legacy_back));
+    ASSERT_EQ(legacy_back[0].repeat_n, 1);
+    ASSERT_NEAR(legacy_back[0].score_median, 91.0, 0.01);
+}
+
+// The text report shows the repeat statistics on repeated scenarios.
+TEST(repeat_text_report_shows_stats) {
+    std::vector<bench::ScenarioReport> runs = {
+        score_report("s1", 90.0), score_report("s1", 95.0),
+        score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> agg = {
+        bench::aggregate_repeats(runs)};
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    const std::string text = bench::render_text(agg, meta);
+    ASSERT(text.find("median 95") != std::string::npos);
+    ASSERT(text.find("(95% CI)") != std::string::npos);
+}
+
+// A two-run aggregation carries the metadata; the canonical score is the
+// median, not the representative run's total.
+TEST(repeat_two_runs_median_is_canonical) {
+    std::vector<bench::ScenarioReport> runs = {
+        score_report("s1", 90.0), score_report("s1", 100.0)};
+    bench::ScenarioReport agg = bench::aggregate_repeats(runs);
+    ASSERT_EQ(agg.repeat_n, 2);
+    ASSERT_NEAR(agg.score_median, 95.0, 0.01);
+    ASSERT_NEAR(agg.score.total, 95.0, 0.01);
+}
+
+// The CI is a property of the MEDIAN estimator: more repeats shrink it.
+TEST(model_score_ci_shrinks_with_repeats) {
+    std::vector<bench::ScenarioReport> runs;
+    runs.reserve(6);
+    for (int i = 0; i < 3; ++i)
+        runs.push_back(score_report("a", 90.0 + i, 2));
+    for (int i = 0; i < 3; ++i)
+        runs.push_back(score_report("b", 80.0 + i, 2));
+    std::vector<bench::ScenarioReport> agg3;
+    for (const auto& name : {"a", "b"}) {
+        std::vector<bench::ScenarioReport> one;
+        for (const auto& r : runs)
+            if (r.name == name) one.push_back(r);
+        agg3.push_back(bench::aggregate_repeats(one));
+    }
+    const double ci3 = bench::model_score_ci(agg3);
+
+    // Nine runs of the same distributions must shrink the interval.
+    std::vector<bench::ScenarioReport> runs9;
+    runs9.reserve(18);
+    for (int i = 0; i < 9; ++i) runs9.push_back(score_report("a", 90.0 + (i % 3), 2));
+    for (int i = 0; i < 9; ++i) runs9.push_back(score_report("b", 80.0 + (i % 3), 2));
+    std::vector<bench::ScenarioReport> agg9;
+    for (const auto& name : {"a", "b"}) {
+        std::vector<bench::ScenarioReport> one;
+        for (const auto& r : runs9)
+            if (r.name == name) one.push_back(r);
+        agg9.push_back(bench::aggregate_repeats(one));
+    }
+    const double ci9 = bench::model_score_ci(agg9);
+    ASSERT(ci3 > 0.0);
+    ASSERT(ci9 > 0.0);
+    ASSERT(ci9 < ci3);
+}
+
+// A single run cannot claim precision: the CI is missing, never zero.
+TEST(model_score_ci_missing_for_single_runs) {
+    std::vector<bench::ScenarioReport> one = {score_report("a", 91.0)};
+    ASSERT_EQ(bench::model_score_ci(one), -1.0);
+    const std::string text = bench::render_text(one, [&]() {
+        bench::RunMeta m;
+        m.mode = "hermetic";
+        m.model = "fake";
+        return m;
+    }());
+    ASSERT(text.find("no CI") != std::string::npos);
+}
+
+// The bootstrap is deterministic: identical inputs give identical CIs.
+TEST(model_score_ci_deterministic) {
+    std::vector<bench::ScenarioReport> runs;
+    runs.reserve(3);
+    for (int i = 0; i < 3; ++i) runs.push_back(score_report("a", 90.0 + i));
+    std::vector<bench::ScenarioReport> agg = {bench::aggregate_repeats(runs)};
+    ASSERT_EQ(bench::model_score_ci(agg), bench::model_score_ci(agg));
+}

@@ -34,16 +34,50 @@ struct ScenarioReport {
     std::vector<std::pair<std::string, std::string>> tool_calls;  // name, args
     bool templated = false;              // static-template scenario
     std::vector<std::string> failures;
+
+    // Repeat aggregation (BENCH-01): when a scenario ran N times, the report
+    // is the median run and these carry the population statistics. The raw
+    // per-run totals stay in repeat_scores for audit.
+    int repeat_n = 1;
+    double score_median = 0.0;
+    double score_stddev = 0.0;
+    std::vector<double> repeat_scores;
 };
 
 // Difficulty-weighted aggregate of per-scenario totals: 0..100 (×10 = /1000).
+// With repeats, pass the aggregated (median) reports — see aggregate_repeats.
 double run_score(const std::vector<ScenarioReport>& reports) noexcept;
+
+// Median of a sample.
+double median(std::vector<double> values) noexcept;
+
+// Sample standard deviation (0 when n < 2).
+double stddev(const std::vector<double>& values) noexcept;
+
+// Collapse N runs of one scenario into a single median report carrying the
+// population statistics. Single-run input still initializes the metadata
+// (repeat_n = 1, score_median = score, repeat_scores = {score}).
+ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs);
+
+// 95% confidence interval for a model score built from per-scenario medians
+// (difficulty-weighted pooled variance): 1.96 * sqrt(sum(w^2 * s_i^2)) / sum(w).
+double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept;
+
+// The resolution rule: two models differ meaningfully only when their score
+// gap exceeds the combined confidence interval.
+bool resolvable(double ci_a, double score_a, double ci_b,
+                double score_b) noexcept;
 
 std::string render_text(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta);
 
 std::string render_json(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta);
+
+// Rehydrate a stored JSON report (render_json output) into reports + meta.
+// Legacy files without the repeat fields default score_median to score.
+bool parse_report_json(const agent::json& j, RunMeta& meta,
+                       std::vector<ScenarioReport>& reports);
 
 // Markdown report: score table + failure details (for BENCHMARK.md).
 std::string render_markdown(const std::vector<ScenarioReport>& reports,

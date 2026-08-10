@@ -182,75 +182,41 @@ int cmd_validate(const std::string& name) {
     return (r.compile_ok && r.tests_passed == r.tests_total) ? 0 : 1;
 }
 
-bool parse_report_file(const std::string& file, bench::RunMeta& meta,
-                       std::vector<bench::ScenarioReport>& reports) {
+namespace {
+// Load and decode one stored report file; nullopt with a message on failure.
+std::optional<agent::json> load_report_json(const std::string& file,
+                                            std::string& err) {
     std::ifstream f(file);
     if (!f) {
-        std::cerr << "error: cannot open " << file << "\n";
+        err = "cannot open " + file;
+        return std::nullopt;
+    }
+    try {
+        return agent::json::parse(f);
+    } catch (const std::exception& e) {
+        err = file + ": " + e.what();
+        return std::nullopt;
+    }
+}
+} // namespace
+
+bool parse_report_file(const std::string& file, bench::RunMeta& meta,
+                       std::vector<bench::ScenarioReport>& reports) {
+    std::string err;
+    auto j = load_report_json(file, err);
+    if (!j) {
+        std::cerr << "error: " << err << "\n";
         return false;
     }
-    agent::json j;
     try {
-        j = agent::json::parse(f);
+        if (!bench::parse_report_json(*j, meta, reports)) {
+            std::cerr << "error: " << file
+                      << " is not an amber-bench report\n";
+            return false;
+        }
     } catch (const std::exception& e) {
         std::cerr << "error: " << file << ": " << e.what() << "\n";
         return false;
-    }
-    if (!j.contains("scenarios") || !j["scenarios"].is_array()) {
-        std::cerr << "error: " << file << " is not an amber-bench report\n";
-        return false;
-    }
-    meta.run_id = j.value("run_id", "");
-    meta.mode = j.value("mode", "");
-    meta.profile = j.value("profile", "");
-    meta.model = j.value("model", "");
-    meta.engine_version = j.value("engine_version", "");
-    meta.timestamp = j.value("timestamp", "");
-    meta.reasoning = j.value("reasoning", "");
-    for (const auto& e : j["scenarios"]) {
-        bench::ScenarioReport rep;
-        rep.name = e.value("name", "");
-        rep.suite = e.value("suite", "");
-        rep.kpi.success = e.value("success", false);
-        rep.kpi.bullseye = e.value("bullseye", 0.0);
-        rep.kpi.steps = e.value("steps", 0);
-        rep.kpi.compressions = e.value("compressions", 0);
-        rep.kpi.tool_calls = e.value("tool_calls_total", 0);
-        rep.kpi.tool_failures = e.value("tool_failures", 0);
-        rep.kpi.tool_denied = e.value("tool_denied", 0);
-        rep.kpi.redundant = e.value("redundant", 0);
-        rep.kpi.retries = e.value("retries", 0);
-        rep.kpi.wasted = e.value("wasted", 0);
-        rep.kpi.retries = e.value("retries", 0);
-        rep.kpi.recoveries = e.value("recoveries", 0);
-        rep.kpi.wall_ms = e.value("wall_ms", 0L);
-        rep.difficulty = e.value("difficulty", 3);
-        rep.score.total = e.value("score", 0.0);
-        rep.templated = e.value("templated", false);
-        rep.agentic.has_plan = e.value("agentic_has_plan", false);
-        rep.agentic.plan_tools = e.value("agentic_plan_tools", 0);
-        rep.agentic.plan_deviation = e.value("agentic_deviation", 0);
-        rep.agentic.plan_ratio = e.value("agentic_ratio", 0.0);
-        rep.agentic.efficiency_pct = e.value("agentic_efficiency_pct", 0.0);
-        rep.agentic.score = e.value("agentic_score", 0.0);
-        if (e.contains("agentic_plan_by_tool") &&
-            e["agentic_plan_by_tool"].is_object())
-            for (auto it = e["agentic_plan_by_tool"].begin();
-                 it != e["agentic_plan_by_tool"].end(); ++it)
-                if (it.value().is_number_integer())
-                    rep.agentic.plan_by_tool[it.key()] = it.value().get<int>();
-        if (e.contains("agentic_actual_by_tool") &&
-            e["agentic_actual_by_tool"].is_object())
-            for (auto it = e["agentic_actual_by_tool"].begin();
-                 it != e["agentic_actual_by_tool"].end(); ++it)
-                if (it.value().is_number_integer())
-                    rep.agentic.actual_by_tool[it.key()] = it.value().get<int>();
-        if (e.contains("artifact_score") && e["artifact_score"].is_number())
-            rep.kpi.artifact_score = e["artifact_score"].get<double>();
-        if (e.contains("failures") && e["failures"].is_array())
-            for (const auto& x : e["failures"])
-                if (x.is_string()) rep.failures.push_back(x.get<std::string>());
-        reports.push_back(std::move(rep));
     }
     return true;
 }

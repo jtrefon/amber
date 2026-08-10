@@ -1,6 +1,10 @@
 
 #include "bench/report.h"
 
+#include <cmath>
+#include <iomanip>
+#include <limits>
+#include <numeric>
 #include <sstream>
 
 #include "agent/tool.h"
@@ -17,6 +21,121 @@ double run_score(const std::vector<ScenarioReport>& reports) noexcept {
     return weight > 0 ? weighted / weight : 100.0;
 }
 
+double median(std::vector<double> values) noexcept {
+    if (values.empty()) return 0.0;
+    std::sort(values.begin(), values.end());
+    const size_t n = values.size();
+    return n % 2 == 1
+               ? values[n / 2]
+               : (values[(n / 2) - 1] + values[n / 2]) / 2.0;
+}
+
+double stddev(const std::vector<double>& values) noexcept {
+    if (values.size() < 2) return 0.0;
+    const double mean =
+        std::accumulate(values.begin(), values.end(), 0.0) / values.size();
+    double sq = 0.0;
+    for (const double v : values) sq += (v - mean) * (v - mean);
+    return std::sqrt(sq / (values.size() - 1));
+}
+
+namespace {
+// Run whose total sits closest to the median — the representative report.
+size_t median_representative(const std::vector<ScenarioReport>& runs,
+                             double score_median) {
+    size_t best = 0;
+    auto closest = std::numeric_limits<double>::max();
+    for (size_t i = 0; i < runs.size(); ++i) {
+        const double d = std::abs(runs[i].score.total - score_median);
+        if (d < closest) { closest = d; best = i; }
+    }
+    return best;
+}
+
+// The representative run's detail fields (kpi/agentic/tool_calls/final_text).
+void copy_representative_details(ScenarioReport& agg, const ScenarioReport& rep) {
+    agg.kpi = rep.kpi;
+    agg.score = rep.score;
+    agg.agentic = rep.agentic;
+    agg.final_text = rep.final_text;
+    agg.tool_calls = rep.tool_calls;
+    agg.failures = rep.failures;
+    agg.templated = rep.templated;
+}
+} // namespace
+
+ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
+    if (runs.empty()) return {};
+    ScenarioReport agg = runs.front();
+    agg.repeat_n = static_cast<int>(runs.size());
+    agg.repeat_scores.clear();
+    for (const auto& r : runs) agg.repeat_scores.push_back(r.score.total);
+    if (runs.size() == 1) {
+        // Single runs still carry the metadata: median = the score itself.
+        agg.score_median = agg.score.total;
+        return agg;
+    }
+    agg.score_median = median(agg.repeat_scores);
+    agg.score_stddev = stddev(agg.repeat_scores);
+    copy_representative_details(agg,
+                                runs[median_representative(runs, agg.score_median)]);
+    // The canonical score IS the median; the representative run only carries
+    // the detail fields (kpi/agentic/tool_calls).
+    agg.score.total = agg.score_median;
+    return agg;
+}
+
+namespace {
+// Deterministic LCG so the bootstrap is reproducible across runs and tests.
+uint32_t lcg(uint32_t& state) noexcept {
+    state = (state * 1664525u) + 1013904223u;
+    return state;
+}
+
+// One bootstrap iteration: resample each scenario's repeat_scores, take the
+// per-scenario median, and return the difficulty-weighted model score.
+double bootstrap_weighted_score(const std::vector<ScenarioReport>& reports,
+                                uint32_t& rng) noexcept {
+    double weighted = 0.0;
+    int weight = 0;
+    for (const auto& r : reports) {
+        const auto& pool = r.repeat_scores;
+        std::vector<double> sample;
+        sample.reserve(pool.size());
+        for (size_t i = 0; i < pool.size(); ++i)
+            sample.push_back(pool[lcg(rng) % pool.size()]);
+        weighted += r.difficulty * (median(std::move(sample)));
+        (void)0;
+        weight += r.difficulty;
+    }
+    return weight > 0 ? weighted / weight : 100.0;
+}
+} // namespace
+
+// 95% CI for the median-of-medians model score, estimated by bootstrap
+// resampling of each scenario's repeat_scores (uncertainty shrinks as
+// repeat_n grows). Returns -1.0 when any scenario lacks repeat data — the CI
+// is missing, never silently zero (a single run must not claim precision).
+double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept {
+    for (const auto& r : reports)
+        if (r.repeat_n < 2 || r.repeat_scores.size() < 2) return -1.0;
+    uint32_t rng = 0xC0FFEEu;
+    std::vector<double> boot;
+    boot.reserve(200);
+    for (int i = 0; i < 200; ++i)
+        boot.push_back(bootstrap_weighted_score(reports, rng));
+    return 1.96 * stddev(boot);
+}
+
+bool resolvable(double ci_a, double score_a, double ci_b,
+                double score_b) noexcept {
+    const double gap = std::abs(score_a - score_b);
+    // ci_a/ci_b are already 95% intervals; the combined interval of the
+    // difference is their root-sum-square (independent runs).
+    const double combined = std::sqrt((ci_a * ci_a) + (ci_b * ci_b));
+    return gap > combined;
+}
+
 std::string render_text(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta) {
     std::ostringstream out;
@@ -24,13 +143,31 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
         << (meta.profile.empty() ? "default" : meta.profile) << ", "
         << meta.model << "]\n";
     out << "engine " << meta.engine_version << " @ " << meta.timestamp << "\n";
-    out << "model score: " << (run_score(reports) * 10.0) << "/1000\n";
+    const double ci = model_score_ci(reports);
+    out << "model score: " << (run_score(reports) * 10.0) << "/1000";
+    if (ci > 0.0) {
+        std::ostringstream ci_s;
+        ci_s << std::fixed << std::setprecision(1) << (ci * 10.0);
+        out << "  ±" << ci_s.str() << " (95% CI)";
+    } else {
+        out << "  (single-run: no CI)";
+    }
+    out << "\n";
     int passed = 0;
     for (const auto& r : reports) {
         const char* verdict = r.kpi.success ? "PASS" : "FAIL";
         if (r.kpi.success) ++passed;
         out << verdict << "  " << r.name << " (" << r.suite << ")"
             << "  score=" << static_cast<int>(r.score.total)
+            << (r.repeat_n > 1
+                    ? [&r]() {
+                          std::ostringstream ss;
+                          ss << std::fixed << std::setprecision(1)
+                             << " (median " << r.score_median << ", σ "
+                             << r.score_stddev << ")";
+                          return ss.str();
+                      }()
+                    : "")
             << " d" << r.difficulty
             << " bullseye=" << r.kpi.bullseye
             << " steps=" << r.kpi.steps
@@ -92,6 +229,10 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["success"] = r.kpi.success;
         j["difficulty"] = r.difficulty;
         j["score"] = r.score.total;
+        j["repeat_n"] = r.repeat_n;
+        j["score_median"] = r.score_median;
+        j["score_stddev"] = r.score_stddev;
+        if (!r.repeat_scores.empty()) j["repeat_scores"] = r.repeat_scores;
         j["score_correctness"] = r.score.correctness;
         j["score_efficiency"] = r.score.efficiency;
         j["score_robustness"] = r.score.robustness;
@@ -148,6 +289,7 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
     }
     out["scenarios"] = std::move(arr);
     out["model_score"] = run_score(reports) * 10.0;
+    out["model_score_ci"] = model_score_ci(reports) * 10.0;
     return out.dump(2) + "\n";
 }
 
@@ -272,9 +414,40 @@ std::string render_markdown_comparison(
     if (runs.empty()) return "";
     std::ostringstream out;
     out << "# Benchmark: harness score by model\n\n";
-    for (const auto& run : runs)
+    for (const auto& run : runs) {
+        const double ci = model_score_ci(run.second);
         out << "- **" << run.first.model << "**: "
-            << static_cast<int>(run_score(run.second) * 10.0) << "/1000\n";
+            << static_cast<int>(run_score(run.second) * 10.0) << "/1000";
+        if (ci > 0.0) {
+            std::ostringstream ci_s;
+            ci_s << std::fixed << std::setprecision(1) << (ci * 10.0);
+            out << " ±" << ci_s.str();
+        }
+        out << "\n";
+    }
+    // The resolution rule: differences within the combined CI are noise.
+    if (runs.size() >= 2) {
+        out << "\n**Resolution** (a gap is a finding only when it exceeds the "
+               "combined 95% CI):\n\n";
+        for (size_t i = 0; i < runs.size(); ++i)
+            for (size_t j = i + 1; j < runs.size(); ++j) {
+                const double sa = run_score(runs[i].second);
+                const double sb = run_score(runs[j].second);
+                const double ca = model_score_ci(runs[i].second);
+                const double cb = model_score_ci(runs[j].second);
+                std::string verdict;
+                if (ca < 0.0 || cb < 0.0)
+                    verdict = "insufficient repeat data (run --repeat)";
+                else
+                    verdict = resolvable(ca, sa, cb, sb)
+                                  ? "**resolvable**"
+                                  : "within noise";
+                out << "- " << runs[i].first.model << " vs "
+                    << runs[j].first.model << ": Δ="
+                    << static_cast<int>(std::abs(sa - sb) * 10.0)
+                    << " → " << verdict << "\n";
+            }
+    }
 
     out << "\n| model | score | agentic | plan % | tools | fail % | redun % | "
            "steps | wall (s) |\n";
@@ -340,6 +513,65 @@ std::string render_markdown_comparison(
     for (const auto& run : runs)
         out << render_markdown(run.second, run.first) << "\n";
     return out.str();
+}
+
+bool parse_report_json(const agent::json& j, RunMeta& meta,
+                       std::vector<ScenarioReport>& reports) {
+    if (!j.contains("scenarios") || !j["scenarios"].is_array()) return false;
+    meta.run_id = j.value("run_id", "");
+    meta.mode = j.value("mode", "");
+    meta.profile = j.value("profile", "");
+    meta.model = j.value("model", "");
+    meta.engine_version = j.value("engine_version", "");
+    meta.timestamp = j.value("timestamp", "");
+    meta.reasoning = j.value("reasoning", "");
+    for (const auto& e : j["scenarios"]) {
+        ScenarioReport rep;
+        rep.name = e.value("name", "");
+        rep.suite = e.value("suite", "");
+        rep.kpi.success = e.value("success", false);
+        rep.kpi.bullseye = e.value("bullseye", 0.0);
+        rep.kpi.steps = e.value("steps", 0);
+        rep.kpi.tool_calls = e.value("tool_calls_total", 0);
+        rep.kpi.tool_failures = e.value("tool_failures", 0);
+        rep.kpi.tool_denied = e.value("tool_denied", 0);
+        rep.kpi.redundant = e.value("redundant", 0);
+        rep.kpi.retries = e.value("retries", 0);
+        rep.kpi.wasted = e.value("wasted", 0);
+        rep.kpi.recoveries = e.value("recoveries", 0);
+        rep.kpi.wall_ms = e.value("wall_ms", 0L);
+        rep.difficulty = e.value("difficulty", 3);
+        rep.score.total = e.value("score", 0.0);
+        rep.repeat_n = e.value("repeat_n", 1);
+        rep.score_median = e.value("score_median", rep.score.total);
+        rep.score_stddev = e.value("score_stddev", 0.0);
+        if (e.contains("repeat_scores") && e["repeat_scores"].is_array())
+            for (const auto& v : e["repeat_scores"])
+                if (v.is_number()) rep.repeat_scores.push_back(v.get<double>());
+        rep.templated = e.value("templated", false);
+        rep.agentic.has_plan = e.value("agentic_has_plan", false);
+        rep.agentic.plan_tools = e.value("agentic_plan_tools", 0);
+        rep.agentic.plan_deviation = e.value("agentic_deviation", 0);
+        rep.agentic.plan_ratio = e.value("agentic_ratio", 0.0);
+        rep.agentic.efficiency_pct = e.value("agentic_efficiency_pct", 0.0);
+        rep.agentic.score = e.value("agentic_score", 0.0);
+        if (e.contains("agentic_plan_by_tool") &&
+            e["agentic_plan_by_tool"].is_object())
+            for (auto it = e["agentic_plan_by_tool"].begin();
+                 it != e["agentic_plan_by_tool"].end(); ++it)
+                if (it.value().is_number_integer())
+                    rep.agentic.plan_by_tool[it.key()] =
+                        it.value().get<int>();
+        if (e.contains("agentic_actual_by_tool") &&
+            e["agentic_actual_by_tool"].is_object())
+            for (auto it = e["agentic_actual_by_tool"].begin();
+                 it != e["agentic_actual_by_tool"].end(); ++it)
+                if (it.value().is_number_integer())
+                    rep.agentic.actual_by_tool[it.key()] =
+                        it.value().get<int>();
+        reports.push_back(std::move(rep));
+    }
+    return true;
 }
 
 } // namespace bench
