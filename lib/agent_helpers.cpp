@@ -148,6 +148,8 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
 
 namespace {
 bool retryable_error(const std::exception& e) {
+    // Cancellation is never a retryable failure: the user asked to stop.
+    if (dynamic_cast<const CancelledError*>(&e)) return false;
     const auto* api = dynamic_cast<const ApiError*>(&e);
     return api == nullptr || api->retryable;
 }
@@ -230,6 +232,11 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
     if (strict)
         throw std::runtime_error("chat " + std::string(stage) + " failed: " +
                                  last_error);
+    if (cancel_token.is_requested()) {
+        // Cancellation must not fabricate an assistant message: the caller
+        // (Agent::run) ends the turn cleanly instead.
+        throw CancelledError("request cancelled by user");
+    }
     Message err;
     err.role = "assistant";
     err.content = "[error during " + std::string(stage) + ": " +

@@ -505,10 +505,10 @@ TEST(agent_loop_cancel_during_backoff) {
     canceller.join();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - t0);
-    ASSERT(reply.find("cancelled") != std::string::npos);
-    // Only the first generation attempt ran (the backoff wait was aborted);
-    // the second call is the loop's confirmation probe, not a retry.
-    ASSERT_EQ(raw->chat_calls, 2);
+    // Cancellation now stops the turn cleanly: no fabricated message, no
+    // probe round-trip — one aborted generation attempt, empty reply.
+    ASSERT(reply.empty());
+    ASSERT_EQ(raw->chat_calls, 1);
     ASSERT(elapsed.count() < 900);
 }
 
@@ -1113,4 +1113,32 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
     ASSERT(reg.find("read_skill") == before);
     ASSERT(reg.find("list_skills") != nullptr);
     ASSERT(reg.find("write_skill") != nullptr);
+}
+
+// [item-5] Cancellation must stop the run cleanly: no fabricated
+// "[error during generation: cancelled by user]" message may be pushed into
+// the session context.
+TEST(agent_loop_cancel_does_not_fabricate_message) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply f;
+    f.error = "server down";
+    f.retryable = true;
+    fake->script.push_back(std::move(f));
+    push_text(*fake, "done");
+
+    std::thread canceller([&cfg]() {
+        usleep(150 * 1000);
+        cfg.cancel_token.request();
+    });
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    std::string reply = ag.run("hi");
+    canceller.join();
+
+    for (const auto& m : ag.context().get_all())
+        ASSERT(m.content.find("[error during generation") ==
+               std::string::npos);
+    (void)reply;
 }

@@ -54,6 +54,13 @@ struct Stats {
 // A typed transport failure for the retry policy: `retryable` errors (curl
 // failures, timeouts, empty bodies, HTTP 429/5xx) may be retried with
 // backoff; non-retryable ones (auth/misconfig 4xx) must fail fast.
+// Thrown when the caller's CancellationToken fires mid-request. Distinct
+// from ApiError so cancellation is never classified as a retryable failure
+// and never degrades into a fabricated assistant message.
+struct CancelledError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
 struct ApiError : std::runtime_error {
     long status = 0;
     bool retryable = true;
