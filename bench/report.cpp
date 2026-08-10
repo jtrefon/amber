@@ -1,6 +1,9 @@
 
 #include "bench/report.h"
 
+#include <cmath>
+#include <limits>
+#include <numeric>
 #include <sstream>
 
 #include "agent/tool.h"
@@ -17,6 +20,70 @@ double run_score(const std::vector<ScenarioReport>& reports) noexcept {
     return weight > 0 ? weighted / weight : 100.0;
 }
 
+double median(std::vector<double> values) noexcept {
+    if (values.empty()) return 0.0;
+    std::sort(values.begin(), values.end());
+    const size_t n = values.size();
+    return n % 2 == 1
+               ? values[n / 2]
+               : (values[n / 2 - 1] + values[n / 2]) / 2.0;
+}
+
+double stddev(const std::vector<double>& values) noexcept {
+    if (values.size() < 2) return 0.0;
+    const double mean =
+        std::accumulate(values.begin(), values.end(), 0.0) / values.size();
+    double sq = 0.0;
+    for (const double v : values) sq += (v - mean) * (v - mean);
+    return std::sqrt(sq / (values.size() - 1));
+}
+
+ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
+    if (runs.empty()) return {};
+    if (runs.size() == 1) return runs.front();
+    ScenarioReport agg = runs.front();
+    agg.repeat_n = static_cast<int>(runs.size());
+    agg.repeat_scores.clear();
+    for (const auto& r : runs) agg.repeat_scores.push_back(r.score.total);
+    agg.score_median = median(agg.repeat_scores);
+    agg.score_stddev = stddev(agg.repeat_scores);
+    // The median run is the representative report (kpi/agentic/tool_calls).
+    size_t best = 0;
+    double closest = std::numeric_limits<double>::max();
+    for (size_t i = 0; i < runs.size(); ++i) {
+        const double d = std::abs(runs[i].score.total - agg.score_median);
+        if (d < closest) { closest = d; best = i; }
+    }
+    const ScenarioReport& rep = runs[best];
+    agg.kpi = rep.kpi;
+    agg.score = rep.score;
+    agg.agentic = rep.agentic;
+    agg.final_text = rep.final_text;
+    agg.tool_calls = rep.tool_calls;
+    agg.failures = rep.failures;
+    agg.templated = rep.templated;
+    return agg;
+}
+
+double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept {
+    double wsum = 0.0;
+    double pooled = 0.0;
+    for (const auto& r : reports) {
+        const double w = static_cast<double>(r.difficulty);
+        wsum += w;
+        pooled += w * w * r.score_stddev * r.score_stddev;
+    }
+    if (wsum <= 0.0) return 0.0;
+    return 1.96 * std::sqrt(pooled) / wsum;
+}
+
+bool resolvable(double ci_a, double score_a, double ci_b,
+                double score_b) noexcept {
+    const double gap = std::abs(score_a - score_b);
+    const double combined = 1.96 * std::sqrt(ci_a * ci_a + ci_b * ci_b);
+    return gap > combined;
+}
+
 std::string render_text(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta) {
     std::ostringstream out;
@@ -24,7 +91,11 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
         << (meta.profile.empty() ? "default" : meta.profile) << ", "
         << meta.model << "]\n";
     out << "engine " << meta.engine_version << " @ " << meta.timestamp << "\n";
-    out << "model score: " << (run_score(reports) * 10.0) << "/1000\n";
+    out << "model score: " << (run_score(reports) * 10.0) << "/1000";
+    if (model_score_ci(reports) > 0.0)
+        out << "  ±" << static_cast<int>(model_score_ci(reports) * 10.0)
+            << " (95% CI)";
+    out << "\n";
     int passed = 0;
     for (const auto& r : reports) {
         const char* verdict = r.kpi.success ? "PASS" : "FAIL";
@@ -92,6 +163,10 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["success"] = r.kpi.success;
         j["difficulty"] = r.difficulty;
         j["score"] = r.score.total;
+        j["repeat_n"] = r.repeat_n;
+        j["score_median"] = r.score_median;
+        j["score_stddev"] = r.score_stddev;
+        if (!r.repeat_scores.empty()) j["repeat_scores"] = r.repeat_scores;
         j["score_correctness"] = r.score.correctness;
         j["score_efficiency"] = r.score.efficiency;
         j["score_robustness"] = r.score.robustness;
@@ -148,6 +223,7 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
     }
     out["scenarios"] = std::move(arr);
     out["model_score"] = run_score(reports) * 10.0;
+    out["model_score_ci"] = model_score_ci(reports) * 10.0;
     return out.dump(2) + "\n";
 }
 
@@ -272,9 +348,31 @@ std::string render_markdown_comparison(
     if (runs.empty()) return "";
     std::ostringstream out;
     out << "# Benchmark: harness score by model\n\n";
-    for (const auto& run : runs)
+    for (const auto& run : runs) {
         out << "- **" << run.first.model << "**: "
-            << static_cast<int>(run_score(run.second) * 10.0) << "/1000\n";
+            << static_cast<int>(run_score(run.second) * 10.0) << "/1000";
+        if (model_score_ci(run.second) > 0.0)
+            out << " ±" << static_cast<int>(model_score_ci(run.second) * 10.0);
+        out << "\n";
+    }
+    // The resolution rule: differences within the combined CI are noise.
+    if (runs.size() >= 2) {
+        out << "\n**Resolution** (a gap is a finding only when it exceeds the "
+               "combined 95% CI):\n\n";
+        for (size_t i = 0; i < runs.size(); ++i)
+            for (size_t j = i + 1; j < runs.size(); ++j) {
+                const double sa = run_score(runs[i].second);
+                const double sb = run_score(runs[j].second);
+                const double ca = model_score_ci(runs[i].second);
+                const double cb = model_score_ci(runs[j].second);
+                const bool yes = resolvable(ca, sa, cb, sb);
+                out << "- " << runs[i].first.model << " vs "
+                    << runs[j].first.model << ": Δ="
+                    << static_cast<int>(std::abs(sa - sb) * 10.0)
+                    << " → " << (yes ? "**resolvable**" : "within noise")
+                    << "\n";
+            }
+    }
 
     out << "\n| model | score | agentic | plan % | tools | fail % | redun % | "
            "steps | wall (s) |\n";
