@@ -1185,7 +1185,7 @@ bench::Scenario planless_scenario(std::string& dir) {
     })");
     std::string err;
     auto s = bench::load_scenario(dir + "/p.json", err);
-    assert(s.has_value());
+    ASSERT(s.has_value());
     return *s;
 }
 } // namespace
@@ -1205,4 +1205,100 @@ TEST(e2e_hermetic_planless_neutral_agentic) {
     // checks 1/1, bullseye auto 1.0, agentic neutral 100 -> total 100, not
     // dragged to 80 by a plan-less 0.0 agentic.
     ASSERT_NEAR(rep.score.total, 100.0, 0.01);
+}
+
+// ---------------------------------------------------------------------------
+// BENCH-04 — agentic per-tool deviation, any-of checks, p-03 oracle
+// ---------------------------------------------------------------------------
+
+// Doing nothing must not score 100 on the agentic lens: every missing
+// planned tool and every unplanned (wrong) tool costs 10.
+TEST(agentic_penalizes_missing_and_wrong_tools) {
+    Scenario s;
+    s.optimal_plan = {{"read", 1}, {"write", 1}};
+    Kpi k = perfect_kpi();
+    bench::EventStream stream;
+    bench::Agentic none = bench::compute_agentic(stream, k, s);
+    ASSERT(none.has_plan);
+    ASSERT_NEAR(none.score, 80.0, 0.01);  // 2 missing tools
+
+    stream.calls.push_back({"bash", {{"command", "ls"}}, 0, "ok"});
+    bench::Agentic wrong = bench::compute_agentic(stream, k, s);
+    ASSERT_NEAR(wrong.score, 70.0, 0.01);  // 2 missing + 1 wrong tool
+}
+
+// An exact plan match scores 100 on the agentic lens.
+TEST(agentic_exact_plan_is_100) {
+    Scenario s;
+    s.optimal_plan = {{"read", 1}, {"write", 1}};
+    Kpi k = perfect_kpi();
+    bench::EventStream stream;
+    stream.calls.push_back({"read", {{"path", "a.txt"}}, 0, "ok"});
+    stream.calls.push_back({"write", {{"path", "b.txt"}}, 0, "ok"});
+    bench::Agentic a = bench::compute_agentic(stream, k, s);
+    ASSERT(a.has_plan);
+    ASSERT_NEAR(a.score, 100.0, 0.01);
+}
+
+// must_contain_any: a group passes when ANY member matches; the group counts
+// as one check in checks_pass and adherence.
+TEST(checks_any_of_parse_and_pass) {
+    std::string dir = tmp_dir("anyof");
+    write_file(dir + "/c.json", R"json({
+        "name": "anyof",
+        "suite": "review-datastructures",
+        "prompt": "p",
+        "checks": {
+            "must_contain_any": [["quadratic", "O(n*m)"], ["map", "unordered_set"]]
+        }
+    })json");
+    std::string err;
+    auto s = bench::load_scenario(dir + "/c.json", err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->checks.must_contain_any.size(), 2u);
+    ASSERT(bench::checks_pass(s->checks, "use a hash map, O(n*m)"));
+    ASSERT(!bench::checks_pass(s->checks, "nothing relevant"));
+    ASSERT_EQ(bench::adherence(s->checks, "a quadratic map"), 1.0);
+    ASSERT_EQ(bench::adherence(s->checks, "unrelated"), 0.0);
+}
+
+// The p-03 write oracle matches by target path (args_subset): any write to
+// a.txt satisfies the step, a write to a different file is rejected, and the
+// read-back step still must follow.
+TEST(p03_oracle_write_requires_edits) {
+    std::string err;
+    auto s = bench::load_scenario(
+        "bench/scenarios/prompt/p-03-verify-after-action.json", err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->oracle.size(), 2u);
+    const auto& write = s->oracle[0];
+    ASSERT_EQ(write.tool, "write");
+    ASSERT(write.args.contains("path"));
+    ASSERT(write.args_subset);
+
+    // Positive: a path-only write to a.txt satisfies the write step.
+    std::vector<bench::ToolCallEvent> ok_calls = {
+        {"write", {{"path", "a.txt"}}, 0, "ok"},
+        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(s->oracle, ok_calls).bullseye, 1.0);
+    // Negative: a write to a different file cannot satisfy the step.
+    std::vector<bench::ToolCallEvent> bad_calls = {
+        {"write", {{"path", "other.txt"}}, 0, "ok"},
+        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    ASSERT(bench::score_oracle(s->oracle, bad_calls).bullseye < 1.0);
+}
+
+// A planned tool called more often than the plan allows costs one unit per
+// excess call.
+TEST(agentic_penalizes_excess_planned_tools) {
+    Scenario s;
+    s.optimal_plan = {{"read", 1}, {"write", 1}};
+    Kpi k = perfect_kpi();
+    bench::EventStream stream;
+    stream.calls.push_back({"read", {{"path", "a.txt"}}, 0, "ok"});
+    stream.calls.push_back({"read", {{"path", "b.txt"}}, 0, "ok"});
+    stream.calls.push_back({"write", {{"path", "c.txt"}}, 0, "ok"});
+    bench::Agentic a = bench::compute_agentic(stream, k, s);
+    ASSERT(a.has_plan);
+    ASSERT_NEAR(a.score, 90.0, 0.01);  // one excess read
 }

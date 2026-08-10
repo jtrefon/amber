@@ -28,13 +28,18 @@
   "prompt": "Read Review.cpp and identify the design problem with the shape handling. Name the pattern that would remove the repeated switches.",
   "checks": {
     "must_contain": [
-      "switch",
-      "polymorph",
-      "strategy"
+      "switch"
     ],
     "must_not_contain": [
       "premature",
       "rewrite"
+    ],
+    "must_contain_any": [
+      [
+        "strategy",
+        "visitor",
+        "polymorph"
+      ]
     ]
   },
   "optimal_plan": {

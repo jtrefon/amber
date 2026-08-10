@@ -27,6 +27,10 @@ struct TemplateSpec {
 
 struct Checks {
     std::vector<std::string> must_contain;
+    // Any-of groups: each inner list passes when ANY member matches; the
+    // group counts as one check. Lets review scenarios accept legitimate
+    // alternative phrasings (hash map vs unordered_set, strategy vs visitor).
+    std::vector<std::vector<std::string>> must_contain_any;
     std::vector<std::string> must_not_contain;
 };
 
