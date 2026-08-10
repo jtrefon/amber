@@ -28,6 +28,14 @@ bool glob_match(const std::string& pattern, const std::string& text) noexcept {
     return p == pattern.size();
 }
 
+namespace {
+// The basename of a path (after the last '/'); the input when there is none.
+std::string basename(const std::string& p) {
+    const size_t slash = p.find_last_of('/');
+    return slash == std::string::npos ? p : p.substr(slash + 1);
+}
+} // namespace
+
 bool value_matches(const agent::json& expected, const agent::json& actual) {
     if (expected.is_string() &&
         expected.get<std::string>().find('*') != std::string::npos) {
@@ -35,7 +43,20 @@ bool value_matches(const agent::json& expected, const agent::json& actual) {
                glob_match(expected.get<std::string>(),
                           actual.get<std::string>());
     }
-    return expected == actual;
+    if (expected == actual) return true;
+    // Path normalization: live agents read workspace files via their
+    // absolute paths (the tools resolve them); an oracle expecting a bare
+    // relative name must still match — compare basenames when exactly one
+    // side is a bare filename (nested expectations stay exact).
+    if (expected.is_string() && actual.is_string()) {
+        const std::string& e = expected.get<std::string>();
+        const std::string& a = actual.get<std::string>();
+        const bool e_bare = e.find('/') == std::string::npos;
+        const bool a_bare = a.find('/') == std::string::npos;
+        if (e_bare != a_bare && !e.empty() && !a.empty())
+            return basename(e) == basename(a);
+    }
+    return false;
 }
 
 // Keys of an args object (empty when args is null / not an object).
