@@ -1604,3 +1604,89 @@ TEST(discriminative_ci_uses_discriminative_weights) {
     // The separator dominates under discrimination -> different uncertainty.
     ASSERT(std::abs(plain_ci - disc_ci) > 0.01);
 }
+
+
+// ---------------------------------------------------------------------------
+// BENCH-03 — reference-anchored difficulty ladder (calibration + headroom)
+// ---------------------------------------------------------------------------
+
+// The anchor weights center a balanced reference population exactly at the
+// target (50 on the 0-100 scale): scenarios the reference solves well lose
+// weight, scenarios it fails gain weight.
+TEST(calibration_anchor_exact_for_balanced_population) {
+    std::vector<bench::ScenarioReport> ref;
+    ref.push_back(score_report("easy", 90.0, 3));
+    ref.push_back(score_report("hard", 30.0, 3));
+    std::vector<bench::ScenarioReport> other;
+    other.push_back(score_report("easy", 70.0, 3));
+    other.push_back(score_report("hard", 90.0, 3));
+    std::vector<std::vector<bench::ScenarioReport>> population = {ref, other};
+
+    const std::vector<double> w =
+        bench::anchor_weights(population, "easy-run", 50.0);
+    ASSERT_EQ(w.size(), 2u);
+    // Weighted reference score lands exactly on the anchor.
+    double weighted = 0.0, wsum = 0.0;
+    for (size_t i = 0; i < ref.size(); ++i) {
+        weighted += w[i] * ref[i].score.total;
+        wsum += w[i];
+    }
+    ASSERT_NEAR(weighted / wsum, 50.0, 0.001);
+}
+
+// A higher reference score must never get a higher weight: the ladder
+// de-weights what the reference solves well.
+TEST(anchor_weights_monotonic_in_score) {
+    const std::vector<double> w = bench::anchor_weights(
+        {{score_report("a", 95.0, 3), score_report("b", 20.0, 3)}}, "r", 50.0);
+    ASSERT(w[0] < w[1]);
+}
+
+// The integer suggestions stay in [1, 6] and applying them never worsens the
+// anchor deviation vs the current difficulties.
+TEST(suggest_difficulties_clamped_and_improve) {
+    std::vector<bench::ScenarioReport> ref;
+    ref.push_back(score_report("easy", 90.0, 3));
+    ref.push_back(score_report("hard", 30.0, 3));
+    std::vector<bench::ScenarioReport> other;
+    other.push_back(score_report("easy", 70.0, 3));
+    other.push_back(score_report("hard", 90.0, 3));
+    std::vector<std::vector<bench::ScenarioReport>> population = {ref, other};
+
+    const std::vector<int> d = bench::suggest_difficulties(population, "r");
+    ASSERT_EQ(d.size(), 2u);
+    for (const int v : d) ASSERT(v >= 1 && v <= 6);
+
+    const double before = bench::reference_anchor_deviation(population, "r");
+    double weighted = 0.0, wsum = 0.0;
+    for (size_t i = 0; i < ref.size(); ++i) {
+        weighted += d[i] * ref[i].score.total;
+        wsum += d[i];
+    }
+    const double after = std::abs(weighted / wsum - 50.0);
+    ASSERT(after <= before);
+}
+
+// The chart must have a top: the best model leaves headroom below 1000 for
+// larger models yet to come.
+TEST(headroom_positive_below_ceiling) {
+    std::vector<std::vector<bench::ScenarioReport>> population = {
+        {score_report("s", 95.0, 3)}, {score_report("s", 90.0, 3)}};
+    ASSERT(bench::headroom(population) > 0.0);
+}
+
+// The difficulty ladder extends to 6 (headroom tier for larger models).
+TEST(difficulty_six_scenario_loads) {
+    std::string dir = tmp_dir("d6");
+    write_file(dir + "/h.json", R"json({
+        "name": "headroom-1",
+        "suite": "coding",
+        "prompt": "p",
+        "difficulty": 6,
+        "checks": {"must_contain": ["done"]}
+    })json");
+    std::string err;
+    auto s = bench::load_scenario(dir + "/h.json", err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->difficulty, 6);
+}
