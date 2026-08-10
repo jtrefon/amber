@@ -1729,3 +1729,23 @@ TEST(oracle_non_filename_keeps_exact_match) {
         {"read", {{"path", "/tmp/other/file.txt"}}, 0, "ok"}};
     ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 0.0);
 }
+
+
+// A nested RELATIVE expectation must also match the absolute form the live
+// agent produces: expected "src/header.h" vs actual "/tmp/ws/src/header.h".
+TEST(oracle_nested_relative_matches_absolute) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"write", {{"path", "src/header.h"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"write", {{"path", "/tmp/ws/src/header.h"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 1.0);
+}
+
+// ...but a different directory with the same leaf must not match.
+TEST(oracle_nested_relative_rejects_other_directory) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"write", {{"path", "src/header.h"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"write", {{"path", "/tmp/ws/include/header.h"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 0.0);
+}
