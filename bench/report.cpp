@@ -444,9 +444,9 @@ std::string render_markdown_comparison(
     // With a population of models, score by discrimination: participation
     // trophies weigh ~0 and separators dominate the deltas (BENCH-02).
     std::vector<std::vector<ScenarioReport>> population;
+    population.reserve(runs.size());
     for (const auto& run : runs) population.push_back(run.second);
     const std::vector<double> weights = discrimination_weights(population);
-    const bool discriminative = !weights.empty();
     auto score_of = [&](const std::vector<ScenarioReport>& rep) {
         return run_score_discriminative(rep, weights);
     };

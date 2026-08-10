@@ -1503,7 +1503,7 @@ TEST(discrimination_weights_zero_for_trophies) {
         std::vector<bench::ScenarioReport> run;
         run.push_back(score_report("trophy", 100.0, 3));       // constant
         run.push_back(score_report("trophy2", 99.0, 3));       // constant
-        run.push_back(score_report("split", 40.0 + 20.0 * m, 3));
+        run.push_back(score_report("split", 40.0 + (20.0 * m), 3));
         population.push_back(std::move(run));
     }
     std::vector<double> w = bench::discrimination_weights(population);
