@@ -13,6 +13,14 @@ model-library strategy.
 
 ## Suites
 
+15 suites: agent-failures, coding, compression, delegate, prompt, refactor,
+repo, terminal, tools (engine/terminal/SD dimensions) plus the six review-*
+suites (quality perception: arch, refactor, quality, datastructures, patterns,
+clean). 48 scenarios total at the time of writing; the review suites are
+phased (Phase A = 2 per category, Phase B target = 5 per category).
+
+## Suites
+
 | Suite | Measures | Mode | Starter (P1) |
 |-------|----------|------|--------------|
 | `agent-failures` | Robustness vs typical agent failure modes: redundant calls, mistakes, dropouts, repeated executions | hermetic + live | 4 |

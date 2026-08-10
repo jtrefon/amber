@@ -107,7 +107,7 @@ per-model matrix.
 | **Terminal proficiency** | Bash semantics: pipes, background jobs, timeouts, cwd, exit codes, caps | Live |
 | **Software development** | Real implementation/refactor quality against hidden tests (template engine) | Live |
 | **Context dilution** | Logic following across long conversations and large contexts | Live |
-| **Quality perception** | Articulated judgment: architecture, refactoring, quality, data structures, patterns, clean code (review suite) | Live |
+| **Quality perception** | Articulated judgment: architecture, refactoring, quality, data structures, patterns, clean code — a dimension containing the six `review-*` suites (`review-arch`, `review-refactor`, `review-quality`, `review-datastructures`, `review-patterns`, `review-clean`), each graded on recall of code-anchored issues + precision against distractors, with a clean-code control per pair | Live |
 
 A model's per-suite matrix is its capability profile; the same matrix over the
 hermetic suite is the harness's health report.
