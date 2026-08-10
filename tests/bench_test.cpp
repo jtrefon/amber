@@ -1655,7 +1655,10 @@ TEST(suggest_difficulties_clamped_and_improve) {
 
     const std::vector<int> d = bench::suggest_difficulties(population, 0);
     ASSERT_EQ(d.size(), 2u);
-    for (const int v : d) ASSERT(!(v < 1 || v > 6));
+    for (const int v : d) {
+        ASSERT_TRUE(v >= 1);
+        ASSERT_TRUE(v <= 6);
+    }
 
     const double before = bench::reference_anchor_deviation(population, 0);
     double weighted = 0.0, wsum = 0.0;
