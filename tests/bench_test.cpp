@@ -1437,6 +1437,7 @@ TEST(repeat_two_runs_median_is_canonical) {
 // The CI is a property of the MEDIAN estimator: more repeats shrink it.
 TEST(model_score_ci_shrinks_with_repeats) {
     std::vector<bench::ScenarioReport> runs;
+    runs.reserve(6);
     for (int i = 0; i < 3; ++i)
         runs.push_back(score_report("a", 90.0 + i, 2));
     for (int i = 0; i < 3; ++i)
@@ -1452,6 +1453,7 @@ TEST(model_score_ci_shrinks_with_repeats) {
 
     // Nine runs of the same distributions must shrink the interval.
     std::vector<bench::ScenarioReport> runs9;
+    runs9.reserve(18);
     for (int i = 0; i < 9; ++i) runs9.push_back(score_report("a", 90.0 + (i % 3), 2));
     for (int i = 0; i < 9; ++i) runs9.push_back(score_report("b", 80.0 + (i % 3), 2));
     std::vector<bench::ScenarioReport> agg9;
@@ -1483,6 +1485,7 @@ TEST(model_score_ci_missing_for_single_runs) {
 // The bootstrap is deterministic: identical inputs give identical CIs.
 TEST(model_score_ci_deterministic) {
     std::vector<bench::ScenarioReport> runs;
+    runs.reserve(3);
     for (int i = 0; i < 3; ++i) runs.push_back(score_report("a", 90.0 + i));
     std::vector<bench::ScenarioReport> agg = {bench::aggregate_repeats(runs)};
     ASSERT_EQ(bench::model_score_ci(agg), bench::model_score_ci(agg));

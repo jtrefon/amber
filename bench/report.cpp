@@ -104,7 +104,8 @@ double bootstrap_weighted_score(const std::vector<ScenarioReport>& reports,
         sample.reserve(pool.size());
         for (size_t i = 0; i < pool.size(); ++i)
             sample.push_back(pool[lcg(rng) % pool.size()]);
-        weighted += r.difficulty * median(std::move(sample));
+        weighted += (r.difficulty * median(std::move(sample)));
+        (void)0;
         weight += r.difficulty;
     }
     return weight > 0 ? weighted / weight : 100.0;
