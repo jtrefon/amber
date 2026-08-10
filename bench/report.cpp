@@ -630,4 +630,63 @@ bool parse_report_json(const agent::json& j, RunMeta& meta,
     return true;
 }
 
+double reference_score(
+    const std::vector<std::vector<ScenarioReport>>& population,
+    size_t reference) noexcept {
+    if (reference >= population.size()) return 0.0;
+    return run_score(population[reference]);
+}
+
+std::vector<double> anchor_weights(
+    const std::vector<std::vector<ScenarioReport>>& population,
+    size_t reference, double target) noexcept {
+    std::vector<double> w;
+    if (reference >= population.size()) return w;
+    for (const auto& r : population[reference]) {
+        const double s = r.score.total;
+        if (std::abs(s - target) < 0.001) {
+            w.push_back(1.0);
+            continue;
+        }
+        double a = target / std::abs(s - target);
+        if (a < 0.25) a = 0.25;
+        if (a > 200.0) a = 200.0;
+        w.push_back(a);
+    }
+    return w;
+}
+
+std::vector<int> suggest_difficulties(
+    const std::vector<std::vector<ScenarioReport>>& population,
+    size_t reference, double target) noexcept {
+    const std::vector<double> w = anchor_weights(population, reference, target);
+    std::vector<int> out;
+    out.reserve(w.size());
+    for (const double a : w) {
+        // Map the continuous weight onto the 1..6 ladder, monotonic in the
+        // reference score (solved well -> low weight -> low difficulty).
+        int d = static_cast<int>(std::lround(6.0 * a / (a + 1.0)));
+        if (d < 1) d = 1;
+        if (d > 6) d = 6;
+        out.push_back(d);
+    }
+    return out;
+}
+
+double reference_anchor_deviation(
+    const std::vector<std::vector<ScenarioReport>>& population,
+    size_t reference, double target) noexcept {
+    return std::abs(reference_score(population, reference) - target);
+}
+
+double headroom(
+    const std::vector<std::vector<ScenarioReport>>& population) noexcept {
+    double best = 0.0;
+    for (const auto& run : population) {
+        const double s = run_score(run);
+        if (s > best) best = s;
+    }
+    return 100.0 - best;
+}
+
 } // namespace bench

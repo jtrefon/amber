@@ -1623,7 +1623,7 @@ TEST(calibration_anchor_exact_for_balanced_population) {
     std::vector<std::vector<bench::ScenarioReport>> population = {ref, other};
 
     const std::vector<double> w =
-        bench::anchor_weights(population, "easy-run", 50.0);
+        bench::anchor_weights(population, 0, 50.0);
     ASSERT_EQ(w.size(), 2u);
     // Weighted reference score lands exactly on the anchor.
     double weighted = 0.0, wsum = 0.0;
@@ -1638,7 +1638,7 @@ TEST(calibration_anchor_exact_for_balanced_population) {
 // de-weights what the reference solves well.
 TEST(anchor_weights_monotonic_in_score) {
     const std::vector<double> w = bench::anchor_weights(
-        {{score_report("a", 95.0, 3), score_report("b", 20.0, 3)}}, "r", 50.0);
+        {{score_report("a", 95.0, 3), score_report("b", 20.0, 3)}}, 0, 50.0);
     ASSERT(w[0] < w[1]);
 }
 
@@ -1653,17 +1653,17 @@ TEST(suggest_difficulties_clamped_and_improve) {
     other.push_back(score_report("hard", 90.0, 3));
     std::vector<std::vector<bench::ScenarioReport>> population = {ref, other};
 
-    const std::vector<int> d = bench::suggest_difficulties(population, "r");
+    const std::vector<int> d = bench::suggest_difficulties(population, 0);
     ASSERT_EQ(d.size(), 2u);
-    for (const int v : d) ASSERT(v >= 1 && v <= 6);
+    for (const int v : d) ASSERT(!(v < 1 || v > 6));
 
-    const double before = bench::reference_anchor_deviation(population, "r");
+    const double before = bench::reference_anchor_deviation(population, 0);
     double weighted = 0.0, wsum = 0.0;
     for (size_t i = 0; i < ref.size(); ++i) {
         weighted += d[i] * ref[i].score.total;
         wsum += d[i];
     }
-    const double after = std::abs(weighted / wsum - 50.0);
+    const double after = std::abs((weighted / wsum) - 50.0);
     ASSERT(after <= before);
 }
 
