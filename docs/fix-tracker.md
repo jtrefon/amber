@@ -1032,3 +1032,68 @@ FIX-015  (JSON-driven command engine) — independent
 6. FIX-005, FIX-006, FIX-012, FIX-013, FIX-014 (parallel friendly)
 7. FIX-015 (JSON-driven command engine; phases 1-5, red→green per phase)
 8. FIX-007, FIX-008, FIX-009 (documentation, any time)
+
+---
+
+## Benchmark chapter (BENCH) — the measurement platform
+
+> Reference: `docs/spec/benchmark/MISSION.md` — the mission, dimensions map, and
+> definitions of done. The benchmark is a diagnostic instrument for the harness,
+> not a leaderboard; it must be calibrated BEFORE harness work so every change
+> is attributable (harness vs model vs benchmark).
+
+### BENCH-01 — Repeat medians + confidence intervals (the resolution floor)
+
+- **Problem:** single-run scores make near-identical models (1% apart) statistically indistinguishable; the noise floor is unknown.
+- **Target architecture:** `amber-bench --repeat N` runs each scenario N times, reports the median per scenario and per model with a confidence interval; the resolution rule: a model difference is a claim only when it exceeds ~2-3σ of its runs. Report-level change; scenario/scoring schema unchanged.
+- **Verification:** red test: two synthetic run populations 1% apart with known variance → the report must declare them resolvable only when the gap > 3σ; `make test` green.
+
+### BENCH-02 — Discrimination-weighted aggregation (the resolution engine)
+
+- **Problem:** every scenario contributes by difficulty, not separation power — scenarios everyone solves ("participation trophies") dilute the score; the ranking moves on a handful of scenarios by accident.
+- **Target architecture:** item-analysis weighting: scenario weight ∝ separation power across the model population (variance × difficulty-adjusted). Trophies → weight ≈ 0; high-variance scenarios dominate deltas. Implemented as a population-aware reporting layer (post-hoc recompute from run JSONs), not a `compute_score` formula change.
+- **Verification:** red tests with a synthetic population: a scenario all models solve contributes ≈0 to the delta; a scenario splitting the population dominates it.
+
+### BENCH-03 — Reference-anchored difficulty ladder (calibration + headroom)
+
+- **Problem:** the 27B reference scores 910/1000 — the ladder tops out below it, leaving no headroom for 100B-1T models; a mid-tier model punching above its weight should sit at the median of the chart, not the ceiling.
+- **Target architecture:** a `reference_profile` policy (default: the 27B) must land at the 50th percentile of the population; difficulty values re-tuned until the anchor holds (measurable calibration loop, red-green test with a synthetic population). Add a headroom difficulty tier (multi-file SD, long-context, deep reasoning) that the reference cannot solve — failure is data; the chart must have a top. Weights + ladder re-anchored per population snapshot when large models arrive; the median anchor holds across re-anchors.
+- **Verification:** red test: synthetic population with the reference at 910 → calibration rebalance until reference ≈ 50th percentile; headroom scenarios exist that the reference fails.
+
+### BENCH-04 — Pending scoring follow-ups (CodeRabbit round on the v2 merge)
+
+- **Problem:** review findings on the merged v2 content (rebase of PR #47 exposed them; they belong to a follow-up PR).
+- **Target architecture:**
+  - `compute_score`/helpers marked `noexcept`; unified score contract comment (template + non-template + total weights + cap) replacing both stale blocks.
+  - `compute_agentic` penalizes missing/excess/mismatched tool usage vs `plan_by_tool` (not only positive `plan_deviation`); regression tests for zero calls and different-tool calls.
+  - Scenario fixes: p-03 write oracle requires path+edits args and validates `a.txt` content; arch-02 `Report::size` type; clean-01 requires 0.2/0.1 magic findings; qual-02 requires the unreachable-branch finding; clean-02 `noexcept` members + non-overlapping `must_not_contain`; ds-02 prompt wording ("avoidable reallocations", not "quadratic"); pat-02 fixture removes `std::thread::detach()`.
+  - Checks schema gains grouped any-of evaluation (ds-01 map/set, pat-01 strategy/visitor, pat-02 observer/callback/condition_variable).
+  - `tests/bench_test.cpp`: fixture helper uses `ASSERT` instead of `assert`; function-length extractions per the 10-line rule.
+- **Verification:** all findings addressed in the follow-up PR; full gate green; CodeRabbit clean.
+
+### BENCH-05 — Quality-perception suite completion (Phase B)
+
+- **Problem:** Phase A covers 2 scenarios per category; the mission requires ≥5 per dimension for a stable per-suite signal.
+- **Target architecture:** fill the six review categories to 5 scenarios each (30 total), controls included; per-suite (per-category) score aggregation in the report = the per-dimension capability matrix.
+- **Verification:** 30 review scenarios load and run; per-suite lines in the text report; full gate green.
+
+### BENCH-06 — Live capability suites + context dilution
+
+- **Problem:** terminal proficiency and software-development coverage are thin; the context-dilution dimension (logic retention over long conversations, large files, mid-conversation constraint changes) has no suite.
+- **Target architecture:** terminal-suite expansion (bash semantics: pipes, background jobs, timeouts, cwd, exit codes, caps); template-suite volume (multi-file tasks); a new context-dilution suite (N-turn instruction retention, large-file pressure, mid-conversation constraint changes).
+- **Verification:** each new scenario has a purpose (isolates one mechanism/dimension); hermetic ones are CI-gated; full gate green.
+
+### BENCH-07 — Regression gate + trend history (the early-warning system)
+
+- **Problem:** the hermetic suite exists but nothing runs it in CI; harness regressions are discovered late.
+- **Target architecture:** hermetic suite green on every commit (CI job); `.amber/bench/results` trend history with delta alerts when success/bullseye/latency regress beyond a threshold.
+- **Verification:** CI job exists and fails on a seeded hermetic regression; trend alert fires on a synthetic regression run.
+
+## Recommended execution order
+
+1. **BENCH-01** (repeat medians — the noise floor every other claim needs)
+2. **BENCH-04** (v2 follow-ups — close the open review findings)
+3. **BENCH-02** (discrimination weighting) → **BENCH-03** (calibration anchor + headroom) — the resolution pair
+4. First real model runs against the calibrated instrument (calibration data, not competition)
+5. **BENCH-05** → **BENCH-06** → **BENCH-07** (coverage + the gate)
+6. Then harness work (Phase C): one measured change at a time, red-green, baseline deltas
