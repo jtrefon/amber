@@ -81,7 +81,8 @@ struct Score {
 };
 
 Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
-                    int forbidden_calls);
+                    int forbidden_calls,
+                    double agentic_score = 100.0);
 
 // Agentic performance: distance from the scenario's optimal tool plan.
 // The plan is the scenario's declared `optimal_plan` (tool -> count), or the

@@ -618,7 +618,7 @@ TEST(score_perfect_run_100) {
     s.oracle = {{"read", {{"path", "a.txt"}}}, {"write", {{"path", "b.txt"}}}};
     Kpi k = perfect_kpi();
     k.steps = 2;
-    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
     ASSERT_EQ(sc.correctness, 100.0);
     ASSERT_EQ(sc.efficiency, 100.0);
     ASSERT_EQ(sc.robustness, 100.0);
@@ -633,9 +633,9 @@ TEST(score_template_partial_artifact) {
     k.steps = 1;
     k.artifact_score = 0.5;
     k.compile_ok = true;
-    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
-    ASSERT_NEAR(sc.correctness, 80.0, 0.01);
-    ASSERT_NEAR(sc.total, 90.0, 0.01);
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
+    ASSERT_NEAR(sc.correctness, 85.0, 0.01);
+    ASSERT_NEAR(sc.total, 94.0, 0.01);
 }
 
 TEST(score_efficiency_penalties) {
@@ -645,9 +645,9 @@ TEST(score_efficiency_penalties) {
     k.steps = 4;
     k.wasted = 2;
     k.redundant = 1;
-    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
     ASSERT_NEAR(sc.efficiency, 40.0, 0.01);
-    ASSERT_NEAR(sc.total, 88.0, 0.01);
+    ASSERT_NEAR(sc.total, 85.0, 0.01);
 }
 
 TEST(score_robustness_hard_stop) {
@@ -657,20 +657,20 @@ TEST(score_robustness_hard_stop) {
     k.steps = 1;
     k.hard_stop = true;
     k.success = false;  // compute_kpi marks hard stops as failures
-    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
     ASSERT_NEAR(sc.robustness, 0.0, 0.01);
-    ASSERT_NEAR(sc.total, 42.5, 0.01);  // 85 halved by the failure penalty
+    ASSERT_NEAR(sc.total, 60.0, 0.01);  // partial credit capped at 60
 }
 
-TEST(score_failure_penalty_halves_total) {
+TEST(score_failure_cap_keeps_partial_credit) {
     Scenario s;
     s.oracle = {{"read", {{"path", "a.txt"}}}};
     Kpi k = perfect_kpi();
     k.steps = 1;
     k.success = false;  // one failed check, otherwise flawless
-    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
     ASSERT_NEAR(sc.correctness, 100.0, 0.01);
-    ASSERT_NEAR(sc.total, 50.0, 0.01);
+    ASSERT_NEAR(sc.total, 60.0, 0.01);
 }
 
 TEST(score_adherence_forbidden_penalty) {
@@ -679,9 +679,9 @@ TEST(score_adherence_forbidden_penalty) {
     s.oracle = {{"read", {{"path", "a.txt"}}}};
     Kpi k = perfect_kpi();
     k.steps = 1;
-    bench::Score sc = bench::compute_score(k, s, 1.0, 2);
+    bench::Score sc = bench::compute_score(k, s, 1.0, 2, 100.0);
     ASSERT_NEAR(sc.adherence, 50.0, 0.01);
-    ASSERT_NEAR(sc.total, 92.5, 0.01);
+    ASSERT_NEAR(sc.total, 97.5, 0.01);
 }
 
 TEST(score_expected_steps_from_oracle) {
@@ -689,7 +689,7 @@ TEST(score_expected_steps_from_oracle) {
     s.oracle = {{"read", {{"path", "a.txt"}}}, {"write", {{"path", "b.txt"}}}, {"bash", {{"command", "*"}}}};
     Kpi k = perfect_kpi();
     k.steps = 3;
-    bench::Score sc = bench::compute_score(k, s, 1.0, 0);
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
     ASSERT_EQ(sc.efficiency, 100.0);
 }
 
@@ -1130,4 +1130,50 @@ TEST(review_scenario_parses) {
     ASSERT_EQ(s->checks_weight, 0.8);
     ASSERT_EQ(s->oracle.size(), 1u);
     ASSERT_EQ(s->checks.must_contain.size(), 2u);
+}
+
+// End-to-end: a review scenario (code snippet + issue checks + checks_weight
+// 0.8) runs hermetically through the runner; correctness comes out of the
+// checks-dominated formula and agentic is computed in hermetic mode too.
+TEST(e2e_hermetic_review_scoring) {
+    std::string dir = tmp_dir("reviewe2e");
+    write_file(dir + "/r.json", R"({
+        "name": "arch-01-god-class",
+        "suite": "review-arch",
+        "prompt": "Read Review.cpp and list the design issues.",
+        "setup": {"files": {"Review.cpp": "class Report { void parse(); void render(); void save(); };"}},
+        "fake_replies": [
+            {"tool_calls": [{"id": "call_1", "type": "function",
+                             "function": {"name": "read",
+                                          "arguments": "{\"path\":\"Review.cpp\"}"}}],
+             "prompt_tokens": 50, "completion_tokens": 10},
+            {"content": "The Report class parses and renders in one place; it should not save.",
+             "prompt_tokens": 60, "completion_tokens": 5},
+            {"content": "yes", "prompt_tokens": 1, "completion_tokens": 1}
+        ],
+        "oracle": [{"tool": "read", "args": {"path": "Review.cpp"}}],
+        "checks_weight": 0.8,
+        "checks": {
+            "must_contain": ["parse", "render", "save"],
+            "must_not_contain": ["premature"]
+        },
+        "budget": {"max_steps": 10, "max_wall_ms": 30000}
+    })");
+    std::string err;
+    auto s = bench::load_scenario(dir + "/r.json", err);
+    ASSERT(s.has_value());
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    bench::ScenarioReport rep = bench::run_one_scenario(*s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT(rep.kpi.success);
+    // All anchors hit -> checks 4/4 -> correctness 100; the partial-credit
+    // math (arg_precision, checks_weight ratios, agentic deltas) is proven
+    // by the unit tests above — this proves the pipeline end to end.
+    ASSERT_NEAR(rep.score.correctness, 100.0, 0.01);
+    // agentic computed even in hermetic mode (plan = 1 read).
+    ASSERT(rep.agentic.has_plan);
 }

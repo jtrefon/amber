@@ -1,0 +1,43 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "ds-01-nested-loop",
+  "suite": "review-datastructures",
+  "description": "quality-perception: O(n^2) nested lookup where a hash map fits",
+  "setup": {
+    "files": {
+      "Review.cpp": "#include <vector>\nint lookup(const std::vector<int>& keys, const std::vector<int>& data) {\n  int hits = 0;\n  for (int k : keys)\n    for (int d : data)\n      if (k == d) { ++hits; break; }\n  return hits;\n}\n"
+    }
+  },
+  "prompt": "Read Review.cpp and identify the algorithmic problem. Name the complexity and the structure that would fix it.",
+  "checks": {
+    "must_contain": [
+      "quadratic",
+      "map",
+      "nested"
+    ],
+    "must_not_contain": [
+      "premature",
+      "rewrite"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}

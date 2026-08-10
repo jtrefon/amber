@@ -1,0 +1,44 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "arch-02-clean-control",
+  "suite": "review-arch",
+  "description": "quality-perception control: well-layered code, correct answer is nothing major",
+  "setup": {
+    "files": {
+      "Review.cpp": "class ReportParser {\npublic:\n  Report parse(const std::string& raw) { return Report{raw.size()}; }\n};\nclass ReportRenderer {\npublic:\n  void render(const Report& r, std::ostream& out) { out << r.size; }\n};\n"
+    }
+  },
+  "prompt": "Read Review.cpp and list the design issues you find. Anchor each issue to the actual code. If the code is fine, say so explicitly.",
+  "checks": {
+    "must_contain": [
+      "fine",
+      "no major"
+    ],
+    "must_not_contain": [
+      "god class",
+      "coupling",
+      "global",
+      "duplicat"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}

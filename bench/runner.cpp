@@ -326,11 +326,12 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
                       c.name) != s.forbidden_tools.end())
             ++forbidden;
     const double checks_ratio = adherence(s.checks, final_text);
-    rep.score = compute_score(kpi, s, checks_ratio, forbidden);
-    // Agentic plan adherence measures the model's tool economy; scripted
-    // hermetic runs carry no model signal, so skip them.
-    if (opts.live)
-        rep.agentic = compute_agentic(recorder.stream(), kpi, s);
+    // Agentic plan adherence measures the model's tool economy; computed in
+    // both modes so the score is uniform (hermetic runs measure the engine's
+    // scripted tool discipline, live runs the model's).
+    rep.agentic = compute_agentic(recorder.stream(), kpi, s);
+    rep.score = compute_score(kpi, s, checks_ratio, forbidden,
+                              rep.agentic.score);
 
     for (const auto& c : recorder.stream().calls) {
         std::string args = c.args.dump();

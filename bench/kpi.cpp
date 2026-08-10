@@ -106,13 +106,21 @@ int expected_steps(const Scenario& s) noexcept {
 } // namespace
 
 Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
-                    int forbidden_calls) {
+                    int forbidden_calls, double agentic_score) {
     Score sc;
     const bool templated = !s.template_dir.empty();
     if (templated) {
-        sc.correctness = 100.0 * (0.6 * k.bullseye + 0.4 * k.artifact_score);
+        sc.correctness =
+            100.0 * (0.5 * k.bullseye + 0.2 * k.arg_precision +
+                     0.3 * k.artifact_score);
     } else {
-        sc.correctness = 100.0 * (0.7 * k.bullseye + 0.3 * checks_ratio);
+        // Argument fidelity joins bullseye; the checks_weight knob lets a
+        // review scenario (no meaningful tool-step oracle) put its issue
+        // checks at the center of correctness.
+        const double cw = s.checks_weight;
+        sc.correctness =
+            100.0 * ((1.0 - cw) * (0.75 * k.bullseye + 0.25 * k.arg_precision) +
+                     cw * checks_ratio);
     }
 
     const int excess = std::max(0, k.steps - expected_steps(s));
@@ -132,12 +140,14 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
     sc.adherence =
         100.0 * clamp01(k.prompt_adherence - (0.25 * forbidden_calls));
 
-    sc.total = (0.50 * sc.correctness) + (0.20 * sc.efficiency) +
-               (0.15 * sc.robustness) + (0.15 * sc.adherence);
+    sc.total = (0.40 * sc.correctness) + (0.25 * sc.efficiency) +
+               (0.20 * agentic_score) + (0.10 * sc.robustness) +
+               (0.05 * sc.adherence);
     // A failed scenario (oracle miss, failed checks, budget breach, hard
-    // stop) caps its total at 50 — near-miss failures must still cost
-    // meaningfully, or pass/fail counts and scores diverge.
-    if (!k.success) sc.total *= 0.5;
+    // stop) keeps its honest partial credit capped at 60 — near-miss
+    // failures still cost, but are never silently halved from an inflated
+    // total (that made pass/fail counts and scores diverge).
+    if (!k.success) sc.total = std::min(sc.total, 60.0);
     return sc;
 }
 

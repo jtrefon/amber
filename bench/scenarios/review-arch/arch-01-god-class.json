@@ -1,0 +1,44 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "arch-01-god-class",
+  "suite": "review-arch",
+  "description": "quality-perception: single-responsibility violation (god class)",
+  "setup": {
+    "files": {
+      "Review.cpp": "class Report {\npublic:\n  void parse(const std::string& raw) { /* tokenize and validate */ }\n  void render(std::ostream& out) { /* markdown formatting */ }\n  void save(const std::string& path) { /* write to disk */ }\n  void load(const std::string& path) { /* read from disk */ }\n};\n"
+    }
+  },
+  "prompt": "Read Review.cpp and list the design issues you find. Anchor each issue to the actual code (name the members involved). If the code is fine, say so.",
+  "checks": {
+    "must_contain": [
+      "parse",
+      "render",
+      "save"
+    ],
+    "must_not_contain": [
+      "rewrite",
+      "premature",
+      "performance"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}

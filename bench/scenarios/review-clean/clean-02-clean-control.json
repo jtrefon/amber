@@ -1,0 +1,44 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "clean-02-clean-control",
+  "suite": "review-clean",
+  "description": "quality-perception control: genuinely clean snippet",
+  "setup": {
+    "files": {
+      "Review.cpp": "class Counter {\npublic:\n  void increment() { ++count_; }\n  int value() const { return count_; }\nprivate:\n  int count_ = 0;\n};\n"
+    }
+  },
+  "prompt": "Read Review.cpp and identify the code-quality issues. If the code is fine, say so explicitly.",
+  "checks": {
+    "must_contain": [
+      "fine",
+      "no major"
+    ],
+    "must_not_contain": [
+      "magic",
+      "god class",
+      "global",
+      "duplicat"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}

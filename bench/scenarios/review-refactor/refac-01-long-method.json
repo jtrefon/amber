@@ -1,0 +1,43 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "refac-01-long-method",
+  "suite": "review-refactor",
+  "description": "quality-perception: long method with entangled branches",
+  "setup": {
+    "files": {
+      "Review.cpp": "int process(const Input& in) {\n  int total = 0;\n  for (auto& item : in.items) {\n    if (item.valid) {\n      total += item.value;\n      if (item.value > 100) { log_warning(item.id); retry(item); }\n      else if (item.value < 0) { log_error(item.id); skip(item); }\n      else { total += 2; }\n    }\n  }\n  save_state(total);\n  return total;\n}\n"
+    }
+  },
+  "prompt": "Read Review.cpp. This function handles several concerns; identify the refactoring opportunities and name the concrete extractions you would make.",
+  "checks": {
+    "must_contain": [
+      "extract",
+      "loop",
+      "validation"
+    ],
+    "must_not_contain": [
+      "rewrite",
+      "premature"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}
