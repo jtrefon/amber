@@ -54,14 +54,24 @@ double run_score(const std::vector<ScenarioReport>& reports) noexcept;
 // scenario everyone solves contributes ~0 and a separator dominates the
 // deltas between near-identical models.
 // Population = the per-model runs fed to a comparison (vector of runs, each
-// a vector of ScenarioReport). One weight per scenario, aligned by name.
-std::vector<double> discrimination_weights(
+// a vector of ScenarioReport). Weights are KEYED BY SCENARIO NAME — a
+// reordered or incomplete run still aligns correctly.
+std::map<std::string, double> discrimination_weights(
     const std::vector<std::vector<ScenarioReport>>& population) noexcept;
 
-// Difficulty x discrimination weighted score. Empty weights fall back to the
+// Difficulty x discrimination weighted score. A scenario missing from the
+// weight map contributes nothing (weight 0). An empty map falls back to the
 // plain difficulty-weighted score (single-file runs have no population).
-double run_score_discriminative(const std::vector<ScenarioReport>& reports,
-                                const std::vector<double>& weights) noexcept;
+double run_score_discriminative(
+    const std::vector<ScenarioReport>& reports,
+    const std::map<std::string, double>& weights) noexcept;
+
+// 95% CI for the median-of-medians model score under the given weights
+// (bootstrap of the weighted score). With an empty weight map this is the
+// plain difficulty-weighted CI; with discrimination weights it matches
+// run_score_discriminative. Returns -1.0 when any scenario lacks repeat data.
+double model_score_ci(const std::vector<ScenarioReport>& reports,
+                      const std::map<std::string, double>& weights = {}) noexcept;
 
 // Median of a sample.
 double median(std::vector<double> values) noexcept;
@@ -76,7 +86,6 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs);
 
 // 95% confidence interval for a model score built from per-scenario medians
 // (difficulty-weighted pooled variance): 1.96 * sqrt(sum(w^2 * s_i^2)) / sum(w).
-double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept;
 
 // The resolution rule: two models differ meaningfully only when their score
 // gap exceeds the combined confidence interval.
