@@ -1022,3 +1022,112 @@ TEST(subagent_hooks_do_not_leak) {
     ASSERT_EQ(rec.stream().tools[0].name, "task");
     ASSERT(rec.stream().tools[0].ok);
 }
+
+// ---------------------------------------------------------------------------
+// Scoring v2 (quality-perception): agentic + arg_precision in the score
+// ---------------------------------------------------------------------------
+
+// A failed scenario keeps its honest partial credit capped at 60 — it must
+// not be silently halved from an inflated total.
+TEST(score_failure_capped_not_halved) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 1;
+    k.success = false;  // one failed check, otherwise flawless
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
+    ASSERT_NEAR(sc.total, 60.0, 0.01);
+}
+
+// Argument fidelity (arg_precision) must move the correctness sub-score.
+TEST(score_uses_arg_precision) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}};
+    Kpi perfect = perfect_kpi();
+    perfect.steps = 1;
+    Kpi sloppy = perfect;
+    sloppy.arg_precision = 0.5;
+    bench::Score a = bench::compute_score(perfect, s, 1.0, 0, 100.0);
+    bench::Score b = bench::compute_score(sloppy, s, 1.0, 0, 100.0);
+    ASSERT_NEAR(a.correctness, 100.0, 0.01);
+    // 0.25 weight on arg_precision, 0.5 deficit -> 10 points of correctness.
+    ASSERT_NEAR(b.correctness, 90.0, 0.01);
+}
+
+// Tool economy (agentic) must move the total at its 0.20 weight.
+TEST(score_uses_agentic) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 1;
+    bench::Score good = bench::compute_score(k, s, 1.0, 0, 100.0);
+    bench::Score bad = bench::compute_score(k, s, 1.0, 0, 40.0);
+    ASSERT_NEAR(good.total - bad.total, 12.0, 0.01);
+}
+
+// The v2 weights are exact: 0.40/0.25/0.20/0.10/0.05.
+TEST(score_new_weights_exact) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}, {"write", {{"path", "b.txt"}}}};
+    Kpi k = perfect_kpi();
+    // 2-step oracle, 4 steps -> excess 2 -> efficiency 80.
+    k.steps = 4;
+    k.prompt_adherence = 0.9;  // adherence 90
+    bench::Score sc = bench::compute_score(k, s, 1.0, 0, 60.0);
+    ASSERT_NEAR(sc.correctness, 100.0, 0.01);
+    ASSERT_NEAR(sc.efficiency, 80.0, 0.01);
+    ASSERT_NEAR(sc.robustness, 100.0, 0.01);
+    ASSERT_NEAR(sc.adherence, 90.0, 0.01);
+    // 0.40*100 + 0.25*80 + 0.20*60 + 0.10*100 + 0.05*90 = 86.5
+    ASSERT_NEAR(sc.total, 86.5, 0.01);
+}
+
+// checks_weight: a review scenario's checks dominate its correctness.
+TEST(checks_weight_eight_dominates) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "Review.java"}}}};
+    s.checks_weight = 0.8;
+    Kpi k = perfect_kpi();
+    k.steps = 1;
+    // bullseye 1.0, arg_precision 1.0, checks ratio 0.5 (half the issues found)
+    bench::Score sc = bench::compute_score(k, s, 0.5, 0, 100.0);
+    // (1-0.8)*(0.75*1 + 0.25*1) + 0.8*0.5 = 0.2 + 0.4 = 0.6
+    ASSERT_NEAR(sc.correctness, 60.0, 0.01);
+}
+
+// The default checks_weight reproduces the v2 non-template formula.
+TEST(checks_weight_default_backward_compatible) {
+    Scenario s;
+    s.oracle = {{"read", {{"path", "a.txt"}}}};
+    Kpi k = perfect_kpi();
+    k.steps = 1;
+    bench::Score sc = bench::compute_score(k, s, 0.5, 0, 100.0);
+    // 0.8*(0.75*1 + 0.25*1) + 0.2*0.5 = 0.8 + 0.1 = 0.9
+    ASSERT_NEAR(sc.correctness, 90.0, 0.01);
+}
+
+// A review-style scenario file (code snippet + issue checks + checks_weight)
+// must load end-to-end.
+TEST(review_scenario_parses) {
+    std::string dir = tmp_dir("review");
+    write_file(dir + "/r.json", R"({
+        "name": "review-arch-01-god-class",
+        "suite": "review-arch",
+        "difficulty": 3,
+        "prompt": "Read Review.java and list the design issues you find, anchored to the code.",
+        "setup": {"files": {"Review.java": "class Report { void parse() {} void render() {} void save() {} }"}},
+        "oracle": [{"tool": "read", "args": {"path": "Review.java"}}],
+        "checks_weight": 0.8,
+        "checks": {
+            "must_contain": ["parses", "renders"],
+            "must_not_contain": ["premature optimization"]
+        },
+        "budget": {"max_steps": 10, "max_wall_ms": 30000}
+    })");
+    std::string err;
+    auto s = bench::load_scenario(dir + "/r.json", err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->checks_weight, 0.8);
+    ASSERT_EQ(s->oracle.size(), 1u);
+    ASSERT_EQ(s->checks.must_contain.size(), 2u);
+}
