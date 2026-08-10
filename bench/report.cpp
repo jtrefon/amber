@@ -21,28 +21,37 @@ double run_score(const std::vector<ScenarioReport>& reports) noexcept {
     return weight > 0 ? weighted / weight : 100.0;
 }
 
-std::vector<double> discrimination_weights(
-    const std::vector<std::vector<ScenarioReport>>& population) noexcept {
-    std::vector<double> weights;
-    if (population.empty()) return weights;
-    // Per scenario name: collect the totals across the models that ran it.
+namespace {
+// Per scenario name: the totals across the models that ran it.
+std::map<std::string, std::vector<double>> scenario_totals(
+    const std::vector<std::vector<ScenarioReport>>& population) {
     std::map<std::string, std::vector<double>> totals;
     for (const auto& run : population)
         for (const auto& r : run) totals[r.name].push_back(r.score.total);
-    // Align by the first run's scenario order.
-    for (const auto& r : population.front())
-        weights.push_back(stddev(totals[r.name]));
+    return totals;
+}
+} // namespace
+
+std::map<std::string, double> discrimination_weights(
+    const std::vector<std::vector<ScenarioReport>>& population) noexcept {
+    std::map<std::string, double> weights;
+    const auto totals = scenario_totals(population);
+    for (const auto& [name, scores] : totals)
+        weights[name] = stddev(scores);
     return weights;
 }
 
-double run_score_discriminative(const std::vector<ScenarioReport>& reports,
-                                const std::vector<double>& weights) noexcept {
+double run_score_discriminative(
+    const std::vector<ScenarioReport>& reports,
+    const std::map<std::string, double>& weights) noexcept {
     if (weights.empty()) return run_score(reports);
     double weighted = 0.0;
     double weight_sum = 0.0;
-    for (size_t i = 0; i < reports.size() && i < weights.size(); ++i) {
-        const double w = weights[i] * static_cast<double>(reports[i].difficulty);
-        weighted += w * reports[i].score.total;
+    for (const auto& r : reports) {
+        const auto it = weights.find(r.name);
+        if (it == weights.end()) continue;  // unknown scenario: no signal
+        const double w = it->second * static_cast<double>(r.difficulty);
+        weighted += w * r.score.total;
         weight_sum += w;
     }
     return weight_sum > 0.0 ? weighted / weight_sum : run_score(reports);
@@ -120,37 +129,44 @@ uint32_t lcg(uint32_t& state) noexcept {
 }
 
 // One bootstrap iteration: resample each scenario's repeat_scores, take the
-// per-scenario median, and return the difficulty-weighted model score.
-double bootstrap_weighted_score(const std::vector<ScenarioReport>& reports,
-                                uint32_t& rng) noexcept {
+// per-scenario median, and return the (discrimination x difficulty) weighted
+// model score. An empty weight map reproduces the plain difficulty weighting.
+double bootstrap_weighted_score(
+    const std::vector<ScenarioReport>& reports, uint32_t& rng,
+    const std::map<std::string, double>& weights) noexcept {
     double weighted = 0.0;
-    int weight = 0;
+    double weight = 0.0;
     for (const auto& r : reports) {
         const auto& pool = r.repeat_scores;
         std::vector<double> sample;
         sample.reserve(pool.size());
         for (size_t i = 0; i < pool.size(); ++i)
             sample.push_back(pool[lcg(rng) % pool.size()]);
-        weighted += r.difficulty * (median(std::move(sample)));
-        (void)0;
-        weight += r.difficulty;
+        auto w = static_cast<double>(r.difficulty);
+        const auto it = weights.find(r.name);
+        if (it != weights.end()) w *= it->second;
+        weighted += w * median(std::move(sample));
+        weight += w;
     }
-    return weight > 0 ? weighted / weight : 100.0;
+    return weight > 0.0 ? weighted / weight : 100.0;
 }
 } // namespace
 
 // 95% CI for the median-of-medians model score, estimated by bootstrap
 // resampling of each scenario's repeat_scores (uncertainty shrinks as
-// repeat_n grows). Returns -1.0 when any scenario lacks repeat data — the CI
-// is missing, never silently zero (a single run must not claim precision).
-double model_score_ci(const std::vector<ScenarioReport>& reports) noexcept {
+// repeat_n grows). Uses the same weighting as the score it describes — pass
+// the discrimination weights to match run_score_discriminative. Returns -1.0
+// when any scenario lacks repeat data — the CI is missing, never silently
+// zero (a single run must not claim precision).
+double model_score_ci(const std::vector<ScenarioReport>& reports,
+                      const std::map<std::string, double>& weights) noexcept {
     for (const auto& r : reports)
         if (r.repeat_n < 2 || r.repeat_scores.size() < 2) return -1.0;
     uint32_t rng = 0xC0FFEEu;
     std::vector<double> boot;
     boot.reserve(200);
     for (int i = 0; i < 200; ++i)
-        boot.push_back(bootstrap_weighted_score(reports, rng));
+        boot.push_back(bootstrap_weighted_score(reports, rng, weights));
     return 1.96 * stddev(boot);
 }
 
@@ -170,7 +186,7 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
         << (meta.profile.empty() ? "default" : meta.profile) << ", "
         << meta.model << "]\n";
     out << "engine " << meta.engine_version << " @ " << meta.timestamp << "\n";
-    const double ci = model_score_ci(reports);
+    const double ci = model_score_ci(reports);  // difficulty-weighted for single runs
     out << "model score: " << (run_score(reports) * 10.0) << "/1000";
     if (ci > 0.0) {
         std::ostringstream ci_s;
@@ -446,12 +462,16 @@ std::string render_markdown_comparison(
     std::vector<std::vector<ScenarioReport>> population;
     population.reserve(runs.size());
     for (const auto& run : runs) population.push_back(run.second);
-    const std::vector<double> weights = discrimination_weights(population);
+    const std::map<std::string, double> weights =
+        discrimination_weights(population);
     auto score_of = [&](const std::vector<ScenarioReport>& rep) {
         return run_score_discriminative(rep, weights);
     };
+    auto ci_of = [&](const std::vector<ScenarioReport>& rep) {
+        return model_score_ci(rep, weights);
+    };
     for (const auto& run : runs) {
-        const double ci = model_score_ci(run.second);
+        const double ci = ci_of(run.second);
         out << "- **" << run.first.model << "**: "
             << static_cast<int>(score_of(run.second) * 10.0) << "/1000";
         if (ci > 0.0) {
@@ -469,8 +489,8 @@ std::string render_markdown_comparison(
             for (size_t j = i + 1; j < runs.size(); ++j) {
                 const double sa = score_of(runs[i].second);
                 const double sb = score_of(runs[j].second);
-                const double ca = model_score_ci(runs[i].second);
-                const double cb = model_score_ci(runs[j].second);
+                const double ca = ci_of(runs[i].second);
+                const double cb = ci_of(runs[j].second);
                 std::string verdict;
                 if (ca < 0.0 || cb < 0.0)
                     verdict = "insufficient repeat data (run --repeat)";

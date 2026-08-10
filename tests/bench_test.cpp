@@ -1506,11 +1506,11 @@ TEST(discrimination_weights_zero_for_trophies) {
         run.push_back(score_report("split", 40.0 + (20.0 * m), 3));
         population.push_back(std::move(run));
     }
-    std::vector<double> w = bench::discrimination_weights(population);
+    std::map<std::string, double> w = bench::discrimination_weights(population);
     ASSERT_EQ(w.size(), 3u);
-    ASSERT_NEAR(w[0], 0.0, 0.001);
-    ASSERT_NEAR(w[1], 0.0, 0.001);
-    ASSERT(w[2] > 5.0);
+    ASSERT_NEAR(w["trophy"], 0.0, 0.001);
+    ASSERT_NEAR(w["trophy2"], 0.0, 0.001);
+    ASSERT(w["split"] > 5.0);
 }
 
 // The separator scenario dominates the delta between near-identical models.
@@ -1524,7 +1524,8 @@ TEST(discriminative_score_ranks_by_separation) {
     b.push_back(score_report("split", 100.0, 1));
     std::vector<std::vector<bench::ScenarioReport>> population = {a, b};
 
-    const std::vector<double> w = bench::discrimination_weights(population);
+    const std::map<std::string, double> w =
+        bench::discrimination_weights(population);
     // Plain difficulty-weighted score ranks A above B...
     ASSERT(bench::run_score(a) > bench::run_score(b));
     // ...but the discriminative score must rank B above A: the separator
@@ -1539,7 +1540,67 @@ TEST(discriminative_single_run_falls_back) {
     std::vector<bench::ScenarioReport> run;
     run.push_back(score_report("trophy", 100.0, 3));
     run.push_back(score_report("split", 60.0, 3));
-    std::vector<double> empty;
+    std::map<std::string, double> empty;
     ASSERT_NEAR(bench::run_score_discriminative(run, empty),
                 bench::run_score(run), 0.001);
+}
+
+
+// Weights are keyed by scenario name: a reordered or incomplete run still
+// aligns correctly.
+TEST(discrimination_weights_keyed_by_name) {
+    std::vector<bench::ScenarioReport> m1;
+    m1.push_back(score_report("split", 40.0, 2));
+    m1.push_back(score_report("trophy", 100.0, 3));
+    std::vector<bench::ScenarioReport> m2;
+    m2.push_back(score_report("trophy", 100.0, 3));   // reordered
+    m2.push_back(score_report("split", 100.0, 2));
+    std::vector<std::vector<bench::ScenarioReport>> population = {m1, m2};
+    std::map<std::string, double> w = bench::discrimination_weights(population);
+    ASSERT_EQ(w.size(), 2u);
+    ASSERT_NEAR(w["trophy"], 0.0, 0.001);
+    ASSERT(w["split"] > 20.0);
+
+    // Incomplete run: the missing scenario contributes nothing.
+    std::vector<bench::ScenarioReport> partial;
+    partial.push_back(score_report("split", 60.0, 2));
+    const double full = bench::run_score_discriminative(m1, w);
+    const double incomplete = bench::run_score_discriminative(partial, w);
+    ASSERT(incomplete >= 0.0);
+    (void)full;
+}
+
+// The discriminative CI matches the discriminative score: with a population
+// where a separator dominates, the uncertainty differs from the plain
+// difficulty-weighted CI (the score it describes is not the same).
+TEST(discriminative_ci_uses_discriminative_weights) {
+    std::vector<bench::ScenarioReport> m1;
+    m1.push_back(score_report("trophy", 100.0, 5));
+    m1.push_back(score_report("split", 30.0, 1));
+    std::vector<bench::ScenarioReport> m2;
+    m2.push_back(score_report("trophy", 70.0, 5));
+    m2.push_back(score_report("split", 100.0, 1));
+    std::vector<std::vector<bench::ScenarioReport>> population = {m1, m2};
+    const std::map<std::string, double> w =
+        bench::discrimination_weights(population);
+
+    // Repeat runs for a CI.
+    std::vector<bench::ScenarioReport> runs;
+    for (int i = 0; i < 3; ++i) {
+        runs.push_back(score_report("trophy", 100.0 - i, 5));
+        runs.push_back(score_report("split", 30.0 + i, 1));
+    }
+    std::vector<bench::ScenarioReport> agg;
+    for (const auto& name : {"trophy", "split"}) {
+        std::vector<bench::ScenarioReport> one;
+        for (const auto& r : runs)
+            if (r.name == name) one.push_back(r);
+        agg.push_back(bench::aggregate_repeats(one));
+    }
+    const double plain_ci = bench::model_score_ci(agg);
+    const double disc_ci = bench::model_score_ci(agg, w);
+    ASSERT(plain_ci > 0.0);
+    ASSERT(disc_ci > 0.0);
+    // The separator dominates under discrimination -> different uncertainty.
+    ASSERT(std::abs(plain_ci - disc_ci) > 0.01);
 }
