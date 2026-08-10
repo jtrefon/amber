@@ -381,11 +381,15 @@ std::vector<ScenarioReport> run_scenarios(const std::vector<Scenario>& scenarios
         if (s.hermetic_only && opts.live) continue;
         if (!opts.live && s.fake_replies.empty()) continue;
         std::string err;
+        std::vector<ScenarioReport> runs;
         for (int i = 0; i < std::max(1, opts.repeat); ++i) {
             ScenarioReport rep = run_one_scenario(s, opts, meta, err);
-            if (i > 0) rep.name += " (repeat " + std::to_string(i) + ")";
-            out.emplace_back(std::move(rep));
+            runs.emplace_back(std::move(rep));
         }
+        // With --repeat N the report is the median run plus the population
+        // statistics (BENCH-01): model scores then aggregate medians, and the
+        // confidence interval gives the resolution floor.
+        out.push_back(aggregate_repeats(runs));
     }
     return out;
 }
