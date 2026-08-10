@@ -55,6 +55,14 @@ bool value_matches(const agent::json& expected, const agent::json& actual) {
         const bool a_bare = a.find('/') == std::string::npos;
         if (e_bare != a_bare && !e.empty() && !a.empty())
             return basename(e) == basename(a);
+        // Nested relative expectation: "src/header.h" matches any absolute
+        // path ending in exactly "/src/header.h" (never a different
+        // directory with the same leaf).
+        if (!e_bare && a_bare == false && a[0] == '/' &&
+            a.size() > e.size() + 1 &&
+            a.compare(a.size() - e.size(), e.size(), e) == 0 &&
+            a[a.size() - e.size() - 1] == '/')
+            return true;
     }
     return false;
 }
