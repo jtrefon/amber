@@ -80,8 +80,16 @@ struct Score {
     double total = 0.0;
 };
 
+// Sub-scores: correctness (bullseye + arg_precision, checks_weight knob for
+// review scenarios), efficiency (excess steps vs expected, wasted/redundant
+// calls), robustness (retries/recoveries/hard stop), adherence (prompt
+// checks, forbidden-call penalty). Total =
+// 0.40*c + 0.25*e + 0.20*agentic + 0.10*r + 0.05*a. A failed scenario keeps
+// its partial credit capped at 60. agentic_score is the tool-economy score
+// (compute_agentic); callers pass 100.0 when the scenario has no plan.
 Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
-                    int forbidden_calls);
+                    int forbidden_calls,
+                    double agentic_score = 100.0);
 
 // Agentic performance: distance from the scenario's optimal tool plan.
 // The plan is the scenario's declared `optimal_plan` (tool -> count), or the
