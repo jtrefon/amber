@@ -112,7 +112,7 @@ struct Agentic {
 };
 
 Agentic compute_agentic(const EventStream& stream, const Kpi& k,
-                        const Scenario& s) noexcept;
+                        const Scenario& s);
 
 } // namespace bench
 

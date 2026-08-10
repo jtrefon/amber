@@ -167,7 +167,7 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
 }
 
 Agentic compute_agentic(const EventStream& stream, const Kpi& k,
-                        const Scenario& s) noexcept {
+                        const Scenario& s) {
     Agentic a;
     std::map<std::string, int> plan;
     if (s.optimal_plan.is_object() && !s.optimal_plan.empty()) {
