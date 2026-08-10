@@ -1372,3 +1372,64 @@ TEST(repeat_json_emits_median_and_ci) {
     ASSERT(json.find("score_stddev") != std::string::npos);
     ASSERT(json.find("model_score_ci") != std::string::npos);
 }
+
+// A stored JSON report round-trips: the repeat fields and the model CI
+// survive render_json -> parse_report_json, and legacy files (no repeat
+// fields) default score_median to score.
+TEST(repeat_json_roundtrip_preserves_fields) {
+    std::vector<bench::ScenarioReport> runs = {
+        score_report("s1", 90.0), score_report("s1", 95.0),
+        score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> agg = {
+        bench::aggregate_repeats(runs)};
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    const std::string json = bench::render_json(agg, meta);
+
+    agent::json j = agent::json::parse(json, nullptr, false);
+    ASSERT(!j.is_discarded());
+    bench::RunMeta meta2;
+    std::vector<bench::ScenarioReport> back;
+    ASSERT(bench::parse_report_json(j, meta2, back));
+    ASSERT_EQ(back.size(), 1u);
+    ASSERT_EQ(back[0].repeat_n, 3);
+    ASSERT_NEAR(back[0].score_median, 95.0, 0.01);
+    ASSERT(back[0].score_stddev > 0.0);
+    ASSERT_EQ(back[0].repeat_scores.size(), 3u);
+
+    // Legacy file: score_median defaults to score.
+    agent::json legacy = agent::json::object();
+    legacy["scenarios"] = agent::json::array({
+        {{"name", "s1"}, {"suite", "tools"}, {"score", 91.0}}});
+    std::vector<bench::ScenarioReport> legacy_back;
+    ASSERT(bench::parse_report_json(legacy, meta2, legacy_back));
+    ASSERT_EQ(legacy_back[0].repeat_n, 1);
+    ASSERT_NEAR(legacy_back[0].score_median, 91.0, 0.01);
+}
+
+// The text report shows the repeat statistics on repeated scenarios.
+TEST(repeat_text_report_shows_stats) {
+    std::vector<bench::ScenarioReport> runs = {
+        score_report("s1", 90.0), score_report("s1", 95.0),
+        score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> agg = {
+        bench::aggregate_repeats(runs)};
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    const std::string text = bench::render_text(agg, meta);
+    ASSERT(text.find("median 95") != std::string::npos);
+    ASSERT(text.find("(95% CI)") != std::string::npos);
+}
+
+// A two-run aggregation carries the metadata; the canonical score is the
+// median, not the representative run's total.
+TEST(repeat_two_runs_median_is_canonical) {
+    std::vector<bench::ScenarioReport> runs = {
+        score_report("s1", 90.0), score_report("s1", 100.0)};
+    bench::ScenarioReport agg = bench::aggregate_repeats(runs);
+    ASSERT_EQ(agg.repeat_n, 2);
+    ASSERT_NEAR(agg.score_median, 95.0, 0.01);
+    ASSERT_NEAR(agg.score.total, 95.0, 0.01);
+}

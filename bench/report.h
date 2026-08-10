@@ -73,6 +73,11 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
 std::string render_json(const std::vector<ScenarioReport>& reports,
                         const RunMeta& meta);
 
+// Rehydrate a stored JSON report (render_json output) into reports + meta.
+// Legacy files without the repeat fields default score_median to score.
+bool parse_report_json(const agent::json& j, RunMeta& meta,
+                       std::vector<ScenarioReport>& reports);
+
 // Markdown report: score table + failure details (for BENCHMARK.md).
 std::string render_markdown(const std::vector<ScenarioReport>& reports,
                             const RunMeta& meta);
