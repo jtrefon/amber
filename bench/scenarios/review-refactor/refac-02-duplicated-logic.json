@@ -1,0 +1,42 @@
+{
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "difficulty": 3,
+  "checks_weight": 0.8,
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "Review.cpp"
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000
+  },
+  "name": "refac-02-duplicated-logic",
+  "suite": "review-refactor",
+  "description": "quality-perception: duplicated logic across two classes",
+  "setup": {
+    "files": {
+      "Review.cpp": "class CsvExporter {\npublic:\n  std::string quote(const std::string& f) {\n    if (f.find(',') != std::string::npos) return \"\\\"\" + f + \"\\\"\";\n    return f;\n  }\n};\nclass TsvExporter {\npublic:\n  std::string quote(const std::string& f) {\n    if (f.find('\\t') != std::string::npos) return \"\\\"\" + f + \"\\\"\";\n    return f;\n  }\n};\n"
+    }
+  },
+  "prompt": "Read Review.cpp and identify the maintainability problems. Name the specific duplication and where the shared logic should live.",
+  "checks": {
+    "must_contain": [
+      "duplicat",
+      "quote"
+    ],
+    "must_not_contain": [
+      "rewrite",
+      "premature"
+    ]
+  },
+  "optimal_plan": {
+    "read": 1
+  }
+}

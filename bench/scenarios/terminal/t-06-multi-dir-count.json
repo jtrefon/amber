@@ -27,5 +27,8 @@
   "budget": {
     "max_steps": 12,
     "max_wall_ms": 120000
+  },
+  "optimal_plan": {
+    "bash": 1
   }
 }

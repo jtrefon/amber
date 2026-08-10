@@ -1,7 +1,7 @@
 {
   "name": "p-03-verify-after-action",
   "suite": "prompt",
-  "description": "after a write the agent must verify the file",
+  "description": "after a write the agent must verify the file with the read tool",
   "platforms": [
     "linux",
     "darwin"
@@ -11,7 +11,7 @@
       "a.txt": "hello\n"
     }
   },
-  "prompt": "Append the word world to a.txt, then read it back to verify. Reply with the word done when finished.",
+  "prompt": "Use the write tool to append the word world to a.txt, then use the read tool to read it back to verify. Reply with the word done when finished.",
   "oracle": [
     {
       "tool": "write",
