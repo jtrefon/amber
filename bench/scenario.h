@@ -16,7 +16,10 @@ namespace bench {
 struct ScenarioStep {
     std::string tool;
     agent::json args;           // expected args; null -> match any
-    bool args_subset = false;   // match when every expected key is present
+    bool args_subset = true;    // default: match when every expected key is
+                                // present (calls may add optional args like
+                                // read's limit or write's edits). Set false
+                                // to require an exact key set.
     bool unordered = false;     // may match any remaining position in the step set
 };
 

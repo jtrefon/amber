@@ -1693,3 +1693,140 @@ TEST(difficulty_six_scenario_loads) {
     ASSERT(s.has_value());
     ASSERT_EQ(s->difficulty, 6);
 }
+
+
+// ---------------------------------------------------------------------------
+// Oracle path normalization (found by the local baseline)
+// ---------------------------------------------------------------------------
+
+// A live agent reads workspace files via their ABSOLUTE path (the tools
+// resolve them); an oracle expecting a bare relative name must still match.
+TEST(oracle_matches_bare_filename_against_absolute_path) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"read", {{"path", "Review.cpp"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "/tmp/amber_bench_ws_arch-01/Review.cpp"}}, 0,
+         "ok"}};
+    bench::OracleResult r = bench::score_oracle(oracle, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 0);
+}
+
+// And the reverse: an expected absolute path matches a relative call.
+TEST(oracle_absolute_path_matches_relative_call) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"read", {{"path", "/tmp/amber_bench_ws_x/notes.txt"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "notes.txt"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 1.0);
+}
+
+// Non-filename expected values keep exact semantics (no basename hijack).
+TEST(oracle_non_filename_keeps_exact_match) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"read", {{"path", "sub/dir/file.txt"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "/tmp/other/file.txt"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 0.0);
+}
+
+
+// A nested RELATIVE expectation must also match the absolute form the live
+// agent produces: expected "src/header.h" vs actual "/tmp/ws/src/header.h".
+TEST(oracle_nested_relative_matches_absolute) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"write", {{"path", "src/header.h"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"write", {{"path", "/tmp/ws/src/header.h"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 1.0);
+}
+
+// ...but a different directory with the same leaf must not match.
+TEST(oracle_nested_relative_rejects_other_directory) {
+    std::vector<bench::ScenarioStep> oracle = {
+        {"write", {{"path", "src/header.h"}}, false, false}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"write", {{"path", "/tmp/ws/include/header.h"}}, 0, "ok"}};
+    ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 0.0);
+}
+
+// h-02 regression (live baseline): the scenario's own oracle must score the
+// model's correct behavior at bullseye 1.0. A correct rename edits only the
+// files that reference OldName and verifies the untouched one with a read —
+// the write tool's {path, edits} args require args_subset, and other.cpp is
+// checked, not rewritten.
+// h-02's verification read may legitimately come BEFORE the writes: a
+// survey-then-edit agent reads all three files first, then edits the two
+// that reference OldName. The oracle is unordered so both orders score 1.0,
+// while a wrong write to other.cpp still counts as wasted (no step expects it).
+TEST(scenario_h02_oracle_unordered_survey_then_edit) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
+    ASSERT(s.has_value());
+    std::vector<bench::ToolCallEvent> calls = {
+        {"search", {{"pattern", "OldName"}}, 0, "ok"},
+        {"read", {{"path", "src/header.h"}}, 0, "ok"},
+        {"read", {{"path", "src/impl.cpp"}}, 0, "ok"},
+        {"read", {{"path", "src/other.cpp"}}, 0, "ok"},
+        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(s->oracle, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 2);  // survey search + impl.cpp read are off-oracle
+}
+
+// ...but editing a file the oracle never expects (other.cpp) is still a miss.
+TEST(scenario_h02_oracle_rejects_rewrite_of_other_cpp) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
+    ASSERT(s.has_value());
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "src/header.h"}}, 0, "ok"},
+        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write", {{"path", "src/other.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"read", {{"path", "src/other.cpp"}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(s->oracle, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 1);  // the redundant rewrite of other.cpp
+}
+
+TEST(scenario_h02_oracle_scores_correct_rename) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
+    ASSERT(s.has_value());
+    ASSERT(s->oracle.size() == 4u);
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "src/header.h"}}, 0, "ok"},
+        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"read", {{"path", "src/other.cpp"}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(s->oracle, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 0);
+}
+
+// A read oracle step {"path": "Review.cpp"} must match a call that adds the
+// tool's OPTIONAL args (read accepts limit) — the step declares required
+// keys, not an exhaustive set. Exact key-count matching is opt-in.
+TEST(oracle_default_is_subset_extra_args_ok) {
+    std::vector<bench::ScenarioStep> steps = {
+        {"read", {{"path", "Review.cpp"}}}};  // no args_subset flag
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "/tmp/ws/Review.cpp"}, {"limit", 200}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(steps, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 0);
+}
+
+// ...but a missing REQUIRED key still fails, and an explicit args_subset
+// false still demands exact key sets (opt-in strictness preserved).
+TEST(oracle_default_subset_still_requires_all_expected_keys) {
+    std::vector<bench::ScenarioStep> steps = {
+        {"read", {{"path", "a.txt"}, {"lines", 40}}}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(steps, calls);
+    ASSERT_FALSE(r.success);
+    ASSERT_EQ(r.matched_steps, 0);
+}
