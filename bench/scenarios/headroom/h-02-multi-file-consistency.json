@@ -2,7 +2,10 @@
   "name": "h-02-multi-file-consistency",
   "suite": "headroom",
   "description": "headroom tier: a rename across 3 files with consistent references",
-  "platforms": ["linux", "darwin"],
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
   "difficulty": 6,
   "setup": {
     "files": {
@@ -13,13 +16,48 @@
   },
   "prompt": "Rename the struct OldName to NewName across all three files so the project still compiles. Reply with the word done when finished.",
   "oracle": [
-    {"tool": "write", "args": {"path": "src/header.h"}},
-    {"tool": "write", "args": {"path": "src/impl.cpp"}},
-    {"tool": "write", "args": {"path": "src/other.cpp"}}
+    {
+      "tool": "read",
+      "args": {
+        "path": "src/header.h"
+      },
+      "unordered": true
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "src/header.h"
+      },
+      "args_subset": true,
+      "unordered": true
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "src/impl.cpp"
+      },
+      "args_subset": true,
+      "unordered": true
+    },
+    {
+      "tool": "read",
+      "args": {
+        "path": "src/other.cpp"
+      },
+      "unordered": true
+    }
   ],
   "checks": {
-    "must_contain": ["done"]
+    "must_contain": [
+      "done"
+    ]
   },
-  "budget": {"max_steps": 12, "max_wall_ms": 180000},
-  "optimal_plan": {"write": 3}
+  "budget": {
+    "max_steps": 12,
+    "max_wall_ms": 180000
+  },
+  "optimal_plan": {
+    "read": 2,
+    "write": 2
+  }
 }
