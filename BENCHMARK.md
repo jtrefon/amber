@@ -51,6 +51,90 @@ changes — rerun the same commands after any harness change and compare.
 > land in a ~900-910 band — differences within it are single-run variance,
 > not model ranking; use `--repeat N` for statistically meaningful deltas.
 
+## Baseline review (2026-08-11): the first live v2 calibration run
+
+First real run under v2 scoring (difficulty-weighted aggregate over 43
+scenarios / 10 suites, incl. the quality-perception and headroom tiers).
+Records: `bench/results/qwen36-27b-baseline.json` (3× repeats, CI ±19.2),
+`/tmp/opencode/baseline-fixed.json`. The run earned its keep immediately —
+it surfaced three harness defects (all fixed, PR #52) and two model
+signals, and it produced the first calibration data.
+
+**The harness defects the baseline caught** (all real scoring bugs, TDD):
+
+1. **Oracle path normalization** (15/43 scenarios silently inflated at 60):
+   live agents read workspace files via absolute paths while oracles
+   expected bare relative names — every review/refactor scenario scored 60
+   on perfect answers. Bare + nested relative paths now normalize
+   (basename and `/rel/suffix` forms).
+2. **`write` oracle steps never matched**: the write tool emits
+   `{path, edits}` but oracle steps were bare `{path}` with exact-key
+   matching. Fixed by making **subset matching the default** (an oracle
+   step declares required keys, not an exhaustive set — `read`'s optional
+   `limit` and `write`'s `edits` must not invalidate a correct call). This
+   was a latent bug across 46 single-key oracle steps.
+3. **h-02 oracle over-specified**: demanded a write to `other.cpp` (which a
+   correct rename never touches — it only calls `make()`) and ordered the
+   verification read after the writes (breaking survey-then-edit). Oracle
+   now: read the two files that reference `OldName`, verify the untouched
+   file with a read, unordered, `args_subset`.
+
+After the fixes the review suites score 76-97 where they were 60, and h-02
+scores a correct 4-call rename at bullseye 1.0 (was 0/3).
+
+**Model signals** (the controls working):
+
+- **Over-critical on clean code (precision flaw)**: both clean-code
+  controls (arch-02, clean-02) FAILED — the 27B invented "missing
+  includes", "data race", "no error signaling from `parse()`" on genuinely
+  clean snippets. This is the quality-perception problem the control tier
+  was built to surface.
+- **Efficiency tax on verification-heavy tasks**: h-02's correct rename
+  loses points to 6-14 off-oracle calls (bash `g++ -c` compile loops before
+  replying). Correctness full, but the agentic lens taxes the overhead.
+- **Format adherence is borderline**: p-05 fails on a blank line before
+  `done` (`a.txt\nb.txt\nc.txt\n\ndone` vs the exact expected sequence) —
+  strict by design; worth a tuning debate.
+
+**Calibration** (`amber-bench calibrate`): the 27B sits at **769/1000 vs
+the 500 anchor** (deviation +269 — the ladder is too easy for it) with
+**230 pts of headroom** above the best model. Suggested difficulty bumps
+are listed per scenario by `calibrate`. Numbers are reference-anchored;
+the discrimination weights need a 2-model population to become live.
+
+| metric | value |
+|---|---|
+| model score (v2, 43 scenarios) | 769.1/1000 |
+| pass rate | 39/43 |
+| 95% CI (3 repeats) | ±19.2 |
+| anchor deviation | +269 (vs 500) |
+| headroom | 230 |
+
+Per-suite (v2, corrected oracles):
+
+| suite | scenarios | mean score | pass |
+|---|---|---|---|
+| delegate | 1 | 100.0 | 1/1 |
+| terminal | 6 | 98.7 | 6/6 |
+| review-datastructures | 2 | 90.5 | 2/2 |
+| tools | 6 | 84.2 | 6/6 |
+| review-patterns | 2 | 84.8 | 2/2 |
+| review-quality | 2 | 83.5 | 2/2 |
+| review-refactor | 2 | 80.0 | 2/2 |
+| repo | 2 | 79.0 | 2/2 |
+| prompt | 5 | 78.5 | 4/5 |
+| review-arch | 2 | 71.8 | 1/2 |
+| review-clean | 2 | 71.8 | 1/2 |
+| refactor | 4 | 67.0 | 4/4 |
+| coding | 5 | 61.5 | 5/5 |
+| headroom | 2 | 60.2 | 1/2 |
+
+The ranking is meaningful: terminal + tool-selection work is essentially
+solved (98.7/84.2, all pass), quality-perception recall is strong
+(80-90), and the losses concentrate where expected — difficulty-4/5
+coding/refactor tasks (agentic overhead) and the two clean-code controls
+(the 27B's over-critical precision flaw).
+
 ## Official benchmark cross-check (the 27B vs 550B question)
 
 Why does a 27B dense model outscore a 550B frontier model on this harness?
