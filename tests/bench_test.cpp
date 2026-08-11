@@ -1805,3 +1805,28 @@ TEST(scenario_h02_oracle_scores_correct_rename) {
     ASSERT_EQ(r.bullseye, 1.0);
     ASSERT_EQ(r.wasted, 0);
 }
+
+// A read oracle step {"path": "Review.cpp"} must match a call that adds the
+// tool's OPTIONAL args (read accepts limit) — the step declares required
+// keys, not an exhaustive set. Exact key-count matching is opt-in.
+TEST(oracle_default_is_subset_extra_args_ok) {
+    std::vector<bench::ScenarioStep> steps = {
+        {"read", {{"path", "Review.cpp"}}}};  // no args_subset flag
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "/tmp/ws/Review.cpp"}, {"limit", 200}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(steps, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 0);
+}
+
+// ...but a missing REQUIRED key still fails, and an explicit args_subset
+// false still demands exact key sets (opt-in strictness preserved).
+TEST(oracle_default_subset_still_requires_all_expected_keys) {
+    std::vector<bench::ScenarioStep> steps = {
+        {"read", {{"path", "a.txt"}, {"lines", 40}}}};
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(steps, calls);
+    ASSERT_FALSE(r.success);
+    ASSERT_EQ(r.matched_steps, 0);
+}
