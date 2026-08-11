@@ -1,0 +1,3675 @@
+{
+  "engine_version": "0.3.1",
+  "mode": "live",
+  "model": "Qwen_Qwen3.6-27B-Q4_K_M.gguf",
+  "model_score": 769.0686274509803,
+  "model_score_ci": -10.0,
+  "profile": "",
+  "reasoning": "auto",
+  "run_id": "run-1786393222289492554",
+  "scenarios": [
+    {
+      "agentic_actual_by_tool": {
+        "bash": 4,
+        "read": 4,
+        "write": 1
+      },
+      "agentic_deviation": 6,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 15684,
+      "bash_cd_prefix": 3,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3922,
+      "compile_ok": true,
+      "completion_tokens": 1187,
+      "compressions": 0,
+      "cpu_ms": 75,
+      "difficulty": 2,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "The implementation is complete and all tests pass. The `fizzbuzz` function:\n\n- Returns `\"FizzBuzz\"` for multiples of 15\n- Returns `\"Fizz\"` for multiples of 3\n- Returns `\"Buzz\"` for multiples of 5\n- Returns the decimal string of `n` otherwise\n\nCompiles cleanly with C++17. done",
+      "hard_stop": false,
+      "name": "c-01-fizzbuzz",
+      "peak_rss_kb": 16376,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 65702,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        72.5
+      ],
+      "retries": 0,
+      "score": 72.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 70.0,
+      "score_median": 72.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 9,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.1111111111111111,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_c-01-fizzbuzz_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1771018/solution.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1771018/solution.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"std::string fizzbuzz(int n) {\\n    if (n % 15 == 0) return \\\"FizzBuzz\\\";\\n    if (n % 3 == 0)  return \\\"Fizz\\\";\\n    if (n % 5 == 0)  retur...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-01-fizzbuzz_1771018 && g++ -std=c++17 -c solution.cpp -o solution.o && echo \\\"OK\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-01-fizzbuzz_1771018 && cat > /tmp/fb_test.cpp << 'EOF'\\n#include \\\"solution.h\\\"\\n#include <cassert>\\n#include <iostream>...",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-01-fizzbuzz_1771018 && g++ -std=c++17 -I. /tmp/fb_test.cpp solution.cpp -o /tmp/fb_test && /tmp/fb_test\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-01-fizzbuzz_1771018/solution.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 9,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 37.224230565813734,
+      "ttft_ms": 415.34,
+      "wall_ms": 32529,
+      "wasted": 8
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 7,
+        "read": 4,
+        "search": 1,
+        "write": 2
+      },
+      "agentic_deviation": 11,
+      "agentic_efficiency_pct": 21.428571428571427,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.21428571428571427,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 16376,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3667,
+      "compile_ok": true,
+      "completion_tokens": 3021,
+      "compressions": 0,
+      "cpu_ms": 202,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "c-02-sorting-multi",
+      "peak_rss_kb": 16376,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 118191,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        70.0
+      ],
+      "retries": 0,
+      "score": 70.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 60.0,
+      "score_median": 70.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 14,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.07142857142857142,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-02-sorting-multi/TASK.md\"}",
+          "tool": "read [error]"
+        },
+        {
+          "args": "{\"pattern\":\"TASK.md\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_c-02-sorting-multi_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-02-sorting-multi_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-02-sorting-multi_1771018/sorting.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-02-sorting-multi_1771018/sorting.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"sorting.h\\\"\\n#include <vector>\\n\\nvoid bubble_sort(int* a, size_t n) {\\n    for (size_t i = 0; i < n; ++i) {\\n        for (size_...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cat > /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort.cpp << 'EOF'\\n#include \\\"sorting.h\\\"\\n#include <cstdio>\\n#include <cassert>\\n#incl...",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -O2 -o /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort.cpp /tmp/...",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cat > /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort.cpp << 'EOF'\\n#include \\\"sorting.h\\\"\\n#include <cstdio>\\n#include <cassert>\\n#incl...",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -O2 -o /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort.cpp /tmp/...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"sorting.h\\\"\\n#include <vector>\\n#include <functional>\",\"old\":\"#include \\\"sorting.h\\\"\\n#include <vector>\"}],\"path\":\"/tmp/amber_be...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -O2 -o /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort.cpp /tmp/...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"rm /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort.cpp /tmp/amber_bench_ws_c-02-sorting-multi_1771018/test_sort\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 14,
+      "tool_denied": 0,
+      "tool_failures": 4,
+      "tps_avg": 36.71651127980423,
+      "ttft_ms": 333.063,
+      "wall_ms": 79947,
+      "wasted": 13
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 6,
+        "read": 5,
+        "write": 2
+      },
+      "agentic_deviation": 10,
+      "agentic_efficiency_pct": 23.076923076923077,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.23076923076923078,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 16376,
+      "bash_cd_prefix": 4,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3902,
+      "compile_ok": true,
+      "completion_tokens": 2162,
+      "compressions": 0,
+      "cpu_ms": 131,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 2,
+      "final_text": "Implemented `RingBuffer` in `ring_buffer.cpp`:\n\n- **`push(int)`** — appends at `(head_ + count_) % cap_`, returns `false` when full\n- **`pop(int&)`** — reads from `head_`, advances head, decrements count, returns `false` when empty\n- **`size()`** — returns `count_`\n- **`empty()`** — returns `count_ == 0`\n- Added destructor `~RingBuffer()` to free the allocated buffer\n\nAll edge cases verified: initial empty state, full rejection, wrap-around after drain, FIFO ordering.\n\ndone",
+      "hard_stop": false,
+      "name": "c-03-ring-buffer",
+      "peak_rss_kb": 16568,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 99135,
+      "recoveries": 0,
+      "redundant": 2,
+      "repeat_n": 1,
+      "repeat_scores": [
+        55.0
+      ],
+      "retries": 0,
+      "score": 55.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_median": 55.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 12,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.07692307692307693,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_c-03-ring-buffer_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1771018/ring_buffer.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1771018/ring_buffer.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"ring_buffer.h\\\"\\n\\nRingBuffer::RingBuffer(size_t capacity) : cap_(capacity), buf_(new int[capacity]) {}\\n\\nRingBuffer::~RingBuff...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"    explicit RingBuffer(size_t capacity);\\n    ~RingBuffer();\",\"old\":\"    explicit RingBuffer(size_t capacity);\"}],\"path\":\"/tmp/amber_bench...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1771018/ring_buffer.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-03-ring-buffer_1771018/ring_buffer.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-03-ring-buffer_1771018 && cat > /tmp/rb_test.cpp << 'EOF'\\n#include \\\"ring_buffer.h\\\"\\n#include <cstdio>\\n\\nint main() {...",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-03-ring-buffer_1771018 && g++ -std=c++17 -o /tmp/rb_test /tmp/rb_test.cpp ring_buffer.cpp 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-03-ring-buffer_1771018 && g++ -std=c++17 -o /tmp/rb_test /tmp/rb_test.cpp ring_buffer.cpp 2>&1; echo \\\"EXIT: $?\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-03-ring-buffer_1771018 && g++ -std=c++17 -I. -o /tmp/rb_test /tmp/rb_test.cpp ring_buffer.cpp 2>&1 && /tmp/rb_test\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"rm /tmp/rb_test.cpp /tmp/rb_test\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 13,
+      "tool_denied": 0,
+      "tool_failures": 2,
+      "tps_avg": 37.527868765158864,
+      "ttft_ms": 411.18399999999997,
+      "wall_ms": 56060,
+      "wasted": 12
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 5,
+        "read": 4,
+        "write": 1
+      },
+      "agentic_deviation": 7,
+      "agentic_efficiency_pct": 30.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.3,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 16568,
+      "bash_cd_prefix": 3,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3880,
+      "compile_ok": true,
+      "completion_tokens": 1865,
+      "compressions": 0,
+      "cpu_ms": 120,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "The LCS implementation is complete and verified:\n\n- **Algorithm**: Classic DP with O(n×m) time and space\n- **Signature**: Matches the required `int lcs(const std::string& a, const std::string& b)`\n- **Tests passed**: Empty strings, identical strings, no common subsequence, classic example (`\"ABCBDAB\"` vs `\"BDCAB\"` → 4), and edge cases\n\ndone",
+      "hard_stop": false,
+      "name": "c-04-lcs",
+      "peak_rss_kb": 16952,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 75490,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        55.0
+      ],
+      "retries": 0,
+      "score": 55.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_median": 55.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 10,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.1,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-04-lcs_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_c-04-lcs_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-04-lcs_1771018/lcs.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-04-lcs_1771018/lcs.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"lcs.h\\\"\\n\\nint lcs(const std::string& a, const std::string& b) {\\n    int n = a.size();\\n    int m = b.size();\\n    int dp[n + 1...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-04-lcs_1771018 && g++ -std=c++17 -O2 -c lcs.cpp -o lcs.o && echo \\\"OK\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-04-lcs_1771018 && cat > test_lcs.cpp << 'EOF'\\n#include \\\"lcs.h\\\"\\n#include <cassert>\\n#include <iostream>\\n\\nint main()...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-04-lcs_1771018 && rm -f test_lcs.cpp test_lcs lcs.o\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"rm -f /tmp/amber_bench_ws_c-04-lcs_1771018/test_lcs.cpp /tmp/amber_bench_ws_c-04-lcs_1771018/test_lcs /tmp/amber_bench_ws_c-04-lcs_1771018/lcs.o\"}",
+          "tool": "bash [denied]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-04-lcs_1771018/lcs.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 10,
+      "tool_denied": 1,
+      "tool_failures": 0,
+      "tps_avg": 38.70120822852203,
+      "ttft_ms": 386.383,
+      "wall_ms": 48272,
+      "wasted": 9
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 4,
+        "read": 5,
+        "write": 2
+      },
+      "agentic_deviation": 8,
+      "agentic_efficiency_pct": 27.27272727272727,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.2727272727272727,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 16952,
+      "bash_cd_prefix": 3,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3706,
+      "compile_ok": true,
+      "completion_tokens": 1981,
+      "compressions": 0,
+      "cpu_ms": 134,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 2,
+      "final_text": "done\n\n**Summary:** Implemented `bfs_distances` in `bfs.cpp` with a standard BFS algorithm:\n1. Builds an adjacency list from the edge pairs (undirected graph)\n2. Initializes all distances to -1 (unreachable), sets source distance to 0\n3. Uses a queue to traverse level-by-level, updating distances for unvisited neighbors\n4. Returns the distance vector\n\nAll 4 test cases passed (line graph, disconnected node, single node, star graph).",
+      "hard_stop": false,
+      "name": "c-05-graph-bfs",
+      "peak_rss_kb": 16952,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 83799,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        55.0
+      ],
+      "retries": 0,
+      "score": 55.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_median": 55.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 11,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "coding",
+      "templated": true,
+      "tool_call_accuracy": 0.09090909090909091,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs/TASK.md\"}",
+          "tool": "read [error]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_c-05-graph-bfs_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1771018/bfs.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1771018/bfs.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"bfs.h\\\"\\n#include <queue>\\n#include <utility>\\n\\nstd::vector<int> bfs_distances(int n, const std::vector<std::pair<int, int>>& e...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-05-graph-bfs_1771018 && g++ -std=c++17 -c bfs.cpp -o bfs.o 2>&1\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-05-graph-bfs_1771018 && cat > test_bfs.cpp << 'EOF'\\n#include \\\"bfs.h\\\"\\n#include <cassert>\\n#include <iostream>\\n\\nint ...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_c-05-graph-bfs_1771018 && rm -f test_bfs.cpp test_bfs bfs.o\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_c-05-graph-bfs_1771018/bfs.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#pragma once\\n#include <utility>\\n#include <vector>\\n\\nstd::vector<int> bfs_distances(int n, const std::vector<std::pair<int, int>>& edges,...",
+          "tool": "write [ok]"
+        }
+      ],
+      "tool_calls_total": 11,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 37.23796561735298,
+      "ttft_ms": 371.227,
+      "wall_ms": 51219,
+      "wasted": 10
+    },
+    {
+      "agentic_actual_by_tool": {
+        "task": 2
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "task": 2
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 16952,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 9472,
+      "compile_ok": true,
+      "completion_tokens": 951,
+      "compressions": 0,
+      "cpu_ms": 174,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "## Error Handling Survey — `lib/parser.cpp` vs `tui/scroll.cpp`\n\n### `lib/parser.cpp`\n\n```cpp\n#include <stdexcept>\nint parse(const char* s) { if (!s || !*s) throw std::runtime_error(\"empty input\"); return 42; }\n```\n\n- **Mechanism:** `std::runtime_error` exception for null pointer or empty string.\n- **Strictness:** Rejects only the two most degenerate cases. Everything else — garbage, whitespace, non-numeric — is silently accepted and returns the hardcoded `42`.\n- **Key risk:** No actual parsing occurs. Callers can't distinguish valid from invalid input because every accepted string produces the same result.\n\n### `tui/scroll.cpp`\n\n```cpp\n#include <cassert>\nint scroll(int n) { assert(n > 0); return n; }\n```\n\n- **Mechanism:** `assert(n > 0)` — a debug-only guard.\n- **Strictness:** Strict in debug builds (aborts on `n ≤ 0`), but **completely absent in release builds** (`NDEBUG` strips the assert). No upper bound is checked either way.\n- **Key risk:** In production, any value — negative, zero, garbage — passes through silently with no validation or error signal.\n\n### Comparison\n\n| Dimension | `lib/parser.cpp` | `tui/scroll.cpp` |\n|---|---|---|\n| **Guard type** | Exception (always active) | `assert` (debug only) |\n| **Release safety** | ✅ Always throws on null/empty | ❌ No guard at all |\n| **Input discrimination** | ❌ Accepts everything else blindly | ✅ Rejects `n ≤ 0` in debug |\n| **Error signal to caller** | Exception (catchable) | None (assert aborts; release swallows) |\n| **Upper bound check** | ❌ Missing | ❌ Missing |\n| **Silent failure** | Returns meaningless `42` for all valid-looking input | Returns unvalidated `n` in release |\n\n**Bottom line:** Both modules are stubs with inadequate error handling, but in different ways. `parser.cpp` uses a runtime exception that survives release builds — it's safer in that sense — but it does no real validation and returns a magic constant. `scroll.cpp` relies entirely on `assert`, which vanishes in production, leaving zero protection. `parser.cpp` is stricter in its guard (always-on exception) but lazier in its validation; `scroll.cpp` is stricter in debug but has no production safety net.\n\ndone",
+      "hard_stop": false,
+      "name": "d-01-two-area-survey",
+      "peak_rss_kb": 16952,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 20898,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "delegate",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"prompt\":\"Survey error handling in `lib/parser.cpp`. Report:\\n1. How the module detects and treats invalid input (bad tokens, malformed data, edge cases, et...",
+          "tool": "task [ok]"
+        },
+        {
+          "args": "{\"prompt\":\"Survey error handling in `tui/scroll.cpp`. Report:\\n1. How the module detects and treats invalid input (out-of-range indices, bad state, boundary ...",
+          "tool": "task [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 32.93612451279282,
+      "ttft_ms": 369.125,
+      "wall_ms": 67099,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 16952,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 4152,
+      "compile_ok": true,
+      "completion_tokens": 159,
+      "compressions": 0,
+      "cpu_ms": 11,
+      "difficulty": 6,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "amberstone — done.",
+      "hard_stop": false,
+      "name": "h-01-context-retention",
+      "peak_rss_kb": 16952,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 17011,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        97.5
+      ],
+      "retries": 0,
+      "score": 97.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 90.0,
+      "score_median": 97.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "headroom",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_h-01-context-retention_1771018/notes.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 30.648166859772363,
+      "ttft_ms": 433.456,
+      "wall_ms": 6552,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 5,
+        "read": 3,
+        "search": 2,
+        "write": 3
+      },
+      "agentic_deviation": 10,
+      "agentic_efficiency_pct": 23.076923076923077,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "write": 3
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.23076923076923078,
+      "agentic_score": 0.0,
+      "arg_precision": 0.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 16952,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 0.0,
+      "bullseye_at_ms": 48658,
+      "compile_ok": true,
+      "completion_tokens": 1912,
+      "compressions": 0,
+      "cpu_ms": 100,
+      "difficulty": 6,
+      "failures": [
+        "oracle not matched: 0/3 steps (bullseye 0)"
+      ],
+      "files_touched": 2,
+      "final_text": "Renamed `OldName` to `NewName` across all three files:\n\n- `src/header.h` — struct definition + added `make()` declaration\n- `src/impl.cpp` — function return type\n- `src/other.cpp` — no direct reference (uses `make()` which now returns `NewName`)\n\nBoth files compile cleanly. done",
+      "hard_stop": false,
+      "name": "h-02-multi-file-consistency",
+      "peak_rss_kb": 17144,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 74221,
+      "recoveries": 0,
+      "redundant": 2,
+      "repeat_n": 1,
+      "repeat_scores": [
+        23.0
+      ],
+      "retries": 0,
+      "score": 23.0,
+      "score_adherence": 100.0,
+      "score_correctness": 20.0,
+      "score_efficiency": 0.0,
+      "score_median": 23.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 10,
+      "structure_checks": 1.0,
+      "success": false,
+      "suite": "headroom",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"pattern\":\"OldName\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"path\":\"src/header.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"src/impl.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_h-02-multi-file-consistency_1771018 -type f \\\\( -name '*.h' -o -name '*.cpp' -o -name '*.c' \\\\) | head -20\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"src/other.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"struct NewName { int x; };\",\"old\":\"struct OldName { int x; };\"}],\"path\":\"src/header.h\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"NewName make() { return {}; }\",\"old\":\"OldName make() { return {}; }\"}],\"path\":\"src/impl.cpp\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"pattern\":\"OldName\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -c src/impl.cpp -o /dev/null 2>&1 && echo \\\"OK\\\" || echo \\\"FAIL\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -c src/other.cpp -o /dev/null 2>&1 && echo \\\"OK\\\" || echo \\\"FAIL\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"struct NewName { int x; };\\nNewName make();\",\"old\":\"struct NewName { int x; };\"}],\"path\":\"src/header.h\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -c src/other.cpp -o /dev/null 2>&1 && echo \\\"OK\\\" || echo \\\"FAIL\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cat src/header.h src/impl.cpp src/other.cpp\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 13,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 38.10255275157479,
+      "ttft_ms": 322.953,
+      "wall_ms": 48658,
+      "wasted": 13
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 2
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 55.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17144,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 4107,
+      "compile_ok": true,
+      "completion_tokens": 274,
+      "compressions": 0,
+      "cpu_ms": 16,
+      "difficulty": 2,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "The file `a.txt` contains a single line: `hello world`.\n\ndone",
+      "hard_stop": false,
+      "name": "p-01-envelope-format",
+      "peak_rss_kb": 17144,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 28956,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        81.0
+      ],
+      "retries": 0,
+      "score": 81.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 60.00000000000001,
+      "score_median": 81.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"limit\":200,\"path\":\"/tmp/amber_bench_ws_p-01-envelope-format/a.txt\"}",
+          "tool": "read [error]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_p-01-envelope-format_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"limit\":200,\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 32.92088997141559,
+      "ttft_ms": 366.924,
+      "wall_ms": 9753,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17144,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 4058,
+      "compile_ok": true,
+      "completion_tokens": 168,
+      "compressions": 0,
+      "cpu_ms": 13,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "The file `a.txt` contains:\n\n```\nhello world\n```\n\ndone",
+      "hard_stop": false,
+      "name": "p-02-banned-tool-refusal",
+      "peak_rss_kb": 17144,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 16985,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_p-02-banned-tool-refusal_1771018/a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 30.8681443047394,
+      "ttft_ms": 341.647,
+      "wall_ms": 6648,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 2,
+        "write": 2
+      },
+      "agentic_deviation": 3,
+      "agentic_efficiency_pct": 40.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 0.4,
+      "agentic_score": 25.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17144,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 11440,
+      "compile_ok": true,
+      "completion_tokens": 461,
+      "compressions": 0,
+      "cpu_ms": 26,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "The file `a.txt` now contains both lines — `hello` and `world` — confirmed by reading it back.\n\ndone",
+      "hard_stop": false,
+      "name": "p-03-verify-after-action",
+      "peak_rss_kb": 17144,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 41585,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        61.25
+      ],
+      "retries": 0,
+      "score": 61.25,
+      "score_adherence": 75.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 9.999999999999993,
+      "score_median": 61.25,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 6,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 0.4,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"\\thello\\n\\tworld\",\"old\":\"\\thello\"}],\"path\":\"a.txt\"}",
+          "tool": "write [error]"
+        },
+        {
+          "args": "{\"command\":\"cat -A a.txt\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"hello\\nworld\",\"old\":\"hello\"}],\"path\":\"a.txt\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 5,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 35.3696678855561,
+      "ttft_ms": 369.713,
+      "wall_ms": 14490,
+      "wasted": 3
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17144,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6846,
+      "compile_ok": true,
+      "completion_tokens": 172,
+      "compressions": 0,
+      "cpu_ms": 12,
+      "difficulty": 4,
+      "failures": [
+        "final answer failed scenario checks"
+      ],
+      "files_touched": 0,
+      "final_text": "a.txt\nb.txt\nc.txt\n\ndone",
+      "hard_stop": false,
+      "name": "p-05-multi-constraint",
+      "peak_rss_kb": 17144,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 17169,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        60.0
+      ],
+      "retries": 0,
+      "score": 60.0,
+      "score_adherence": 100.0,
+      "score_correctness": 96.00000000000001,
+      "score_efficiency": 100.0,
+      "score_median": 60.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": false,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_p-05-multi-constraint_1771018 -name '*.txt' -type f | sort\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 31.090464165142123,
+      "ttft_ms": 368.077,
+      "wall_ms": 6846,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 50.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 90.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17144,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6262,
+      "compile_ok": true,
+      "completion_tokens": 240,
+      "compressions": 0,
+      "cpu_ms": 15,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "The file `real.txt` contains a single line:\n\n```\n\tverified content\n```\n\ndone",
+      "hard_stop": false,
+      "name": "p-06-verify-before-claim",
+      "peak_rss_kb": 17144,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 23130,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        90.5
+      ],
+      "retries": 0,
+      "score": 90.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 70.0,
+      "score_median": 90.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "prompt",
+      "templated": false,
+      "tool_call_accuracy": 0.5,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_p-06-verify-before-claim_1771018 -name \\\"real.txt\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_p-06-verify-before-claim_1771018/real.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 32.242581194406505,
+      "ttft_ms": 358.88100000000003,
+      "wall_ms": 8739,
+      "wasted": 1
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2,
+        "read": 4,
+        "write": 1
+      },
+      "agentic_deviation": 4,
+      "agentic_efficiency_pct": 42.857142857142854,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.42857142857142855,
+      "agentic_score": 40.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17144,
+      "bash_cd_prefix": 1,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3875,
+      "compile_ok": true,
+      "completion_tokens": 1149,
+      "compressions": 0,
+      "cpu_ms": 76,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "Refactored `process.cpp` by extracting three helper functions:\n\n- **`extract_normalize`** — absolute value of a single parameter\n- **`extract_score`** — weighted sum with clamping to [0, 100]\n- **`extract_render`** — string formatting of score and total\n\n`process` now reads as a clean sequence of calls. Signature unchanged, `process.h` untouched, compiles cleanly.\n\ndone",
+      "hard_stop": false,
+      "name": "r-01-extract-method",
+      "peak_rss_kb": 17144,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 46601,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.0
+      ],
+      "retries": 0,
+      "score": 83.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 80.0,
+      "score_median": 83.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 6,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "refactor",
+      "templated": true,
+      "tool_call_accuracy": 0.14285714285714285,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_r-01-extract-method_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1771018/process.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1771018/process.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"process.h\\\"\\n\\nstatic int extract_normalize(int v) {\\n    return v < 0 ? -v : v;\\n}\\n\\nstatic int extract_score(int x, int y, in...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-extract-method_1771018/process.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-01-extract-method_1771018 && g++ -std=c++17 -c process.cpp -o process.o 2>&1\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 7,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 35.481139423957906,
+      "ttft_ms": 357.341,
+      "wall_ms": 30927,
+      "wasted": 6
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 5,
+        "read": 4,
+        "write": 1
+      },
+      "agentic_deviation": 7,
+      "agentic_efficiency_pct": 30.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.3,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17144,
+      "bash_cd_prefix": 4,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3924,
+      "compile_ok": true,
+      "completion_tokens": 1879,
+      "compressions": 0,
+      "cpu_ms": 116,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "Refactored `shapes.cpp` from a switch-based design to polymorphism:\n\n- **`Shape`** — abstract base class with pure virtual `double area() const`\n- **`Circle`** — derived class, computes `π * r²`\n- **`Square`** — derived class, computes `s²`\n- `shape_area()` now dispatches through the virtual interface instead of a switch\n- `area_circle()` and `area_square()` keep their exact signatures and behavior\n- `shapes.h` left untouched\n\nNumerical output verified identical to the original. done",
+      "hard_stop": false,
+      "name": "r-02-polymorphism-over-switch",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 71651,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        72.5
+      ],
+      "retries": 0,
+      "score": 72.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 70.0,
+      "score_median": 72.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 9,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "refactor",
+      "templated": true,
+      "tool_call_accuracy": 0.1,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018/shapes.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018/shapes.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"shapes.h\\\"\\n#include <cmath>\\n\\n/* Abstract base class */\\nclass Shape {\\npublic:\\n    virtual ~Shape() = default;\\n    virtual ...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018 && g++ -std=c++17 -Wall -Wextra -c shapes.cpp -o shapes.o && echo \\\"OK\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018 && cat > /tmp/test_shapes.cpp << 'EOF'\\n#include <cstdio>\\n#include \\\"shapes.h\\\"\\n\\n...",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018 && cat > test_shapes.cpp << 'EOF'\\n#include <cstdio>\\n#include \\\"shapes.h\\\"\\n\\nint m...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018 && rm -f test_shapes.cpp test_shapes shapes.o\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-polymorphism-over-switch_1771018/shapes.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 10,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 37.09523732665483,
+      "ttft_ms": 356.728,
+      "wall_ms": 48690,
+      "wasted": 9
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 4,
+        "read": 6,
+        "write": 1
+      },
+      "agentic_deviation": 8,
+      "agentic_efficiency_pct": 27.27272727272727,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.2727272727272727,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 3,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3864,
+      "compile_ok": true,
+      "completion_tokens": 1194,
+      "compressions": 0,
+      "cpu_ms": 77,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "The adapter is implemented and verified. `info()` and `error()` now delegate to `LegacyLogger::log()` with `\"[INFO] \"` and `\"[ERROR] \"` prefixes respectively, producing the expected output:\n\n```\nlegacy: [INFO] hello world\nlegacy: [ERROR] something broke\n```\n\nNo changes to `legacy.h`, `adapter.h`, or `legacy.cpp`. done",
+      "hard_stop": false,
+      "name": "r-03-adapter",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 62420,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        57.5
+      ],
+      "retries": 0,
+      "score": 57.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 9.999999999999993,
+      "score_median": 57.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 8,
+      "structure_checks": 0.5,
+      "success": true,
+      "suite": "refactor",
+      "templated": true,
+      "tool_call_accuracy": 0.09090909090909091,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_r-03-adapter_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1771018/legacy.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1771018/adapter.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1771018/legacy.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1771018/adapter.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"void LoggerAdapter::info(const std::string& msg) {\\n    legacy_.log((\\\"[INFO] \\\" + msg).c_str());\\n}\\n\\nvoid LoggerAdapter::error(const std...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-03-adapter_1771018/adapter.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-03-adapter_1771018 && g++ -std=c++17 -c adapter.cpp -o adapter.o 2>&1\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-03-adapter_1771018 && cat > /tmp/test_adapter.cpp << 'EOF'\\n#include \\\"adapter.h\\\"\\nint main() {\\n    LegacyLogger ll;\\n...",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-03-adapter_1771018 && g++ -std=c++17 -I. /tmp/test_adapter.cpp adapter.cpp -o /tmp/test_adapter && /tmp/test_adapter\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 11,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 36.36875968316945,
+      "ttft_ms": 371.50600000000003,
+      "wall_ms": 32794,
+      "wasted": 10
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 4,
+        "read": 5,
+        "write": 2
+      },
+      "agentic_deviation": 8,
+      "agentic_efficiency_pct": 27.27272727272727,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 3,
+      "agentic_ratio": 0.2727272727272727,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 3,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3858,
+      "compile_ok": true,
+      "completion_tokens": 1993,
+      "compressions": 0,
+      "cpu_ms": 129,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "r-04-strategy",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 104882,
+      "recoveries": 0,
+      "redundant": 3,
+      "repeat_n": 1,
+      "repeat_scores": [
+        55.0
+      ],
+      "retries": 0,
+      "score": 55.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_median": 55.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 11,
+      "structure_checks": 0.75,
+      "success": true,
+      "suite": "refactor",
+      "templated": true,
+      "tool_call_accuracy": 0.09090909090909091,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1771018/pricing.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1771018/pricing.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"#include \\\"pricing.h\\\"\\n#include <unordered_map>\\n#include <memory>\\n\\nstruct ShippingStrategy {\\n    virtual ~ShippingStrategy() = default...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1771018/pricing.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_r-04-strategy_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-04-strategy_1771018 && g++ -std=c++17 -c pricing.cpp -o pricing.o 2>&1\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-04-strategy_1771018 && g++ -std=c++17 -c pricing.cpp -o pricing.o 2>&1; echo \\\"EXIT: $?\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"double shipping_cost(const std::string& mode, double weight_kg) {\\n    static StandardShipping standard;\\n    static ExpressShipping expres...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-04-strategy_1771018 && g++ -std=c++17 -c pricing.cpp -o pricing.o 2>&1\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-04-strategy_1771018/pricing.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 11,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 37.04362692981869,
+      "ttft_ms": 365.50300000000004,
+      "wall_ms": 54774,
+      "wasted": 10
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 5,
+        "read": 1,
+        "search": 1,
+        "write": 3
+      },
+      "agentic_deviation": 6,
+      "agentic_efficiency_pct": 80.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1,
+        "todowrite": 1,
+        "write": 4
+      },
+      "agentic_plan_tools": 8,
+      "agentic_ratio": 0.8,
+      "agentic_score": 15.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 2,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 14919,
+      "compile_ok": true,
+      "completion_tokens": 1137,
+      "compressions": 0,
+      "cpu_ms": 65,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 3,
+      "final_text": "Renamed `compute_value` → `compute_result` in 3 files (declaration in `lib.h`, definition in `lib.c`, call site in `util.c`). Zero remaining references to the old name. Both files compile cleanly with `-Wall -Wextra`.\n\ndone",
+      "hard_stop": false,
+      "name": "r-01-rename-interface",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 53090,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.0
+      ],
+      "retries": 0,
+      "score": 83.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 83.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 7,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "repo",
+      "templated": true,
+      "tool_call_accuracy": 0.2,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_r-01-rename-interface_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1771018\",\"pattern\":\"compute_value\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"int compute_result(int x);\",\"old\":\"int compute_value(int x);\"}],\"path\":\"/tmp/amber_bench_ws_r-01-rename-interface_1771018/lib.h\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"int compute_result(int x) { return x * 2; }\",\"old\":\"int compute_value(int x) { return x * 2; }\"}],\"path\":\"/tmp/amber_bench_ws_r-01-rename-i...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"int helper(int x) { return compute_result(x) + 1; }\",\"old\":\"int helper(int x) { return compute_value(x) + 1; }\"}],\"path\":\"/tmp/amber_bench_...",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"grep -rn \\\"compute_value\\\" /tmp/amber_bench_ws_r-01-rename-interface_1771018/ --include=\\\"*.c\\\" --include=\\\"*.h\\\"\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"grep -rn \\\"compute_result\\\" /tmp/amber_bench_ws_r-01-rename-interface_1771018/ --include=\\\"*.c\\\" --include=\\\"*.h\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-01-rename-interface_1771018 && gcc -Wall -Wextra -c lib.c util.c -o /dev/null 2>&1; echo \\\"exit: $?\\\"\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-01-rename-interface_1771018 && gcc -Wall -Wextra -c lib.c && gcc -Wall -Wextra -c util.c && echo \\\"OK\\\" && rm -f lib.o u...",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 10,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 37.10905654019575,
+      "ttft_ms": 440.08000000000004,
+      "wall_ms": 30675,
+      "wasted": 8
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 3,
+        "read": 6,
+        "write": 1
+      },
+      "agentic_deviation": 8,
+      "agentic_efficiency_pct": 60.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 2,
+        "search": 1,
+        "todowrite": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 6,
+      "agentic_ratio": 0.6,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 2,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 26956,
+      "compile_ok": true,
+      "completion_tokens": 2122,
+      "compressions": 0,
+      "cpu_ms": 114,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "**Bug:** Off-by-one in `calc.c:5` — `sum += xs[i + 1]` skipped the first element and included the sentinel `-1` in the sum.\n\n**Fix:** Changed to `sum += xs[i]` so it accumulates the current element.\n\nObjects compile cleanly with `-Wall -Wextra`. Public interfaces (`app.h` / `calc.h`) unchanged.\n\ndone",
+      "hard_stop": false,
+      "name": "r-02-bug-hunt",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 61958,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        75.0
+      ],
+      "retries": 0,
+      "score": 75.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 80.0,
+      "score_median": 75.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 8,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "repo",
+      "templated": true,
+      "tool_call_accuracy": 0.3,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1771018/TASK.md\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"ls -la /tmp/amber_bench_ws_r-02-bug-hunt_1771018/\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1771018/app.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1771018/calc.h\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1771018/app.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1771018/calc.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"        sum += xs[i];\",\"old\":\"        sum += xs[i + 1];\"}],\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1771018/calc.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-bug-hunt_1771018 && gcc -Wall -Wextra -o app app.c calc.c && echo \\\"Build OK\\\"\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"cd /tmp/amber_bench_ws_r-02-bug-hunt_1771018 && ls Makefile CMakeLists.txt 2>/dev/null; echo \\\"---\\\"; gcc -c app.c calc.c && echo \\\"Objects compi...",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_r-02-bug-hunt_1771018/calc.c\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 10,
+      "tool_denied": 0,
+      "tool_failures": 1,
+      "tps_avg": 37.48618618097315,
+      "ttft_ms": 325.414,
+      "wall_ms": 52862,
+      "wasted": 7
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7380,
+      "compile_ok": true,
+      "completion_tokens": 877,
+      "compressions": 0,
+      "cpu_ms": 42,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "Here are the design issues in `Review.cpp`:\n\n---\n\n### 1. Violation of Single Responsibility Principle (SRP)\n\n`Report` bundles four unrelated responsibilities into one class:\n\n| Method | Responsibility |\n|---|---|\n| `parse()` | Text tokenization & validation |\n| `render()` | Markdown formatting / presentation |\n| `save()` | File I/O (write) |\n| `load()` | File I/O (read) |\n\nA change to the serialization format breaks `save`/`load`. A change to the markdown template breaks `render`. A change to the tokenizer breaks `parse`. All four reasons to change live in one class. These should be separate components — e.g. `ReportParser`, `ReportRenderer`, `ReportRepository` — composed into a `Report` that only holds state.\n\n---\n\n### 2. No separation between data and behavior\n\nThe class has **no data members at all** — no parsed representation, no internal state. `parse()` takes `raw` but stores nothing visible; `render()` writes to an ostream but has no data to render. The class is a bag of unrelated functions masquerading as an object. Either it should own a parsed representation (e.g. a `std::vector<Token>` or a domain struct), or these should be free functions / a utility namespace.\n\n---\n\n### 3. `save`/`load` are symmetric I/O with no format contract\n\n`save(const std::string& path)` and `load(const std::string& path)` both take a raw path string with no indication of:\n\n- What format they read/write (JSON? YAML? binary?)\n- Whether `load` populates the same object or returns a new one\n- Error handling (no return value, no exception contract)\n\nThis is a classic **Filesystem Coupling** anti-pattern — the class knows about disk paths directly instead of accepting/returning a stream or a format-agnostic structure.\n\n---\n\n### 4. No error handling surface\n\nAll four methods are `void` with no exceptions documented and no error codes returned. `parse()` silently \"validates\" with no way for the caller to know if validation failed. `save()` and `load()` can fail on I/O with no signal to the caller.\n\n---\n\n### 5. Naming mismatch with file\n\nThe file is `Review.cpp` but the class is `Report`. Either the file should be `Report.cpp` or the class should be `Review` — the mismatch is a maintenance hazard.\n\n---\n\n**Summary:** The class is a god-class-in-embryo — four unrelated responsibilities, no internal state, no error handling, and tight coupling to the filesystem, all wrapped in a single type with no clear identity. The fix is to split into focused components (parser, renderer, repository) and give `Report` a single job: represent the report's data.\n\ndone",
+      "hard_stop": false,
+      "name": "arch-01-god-class",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29841,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.5
+      ],
+      "retries": 0,
+      "score": 83.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 49.99999999999999,
+      "score_median": 83.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-arch",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"glob\":\"*.cpp\",\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_arch-01-god-class_1771018 -name \\\"Review.cpp\\\" -o -name \\\"Review.h\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_arch-01-god-class_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.248395407310554,
+      "ttft_ms": 374.265,
+      "wall_ms": 23512,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6504,
+      "compile_ok": true,
+      "completion_tokens": 1261,
+      "compressions": 0,
+      "cpu_ms": 65,
+      "difficulty": 3,
+      "failures": [
+        "final answer failed scenario checks"
+      ],
+      "files_touched": 0,
+      "final_text": "Here are the design issues I found in `Review.cpp`, anchored to the code:\n\n---\n\n### 1. No error signaling from `parse()` (line 4)\n\n```cpp\nReport parse(const std::string& raw) { return Report{raw.size()}; }\n```\n\n`parse()` always returns a `Report`, even if the input is malformed or empty. There's no way to distinguish a successful parse from a failure. Should return `std::optional<Report>` (C++17) or a result type so callers can handle parse errors.\n\n---\n\n### 2. `render()` swallows stream errors (line 8)\n\n```cpp\nvoid render(const Report& r, std::ostream& out) { out << r.size; }\n```\n\nReturns `void`, so any write failure (bad stream, I/O error) is silently discarded. Should return `bool` or check `out.fail()` and propagate the error to the caller.\n\n---\n\n### 3. No input validation (line 4)\n\n```cpp\nReport parse(const std::string& raw) { return Report{raw.size()}; }\n```\n\nNo validation of `raw` — empty strings, null-like content, or obviously malformed input all produce a `Report` without any check. A parser should at least validate its contract.\n\n---\n\n### 4. Trivially small struct passed by const-reference (line 8)\n\n```cpp\nvoid render(const Report& r, std::ostream& out) { out << r.size; }\n```\n\n`Report` is a single `std::size_t` (8 bytes). Passing it by `const&` is unnecessary and may be slower than passing by value on most ABIs. Pass by value for trivially-copyable types this small.\n\n---\n\n### 5. Missing includes\n\nThe file uses `std::string`, `std::ostream`, and `std::size_t` but has no `#include <string>`, `#include <ostream>`, or `#include <cstddef>`. This only compiles if a transitive header happens to provide them — fragile and non-portable.\n\n---\n\n### 6. Concrete classes where interfaces would allow flexibility\n\n`ReportParser` and `ReportRenderer` are concrete classes with no virtual interface. If you ever need to swap in a different parser (e.g., for a different format) or renderer (e.g., JSON vs. plain text), you're forced to restructure. Given the project already has well-designed interfaces (`CompressionStrategy`, `SearchBackend`, etc.), these should follow the same pattern.\n\n---\n\n**Summary:** The code is structurally clean (separation of parsing, data, and rendering is good), but it lacks error handling, validation, proper includes, and follows inconsistent style compared to the rest of the project's interface-driven design.",
+      "hard_stop": false,
+      "name": "arch-02-clean-control",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 24067,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        60.0
+      ],
+      "retries": 0,
+      "score": 60.0,
+      "score_adherence": 100.0,
+      "score_correctness": 73.33333333333333,
+      "score_efficiency": 60.00000000000001,
+      "score_median": 60.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": false,
+      "suite": "review-arch",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"glob\":\"*.cpp\",\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_arch-02-clean-control_1771018 -name \\\"Review.cpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_arch-02-clean-control_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 34.421030572608394,
+      "ttft_ms": 367.283,
+      "wall_ms": 31823,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7688,
+      "compile_ok": true,
+      "completion_tokens": 536,
+      "compressions": 0,
+      "cpu_ms": 34,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "Here are the magic values in `Review.cpp`:\n\n| Line | Magic value | What it means | Suggested replacement |\n|------|-------------|---------------|-----------------------|\n| 2 | `1000` | Tax bracket threshold | `const double HIGH_INCOME_THRESHOLD = 1000;` |\n| 2 | `0.2` | High-income tax rate (20%) | `const double HIGH_INCOME_TAX_RATE = 0.2;` |\n| 3 | `0.1` | Standard tax rate (10%) | `const double STANDARD_TAX_RATE = 0.1;` |\n| 4 | `5000` | Timeout in milliseconds (5 seconds) | `const int TIMEOUT_MS = 5000;` (or `const int TIMEOUT_S = 5;` with `TIMEOUT_S * 1000`) |\n\n**Summary:** Four unnamed numeric literals — two tax rates, one income threshold, and one timeout — should each be extracted into named `const` constants so their intent is self-documenting and they're easy to adjust in one place.\n\ndone",
+      "hard_stop": false,
+      "name": "clean-01-magic-numbers",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29325,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.5
+      ],
+      "retries": 0,
+      "score": 83.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 49.99999999999999,
+      "score_median": 83.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-clean",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"glob\":\"*.cpp\",\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_clean-01-magic-numbers_1771018 -name \\\"Review.cpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_clean-01-magic-numbers_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 34.67047771768781,
+      "ttft_ms": 359.33500000000004,
+      "wall_ms": 15710,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 2
+      },
+      "agentic_deviation": 3,
+      "agentic_efficiency_pct": 25.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.25,
+      "agentic_score": 70.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 8992,
+      "compile_ok": true,
+      "completion_tokens": 1011,
+      "compressions": 0,
+      "cpu_ms": 64,
+      "difficulty": 3,
+      "failures": [
+        "final answer failed scenario checks"
+      ],
+      "files_touched": 0,
+      "final_text": "The file is a 7-line C++ class. Here's my assessment:\n\n**Issues found:**\n\n1. **Class definition in a `.cpp` file** — `Counter` is defined directly in `Review.cpp` rather than a header (`.h`/`.hpp`). This means it can't be reused by other translation units without copying the definition.\n\n2. **Integer overflow on `increment()`** — `count_` is a plain `int`. Incrementing past `INT_MAX` is undefined behavior. The `noexcept` on `increment()` is technically correct (UB doesn't throw), but it silently masks the overflow problem. Consider `std::atomic<int>` if thread safety is needed, or at least document the overflow behavior.\n\n3. **No include guards or headers** — The file has no `#include` directives and no header guard, which is unusual for a file containing a class definition.\n\n4. **No constructor for initial value** — The counter can only start at 0. A constructor accepting an initial value would be a minor but useful addition.\n\n**What's good:**\n\n- `noexcept` is correctly applied to both methods.\n- `value()` is properly `const`.\n- Member variable is private with a clear naming convention (`_` suffix).\n- The class is focused — single responsibility, no bloat.\n\n**Verdict:** The code is structurally clean but has the placement issue (`.cpp` instead of `.h`) and the silent integer overflow concern. For a simple utility class these are minor, but worth noting.",
+      "hard_stop": false,
+      "name": "clean-02-clean-control",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 35208,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        60.0
+      ],
+      "retries": 0,
+      "score": 60.0,
+      "score_adherence": 100.0,
+      "score_correctness": 70.0,
+      "score_efficiency": 29.999999999999993,
+      "score_median": 60.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 5,
+      "structure_checks": 1.0,
+      "success": false,
+      "suite": "review-clean",
+      "templated": false,
+      "tool_call_accuracy": 0.25,
+      "tool_calls": [
+        {
+          "args": "{\"glob\":\"*.cpp\",\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_clean-02-clean-control_1771018 -iname \\\"Review.cpp\\\" -o -iname \\\"review.cpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_clean-02-clean-control_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 4,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 34.81520327621757,
+      "ttft_ms": 356.44100000000003,
+      "wall_ms": 26531,
+      "wasted": 3
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7224,
+      "compile_ok": true,
+      "completion_tokens": 538,
+      "compressions": 0,
+      "cpu_ms": 30,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "**Algorithmic problem:** The `lookup` function uses a **nested loop** to count how many elements from `keys` appear in `data`. For each key it scans `data` linearly.\n\n**Complexity:** **O(n × m)** — quadratic time, where `n = keys.size()` and `m = data.size()`. The inner loop runs `m` iterations for every one of the `n` keys.\n\n**Fixing structure:** Build a **`std::unordered_set<int>`** from `data` once (O(m)), then look up each key in O(1) average time. Total becomes **O(n + m)** — linear.",
+      "hard_stop": false,
+      "name": "ds-01-nested-loop",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29414,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.5
+      ],
+      "retries": 0,
+      "score": 83.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 49.99999999999999,
+      "score_median": 83.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-datastructures",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_ds-01-nested-loop_1771018 -iname \\\"Review*\\\" -type f 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_ds-01-nested-loop_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 34.37623652538625,
+      "ttft_ms": 356.086,
+      "wall_ms": 15743,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 4241,
+      "compile_ok": true,
+      "completion_tokens": 683,
+      "compressions": 0,
+      "cpu_ms": 43,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "**File:** `Review.cpp`, line 5\n\n**The loop:**\n```cpp\nfor (const auto& p : parts) out += p;\n```\n\n**Cause — avoidable reallocations from repeated appends:**\n`out` starts with zero capacity. Each `out += p` may exceed the current capacity, forcing `std::string` to allocate a larger buffer and copy all existing data. Over N parts this produces O(N) reallocations and O(N²) total copies in the worst case.\n\n**Idiomatic fix — reserve when the total size is known:**\nCompute the total length upfront and call `reserve()` once before the loop:\n\n```cpp\nstd::string join(const std::vector<std::string>& parts) {\n    std::string out;\n    for (const auto& p : parts) out.reserve(out.size() + p.size()); // or pre-sum\n    for (const auto& p : parts) out += p;\n    return out;\n}\n```\n\nOr more cleanly, sum first then reserve:\n\n```cpp\nstd::string join(const std::vector<std::string>& parts) {\n    std::string out;\n    size_t total = 0;\n    for (const auto& p : parts) total += p.size();\n    out.reserve(total);\n    for (const auto& p : parts) out += p;\n    return out;\n}\n```\n\nOne allocation instead of many — O(N) total work instead of O(N²).\n\nWant me to apply the fix?",
+      "hard_stop": false,
+      "name": "ds-02-string-concat",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 17618,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        97.5
+      ],
+      "retries": 0,
+      "score": 97.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 90.0,
+      "score_median": 97.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-datastructures",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_ds-02-string-concat_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.89467005149811,
+      "ttft_ms": 354.421,
+      "wall_ms": 18254,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7090,
+      "compile_ok": true,
+      "completion_tokens": 681,
+      "compressions": 0,
+      "cpu_ms": 42,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "The design problem is the **repeated switch-over-type** anti-pattern: every function operating on `Shape` (`area`, `perimeter`) contains its own `switch (s.kind)` block. Adding a new shape (e.g., `TRIANGLE`) means touching every existing function — a direct violation of the Open/Closed Principle.\n\nThe pattern that eliminates these repeated switches is **polymorphism via virtual dispatch** — a base class `Shape` with pure virtual methods `area()` and `perimeter()`, and concrete derived classes `Circle` and `Square` that each implement their own behavior. New shapes are added by creating a new subclass; no existing code is modified.",
+      "hard_stop": false,
+      "name": "pat-01-switch-over-type",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 23884,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        86.0
+      ],
+      "retries": 0,
+      "score": 86.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 60.00000000000001,
+      "score_median": 86.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-patterns",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"glob\":\"*.cpp\",\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_pat-01-switch-over-type_1771018 -name \\\"Review.cpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_pat-01-switch-over-type_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 34.67270265278181,
+      "ttft_ms": 350.04200000000003,
+      "wall_ms": 18797,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7552,
+      "compile_ok": true,
+      "completion_tokens": 739,
+      "compressions": 0,
+      "cpu_ms": 43,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "**The issue:** `wait_ready()` uses a **busy-wait (polling) loop** — it spins in a `while` loop, sleeping 50ms between each check of the `ready` flag. This wastes CPU cycles, introduces up to 50ms of unnecessary latency, and doesn't scale.\n\n**The replacement pattern:** `std::condition_variable`. Instead of polling, the caller blocks on a condition variable and the background worker calls `notify_one()` when initialization completes. The waiting thread sleeps with zero CPU cost until woken.\n\nExample of what it should look like:\n\n```cpp\n#include <condition_variable>\n#include <mutex>\n\nclass Server {\npublic:\n  std::mutex mtx;\n  std::condition_variable cv;\n  bool ready{false};\n\n  void mark_ready() {\n    std::lock_guard<std::mutex> lock(mtx);\n    ready = true;\n    cv.notify_one();\n  }\n\n  void wait_ready() {\n    std::unique_lock<std::mutex> lock(mtx);\n    cv.wait(lock, [this]{ return ready; });\n  }\n};\n```\n\nThe condition variable pattern is the standard C++ replacement for polling — event-driven instead of time-driven.",
+      "hard_stop": false,
+      "name": "pat-02-polling-control",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29294,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.5
+      ],
+      "retries": 0,
+      "score": 83.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 49.99999999999999,
+      "score_median": 83.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-patterns",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_pat-02-polling-control_1771018 -name \\\"Review.cpp\\\" -o -name \\\"review.cpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_pat-02-polling-control_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 34.656124401759115,
+      "ttft_ms": 344.005,
+      "wall_ms": 20229,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7526,
+      "compile_ok": true,
+      "completion_tokens": 637,
+      "compressions": 0,
+      "cpu_ms": 36,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "**Review.cpp** — 10 lines, 2 functions, both swallow errors silently:\n\n---\n\n### 1. `upload()` (lines 1–6)\n\nSwallows **all exceptions** via a bare `catch (...)` that returns `false` with zero diagnostics. The caller has no way to distinguish between:\n\n- Network unreachable / timeout\n- HTTP 4xx/5xx responses (note: `resp.ok` is checked, but if `http_post` throws, that check is never reached)\n- Serialization failures\n- Any other runtime error\n\nNo logging, no error code, no retry hint — just `false`.\n\n---\n\n### 2. `backup()` (lines 7–10)\n\nSwallows **file I/O failures** by never checking the stream state. `std::ofstream` construction can fail (bad path, permissions, disk full) and `f << data()` can fail mid-write (disk full, I/O error). Neither is checked — no `f.is_open()`, no `f.fail()`, no return value. A silent no-op is indistinguishable from a successful backup.\n\n---\n\n**Summary:** Both functions convert errors into silent failures. `upload()` via a catch-all that discards the exception; `backup()` via unchecked stream operations.\n\ndone",
+      "hard_stop": false,
+      "name": "qual-01-swallowed-errors",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29320,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.5
+      ],
+      "retries": 0,
+      "score": 83.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 49.99999999999999,
+      "score_median": 83.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-quality",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"glob\":\"*.cpp\",\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_qual-01-swallowed-errors_1771018 -name \\\"Review.cpp\\\" -o -name \\\"Review.hpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_qual-01-swallowed-errors_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.5815846342083,
+      "ttft_ms": 344.12100000000004,
+      "wall_ms": 17965,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7476,
+      "compile_ok": true,
+      "completion_tokens": 827,
+      "compressions": 0,
+      "cpu_ms": 51,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "Here are the code-quality issues in `Review.cpp`:\n\n| # | Line(s) | Issue | Description |\n|---|---------|-------|-------------|\n| 1 | 2–3 | **Commented-out dead code** | `parse_legacy(input)` is commented out with \"keep for reference\" — dead code that should be removed from the codebase. |\n| 2 | 6 | **Unreachable code** | `if (false) { log(\"never happens\"); }` — the condition is a literal `false`, so the body can never execute. |\n| 3 | 9 | **Unused function** | `unused_helper()` is defined but never called anywhere in this file (and almost certainly not elsewhere). |\n| 4 | 4–5 | **Magic numbers** | `kind == 1` and `kind == 2` use raw numeric literals instead of named constants or an enum, making the dispatch logic opaque. |\n| 5 | 1–8 | **Free function with no namespace** | `dispatch` is a global free function with no namespace or class scope, risking name collisions in a larger codebase. |\n| 6 | 8 | **Silent failure fallback** | `return -1` on unrecognized `kind` provides no logging or diagnostic — callers have no way to know dispatch failed. |\n\n**Summary:** Three dead-code issues (commented-out code, unreachable branch, unused function) and three design issues (magic numbers, unscoped function, silent failure). The dead-code problems are the most actionable — they add zero value and only increase maintenance burden.\n\ndone",
+      "hard_stop": false,
+      "name": "qual-02-dead-code",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29475,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.5
+      ],
+      "retries": 0,
+      "score": 83.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 49.99999999999999,
+      "score_median": 83.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-quality",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"glob\":\"*.cpp\",\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_qual-02-dead-code_1771018 -name \\\"Review.cpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_qual-02-dead-code_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.805011155699944,
+      "ttft_ms": 364.684,
+      "wall_ms": 22209,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7145,
+      "compile_ok": true,
+      "completion_tokens": 1101,
+      "compressions": 0,
+      "cpu_ms": 66,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "Here's the breakdown. The `process` function (13 lines) mixes **five distinct concerns** into a single method:\n\n---\n\n## Concerns identified\n\n| # | Concern | Lines |\n|---|---------|-------|\n| 1 | **Iteration & validation** — loops items, gates on `item.valid` | 3, 4, 9 |\n| 2 | **Aggregation** — accumulates `total` from `item.value` | 2, 5, 8, 12 |\n| 3 | **Value-based policy routing** — three branches by threshold (>100, <0, normal) | 6–8 |\n| 4 | **Side-effect dispatch** — `log_warning`, `retry`, `log_error`, `skip` | 6–7 |\n| 5 | **Persistence** — `save_state(total)` | 11 |\n\n---\n\n## Concrete extractions\n\n1. **`categorize_item(const Item&) → Category`** — extract the threshold logic (`>100` → `HIGH`, `<0` → `NEGATIVE`, else `NORMAL`) into a pure function. Removes the nested `if/else` chain from the loop body.\n\n2. **`handle_high_value(const Item&)`** — bundles `log_warning(item.id)` + `retry(item)`. One concern, one name.\n\n3. **`handle_negative(const Item&)`** — bundles `log_error(item.id)` + `skip(item)`. Same principle.\n\n4. **`process_item(const Item&) → int`** — the per-item contribution: returns `item.value + 2` for normal, `item.value` for high/negative (since those branches don't add the bonus). Makes the loop body a single `total += process_item(item)`.\n\n5. **`persist(int total)`** — rename/extract `save_state(total)` so persistence is a named step, not an inline call buried at the end.\n\n---\n\n## After refactoring, the skeleton reads:\n\n```cpp\nint process(const Input& in) {\n    int total = 0;\n    for (const auto& item : in.items) {\n        if (!item.valid) continue;\n        total += process_item(item);\n    }\n    persist(total);\n    return total;\n}\n```\n\nEach extracted function owns one concern: categorization, side-effect dispatch, per-item contribution, or persistence. The main method becomes a readable outline of the algorithm rather than a wall of nested conditionals.\n\n**Key principle applied:** the original violates SRP — it decides *what* to do with each item, *how* to handle each category, *what* to log, and *where* to save, all in one place. The extractions separate policy (categorization) from behavior (handling) from infrastructure (persistence).",
+      "hard_stop": false,
+      "name": "refac-01-long-method",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29703,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        83.5
+      ],
+      "retries": 0,
+      "score": 83.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 49.99999999999999,
+      "score_median": 83.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-refactor",
+      "templated": false,
+      "tool_call_accuracy": 0.3333333333333333,
+      "tool_calls": [
+        {
+          "args": "{\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_refac-01-long-method_1771018 -iname \\\"Review.cpp\\\" -o -iname \\\"review.cpp\\\" 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_refac-01-long-method_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 32.55049868895471,
+      "ttft_ms": 366.21999999999997,
+      "wall_ms": 28492,
+      "wasted": 2
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1,
+        "search": 2
+      },
+      "agentic_deviation": 3,
+      "agentic_efficiency_pct": 25.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.25,
+      "agentic_score": 70.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 9121,
+      "compile_ok": true,
+      "completion_tokens": 954,
+      "compressions": 0,
+      "cpu_ms": 53,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "Here's the analysis:\n\n## Duplicated Logic\n\n**`CsvExporter::quote` (lines 3–6)** and **`TsvExporter::quote` (lines 10–13)** are structurally identical — the only difference is the delimiter character being searched:\n\n| | `CsvExporter::quote` | `TsvExporter::quote` |\n|---|---|---|\n| Delimiter | `','` | `'\\t'` |\n| Logic | `if (f.find(del) != npos) return \"\\\"\" + f + \"\\\"\"; return f;` | Same |\n\nThat's a 1:1 copy-paste with a single-character variation.\n\n## Where Shared Logic Should Live\n\nThe common pattern is: *\"quote a field if it contains a given delimiter.\"* This should be extracted into a **single utility function**, for example:\n\n```cpp\n// lib/export_utils.cpp (or a header in lib/)\nstd::string quote_if_needed(const std::string& field, char delimiter) {\n    if (field.find(delimiter) != std::string::npos)\n        return \"\\\"\" + field + \"\\\"\";\n    return field;\n}\n```\n\nBoth `CsvExporter` and `TsvExporter` would then call it:\n\n```cpp\nstd::string quote(const std::string& f) { return quote_if_needed(f, ','); }\nstd::string quote(const std::string& f) { return quote_if_needed(f, '\\t'); }\n```\n\nGiven the project's hexagonal architecture (core `lib/` never depends on `tui/` or `src/`), this utility belongs in **`lib/`** — it's format-agnostic and doesn't depend on any presentation layer.\n\n## Why It Matters\n\n- **Bug risk**: If the quoting logic needs to change (e.g., also escape embedded quotes, handle newlines), both classes must be updated in lockstep. Right now they won't be.\n- **Test duplication**: Any test covering the quoting behavior must be written twice.\n- **Extensibility**: Adding a new exporter (e.g., `PipeExporter`) means copying the same block again.\n\n**Summary**: One duplicated method across two classes, trivial to extract into a shared `lib/` utility. Want me to apply the fix?",
+      "hard_stop": false,
+      "name": "refac-02-duplicated-logic",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 35725,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        76.5
+      ],
+      "retries": 0,
+      "score": 76.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 29.999999999999993,
+      "score_median": 76.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 5,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "review-refactor",
+      "templated": false,
+      "tool_call_accuracy": 0.25,
+      "tool_calls": [
+        {
+          "args": "{\"glob\":\"*.cpp\",\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"pattern\":\"Review\\\\.cpp\"}",
+          "tool": "search [ok]"
+        },
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_refac-02-duplicated-logic_1771018 -name \\\"Review*\\\" -type f 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_refac-02-duplicated-logic_1771018/Review.cpp\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 4,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 34.679965299118436,
+      "ttft_ms": 362.68899999999996,
+      "wall_ms": 25436,
+      "wasted": 3
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6405,
+      "compile_ok": true,
+      "completion_tokens": 154,
+      "compressions": 0,
+      "cpu_ms": 11,
+      "difficulty": 2,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "count=3\n\ndone",
+      "hard_stop": false,
+      "name": "t-01-ls-count-files",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 16990,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_t-01-ls-count-files_1771018 -type f -name \\\"*.txt\\\" | wc -l\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 30.357036996978653,
+      "ttft_ms": 357.85499999999996,
+      "wall_ms": 6405,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6058,
+      "compile_ok": true,
+      "completion_tokens": 138,
+      "compressions": 0,
+      "cpu_ms": 12,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "version=2.7.1\n\ndone",
+      "hard_stop": false,
+      "name": "t-02-grep-extract-value",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 17112,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"grep -E '^\\\\s*version\\\\s*=' /tmp/amber_bench_ws_t-02-grep-extract-value_1771018/config.txt\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 27.439348262852047,
+      "ttft_ms": 349.642,
+      "wall_ms": 6058,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2,
+        "read": 1
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 33.33333333333333,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.3333333333333333,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 11436,
+      "compile_ok": true,
+      "completion_tokens": 344,
+      "compressions": 0,
+      "cpu_ms": 25,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "Compiled and ran successfully. The program output is:\n\n```\nhello from amber\n```\n\ndone",
+      "hard_stop": false,
+      "name": "t-03-compile-run-cpp",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29289,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        96.0
+      ],
+      "retries": 0,
+      "score": 96.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 96.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"find /tmp/amber_bench_ws_t-03-compile-run-cpp_1771018 -name \\\"main.cpp\\\" -type f 2>/dev/null\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-03-compile-run-cpp_1771018/main.cpp\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"command\":\"g++ -std=c++17 -o main main.cpp && ./main\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.66482819008976,
+      "ttft_ms": 351.65200000000004,
+      "wall_ms": 11436,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6056,
+      "compile_ok": true,
+      "completion_tokens": 139,
+      "compressions": 0,
+      "cpu_ms": 11,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "os=Linux, user=jack, cwd=/tmp/amber_bench_ws_t-04-env-inventory_1771018\n\ndone",
+      "hard_stop": false,
+      "name": "t-04-env-inventory",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 16979,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"uname -s && whoami && pwd\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 29.810761049156426,
+      "ttft_ms": 350.007,
+      "wall_ms": 6056,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 2
+      },
+      "agentic_deviation": 2,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "read": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 1.0,
+      "agentic_score": 80.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 11062,
+      "compile_ok": true,
+      "completion_tokens": 344,
+      "compressions": 0,
+      "cpu_ms": 25,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "result=banana\ndone",
+      "hard_stop": false,
+      "name": "t-05-pipeline-transform",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 22966,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        96.0
+      ],
+      "retries": 0,
+      "score": 96.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 96.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"sort -u /tmp/amber_bench_ws_t-05-pipeline-transform_1771018/data.txt | sed -n '2p' > /tmp/amber_bench_ws_t-05-pipeline-transform_1771018/out.txt\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"command\":\"cat /tmp/amber_bench_ws_t-05-pipeline-transform_1771018/out.txt\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 34.916226252853704,
+      "ttft_ms": 338.78799999999995,
+      "wall_ms": 11062,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6481,
+      "compile_ok": true,
+      "completion_tokens": 159,
+      "compressions": 0,
+      "cpu_ms": 11,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "count=4\n\ndone",
+      "hard_stop": false,
+      "name": "t-06-multi-dir-count",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 16906,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "terminal",
+      "templated": false,
+      "tool_call_accuracy": 0.0,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"find src lib -name '*.log' 2>/dev/null | wc -l\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 31.02788153652637,
+      "ttft_ms": 338.203,
+      "wall_ms": 6481,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "search": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "search": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 3862,
+      "compile_ok": true,
+      "completion_tokens": 150,
+      "compressions": 0,
+      "cpu_ms": 9,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "Found 1 file containing `TODO`:\n\n- **`src/main.cpp`** (line 1): `// TODO: implement`\n\ndone",
+      "hard_stop": false,
+      "name": "t-01-search-vs-bash-grep",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 16908,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"max\":200,\"pattern\":\"TODO\"}",
+          "tool": "search [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 30.074340418680944,
+      "ttft_ms": 363.997,
+      "wall_ms": 6261,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 4614,
+      "compile_ok": true,
+      "completion_tokens": 222,
+      "compressions": 0,
+      "cpu_ms": 13,
+      "difficulty": 2,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "The file `a.txt` contains only 3 lines:\n\n```\nline one\nline two\nline three\n```\n\ndone",
+      "hard_stop": false,
+      "name": "t-02-read-vs-cat",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 17072,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"limit\":5,\"offset\":1,\"path\":\"/tmp/amber_bench_ws_t-02-read-vs-cat_1771018/a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.265007946080864,
+      "ttft_ms": 369.016,
+      "wall_ms": 7912,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1,
+        "write": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6047,
+      "compile_ok": true,
+      "completion_tokens": 257,
+      "compressions": 0,
+      "cpu_ms": 16,
+      "difficulty": 3,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "done",
+      "hard_stop": false,
+      "name": "t-03-write-vs-rewrite",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 22864,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"hi\",\"old\":\"hello\"}],\"path\":\"a.txt\"}",
+          "tool": "write [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.134237902531275,
+      "ttft_ms": 354.23199999999997,
+      "wall_ms": 9010,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "process_read": 3,
+        "process_start": 1,
+        "read": 1
+      },
+      "agentic_deviation": 3,
+      "agentic_efficiency_pct": 40.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "process_read": 1,
+        "process_start": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 0.4,
+      "agentic_score": 30.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 6696,
+      "compile_ok": true,
+      "completion_tokens": 472,
+      "compressions": 0,
+      "cpu_ms": 29,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "`slow.sh` ran successfully in the background and `result.txt` contains:\n\n```\ndone\n```\n\ndone",
+      "hard_stop": false,
+      "name": "t-04-process-vs-blocking",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 41368,
+      "recoveries": 0,
+      "redundant": 2,
+      "repeat_n": 1,
+      "repeat_scores": [
+        61.0
+      ],
+      "retries": 0,
+      "score": 61.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 0.0,
+      "score_median": 61.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 6,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 0.4,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"bash slow.sh\",\"idle_timeout\":300,\"timeout\":600}",
+          "tool": "process_start [ok]"
+        },
+        {
+          "args": "{\"id\":\"1\"}",
+          "tool": "process_read [ok]"
+        },
+        {
+          "args": "{\"id\":\"1\"}",
+          "tool": "process_read [ok]"
+        },
+        {
+          "args": "{\"id\":\"1\"}",
+          "tool": "process_read [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-04-process-vs-blocking_1771018/result.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 5,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 36.02142258056505,
+      "ttft_ms": 411.50399999999996,
+      "wall_ms": 14721,
+      "wasted": 3
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 2,
+        "write": 1
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 66.66666666666666,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1,
+        "write": 1
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 0.6666666666666666,
+      "agentic_score": 70.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 7938,
+      "compile_ok": true,
+      "completion_tokens": 305,
+      "compressions": 0,
+      "cpu_ms": 19,
+      "difficulty": 4,
+      "failures": [],
+      "files_touched": 1,
+      "final_text": "The line in `notes.txt` has been replaced with `new line` and verified.\n\ndone",
+      "hard_stop": false,
+      "name": "t-06-write-verify-loop",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 29545,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        81.5
+      ],
+      "retries": 0,
+      "score": 81.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 50.0,
+      "score_median": 81.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 0.6666666666666666,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-06-write-verify-loop_1771018/notes.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"new line\",\"old\":\"old line\"}],\"path\":\"/tmp/amber_bench_ws_t-06-write-verify-loop_1771018/notes.txt\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"path\":\"/tmp/amber_bench_ws_t-06-write-verify-loop_1771018/notes.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_failures": 0,
+      "tps_avg": 33.164097990614955,
+      "ttft_ms": 387.217,
+      "wall_ms": 10531,
+      "wasted": 1
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 4,
+        "read": 4,
+        "write": 4
+      },
+      "agentic_deviation": 8,
+      "agentic_efficiency_pct": 50.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "bash": 1,
+        "todowrite": 1,
+        "write": 4
+      },
+      "agentic_plan_tools": 6,
+      "agentic_ratio": 0.5,
+      "agentic_score": 0.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 17528,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 20297,
+      "compile_ok": true,
+      "completion_tokens": 919,
+      "compressions": 0,
+      "cpu_ms": 50,
+      "difficulty": 5,
+      "failures": [],
+      "files_touched": 4,
+      "final_text": "All four files updated and compiled successfully with no warnings or errors.\n\n**Changes:**\n- `a.c`: `// FIX 1` → `// Returns the integer 1`\n- `b.c`: `// FIX 2` → `// Returns the integer 2`\n- `c.c`: `// FIX 3` → `// Returns the integer 3`\n- `d.c`: `// FIX 4` → `// Returns the integer 4`\n\ndone",
+      "hard_stop": false,
+      "name": "t-07-planning-multi-file",
+      "peak_rss_kb": 17528,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 51571,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        62.5
+      ],
+      "retries": 0,
+      "score": 62.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 29.999999999999993,
+      "score_median": 62.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steps": 7,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "tools",
+      "templated": false,
+      "tool_call_accuracy": 0.4166666666666667,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"grep -n 'FIX' /tmp/amber_bench_ws_t-07-planning-multi_file_1771018/{a,b,c,d}.c\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"ls /tmp/amber_bench_ws_t-07-planning-multi_file_1771018/\"}",
+          "tool": "bash [error]"
+        },
+        {
+          "args": "{\"command\":\"pwd && ls\"}",
+          "tool": "bash [ok]"
+        },
+        {
+          "args": "{\"path\":\"a.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"b.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"c.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"d.c\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"// Returns the integer 1\",\"old\":\"// FIX 1\"}],\"path\":\"a.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"// Returns the integer 2\",\"old\":\"// FIX 2\"}],\"path\":\"b.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"// Returns the integer 3\",\"old\":\"// FIX 3\"}],\"path\":\"c.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"edits\":[{\"new\":\"// Returns the integer 4\",\"old\":\"// FIX 4\"}],\"path\":\"d.c\"}",
+          "tool": "write [ok]"
+        },
+        {
+          "args": "{\"command\":\"gcc -Wall -Wextra -c a.c b.c c.c d.c && echo \\\"Compilation successful\\\"\"}",
+          "tool": "bash [ok]"
+        }
+      ],
+      "tool_calls_total": 12,
+      "tool_denied": 0,
+      "tool_failures": 2,
+      "tps_avg": 36.257385055672636,
+      "ttft_ms": 330.023,
+      "wall_ms": 25773,
+      "wasted": 7
+    }
+  ],
+  "timestamp": "1786393222289493460"
+}
