@@ -1755,6 +1755,42 @@ TEST(oracle_nested_relative_rejects_other_directory) {
 // files that reference OldName and verifies the untouched one with a read —
 // the write tool's {path, edits} args require args_subset, and other.cpp is
 // checked, not rewritten.
+// h-02's verification read may legitimately come BEFORE the writes: a
+// survey-then-edit agent reads all three files first, then edits the two
+// that reference OldName. The oracle is unordered so both orders score 1.0,
+// while a wrong write to other.cpp still counts as wasted (no step expects it).
+TEST(scenario_h02_oracle_unordered_survey_then_edit) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
+    ASSERT(s.has_value());
+    std::vector<bench::ToolCallEvent> calls = {
+        {"search", {{"pattern", "OldName"}}, 0, "ok"},
+        {"read", {{"path", "src/header.h"}}, 0, "ok"},
+        {"read", {{"path", "src/impl.cpp"}}, 0, "ok"},
+        {"read", {{"path", "src/other.cpp"}}, 0, "ok"},
+        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(s->oracle, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 2);  // survey search + impl.cpp read are off-oracle
+}
+
+// ...but editing a file the oracle never expects (other.cpp) is still a miss.
+TEST(scenario_h02_oracle_rejects_rewrite_of_other_cpp) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
+    ASSERT(s.has_value());
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "src/header.h"}}, 0, "ok"},
+        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write", {{"path", "src/other.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"read", {{"path", "src/other.cpp"}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(s->oracle, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 1);  // the redundant rewrite of other.cpp
+}
+
 TEST(scenario_h02_oracle_scores_correct_rename) {
     std::string err;
     auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
