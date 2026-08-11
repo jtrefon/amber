@@ -1749,3 +1749,23 @@ TEST(oracle_nested_relative_rejects_other_directory) {
         {"write", {{"path", "/tmp/ws/include/header.h"}}, 0, "ok"}};
     ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 0.0);
 }
+
+// h-02 regression (live baseline): the scenario's own oracle must score the
+// model's correct behavior at bullseye 1.0. A correct rename edits only the
+// files that reference OldName and verifies the untouched one with a read —
+// the write tool's {path, edits} args require args_subset, and other.cpp is
+// checked, not rewritten.
+TEST(scenario_h02_oracle_scores_correct_rename) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
+    ASSERT(s.has_value());
+    ASSERT(s->oracle.size() == 4u);
+    std::vector<bench::ToolCallEvent> calls = {
+        {"read", {{"path", "src/header.h"}}, 0, "ok"},
+        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"read", {{"path", "src/other.cpp"}}, 0, "ok"}};
+    bench::OracleResult r = bench::score_oracle(s->oracle, calls);
+    ASSERT_EQ(r.bullseye, 1.0);
+    ASSERT_EQ(r.wasted, 0);
+}
