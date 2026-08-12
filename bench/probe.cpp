@@ -659,6 +659,136 @@ bool loop_probe_plan_adherence(ProbeResult& r) {
     return true;
 }
 
+// P-plan-design: the model's tool-call sequence is measured against the
+// scenario's declared optimal plan (the plan-design contract). A scripted
+// sequence matching the plan's tool mix must score full adherence.
+bool loop_probe_plan_design(ProbeResult& r) {
+    r.expected = "executed tool mix matches the declared optimal plan";
+    Scenario s;
+    s.name = "probe-plan-design";
+    s.prompt = "Count the files then summarize.";
+    s.max_steps = 8;
+    s.setup = agent::json::object({
+        {"files", agent::json::object({{"a.txt", "x"}, {"b.txt", "y"}})},
+    });
+    s.optimal_plan = agent::json::object({{"bash", 1}, {"read", 1}});
+    s.oracle = {{"bash", {{"command", "*ls*"}}}, {"read", {{"path", "a.txt"}}}};
+    s.fake_replies = agent::json::parse(R"([
+        {"tool_calls": [{"id": "c1", "type": "function",
+                         "function": {"name": "bash",
+                                      "arguments": "{\"command\":\"ls\"}"}}]},
+        {"tool_calls": [{"id": "c2", "type": "function",
+                         "function": {"name": "read",
+                                      "arguments": "{\"path\":\"a.txt\"}"}}]},
+        {"content": "done"},
+        {"content": "done"}
+    ])");
+    ScenarioReport rep;
+    std::string err;
+    if (!run_loop_scenario(s, rep, err, r)) return false;
+    // The agentic plan machinery must record the declared plan and the
+    // executed tool mix matching it.
+    if (!rep.agentic.has_plan) {
+        r.detail = "optimal_plan not recognized";
+        return false;
+    }
+    if (rep.agentic.plan_ratio < 0.99) {
+        r.detail = "plan ratio " + std::to_string(rep.agentic.plan_ratio) +
+                   " (expected ~1.0 for a matching tool mix)";
+        return false;
+    }
+    r.detail = "plan tool mix matched (ratio " +
+               std::to_string(rep.agentic.plan_ratio) + ")";
+    return true;
+}
+
+// P-plan-replan-adapt: after a tool failure, the model's next call must be
+// able to differ (adaptation) — the harness must not force a repeat or
+// hard-stop the loop. A failing call followed by a successful different one
+// must complete and be flagged as an adaptation.
+bool loop_probe_replan_adapt(ProbeResult& r) {
+    r.expected = "a failure can be followed by a different call (adaptation)";
+    Scenario s;
+    s.name = "probe-replan-adapt";
+    s.prompt = "Read a.txt, retry with b.txt if needed.";
+    s.max_steps = 8;
+    s.setup = agent::json::object({
+        {"files", agent::json::object({{"b.txt", "needle"}})},
+    });
+    // First call fails (a.txt missing); the next call adapts to b.txt and
+    // succeeds. The loop must survive the failure.
+    s.fake_replies = agent::json::parse(R"([
+        {"tool_calls": [{"id": "c1", "type": "function",
+                         "function": {"name": "read",
+                                      "arguments": "{\"path\":\"a.txt\"}"}}]},
+        {"tool_calls": [{"id": "c2", "type": "function",
+                         "function": {"name": "read",
+                                      "arguments": "{\"path\":\"b.txt\"}"}}]},
+        {"content": "done"},
+        {"content": "done"}
+    ])");
+    ScenarioReport rep;
+    std::string err;
+    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (rep.kpi.tool_failures == 0) {
+        r.detail = "expected the first read to fail";
+        return false;
+    }
+    if (rep.kpi.hard_stop) {
+        r.detail = "hard-stopped after a single failure — no room to adapt";
+        return false;
+    }
+    if (rep.kpi.steps < 3) {
+        r.detail = "loop ended too early to allow adaptation";
+        return false;
+    }
+    r.detail = "failed once, adapted to b.txt, completed";
+    return true;
+}
+
+// P-dependency-order: an ordered oracle (write depends on read) must be
+// violated when the model writes before reading — the violation must be
+// measurable, not silently accepted.
+bool loop_probe_dependency_order(ProbeResult& r) {
+    r.expected = "write-before-read is measurable as a violation";
+    Scenario s;
+    s.name = "probe-dependency-order";
+    s.prompt = "Update b.txt from a.txt.";
+    s.max_steps = 8;
+    s.setup = agent::json::object({
+        {"files",
+         agent::json::object({{"a.txt", "needle"}, {"b.txt", "old"}})},
+    });
+    // The oracle is ORDERED: read a.txt must precede the write of b.txt.
+    s.oracle = {{"read", {{"path", "a.txt"}}},
+                {"write", {{"path", "b.txt"}}}};
+    s.fake_replies = agent::json::parse(R"([
+        {"tool_calls": [{"id": "c1", "type": "function",
+                         "function": {"name": "write",
+                                      "arguments": "{\"path\":\"b.txt\",\"edits\":[{\"old\":\"old\",\"new\":\"needle\"}]}"}}]},
+        {"tool_calls": [{"id": "c2", "type": "function",
+                         "function": {"name": "read",
+                                      "arguments": "{\"path\":\"a.txt\"}"}}]},
+        {"content": "done"},
+        {"content": "done"}
+    ])");
+    ScenarioReport rep;
+    std::string err;
+    if (!run_loop_scenario(s, rep, err, r)) return false;
+    // The ordered oracle must flag the write-before-read.
+    if (rep.kpi.bullseye >= 0.99) {
+        r.detail = "ordered oracle accepted write-before-read";
+        return false;
+    }
+    if (!rep.dependency_violation) {
+        r.detail = "dependency violation not flagged";
+        return false;
+    }
+    r.detail = "write-before-read flagged (bullseye " +
+               std::to_string(rep.kpi.bullseye) + ")";
+    return true;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -1245,6 +1375,9 @@ struct ProbeRegistrar {
         add("loop", "loop_no_false_positive", loop_probe_no_false_positive);
         add("loop", "loop_hard_stop_honesty", loop_probe_hard_stop_honesty);
         add("loop", "loop_plan_adherence", loop_probe_plan_adherence);
+        add("loop", "loop_plan_design", loop_probe_plan_design);
+        add("loop", "loop_replan_adapt", loop_probe_replan_adapt);
+        add("loop", "loop_dependency_order", loop_probe_dependency_order);
         add("fidelity", "fidelity_misuse_wrong_tool",
             fidelity_probe_misuse_wrong_tool);
         add("fidelity", "fidelity_params_value", fidelity_probe_params_value);

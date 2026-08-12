@@ -47,6 +47,17 @@ struct ScenarioReport {
     // Calls issued within a single step (one LLM turn): max + total.
     int max_calls_per_step = 0;
     int total_steps = 0;
+    // Plan metrics (BENCH-09): adherence to the oracle in dependency order,
+    // adaptation after a failure, and dependency-order violations.
+    double plan_adherence_ratio = 0.0;   // oracle steps matched in order / total
+    bool replan_adapted = false;         // a different call followed a failure
+    bool dependency_violation = false;   // ordered oracle steps matched out of order
+    // Loop-control metrics: how fast a loop broke, and whether steering worked.
+    int breakout_latency = 0;            // steps until loop detection fired (0 = none)
+    bool steer_effective = false;        // received a steer AND completed
+    // calls_per_step distribution: mean + p95 (max is max_calls_per_step).
+    double calls_per_step_mean = 0.0;
+    double calls_per_step_p95 = 0.0;
     bool templated = false;              // static-template scenario
     std::vector<std::string> failures;
 
