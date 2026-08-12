@@ -588,6 +588,41 @@ TEST(e2e_hermetic_read_scenario) {
     ASSERT(rep.kpi.wall_ms >= 0);
 }
 
+// run_one_scenario must restore the workspace root it overrode for the
+// scenario's temp workspace. Without the restore, a serial multi-scenario
+// run (and the harness probes running after scenarios) sees a root that
+// points at a workspace already removed at teardown — the bash tool then
+// cannot spawn, and dispatch fails.
+TEST(e2e_hermetic_restores_workspace_root) {
+    const std::string prior = agent::Workspace::root();
+
+    std::string dir = tmp_dir("wsrestore");
+    write_file(dir + "/s.json", R"({
+        "name": "e2e-restore",
+        "suite": "tools",
+        "prompt": "what is in a.txt",
+        "setup": {"files": {"a.txt": "hi"}},
+        "fake_replies": [
+            {"content": "done", "prompt_tokens": 1, "completion_tokens": 1}
+        ],
+        "budget": {"max_steps": 5, "max_wall_ms": 30000}
+    })");
+    std::string err;
+    auto s = bench::load_scenario(dir + "/s.json", err);
+    ASSERT(s.has_value());
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    bench::ScenarioReport rep = bench::run_one_scenario(*s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(rep.failures.size(), 0u);
+
+    // The root must be back to the pre-run value — never a deleted temp ws.
+    ASSERT_EQ(agent::Workspace::root(), prior);
+}
+
 int main() { return agent::test::run_all(); }
 
 // ---------------------------------------------------------------------------
