@@ -28,6 +28,8 @@ void print_usage(const char* prog) {
               << "  report <results.json>...     re-render stored JSON report(s);\n"
               << "                               multiple files render a model comparison\n"
               << "  delta <a.json> <b.json>      win/lose/stagnate per-scenario KPI delta\n"
+              << "  scorecard <results.json>     full diagnostic: dimensions, per-suite,\n"
+              << "                               failed-scenario diagnosis, signals\n"
               << "  calibrate <results.json>...  reference-anchored calibration: headroom, anchor\n"
               << "                               deviation, suggested difficulties\n\n"
               << "Options:\n"
@@ -525,6 +527,13 @@ int main(int argc, char** argv) {
             return cmd_validate(rest[0]);
         if (cmd == "report") return cmd_report(rest, format);
         if (cmd == "delta") return cmd_delta(rest);
+        if (cmd == "scorecard" && !rest.empty()) {
+            bench::RunMeta meta;
+            std::vector<bench::ScenarioReport> reports;
+            if (!parse_report_file(rest[0], meta, reports)) return 1;
+            std::cout << bench::render_scorecard(reports, meta);
+            return 0;
+        }
         if (cmd == "calibrate" && !rest.empty()) return cmd_calibrate(rest);
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";

@@ -661,6 +661,24 @@ bool parse_report_json(const agent::json& j, RunMeta& meta,
                 if (it.value().is_number_integer())
                     rep.agentic.actual_by_tool[it.key()] =
                         it.value().get<int>();
+        // Failures + per-call telemetry must survive the round trip, or a
+        // stored report cannot be diagnosed (the scorecard's section 3).
+        if (e.contains("failures") && e["failures"].is_array())
+            for (const auto& f : e["failures"])
+                if (f.is_string()) rep.failures.push_back(f.get<std::string>());
+        if (e.contains("tool_details") && e["tool_details"].is_array()) {
+            for (const auto& d : e["tool_details"]) {
+                ScenarioReport::ToolDetail td;
+                td.name = d.value("tool", "");
+                td.args = d.value("args", "");
+                td.status = d.value("status", "");
+                td.error = d.value("error", "");
+                td.denied = d.value("denied", false);
+                td.timeout = d.value("timeout", false);
+                td.duration_ms = d.value("duration_ms", 0L);
+                rep.tool_details.push_back(std::move(td));
+            }
+        }
         reports.push_back(std::move(rep));
     }
     return true;
@@ -723,6 +741,239 @@ double headroom(
         if (s > best) best = s;
     }
     return 100.0 - best;
+}
+
+namespace {
+
+struct RunAgg {
+    int n = 0;
+    double score_sum = 0.0;
+    int pass = 0;
+    long wasted = 0;
+    long redundant = 0;
+    long failures = 0;
+    long denied = 0;
+    long retries = 0;
+    long recoveries = 0;
+    long steers = 0;
+    int hard_stops = 0;
+    int replans = 0;
+    int dep_violations = 0;
+    int breakouts = 0;
+    int steers_effective = 0;
+    long calls = 0;
+    long steps = 0;
+    double tps_sum = 0.0;
+    int tps_n = 0;
+    double bullseye_sum = 0.0;
+    double adherence_sum = 0.0;
+    long wall_sum = 0;
+};
+
+void agg_add(RunAgg& a, const ScenarioReport& r) {
+    ++a.n;
+    a.score_sum += r.score.total;
+    if (r.failures.empty()) ++a.pass;
+    a.wasted += r.kpi.wasted;
+    a.redundant += r.kpi.redundant;
+    a.failures += r.kpi.tool_failures;
+    a.denied += r.kpi.tool_denied;
+    a.retries += r.kpi.retries;
+    a.recoveries += r.kpi.recoveries;
+    a.steers += r.kpi.steers;
+    if (r.kpi.hard_stop) ++a.hard_stops;
+    if (r.replan_adapted) ++a.replans;
+    if (r.dependency_violation) ++a.dep_violations;
+    if (r.breakout_latency > 0) ++a.breakouts;
+    if (r.steer_effective) ++a.steers_effective;
+    a.calls += r.kpi.tool_calls;
+    a.steps += r.kpi.steps;
+    a.bullseye_sum += r.kpi.bullseye;
+    a.adherence_sum += r.plan_adherence_ratio;
+    a.wall_sum += r.kpi.wall_ms;
+    if (r.kpi.tps_avg > 0) {
+        a.tps_sum += r.kpi.tps_avg;
+        ++a.tps_n;
+    }
+}
+
+} // namespace
+
+std::string render_scorecard(const std::vector<ScenarioReport>& reports,
+                             const RunMeta& meta) {
+    std::ostringstream out;
+    const int total = static_cast<int>(reports.size());
+    int passed = 0;
+    for (const auto& r : reports)
+        if (r.failures.empty()) ++passed;
+    const double score = run_score(reports) * 10.0;
+
+    out << "# Harness Scorecard — " << meta.model << " (run "
+        << meta.run_id << ")\n\n";
+    out << "model score: " << static_cast<int>(score) << "/1000"
+        << "  pass: " << passed << "/" << total << "\n\n";
+
+    // ------------------------------------------------------------------
+    // 1. Dimension aggregates with verdicts
+    // ------------------------------------------------------------------
+    RunAgg a;
+    for (const auto& r : reports) agg_add(a, r);
+    const double per_scenario =
+        a.n > 0 ? static_cast<double>(a.steps) / a.n : 0.0;
+
+    out << "## 1. Dimensions (run-wide, " << a.n << " scenarios)\n\n";
+
+    // Loop control dimension.
+    out << "### Loop control\n";
+    out << "  breakouts fired:          " << a.breakouts << "/" << a.n
+        << " runs (loop detection broke an identical-call loop)\n";
+    out << "  hard stops:               " << a.hard_stops << "\n";
+    out << "  recoveries (any kind):    " << a.recoveries
+        << "  | steers: " << a.steers
+        << "  | steers effective: " << a.steers_effective << "\n";
+    out << "  retries:                  " << a.retries << "\n";
+    out << "  verdict:                  "
+        << (a.breakouts == 0 && a.hard_stops == 0 && a.recoveries == 0
+                ? "no loop events observed — the engine never had to "
+                  "intervene (or loop detection is off in live mode)"
+                : "engine intervened; see per-scenario detail below")
+        << "\n\n";
+
+    // Tool economy dimension.
+    out << "### Tool economy\n";
+    out << "  total tool calls:         " << a.calls
+        << "  | steps: " << a.steps
+        << " (mean " << per_scenario << "/scenario)\n";
+    out << "  wasted (off-plan):        " << a.wasted << " ("
+        << (a.n > 0 ? static_cast<double>(a.wasted) / a.n : 0.0)
+        << "/scenario)\n";
+    out << "  redundant (identical):    " << a.redundant << "\n";
+    out << "  tool failures:            " << a.failures << "\n";
+    out << "  tool denied:              " << a.denied << "\n";
+    out << "  mean bullseye:            "
+        << (a.n > 0 ? a.bullseye_sum / a.n : 0.0) << "\n";
+    out << "  verdict:                  "
+        << (a.wasted > a.calls / 3
+                ? "wasted calls dominate — the model surveys/repeats "
+                  "instead of executing (tool economy is the primary loss)"
+                : "tool economy within reason; failures/waste are localized")
+        << "\n\n";
+
+    // Planning dimension.
+    out << "### Planning & adherence\n";
+    out << "  replan_adapted runs:      " << a.replans << "/" << a.n << "\n";
+    out << "  dependency violations:    " << a.dep_violations << "\n";
+    out << "  mean plan_adherence:      "
+        << (a.n > 0 ? a.adherence_sum / a.n : 0.0) << "\n";
+    out << "  verdict:                  "
+        << (a.dep_violations > 0
+                ? "dependency-order violations detected — planning skips "
+                  "required reads before writes"
+                : "no dependency violations; adherence is order-clean")
+        << "\n\n";
+
+    // Performance dimension.
+    out << "### Performance\n";
+    out << "  mean wall:                " << (a.n > 0 ? a.wall_sum / a.n : 0)
+        << " ms/scenario\n";
+    out << "  mean tps:                 "
+        << (a.tps_n > 0 ? a.tps_sum / a.tps_n : -1.0) << "\n";
+    out << "  hard stops:               " << a.hard_stops << "\n\n";
+
+    // ------------------------------------------------------------------
+    // 2. Per-suite matrix
+    // ------------------------------------------------------------------
+    std::map<std::string, RunAgg> by_suite;
+    for (const auto& r : reports) agg_add(by_suite[r.suite], r);
+    out << "## 2. Per-suite\n\n";
+    out << "suite                       scen  pass  mean  wasted  redund  "
+           "fail  wall_ms\n";
+    out << std::string(74, '-') << "\n";
+    for (const auto& [suite, sa] : by_suite) {
+        const double mean = sa.n > 0 ? sa.score_sum / sa.n : 0.0;
+        out << std::left << std::setw(28) << suite << std::right
+            << std::setw(6) << sa.n << std::setw(6) << sa.pass
+            << std::setw(7) << static_cast<int>(mean) << std::setw(9)
+            << sa.wasted << std::setw(9) << sa.redundant << std::setw(6)
+            << sa.failures << std::setw(9)
+            << (sa.n > 0 ? sa.wall_sum / sa.n : 0) << "\n";
+    }
+    out << "\n";
+
+    // ------------------------------------------------------------------
+    // 3. Failed-scenario diagnosis
+    // ------------------------------------------------------------------
+    out << "## 3. Failed scenarios (why, and which dimension)\n\n";
+    int shown = 0;
+    for (const auto& r : reports) {
+        if (r.failures.empty()) continue;
+        if (++shown > 12) {
+            out << "  ... " << (passed < total ? total - passed - 12 : 0)
+                << " more failures; run `amber-bench report` for full "
+                   "details\n";
+            break;
+        }
+        out << "### " << r.name << "  (score " << static_cast<int>(r.score.total)
+            << ", " << r.suite << ")\n";
+        for (const auto& f : r.failures) out << "  failure: " << f << "\n";
+        out << "  steps=" << r.kpi.steps
+            << " calls=" << r.kpi.tool_calls
+            << " wasted=" << r.kpi.wasted
+            << " redundant=" << r.kpi.redundant
+            << " tool_failures=" << r.kpi.tool_failures
+            << " denied=" << r.kpi.tool_denied;
+        if (r.kpi.hard_stop) out << " HARD_STOP";
+        if (r.replan_adapted) out << " replan=adapted";
+        if (r.dependency_violation) out << " DEP_VIOLATION";
+        if (r.breakout_latency > 0)
+            out << " breakout@" << r.breakout_latency;
+        if (r.steer_effective) out << " steer=effective";
+        out << "\n";
+        // The tool trace: what actually executed.
+        if (!r.tool_details.empty()) {
+            out << "  trace:";
+            for (const auto& d : r.tool_details)
+                out << " " << d.name << "[" << d.status
+                    << (d.error.empty() ? "" : ":" + d.error) << "]";
+            out << "\n";
+        }
+        out << "\n";
+    }
+    if (shown == 0) out << "  no failures — clean run\n";
+
+    // ------------------------------------------------------------------
+    // 4. Signals
+    // ------------------------------------------------------------------
+    out << "## 4. Signals (what to fix next)\n\n";
+    if (a.wasted > 0)
+        out << "- **Tool economy**: " << a.wasted
+            << " wasted calls (" << (a.n > 0 ? a.wasted / a.n : 0)
+            << "/scenario). The model surveys or repeats instead of "
+               "executing. Candidates: tool-selection steering in the "
+               "prompt, or the agentic-efficiency weighting.\n";
+    if (a.redundant > 0)
+        out << "- **Redundancy**: " << a.redundant
+            << " identical calls repeated. Duplicate-call detection is "
+               "worth enabling in live mode.\n";
+    if (a.failures > 0)
+        out << "- **Tool failures**: " << a.failures
+            << " failed calls. Check the per-call `tool_details` error text "
+               "for the dominant failure reason.\n";
+    if (a.dep_violations > 0)
+        out << "- **Dependency violations**: " << a.dep_violations
+            << " runs wrote before reading the dependency. Planning "
+               "adherence needs prompt-level ordering guidance.\n";
+    if (a.breakouts == 0 && a.hard_stops == 0)
+        out << "- **Loop detection never fired**: no breakouts observed. "
+               "Verify `detection_loop` is enabled in live mode — the "
+               "hermetic probes prove the engine CAN break loops; the live "
+               "config may have it off.\n";
+    if (a.recoveries > 0 && a.steers_effective == 0)
+        out << "- **Steers ineffective**: " << a.recoveries
+            << " recovery events but none led to completion. The steer "
+               "wording may not reach the model.\n";
+    out << "\n";
+    return out.str();
 }
 
 } // namespace bench
