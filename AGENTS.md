@@ -164,6 +164,29 @@ rogue `replace` method, direct deque access) breaks a link and crashes with
 - Releases are tag-driven (`vX.Y.Z`; tags with `-` are pre-releases) — see
   `.github/workflows/release.yml`.
 
+### The local inference service is INVOLATE — never touch it
+
+The OpenAI-compatible endpoint on `:8081` is served by the **`llama-turboq`
+systemd service** (`systemctl status llama-turboq`): a custom-built llama.cpp
+with a fixed model and launch config (`/etc/systemd/system/llama-turboq.service`,
+via `start-qwopus-turboq.sh`). Hard rules, no exceptions:
+
+- **NEVER stop, restart, edit, or reconfigure the `llama-turboq` service.**
+- **NEVER spawn a parallel/second inference server** (e.g. a manual
+  `llama-server` instance on :8081, another port, or another GPU process) to
+  "try" another model or configuration. There is one inference service; it is
+  custom-built and fixed. It is not to be changed to run different models.
+- If a task needs a different model, server flag, or endpoint behavior, that is
+  a **change to the service** and is only possible after **explicit human
+  approval** describing exactly what changes and why. Do not act on a pre-emptive
+  assumption of approval.
+- If you ever find an unexpected process serving :8081 (manual `llama-server`,
+  etc.), treat it as a fault you must NOT have caused; do not "fix" or swap the
+  service yourself — stop what you're doing and report it.
+- Benchmark/model evaluation uses the service as-is. If the fixed model cannot
+  represent the population under test, that is a finding to surface, not a
+  reason to reconfigure inference.
+
 ## Engineering principles (mandatory)
 
 These are hard requirements for every change. The bar is **zero technical debt**:
@@ -370,7 +393,7 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 4387 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 4431 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 287 | OK, but `list()` mixes POSIX `opendir` with JSON — consider an `fs` helper. |
 | `tui/tui_render.cpp` | 679 | Method implementations (not a class); exempt from class-size rule. |
 | `tui/tui_input.cpp` | 2295 | Method implementations (not a class); exempt from class-size rule. |

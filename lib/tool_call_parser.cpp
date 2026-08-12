@@ -69,6 +69,43 @@ json parse_json_tool_call(const std::string& block) {
     return tc;
 }
 
+// Scan `text` for the next top-level {...} block that parses as a
+// Hermes-style tool call (bare JSON, no XML wrapper). String contents are
+// respected so nested braces inside argument values don't confuse the
+// depth count. On success fills `out` and returns true; `i` advances past
+// the block either way (to text.size() when unbalanced).
+bool scan_bare_json_call(const std::string& text, size_t& i, json& out) {
+    size_t start = text.find('{', i);
+    if (start == std::string::npos) {
+        i = text.size();
+        return false;
+    }
+    size_t j = start + 1;
+    int depth = 1;
+    bool in_str = false;
+    for (; j < text.size() && depth > 0; ++j) {
+        char c = text[j];
+        if (in_str) {
+            if (c == '\\')
+                ++j;
+            else if (c == '"')
+                in_str = false;
+        } else if (c == '"') {
+            in_str = true;
+        } else if (c == '{') {
+            ++depth;
+        } else if (c == '}') {
+            --depth;
+        }
+    }
+    i = (depth > 0) ? text.size() : j;
+    if (depth > 0) return false;  // unbalanced, no closing brace
+    auto jc = parse_json_tool_call(text.substr(start, j - start));
+    if (jc.is_null()) return false;
+    out = std::move(jc);
+    return true;
+}
+
 } // namespace
 
 json extract_tool_calls_from_text(const std::string& text) {
@@ -202,6 +239,20 @@ json extract_tool_calls_from_text(const std::string& text) {
             found_any = true;
             size_t close = text.find("</tool_call>", pi);
             i = (close == std::string::npos) ? text.size() : close + 12;
+        }
+    }
+
+    // Pattern 4: Hermes-style bare JSON tool calls (Qwen2.5-Coder via
+    // llama.cpp text-mode): {"name":"X","arguments":{...}} appears as plain
+    // content with no XML wrapper. Each block is scanned independently so
+    // multiple calls in one response are all extracted.
+    if (!found_any) {
+        i = 0;
+        while (i < text.size()) {
+            json tc;
+            if (!scan_bare_json_call(text, i, tc)) continue;
+            result.push_back(std::move(tc));
+            found_any = true;
         }
     }
 

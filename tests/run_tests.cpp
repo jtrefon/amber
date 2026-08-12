@@ -3871,6 +3871,50 @@ TEST(tool_call_parser_attribute_style_unclosed) {
               "Makefile");
 }
 
+// [TC] Hermes-style bare-JSON tool calls (Qwen2.5-Coder via llama.cpp):
+// the model emits {"name":"read","arguments":{...}} as plain content text,
+// without any XML wrapper. A call in the middle of prose must be extracted.
+TEST(tool_call_parser_bare_json) {
+    std::string text =
+        "Let's read the task file.\n"
+        "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
+        "I'll then write the solution.";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
+    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(),
+              "{\"path\":\"TASK.md\"}");
+}
+
+// [TC] Multiple Hermes-style calls in one response, each with arguments,
+// must all be extracted in order.
+TEST(tool_call_parser_bare_json_multiple) {
+    std::string text =
+        "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
+        "{\"name\": \"write\", \"arguments\": {\"path\": \"fizzbuzz.cpp\", "
+        "\"edits\": [{\"old\": \"\", \"new\": \"int main(){}\"}]}}";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 2u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
+    ASSERT_EQ(calls[1]["function"]["name"].get<std::string>(), "write");
+}
+
+// [TC] The 32B, when forced to use a tool, wraps the call in <tools> tags:
+// <tools>{"name": "read", "arguments": {"path": "/etc/hostname"}}</tools>
+TEST(tool_call_parser_bare_json_tools_wrapper) {
+    std::string text =
+        "<tools>{\"name\": \"read\", \"arguments\": {\"path\": \"/etc/hostname\"}}"
+        "</tools>";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
+    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(),
+              "{\"path\":\"/etc/hostname\"}");
+}
+
 // Binary files must be refused, not dumped as garbage lines (a NUL-byte
 // binary read once produced 32k lines in the conversation).
 TEST(read_tool_refuses_binary) {
