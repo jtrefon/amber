@@ -121,6 +121,38 @@ commit.
 - `tests/bench_test.cpp` — probe RED/GREEN tests (hermetic, deterministic).
 - Wire the harness probes into the CI regression gate alongside `make check`.
 
+## Probe roadmap (the full failure surface)
+
+The scorecard grows in planned increments (tracker: BENCH-09..11). Each
+dimension below is one failure axis of the harness; a red probe names the
+mechanism and the deviation.
+
+| Dim | Families | What it isolates | Status |
+|---|---|---|---|
+| Mechanism fidelity | parse, extract, context, envelope, confinement, oracle | SSE/text/context/envelope/workspace mechanics | shipped (BENCH-08) |
+| Dispatch & budget | dispatch, budget | call→registry→result round-trip; step budget | shipped (BENCH-08) |
+| Recovery | recovery | retryable-error compensation | shipped (BENCH-08) |
+| **Agentic loop** | loop | plan design + execution adherence (graph/chain); done-flag termination; continue-flag non-termination; infinite-loop breakout ≤3 repeats; text-loop steer @2 / hard stop @5; fail-streak steer+stop; breakout false-positive precision; hard-stop honesty; plan-adherence chain | BENCH-09 |
+| **Tool-call fidelity** | fidelity | wrong-tool misuse; value-level arg precision; unknown tool → graceful error; malformed-args repair; object-vs-string wire shapes | BENCH-10 |
+| **Output interpretation** | output | action-after-read (next call reflects tool output); 64 KiB truncation; envelope error-text + meta round-trip | BENCH-11 |
+| **Telemetry persistence** | (report) | per-call `{name, args, ok, error, denied, timeout, duration_ms}` in results JSON; calls_per_step histogram; failure taxonomy | BENCH-11 |
+
+### New KPIs (with the agentic loop)
+
+- `adherence_ratio` — executed tool sequence satisfies the plan's dependency
+  edges / total edges (the graph match).
+- `breakout_latency` — turns until loop detection fires (≤3 for tool loops).
+- `steer_effectiveness` — runs completing after a recovery steer / runs that
+  received a steer.
+- `detector_precision` — legit distinct repeats NOT flagged (false-positive
+  rate of the loop detector).
+- `calls_per_step` p50/p95/max — detects call bursting vs steady pacing.
+- `failure_taxonomy` — tool_failures split by error/timeout/denied/
+  unknown-tool/malformed-args.
+
+These are the "winning / losing / stagnating" signals: each is monotonic and
+trends across runs, unlike a single composite score.
+
 ## Non-goals
 
 - No engine modification: probes exercise `lib/` + `tools/` over their public
