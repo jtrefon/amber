@@ -135,6 +135,40 @@ solved (98.7/84.2, all pass), quality-perception recall is strong
 coding/refactor tasks (agentic overhead) and the two clean-code controls
 (the 27B's over-critical precision flaw).
 
+## Baseline v3 (2026-08-12): post-fix Qwopus3.6-27B live run
+
+First live run on the **fixed harness** (all of PR #52/#54/#55/#56/#57
+merged: oracle fixes, bare-JSON extraction, SSE-sink lifetime fix, harness
+benchmark axis with 34 probes, per-call telemetry, plan/loop KPIs). The
+service crashed mid-first-attempt (SIGABRT under load — since fixed by the
+service owner); this record is the clean re-run.
+Record: `bench/results/qwopus-baseline-v3.json`.
+
+| metric | value |
+|---|---|
+| model score (v2, 43 scenarios) | 821.6/1000 |
+| pass rate | 41/43 |
+| anchor deviation | +321 (vs 500) |
+| headroom | 178 |
+
+**vs the v2 baseline: +52.5 pts, +2 scenarios** (769.1 → 821.6, 39/43 →
+41/43). Biggest gains: h-02 +42 (stale-oracle artifact resolved — the 27B
+renamed correctly all along), p-05 +40 (blank-line adherence now exact),
+c-04 +33, c-02 +22. The only remaining failures are the two clean-code
+controls (arch-02, clean-02) — the over-criticism precision flaw is now the
+*sole* red signal, consistently.
+
+The record carries the full new telemetry per scenario: `tool_details`
+(per-call status/error/duration/denied/timeout), `max_calls_per_step`
+(burst detection), `failure_taxonomy`, `plan_adherence_ratio`,
+`replan_adapted`, `dependency_violation`, `breakout_latency`,
+`steer_effective`, `calls_per_step_mean/p95`.
+
+**Harness floor (hermetic)**: `bench/results/harness-baseline-v1.json` —
+34/34 probes, integrity 1.0 across 12 families. This is the regression
+gate: any harness change that dips a family below 1.0 is a red build.
+
+
 ## Official benchmark cross-check (the 27B vs 550B question)
 
 Why does a 27B dense model outscore a 550B frontier model on this harness?
