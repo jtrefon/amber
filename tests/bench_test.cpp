@@ -1412,8 +1412,7 @@ TEST(repeat_json_emits_median_and_ci) {
 // A stored JSON report round-trips: the repeat fields and the model CI
 // survive render_json -> parse_report_json, and legacy files (no repeat
 // fields) default score_median to score.
-TEST(repeat_json_roundtrip_preserves_fields) {
-    std::vector<bench::ScenarioReport> runs = {
+TEST(repeat_json_roundtrip_preserves_fields) {    std::vector<bench::ScenarioReport> runs = {
         score_report("s1", 90.0), score_report("s1", 95.0),
         score_report("s1", 97.0)};
     std::vector<bench::ScenarioReport> agg = {
@@ -1442,6 +1441,55 @@ TEST(repeat_json_roundtrip_preserves_fields) {
     ASSERT(bench::parse_report_json(legacy, meta2, legacy_back));
     ASSERT_EQ(legacy_back[0].repeat_n, 1);
     ASSERT_NEAR(legacy_back[0].score_median, 91.0, 0.01);
+}
+
+// The failures list and per-call telemetry must survive the JSON round trip
+// — a stored report must be diagnosable (scorecard section 3 depends on it).
+TEST(report_json_roundtrip_keeps_failures_and_telemetry) {
+    bench::ScenarioReport rep = score_report("s1", 71.0);
+    rep.failures = {"oracle not matched: 0/2 steps (bullseye 0)"};
+    rep.plan_adherence_ratio = 0.5;
+    rep.replan_adapted = true;
+    rep.breakout_latency = 3;
+    rep.steer_effective = true;
+    rep.max_calls_per_step = 2;
+    rep.calls_per_step_mean = 1.5;
+    rep.calls_per_step_p95 = 2.0;
+    bench::ScenarioReport::ToolDetail td;
+    td.name = "bash";
+    td.args = R"({"command":"true"})";
+    td.status = "error";
+    td.error = "exit 1";
+    td.duration_ms = 42;
+    rep.tool_details.push_back(td);
+
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    const std::string json = bench::render_json({rep}, meta);
+    agent::json j = agent::json::parse(json, nullptr, false);
+    ASSERT(!j.is_discarded());
+    bench::RunMeta meta2;
+    std::vector<bench::ScenarioReport> back;
+    ASSERT(bench::parse_report_json(j, meta2, back));
+    ASSERT_EQ(back.size(), 1u);
+    ASSERT_EQ(back[0].failures.size(), 1u);
+    ASSERT(back[0].failures[0].find("oracle not matched") !=
+           std::string::npos);
+    ASSERT_EQ(back[0].tool_details.size(), 1u);
+    ASSERT_EQ(back[0].tool_details[0].name, "bash");
+    ASSERT_EQ(back[0].tool_details[0].error, "exit 1");
+    ASSERT_EQ(back[0].tool_details[0].duration_ms, 42L);
+    ASSERT_EQ(back[0].plan_adherence_ratio, 0.5);
+    ASSERT(back[0].replan_adapted);
+    ASSERT_EQ(back[0].breakout_latency, 3);
+    ASSERT(back[0].steer_effective);
+    ASSERT_EQ(back[0].max_calls_per_step, 2);
+
+    // The scorecard renderer consumes the rehydrated record.
+    const std::string sc = bench::render_scorecard(back, meta2);
+    ASSERT(sc.find("oracle not matched") != std::string::npos);
+    ASSERT(sc.find("bash[error:exit 1]") != std::string::npos);
 }
 
 // The text report shows the repeat statistics on repeated scenarios.

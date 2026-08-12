@@ -171,6 +171,12 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
 std::string render_markdown_comparison(
     const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs);
 
+// Full diagnostic scorecard: dimension-by-dimension KPI aggregates with
+// verdicts, per-suite matrix, per-failed-scenario diagnosis, and run-wide
+// signals — the "where is the harness failing, and how" view.
+std::string render_scorecard(const std::vector<ScenarioReport>& reports,
+                             const RunMeta& meta);
+
 } // namespace bench
 
 #endif // BENCH_REPORT_H
