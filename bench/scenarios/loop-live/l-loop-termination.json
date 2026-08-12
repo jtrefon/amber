@@ -1,0 +1,21 @@
+{
+  "name": "l-loop-termination",
+  "suite": "loop-live",
+  "description": "termination discipline: a single-step task; the model must say done and stop — premature continuation or extra tool calls cost efficiency",
+  "platforms": ["linux", "darwin"],
+  "difficulty": 2,
+  "setup": {
+    "files": {
+      "a.txt": "x"
+    }
+  },
+  "prompt": "Read a.txt and confirm its content, then reply with done.",
+  "oracle": [
+    {"tool": "read", "args": {"path": "a.txt"}}
+  ],
+  "checks": {
+    "must_contain": ["done"]
+  },
+  "budget": {"max_steps": 5, "max_wall_ms": 60000},
+  "optimal_plan": {"read": 1}
+}

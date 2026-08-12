@@ -692,8 +692,23 @@ std::string Agent::run(const std::string& user_prompt) {
     FailStreak fail_streak;
     int loop_count = 0, text_loop_count = 0, tool_recovery_attempts = 0;
     std::string last_loop_key, last_text, final_reply;
+    const auto loop_t0 = std::chrono::steady_clock::now();
+    const auto deadline = cfg_.max_wall_ms > 0
+        ? loop_t0 + std::chrono::milliseconds(cfg_.max_wall_ms)
+        : std::chrono::steady_clock::time_point::max();
 
     for (int iter = 0; iter < cfg_.max_tool_iterations; ++iter) {
+        // Wall-clock budget: the engine enforces max_wall_ms, not just the
+        // post-hoc scorer — a runaway must stop at the deadline.
+        if (std::chrono::steady_clock::now() >= deadline) {
+            if (hooks_.on_status)
+                hooks_.on_status("wall-clock budget exceeded, stopping");
+            log_.event("error", {{"reason", "wall_clock_exceeded"}});
+            final_reply =
+                "[stopped: wall-clock budget exceeded; simplify the task "
+                "or retry]";
+            break;
+        }
         // Cancellation ends the turn cleanly: no fabricated error message,
         // no probe round-trip, nothing pushed into the context.
         if (cfg_.cancel_token.is_requested()) {

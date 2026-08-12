@@ -1,0 +1,23 @@
+{
+  "name": "l-output-interpretation",
+  "suite": "loop-live",
+  "description": "output interpretation: the model must act on tool output — read a mapping file, then use its content in the next action",
+  "platforms": ["linux", "darwin"],
+  "difficulty": 4,
+  "setup": {
+    "files": {
+      "mapping.txt": "target=result.txt\n",
+      "result.txt": "old"
+    }
+  },
+  "prompt": "Read mapping.txt. It says which file to update. Append the line 'updated' to that file, then report which file you changed.",
+  "oracle": [
+    {"tool": "read", "args": {"path": "mapping.txt"}},
+    {"tool": "write", "args": {"path": "result.txt"}, "args_subset": true}
+  ],
+  "checks": {
+    "must_contain": ["updated", "result.txt"]
+  },
+  "budget": {"max_steps": 8, "max_wall_ms": 120000},
+  "optimal_plan": {"read": 1, "write": 1}
+}
