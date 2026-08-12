@@ -389,16 +389,77 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         int max_in_step = 0;
         int cur = 0;
         int last = -1;
+        std::vector<int> per_step;
         for (const auto& c : r_calls) {
             if (c.step != last) {
                 if (cur > max_in_step) max_in_step = cur;
+                if (cur > 0) per_step.push_back(cur);
                 cur = 0;
                 last = c.step;
             }
             ++cur;
         }
         if (cur > max_in_step) max_in_step = cur;
+        if (cur > 0) per_step.push_back(cur);
         rep.max_calls_per_step = max_in_step;
+        // calls_per_step distribution: mean + p95 (BENCH-11).
+        if (!per_step.empty()) {
+            double sum = 0.0;
+            for (int v : per_step) sum += v;
+            rep.calls_per_step_mean = sum / static_cast<double>(per_step.size());
+            std::sort(per_step.begin(), per_step.end());
+            const auto idx =
+                static_cast<size_t>(0.95 * static_cast<double>(per_step.size() - 1));
+            rep.calls_per_step_p95 = static_cast<double>(per_step[idx]);
+        }
+    }
+
+    // Plan metrics (BENCH-09): adherence in dependency order, replan
+    // adaptation after failures, dependency-order violations.
+    {
+        // Adherence = oracle steps whose match kept a strictly increasing
+        // call order (the plan's dependency edges hold).
+        const auto& idxs = oracle.matched_call_indexes;
+        if (oracle.total_steps > 0 && !idxs.empty()) {
+            size_t ordered = 1;
+            for (size_t i = 1; i < idxs.size(); ++i)
+                if (idxs[i] > idxs[i - 1]) ++ordered;
+            rep.plan_adherence_ratio =
+                static_cast<double>(ordered) / static_cast<double>(idxs.size());
+        }
+        // Replan: a failure followed by a different (non-failing) call.
+        for (size_t i = 0; i + 1 < r_tools.size(); ++i) {
+            if (!r_tools[i].ok && r_tools[i + 1].ok &&
+                r_tools[i].name == r_tools[i + 1].name) {
+                rep.replan_adapted = true;
+                break;
+            }
+        }
+        // Dependency violation: an ordered oracle's steps were matched out of
+        // dependency order (a later step's call preceded an earlier step's),
+        // or the first executed call does not satisfy the first oracle step
+        // while the task requires that order (write-before-read).
+        if (oracle.total_steps > 0) {
+            for (size_t i = 1; i < idxs.size(); ++i)
+                if (idxs[i] < idxs[i - 1]) rep.dependency_violation = true;
+            if (!r_calls.empty() && !s.oracle.empty()) {
+                const std::string& first = r_calls[0].name;
+                const std::string& expected = s.oracle[0].tool;
+                if (first != expected && oracle.matched_steps > 0 &&
+                    oracle.matched_steps < oracle.total_steps)
+                    rep.dependency_violation = true;
+            }
+        }
+    }
+    // Loop-control metrics: how fast a loop broke, and whether steering
+    // actually let the run complete (BENCH-09).
+    {
+        const std::string& ft = rep.final_text;
+        if (ft.find("loop detected") != std::string::npos ||
+            ft.find("repeated the same tool call") != std::string::npos ||
+            ft.find("repeated itself") != std::string::npos)
+            rep.breakout_latency = kpi.steps;
+        rep.steer_effective = kpi.recoveries > 0 && kpi.success;
     }
 
     if (!oracle.success) {
