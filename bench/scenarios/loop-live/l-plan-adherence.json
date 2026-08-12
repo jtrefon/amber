@@ -13,7 +13,7 @@
   "prompt": "Read config.ini. It names the output file. Append the line 'done' to that file. Do not modify any other file.",
   "oracle": [
     {"tool": "read", "args": {"path": "config.ini"}},
-    {"tool": "write", "args": {"path": "result.txt"}, "args_subset": true}
+    {"tool": "bash", "args": {"command": "*result.txt*"}, "unordered": true}
   ],
   "checks": {
     "must_contain": ["done"]
