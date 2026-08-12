@@ -1112,21 +1112,94 @@ FIX-015  (JSON-driven command engine) — independent
   corresponding probe must fail; probes green on a clean tree; `--cat
   harness` runs deterministically; harness_integrity = 1.0 in CI.
 
+### BENCH-09 — Agentic loop probes (Dimensions A–B: planning + loop control)
+
+- **Problem:** the engine's loop-control machinery (tool-loop breakout at 3×
+  same fingerprint, text-loop steer at 2× / hard stop at 5×, fail-streak
+  recovery steer + hard stop, `done`-termination contract, iteration budget)
+  is the core of the harness — and nothing tests any of it. The 15 BENCH-08
+  probes cover mechanism fidelity (parse/extract/dispatch/context) but not
+  the agentic loop itself: plan design, execution adherence to the plan
+  (graph/chain), and the loop's ability to terminate correctly or break out
+  of a runaway. The harness can silently drift here (loop detection disabled,
+  steer never fires, breakout latency regresses) without a red signal.
+- **Target architecture:** 8 new hermetic probes in the `bench/probe.cpp`
+  registry (family `loop`), each scripting the loop via FakeClient and
+  asserting the engine's loop behavior. Plus a new KPI family surfaced in the
+  scorecard: `adherence_ratio`, `breakout_latency`, `steer_effectiveness`.
+  - P-loop-done-flag — scripted tool_calls → tool_calls → "done": loop
+    terminates on done, correct turn count, no extra dispatch (positive
+    termination).
+  - P-loop-continue-flag — scripted tool_calls × N (task incomplete): no
+    premature termination while calls keep coming (negative signal).
+  - P-loop-infinite-breakout — identical tool call repeated 10×: breakout
+    fires ≤3 repeats ("loop detected: breaking tool loop"), no runaway,
+    honest final_reply.
+  - P-loop-text-repeat — same text 5×: steer at 2, hard stop at 5,
+    recovery attempt counted.
+  - P-loop-fail-streak — failing calls 4×: steer at 3, hard stop on next
+    failure; scripted-good reply after steer completes (steer_effectiveness).
+  - P-loop-no-false-positive — legitimate distinct repeated calls (same
+    tool, different args): must NOT be flagged (detector precision).
+  - P-loop-hard-stop-honesty — runaway → hard_stop=true in KPI, failure
+    recorded, score capped at 60.
+  - P-plan-adherence-chain — scripted multi-step plan; assert the executed
+    tool sequence satisfies the plan's dependency edges (graph match).
+- **Verification:** each probe red-first (seeded loop fault must fail its
+  probe, e.g. `detection_loop=false` → P-loop-infinite-breakout fails);
+  probes green on a clean tree; `--cat harness` integrity 1.0; new KPIs
+  render in the scorecard; full gate green.
+
+### BENCH-10 — Tool-call fidelity probes (Dimension C)
+
+- **Problem:** tool misuse, wrong params, unknown tools, and malformed-args
+  repair (MISSION Phase 1 promises "malformed-args repair" — untested).
+- **Target architecture:** 5 probes in family `fidelity`:
+  P-misuse-wrong-tool (bash cat instead of read → tool-choice precision,
+  forbidden-tool rate), P-params-value-fidelity (value-level arg precision,
+  not just key-count), P-unknown-tool (graceful error envelope, loop
+  continues), P-malformed-args-repair (repair success), P-arg-object-vs-string
+  (both wire shapes dispatch).
+- **Verification:** red-first per probe; green on clean tree; gate green.
+
+### BENCH-11 — Output interpretation + execution precision (Dimension D–E)
+
+- **Problem:** nothing asserts the model *acted on* tool output (read X →
+  next call reflects X); output truncation at 64 KiB untested; per-call
+  telemetry is discarded after scoring (error text, duration, timeout/denied
+  flags) so post-mortem analysis is impossible.
+- **Target architecture:**
+  - 3 probes in family `output`: P-output-acts-on-content (read content →
+    next call references it), P-output-truncation (64 KiB cap enforced, no
+    crash), P-output-envelope-ext (error text + meta round-trip preserved).
+  - Report persistence: per-call `{name, args, ok, error, denied, timeout,
+    duration_ms}` written into the results JSON (the post-mortem story).
+  - New KPIs: calls_per_step histogram (p50/p95/max — detects call bursting),
+    failure taxonomy (tool_failures split by error/timeout/denied/
+    unknown-tool/malformed-args).
+- **Verification:** red-first; green on clean tree; a stored run's JSON
+  contains per-call detail; gate green.
+
 ## Status
 
 - **BENCH-01** (repeat medians + CI, the resolution floor) — shipped, PR #49
 - **BENCH-04** (v2 scoring follow-ups) — shipped, PR #48
 - **BENCH-02** (discrimination-weighted aggregation) — shipped, PR #50 (+ round-1 restore 6e2d680)
 - **BENCH-03** (reference-anchored calibration + headroom tier) — shipped, PR #51
+- **BENCH-08** (harness benchmark category — engine health scorecard) — shipped, PR #55
 
 ## Recommended execution order (remaining)
 
-1. **BENCH-08** (harness benchmark category — Phase C scope): the missing
-   engine-health axis, applicable before more calibration.
-2. **Calibration runs**: first real model runs under v2 scoring with
+1. **BENCH-09** (agentic loop probes — Dimensions A–B): the loop-control
+   machinery is the harness's core; nothing tests it. Next PR.
+2. **BENCH-10** (tool-call fidelity — Dimension C).
+3. **BENCH-11** (output interpretation + per-call telemetry persistence —
+   Dimensions D–E): the post-mortem story; prerequisites for the
+   improvement-cycle loop (collect → analyze → propose → deploy → test).
+4. **Calibration runs**: first real model runs under v2 scoring with
    `amber-bench calibrate` — calibration data, not competition.
-3. **BENCH-05** (review suites to 5/category + per-suite matrix) → **BENCH-06**
+5. **BENCH-05** (review suites to 5/category + per-suite matrix) → **BENCH-06**
    (terminal/SD volume + context-dilution suite) → **BENCH-07** (regression
    gate + trend history).
-4. Then harness work (Phase C): one measured change at a time, red-green,
+6. Then harness work (Phase C): one measured change at a time, red-green,
    baseline deltas.
