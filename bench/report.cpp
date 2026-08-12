@@ -623,6 +623,15 @@ bool parse_report_json(const agent::json& j, RunMeta& meta,
         rep.kpi.wasted = e.value("wasted", 0);
         rep.kpi.recoveries = e.value("recoveries", 0);
         rep.kpi.wall_ms = e.value("wall_ms", 0L);
+        rep.max_calls_per_step = e.value("max_calls_per_step", 0);
+        rep.total_steps = e.value("total_steps", 0);
+        rep.plan_adherence_ratio = e.value("plan_adherence_ratio", 0.0);
+        rep.replan_adapted = e.value("replan_adapted", false);
+        rep.dependency_violation = e.value("dependency_violation", false);
+        rep.breakout_latency = e.value("breakout_latency", 0);
+        rep.steer_effective = e.value("steer_effective", false);
+        rep.calls_per_step_mean = e.value("calls_per_step_mean", 0.0);
+        rep.calls_per_step_p95 = e.value("calls_per_step_p95", 0.0);
         rep.difficulty = e.value("difficulty", 3);
         rep.score.total = e.value("score", 0.0);
         rep.repeat_n = e.value("repeat_n", 1);

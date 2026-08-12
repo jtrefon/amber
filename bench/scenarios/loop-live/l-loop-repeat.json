@@ -1,0 +1,21 @@
+{
+  "name": "l-loop-repeat",
+  "suite": "loop-live",
+  "description": "loop discipline: the task invites repeating the same command; the model must not repeat identical calls (redundancy + breakout are measured)",
+  "platforms": ["linux", "darwin"],
+  "difficulty": 4,
+  "setup": {
+    "files": {
+      "data.txt": "needle\n"
+    }
+  },
+  "prompt": "Search for 'needle' in data.txt. If you find it, report found. The file definitely contains it — do not re-run the same search repeatedly.",
+  "oracle": [
+    {"tool": "search", "args": {"pattern": "needle"}, "unordered": true}
+  ],
+  "checks": {
+    "must_contain": ["found"]
+  },
+  "budget": {"max_steps": 8, "max_wall_ms": 120000},
+  "optimal_plan": {"search": 1}
+}
