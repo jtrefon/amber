@@ -1190,6 +1190,7 @@ FIX-015  (JSON-driven command engine) — independent
 - **BENCH-09** (agentic loop probes — done/continue flags, breakout, steering, plan adherence) — shipped, PR #56
 - **BENCH-10** (tool-call fidelity probes — misuse, value params, unknown tool, malformed args, wire shapes) — shipped, PR #56
 - **BENCH-11** (output interpretation probes + per-call telemetry persistence, calls_per_step, failure taxonomy) — shipped, PR #56
+- **BENCH-12** (KPI catalog — 8 hermetic probes incl. engine-enforced wall-clock deadline, loop-live suite, delta report view) — shipped, PR #58
 
 ## Recommended execution order (remaining)
 

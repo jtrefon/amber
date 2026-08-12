@@ -1,0 +1,23 @@
+{
+  "name": "l-plan-adherence",
+  "suite": "loop-live",
+  "description": "execution adherence: the task invites skipping a step; the model must follow the dependency order (read config before acting on it)",
+  "platforms": ["linux", "darwin"],
+  "difficulty": 4,
+  "setup": {
+    "files": {
+      "config.ini": "output_name=result.txt\n",
+      "result.txt": "old content"
+    }
+  },
+  "prompt": "Read config.ini. It names the output file. Append the line 'done' to that file. Do not modify any other file.",
+  "oracle": [
+    {"tool": "read", "args": {"path": "config.ini"}},
+    {"tool": "write", "args": {"path": "result.txt"}, "args_subset": true}
+  ],
+  "checks": {
+    "must_contain": ["done"]
+  },
+  "budget": {"max_steps": 8, "max_wall_ms": 120000},
+  "optimal_plan": {"read": 1, "write": 1}
+}

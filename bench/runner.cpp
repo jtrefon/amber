@@ -200,6 +200,9 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     // iteration cap), not just in post-hoc scoring.
     if (s.max_steps > 0 && s.max_steps < cfg.max_tool_iterations)
         cfg.max_tool_iterations = s.max_steps;
+    // Same for the wall-clock budget: the engine must stop at the deadline.
+    if (s.max_wall_ms > 0)
+        cfg.max_wall_ms = s.max_wall_ms;
 
     if (!opts.debug_dir.empty()) {
         fs::create_directories(opts.debug_dir);

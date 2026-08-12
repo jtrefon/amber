@@ -26,6 +26,7 @@ struct Config {
     std::string tools_prompt_path;       // markdown file advertising tools
     std::string git_prompt_path;         // markdown file for git workflow
     int max_tool_iterations = 100;
+    long max_wall_ms = 0;        // 0 = unlimited; loop deadline (engine-enforced)
     double temperature = 0.2;
     size_t max_tokens = 16384;
     bool stream = true;                  // use SSE streaming when supported

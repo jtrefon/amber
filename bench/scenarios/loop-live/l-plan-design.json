@@ -1,0 +1,23 @@
+{
+  "name": "l-plan-design",
+  "suite": "loop-live",
+  "description": "agentic planning: multi-step task with an efficient plan available; the model must design it (plan_ratio vs optimal_plan)",
+  "platforms": ["linux", "darwin"],
+  "difficulty": 4,
+  "setup": {
+    "files": {
+      "data/logs.txt": "line one: ok\nline two: warn\nline three: error\nline four: ok\nline five: error\n",
+      "data/notes.txt": "no diagnostics here"
+    }
+  },
+  "prompt": "Count how many lines in data/logs.txt contain 'error'. Report the number. Use the most efficient tool sequence.",
+  "oracle": [
+    {"tool": "search", "args": {"pattern": "error", "path": "data/logs.txt"}, "unordered": true},
+    {"tool": "read", "args": {"path": "data/logs.txt"}, "unordered": true}
+  ],
+  "checks": {
+    "must_contain": ["2"]
+  },
+  "budget": {"max_steps": 8, "max_wall_ms": 120000},
+  "optimal_plan": {"search": 1}
+}

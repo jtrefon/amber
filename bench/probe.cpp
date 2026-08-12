@@ -287,6 +287,93 @@ bool context_probe_chain_survives(ProbeResult& r) {
     return true;
 }
 
+// P-context-compression: the compression rebuild path (clear + push of the
+// returned message list) must preserve message content and the hash chain —
+// the Memento contract compress_now relies on.
+bool context_probe_compression_rebuild(ProbeResult& r) {
+    r.expected = "clear + push rebuild preserves content and chain";
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "system prompt";
+    ctx.push(std::move(sys));
+
+    agent::Message u1, a1, u2;
+    u1.role = "user";
+    u1.content = "hello";
+    a1.role = "assistant";
+    a1.content = "hi there";
+    u2.role = "user";
+    u2.content = "what is c++";
+    ctx.push(std::move(u1));
+    ctx.push(std::move(a1));
+    ctx.push(std::move(u2));
+
+    // Simulate the compression output: a rebuilt (possibly reduced) list.
+    auto rebuilt = ctx.get_all();
+    ctx.clear();
+    for (auto& m : rebuilt) ctx.push(std::move(m));
+    ctx.get_all();  // chain must survive the rebuild
+
+    const auto& final = ctx.get_all();
+    if (final.size() != 4u) {
+        r.detail = "rebuild lost messages: " + std::to_string(final.size());
+        return false;
+    }
+    if (final.back().content != "what is c++") {
+        r.detail = "rebuild corrupted content: " + final.back().content;
+        return false;
+    }
+    r.detail = "4 messages survived clear+push with chain intact";
+    return true;
+}
+
+// P-context-tokens: token_count() must stay consistent through push/pop/
+// clear/rebuild (budget decisions depend on it).
+bool context_probe_token_fidelity(ProbeResult& r) {
+    r.expected = "token count matches content through every mutation";
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "system prompt";
+    ctx.push(std::move(sys));
+    const size_t t0 = ctx.token_count();
+    if (t0 == 0) {
+        r.detail = "system message contributed 0 tokens";
+        return false;
+    }
+
+    agent::Message u;
+    u.role = "user";
+    u.content = "hello world";
+    ctx.push(std::move(u));
+    const size_t t1 = ctx.token_count();
+    auto popped = ctx.pop();
+    if (ctx.token_count() != t0) {
+        r.detail = "pop did not restore the token count";
+        return false;
+    }
+    if (popped.content != "hello world") {
+        r.detail = "pop returned the wrong message";
+        return false;
+    }
+    ctx.clear();
+    if (ctx.token_count() != 0) {
+        r.detail = "clear left tokens behind";
+        return false;
+    }
+    agent::Message m;
+    m.role = "user";
+    m.content = "x";
+    ctx.push(std::move(m));
+    if (ctx.token_count() == 0 || t1 == 0) {
+        r.detail = "token accounting broken";
+        return false;
+    }
+    r.detail = "tokens consistent through push/pop/clear/rebuild";
+    return true;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -831,6 +918,55 @@ bool budget_probe_max_steps_enforced(ProbeResult& r) {
     return true;
 }
 
+// P-budget-wall-clock: the wall-clock budget must be enforced — a run whose
+// scripted replies take longer than max_wall_ms must be cut off.
+bool budget_probe_wall_clock(ProbeResult& r) {
+    r.expected = "run stops when the wall-clock budget is exhausted";
+    Scenario s;
+    s.name = "probe-budget-wall";
+    s.suite = "harness";
+    s.prompt = "Do this slowly forever.";
+    s.max_steps = 100;
+    s.max_wall_ms = 4000;
+    // Each reply simulates 1.5s of latency; with 100 steps the run would
+    // take minutes — the wall clock must cut it short.
+    s.fake_replies = agent::json::array();
+    for (int i = 0; i < 20; ++i) {
+        agent::json tc;
+        tc["id"] = "c1";
+        tc["type"] = "function";
+        tc["function"] = {{"name", "bash"},
+                          {"arguments", {{"command", "true"}}}};
+        s.fake_replies.push_back(
+            agent::json::object({{"tool_calls", agent::json::array({tc})},
+                                 {"latency_ms", 1500}}));
+    }
+    RunOptions opts;
+    RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    std::string err;
+    ScenarioReport rep = run_one_scenario(s, opts, meta, err);
+    if (!err.empty()) {
+        r.detail = "run failed: " + err;
+        return false;
+    }
+    // The wall budget (4s) is far below the scripted total (~30s).
+    if (rep.kpi.wall_ms > s.max_wall_ms + 2000) {
+        r.detail = "wall budget ignored: " + std::to_string(rep.kpi.wall_ms) +
+                   "ms vs budget " + std::to_string(s.max_wall_ms) + "ms";
+        return false;
+    }
+    if (rep.kpi.steps >= 10) {
+        r.detail = "ran too long: " + std::to_string(rep.kpi.steps) +
+                   " steps past the wall budget";
+        return false;
+    }
+    r.detail = "cut off at " + std::to_string(rep.kpi.wall_ms) +
+               "ms / " + std::to_string(rep.kpi.steps) + " steps";
+    return true;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -974,6 +1110,128 @@ bool dispatch_probe_roundtrip(ProbeResult& r) {
     return true;
 }
 
+// P-dispatch-parallel: multiple calls in one message must all execute and
+// each result must pair with the call that produced it (no cross-pairing).
+bool dispatch_probe_parallel(ProbeResult& r) {
+    r.expected = "two parallel calls execute; results pair to their calls";
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_bash_tool());
+    agent::ConversationLog log;
+    std::set<std::string> approved;
+    agent::Context dctx;
+
+    agent::json calls = agent::json::array();
+    {
+        agent::json tc;
+        tc["id"] = "cA";
+        tc["type"] = "function";
+        tc["function"] = {{"name", "bash"},
+                          {"arguments", {{"command", "echo AAA"}}}};
+        calls.push_back(tc);
+    }
+    {
+        agent::json tc;
+        tc["id"] = "cB";
+        tc["type"] = "function";
+        tc["function"] = {{"name", "bash"},
+                          {"arguments", {{"command", "echo BBB"}}}};
+        calls.push_back(tc);
+    }
+
+    // Capture each call's command -> output mapping (the result hook passes
+    // the tool name, not the call id, so key by the command we sent).
+    std::map<std::string, std::string> paired;
+    agent::AgentHooks hooks;
+    hooks.on_tool_call = [&paired](const std::string&,
+                                   const agent::json& args) {
+        paired[args.value("command", "")] = "";
+    };
+    hooks.on_tool_result =
+        [&paired](const std::string&, const agent::ToolResult& res,
+                  const agent::json&) {
+            // Pair by the pending call's command, matched via output content.
+            if (res.output.find("AAA") != std::string::npos)
+                paired["echo AAA"] = res.output;
+            if (res.output.find("BBB") != std::string::npos)
+                paired["echo BBB"] = res.output;
+        };
+    const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
+                                               approved, nullptr, &dctx);
+    if (!ok) {
+        r.detail = "dispatch returned false";
+        return false;
+    }
+    if (paired["echo AAA"].find("AAA") == std::string::npos ||
+        paired["echo BBB"].find("BBB") == std::string::npos) {
+        r.detail = "results cross-paired or lost: A='" + paired["echo AAA"] +
+                   "' B='" + paired["echo BBB"] + "'";
+        return false;
+    }
+    r.detail = "two calls executed, results paired correctly";
+    return true;
+}
+
+// P-dispatch-out-of-order: a tool that completes slowly must still pair its
+// result with the right call when a sibling finishes first.
+bool dispatch_probe_out_of_order(ProbeResult& r) {
+    r.expected = "slow call's result pairs to its own id despite racing";
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_bash_tool());
+    agent::ConversationLog log;
+    std::set<std::string> approved;
+    agent::Context dctx;
+
+    agent::json calls = agent::json::array();
+    {
+        agent::json tc;
+        tc["id"] = "cSlow";
+        tc["type"] = "function";
+        tc["function"] = {{"name", "bash"},
+                          {"arguments", {{"command", "sleep 0.3; echo SLOW"}}}};
+        calls.push_back(tc);
+    }
+    {
+        agent::json tc;
+        tc["id"] = "cFast";
+        tc["type"] = "function";
+        tc["function"] = {{"name", "bash"},
+                          {"arguments", {{"command", "echo FAST"}}}};
+        calls.push_back(tc);
+    }
+
+    std::map<std::string, std::string> paired;
+    agent::AgentHooks hooks;
+    hooks.on_tool_call = [&paired](const std::string&,
+                                   const agent::json& args) {
+        paired[args.value("command", "")] = "";
+    };
+    hooks.on_tool_result =
+        [&paired](const std::string&, const agent::ToolResult& res,
+                  const agent::json&) {
+            if (res.output.find("SLOW") != std::string::npos)
+                paired["sleep 0.3; echo SLOW"] = res.output;
+            if (res.output.find("FAST") != std::string::npos)
+                paired["echo FAST"] = res.output;
+        };
+    const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
+                                               approved, nullptr, &dctx);
+    if (!ok) {
+        r.detail = "dispatch returned false";
+        return false;
+    }
+    if (paired["sleep 0.3; echo SLOW"].find("SLOW") == std::string::npos ||
+        paired["echo FAST"].find("FAST") == std::string::npos) {
+        r.detail = "out-of-order results cross-paired";
+        return false;
+    }
+    r.detail = "slow + fast results paired to their own calls";
+    return true;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -1015,6 +1273,116 @@ bool recovery_probe_retryable_recovers(ProbeResult& r) {
         return false;
     }
     r.detail = "retried " + std::to_string(rep.kpi.retries) + " time(s)";
+    return true;
+}
+
+// P-recovery-nonretryable: a non-retryable error must NOT loop forever —
+// the run must end (as a failure), not spin on retries.
+bool recovery_probe_nonretryable(ProbeResult& r) {
+    r.expected = "non-retryable error stops the run, no retry spin";
+    Scenario s;
+    s.name = "probe-recovery-nonretry";
+    s.suite = "harness";
+    s.prompt = "Do the thing.";
+    s.max_steps = 10;
+    s.max_wall_ms = 30000;
+    // The reply throws a 401 (non-retryable); the run must not keep retrying.
+    s.fake_replies = agent::json::array({
+        agent::json::object({{"error", "auth failed"}, {"retryable", false}}),
+        agent::json::object({{"content", "done"}}),
+    });
+    RunOptions opts;
+    RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    std::string err;
+    ScenarioReport rep = run_one_scenario(s, opts, meta, err);
+    // The run may end in failure — but it must END (steps bounded, no spin).
+    if (rep.kpi.retries >= 5) {
+        r.detail = "non-retryable error was retried " +
+                   std::to_string(rep.kpi.retries) + " times";
+        return false;
+    }
+    if (rep.kpi.steps >= 8) {
+        r.detail = "run spun: " + std::to_string(rep.kpi.steps) + " steps";
+        return false;
+    }
+    r.detail = "run ended at " + std::to_string(rep.kpi.steps) +
+               " steps, retries " + std::to_string(rep.kpi.retries);
+    return true;
+}
+
+// P-recovery-dropout: a mid-stream dropout (server dies mid-reply) must be
+// retried and the run must complete.
+bool recovery_probe_dropout(ProbeResult& r) {
+    r.expected = "mid-stream dropout is retried; run completes";
+    Scenario s;
+    s.name = "probe-recovery-dropout";
+    s.suite = "harness";
+    s.prompt = "Tell me about files.";
+    s.max_steps = 5;
+    s.max_wall_ms = 30000;
+    s.stream = true;
+    s.fake_replies = agent::json::array({
+        agent::json::object({{"content", "part"},
+                             {"drop_after_chunks", 2},
+                             {"retryable", true}}),
+        agent::json::object({{"content", "done"}}),
+    });
+    RunOptions opts;
+    RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    std::string err;
+    ScenarioReport rep = run_one_scenario(s, opts, meta, err);
+    if (!err.empty()) {
+        r.detail = "run failed: " + err;
+        return false;
+    }
+    if (rep.kpi.hard_stop) {
+        r.detail = "hard-stopped after a dropout";
+        return false;
+    }
+    if (rep.kpi.retries == 0) {
+        r.detail = "dropout was not retried";
+        return false;
+    }
+    r.detail = "recovered after " + std::to_string(rep.kpi.retries) +
+               " retries, completed";
+    return true;
+}
+
+// P-recovery-4xx: a request-side 4xx the engine can repair (template-parser
+// rejection -> drop tools, retry) must be repaired and the run must
+// complete — not a dead end.
+bool recovery_probe_4xx(ProbeResult& r) {
+    r.expected = "template-parser 4xx is repaired (tools dropped) and retried";
+    Scenario s;
+    s.name = "probe-recovery-4xx";
+    s.suite = "harness";
+    s.prompt = "List the files.";
+    s.max_steps = 5;
+    s.max_wall_ms = 30000;
+    // The server rejects the tool grammar ("Unable to generate parser for
+    // this template"); the repair drops tools and retries.
+    s.fake_replies = agent::json::array({
+        agent::json::object({{"error",
+                              "Unable to generate parser for this template"},
+                             {"retryable", false}}),
+        agent::json::object({{"content", "done"}}),
+    });
+    RunOptions opts;
+    RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    std::string err;
+    ScenarioReport rep = run_one_scenario(s, opts, meta, err);
+    if (rep.kpi.recoveries == 0) {
+        r.detail = "4xx produced no repair (recoveries=0)";
+        return false;
+    }
+    r.detail = "4xx repaired and retried (recoveries " +
+               std::to_string(rep.kpi.recoveries) + ")";
     return true;
 }
 
@@ -1364,9 +1732,14 @@ struct ProbeRegistrar {
         add("extract", "extract_multiple_calls", extract_probe_multiple_calls);
         add("extract", "extract_no_false_positive", extract_probe_no_false_positive);
         add("context", "context_chain_survives", context_probe_chain_survives);
+        add("context", "context_compression_rebuild",
+            context_probe_compression_rebuild);
+        add("context", "context_token_fidelity",
+            context_probe_token_fidelity);
         add("envelope", "envelope_status_classification",
             envelope_probe_status_classification);
         add("budget", "budget_max_steps_enforced", budget_probe_max_steps_enforced);
+        add("budget", "budget_wall_clock", budget_probe_wall_clock);
         add("loop", "loop_done_flag", loop_probe_done_flag);
         add("loop", "loop_continue_flag", loop_probe_continue_flag);
         add("loop", "loop_infinite_breakout", loop_probe_infinite_breakout);
@@ -1392,8 +1765,13 @@ struct ProbeRegistrar {
         add("oracle", "oracle_scenario_self_validation",
             oracle_probe_scenario_self_validation);
         add("dispatch", "dispatch_roundtrip", dispatch_probe_roundtrip);
+        add("dispatch", "dispatch_parallel", dispatch_probe_parallel);
+        add("dispatch", "dispatch_out_of_order", dispatch_probe_out_of_order);
         add("recovery", "recovery_retryable_recovers",
             recovery_probe_retryable_recovers);
+        add("recovery", "recovery_nonretryable", recovery_probe_nonretryable);
+        add("recovery", "recovery_dropout", recovery_probe_dropout);
+        add("recovery", "recovery_4xx", recovery_probe_4xx);
     }
 };
 

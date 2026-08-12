@@ -27,6 +27,7 @@ void print_usage(const char* prog) {
               << "  validate-template <scenario> prove a coding template's hidden tests pass\n"
               << "  report <results.json>...     re-render stored JSON report(s);\n"
               << "                               multiple files render a model comparison\n"
+              << "  delta <a.json> <b.json>      win/lose/stagnate per-scenario KPI delta\n"
               << "  calibrate <results.json>...  reference-anchored calibration: headroom, anchor\n"
               << "                               deviation, suggested difficulties\n\n"
               << "Options:\n"
@@ -376,6 +377,58 @@ int cmd_report(const std::vector<std::string>& files,
     return 0;
 }
 
+int cmd_delta(const std::vector<std::string>& files) {
+    // win/lose/stagnate between two stored runs, per scenario.
+    if (files.size() < 2) {
+        std::cerr << "error: delta needs two results files\n";
+        return 1;
+    }
+    bench::RunMeta m1, m2;
+    std::vector<bench::ScenarioReport> r1, r2;
+    if (!parse_report_file(files[0], m1, r1)) return 1;
+    if (!parse_report_file(files[1], m2, r2)) return 1;
+
+    std::map<std::string, const bench::ScenarioReport*> a, b;
+    for (const auto& r : r1) a[r.name] = &r;
+    for (const auto& r : r2) b[r.name] = &r;
+
+    std::cout << "# Delta: " << files[0] << " -> " << files[1] << "\n\n";
+    double total_a = 0, total_b = 0;
+    int win = 0, lose = 0, stagnate = 0;
+    std::cout << std::string(78, '-') << "\n";
+    std::cout << "scenario                      old     new   dScore "
+                 "dWasted dRedund dFail  dSteps  verdict\n";
+    std::cout << std::string(78, '-') << "\n";
+    for (const auto& [name, ra] : a) {
+        const auto it = b.find(name);
+        if (it == b.end()) continue;
+        const auto& rb = *it->second;
+        const double da = ra->score.total, db = rb.score.total;
+        total_a += da;
+        total_b += db;
+        const int dWasted = rb.kpi.wasted - ra->kpi.wasted;
+        const int dRed = rb.kpi.redundant - ra->kpi.redundant;
+        const int dFail = rb.kpi.tool_failures - ra->kpi.tool_failures;
+        const int dSteps = rb.kpi.steps - ra->kpi.steps;
+        const double dscore = db - da;
+        std::string verdict = "same";
+        if (dscore > 1.0) verdict = "WIN";
+        else if (dscore < -1.0) verdict = "LOSE";
+        if (dscore > 1.0) ++win;
+        else if (dscore < -1.0) ++lose;
+        else ++stagnate;
+        printf("%-30s %6.1f %6.1f %+6.1f %+7d %+7d %+5d %+7d  %s\n",
+               name.c_str(), da, db, dscore, dWasted, dRed, dFail, dSteps,
+               verdict.c_str());
+    }
+    std::cout << std::string(78, '-') << "\n";
+    printf("%-30s %6.1f %6.1f %+6.1f\n", "TOTAL", total_a, total_b,
+           total_b - total_a);
+    std::cout << "\nwin " << win << " | lose " << lose << " | same "
+              << stagnate << "\n";
+    return 0;
+}
+
 } // namespace
 
 namespace {
@@ -471,6 +524,7 @@ int main(int argc, char** argv) {
         if (cmd == "validate-template" && !rest.empty())
             return cmd_validate(rest[0]);
         if (cmd == "report") return cmd_report(rest, format);
+        if (cmd == "delta") return cmd_delta(rest);
         if (cmd == "calibrate" && !rest.empty()) return cmd_calibrate(rest);
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";
