@@ -12,7 +12,7 @@
   },
   "prompt": "Count how many lines in data/logs.txt contain 'error'. Report the number. Use the most efficient tool sequence.",
   "oracle": [
-    {"tool": "search", "args": {"pattern": "error", "path": "data/logs.txt"}, "unordered": true},
+    {"tool": "search", "args": {"pattern": "error"}, "unordered": true},
     {"tool": "read", "args": {"path": "data/logs.txt"}, "unordered": true}
   ],
   "checks": {

@@ -1,7 +1,7 @@
 {
   "name": "l-tool-choice",
   "suite": "loop-live",
-  "description": "tool choice precision: the task is solvable by search OR by bash cat; the efficient tool must be chosen (oracle rewards the right one)",
+  "description": "tool choice precision: search is the harness-preferred tool for finding content; a correct answer via bash grep scores partial (60) — the tool-choice signal",
   "platforms": ["linux", "darwin"],
   "difficulty": 3,
   "setup": {
@@ -12,7 +12,7 @@
   },
   "prompt": "Find the line in docs/report.txt that mentions units shipped, and report the number.",
   "oracle": [
-    {"tool": "search", "args": {"pattern": "units"}, "unordered": true}
+    {"tool": "search", "args": {"pattern": "*units*"}, "unordered": true}
   ],
   "checks": {
     "must_contain": ["42"]
