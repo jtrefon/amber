@@ -18,6 +18,7 @@ struct ToolCallEvent {
     agent::json args;
     long t_ms = 0;              // wall time of the call (recorder-stamped)
     std::string status;         // "ok" | "error" | "denied" (filled on result)
+    int step = 0;               // loop iteration the call was issued in
 };
 
 struct OracleResult {

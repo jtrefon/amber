@@ -118,7 +118,9 @@ struct WorkspaceGuard {
 ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
                                 const RunMeta& meta, std::string& err) {
     (void)meta;
-    ScenarioReport rep{s.name, s.suite, Kpi{}, Score{}, Agentic{}, 3, "", "", {}, false, {}};
+    ScenarioReport rep;
+    rep.name = s.name;
+    rep.suite = s.suite;
     err.clear();
     if (!platform_supported(s)) {
         rep.failures.emplace_back("platform not supported by this scenario");
@@ -167,6 +169,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         cfg.stream = s.stream;
         cfg.context_size = 4096;
         cfg.model = "fake";
+        cfg.detection_loop = s.detection_loop;
+        cfg.detection_duplicate = s.detection_duplicate;
         cfg.system_prompt_path =
             agent::resolve_data_path("prompts/system.md", nullptr);
         cfg.tools_prompt_path =
@@ -357,6 +361,44 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         }
         rep.tool_calls.emplace_back(c.name + " [" + c.status + "]",
                                     args);
+    }
+    // Per-call telemetry (BENCH-11): pair each recorded call with its result
+    // detail (status, error text, timeout/denied, duration) so a stored run
+    // is a post-mortem, not a count.
+    const auto& r_calls = recorder.stream().calls;
+    const auto& r_tools = recorder.stream().tools;
+    rep.total_steps = kpi.steps;
+    for (size_t i = 0; i < r_calls.size(); ++i) {
+        ScenarioReport::ToolDetail d;
+        d.name = r_calls[i].name;
+        d.args = r_calls[i].args.dump();
+        d.status = r_calls[i].status;
+        if (i < r_tools.size()) {
+            const ToolEvent& t = r_tools[i];
+            d.error = t.error;
+            d.denied = t.denied;
+            d.timeout = t.timeout;
+            d.duration_ms = t.duration_ms;
+            if (t.timeout) d.status = "timeout";
+        }
+        rep.tool_details.push_back(std::move(d));
+    }
+    // Max calls issued in a single step: group recorded calls by the loop
+    // iteration they were dispatched in (recorder stamps `step`).
+    {
+        int max_in_step = 0;
+        int cur = 0;
+        int last = -1;
+        for (const auto& c : r_calls) {
+            if (c.step != last) {
+                if (cur > max_in_step) max_in_step = cur;
+                cur = 0;
+                last = c.step;
+            }
+            ++cur;
+        }
+        if (cur > max_in_step) max_in_step = cur;
+        rep.max_calls_per_step = max_in_step;
     }
 
     if (!oracle.success) {

@@ -27,7 +27,19 @@ Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle,
     k.bash_cd_prefix = stream.bash_cd_prefix;
     k.tool_calls = static_cast<int>(stream.calls.size());
     for (const auto& c : stream.calls) {
-        if (c.status == "error") ++k.tool_failures;
+        if (c.status == "error") {
+            ++k.tool_failures;
+            // Classify the failure by its most specific available signal.
+            const char* reason = "error";
+            for (const auto& t : stream.tools) {
+                if (t.name == c.name && !t.error.empty()) {
+                    reason = "error";
+                    if (t.timeout) reason = "timeout";
+                    break;
+                }
+            }
+            ++k.failure_taxonomy[reason];
+        }
         if (c.status == "denied") ++k.tool_denied;
     }
     k.wasted = oracle.wasted;

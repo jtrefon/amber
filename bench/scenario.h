@@ -66,6 +66,8 @@ struct Scenario {
     int max_steps = 0;          // 0 = unlimited
     long max_wall_ms = 0;       // 0 = unlimited
     bool task_tool = false;     // enable the task tool for this scenario
+    bool detection_loop = false;     // enable tool/text-loop detection
+    bool detection_duplicate = false;  // enable duplicate-call detection
 };
 
 // Parse and validate a scenario file. Returns nullopt with a message on error.
