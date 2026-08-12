@@ -100,6 +100,19 @@ struct CwdGuard {
     fs::path saved_;
 };
 
+// Restore the workspace root on scope exit. The runner sets the root to each
+// scenario's temp workspace; without a restore the root leaks across
+// scenarios in a serial run (and into the harness probes), pointing at a
+// workspace that is removed at teardown.
+struct WorkspaceGuard {
+    explicit WorkspaceGuard(const fs::path& dir)
+        : saved_(agent::Workspace::root()) {
+        agent::Workspace::set_root(dir.string());
+    }
+    ~WorkspaceGuard() { agent::Workspace::set_root(saved_); }
+    std::string saved_;
+};
+
 } // namespace
 
 ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
@@ -117,7 +130,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
                          std::to_string(static_cast<long>(::getpid())));
     fs::remove_all(ws);
     fs::create_directories(ws);
-    agent::Workspace::set_root(ws.string());
+    WorkspaceGuard ws_guard(ws);
 
     const fs::path tpl_abs =
         s.template_dir.empty()

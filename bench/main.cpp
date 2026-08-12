@@ -10,6 +10,7 @@
 
 #include "agent.h"
 #include "agent/version.h"
+#include "bench/probe.h"
 #include "bench/report.h"
 #include "bench/runner.h"
 #include "bench/scenario.h"
@@ -36,6 +37,7 @@ void print_usage(const char* prog) {
               << "  --model NAME     model override (live)\n"
               << "  --temperature T  temperature override (live)\n"
               << "  --repeat N       run each scenario N times\n"
+              << "  --cat NAME       category: model | harness | both (default)\n"
               << "  --out FILE       write JSON report to FILE\n"
               << "  --format FMT     report output: text (default), markdown, json\n"
               << "  -h, --help       show this help\n";
@@ -112,8 +114,79 @@ int cmd_run(const std::vector<std::string>& args, bool live,
             const std::string& suite, const std::string& name,
             const std::string& profile, const std::string& model,
             double temperature, int repeat, const std::string& out_file,
-            const std::string& debug_dir) {
+            const std::string& debug_dir, const std::string& category) {
     (void)args;
+    if (!category.empty() && category != "model" && category != "harness" &&
+        category != "both") {
+        std::cerr << "error: unknown category \"" << category
+                  << "\" (expected model | harness | both)\n";
+        return 1;
+    }
+    const bool want_model =
+        category.empty() || category == "model" || category == "both";
+    const bool want_harness =
+        category == "harness" || category == "both";
+
+    if (!want_harness) {
+        bench::RunOptions opts;
+        opts.live = live;
+        opts.repeat = repeat;
+        opts.model = model;
+        opts.temperature = temperature;
+        opts.debug_dir = debug_dir;
+        apply_profile(opts, profile);
+
+        auto scenarios = discover_scenarios(suite, name);
+        if (scenarios.empty()) {
+            std::cerr << "error: no scenarios match\n";
+            return 1;
+        }
+
+        bench::RunMeta meta;
+        meta.run_id = run_id();
+        meta.mode = live ? "live" : "hermetic";
+        meta.profile = profile;
+        meta.model = opts.model;
+        if (meta.model.empty()) meta.model = live ? "config" : "fake";
+        meta.engine_version = agent::kVersion;
+        meta.timestamp = std::to_string(static_cast<long long>(
+            std::chrono::system_clock::now().time_since_epoch().count()));
+        meta.reasoning = opts.thinking.empty() ? "auto" : opts.thinking;
+
+        std::vector<bench::ScenarioReport> reports =
+            bench::run_scenarios(scenarios, opts, meta);
+        std::cout << bench::render_text(reports, meta);
+
+        if (!out_file.empty()) {
+            std::ofstream out(out_file);
+            out << bench::render_json(reports, meta);
+        }
+        return 0;
+    }
+
+    if (!want_model) {
+        // Harness-only: the deterministic engine-health scorecard.
+        const auto probes = bench::run_all_probes();
+        const bench::HarnessScorecard sc = bench::aggregate_probes(probes);
+        std::cout << "## Harness scorecard\n\n";
+        for (const auto& fam : bench::required_probe_families()) {
+            std::cout << "  " << fam << " "
+                      << sc.families.at(fam).first << "/"
+                      << sc.families.at(fam).second << "\n";
+        }
+        std::cout << "\n  integrity " << sc.integrity << " ("
+                  << sc.passed << "/" << sc.total << ")\n\n";
+        for (const auto& p : probes) {
+            std::cout << (p.passed ? "[ PASS ] " : "[ FAIL ] ")
+                      << p.family << "/" << p.name << "\n";
+            if (!p.passed)
+                std::cout << "          expected=" << p.expected
+                          << " detail=" << p.detail << "\n";
+        }
+        return sc.passed == sc.total ? 0 : 1;
+    }
+
+    // Both: model runs first, then the harness axis.
     bench::RunOptions opts;
     opts.live = live;
     opts.repeat = repeat;
@@ -123,31 +196,59 @@ int cmd_run(const std::vector<std::string>& args, bool live,
     apply_profile(opts, profile);
 
     auto scenarios = discover_scenarios(suite, name);
-    if (scenarios.empty()) {
-        std::cerr << "error: no scenarios match\n";
-        return 1;
-    }
-
     bench::RunMeta meta;
     meta.run_id = run_id();
     meta.mode = live ? "live" : "hermetic";
     meta.profile = profile;
-        meta.model = opts.model;
+    meta.model = opts.model;
     if (meta.model.empty()) meta.model = live ? "config" : "fake";
     meta.engine_version = agent::kVersion;
     meta.timestamp = std::to_string(static_cast<long long>(
         std::chrono::system_clock::now().time_since_epoch().count()));
     meta.reasoning = opts.thinking.empty() ? "auto" : opts.thinking;
 
-    std::vector<bench::ScenarioReport> reports =
-        bench::run_scenarios(scenarios, opts, meta);
-    std::cout << bench::render_text(reports, meta);
+    int rc = 0;
+    if (!scenarios.empty()) {
+        std::vector<bench::ScenarioReport> reports =
+            bench::run_scenarios(scenarios, opts, meta);
+        std::cout << bench::render_text(reports, meta);
+    } else {
+        std::cerr << "warning: no scenarios match; harness axis only\n";
+    }
+
+    const auto probes = bench::run_all_probes();
+    const bench::HarnessScorecard sc = bench::aggregate_probes(probes);
+    std::cout << "\n## Harness scorecard\n\n";
+    for (const auto& fam : bench::required_probe_families()) {
+        std::cout << "  " << fam << " "
+                  << sc.families.at(fam).first << "/"
+                  << sc.families.at(fam).second << "\n";
+    }
+    std::cout << "\n  integrity " << sc.integrity << " ("
+              << sc.passed << "/" << sc.total << ")\n\n";
+    for (const auto& p : probes) {
+        std::cout << (p.passed ? "[ PASS ] " : "[ FAIL ] ")
+                  << p.family << "/" << p.name << "\n";
+        if (!p.passed)
+            std::cout << "          expected=" << p.expected
+                      << " detail=" << p.detail << "\n";
+    }
+    if (sc.passed != sc.total) rc = 1;
 
     if (!out_file.empty()) {
-        std::ofstream out(out_file);
-        out << bench::render_json(reports, meta);
+        agent::json out;
+        out["harness_integrity"] = sc.integrity;
+        out["harness_passed"] = sc.passed;
+        out["harness_total"] = sc.total;
+        agent::json fam;
+        for (const auto& f : sc.families)
+            fam[f.first] = {{"passed", f.second.first},
+                            {"total", f.second.second}};
+        out["harness_families"] = fam;
+        std::ofstream fout(out_file);
+        fout << out.dump(2);
     }
-    return 0;
+    return rc;
 }
 
 int cmd_list(const std::string& suite) {
@@ -310,6 +411,7 @@ int main(int argc, char** argv) {
 
     bool live = false;
     std::string suite, name, profile, model, out_file, format = "text";
+    std::string category;
     std::string opts_debug_dir;
     double temperature = -1;
     int repeat = 1;
@@ -330,6 +432,7 @@ int main(int argc, char** argv) {
         else if (a == "--debug") opts_debug_dir = next("");
         else if (a == "--out") out_file = next("");
         else if (a == "--format") format = next("text");
+        else if (a == "--cat" || a == "--category") category = next("both");
         else if (a == "-h" || a == "--help") { print_usage(argv[0]); return 0; }
         else rest.push_back(a);
     }
@@ -339,8 +442,7 @@ int main(int argc, char** argv) {
         if (cmd == "run") {
             if (!rest.empty()) name = rest[0];
             return cmd_run(rest, live, suite, name, profile, model, temperature,
-                           repeat, out_file, opts_debug_dir);
-        }
+                           repeat, out_file, opts_debug_dir, category);        }
         if (cmd == "validate-template" && !rest.empty())
             return cmd_validate(rest[0]);
         if (cmd == "report") return cmd_report(rest, format);

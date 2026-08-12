@@ -36,10 +36,10 @@ class StreamParser {
 public:
     using ChunkSink = std::function<void(const StreamChunk&)>;
 
-    StreamParser(Message& out, const ChunkSink& on_chunk,
+    StreamParser(Message& out, ChunkSink on_chunk,
                  std::string  debug_path)
-        : out_(out), on_chunk_(on_chunk), debug_path_(std::move(debug_path)) {}
-
+        : out_(out), on_chunk_(std::move(on_chunk)),
+          debug_path_(std::move(debug_path)) {}
     // libcurl write callback entry point: feed raw SSE bytes, parse whole lines.
     size_t on_write(const char* data, size_t size, size_t nmemb);
 
@@ -57,7 +57,9 @@ public:
     void segment_think(const std::string& text, StreamChunk& chunk);
 
     Message& out_;
-    const ChunkSink& on_chunk_;
+    ChunkSink on_chunk_;    // stored by value: an `auto` lambda binds through a
+                            // temporary std::function, and a reference member
+                            // would dangle on the first content delta.
     std::string debug_path_;
     SseState st_;
     std::string raw_body_;  // all bytes received; used for error diagnostics
