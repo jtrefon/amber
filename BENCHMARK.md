@@ -168,6 +168,37 @@ The record carries the full new telemetry per scenario: `tool_details`
 34/34 probes, integrity 1.0 across 12 families. This is the regression
 gate: any harness change that dips a family below 1.0 is a red build.
 
+## Baseline v4 (2026-08-12): first run with the loop-live axis
+
+First live run including the **`loop-live` suite** (6 scenarios measuring
+the model's loop discipline: plan design, adherence, repeat discipline,
+termination, tool choice, output interpretation) — 49 scenarios total,
+record `bench/results/qwopus-baseline-v4.json`. Engine now enforces the
+wall-clock budget (found by the budget_wall_clock probe).
+
+| metric | value |
+|---|---|
+| model score (v2, 49 scenarios) | 788.2/1000 |
+| pass rate | 42/49 |
+
+**The loop-live axis is the model-behavior report** (the harness axis
+measures the engine; this measures the model):
+
+| scenario | score | signal |
+|---|---|---|
+| l-loop-termination | 97.5 | model terminates cleanly on done |
+| l-output-interpretation | 93.5 | reads the mapping, acts on it |
+| l-plan-adherence | 63.5 | reads config first (bullseye 1.0), efficiency-taxed |
+| l-plan-design | 60.0 | prefers `bash grep` over `search` |
+| l-loop-repeat | 59.0 | prefers `bash grep` over `search` |
+| l-tool-choice | 59.0 | prefers `bash grep` over `search` |
+
+**The consistent finding:** the model favors `bash grep` over the `search`
+tool for content lookups — correct answers, non-preferred tool, scored 59-60
+(partial). This is the tool-choice discipline gap, now a repeatable KPI.
+Oracle authoring note: append tasks (`echo >>`) legitimately use bash; the
+find/count scenarios keep `search` as the preferred-tool oracle so a
+bash-grep run scores partial by design.
 
 ## Official benchmark cross-check (the 27B vs 550B question)
 
