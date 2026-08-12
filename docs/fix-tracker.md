@@ -1089,6 +1089,29 @@ FIX-015  (JSON-driven command engine) — independent
 - **Target architecture:** hermetic suite green on every commit (CI job); `.amber/bench/results` trend history with delta alerts when success/bullseye/latency regress beyond a threshold.
 - **Verification:** CI job exists and fails on a seeded hermetic regression; trend alert fires on a synthetic regression run.
 
+### BENCH-08 — Harness benchmark category (the engine health report, Phase C)
+
+- **Problem:** the baseline exposed that harness faults masquerade as model
+  weakness. The model-axis benchmark varies the model and holds the harness
+  constant, so a harness defect (bare-JSON tool-call parsing, oracle path
+  matching, stale-oracle records) reads as "model scored 596" or "15 scenarios
+  at 60" — one bug contaminated 15-43 scenarios. The KPIs cannot distinguish
+  harness errors from model errors, and nothing measures engine integrity as a
+  first-class signal.
+- **Target architecture:** a second run category, `amber-bench run
+  --cat model|harness` (default `both`), where the `model` category is
+  unchanged and the `harness` category is a deterministic, hermetic probe
+  suite. Each probe fixes its input (canned SSE bytes, canned text, scripted
+  tool calls, a context op sequence, a workspace layout) so a deviation can
+  only be a harness bug. Probe families: parse, extract, dispatch, context,
+  recovery, envelope, budget, confinement, oracle. Report renders two axes:
+  model_score + harness_integrity; a probe failure is never folded into
+  model_score. Spec: `docs/spec/benchmark/harness.md`.
+- **Verification:** red tests seed a fault (SSE tool_calls swallowed, bare-JSON
+  not extracted, a `const_cast` context mutation, budget overrun) → the
+  corresponding probe must fail; probes green on a clean tree; `--cat
+  harness` runs deterministically; harness_integrity = 1.0 in CI.
+
 ## Status
 
 - **BENCH-01** (repeat medians + CI, the resolution floor) — shipped, PR #49
@@ -1098,10 +1121,12 @@ FIX-015  (JSON-driven command engine) — independent
 
 ## Recommended execution order (remaining)
 
-1. **Calibration runs**: first real model runs under v2 scoring with
+1. **BENCH-08** (harness benchmark category — Phase C scope): the missing
+   engine-health axis, applicable before more calibration.
+2. **Calibration runs**: first real model runs under v2 scoring with
    `amber-bench calibrate` — calibration data, not competition.
-2. **BENCH-05** (review suites to 5/category + per-suite matrix) → **BENCH-06**
+3. **BENCH-05** (review suites to 5/category + per-suite matrix) → **BENCH-06**
    (terminal/SD volume + context-dilution suite) → **BENCH-07** (regression
    gate + trend history).
-3. Then harness work (Phase C): one measured change at a time, red-green,
+4. Then harness work (Phase C): one measured change at a time, red-green,
    baseline deltas.
