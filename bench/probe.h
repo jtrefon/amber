@@ -20,6 +20,7 @@ struct ProbeResult {
     bool passed = false;
     std::string detail;     // what the engine produced
     std::string expected;   // what was required
+    double ms = 0.0;        // execution time
 };
 
 struct ProbeFamily {
