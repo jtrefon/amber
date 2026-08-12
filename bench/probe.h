@@ -33,7 +33,8 @@ struct ProbeFamily {
 inline const std::vector<std::string>& required_probe_families() noexcept {
     static const std::vector<std::string> f = {
         "parse", "extract", "dispatch", "context", "recovery",
-        "envelope", "budget", "confinement", "oracle",
+        "envelope", "budget", "confinement", "oracle", "loop",
+        "fidelity", "output",
     };
     return f;
 }

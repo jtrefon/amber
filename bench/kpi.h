@@ -25,6 +25,8 @@ struct Kpi {
     int tool_calls = 0;       // executed tool calls (all statuses)
     int tool_failures = 0;    // calls that returned an error
     int tool_denied = 0;      // calls denied by the approval gate
+    // Failure taxonomy (BENCH-11): tool_failures split by reason.
+    std::map<std::string, int> failure_taxonomy;
     int wasted = 0;
     int redundant = 0;
     int retries = 0;

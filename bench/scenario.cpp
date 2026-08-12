@@ -115,6 +115,11 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
         s.stream = j["stream"].get<bool>();
     if (j.contains("task_tool") && j["task_tool"].is_boolean())
         s.task_tool = j["task_tool"].get<bool>();
+    if (j.contains("detection_loop") && j["detection_loop"].is_boolean())
+        s.detection_loop = j["detection_loop"].get<bool>();
+    if (j.contains("detection_duplicate") &&
+        j["detection_duplicate"].is_boolean())
+        s.detection_duplicate = j["detection_duplicate"].get<bool>();
 
     if (j.contains("oracle") && j["oracle"].is_array()) {
         for (const auto& e : j["oracle"]) {

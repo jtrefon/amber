@@ -1187,19 +1187,16 @@ FIX-015  (JSON-driven command engine) — independent
 - **BENCH-02** (discrimination-weighted aggregation) — shipped, PR #50 (+ round-1 restore 6e2d680)
 - **BENCH-03** (reference-anchored calibration + headroom tier) — shipped, PR #51
 - **BENCH-08** (harness benchmark category — engine health scorecard) — shipped, PR #55
+- **BENCH-09** (agentic loop probes — done/continue flags, breakout, steering, plan adherence) — shipped, PR #56
+- **BENCH-10** (tool-call fidelity probes — misuse, value params, unknown tool, malformed args, wire shapes) — shipped, PR #56
+- **BENCH-11** (output interpretation probes + per-call telemetry persistence, calls_per_step, failure taxonomy) — shipped, PR #56
 
 ## Recommended execution order (remaining)
 
-1. **BENCH-09** (agentic loop probes — Dimensions A–B): the loop-control
-   machinery is the harness's core; nothing tests it. Next PR.
-2. **BENCH-10** (tool-call fidelity — Dimension C).
-3. **BENCH-11** (output interpretation + per-call telemetry persistence —
-   Dimensions D–E): the post-mortem story; prerequisites for the
-   improvement-cycle loop (collect → analyze → propose → deploy → test).
-4. **Calibration runs**: first real model runs under v2 scoring with
+1. **Calibration runs**: first real model runs under v2 scoring with
    `amber-bench calibrate` — calibration data, not competition.
-5. **BENCH-05** (review suites to 5/category + per-suite matrix) → **BENCH-06**
+2. **BENCH-05** (review suites to 5/category + per-suite matrix) → **BENCH-06**
    (terminal/SD volume + context-dilution suite) → **BENCH-07** (regression
    gate + trend history).
-6. Then harness work (Phase C): one measured change at a time, red-green,
+3. Then harness work (Phase C): one measured change at a time, red-green,
    baseline deltas.

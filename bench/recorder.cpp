@@ -76,7 +76,7 @@ agent::AgentHooks Recorder::hooks() {
 void Recorder::on_tool_call(const std::string& name, const agent::json& args) {
     const long t = now_ms();
     pending_.push_back({fingerprint(name, args), name, args, t});
-    stream_.calls.push_back({name, args, t, ""});
+    stream_.calls.push_back({name, args, t, "", stream_.iterations});
     if (name == "bash" && args.is_object() && args.contains("command") &&
         args["command"].is_string() &&
         is_workspace_cd(args["command"].get<std::string>()))

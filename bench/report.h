@@ -32,6 +32,21 @@ struct ScenarioReport {
     std::string reasoning;               // cfg.thinking at run time (live)
     std::string final_text;              // the agent's final answer
     std::vector<std::pair<std::string, std::string>> tool_calls;  // name, args
+    // Per-call telemetry (BENCH-11): the post-mortem story for every
+    // executed call — status, error text, timeout/denied flags, duration.
+    struct ToolDetail {
+        std::string name;
+        std::string args;
+        std::string status;     // ok | error | denied | timeout
+        std::string error;
+        bool denied = false;
+        bool timeout = false;
+        long duration_ms = 0;
+    };
+    std::vector<ToolDetail> tool_details;
+    // Calls issued within a single step (one LLM turn): max + total.
+    int max_calls_per_step = 0;
+    int total_steps = 0;
     bool templated = false;              // static-template scenario
     std::vector<std::string> failures;
 
