@@ -1255,6 +1255,26 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
     ASSERT_EQ(parsed["pattern"], "ncurses");
 }
 
+// StreamParser must survive being constructed with a plain `auto` lambda
+// sink. The constructor binds its ChunkSink member to the caller's sink
+// object; an `auto` lambda converts to a temporary std::function, so the
+// member must store a COPY, never a reference — otherwise the first content
+// delta (which invokes the sink) reads a dangling std::function
+// (stack-use-after-scope, ASan-visible, crash under -O2). Found by the
+// harness parse probe.
+TEST(llm_streaming_parser_accepts_auto_lambda_sink) {
+    agent::Message m;
+    auto sink = [](const agent::StreamChunk&) {};
+    agent::StreamParser p(m, sink, "");
+    const char* sse =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
+        "data: [DONE]\n\n";
+    const std::string body(sse);
+    p.on_write(body.c_str(), body.size(), 1);
+    p.finalize();
+    ASSERT_EQ(m.content, "hello");
+}
+
  TEST(llm_streaming_merges_tool_call_fragments) {
     std::string dummy;
     int srv = spawn_mock_sse(8911, dummy);
