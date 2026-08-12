@@ -327,6 +327,26 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
             calls.push_back(std::move(cj));
         }
         j["tool_calls"] = std::move(calls);
+        // Per-call telemetry (BENCH-11): the post-mortem story.
+        agent::json details = agent::json::array();
+        for (const auto& d : r.tool_details) {
+            agent::json dj;
+            dj["tool"] = d.name;
+            dj["args"] = d.args;
+            dj["status"] = d.status;
+            dj["error"] = d.error;
+            dj["denied"] = d.denied;
+            dj["timeout"] = d.timeout;
+            dj["duration_ms"] = d.duration_ms;
+            details.push_back(std::move(dj));
+        }
+        j["tool_details"] = std::move(details);
+        j["max_calls_per_step"] = r.max_calls_per_step;
+        j["total_steps"] = r.total_steps;
+        agent::json taxonomy = agent::json::object();
+        for (const auto& tf : r.kpi.failure_taxonomy)
+            taxonomy[tf.first] = tf.second;
+        j["failure_taxonomy"] = std::move(taxonomy);
         j["failures"] = r.failures;
         arr.push_back(std::move(j));
     }
