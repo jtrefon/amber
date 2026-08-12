@@ -343,6 +343,13 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["tool_details"] = std::move(details);
         j["max_calls_per_step"] = r.max_calls_per_step;
         j["total_steps"] = r.total_steps;
+        j["plan_adherence_ratio"] = r.plan_adherence_ratio;
+        j["replan_adapted"] = r.replan_adapted;
+        j["dependency_violation"] = r.dependency_violation;
+        j["breakout_latency"] = r.breakout_latency;
+        j["steer_effective"] = r.steer_effective;
+        j["calls_per_step_mean"] = r.calls_per_step_mean;
+        j["calls_per_step_p95"] = r.calls_per_step_p95;
         agent::json taxonomy = agent::json::object();
         for (const auto& tf : r.kpi.failure_taxonomy)
             taxonomy[tf.first] = tf.second;
