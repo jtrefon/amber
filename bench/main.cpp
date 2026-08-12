@@ -183,6 +183,31 @@ int cmd_run(const std::vector<std::string>& args, bool live,
                 std::cout << "          expected=" << p.expected
                           << " detail=" << p.detail << "\n";
         }
+        if (!out_file.empty()) {
+            agent::json out;
+            out["harness_integrity"] = sc.integrity;
+            out["harness_passed"] = sc.passed;
+            out["harness_total"] = sc.total;
+            agent::json fam;
+            for (const auto& f : sc.families)
+                fam[f.first] = {{"passed", f.second.first},
+                                {"total", f.second.second}};
+            out["harness_families"] = fam;
+            agent::json plist = agent::json::array();
+            for (const auto& p : probes) {
+                agent::json pj;
+                pj["family"] = p.family;
+                pj["name"] = p.name;
+                pj["passed"] = p.passed;
+                pj["detail"] = p.detail;
+                pj["expected"] = p.expected;
+                pj["ms"] = p.ms;
+                plist.push_back(std::move(pj));
+            }
+            out["probes"] = std::move(plist);
+            std::ofstream fout(out_file);
+            fout << out.dump(2) << "\n";
+        }
         return sc.passed == sc.total ? 0 : 1;
     }
 
