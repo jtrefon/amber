@@ -5,6 +5,7 @@
 #include "bench/fake.h"
 #include "bench/kpi.h"
 #include "bench/oracle.h"
+#include "bench/probe.h"
 #include "bench/recorder.h"
 #include "bench/report.h"
 #include "bench/resources.h"
@@ -1829,4 +1830,103 @@ TEST(oracle_default_subset_still_requires_all_expected_keys) {
     bench::OracleResult r = bench::score_oracle(steps, calls);
     ASSERT_FALSE(r.success);
     ASSERT_EQ(r.matched_steps, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Harness probes (docs/spec/benchmark/harness.md) — the engine health axis.
+// Each probe fixes its input so a deviation is provably a harness bug. The
+// scorecard aggregates probes per family; a clean tree must be 1.0.
+// ---------------------------------------------------------------------------
+
+// Every required probe family must be represented in the harness scorecard.
+// A family going missing (probe removed, registry broken) fails the axis.
+TEST(harness_scorecard_covers_all_families) {
+    std::vector<bench::ProbeResult> results = bench::run_all_probes();
+    bench::HarnessScorecard sc = bench::aggregate_probes(results);
+    ASSERT_EQ(sc.total, static_cast<int>(results.size()));
+    ASSERT_TRUE(sc.total > 0);
+    for (const auto& fam : bench::required_probe_families()) {
+        auto it = sc.families.find(fam);
+        ASSERT_TRUE(it != sc.families.end());
+        ASSERT_TRUE(it->second.second > 0);  // at least one probe ran
+    }
+}
+
+// A clean tree must produce a fully green harness scorecard. A red probe here
+// means the engine regressed on a mechanism the harness axis covers.
+TEST(harness_scorecard_clean_tree_is_green) {
+    std::vector<bench::ProbeResult> results = bench::run_all_probes();
+    bench::HarnessScorecard sc = bench::aggregate_probes(results);
+    for (const auto& p : sc.probes) {
+        if (!p.passed)
+            ::agent::test::fail("probe failed: " + p.name + " [" + p.family +
+                                "] — expected=" + p.expected +
+                                " detail=" + p.detail);
+    }
+    ASSERT_EQ(sc.passed, sc.total);
+    ASSERT_EQ(sc.integrity, 1.0);
+}
+
+// The extract family must include the Hermes-style bare-JSON probe that
+// pinned the 32B regression (bare {"name":...,"arguments":...} in content).
+TEST(harness_extract_probe_pins_bare_json) {
+    std::vector<bench::ProbeResult> results = bench::run_all_probes();
+    bool found = false;
+    for (const auto& p : results) {
+        if (p.family == "extract" &&
+            p.name.find("bare") != std::string::npos) {
+            found = true;
+            ASSERT_TRUE(p.passed);
+        }
+    }
+    ASSERT(found);
+}
+
+// The parse family must reconstruct a tool_calls SSE stream into the exact
+// message — the mechanism that silently swallowed 32B calls pre-fix.
+TEST(harness_parse_probe_roundtrips_tool_calls_sse) {
+    std::vector<bench::ProbeResult> results = bench::run_all_probes();
+    bool found = false;
+    for (const auto& p : results) {
+        if (p.family == "parse" &&
+            p.name.find("tool_calls") != std::string::npos) {
+            found = true;
+            ASSERT_TRUE(p.passed);
+        }
+    }
+    ASSERT(found);
+}
+
+// The context probe must survive push/pop/clear/rebuild with the FNV chain
+// intact — an in-place mutation would assert (or corrupt) in debug builds.
+TEST(harness_context_probe_chain_survives) {
+    std::vector<bench::ProbeResult> results = bench::run_all_probes();
+    bool found = false;
+    for (const auto& p : results) {
+        if (p.family == "context" &&
+            p.name.find("chain") != std::string::npos) {
+            found = true;
+            ASSERT_TRUE(p.passed);
+        }
+    }
+    ASSERT(found);
+}
+
+// Family aggregation math: a mixed result set must produce the right
+// per-family and overall integrity.
+TEST(harness_scorecard_aggregation_math) {
+    std::vector<bench::ProbeResult> results = {
+        {"parse", "p1", true, "ok", "ok"},
+        {"parse", "p2", false, "dropped", "kept"},
+        {"extract", "e1", true, "ok", "ok"},
+        {"budget", "b1", true, "ok", "ok"},
+    };
+    bench::HarnessScorecard sc = bench::aggregate_probes(results);
+    ASSERT_EQ(sc.passed, 3);
+    ASSERT_EQ(sc.total, 4);
+    ASSERT_EQ(sc.integrity, 0.75);
+    ASSERT_EQ(sc.families["parse"].first, 1);   // passed
+    ASSERT_EQ(sc.families["parse"].second, 2);  // total
+    ASSERT_EQ(sc.family_integrity("extract"), 1.0);
+    ASSERT_EQ(sc.family_integrity("parse"), 0.5);
 }

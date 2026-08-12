@@ -97,7 +97,8 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/template.o \
              $(BUILD_DIR)/bench/report.o \
              $(BUILD_DIR)/bench/fake.o \
-             $(BUILD_DIR)/bench/runner.o
+             $(BUILD_DIR)/bench/runner.o \
+             $(BUILD_DIR)/bench/probe.o
 BENCH_MAIN = $(BUILD_DIR)/bench/main.o
 TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/tui_render.o \
