@@ -1,0 +1,393 @@
+{
+  "harness_families": {
+    "budget": {
+      "passed": 2,
+      "total": 2
+    },
+    "confinement": {
+      "passed": 1,
+      "total": 1
+    },
+    "context": {
+      "passed": 3,
+      "total": 3
+    },
+    "dispatch": {
+      "passed": 3,
+      "total": 3
+    },
+    "envelope": {
+      "passed": 1,
+      "total": 1
+    },
+    "extract": {
+      "passed": 6,
+      "total": 6
+    },
+    "fidelity": {
+      "passed": 5,
+      "total": 5
+    },
+    "loop": {
+      "passed": 11,
+      "total": 11
+    },
+    "oracle": {
+      "passed": 1,
+      "total": 1
+    },
+    "output": {
+      "passed": 3,
+      "total": 3
+    },
+    "parse": {
+      "passed": 2,
+      "total": 2
+    },
+    "recovery": {
+      "passed": 4,
+      "total": 4
+    }
+  },
+  "harness_integrity": 1.0,
+  "harness_passed": 42,
+  "harness_total": 42,
+  "probes": [
+    {
+      "detail": "1 tool call 'search' with arguments {\"pattern\":\"foo\"}; id c1; arguments as JSON string",
+      "expected": "1 tool call 'search' with arguments {\"pattern\":\"foo\"}; id c1; arguments as JSON string",
+      "family": "parse",
+      "ms": 0.04604196548461914,
+      "name": "parse_tool_calls_roundtrip",
+      "passed": true
+    },
+    {
+      "detail": "content='answer', reasoning='reasoning'",
+      "expected": "content='answer', reasoning='reasoning'",
+      "family": "parse",
+      "ms": 0.005975961685180664,
+      "name": "parse_reasoning_segmentation",
+      "passed": true
+    },
+    {
+      "detail": "1 call: read with args {\"path\":\"TASK.md\"}",
+      "expected": "1 call: read with args {\"path\":\"TASK.md\"}",
+      "family": "extract",
+      "ms": 0.010391950607299805,
+      "name": "extract_bare_json",
+      "passed": true
+    },
+    {
+      "detail": "1 call: bash with args {\"command\":\"ls\"}",
+      "expected": "1 call: bash with args {\"command\":\"ls\"}",
+      "family": "extract",
+      "ms": 0.0021469593048095703,
+      "name": "extract_tool_call_xml",
+      "passed": true
+    },
+    {
+      "detail": "1 call: read with path /etc/hostname",
+      "expected": "1 call: read with path /etc/hostname",
+      "family": "extract",
+      "ms": 0.0026220083236694336,
+      "name": "extract_tools_wrapper",
+      "passed": true
+    },
+    {
+      "detail": "1 call: bash with command 'find . -type f'",
+      "expected": "1 call: bash with command 'find . -type f'",
+      "family": "extract",
+      "ms": 0.010710000991821289,
+      "name": "extract_attribute_style",
+      "passed": true
+    },
+    {
+      "detail": "2 calls: read, write in order",
+      "expected": "2 calls: read, write in order",
+      "family": "extract",
+      "ms": 0.00453495979309082,
+      "name": "extract_multiple_calls",
+      "passed": true
+    },
+    {
+      "detail": "no extraction",
+      "expected": "no extraction",
+      "family": "extract",
+      "ms": 0.0009970664978027344,
+      "name": "extract_no_false_positive",
+      "passed": true
+    },
+    {
+      "detail": "push/pop/clear/rebuild all keep the hash chain intact",
+      "expected": "push/pop/clear/rebuild all keep the hash chain intact",
+      "family": "context",
+      "ms": 0.004909992218017578,
+      "name": "context_chain_survives",
+      "passed": true
+    },
+    {
+      "detail": "4 messages survived clear+push with chain intact",
+      "expected": "clear + push rebuild preserves content and chain",
+      "family": "context",
+      "ms": 0.0037300586700439453,
+      "name": "context_compression_rebuild",
+      "passed": true
+    },
+    {
+      "detail": "tokens consistent through push/pop/clear/rebuild",
+      "expected": "token count matches content through every mutation",
+      "family": "context",
+      "ms": 0.0010290145874023438,
+      "name": "context_token_fidelity",
+      "passed": true
+    },
+    {
+      "detail": "envelope status: ok, error, denied, timeout",
+      "expected": "envelope status: ok, error, denied, timeout",
+      "family": "envelope",
+      "ms": 0.009685039520263672,
+      "name": "envelope_status_classification",
+      "passed": true
+    },
+    {
+      "detail": "stopped at 3 steps",
+      "expected": "loop stops at max_steps and reports the breach",
+      "family": "budget",
+      "ms": 70.199667096138,
+      "name": "budget_max_steps_enforced",
+      "passed": true
+    },
+    {
+      "detail": "cut off at 4706ms / 3 steps",
+      "expected": "run stops when the wall-clock budget is exhausted",
+      "family": "budget",
+      "ms": 4708.191825032234,
+      "name": "budget_wall_clock",
+      "passed": true
+    },
+    {
+      "detail": "terminated after 2 steps; 1 tool call",
+      "expected": "loop terminates on 'done'; no extra dispatch, no steer",
+      "family": "loop",
+      "ms": 83.47667503356934,
+      "name": "loop_done_flag",
+      "passed": true
+    },
+    {
+      "detail": "ran 4 steps across 3 tool turns",
+      "expected": "loop continues across multiple tool-call turns",
+      "family": "loop",
+      "ms": 216.41086995601654,
+      "name": "loop_continue_flag",
+      "passed": true
+    },
+    {
+      "detail": "broken at step 4",
+      "expected": "identical tool call repeated 3x breaks the loop",
+      "family": "loop",
+      "ms": 267.40781009197235,
+      "name": "loop_infinite_breakout",
+      "passed": true
+    },
+    {
+      "detail": "steered after 12 steps; loop contained",
+      "expected": "same text twice steers; loop stays contained",
+      "family": "loop",
+      "ms": 391.46530199050903,
+      "name": "loop_text_repeat",
+      "passed": true
+    },
+    {
+      "detail": "steered after 4 failures",
+      "expected": "failing calls steer once, then hard-stop",
+      "family": "loop",
+      "ms": 260.30594193935394,
+      "name": "loop_fail_streak",
+      "passed": true
+    },
+    {
+      "detail": "4 distinct calls ran without flagging",
+      "expected": "distinct calls never break the loop",
+      "family": "loop",
+      "ms": 273.24684500694275,
+      "name": "loop_no_false_positive",
+      "passed": true
+    },
+    {
+      "detail": "stopped at 3 steps (budget 3)",
+      "expected": "runaway without detection stops at budget, honestly",
+      "family": "loop",
+      "ms": 80.76384103298187,
+      "name": "loop_hard_stop_honesty",
+      "passed": true
+    },
+    {
+      "detail": "read -> write executed in dependency order",
+      "expected": "plan steps execute in dependency order (read before write)",
+      "family": "loop",
+      "ms": 50.89479696750641,
+      "name": "loop_plan_adherence",
+      "passed": true
+    },
+    {
+      "detail": "plan tool mix matched (ratio 1.000000)",
+      "expected": "executed tool mix matches the declared optimal plan",
+      "family": "loop",
+      "ms": 95.11145508289337,
+      "name": "loop_plan_design",
+      "passed": true
+    },
+    {
+      "detail": "failed once, adapted to b.txt, completed",
+      "expected": "a failure can be followed by a different call (adaptation)",
+      "family": "loop",
+      "ms": 50.77812600135803,
+      "name": "loop_replan_adapt",
+      "passed": true
+    },
+    {
+      "detail": "write-before-read flagged (bullseye 0.500000)",
+      "expected": "write-before-read is measurable as a violation",
+      "family": "loop",
+      "ms": 35.53885793685913,
+      "name": "loop_dependency_order",
+      "passed": true
+    },
+    {
+      "detail": "bash dispatched; read oracle not matched (bullseye 0.000000)",
+      "expected": "wrong-tool call dispatches but never matches the oracle",
+      "family": "fidelity",
+      "ms": 84.58951997756958,
+      "name": "fidelity_misuse_wrong_tool",
+      "passed": true
+    },
+    {
+      "detail": "command value round-tripped: {\"command\":\"echo hello-world-42\"}",
+      "expected": "tool receives the exact argument values the model sent",
+      "family": "fidelity",
+      "ms": 60.929640889167786,
+      "name": "fidelity_params_value",
+      "passed": true
+    },
+    {
+      "detail": "unknown tool denied; loop continued (steps 2)",
+      "expected": "unknown tool name denies gracefully, loop continues",
+      "family": "fidelity",
+      "ms": 29.111759066581726,
+      "name": "fidelity_unknown_tool",
+      "passed": true
+    },
+    {
+      "detail": "malformed args handled; loop continued (steps 2)",
+      "expected": "malformed arguments are handled without a crash",
+      "family": "fidelity",
+      "ms": 25.467728972434998,
+      "name": "fidelity_malformed_args",
+      "passed": true
+    },
+    {
+      "detail": "object and string argument shapes both dispatched",
+      "expected": "arguments as object AND as string both dispatch",
+      "family": "fidelity",
+      "ms": 121.56046497821808,
+      "name": "fidelity_arg_shapes",
+      "passed": true
+    },
+    {
+      "detail": "read output fed the next call",
+      "expected": "next call's args reflect the previous tool output",
+      "family": "output",
+      "ms": 94.36200094223022,
+      "name": "output_acts_on_content",
+      "passed": true
+    },
+    {
+      "detail": "output capped at 65579 bytes",
+      "expected": "oversized tool output is capped without a crash",
+      "family": "output",
+      "ms": 162.4657839536667,
+      "name": "output_truncation",
+      "passed": true
+    },
+    {
+      "detail": "error + status + meta preserved",
+      "expected": "error text and meta survive the envelope",
+      "family": "output",
+      "ms": 0.014104008674621582,
+      "name": "output_envelope_ext",
+      "passed": true
+    },
+    {
+      "detail": "legal path resolves; ../ and absolute escapes rejected",
+      "expected": "legal path resolves; ../ and absolute escapes rejected",
+      "family": "confinement",
+      "ms": 0.1831439733505249,
+      "name": "confinement_escapes_rejected",
+      "passed": true
+    },
+    {
+      "detail": "every oracle step names a registered tool (56 scenarios)",
+      "expected": "every oracle step names a registered tool",
+      "family": "oracle",
+      "ms": 5.816184997558594,
+      "name": "oracle_scenario_self_validation",
+      "passed": true
+    },
+    {
+      "detail": "one bash call executes; result sealed in context",
+      "expected": "one bash call executes; result sealed in context",
+      "family": "dispatch",
+      "ms": 60.672861099243164,
+      "name": "dispatch_roundtrip",
+      "passed": true
+    },
+    {
+      "detail": "two calls executed, results paired correctly",
+      "expected": "two parallel calls execute; results pair to their calls",
+      "family": "dispatch",
+      "ms": 70.87043905258179,
+      "name": "dispatch_parallel",
+      "passed": true
+    },
+    {
+      "detail": "slow + fast results paired to their own calls",
+      "expected": "slow call's result pairs to its own id despite racing",
+      "family": "dispatch",
+      "ms": 353.48253297805786,
+      "name": "dispatch_out_of_order",
+      "passed": true
+    },
+    {
+      "detail": "retried 1 time(s)",
+      "expected": "retryable error is retried; the run completes",
+      "family": "recovery",
+      "ms": 1021.1670999526978,
+      "name": "recovery_retryable_recovers",
+      "passed": true
+    },
+    {
+      "detail": "run ended at 1 steps, retries 0",
+      "expected": "non-retryable error stops the run, no retry spin",
+      "family": "recovery",
+      "ms": 24.153085947036743,
+      "name": "recovery_nonretryable",
+      "passed": true
+    },
+    {
+      "detail": "recovered after 1 retries, completed",
+      "expected": "mid-stream dropout is retried; run completes",
+      "family": "recovery",
+      "ms": 1021.6717190742493,
+      "name": "recovery_dropout",
+      "passed": true
+    },
+    {
+      "detail": "4xx repaired and retried (recoveries 1)",
+      "expected": "template-parser 4xx is repaired (tools dropped) and retried",
+      "family": "recovery",
+      "ms": 19.0412460565567,
+      "name": "recovery_4xx",
+      "passed": true
+    }
+  ]
+}
