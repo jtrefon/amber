@@ -193,7 +193,10 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
                         cfg.plan_tool, subagents, cfg.task_tool);
     subagents.set_config(cfg);
-    subagents.set_parallel(cfg.subagent_parallel);
+    // Single-GPU constraint: the local inference service has ONE slot, and
+    // concurrent requests pay a long prefill penalty. Bench runs must never
+    // fire parallel LLM requests — sub-agents (task tool) run serially.
+    subagents.set_parallel(false);
     subagents.set_max(cfg.subagent_max);
 
     // Enforce the scenario step budget during the run (the engine's own
