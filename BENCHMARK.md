@@ -200,6 +200,40 @@ Oracle authoring note: append tasks (`echo >>`) legitimately use bash; the
 find/count scenarios keep `search` as the preferred-tool oracle so a
 bash-grep run scores partial by design.
 
+## Model population (2026-08-13): the full local model library
+
+All 10 models registered in the llama-turboq in-process swap registry,
+benchmarked live on the fixed service (49 scenarios each, serial execution,
+single GPU slot). Records: `bench/results/<alias>-bench.json`, per-model
+scorecards: `bench/results/<alias>-scorecard.txt`. Harness floor:
+`bench/results/harness-baseline-v2.json` (42/42 probes, integrity 1.0).
+
+| Model | Score | Pass | loop-live | Wasted | Redundant |
+|---|---|---|---|---|---|
+| qwen35-dense (Qwen3.6-27B) | **816.2** | 44/49 | 89.0 | 146 | 12 |
+| qwopus-27b (Qwopus3.6-27B-v2-MTP) | 808.0 | 42/49 | 76.2 | 142 | 12 |
+| gemma4-31b (Gemma-4-31B) | 806.2 | 38/49 | 75.9 | 108 | 8 |
+| gemma4-12b-q4 (Gemma-4-12B Q4) | 780.0 | 37/49 | 75.8 | 120 | 17 |
+| ornith-35b (Ornith-1.0-35B) | 770.0 | 40/49 | 75.6 | 192 | 43 |
+| qwen36-27b-mtp (Qwen3.6-27B MTP) | 768.8 | 41/49 | 77.1 | 166 | 17 |
+| gemma4-12b-q8 (Gemma-4-12B Q8) | 756.8 | 37/49 | 75.8 | 135 | 28 |
+| qwen35-moe (Qwen3.6-35B-A3B) | 742.2 | 36/49 | 65.9 | 183 | 36 |
+| qwen35-pi-reasoning (Qwen3.6-27B pi) | 723.3 | 36/49 | 63.2 | 197 | 36 |
+| ornith-9b (Ornith-1.0-9B) | 716.6 | 27/49 | 80.0 | 271 | 122 |
+
+**Reads:** the dense Qwen3.6-27B variants lead (816/808 — the 27B dense
+family is the strongest local agentic model, consistent with the official
+cross-check below). The MoE 35B (742) and pi-reasoning (723) trail despite
+size — MoE routing and reasoning modes cost tool discipline. ornith-9b is
+the weakest (716, 27/49, 271 wasted calls, 122 redundant — loop discipline
+collapses entirely). gemma4-31b is efficient (108 wasted, 8 redundant —
+best tool economy of the field) but fails more scenario checks (38/49).
+
+**The per-model scorecards** (`amber-bench scorecard <file>`) give the
+dimension-by-dimension diagnosis for each: loop control, tool economy,
+planning & adherence, per-suite matrix, failed-scenario traces, and the
+actionable signals.
+
 ## Official benchmark cross-check (the 27B vs 550B question)
 
 Why does a 27B dense model outscore a 550B frontier model on this harness?
