@@ -1,0 +1,130 @@
+# Harness Scorecard — gemma4-12b-q4 (Gemma-4-12B Q4) (run run-1786617039809138864)
+
+model score: 779/1000  pass: 37/49
+
+## 1. Dimensions (run-wide, 49 scenarios)
+
+### Loop control
+  breakouts fired:          0/49 runs (loop detection broke an identical-call loop)
+  hard stops:               0
+  recoveries (any kind):    0  | steers: 0  | steers effective: 0
+  retries:                  6
+  verdict:                  no loop events observed — the engine never had to intervene (or loop detection is off in live mode)
+
+### Tool economy
+  total tool calls:         188  | steps: 234 (mean 4.77551/scenario)
+  wasted (off-plan):        120 (2.44898/scenario)
+  redundant (identical):    17
+  tool failures:            27
+  tool denied:              0
+  mean bullseye:            0.942177
+  verdict:                  wasted calls dominate — the model surveys/repeats instead of executing (tool economy is the primary loss)
+
+### Planning & adherence
+  replan_adapted runs:      9/49
+  dependency violations:    2
+  mean plan_adherence:      0.811224
+  verdict:                  dependency-order violations detected — planning skips required reads before writes
+
+### Performance
+  mean wall:                32458 ms/scenario
+  mean tps:                 -1
+  hard stops:               0
+
+## 2. Per-suite
+
+suite                       scen  pass  mean  wasted  redund  fail  wall_ms
+--------------------------------------------------------------------------
+coding                           5     3     62       31        7     7   106005
+delegate                         1     1     95        1        0     0    26965
+headroom                         2     2     78        6        1     0    20484
+loop-live                        6     3     75        5        0     0     3657
+prompt                           5     4     89        1        0     0     3853
+refactor                         4     3     66       24        2     6   128601
+repo                             2     1     61       22        4    13   119281
+review-arch                      2     1     75        2        0     0     9900
+review-clean                     2     1     75        1        0     0     5844
+review-datastructures            2     1     75        2        0     0     7251
+review-patterns                  2     2     90        2        0     0     7466
+review-quality                   2     2     90        2        0     0     6930
+review-refactor                  2     2     90        2        0     0    10563
+terminal                         6     6     97        0        0     0     5709
+tools                            6     5     80       19        3     1    11359
+
+## 3. Failed scenarios (why, and which dimension)
+
+### c-02-sorting-multi  (score 60, coding)
+  failure: artifact failed to compile
+  failure: hidden tests failed
+  failure: artifact behavior differs from reference
+  steps=6 calls=5 wasted=4 redundant=0 tool_failures=0 denied=0
+  trace: read[ok] bash[ok] read[ok] read[ok] write[ok]
+
+### c-03-ring-buffer  (score 60, coding)
+  failure: final answer failed scenario checks
+  failure: wall-clock budget exceeded
+  steps=6 calls=6 wasted=5 redundant=0 tool_failures=1 denied=0 replan=adapted
+  trace: bash[error:command exited with status 127] bash[ok] read[ok] read[ok] read[ok] write[ok]
+
+### l-output-interpretation  (score 60, loop-live)
+  failure: oracle not matched: 1/2 steps (bullseye 0.5)
+  steps=3 calls=2 wasted=1 redundant=0 tool_failures=0 denied=0
+  trace: read[ok] write[ok]
+
+### l-plan-design  (score 54, loop-live)
+  failure: oracle not matched: 0/2 steps (bullseye 0)
+  steps=3 calls=2 wasted=2 redundant=0 tool_failures=0 denied=0
+  trace: bash[ok] bash[ok]
+
+### l-tool-choice  (score 59, loop-live)
+  failure: oracle not matched: 0/1 steps (bullseye 0)
+  steps=2 calls=1 wasted=1 redundant=0 tool_failures=0 denied=0
+  trace: read[ok]
+
+### p-05-multi-constraint  (score 60, prompt)
+  failure: final answer failed scenario checks
+  steps=2 calls=1 wasted=0 redundant=0 tool_failures=0 denied=0
+  trace: bash[ok]
+
+### r-02-polymorphism-over-switch  (score 60, refactor)
+  failure: final answer failed scenario checks
+  failure: wall-clock budget exceeded
+  steps=6 calls=5 wasted=4 redundant=0 tool_failures=1 denied=0 replan=adapted
+  trace: bash[error:command exited with status 127] bash[ok] read[ok] read[ok] read[ok]
+
+### r-02-bug-hunt  (score 30, repo)
+  failure: oracle not matched: 2/3 steps (bullseye 0.666667)
+  failure: final answer failed scenario checks
+  failure: hidden tests failed
+  failure: artifact behavior differs from reference
+  steps=20 calls=20 wasted=18 redundant=4 tool_failures=13 denied=0 replan=adapted DEP_VIOLATION
+  trace: bash[error:command exited with status 127] read[ok] bash[ok] read[ok] read[ok] read[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[ok] read[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1]
+
+### arch-02-clean-control  (score 60, review-arch)
+  failure: final answer failed scenario checks
+  steps=3 calls=2 wasted=1 redundant=0 tool_failures=0 denied=0
+  trace: bash[ok] read[ok]
+
+### clean-02-clean-control  (score 60, review-clean)
+  failure: final answer failed scenario checks
+  steps=2 calls=1 wasted=0 redundant=0 tool_failures=0 denied=0
+  trace: read[ok]
+
+### ds-01-nested-loop  (score 60, review-datastructures)
+  failure: final answer failed scenario checks
+  steps=3 calls=2 wasted=1 redundant=0 tool_failures=0 denied=0
+  trace: bash[ok] read[ok]
+
+### t-04-process-vs-blocking  (score 47, tools)
+  failure: final answer failed scenario checks
+  steps=12 calls=12 wasted=10 redundant=2 tool_failures=0 denied=0
+  trace: process_start[ok] bash[ok] process_read[ok] bash[ok] process_start[ok] process_read[ok] process_stop[ok] read[ok] process_start[ok] process_read[ok] process_stop[ok] bash[ok]
+
+## 4. Signals (what to fix next)
+
+- **Tool economy**: 120 wasted calls (2/scenario). The model surveys or repeats instead of executing. Candidates: tool-selection steering in the prompt, or the agentic-efficiency weighting.
+- **Redundancy**: 17 identical calls repeated. Duplicate-call detection is worth enabling in live mode.
+- **Tool failures**: 27 failed calls. Check the per-call `tool_details` error text for the dominant failure reason.
+- **Dependency violations**: 2 runs wrote before reading the dependency. Planning adherence needs prompt-level ordering guidance.
+- **Loop detection never fired**: no breakouts observed. Verify `detection_loop` is enabled in live mode — the hermetic probes prove the engine CAN break loops; the live config may have it off.
+
