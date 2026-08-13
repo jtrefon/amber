@@ -39,7 +39,9 @@
       [
         "quadratic",
         "O(n*m)",
-        "O(n * m)"
+        "O(n * m)",
+        "O(n × m)",
+        "O(n×m)"
       ],
       [
         "map",

@@ -1875,7 +1875,7 @@ TEST(scenario_h02_oracle_rejects_rewrite_of_other_cpp) {
     ASSERT_EQ(r.wasted, 1);  // the redundant rewrite of other.cpp
 }
 
-TEST(scenario_h02_oracle_scores_correct_rename) {
+ TEST(scenario_h02_oracle_scores_correct_rename) {
     std::string err;
     auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
     ASSERT(s.has_value());
@@ -1888,6 +1888,20 @@ TEST(scenario_h02_oracle_scores_correct_rename) {
     bench::OracleResult r = bench::score_oracle(s->oracle, calls);
     ASSERT_EQ(r.bullseye, 1.0);
     ASSERT_EQ(r.wasted, 0);
+}
+
+// The ds-01 complexity check must accept the ×-symbol form ("O(n × m)") —
+// models write the multiplication symbol, not an asterisk. Found by the
+// 10-model population: 7/10 correct answers failed the check.
+TEST(checks_ds01_accepts_multiplication_symbol) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/review-datastructures/ds-01-nested-loop.json", err);
+    ASSERT(s.has_value());
+    // The exact answer the population produced: O(n × m) + nested + set.
+    ASSERT(bench::checks_pass(
+        s->checks,
+        "Nested-loop membership check. Complexity O(n × m). "
+        "Use a hash set (unordered_set)."));
 }
 
 // A read oracle step {"path": "Review.cpp"} must match a call that adds the
