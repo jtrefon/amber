@@ -58,6 +58,18 @@
   "thinking": "on",
   "thinking_budget": 16384
  },
+ "qwen38-27b-mtp": {
+  "model": "qwen38-27b-mtp",
+  "temperature": 0.2,
+  "thinking": "on",
+  "thinking_budget": 16384
+ },
+ "qwen38-27b": {
+  "model": "qwen38-27b",
+  "temperature": 0.2,
+  "thinking": "on",
+  "thinking_budget": 16384
+ },
  "kilo-1": {
   "model": "kilocode/kilo-1",
   "temperature": 0.2,
