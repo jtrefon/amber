@@ -57,6 +57,28 @@ driven by an OpenAI-compatible LLM API.
 - System/tool prompts are Markdown in `prompts/` (`system.md`, `tools.md`),
   loaded at runtime — editing those changes agent behavior without recompiling.
 
+## Plugin architecture (v2 — hybrid two-tier)
+
+The plugin system is the harness extensibility backbone. Plugins enhance amber
+in any direction: tools, LLM providers, memory backends, search engines, TUI
+rendering, prompt templates, and agent-loop observation.
+
+- **Core plugins** (`plugins/`) run in-process via `IPlugin` interface. Used for
+  deep integration: providers, memory, search, themes, prompt interceptors.
+  They link against `libagent_core.a` and have full access to harness internals
+  via narrow capability interfaces. A crash crashes the harness.
+- **External plugins** (`tools/plugins/`, `~/.config/amber/plugins/`) run as
+  separate processes communicating via JSON-RPC over stdio (v1 protocol). Used
+  for isolated integrations: browser automation, SSH, databases. A crash does
+  not affect the harness.
+- Both tiers implement `IPlugin` and register `Capability` objects in the
+  `PluginRegistry`. The registry treats them identically.
+- **EventBus** provides pub/sub for agent lifecycle events. Plugins can observe
+  (read-only) or intercept (modify/cancel) events like `AgentTurnStart`,
+  `ToolCallBefore`, `TUIRender`, etc.
+- Spec: `docs/spec/plugins/plugin-framework-v2.md`.
+- Developer guide: `docs/spec/plugins/developer-guide.md`.
+
 ## Conventions
 
 - Style: `.clang-format` (LLVM-based, 4-space, no tabs, 100 cols). Run
@@ -382,6 +404,13 @@ behavior change: prove it with a before/after benchmark run (see
   `confine()` port.
 - **Facade** — `Agent` orchestrates client + registry + hooks + log into one
   `run()` use-case.
+- **Pub/Sub** — `EventBus` (plugin v2) provides typed event subscription with
+  intercept (modify/cancel) and observe (read-only) semantics. Plugins subscribe
+  to agent lifecycle events without coupling to the agent loop.
+- **Capability** — `IPlugin` declares `Capability` objects (tool, provider, hook,
+  theme, completion, memory, search) that the `PluginRegistry` registers into
+  the appropriate subsystem. New capability types extend without modifying the
+  registry (OCP).
 
 ## Architecture audit (status: NON-CONFORMING on size limits)
 
@@ -394,7 +423,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | File | Lines | Issue |
 |------|------:|-------|
 | `tests/run_tests.cpp` | 4451 | Test file; exempt from class-size rule but a candidate for per-area headers. |
-| `lib/session.cpp` | 287 | OK, but `list()` mixes POSIX `opendir` with JSON — consider an `fs` helper. |
+| `lib/session.cpp` | 287 | Resolved — `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 679 | Method implementations (not a class); exempt from class-size rule. |
 | `tui/tui_input.cpp` | 2295 | Method implementations (not a class); exempt from class-size rule. |
 

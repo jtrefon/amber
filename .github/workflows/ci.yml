@@ -56,11 +56,33 @@ jobs:
         run: make analyze
 
   # ---------------------------------------------------------------------------
+  # Build hygiene — smoketest + static invariant checks (P1–P5).
+  # Catches stale build rules, missing .d generation, and audit-table drift.
+  # ---------------------------------------------------------------------------
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libcurl4-openssl-dev \
+            libncursesw5-dev pkg-config
+
+      - name: Configure
+        run: ./configure
+
+      - name: Check (smoketest + build hygiene)
+        run: make check
+
+  # ---------------------------------------------------------------------------
   # Build + unit test — runs under both g++ and clang++ so ABI/syntax
   # differences are caught at PR time.
   # ---------------------------------------------------------------------------
   build-and-test:
-    needs: [lint, analyze]
+    needs: [lint, analyze, check]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

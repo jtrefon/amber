@@ -118,6 +118,14 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `mcp/mcp-ui.md` | `/mcp` + `/prompt` commands, dynamic prompt subtree, `mcp.*` get/set keys, status bar, CLI flags |
 | `mcp/mcp-security.md` | Trust model: untrusted-by-default servers, approval gate, read-mode policy, output caps, cancellation, no server-initiated capabilities |
 
+## Plugins (Framework v2)
+
+| File | Covers |
+|------|--------|
+| `plugins/plugin-framework-v2.md` | Harness extension engine: hybrid two-tier architecture (core in-process + external separate-process), `IPlugin` interface, `Capability` system, `EventBus` pub/sub, `PluginRegistry` lifecycle, TUI/theme hooks, provider registration, backward compatibility with v1 |
+| `plugins/developer-guide.md` | How to build amber plugins: quick start, manifest reference, capability types, event bus usage, installation, admin commands, security model, core vs external differences |
+| `plugins/README.md` | v1 plugin spec: JSON-RPC protocol, manifest.json, `PluginManager`, tool registration, `/plugin` admin, bundled plugins (sysinfo, cdp) |
+
 ## Memory / Experience
 
 | File | Covers |
