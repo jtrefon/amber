@@ -80,6 +80,18 @@ const char* glyph::spinner_round(int frame) {
     return utf8() ? k[((frame % 4) + 4) % 4] : a[((frame % 4) + 4) % 4];
 }
 
+const char* glyph::vbar()        { return utf8() ? "\u2502" : "|"; }
+const char* glyph::hbar()        { return utf8() ? "\u2500" : "-"; }
+const char* glyph::tee_left()    { return utf8() ? "\u251c" : "+"; }
+const char* glyph::tee_right()   { return utf8() ? "\u2524" : "+"; }
+const char* glyph::tbl_cross()   { return utf8() ? "\u253c" : "+"; }
+const char* glyph::top_left()    { return utf8() ? "\u250c" : "+"; }
+const char* glyph::top_right()   { return utf8() ? "\u2510" : "+"; }
+const char* glyph::bottom_left() { return utf8() ? "\u2514" : "+"; }
+const char* glyph::bottom_right(){ return utf8() ? "\u2518" : "+"; }
+const char* glyph::top_tee()     { return utf8() ? "\u252c" : "+"; }
+const char* glyph::bottom_tee()  { return utf8() ? "\u2534" : "+"; }
+
 std::string git_prompt(const std::string& project, const std::string& branch,
                        int ins, int del) {
     bool u = glyph::utf8();

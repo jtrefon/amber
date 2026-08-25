@@ -38,16 +38,7 @@ void Canvas::set_lines(const std::vector<rich::Line>& lines) {
 
 
 void Canvas::rewrap() {
-    wrapped_.clear();
-    if (cols_ <= 0) return;
-    for (const auto& l : lines_) {
-        if (l.is_hr) {
-            wrapped_.push_back(l);
-            continue;
-        }
-        auto wl = rich::wrap(l, cols_);
-        for (auto& x : wl) wrapped_.push_back(std::move(x));
-    }
+    wrapped_ = rich::rewrap_all(lines_, cols_);
     if (top_ > max_top()) top_ = max_top();
 }
 
