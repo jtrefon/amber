@@ -21,13 +21,69 @@ int Tui::stream_lines(const Window& w) const {
                ? 0
                : static_cast<int>(wrap_text(w.stream_buf, width()).size());
 }
+std::vector<rich::Line> Tui::build_view(const Window& w) const {
+    std::vector<rich::Line> view = w.lines;
+    if (show_reasoning_ && !w.reason_folded && !w.reason_buf.empty()) {
+        rich::Line label;
+        rich::Run r0; r0.pair = P_REASONING; r0.dim = true;
+        r0.text = "thinking...";
+        label.runs.push_back(r0);
+        view.push_back(label);
+        rich::Line body;
+        rich::Run r1; r1.pair = P_REASONING; r1.dim = true; r1.text = w.reason_buf;
+        body.runs.push_back(r1);
+        for (auto& l : rich::wrap(body, width())) view.push_back(std::move(l));
+        // Separate reasoning block from streaming content so the working
+        // indicator and stream never visually merge with the reasoning text.
+        if (!w.stream_buf.empty())
+            view.push_back(rich::Line{});
+    }
+    if (!w.stream_buf.empty()) {
+        if (w.markdown_on) {
+            auto preview = md::render(w.stream_buf, md_style_);
+            if (!preview.empty()) {
+                rich::Run ts;
+                ts.text = (w.stream_ts.empty() ? timestamp() : w.stream_ts) + " ";
+                ts.pair = P_REASONING;
+                ts.dim = true;
+                preview.front().runs.insert(preview.front().runs.begin(), std::move(ts));
+                for (auto& l : preview) view.push_back(std::move(l));
+            }
+        } else {
+            append_rich_to(view, w.stream_buf, w.stream_color, width());
+        }
+    }
+    if (agent_busy_.load() && working_visible_) {
+        // Separator before sticky working row so it never visually merges
+        // with reasoning/stream content.
+        if (!view.empty() && !view.back().runs.empty())
+            view.push_back(rich::Line{});
+        auto now = std::chrono::steady_clock::now();
+        size_t secs = static_cast<size_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
+        std::string label = tool_display::working_label(
+            text::glyph::spinner_round(anim_phase_), secs, running_tool_desc_);
+        rich::Line wl;
+        rich::Run r;
+        r.pair = P_STATUS;
+        r.text = label;
+        wl.runs.push_back(std::move(r));
+        view.push_back(std::move(wl));
+    }
+    // One blank line gap between last content and the status bar while the
+    // agent is generating (reasoning/stream/working visible). This guarantees
+    // the newest token is never rendered directly on the bar edge and is never
+    // offscreen — critical so the user can see output and interrupt.
+    bool live = agent_busy_.load() && (working_visible_ || !w.stream_buf.empty() || !w.reason_buf.empty());
+    if (live) {
+        if (view.empty() || !view.back().runs.empty())
+            view.push_back(rich::Line{});
+    }
+    return view;
+}
 int Tui::max_scroll(const Window& w) const {
-    // Count wrapped screen lines from committed rich lines.
-    // Each rich::Line may wrap to multiple screen rows.
-    int total = 0;
-    for (const auto& line : w.lines)
-        total += static_cast<int>(rich::wrap(line, width()).size());
-    total += stream_lines(w);
+    auto view = build_view(w);
+    int total = static_cast<int>(rich::rewrap_all(view, width()).size());
     int m = total - chat_height();
     return m < 0 ? 0 : m;
 }
@@ -247,62 +303,7 @@ void Tui::draw() {
         return;
     }
 
-    // Assemble the full scrollback (committed lines + live reasoning/stream)
-    // as RichLines, then render through the dedicated chat canvas. The canvas
-    // owns width-aware wrapping and viewport scrolling.
-    std::vector<rich::Line> view = win().lines;
-
-    if (show_reasoning_ && !win().reason_folded && !win().reason_buf.empty()) {
-        rich::Line label;
-        rich::Run r0; r0.pair = P_REASONING; r0.dim = true;
-        r0.text = "thinking...";
-        label.runs.push_back(r0);
-        view.push_back(label);
-        rich::Line body;
-        rich::Run r1; r1.pair = P_REASONING; r1.dim = true; r1.text = win().reason_buf;
-        body.runs.push_back(r1);
-        for (auto& l : rich::wrap(body, width())) view.push_back(std::move(l));
-    }
-    if (!win().stream_buf.empty()) {
-        if (win().markdown_on) {
-            auto preview = md::render(win().stream_buf, md_style_);
-            if (!preview.empty()) {
-                rich::Run ts;
-                ts.text = (win().stream_ts.empty() ? timestamp()
-                                                   : win().stream_ts) + " ";
-                ts.pair = P_REASONING;
-                ts.dim = true;
-                preview.front().runs.insert(preview.front().runs.begin(),
-                                            std::move(ts));
-                for (auto& l : preview) view.push_back(std::move(l));
-            }
-        } else {
-            append_rich_to(view, win().stream_buf, win().stream_color, width());
-        }
-    }
-
-    // Sticky working row: messenger-style indicator pinned at the BOTTOM of
-    // the history while the agent is busy and no output is being displayed
-    // yet (working_visible_ clears on the first stream token and re-appears
-    // while a tool runs). Output streams in above it; the row disappears the
-    // moment the reply displays. Optionally names the running tool:
-    // "◐ working 12s · grep -rn X src/". Foreground pair only — no banner
-    // background in the scrollback.
-    if (agent_busy_.load() && working_visible_) {
-        auto now = std::chrono::steady_clock::now();
-        size_t secs = static_cast<size_t>(
-            std::chrono::duration_cast<std::chrono::seconds>(
-                now - working_since_).count());
-        std::string label = tool_display::working_label(
-            text::glyph::spinner_round(anim_phase_), secs,
-            running_tool_desc_);
-        rich::Line wl;
-        rich::Run r;
-        r.pair = P_STATUS;
-        r.text = label;
-        wl.runs.push_back(std::move(r));
-        view.push_back(std::move(wl));
-    }
+    std::vector<rich::Line> view = build_view(win());
 
     chat_canvas_.resize(chat_top(), chat_height(), width());
     chat_canvas_.set_lines(view);
