@@ -424,7 +424,7 @@ claim 0-debt conformance. Line counts below are enforced by
 |------|------:|-------|
 | `tests/run_tests.cpp` | 4451 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 287 | Resolved — `list()` now uses `std::filesystem::directory_iterator`. |
-| `tui/tui_render.cpp` | 680 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_render.cpp` | 701 | Method implementations (not a class); exempt from class-size rule. |
 | `tui/tui_input.cpp` | 2308 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
