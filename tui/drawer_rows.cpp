@@ -128,4 +128,37 @@ std::vector<std::string> drawer_rows(const std::string& input,
     return rows;
 }
 
+std::vector<std::string> drawer_entry_names(const std::string& input,
+                                            const SettingRegistry& settings) {
+    std::string ns_path, partial;
+    size_t sp = input.find(' ', 1);
+    if (sp != std::string::npos) {
+        ns_path = input.substr(1);
+        while (!ns_path.empty() && ns_path.back() == ' ') ns_path.pop_back();
+        size_t last_sp = ns_path.rfind(' ');
+        if (last_sp != std::string::npos) {
+            partial = ns_path.substr(last_sp + 1);
+            ns_path.resize(last_sp);
+        }
+    } else {
+        ns_path = input.substr(1);
+    }
+    std::string ns = dotted_path(ns_path);
+    auto kids = settings.children_of(ns);
+    if (kids.empty()) return {};
+    if (!partial.empty()) {
+        std::string sub_key = ns.empty() ? partial : ns + "." + partial;
+        auto sub = settings.children_of(sub_key);
+        if (!sub.empty()) {
+            return sub;
+        }
+    }
+    std::vector<std::string> out;
+    for (const auto& k : kids) {
+        if (!partial.empty() && k.rfind(partial, 0) != 0) continue;
+        out.push_back(k);
+    }
+    return out;
+}
+
 } // namespace tui

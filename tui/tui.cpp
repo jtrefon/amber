@@ -176,7 +176,7 @@ Window& Tui::new_window(const std::string& title) {
         agent::AgentHooks{},
         std::move(compressor), std::move(gate),
         std::move(mem_store), std::move(retriever),
-        {}, {}, true, &plugin_reg_.event_bus());
+        {}, {}, true);
     w->agent = std::make_unique<agent::Agent>(std::move(a));
     w->agent->policy().init(agent::Workspace::local_dir() + "/policy.json");
     windows_.push_back(std::move(w));

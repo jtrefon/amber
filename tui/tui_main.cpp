@@ -111,8 +111,9 @@ int main(int argc, char** argv) {
 
     agent::PluginManager plugins;
     plugins.discover();
+    agent::PluginRegistry plugin_reg;
 
-    tui::Tui tui(cfg, registry, jobs, subagents, plugins);
+    tui::Tui tui(cfg, registry, jobs, subagents, plugins, plugin_reg);
     tui.run();
     return 0;
 }
