@@ -16,28 +16,8 @@ int Tui::width() const { int y, x; getmaxyx(stdscr, y, x); (void)y; return x; }
 int Tui::chat_top() const { return 0; }
 int Tui::chat_height() const { return std::max(1, height() - 2); }
 int Tui::lines_per_page() const { return chat_height(); }
-int Tui::stream_lines(const Window& w) const {
-    return w.stream_buf.empty()
-               ? 0
-               : static_cast<int>(wrap_text(w.stream_buf, width()).size());
-}
 std::vector<rich::Line> Tui::build_view_without_working(const Window& w) const {
-    std::vector<rich::Line> raw = w.lines;
-    std::vector<rich::Line> view;
-    view.reserve(raw.size() + 4);
-    for (size_t i = 0; i < raw.size(); ++i) {
-        const auto &l = raw[i];
-        if (l.is_hr) {
-            if (!view.empty() && !view.back().runs.empty())
-                view.push_back(rich::Line{});
-            view.push_back(l);
-            bool next_is_blank = (i + 1 < raw.size() && raw[i + 1].runs.empty() && !raw[i + 1].is_hr);
-            if (!next_is_blank)
-                view.push_back(rich::Line{});
-        } else {
-            view.push_back(l);
-        }
-    }
+    std::vector<rich::Line> view = w.lines;
     if (show_reasoning_ && !w.reason_folded && !w.reason_buf.empty()) {
         rich::Line label;
         rich::Run r0; r0.pair = P_REASONING; r0.dim = true;
@@ -70,6 +50,26 @@ std::vector<rich::Line> Tui::build_view_without_working(const Window& w) const {
     if (live) {
         if (view.empty() || !view.back().runs.empty())
             view.push_back(rich::Line{});
+    }
+    // Ensure HR always has blank lines around it so a missing newline in
+    // the source markdown never makes it render inline (looks like an
+    // underline extension of the previous paragraph).
+    {
+        std::vector<rich::Line> fixed;
+        fixed.reserve(view.size() + 4);
+        for (size_t i = 0; i < view.size(); ++i) {
+            if (view[i].is_hr) {
+                if (!fixed.empty() && !fixed.back().runs.empty())
+                    fixed.push_back(rich::Line{});
+                fixed.push_back(view[i]);
+                bool next_is_blank = (i + 1 < view.size() && view[i + 1].runs.empty());
+                if (!next_is_blank)
+                    fixed.push_back(rich::Line{});
+            } else {
+                fixed.push_back(view[i]);
+            }
+        }
+        view.swap(fixed);
     }
     return view;
 }
