@@ -154,7 +154,6 @@ private:
     int chat_top() const;
     int chat_height() const;
     int lines_per_page() const;
-    int stream_lines(const Window& w) const;
     int max_scroll(const Window& w) const;
     int max_scroll() const { return max_scroll(win()); }
     std::vector<rich::Line> build_view(const Window& w) const;
