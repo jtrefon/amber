@@ -7,6 +7,7 @@
 #include <agent/mcp_config.h>
 #include <agent/model_probe.h>
 #include <agent/plugin.h>
+#include <agent/plugin_registry.h>
 
 #include "widgets.h"
 #include "textutil.h"
@@ -45,7 +46,8 @@ using palette::Command;
 class Tui {
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
-        agent::SubAgentExecutor& subagents, agent::PluginManager& plugins);
+        agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
+        agent::PluginRegistry& plugin_reg);
     ~Tui();
 
     Tui(const Tui&) = delete;
@@ -155,6 +157,7 @@ private:
     int stream_lines(const Window& w) const;
     int max_scroll(const Window& w) const;
     int max_scroll() const { return max_scroll(win()); }
+    std::vector<rich::Line> build_view(const Window& w) const;
 
     // ---- low-level helpers ----------------------------------------------
     static size_t utf8_len(const std::string& s, size_t i);
@@ -390,6 +393,7 @@ public:
     agent::JobService& jobs_;
     agent::SubAgentExecutor& subagents_;       // host-owned; shared with process_* tools
     agent::PluginManager& plugins_; // host-owned; plugin lifecycle + tools
+    agent::PluginRegistry& plugin_reg_;  // v2 plugin registry
     agent::ServerManager mcp_servers_;  // session-scoped MCP manager
     std::string input_fill_;            // /prompt result applied to the input line
     agent::SessionStore store_;
