@@ -150,8 +150,8 @@ TEST(markdown_highlight_colors_fenced_code) {
 TEST(markdown_renders_aligned_table_and_skips_divider) {
     std::string md = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 7 |";
     auto ls = tui::md::render(md, tui::md::Style{});
-    // header, separator, alice, bob, trailing blank = 5 lines.
-    ASSERT_EQ(ls.size(), (size_t)5);
+    // top, header, separator, alice, bob, bottom, trailing blank = 7 lines.
+    ASSERT_EQ(ls.size(), (size_t)7);
     // The markdown divider row ("|------|-----|") must NOT appear as a data
     // row (it is skipped; only the drawn box separator ├─┼─┤ remains).
     for (auto& l : ls)
@@ -159,11 +159,27 @@ TEST(markdown_renders_aligned_table_and_skips_divider) {
             ASSERT_TRUE(r.text.find("|------") == std::string::npos);
     // Header row cell text is "Name", body cells "Alice"/"Bob".
     std::string head;
-    for (auto& r : ls[0].runs) head += r.text;
+    for (auto& r : ls[1].runs) head += r.text;
     ASSERT_TRUE(head.find("Name") != std::string::npos);
     std::string row2;
-    for (auto& r : ls[2].runs) row2 += r.text;
+    for (auto& r : ls[3].runs) row2 += r.text;
     ASSERT_TRUE(row2.find("Alice") != std::string::npos);
+    // Outer frame must be present.
+    std::string top;
+    for (auto& r : ls[0].runs) top += r.text;
+    ASSERT_TRUE(top.find("┌") != std::string::npos);
+    std::string bot;
+    for (auto& r : ls[5].runs) bot += r.text;
+    ASSERT_TRUE(bot.find("└") != std::string::npos);
+    // All table rows have the same display width (global column widths).
+    int w0 = -1;
+    for (auto& l : ls) if (l.is_table) {
+        std::string t;
+        for (auto& r : l.runs) t += r.text;
+        int w = tui::text::display_cols(t);
+        if (w0 < 0) w0 = w;
+        else ASSERT_EQ(w, w0);
+    }
 }
 
 TEST(markdown_renders_table_without_leading_blank_line) {
@@ -207,6 +223,98 @@ TEST(markdown_repairs_table_missing_delimiter_row) {
     ASSERT_TRUE(all.find("├") != std::string::npos);
     ASSERT_TRUE(all.find('1') != std::string::npos);
     ASSERT_TRUE(all.find('3') != std::string::npos);
+}
+
+TEST(table_lines_survive_rewrap_without_reflow) {
+    // Regression: table rows are pre-formatted with box-drawing characters and
+    // column padding. They must pass through rich::rewrap_all verbatim —
+    // never word-wrapped as prose (which would collapse padding and split
+    // rows across physical lines).
+    std::string md =
+        "| Name | Age |\n"
+        "|------|-----|\n"
+        "| Alice | 30 |\n"
+        "| Bob | 7 |\n";
+    auto lines = tui::md::render(md, tui::md::Style{});
+    auto wrapped = tui::rich::rewrap_all(lines, /*width=*/80);
+    // The number of logical lines must be unchanged (no row split).
+    ASSERT_EQ(wrapped.size(), lines.size());
+    // Every table line must retain its box-drawing glyphs and padding.
+    for (size_t i = 0; i < lines.size(); ++i) {
+        std::string text;
+        for (auto& r : wrapped[i].runs) text += r.text;
+        if (wrapped[i].is_table) {
+            bool has_box = text.find("│") != std::string::npos ||
+                           text.find("├") != std::string::npos ||
+                           text.find("┤") != std::string::npos ||
+                           text.find("┼") != std::string::npos ||
+                           text.find("─") != std::string::npos ||
+                           text.find("┌") != std::string::npos ||
+                           text.find("└") != std::string::npos ||
+                           text.find('|') != std::string::npos ||
+                           text.find('+') != std::string::npos ||
+                           text.find('-') != std::string::npos;
+            ASSERT_TRUE(has_box);
+        }
+    }
+    // Column alignment: "Alice" row (index 3: top, header, sep, alice) must
+    // have padding spaces after "Alice" (global width).
+    std::string alice_row;
+    for (auto& r : wrapped[3].runs) alice_row += r.text;
+    ASSERT_TRUE(alice_row.find("Alice ") != std::string::npos);
+}
+
+TEST(markdown_table_global_widths_and_frame) {
+    // Regression TR-06: header narrower than body. Global widths must make
+    // every table line the same display width and include top/bottom frame.
+    std::string md = "| X |\n|---|\n| LongText |\n";
+    auto ls = tui::md::render(md, tui::md::Style{});
+    // top, header, sep, body, bottom, blank = 6
+    ASSERT_EQ(ls.size(), (size_t)6);
+    std::string top, bot, hdr, body;
+    for (auto& r : ls[0].runs) top += r.text;
+    for (auto& r : ls[1].runs) hdr += r.text;
+    for (auto& r : ls[3].runs) body += r.text;
+    for (auto& r : ls[4].runs) bot += r.text;
+    ASSERT_TRUE(top.find("┌") != std::string::npos);
+    ASSERT_TRUE(top.find("┐") != std::string::npos);
+    ASSERT_TRUE(bot.find("└") != std::string::npos);
+    ASSERT_TRUE(bot.find("┘") != std::string::npos);
+    int wtop = tui::text::display_cols(top);
+    int whdr = tui::text::display_cols(hdr);
+    int wbody = tui::text::display_cols(body);
+    int wbot = tui::text::display_cols(bot);
+    ASSERT_EQ(wtop, whdr);
+    ASSERT_EQ(whdr, wbody);
+    ASSERT_EQ(wbody, wbot);
+    ASSERT_TRUE(hdr.find('X') != std::string::npos);
+    ASSERT_TRUE(body.find("LongText") != std::string::npos);
+}
+
+TEST(markdown_table_alignment) {
+    // TR-05: left/center/right delimiter markers affect padding.
+    std::string md =
+        "| Left | Center | Right |\n"
+        "|:-----|:------:|------:|\n"
+        "| a | b | c |\n";
+    auto ls = tui::md::render(md, tui::md::Style{});
+    // top, header, sep, body, bottom, blank
+    ASSERT_EQ(ls.size(), (size_t)6);
+    std::string body;
+    for (auto& r : ls[3].runs) body += r.text;
+    // Left-aligned "a" should have trailing spaces before the next bar.
+    ASSERT_TRUE(body.find("a ") != std::string::npos);
+    // Right-aligned "c" should have leading spaces (pad before c).
+    // Body is "│ a    │   b    │     c │" — c preceded by spaces.
+    size_t pos = body.find('c');
+    ASSERT_TRUE(pos != std::string::npos);
+    ASSERT_TRUE(pos > 0 && body[pos - 1] == ' '); // NOLINT(readability-simplify-boolean-expr)
+    ASSERT_TRUE(body[pos - 2] == ' ');
+    // Center "b" has spaces on both sides.
+    size_t pb = body.find('b');
+    ASSERT_TRUE(pb != std::string::npos);
+    ASSERT_TRUE(body[pb - 1] == ' ');
+    ASSERT_TRUE(body[pb + 1] == ' ');
 }
 
 TEST(markdown_splits_embedded_separator_rule) {

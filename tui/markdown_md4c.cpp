@@ -53,7 +53,9 @@ struct Ctx {
     std::string code_buf;                // raw fenced/indented code
     std::string code_lang;
 
-    // table accumulation
+    // table accumulation — rows are buffered until MD_BLOCK_TABLE leaves so
+    // column widths can be computed globally (spec TR-06) and the full frame
+    // (top/mid/bottom) emitted at once.
     bool in_table = false;
     int table_cols = 0;
     std::vector<MD_ALIGN> aligns;
@@ -61,6 +63,8 @@ struct Ctx {
     std::vector<std::string> row_cells;
     std::string cell_buf;                // text of the cell being built
     bool in_cell = false;
+    std::vector<std::vector<std::string>> table_rows;
+    std::vector<bool> table_row_is_head;
 };
 
 RunStyle base_style(const Style& st) {
@@ -193,6 +197,102 @@ void emit_hr(Ctx& c) {
     emit_line(c, std::move(l));
 }
 
+void flush_table(Ctx& c) {
+    if (c.table_rows.empty()) return;
+    int ncol = c.table_cols;
+    for (auto& r : c.table_rows) ncol = std::max(ncol, static_cast<int>(r.size()));
+    if (ncol <= 0) {
+        c.table_rows.clear();
+        c.table_row_is_head.clear();
+        return;
+    }
+    if (static_cast<int>(c.aligns.size()) < ncol)
+        c.aligns.resize(ncol, MD_ALIGN_DEFAULT);
+    std::vector<int> w(ncol, 0);
+    for (auto& row : c.table_rows) {
+        for (int k = 0; k < ncol; ++k) {
+            std::string t = k < static_cast<int>(row.size()) ? row[k] : "";
+            w[k] = std::max(w[k], text::display_cols(t));
+        }
+    }
+    auto emit_top = [&](bool top) {
+        Line tl;
+        tl.is_table = true;
+        Run r;
+        r.pair = c.st->table_pair;
+        r.text = top ? text::glyph::top_left() : text::glyph::bottom_left();
+        for (int k = 0; k < ncol; ++k) {
+            for (int j = 0; j < w[k] + 2; ++j) r.text += text::glyph::hbar();
+            if (k + 1 < ncol) {
+                r.text += top ? text::glyph::top_tee() : text::glyph::bottom_tee();
+            } else {
+                r.text += top ? text::glyph::top_right() : text::glyph::bottom_right();
+            }
+        }
+        tl.runs.push_back(r);
+        emit_line(c, std::move(tl));
+    };
+    emit_top(true);
+    for (size_t ri = 0; ri < c.table_rows.size(); ++ri) {
+        bool head = c.table_row_is_head[ri];
+        Line l;
+        l.is_table = true;
+        Run sep;
+        sep.pair = c.st->table_pair;
+        sep.text = text::glyph::vbar();
+        sep.text += " ";
+        l.runs.push_back(sep);
+        for (int k = 0; k < ncol; ++k) {
+            std::string t = k < static_cast<int>(c.table_rows[ri].size())
+                                ? c.table_rows[ri][k]
+                                : "";
+            int pad = w[k] - text::display_cols(t);
+            if (pad < 0) pad = 0;
+            MD_ALIGN a = (k < static_cast<int>(c.aligns.size())) ? c.aligns[k]
+                                                                 : MD_ALIGN_DEFAULT;
+            int left = 0, right = 0;
+            if (a == MD_ALIGN_RIGHT) {
+                left = pad;
+            } else if (a == MD_ALIGN_CENTER) {
+                left = pad / 2;
+                right = pad - left;
+            } else {
+                right = pad;
+            }
+            Run cr;
+            cr.pair = head ? c.st->table_head_pair : c.st->table_pair;
+            cr.text = std::string(left, ' ') + t + std::string(right, ' ');
+            l.runs.push_back(cr);
+            Run sp;
+            sp.pair = c.st->table_pair;
+            sp.text = " ";
+            sp.text += text::glyph::vbar();
+            if (k + 1 < ncol) sp.text += " ";
+            l.runs.push_back(sp);
+        }
+        emit_line(c, std::move(l));
+        bool next_is_head = (ri + 1 < c.table_row_is_head.size() && c.table_row_is_head[ri + 1]);
+        if (head && !next_is_head && ri + 1 < c.table_rows.size()) {
+            Line hl;
+            hl.is_table = true;
+            Run hr;
+            hr.pair = c.st->table_pair;
+            hr.text = text::glyph::tee_left();
+            for (int k = 0; k < ncol; ++k) {
+                for (int j = 0; j < w[k] + 2; ++j) hr.text += text::glyph::hbar();
+                hr.text += (k + 1 < ncol) ? text::glyph::tbl_cross()
+                                         : text::glyph::tee_right();
+            }
+            hl.runs.push_back(hr);
+            emit_line(c, std::move(hl));
+        }
+    }
+    emit_top(false);
+    emit_line(c, Line{});
+    c.table_rows.clear();
+    c.table_row_is_head.clear();
+}
+
 // Append text with the given style, honoring inline ANSI SGR sequences that the
 // model may emit (mapped onto Run styles rather than stripped).
 void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
@@ -319,6 +419,8 @@ int enter_block(MD_BLOCKTYPE type, void* detail, void* ud) {
             c.table_cols = d ? static_cast<int>(d->col_count) : 0;
             c.aligns.assign(c.table_cols, MD_ALIGN_DEFAULT);
             c.row_cells.clear();
+            c.table_rows.clear();
+            c.table_row_is_head.clear();
             break;
         }
         case MD_BLOCK_TH: {
@@ -401,57 +503,16 @@ int leave_block(MD_BLOCKTYPE type, void* detail, void* ud) {
             }
             break;
         case MD_BLOCK_TR: {
-            // Emit the just-finished row, column-aligned.
-            int ncol = std::max(c.table_cols, static_cast<int>(c.row_cells.size()));
-            std::vector<int> w(ncol, 0);
-            for (int k = 0; k < ncol; ++k) {
-                std::string t = (k < static_cast<int>(c.row_cells.size()))
-                                    ? c.row_cells[k]
-                                    : "";
-                w[k] = text::display_cols(t);
-            }
-            Line l;
-            Run sep;
-            sep.pair = c.st->table_pair;
-            sep.text = "│ ";
-            l.runs.push_back(sep);
-            bool head = c.row_is_head;
-            for (int k = 0; k < ncol; ++k) {
-                std::string t = (k < static_cast<int>(c.row_cells.size()))
-                                    ? c.row_cells[k]
-                                    : "";
-                int pad = w[k] - text::display_cols(t);
-                Run r;
-                r.pair = head ? c.st->table_head_pair : c.st->table_pair;
-                r.text = t + std::string(std::max(0, pad), ' ');
-                l.runs.push_back(r);
-                Run sp;
-                sp.pair = c.st->table_pair;
-                sp.text = " │ ";
-                l.runs.push_back(sp);
-            }
-            emit_line(c, std::move(l));
-            if (head) {
-                // separator line under the header
-                Line hl;
-                Run hr;
-                hr.pair = c.st->table_pair;
-                hr.text = "├";
-                for (int k = 0; k < ncol; ++k) {
-                    hr.text += std::string(w[k] + 2, '-');
-                    hr.text += (k + 1 < ncol) ? "┼" : "┤";
-                }
-                hl.runs.push_back(hr);
-                emit_line(c, std::move(hl));
-            }
+            c.table_rows.push_back(c.row_cells);
+            c.table_row_is_head.push_back(c.row_is_head);
             c.row_cells.clear();
             c.row_is_head = false;
             break;
         }
         case MD_BLOCK_TABLE:
+            flush_table(c);
             c.in_table = false;
             c.aligns.clear();
-            emit_line(c, Line{});  // blank separator after table
             break;
         case MD_BLOCK_TH:
         case MD_BLOCK_TD:

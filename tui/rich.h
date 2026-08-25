@@ -28,6 +28,7 @@ struct Line {
     std::vector<Run> runs;
     bool is_code = false;     // rendered in a fenced block (own background)
     bool is_hr = false;       // horizontal rule
+    bool is_table = false;    // pre-formatted table row (never word-wrap)
     int heading = 0;          // 1..6 for heading lines (extra bold/space)
 };
 
@@ -39,6 +40,10 @@ int cols(const std::string& s);
 // same per-run style. Honors display widths so multi-byte glyphs stay aligned
 // and are never split mid-character. `width` is the available columns.
 std::vector<Line> wrap(const Line& in, int width);
+
+// Wrap a list of RichLines for display. Lines flagged is_hr or is_table are
+// passed through verbatim — they are pre-formatted and must not be reflowed.
+std::vector<Line> rewrap_all(const std::vector<Line>& lines, int width);
 
 } // namespace rich
 } // namespace tui
