@@ -740,6 +740,72 @@ std::string normalize_markdown(const std::string& md) {
         out.push_back(l);
     }
 
+    // Pad ragged tables where the header has fewer columns than body rows.
+    // The LLM sometimes emits `| Vuln | Real path |` (2 cols) followed by
+    // 5-col body rows; md4c then locks the table to 2 cols and the extra
+    // body cells are lost, appearing as raw `| ... |` paragraphs. Fix by
+    // expanding every row in the table block to the block's max column count.
+    {
+        auto count_cols = [](const std::string& s) -> int {
+            int pipes = 0;
+            for (size_t i = 0; i < s.size(); ++i) {
+                if (s[i] == '|' && (i == 0 || s[i - 1] != '\\')) ++pipes;
+            }
+            if (pipes == 0) return 0;
+            size_t first = s.find_first_not_of(' ');
+            size_t last = s.find_last_not_of(' ');
+            if (first == std::string::npos || last == std::string::npos) return 0;
+            bool starts_pipe = s[first] == '|';
+            bool ends_pipe = s[last] == '|';
+            if (starts_pipe && ends_pipe) return std::max(0, pipes - 1);
+            if (starts_pipe || ends_pipe) return pipes;
+            return pipes + 1;
+        };
+        auto is_delim = [](const std::string& s) -> bool {
+            size_t j = 0;
+            while (j < s.size() && (s[j] == ' ' || s[j] == '|')) ++j;
+            if (j == 0) return false;
+            bool ok = true, saw = false;
+            for (size_t k = j; k < s.size(); ++k) {
+                char c = s[k];
+                if (c == '|' || c == ' ' || c == ':' || c == '-') { saw = true; continue; }
+                ok = false; break;
+            }
+            return ok && saw;
+        };
+        for (size_t i = 0; i < out.size(); ) {
+            if (!is_table_row(out[i]) && !is_delim(out[i])) { ++i; continue; }
+            size_t start = i;
+            while (i < out.size() && (is_table_row(out[i]) || is_delim(out[i]))) ++i;
+            size_t end = i;
+            int max_cols = 0;
+            for (size_t k = start; k < end; ++k) {
+                if (is_blank(out[k])) continue;
+                max_cols = std::max(max_cols, count_cols(out[k]));
+            }
+            if (max_cols <= 0) continue;
+            for (size_t k = start; k < end; ++k) {
+                if (is_blank(out[k])) continue;
+                int cur = count_cols(out[k]);
+                if (cur >= max_cols) continue;
+                bool delim = is_delim(out[k]);
+                std::string s = out[k];
+                size_t f = s.find_first_not_of(' ');
+                size_t l = s.find_last_not_of(' ');
+                if (f == std::string::npos) continue;
+                s = s.substr(f, l - f + 1);
+                if (s.front() != '|') s.insert(0, "| ");
+                if (s.back() != '|') s += " |";
+                cur = count_cols(s);
+                while (cur < max_cols) {
+                    s += delim ? "---|" : " |";
+                    ++cur;
+                }
+                out[k] = s;
+            }
+        }
+    }
+
     std::string res;
     for (size_t i = 0; i < out.size(); ++i) {
         res += out[i];

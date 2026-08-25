@@ -158,6 +158,7 @@ private:
     int max_scroll(const Window& w) const;
     int max_scroll() const { return max_scroll(win()); }
     std::vector<rich::Line> build_view(const Window& w) const;
+    std::vector<rich::Line> build_view_without_working(const Window& w) const;
 
     // ---- low-level helpers ----------------------------------------------
     static size_t utf8_len(const std::string& s, size_t i);

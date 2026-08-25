@@ -21,7 +21,7 @@ int Tui::stream_lines(const Window& w) const {
                ? 0
                : static_cast<int>(wrap_text(w.stream_buf, width()).size());
 }
-std::vector<rich::Line> Tui::build_view(const Window& w) const {
+std::vector<rich::Line> Tui::build_view_without_working(const Window& w) const {
     std::vector<rich::Line> view = w.lines;
     if (show_reasoning_ && !w.reason_folded && !w.reason_buf.empty()) {
         rich::Line label;
@@ -33,8 +33,6 @@ std::vector<rich::Line> Tui::build_view(const Window& w) const {
         rich::Run r1; r1.pair = P_REASONING; r1.dim = true; r1.text = w.reason_buf;
         body.runs.push_back(r1);
         for (auto& l : rich::wrap(body, width())) view.push_back(std::move(l));
-        // Separate reasoning block from streaming content so the working
-        // indicator and stream never visually merge with the reasoning text.
         if (!w.stream_buf.empty())
             view.push_back(rich::Line{});
     }
@@ -53,9 +51,16 @@ std::vector<rich::Line> Tui::build_view(const Window& w) const {
             append_rich_to(view, w.stream_buf, w.stream_color, width());
         }
     }
+    bool live = agent_busy_.load() && (!w.stream_buf.empty() || !w.reason_buf.empty());
+    if (live) {
+        if (view.empty() || !view.back().runs.empty())
+            view.push_back(rich::Line{});
+    }
+    return view;
+}
+std::vector<rich::Line> Tui::build_view(const Window& w) const {
+    auto view = build_view_without_working(w);
     if (agent_busy_.load() && working_visible_) {
-        // Separator before sticky working row so it never visually merges
-        // with reasoning/stream content.
         if (!view.empty() && !view.back().runs.empty())
             view.push_back(rich::Line{});
         auto now = std::chrono::steady_clock::now();
@@ -69,22 +74,20 @@ std::vector<rich::Line> Tui::build_view(const Window& w) const {
         r.text = label;
         wl.runs.push_back(std::move(r));
         view.push_back(std::move(wl));
-    }
-    // One blank line gap between last content and the status bar while the
-    // agent is generating (reasoning/stream/working visible). This guarantees
-    // the newest token is never rendered directly on the bar edge and is never
-    // offscreen — critical so the user can see output and interrupt.
-    bool live = agent_busy_.load() && (working_visible_ || !w.stream_buf.empty() || !w.reason_buf.empty());
-    if (live) {
-        if (view.empty() || !view.back().runs.empty())
-            view.push_back(rich::Line{});
+        // Gap after working so the spinner never sits on the status bar edge.
+        view.push_back(rich::Line{});
     }
     return view;
 }
 int Tui::max_scroll(const Window& w) const {
-    auto view = build_view(w);
+    // Working row is sticky (outside scrollable canvas) — don't count it in
+    // max_scroll. Only the scrollable view matters.
+    auto view = build_view_without_working(w);
     int total = static_cast<int>(rich::rewrap_all(view, width()).size());
-    int m = total - chat_height();
+    bool show_working = agent_busy_.load() && working_visible_;
+    int ch = chat_height();
+    if (show_working) ch = std::max(1, ch - 1);
+    int m = total - ch;
     return m < 0 ? 0 : m;
 }
 
@@ -303,18 +306,36 @@ void Tui::draw() {
         return;
     }
 
-    std::vector<rich::Line> view = build_view(win());
-
-    chat_canvas_.resize(chat_top(), chat_height(), width());
+    bool show_working = agent_busy_.load() && working_visible_;
+    std::vector<rich::Line> view = build_view_without_working(win());
+    int ch = chat_height();
+    if (show_working) ch = std::max(1, ch - 1);
+    chat_canvas_.resize(chat_top(), ch, width());
     chat_canvas_.set_lines(view);
     if (static_cast<size_t>(win().scroll_top) >
         static_cast<size_t>(chat_canvas_.max_top()))
         win().scroll_top = chat_canvas_.max_top();
     chat_canvas_.set_top(win().scroll_top);
     chat_canvas_.render();
+    if (show_working) {
+        int wy = chat_top() + ch;
+        move(wy, 0);
+        clrtoeol();
+        auto now = std::chrono::steady_clock::now();
+        size_t secs = static_cast<size_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
+        std::string label = tool_display::working_label(
+            text::glyph::spinner_round(anim_phase_), secs, running_tool_desc_);
+        attron(COLOR_PAIR(P_STATUS));
+        mvaddnstr(wy, 0, label.c_str(), width());
+        attroff(COLOR_PAIR(P_STATUS));
+    }
 
     {
         int total = chat_canvas_.wrapped_count();
+        // When working is sticky, the visible area is ch + 1 (working row)
+        // but total is without working; include the sticky row for percentage.
+        if (show_working) total += 1;
         int pos = win().scroll_top;
         int vis = chat_height();
         std::string scroll_glyph;

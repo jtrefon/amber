@@ -4,6 +4,7 @@
 #include "tui.h"
 #include "command_line.h"
 #include "confirm_panel.h"
+#include "drawer_rows.h"
 #include "tool_display.h"
 #include "signal_guard.h"
 #include "event_router.h"
@@ -75,11 +76,12 @@ static void signal_handler(int sig) {
 }
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
-          agent::SubAgentExecutor& subagents, agent::PluginManager& plugins)
+          agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
+          agent::PluginRegistry& plugin_reg)
     : cfg_(std::move(cfg)),
       providers_(agent::make_default_provider_service(cfg_)),
       reg_(reg), jobs_(jobs), subagents_(subagents),
-      plugins_(plugins),
+      plugins_(plugins), plugin_reg_(plugin_reg),
       mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token),
       settings_path_(agent::Workspace::local_dir() + "/settings") {
     std::setlocale(LC_ALL, "");
@@ -170,10 +172,12 @@ Window& Tui::new_window(const std::string& title) {
     auto exp_cfg = agent::load_experience_config(cfg_);
     auto mem_store = agent::make_memory_store(exp_cfg);
     auto retriever = std::make_unique<agent::MemoryRetriever>(*mem_store);
-    w->agent = std::make_unique<agent::Agent>(cfg_, reg_,
+    agent::Agent a(cfg_, reg_,
         agent::AgentHooks{},
         std::move(compressor), std::move(gate),
-        std::move(mem_store), std::move(retriever));
+        std::move(mem_store), std::move(retriever),
+        {}, {}, true, &plugin_reg_.event_bus());
+    w->agent = std::make_unique<agent::Agent>(std::move(a));
     w->agent->policy().init(agent::Workspace::local_dir() + "/policy.json");
     windows_.push_back(std::move(w));
     active_ = windows_.size() - 1;
@@ -701,7 +705,8 @@ void Tui::git_refresh() {
     else
         git_branch_ = ref;
 
-    std::string stat = read_stdout("git diff --shortstat 2>/dev/null");
+    std::string stat = read_stdout(
+        "git diff --shortstat -- . ':!bench/results' ':!*.o' ':!*.a' ':!*.d' 2>/dev/null");
     git_ins_ = 0;
     git_del_ = 0;
     if (!stat.empty()) {
@@ -772,61 +777,15 @@ void Tui::run() {
     // This is the SINGLE source of completions — no duplicate logic in draw_drawer.
     auto update_completions = [&]() {
         std::string input = cl.text();
-        size_t sp = input.find(' ');
-        if (sp != std::string::npos && input[0] == '/') {
-            std::string cmd_name = input.substr(1, sp - 1);
-            std::string partial = input.substr(sp + 1);
-
-            // Single path, tree-driven: build the full dotted path
-            // ("set policy mo" → "set.policy.mo", "job kill 4" → "job.kill.4")
-            // and complete the direct children of the namespace. Dynamic
-            // values (models, policy rules, job ids) are feed leaves, so
-            // every command gets the same completion behavior.
-            std::string dotted = cmd_name;
-            if (partial.empty()) {
-                dotted += ".";
-            } else {
-                size_t p = 0;
-                while (p < partial.size()) {
-                    size_t spc = partial.find(' ', p);
-                    dotted += ".";
-                    if (spc == std::string::npos) { dotted += partial.substr(p); break; }
-                    dotted += partial.substr(p, spc - p);
-                    p = spc + 1;
-                }
-            }
-            // Strip the last namespace level so we complete leaf names only.
-            std::string ns_part, leaf_part;
-            size_t last_dot = dotted.rfind('.');
-            if (last_dot != std::string::npos) {
-                ns_part = dotted.substr(0, last_dot);
-                leaf_part = dotted.substr(last_dot + 1);
-            } else {
-                leaf_part = dotted;
-            }
-            // Descend on exact child match (the drawer shows the child's
-            // children) so drawer rows and completions stay 1:1 for Enter.
-            if (!leaf_part.empty()) {
-                std::string exact = ns_part.empty() ? leaf_part
-                                                    : ns_part + "." + leaf_part;
-                if (!settings_.children_of(exact).empty()) {
-                    ns_part = exact;
-                    leaf_part.clear();
-                }
-            }
-            auto completions = settings_.complete(ns_part);
-            std::vector<std::string> stripped;
-            for (const auto& c : completions) {
-                std::string tail = ns_part.empty() ? c : c.substr(ns_part.size() + 1);
-                if (!leaf_part.empty() && tail.rfind(leaf_part, 0) != 0) continue;
-                if (std::find(stripped.begin(), stripped.end(), tail) == stripped.end())
-                    stripped.push_back(tail);
-            }
-            cl.set_completions(stripped);
+        if (!input.empty() && input[0] == '/') {
+            // The drawer is the visible contract: feed exactly its entry
+            // names so arrow selection and Enter dispatch index the same
+            // rows the user sees (aliases are not drawer rows).
+            cl.set_completions(drawer_entry_names(input, settings_));
             return;
         }
-        // Default: top-level command names from the tree (children of the
-        // root), including JSON-declared aliases — never a hardcoded list.
+        // Non-slash text: top-level command names from the tree, including
+        // JSON-declared aliases — never a hardcoded list.
         std::vector<std::string> names = settings_.complete("");
         for (const auto& a : settings_.top_level_aliases()) names.push_back(a);
         cl.set_completions(names);
