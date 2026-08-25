@@ -81,6 +81,7 @@ std::vector<Line> wrap(const Line& in, int width) {
     auto flush = [&]() {
         cur.is_code = in.is_code;
         cur.is_hr = in.is_hr;
+        cur.is_table = in.is_table;
         cur.heading = in.heading;
         out.push_back(std::move(cur));
         cur = Line{};
@@ -109,6 +110,20 @@ std::vector<Line> wrap(const Line& in, int width) {
         first = false;
     }
     if (!cur.runs.empty() || out.empty()) flush();
+    return out;
+}
+
+std::vector<Line> rewrap_all(const std::vector<Line>& lines, int width) {
+    std::vector<Line> out;
+    if (width <= 0) width = 80;
+    for (const auto& l : lines) {
+        if (l.is_hr || l.is_table) {
+            out.push_back(l);
+            continue;
+        }
+        auto wl = wrap(l, width);
+        for (auto& x : wl) out.push_back(std::move(x));
+    }
     return out;
 }
 
