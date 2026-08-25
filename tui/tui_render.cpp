@@ -22,7 +22,22 @@ int Tui::stream_lines(const Window& w) const {
                : static_cast<int>(wrap_text(w.stream_buf, width()).size());
 }
 std::vector<rich::Line> Tui::build_view_without_working(const Window& w) const {
-    std::vector<rich::Line> view = w.lines;
+    std::vector<rich::Line> raw = w.lines;
+    std::vector<rich::Line> view;
+    view.reserve(raw.size() + 4);
+    for (size_t i = 0; i < raw.size(); ++i) {
+        const auto &l = raw[i];
+        if (l.is_hr) {
+            if (!view.empty() && !view.back().runs.empty())
+                view.push_back(rich::Line{});
+            view.push_back(l);
+            bool next_is_blank = (i + 1 < raw.size() && raw[i + 1].runs.empty() && !raw[i + 1].is_hr);
+            if (!next_is_blank)
+                view.push_back(rich::Line{});
+        } else {
+            view.push_back(l);
+        }
+    }
     if (show_reasoning_ && !w.reason_folded && !w.reason_buf.empty()) {
         rich::Line label;
         rich::Run r0; r0.pair = P_REASONING; r0.dim = true;
