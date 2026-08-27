@@ -8,6 +8,7 @@
 #include "tool_display.h"
 #include "signal_guard.h"
 #include "event_router.h"
+#include "feed_manager.h"
 
 #include <agent.h>
 #include <agent/mcp_tools.h>
@@ -115,6 +116,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     plugin_ctx_ = std::make_unique<agent::PluginContext>(
         agent::PluginContext{plugin_reg_.event_bus(), reg_, cfg_, workspace_});
     plugin_reg_.set_context(plugin_ctx_.get());
+    feed_manager_ = std::make_unique<FeedManager>(*this);
 
     reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
     mcp_servers_.connect_all();

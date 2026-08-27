@@ -1,5 +1,6 @@
 
 #include "tui.h"
+#include "feed_manager.h"
 #include "tui/list_panel.h"
 #include "tui/confirm_panel.h"
 #include "agent/model_probe.h"
@@ -347,69 +348,11 @@ void Tui::cmd_set_policy_rule(const std::string& arg) {
 }
 
 void Tui::refresh_provider_feed() {
-    // Providers are dynamic: built-in presets plus every saved provider
-    // file under ~/.config/amber/providers/. Merge them as feed leaves so
-    // /set provider <name> completes and dispatches from the JSON tree.
-    nlohmann::json subtree = nlohmann::json::object();
-    auto& leaves =
-        subtree["set"]["children"]["provider"]["children"];
-    for (const auto& p : providers_->available()) {
-        const std::string& name = p.name;
-        const std::string action = "core.config.set.provider." + name;
-        nlohmann::json& leaf = leaves[name];
-        leaf["action"] = action;
-        leaf["help"] = name == cfg_.provider_name ? "active provider"
-                                                  : "switch to this provider";
-        register_action(action, [this, name](const std::string&) {
-            cmd_provider(name);
-        });
-    }
-    settings_.merge_completions_json(subtree);
+    if (feed_manager_) feed_manager_->refresh_provider_feed();
 }
 
 void Tui::refresh_policy_feed() {
-    // Existing rules (union across windows): tool -> level info.
-    std::map<std::string, std::string> rule_help;
-    for (auto& w : windows_) {
-        if (!w->agent) continue;
-        for (const auto& r : w->agent->policy().rules()) {
-            if (r.level == agent::PolicyLevel::Ask) continue;
-            std::string info = agent::policy_level_name(r.level);
-            if (r.count > 0)
-                info += " (used " + std::to_string(r.count) + "x)";
-            rule_help[r.tool] = info;
-        }
-    }
-    // Set side: every registered tool (rule or not) is a value leaf; the
-    // get side shows only tools that have a stored rule.
-    std::set<std::string> tools;
-    for (const auto& t : reg_.snapshot_tools()) tools.insert(t->name());
-    for (const auto& [tool, _] : rule_help) tools.insert(tool);
-
-    nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& tool : tools) {
-        std::string info = rule_help.count(tool) ? rule_help.at(tool)
-                                                 : "no rule (ask)";
-        std::string action = "core.config.set.policy.rule." + tool;
-        nlohmann::json& leaf =
-            subtree["set"]["children"]["policy"]["children"]["rule"]["children"][tool];
-        leaf["action"] = action;
-        leaf["help"] = info;
-        register_action(action, [this, tool](const std::string& a) {
-            apply_policy_rule(tool, a);
-        });
-        if (rule_help.count(tool)) {
-            std::string gaction = "core.config.get.policy.rule." + tool;
-            nlohmann::json& g =
-                subtree["get"]["children"]["policy"]["children"]["rule"]["children"][tool];
-            g["action"] = gaction;
-            g["help"] = info;
-            register_action(gaction, [this, tool](const std::string&) {
-                show_policy_rule(tool);
-            });
-        }
-    }
-    settings_.merge_completions_json(subtree);
+    if (feed_manager_) feed_manager_->refresh_policy_feed();
 }
 
 void Tui::cmd_get_policy_mode() {
@@ -1377,21 +1320,7 @@ void Tui::cmd_get_model_context() {
 }
 
 void Tui::refresh_model_list() {
-    model_info_ = agent::list_model_info(cfg_);
-    // Feed: model ids become value leaves under set.model. Each leaf carries a
-    // generated action (core.config.set.model.<id>) so the tree walk resolves
-    // the exact model; the closure runs the shared set/validate/save path.
-    nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& m : model_info_) {
-        std::string id = m.id;
-        nlohmann::json& leaf = subtree["set"]["children"]["model"]["children"][id];
-        leaf["action"] = "core.config.set.model." + id;
-        int ctx = m.context ? m.context : m.context_train;
-        if (ctx > 0) leaf["help"] = "ctx " + std::to_string(ctx);
-        register_action(leaf["action"].get<std::string>(),
-                        [this, id](const std::string&) { cmd_model_set(id); });
-    }
-    settings_.merge_completions_json(subtree);
+    if (feed_manager_) feed_manager_->refresh_model_list();
 }
 
 void Tui::cmd_provider(const std::string& a) {
@@ -1817,25 +1746,7 @@ void Tui::job_ls() {
 }
 
 void Tui::refresh_job_feed() {
-    // Job ids become value leaves under job.kill / job.read (state as help),
-    // so /job kill|read complete through the tree like every other branch.
-    nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& j : jobs_.list()) {
-        std::string id = j.id;
-        nlohmann::json& kill_leaf =
-            subtree["job"]["children"]["kill"]["children"][id];
-        kill_leaf["action"] = "core.job.kill." + id;
-        kill_leaf["help"] = job_state_name(j.state);
-        nlohmann::json& read_leaf =
-            subtree["job"]["children"]["read"]["children"][id];
-        read_leaf["action"] = "core.job.read." + id;
-        read_leaf["help"] = job_state_name(j.state);
-        register_action("core.job.kill." + id,
-                        [this, id](const std::string&) { job_kill(id); });
-        register_action("core.job.read." + id,
-                        [this, id](const std::string&) { job_read(id); });
-    }
-    settings_.merge_completions_json(subtree);
+    if (feed_manager_) feed_manager_->refresh_job_feed();
 }
 
 void Tui::job_kill(const std::string& id) {

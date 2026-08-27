@@ -106,23 +106,24 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/probe.o
 BENCH_MAIN = $(BUILD_DIR)/bench/main.o
 TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
-            $(BUILD_DIR)/tui/tui_render.o \
-            $(BUILD_DIR)/tui/tui_input.o \
-            $(BUILD_DIR)/tui/tui_session.o \
-            $(BUILD_DIR)/tui/tui_main.o \
-            $(BUILD_DIR)/tui/command_line.o \
-            $(BUILD_DIR)/tui/action_registry.o \
-            $(BUILD_DIR)/tui/drawer_rows.o \
-            $(BUILD_DIR)/tui/tool_display.o \
-            $(BUILD_DIR)/tui/setting_registry.o \
-            $(BUILD_DIR)/tui/dialog.o \
-            $(BUILD_DIR)/tui/form_edit.o \
-            $(BUILD_DIR)/tui/info_dialog.o \
-            $(BUILD_DIR)/tui/panel.o \
-            $(BUILD_DIR)/tui/list_panel.o \
-            $(BUILD_DIR)/tui/confirm_panel.o \
-             $(BUILD_DIR)/tui/menu_select.o \
-             $(BUILD_DIR)/tui/session_browser_core.o \
+             $(BUILD_DIR)/tui/tui_render.o \
+             $(BUILD_DIR)/tui/tui_input.o \
+             $(BUILD_DIR)/tui/tui_session.o \
+             $(BUILD_DIR)/tui/tui_main.o \
+             $(BUILD_DIR)/tui/command_line.o \
+             $(BUILD_DIR)/tui/action_registry.o \
+             $(BUILD_DIR)/tui/drawer_rows.o \
+             $(BUILD_DIR)/tui/tool_display.o \
+             $(BUILD_DIR)/tui/setting_registry.o \
+             $(BUILD_DIR)/tui/dialog.o \
+             $(BUILD_DIR)/tui/form_edit.o \
+             $(BUILD_DIR)/tui/info_dialog.o \
+             $(BUILD_DIR)/tui/panel.o \
+             $(BUILD_DIR)/tui/list_panel.o \
+             $(BUILD_DIR)/tui/confirm_panel.o \
+              $(BUILD_DIR)/tui/menu_select.o \
+              $(BUILD_DIR)/tui/session_browser_core.o \
+             $(BUILD_DIR)/tui/feed_manager.o \
              $(BUILD_DIR)/tui/textutil.o \
             $(BUILD_DIR)/tui/palette.o \
             $(BUILD_DIR)/tui/welcome.o \

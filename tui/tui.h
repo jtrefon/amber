@@ -39,11 +39,13 @@ class ToolRegistry;
 
 namespace tui {
 using palette::Command;
+class FeedManager;
 
-// ncurses-based interactive TUI. Operates an IRC-style multi-window chat
+ // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
 // function creates it and calls run().
 class Tui {
+    friend class FeedManager;
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
@@ -396,6 +398,7 @@ public:
     agent::PluginRegistry& plugin_reg_;  // v2 plugin registry
     agent::Workspace workspace_; // workspace instance for PluginContext
     std::unique_ptr<agent::PluginContext> plugin_ctx_; // owned context for v2 plugins
+    std::unique_ptr<FeedManager> feed_manager_; // feed leaves for completions
     agent::ServerManager mcp_servers_;  // session-scoped MCP manager
     std::string input_fill_;            // /prompt result applied to the input line
     agent::SessionStore store_;
