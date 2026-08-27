@@ -242,29 +242,6 @@ void Tui::cmd_get(const std::string& arg) {
         draw();
         return;
     }
-    if (arg == "mcp" || arg.rfind("mcp ", 0) == 0) {
-        std::string sub = (arg.size() > 3) ? arg.substr(3) : "";
-        if (sub.empty() || sub == " servers") {
-            for (const auto& l : agent::mcp_list_lines(mcp_servers_))
-                append_line(P_STATUS, l);
-        } else if (sub == " prompts" || sub == ".prompts") {
-            cmd_prompt_list();
-            return;
-        } else if (sub.rfind(" prompts ", 0) == 0 ||
-                   sub.rfind(".prompts ", 0) == 0) {
-            std::string server = sub.substr(sub.find(' ') + 1);
-            auto c = mcp_servers_.client(server);
-            if (!c) {
-                append_line(P_STATUS, "server '" + server + "' not connected");
-            } else {
-                for (const auto& p : c->prompts())
-                    append_line(P_STATUS, server + " \u00b7 " + p.name +
-                                " \u00b7 " + p.description);
-            }
-        }
-        draw();
-        return;
-    }
     config_screen();
     redraw_after_modal();
 }
@@ -291,15 +268,6 @@ void Tui::cmd_get_policy(const std::string& arg) {
                     " (used " + std::to_string(r.count) + "x)");
             }
         }
-        return;
-    }
-    // Dotted or fallback form: "/get policy rule <tool>" arrives here only
-    // when the tool is not a feed leaf.
-    if (arg.rfind("rule", 0) == 0) {
-        std::string name = arg;
-        if (name.size() > 4 && name[4] == ' ') name = name.substr(5);
-        else if (name.size() > 4) name = name.substr(4);
-        cmd_get_policy_rule(name);
         return;
     }
     show_policy_rule(arg);
