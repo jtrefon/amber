@@ -1,7 +1,11 @@
 
 #include "agent/event_bus.h"
 #include "test_util.h"
+#include <atomic>
+#include <chrono>
+#include <future>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace agent;
@@ -125,6 +129,44 @@ TEST(event_bus_different_types_independent) {
     bus.fire(EventType::AgentTurnEnd, e2);
     ASSERT_EQ(start_count, 1);
     ASSERT_EQ(end_count, 1);
+}
+
+TEST(event_bus_fire_reentrancy_subscribe_inside_handler) {
+    auto bus = std::make_shared<EventBus>();
+    bus->subscribe(EventType::AgentTurnStart, [bus](const Event&) {
+        bus->subscribe(EventType::AgentTurnStart, [](const Event&) {});
+    });
+    Event e{EventType::AgentTurnStart, nullptr};
+    std::atomic<bool> fired{false};
+    std::thread fire_thread([bus, e, &fired]() mutable {
+        bus->fire(EventType::AgentTurnStart, e);
+        fired = true;
+    });
+    fire_thread.detach();
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    ASSERT(fired.load());
+}
+
+TEST(event_bus_fire_reentrancy_fire_inside_handler) {
+    auto bus = std::make_shared<EventBus>();
+    std::atomic<int> outer{0}, inner{0};
+    bus->subscribe(EventType::AgentTurnEnd, [bus, &inner](const Event&) { ++inner; });
+    bus->subscribe(EventType::AgentTurnStart, [bus, &outer](const Event&) {
+        ++outer;
+        Event e2{EventType::AgentTurnEnd, nullptr};
+        bus->fire(EventType::AgentTurnEnd, e2);
+    });
+    Event e{EventType::AgentTurnStart, nullptr};
+    std::atomic<bool> done{false};
+    std::thread t([bus, e, &done]() mutable {
+        bus->fire(EventType::AgentTurnStart, e);
+        done = true;
+    });
+    t.detach();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    ASSERT(done.load());
+    ASSERT_EQ(outer.load(), 1);
+    ASSERT_EQ(inner.load(), 1);
 }
 
 
