@@ -1201,3 +1201,143 @@ FIX-015  (JSON-driven command engine) — independent
    gate + trend history).
 3. Then harness work (Phase C): one measured change at a time, red-green,
    baseline deltas.
+
+---
+
+## Clean Architecture 2026-08-27 — Proposal `docs/fix-proposal/clean-architecture-2026-08-27.md`
+
+Pipeline `7a0e69d` (`33075234503` green) closed `N1` (build drift `Makefile.in:394` vs `Makefile:406`) + `N2` (`AGENTS.md:428` 2308→2295).  Remaining `N3..N11` are tracked as `FIX-017..025` below — 4 phases, 9 PRs, each Red→Green per `AGENTS.md`.
+
+### Dependency Graph (clean)
+
+```
+FIX-016 (pipeline done 7a0e69d)
+   │
+   ├── FIX-017 EventBus snapshot ──┐
+   ├── FIX-018 PluginRegistry assert├─► FIX-020 Slash residuals (needs 018)
+   ├── FIX-019 MemoryStore split ──┤
+   │                               │
+   ├── FIX-021 FeedManager ─────────┼─► FIX-022 EventRouter+WindowManager ─► FIX-023 RenderEngine+SessionController
+   │                               │        (sequential Tui splits, one header churn per PR)
+   ├── FIX-024 Hygiene (.clang-tidy, compile_flags, build_hygiene SB) ──┤
+   └── FIX-025 Test split + ephemeral ports + shell_quote dedup ──────────┘
+```
+
+### FIX-016 Pipeline unblock — Done `7a0e69d`
+
+| Field | Value |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **Files** | `AGENTS.md:428`, `Makefile.in:65`, `include/agent/event_bus.h:67`, `include/agent/plugin_registry.h:74`, `include/agent/plugin_v2.h:58`, `lib/event_bus.cpp:57`, `lib/plugin_registry.cpp:87`, `plugins/metrics/metrics_plugin.*:51`, `tui/session_browser_core.*:145`, `tests/event_bus_test.cpp:130` etc, `.gitignore:30` |
+| **Fix** | Sync `Makefile.in` (CORE/TUI/UNITTEST/SB + `plugins/metrics` rule), track 12 untracked sources, 2308→2295 |
+| **Verification** | `make check` P5 green, `make lint` clean (was `file not found`), `make test` 440+4 new suites green, `gh run 33075234503` all success |
+
+---
+
+### FIX-017 EventBus deadlock — `lib/event_bus.cpp:22`
+
+| Field | Value |
+|---|---|
+| **Severity** | 🟡 Medium |
+| **Files** | `lib/event_bus.cpp:22`, `include/agent/event_bus.h:67`, `tests/event_bus_test.cpp:130` |
+| **Problem** | `fire:23` holds `scoped_lock` 23-37 while invoking interceptors/observers — any handler that `subscribe/unsubscribe/fire` deadlocks; 13 `EventType` declared, only `MetricsPlugin` uses today |
+| **Target** | Snapshot `matched` vectors under lock, release, then iterate (reverse interceptors, forward observers) — 10 lines, defensive copy |
+| **Pattern** | Pub/Sub snapshot (defensive copy) |
+| **SOLID** | SRP (fire does one thing), ISP (narrow subscribe/intercept) |
+| **Verification** | New `fire_reentrancy_subscribe_inside_handler` RED→GREEN; `make test` 8 `event_bus` tests green |
+
+---
+
+### FIX-018 PluginRegistry masking + Capability type erasure — `lib/plugin_registry.cpp:24`, `include/agent/plugin_v2.h:46`
+
+| Field | Value |
+|---|---|
+| **Severity** | 🟡 Medium |
+| **Files** | `lib/plugin_registry.cpp:24` `activate` static `s_bus/s_tools` fallback + `context:78` same; `include/agent/plugin_v2.h:46` `Capability void* impl`; `lib/plugin.cpp:585` |
+| **Problem** | Static `empty_ctx` masks `ctx_==nullptr` wiring bug (plugin sees dummy `~/.amber`); `void*` anticipates 8 capability types but only `Tool`/`Hook` wired (spec `plugin-framework-v2.md:704` v2, `developer-guide.md:441`) |
+| **Target** | `activate`/`context()` `assert(ctx_)` or `return false` + explicit `set_context` at `tui/tui_main.cpp:106`/`bench` bootstrap; keep `void*` with `// TODO Phase 5: std::variant<ToolCap,HookCap…>` (YAGNI until `Provider`/`Memory` wire-up) |
+| **Pattern** | Capability (type-erased), DIP (ctx injected) |
+| **Verification** | `plugin_v2_test.cpp:197` 17 green; manual `ctx_==nullptr` asserts |
+
+---
+
+### FIX-019 JsonMemoryStore split — `lib/memory_store.cpp:115` 287 lines
+
+| Field | Value |
+|---|---|
+| **Severity** | 🟠 High |
+| **Files** | `lib/memory_store.cpp:115` `JsonMemoryStore:115-401`, `save:329` `std::system("mkdir -p")`, new `lib/memory_scoring.cpp`, `lib/memory_persistence.cpp` |
+| **Problem** | One class = scoring `compute_score:42` + persistence `load:309`/`save:329` + evidence/promote `upsert:127` + migration `seed_from_legacy:418`; `system` breaks hermetic tests |
+| **Target** | Extract `memory_scoring.cpp` (`compute_relevance:24`, `freshness:34`, `score:42`), `memory_persistence.cpp` (`load/save` → `fs::create_directories`, `hash_content:18`, json helpers), leave `JsonMemoryStore` façade <150 lines |
+| **Pattern** | SRP, Facade |
+| **Verification** | `grep -c 'class JsonMemoryStore' lib/memory_store.cpp` definition <150; no `system(`; `make test` green |
+
+---
+
+### FIX-020 Slash residuals — `tui/tui_input.cpp:199,245,298`
+
+| Field | Value |
+|---|---|
+| **Severity** | 🟡 Medium |
+| **Files** | `tui/tui_input.cpp:199` `rfind("policy ")`, `245` `rfind("mcp ")`, `298` `rfind("rule")`; `completions.json:794`; `tui/tui_input.cpp:1113` `core.config.set.policy` leaf |
+| **Problem** | `handle_slash:1263` tree-walk exemplary (`SettingRegistry::complete` 1:1 drawer), but bare-namespace fallbacks duplicate `refresh_policy_feed:402` leaves (`core.config.set.policy.rule.<tool>`) + `mcp_completion_subtree` — spec `no dead legacy dispatch` |
+| **Target** | Delete `rfind` branches; bare `/set policy` stays as `register_action("core.config.set.policy")` branch handler (already does `usage`); `get.mcp`/`learn` via tree leaves (`grep -rn 'rfind.*policy\|rfind.*mcp' tui/` → 0) |
+| **Verification** | `completions_test.cpp:37`, `e2e_test.cpp:26` green; `grep` 0 hits |
+
+---
+
+### FIX-021 FeedManager extraction — first Tui split
+
+| Field | Value |
+|---|---|
+| **Severity** | 🟠 High |
+| **Files** | `tui/tui.h:46` 394 → ~280, new `tui/feed_manager.h/.cpp` <100 |
+| **Problem** | `Tui` owns 7 responsibilities; feeds `refresh_model_list`, `refresh_policy_feed:402`, `refresh_job_feed` are 100+ lines inside `Tui` |
+| **Target** | `FeedManager{SettingRegistry&, ActionRegistry&, ToolRegistry&, JobService&, ProviderService&}` owns `refresh_*` + `merge_completions_json` closures; `Tui` owns `feeds_` as `unique_ptr` (DIP, Facade) |
+| **Verification** | `wc -l tui/tui.h` 443→~320; `make lint` clean |
+
+---
+
+### FIX-022 EventRouter + WindowManager
+
+| Field | Value |
+|---|---|
+| **Severity** | 🟠 High |
+| **Files** | New `tui/event_router.h/.cpp` (`drain_events:211-288` + `on_*` 67-74 + `agent_worker`), `tui/window_manager.h/.cpp` (`windows_/active_/new_window/switch_to`) |
+| **Target** | `EventRouter` owns `event_queue_`/`mtx_`/`AgentHooks` factory `make_agent_hooks:84`; `WindowManager` owns `vector<Window>` lifecycle; `Tui::run:750` 394→ `poll_signals`+`process_input`+`idle_tick` <15 each |
+| **Verification** | `Tui::run` <60 lines (`awk '/^void Tui::run/,/^}/' `), `make test` green |
+
+---
+
+### FIX-023 RenderEngine + SessionController — `Tui` <200
+
+| Field | Value |
+|---|---|
+| **Severity** | 🟠 High |
+| **Files** | New `tui/render_engine.h/.cpp` (`tui_render.cpp:716` `draw:53` `draw_status_bar:130`), `tui/session_controller.h/.cpp` (`tui_session.cpp:508`) |
+| **Target** | `Tui` header 394→<180, all components <200/10; `tui/tui.h` Facade owns `WindowManager`, `EventRouter`, `RenderEngine`, `SlashDispatcher`, `FeedManager`, `SessionController` as `unique_ptr` |
+| **Verification** | `wc -l tui/tui.h` <200; `make check` P5 still green |
+
+---
+
+### FIX-024 Hygiene — `.clang-tidy`, `compile_flags.txt`, `build_hygiene.sh`
+
+| Field | Value |
+|---|---|
+| **Severity** | 🟡 Medium |
+| **Files** | `.clang-tidy:HeaderFilterRegex 'include/agent/.*\.h'`, `compile_flags.txt:13` hardcodes `/usr/include/c++/15`, `tests/build_hygiene.sh:85` missing `session_browser_test` |
+| **Target** | Broaden `HeaderFilterRegex` to `include/agent/.*\.h|tui/.*\.h`; generate `compile_flags.txt` from `configure` (`PROJECT_CPPFLAGS` + `CURL_CFLAGS`/`NCURSES_CFLAGS`); add `SB_TEST_OBJ`/`session_browser_test`/`plugins/metrics` to `build_hygiene.sh` P2/P3 |
+| **Verification** | `make lint` still clean; `make check` covers `plugins/metrics` |
+
+---
+
+### FIX-025 Test split + ephemeral ports + shell_quote dedup
+
+| Field | Value |
+|---|---|
+| **Severity** | 🔵 Low |
+| **Files** | `tests/run_tests.cpp:4451` 209 `TEST`s (13.6k, 658), `tests/run_tests.cpp:891x` `127.0.0.1:8911-8920` hardcoded, `tools/search/grep_backend.cpp:68` `shell_quote` vs `semantic_index.cpp:77` |
+| **Target** | Split `run_tests.cpp` by area (`config_test.cpp`, `compressor_test.cpp` etc) into `UNITTEST_OBJ`; `spawn_mock_sse` `bind 0 + getsockname` (like `mcp_transport_test.cpp`); move `shell_quote` to `include/agent/semantic_helpers.h:35` |
+| **Verification** | `ls tests/*.cpp` >10 files, `make test -j` no port collision, `duplicates` clean |
+
+Total 9 PRs, ~31h, each `make clean && make && make test && make lint && make analyze` zero warnings on `g++/clang++` per `ci.yml:84`.
