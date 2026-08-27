@@ -394,6 +394,8 @@ public:
     agent::SubAgentExecutor& subagents_;       // host-owned; shared with process_* tools
     agent::PluginManager& plugins_; // host-owned; plugin lifecycle + tools
     agent::PluginRegistry& plugin_reg_;  // v2 plugin registry
+    agent::Workspace workspace_; // workspace instance for PluginContext
+    std::unique_ptr<agent::PluginContext> plugin_ctx_; // owned context for v2 plugins
     agent::ServerManager mcp_servers_;  // session-scoped MCP manager
     std::string input_fill_;            // /prompt result applied to the input line
     agent::SessionStore store_;

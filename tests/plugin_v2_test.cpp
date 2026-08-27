@@ -130,6 +130,12 @@ TEST(plugin_registry_find_nonexistent_returns_null) {
 
 TEST(plugin_registry_activate_success) {
     PluginRegistry reg;
+    EventBus bus;
+    ToolRegistry tools;
+    Config cfg;
+    Workspace ws;
+    PluginContext ctx{bus, tools, cfg, ws};
+    reg.set_context(&ctx);
     auto plugin = std::make_shared<StubPlugin>("act", "1.0.0");
     reg.register_plugin(plugin);
     ASSERT_TRUE(reg.activate("act"));
@@ -144,6 +150,12 @@ TEST(plugin_registry_activate_nonexistent_fails) {
 
 TEST(plugin_registry_activate_failure_marks_failed) {
     PluginRegistry reg;
+    EventBus bus;
+    ToolRegistry tools;
+    Config cfg;
+    Workspace ws;
+    PluginContext ctx{bus, tools, cfg, ws};
+    reg.set_context(&ctx);
     auto plugin = std::make_shared<FailingPlugin>();
     reg.register_plugin(plugin);
     ASSERT_FALSE(reg.activate("failing"));
@@ -152,6 +164,12 @@ TEST(plugin_registry_activate_failure_marks_failed) {
 
 TEST(plugin_registry_deactivate) {
     PluginRegistry reg;
+    EventBus bus;
+    ToolRegistry tools;
+    Config cfg;
+    Workspace ws;
+    PluginContext ctx{bus, tools, cfg, ws};
+    reg.set_context(&ctx);
     auto plugin = std::make_shared<StubPlugin>("deact", "1.0.0");
     reg.register_plugin(plugin);
     reg.activate("deact");
@@ -176,6 +194,12 @@ TEST(plugin_registry_list_shows_all) {
 
 TEST(plugin_registry_shutdown_all) {
     PluginRegistry reg;
+    EventBus bus;
+    ToolRegistry tools;
+    Config cfg;
+    Workspace ws;
+    PluginContext ctx{bus, tools, cfg, ws};
+    reg.set_context(&ctx);
     auto p1 = std::make_shared<StubPlugin>("s1", "1.0.0");
     auto p2 = std::make_shared<StubPlugin>("s2", "1.0.0");
     reg.register_plugin(p1);
@@ -192,6 +216,15 @@ TEST(plugin_registry_event_bus_shared) {
     EventBus& bus1 = reg.event_bus();
     EventBus& bus2 = reg.event_bus();
     ASSERT(&bus1 == &bus2);
+}
+
+TEST(plugin_registry_activate_requires_context) {
+    PluginRegistry reg;
+    auto plugin = std::make_shared<StubPlugin>("act", "1.0.0");
+    reg.register_plugin(plugin);
+    ASSERT_FALSE(reg.activate("act"));
+    ASSERT(reg.state("act") != PluginRegistry::State::Active);
+    ASSERT_FALSE(plugin->initialized_);
 }
 
 
