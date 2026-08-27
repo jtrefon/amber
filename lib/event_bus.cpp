@@ -20,18 +20,22 @@ size_t EventBus::intercept(EventType type, Interceptor handler) {
 }
 
 bool EventBus::fire(EventType type, Event& event) {
-    std::scoped_lock lk(mtx_);
-
-    std::vector<InterceptorEntry*> matched;
-    for (auto& e : interceptors_) {
-        if (e.type == type) matched.push_back(&e);
+    std::vector<InterceptorEntry> interceptors;
+    std::vector<ObserverEntry> observers;
+    {
+        std::scoped_lock lk(mtx_);
+        for (auto& e : interceptors_) {
+            if (e.type == type) interceptors.push_back(e);
+        }
+        for (auto& e : observers_) {
+            if (e.type == type) observers.push_back(e);
+        }
     }
-    for (auto it = matched.rbegin(); it != matched.rend(); ++it) {
-        if (!(*it)->handler(event)) return false;
+    for (auto it = interceptors.rbegin(); it != interceptors.rend(); ++it) {
+        if (!it->handler(event)) return false;
     }
-
-    for (auto& e : observers_) {
-        if (e.type == type) e.handler(event);
+    for (auto& e : observers) {
+        e.handler(event);
     }
     return true;
 }
