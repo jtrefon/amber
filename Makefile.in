@@ -45,11 +45,13 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/compressor.o \
             $(BUILD_DIR)/lib/compressor_scanner.o \
             $(BUILD_DIR)/lib/compressor_request.o \
-            $(BUILD_DIR)/lib/compressor_parser.o \
-            $(BUILD_DIR)/lib/compressor_apply.o \
-             $(BUILD_DIR)/lib/memory_store.o \
-             $(BUILD_DIR)/lib/memory_retriever.o \
-             $(BUILD_DIR)/lib/skill_file.o \
+             $(BUILD_DIR)/lib/compressor_parser.o \
+             $(BUILD_DIR)/lib/compressor_apply.o \
+              $(BUILD_DIR)/lib/memory_store.o \
+              $(BUILD_DIR)/lib/memory_scoring.o \
+              $(BUILD_DIR)/lib/memory_persistence.o \
+              $(BUILD_DIR)/lib/memory_retriever.o \
+              $(BUILD_DIR)/lib/skill_file.o \
              $(BUILD_DIR)/lib/skill_catalog.o \
              $(BUILD_DIR)/lib/skill_commands.o \
              $(BUILD_DIR)/lib/learn_commands.o \
