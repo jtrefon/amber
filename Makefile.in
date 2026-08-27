@@ -63,9 +63,12 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/policy.o \
              $(BUILD_DIR)/lib/environment.o \
              $(BUILD_DIR)/lib/data_path.o \
-             $(BUILD_DIR)/lib/bootstrap.o \
-             $(BUILD_DIR)/lib/plugin.o \
-             $(BUILD_DIR)/lib/archive_util.o \
+              $(BUILD_DIR)/lib/bootstrap.o \
+              $(BUILD_DIR)/lib/plugin.o \
+              $(BUILD_DIR)/lib/event_bus.o \
+              $(BUILD_DIR)/lib/plugin_registry.o \
+              $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
+              $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \
              $(BUILD_DIR)/lib/tool_call_parser.o
@@ -116,8 +119,9 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/tui/panel.o \
             $(BUILD_DIR)/tui/list_panel.o \
             $(BUILD_DIR)/tui/confirm_panel.o \
-            $(BUILD_DIR)/tui/menu_select.o \
-            $(BUILD_DIR)/tui/textutil.o \
+             $(BUILD_DIR)/tui/menu_select.o \
+             $(BUILD_DIR)/tui/session_browser_core.o \
+             $(BUILD_DIR)/tui/textutil.o \
             $(BUILD_DIR)/tui/palette.o \
             $(BUILD_DIR)/tui/welcome.o \
             $(BUILD_DIR)/tui/rich.o \
@@ -134,9 +138,13 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/mcp_config_test.o \
                $(BUILD_DIR)/tests/mcp_tools_test.o \
                $(BUILD_DIR)/tests/learn_commands_test.o \
-               $(BUILD_DIR)/tests/agent_loop_test.o
+               $(BUILD_DIR)/tests/agent_loop_test.o \
+               $(BUILD_DIR)/tests/event_bus_test.o \
+               $(BUILD_DIR)/tests/plugin_v2_test.o \
+               $(BUILD_DIR)/tests/metrics_plugin_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
+SB_TEST_OBJ  = $(BUILD_DIR)/tests/session_browser_test.o
 E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
 COMP_TEST_OBJ = $(BUILD_DIR)/tests/completions_test.o
 PLUGIN_TEST_OBJ = $(BUILD_DIR)/tests/plugin_test.o
@@ -237,8 +245,8 @@ check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 	sh $(SRC_DIR)/tests/build_hygiene.sh
 
-test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
-	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/bench_test
+test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
+	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/bench_test
 
 $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
@@ -246,11 +254,14 @@ $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_
 $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 	$(CXX) $(CXXFLAGS) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 
+$(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
+	$(CXX) $(CXXFLAGS) -o $@ $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
+
 $(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 	$(CXX) $(CXXFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 
-$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
-	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
+$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
+	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
@@ -314,6 +325,9 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 	@mkdir -p $(BUILD_DIR)/tools/search
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/plugins/metrics/%.o: $(SRC_DIR)/plugins/metrics/%.cpp
+	@mkdir -p $(BUILD_DIR)/plugins/metrics
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 	@mkdir -p $(BUILD_DIR)/tests
@@ -330,6 +344,7 @@ $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 -include $(TEST_OBJ:.o=.d)
 -include $(BENCH_TEST_OBJ:.o=.d)
 -include $(CL_TEST_OBJ:.o=.d)
+-include $(SB_TEST_OBJ:.o=.d)
 -include $(E2E_TEST_OBJ:.o=.d)
 -include $(COMP_TEST_OBJ:.o=.d)
 -include $(TUI_TEST_OBJ:.o=.d)
@@ -387,8 +402,9 @@ clean:
 	rm -f $(BUILD_DIR)/third_party/md4c/*.o $(BUILD_DIR)/third_party/md4c/*.d
 	rm -f $(SYSINFO_PLUGIN) $(SYSINFO_PLUGIN).d $(CDP_PLUGIN)
 	rm -f $(BUILD_DIR)/tools/plugins/cdp/*.o $(BUILD_DIR)/tools/plugins/cdp/*.d
+	rm -f $(BUILD_DIR)/plugins/metrics/*.o $(BUILD_DIR)/plugins/metrics/*.d
 	rm -f $(BUILD_DIR)/ws_test.d
 	rm -f $(CORE_LIB) $(TOOLS_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)
-	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/smoketest
+	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/smoketest
 	rm -f $(BUILD_DIR)/run_command_line_test $(BUILD_DIR)/run_completions_test $(BUILD_DIR)/run_e2e_test
 	rm -f amber-smoke.txt

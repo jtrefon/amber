@@ -29,6 +29,7 @@ plugin_test
 sysinfo-plugin
 cdp-plugin
 ws_test
+session_browser_test
 
 # Release packaging output
 stage/
