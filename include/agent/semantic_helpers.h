@@ -24,6 +24,7 @@ void embed(const std::vector<std::string>& terms, std::vector<double>& vec,
 double cosine(const std::vector<double>& a, const std::vector<double>& b);
 
 bool matches_glob(const std::string& name, const std::string& glob);
+std::string shell_quote(const std::string& s);
 
 // Recursive file discovery (via `find`) honoring a glob on the basename.
 void walk(const std::string& dir, const std::string& glob,

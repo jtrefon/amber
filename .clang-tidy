@@ -40,5 +40,5 @@ Checks: >
   -abseil-*
 
 WarningsAsErrors: ''
-HeaderFilterRegex: 'include/agent/.*\.h'
+HeaderFilterRegex: 'include/agent/.*\.h|tui/.*\.h'
 FormatStyle: file
