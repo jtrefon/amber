@@ -1,5 +1,6 @@
 
 #include "agent/search_backend.h"
+#include "agent/semantic_helpers.h"
 #include <array>
 #include <cstdio>
 #include <memory>
@@ -65,15 +66,6 @@ public:
     }
 
 private:
-    static std::string shell_quote(const std::string& s) {
-        std::string q = "'";
-        for (char c : s) {
-            if (c == '\'') q += "'\\''";
-            else q += c;
-        }
-        return q + "'";
-    }
-
     static std::string pipe_read(const std::string& cmd) {
         std::string result;
         std::array<char, 256> buf{};
