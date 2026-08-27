@@ -1,6 +1,8 @@
 
 #include "agent/plugin_registry.h"
 
+#include <cassert>
+
 namespace agent {
 
 void PluginRegistry::register_plugin(std::shared_ptr<IPlugin> plugin) {
@@ -14,19 +16,10 @@ bool PluginRegistry::activate(const std::string& id) {
     auto it = entries_.find(id);
     if (it == entries_.end()) return false;
     if (it->second.state == State::Active) return true;
-
-    if (ctx_) {
-        bool ok = it->second.plugin->initialize(*ctx_);
-        it->second.state = ok ? State::Active : State::Failed;
-        return ok;
+    if (!ctx_) {
+        return false;
     }
-
-    static EventBus s_bus;
-    static ToolRegistry s_tools;
-    static Config s_cfg;
-    static Workspace s_ws;
-    PluginContext empty_ctx{s_bus, s_tools, s_cfg, s_ws};
-    bool ok = it->second.plugin->initialize(empty_ctx);
+    bool ok = it->second.plugin->initialize(*ctx_);
     it->second.state = ok ? State::Active : State::Failed;
     return ok;
 }
@@ -76,12 +69,16 @@ EventBus& PluginRegistry::event_bus() { return bus_; }
 void PluginRegistry::set_context(PluginContext* ctx) { ctx_ = ctx; }
 
 const PluginContext& PluginRegistry::context() const {
-    static EventBus s_bus;
-    static ToolRegistry s_tools;
-    static Config s_cfg;
-    static Workspace s_ws;
-    static PluginContext empty{s_bus, s_tools, s_cfg, s_ws};
-    return ctx_ ? *ctx_ : empty;
+    if (!ctx_) {
+        assert(ctx_ && "PluginRegistry::context called without context");
+        static EventBus s_bus;
+        static ToolRegistry s_tools;
+        static Config s_cfg;
+        static Workspace s_ws;
+        static PluginContext empty{s_bus, s_tools, s_cfg, s_ws};
+        return empty;
+    }
+    return *ctx_;
 }
 
 } // namespace agent

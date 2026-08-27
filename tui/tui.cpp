@@ -112,6 +112,10 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
+    plugin_ctx_ = std::make_unique<agent::PluginContext>(
+        agent::PluginContext{plugin_reg_.event_bus(), reg_, cfg_, workspace_});
+    plugin_reg_.set_context(plugin_ctx_.get());
+
     reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
     mcp_servers_.connect_all();
     for (const auto& st : mcp_servers_.snapshot())
