@@ -19,7 +19,27 @@
 > completion) registered and closed 2026-08-02 — see fix-tracker FIX-015.
 > Register is fully resolved.
 
-## 🆕 Current Open Issues
+## 🆕 Current Open Issues — 2026-08-27 Clean Architecture Audit (N1..N11)
+
+Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes `FIX-017..025`, 4 phases, `main` green `33075234503` after `7a0e69d`.
+
+| ID | Sev | Issue | Status | FIX |
+|----|-----|-------|--------|-----|
+| N1 | 🔴 Critical | **Build drift `Makefile.in:394` vs `Makefile:406` — 9 objects only in generated `Makefile` ( `lib/event_bus.o:lib/event_bus.cpp:57`, `lib/plugin_registry.o:lib/plugin_registry.cpp:87`, `plugins/metrics/metrics_plugin.o:plugins/metrics/metrics_plugin.cpp:51`, `tui/session_browser_core.o:tui/session_browser_core.cpp:145`, `tests/event_bus_test.o`, `tests/plugin_v2_test.o`, `tests/metrics_plugin_test.o`, `SB_TEST_OBJ` + `session_browser_test` + `completions_test:command_line.o` ) — fresh `./configure` lost them; `tui/tui.h:10` `plugin_registry.h` committed but headers `include/agent/event_bus.h:67`, `plugin_registry.h:74`, `plugin_v2.h:58` untracked → `lint` `file not found` | **Done `7a0e69d`** — `Makefile.in` synced, headers tracked, `AGENTS.md:428` / `P5` fixed | FIX-016 |
+| N2 | 🟡 Medium | **Audit table drift `AGENTS.md:428` `tui/tui_input.cpp` 2308 vs `wc -l:2295`** — `make check` P5 `tests/build_hygiene.sh:110` failed every push | **Done `7a0e69d`** — 2308→2295 | FIX-016 |
+| N3 | 🟠 High | **God Class `tui/tui.h:46` 394 lines** (`tui/tui.h:46-439` 394, `tui/tui.cpp:750` `run` 394) — 7 responsibilities (ncurses, windows, threads, rendering, git, sessions, feeds); `register_builtin_actions:941` 318 lines | 🔓 Open — `FIX-021..023` Facade → `WindowManager`/`EventRouter`/`RenderEngine`/`FeedManager`/`SessionController` (each <200/10) | FIX-021-023 |
+| N4 | 🟠 High | **Systemic `>10`-line methods** — every `lib/*.cpp` (`agent.cpp:227` `chat_once 116`, `123` `ensure_system_prompt 78`, `686` `run 71`; `compressor_parser.cpp:58:91`; `tool_call_parser.cpp:111:150`; `config.cpp:27:110` etc), `tui/tui_input.cpp:941` 318 | 🔓 Open — Boy Scout helper extraction per PR (no bulk) | FIX (Boy Scout) |
+| N5 | 🟠 High | **`JsonMemoryStore` `lib/memory_store.cpp:115` 287 lines** (`115-401`) + `save:329` `std::system("mkdir -p "+dir)` — scoring + persistence + evidence + migration in one class | 🔓 Open — `FIX-019` split `memory_scoring.cpp`/`memory_persistence.cpp`, `JsonMemoryStore<150`, `fs::create_directories` | FIX-019 |
+| N6 | 🟡 Medium | **`EventBus::fire` `lib/event_bus.cpp:22` holds `scoped_lock:23` while invoking** — re-entrancy `subscribe/unsubscribe/fire` deadlocks; 13 types `include/agent/event_bus.h:67` declared, only `MetricsPlugin` uses | 🔓 Open — `FIX-017` snapshot under lock | FIX-017 |
+| N7 | 🟡 Medium | **`PluginRegistry` `lib/plugin_registry.cpp:24` static `s_bus/s_tools` fallback masks `ctx_==nullptr`; `Capability void* impl` `include/agent/plugin_v2.h:46`** anticipates 8 types, only `Tool`/`Hook` wired | 🔓 Open — `FIX-018` `assert(ctx_)` + comment `void*`→`variant` deferred (YAGNI) | FIX-018 |
+| N8 | 🟡 Medium | **Residual hard-rule escapes `tui/tui_input.cpp:199` `rfind("policy ")`, `245` `rfind("mcp ")`, `298` `rfind("rule")`** — duplicate `refresh_policy_feed:402` leaves (`core.config.set.policy.rule.<tool>`) + `mcp_completion_subtree` (`completions.json:794` sole source) | 🔓 Open — `FIX-020` delete branches | FIX-020 |
+| N9 | 🟡 Medium | **File-level SRP `lib/agent.cpp:811`, `lib/plugin.cpp:585`** vs header classes <200 (header `Agent:89` 197) — audit claims 473→200 resolved, regrouped | 🔓 Open — defer to opportunistic split when >500 (tracked) | — |
+| N10 | 🟡 Medium | **Hygiene `.clang-tidy:HeaderFilterRegex 'include/agent/.*\.h'` hides TUI; `compile_flags.txt:13` hardcodes `/usr/include/c++/15`; missing `SB_TEST_OBJ` P2/P3 checks** | 🔓 Open — `FIX-024` broaden filter, generate `compile_flags.txt` from `configure`, add `session_browser_test` to `build_hygiene.sh` | FIX-024 |
+| N11 | 🔵 Low | **Test monolith `tests/run_tests.cpp:4451` 209 `TEST`s (13.6k, 658 `TEST`s) + mock SSE `127.0.0.1:8911-8920` hardcoded + `shell_quote` dup `grep_backend.cpp:68` vs `semantic_index.cpp:77`** | 🔓 Open — `FIX-025` split by area + ephemeral `bind 0+getsockname` + dedup to `semantic_helpers.h:35` | FIX-025 |
+
+ PARKED pre-alpha: `lib/workspace.cpp:61` lexical `is_within`, `tools/search_tool.cpp:83` fallback, `tools/bash_tool.cpp:27` prefix-only list, `tools/write_tool.cpp:61` no `requires_approval` — security deferred per owner.
+
+## 🆕 Current Open Issues (historical — see N1..N11 above)
 
 | ID | Sev | Issue | Status |
 |----|-----|-------|--------|
