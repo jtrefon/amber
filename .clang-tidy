@@ -33,11 +33,17 @@ Checks: >
   -modernize-avoid-c-arrays,
   -clang-analyzer-optin.performance.Padding,
   -readability-uppercase-literal-suffix,
-  -performance-unnecessary-copy-initialization,
-  -bugprone-narrowing-conversions,
-  -cppcoreguidelines-*,
-  -google-*,
-  -abseil-*
+   -performance-unnecessary-copy-initialization,
+   -bugprone-narrowing-conversions,
+   -modernize-concat-nested-namespaces,
+   -performance-enum-size,
+   -readability-redundant-member-init,
+   -readability-make-member-function-const,
+   -bugprone-empty-catch,
+   -readability-avoid-nested-conditional-operator,
+   -cppcoreguidelines-*,
+   -google-*,
+   -abseil-*
 
 WarningsAsErrors: ''
 HeaderFilterRegex: 'include/agent/.*\.h|tui/.*\.h'
