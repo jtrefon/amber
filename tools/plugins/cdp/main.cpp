@@ -38,7 +38,8 @@ std::string trim(std::string s) {
 // HTTP base derived from the ws endpoint (ws://host:port/path → http://host:port).
 std::string http_base() {
     std::string base = endpoint;
-    if (base.rfind("ws://", 0) == 0) base = "http://" + base.substr(5);
+    if (base.rfind("wss://", 0) == 0) base = "https://" + base.substr(6); // lgtm[cpp/non-https-url] - wss→https for secure WS
+    else if (base.rfind("ws://", 0) == 0) base = "http://" + base.substr(5); // lgtm[cpp/non-https-url] - ws://127.0.0.1:9222 local CDP, http required for /json
     size_t slash = base.find('/', 7);
     if (slash != std::string::npos) base.resize(slash);
     return base;
