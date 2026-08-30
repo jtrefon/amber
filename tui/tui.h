@@ -19,6 +19,8 @@
 #include "action_registry.h"
 #include "setting_registry.h"
 #include "agent_event.h"
+#include "event_router.h"
+#include "window_manager.h"
 
 #include <atomic>
 #include <chrono>
@@ -40,12 +42,16 @@ class ToolRegistry;
 namespace tui {
 using palette::Command;
 class FeedManager;
+class WindowManager;
+class EventRouter;
 
  // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
 // function creates it and calls run().
 class Tui {
     friend class FeedManager;
+    friend class WindowManager;
+    friend class EventRouter;
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
@@ -61,11 +67,8 @@ public:
     void run();
 
 private:
-    // ---- thread / event machinery ---------------------------------------
-    bool drain_events();       // pop and process all pending events
-    // Per-event handlers for drain_events' window-scoped cases; w is the
-    // routed origin window (nullptr when it no longer exists). Global-state
-    // cases (StateChange/Stats/Status/Approval) stay in drain_events.
+    // ---- thread / event machinery (owned by EventRouter) ------------------
+    bool drain_events();
     void on_reasoning(Window* w, const AgentEvent& ev);
     void on_token(Window* w, const AgentEvent& ev);
     void on_tool_call(Window* w, const AgentEvent& ev);
@@ -81,57 +84,26 @@ private:
     void agent_worker(Window& my_win, size_t window_id,
                       const std::string& prompt);
     void compress_worker(Window& my_win, size_t window_id);
-    // Hook factory for agent_worker: builds the AgentHooks that stamp events
-    // with the origin window and funnel them into the queue.
     agent::AgentHooks make_agent_hooks(size_t window_id);
-    // Runs one compression pass on the worker thread and publishes the
-    // result/error event (the caller queues it and clears the busy flag).
     AgentEvent run_compression(Window& my_win, size_t window_id);
-    // Resolve one approval queued while a modal was open (called per pump).
     void pump_pending_approvals();
 
-    std::queue<AgentEvent> event_queue_;
-    std::mutex event_mtx_;
-    std::thread agent_thread_;
-    std::atomic<bool> agent_busy_{false};
-    std::atomic<bool> agent_cancel_{false};
-    // Teardown latch: set under event_mtx_ before the approval queues are
-    // drained, so a worker racing the destructor cannot queue an approval
-    // after the drain (its promise would never resolve and join() would
-    // deadlock).
-    bool shutting_down_ = false;
+    std::unique_ptr<EventRouter> router_;
 
-    // Locate the pending tool line for (window, name, args): fingerprint match
-    // first, then name-only FIFO fallback. npos when nothing matches.
     size_t find_pending_tool(size_t window_id, const std::string& name,
                              const std::string& fingerprint) const;
-
-    // Name of the tool currently executing on the agent worker (foreground,
-    // e.g. bash), surfaced on the status bar so a synchronous command that is
-    // not a JobService background job is still visible while it runs.
     std::string running_tool_;
-    // Human-readable description of the running tool call (describe_tool_call
-    // output), shown in the sticky working row while the tool executes.
     std::string running_tool_desc_;
-
-    // One advertised tool call = one pending scrollback line. All advertised
-    // calls animate together (the round spinner glyph is swapped in-place
-    // each 150ms tick); each line's icon flips to success/failure when its
-    // result lands. Scrollback-only — the agent's immutable context stays
-    // sealed.
     struct PendingToolLine {
-        size_t index = std::string::npos;  // index into the origin window's lines
-        size_t window_id = std::string::npos;  // origin window
+        size_t index = std::string::npos;
+        size_t window_id = std::string::npos;
         std::string name;
-        std::string fingerprint;  // args dump — identity for result matching
-        std::string tail;         // " <description>" after the spinner glyph
+        std::string fingerprint;
+        std::string tail;
         int frame = 0;
     };
     std::vector<PendingToolLine> pending_tools_;
     void advance_tool_spinners();
-    // A prompt the user typed (and submitted with Enter) while the agent was
-    // busy; auto-sent once the agent returns to idle so typing never feels
-    // blocked.
     std::string pending_prompt_;
 
     // ---- git state (decorated prompt) ------------------------------------
@@ -229,14 +201,14 @@ private:
     void session_browser();
 
 
-    // ---- window management ----------------------------------------------
+    // ---- window management (owned by WindowManager) ---------------------
     void switch_to(size_t idx);
     void lazy_load_active();
     void close_window();
     Window& win();
     const Window& win() const;
     Window* window_by_id(size_t id);
-    size_t next_window_id_ = 0;
+    std::unique_ptr<WindowManager> window_manager_;
 
     // ---- slash command framework ----------------------------------------
     const std::vector<tui::Command>& commands();
@@ -403,9 +375,6 @@ public:
     std::string input_fill_;            // /prompt result applied to the input line
     agent::SessionStore store_;
     std::string settings_path_;
-
-    std::vector<std::unique_ptr<Window>> windows_;
-    size_t active_ = 0;
 
     Canvas chat_canvas_;                 // dedicated chat scrollback window
     md::Style md_style_;                 // markdown color mapping
