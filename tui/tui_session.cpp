@@ -14,11 +14,11 @@ namespace tui {
 // Render one restored session message as scrollback lines. Assistant
 // tool_calls queue RestoredCall entries; tool messages emit a single
 // timestamped result line (describe + summary, no exit status).
-void Tui::restore_message_lines(const agent::Message& m,
+void SessionController::restore_message_lines(const agent::Message& m,
                                 std::vector<RestoredCall>& pending) {
-    Window& w = win();
+    Window& w = tui_.win();
     if (m.role == "user") {
-        append_line(P_USER, "> " + m.content);
+        tui_.append_line(P_USER, "> " + m.content);
         return;
     }
     if (m.role == "assistant") {
@@ -39,7 +39,7 @@ void Tui::restore_message_lines(const agent::Message& m,
             }
         }
         if (!m.content.empty())
-            append_markdown(w, m.content);
+            tui_.append_markdown(w, m.content);
         return;
     }
     if (m.role == "tool") {
@@ -49,47 +49,47 @@ void Tui::restore_message_lines(const agent::Message& m,
             rich::Line ln = tool_display::result_line(c.name, c.args, true,
                                                       m.content, "");
             rich::Run ts;
-            ts.text = timestamp();
+            ts.text = Tui::timestamp();
             ts.pair = P_REASONING;
             ts.dim = true;
             ln.runs.insert(ln.runs.begin(), std::move(ts));
-            append_rich(ln);
+            tui_.append_rich(ln);
         } else {
             std::string preview = m.content;
             if (preview.size() > 80) { preview.resize(77); preview += "..."; }
-            append_line(P_STATUS, "  \u2514 " + m.name + ": " + preview);
+            tui_.append_line(P_STATUS, "  \u2514 " + m.name + ": " + preview);
         }
     }
 }
 
-agent::Session Tui::snapshot(Window& w) const {
+agent::Session SessionController::snapshot(Window& w) const {
     agent::Session s;
     s.id = w.session_id;
-    s.model = cfg_.model;
+    s.model = tui_.cfg_.model;
     if (w.agent) {
         const auto& ctx = w.agent->context().get_all();
         s.messages.assign(ctx.begin(), ctx.end());
         s.meta = w.agent->meta_;
     }
     // Persist UI state so it survives exit/reload.
-    s.meta["ctx_used"] = ctx_used_;
-    s.meta["ctx_size"] = cfg_.context_size;
-    if (stats_.valid) {
-        s.meta["latency_ms"] = stats_.latency_ms;
-        s.meta["tps"] = stats_.tps;
-        s.meta["prompt_tokens"] = stats_.prompt_tokens;
-        s.meta["completion_tokens"] = stats_.completion_tokens;
+    s.meta["ctx_used"] = tui_.ctx_used_;
+    s.meta["ctx_size"] = tui_.cfg_.context_size;
+    if (tui_.stats_.valid) {
+        s.meta["latency_ms"] = tui_.stats_.latency_ms;
+        s.meta["tps"] = tui_.stats_.tps;
+        s.meta["prompt_tokens"] = tui_.stats_.prompt_tokens;
+        s.meta["completion_tokens"] = tui_.stats_.completion_tokens;
     }
     s.derive_title();
     if (w.title != "chat" && !w.title.empty()) s.title = w.title;
     return s;
 }
 
-void Tui::autosave() {
-    autosave(win());
+void SessionController::autosave() {
+    autosave(tui_.win());
 }
 
-void Tui::autosave(Window& w) {
+void SessionController::autosave(Window& w) {
     if (!w.dirty || !w.agent || w.agent->context().empty()) return;
     agent::Session s = snapshot(w);
     if (store_.save(s)) {
@@ -99,29 +99,29 @@ void Tui::autosave(Window& w) {
     }
 }
 
-void Tui::save_session() {
-    Window& w = win();
+void SessionController::save_session() {
+    Window& w = tui_.win();
     if (!w.agent || w.agent->context().empty()) {
-        append_line(P_STATUS, "nothing to save (empty conversation)");
+        tui_.append_line(P_STATUS, "nothing to save (empty conversation)");
         return;
     }
     agent::Session s = snapshot(w);
     if (store_.save(s)) {
         w.session_id = s.id;
         w.dirty = false;
-        append_line(P_STATUS, "saved session " + s.id + " (\"" + s.title + "\")");
+        tui_.append_line(P_STATUS, "saved session " + s.id + " (\"" + s.title + "\")");
     } else {
-        append_line(P_STATUS, "save failed (could not write " + store_.dir() + ")");
+        tui_.append_line(P_STATUS, "save failed (could not write " + store_.dir() + ")");
     }
 }
 
-void Tui::load_session(const std::string& id) {
+void SessionController::load_session(const std::string& id) {
     agent::Session s;
     if (!store_.load(id, s)) {
-        append_line(P_STATUS, "load failed: no session " + id);
+        tui_.append_line(P_STATUS, "load failed: no session " + id);
         return;
     }
-    Window& w = new_window(s.title.empty() ? "chat" : s.title);
+    Window& w = tui_.new_window(s.title.empty() ? "chat" : s.title);
     w.session_id = s.id;
     w.agent->set_context(s.messages);
     // Large context on load?  Compress asynchronously so the first turn uses a
@@ -130,13 +130,13 @@ void Tui::load_session(const std::string& id) {
     // would break tail-injection.
     double utilisation = s.messages.empty() ? 0.0
         : static_cast<double>(w.agent->context().token_count())
-          / std::max(1, cfg_.context_size);
+          / std::max(1, tui_.cfg_.context_size);
     if (utilisation > 0.40) {
-        append_line(P_STATUS, "large session — background compression started");
-        switch_to(window_manager_->all().size() - 1);
+        tui_.append_line(P_STATUS, "large session — background compression started");
+        tui_.switch_to(tui_.window_manager_->all().size() - 1);
         Window* my_win = &w;
         size_t my_id = w.id;
-        compress_worker(*my_win, my_id);
+        tui_.compress_worker(*my_win, my_id);
     }
     if (!s.meta.empty())
         w.agent->meta_ = s.meta;
@@ -145,25 +145,25 @@ void Tui::load_session(const std::string& id) {
         return (s.meta.contains(key) && s.meta[key].is_number())
                    ? s.meta[key].get<long>() : def;
     };
-    ctx_used_ = get_num("ctx_used", -1);
+    tui_.ctx_used_ = get_num("ctx_used", -1);
     long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
-        cfg_.context_size = static_cast<int>(restored_ctx);
+        tui_.cfg_.context_size = static_cast<int>(restored_ctx);
     if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
-        stats_.latency_ms = s.meta["latency_ms"].get<double>();
-        stats_.tps = static_cast<double>(get_num("tps", -1));
-        stats_.prompt_tokens = get_num("prompt_tokens", -1);
-        stats_.completion_tokens = get_num("completion_tokens", -1);
-        stats_.valid = true;
+        tui_.stats_.latency_ms = s.meta["latency_ms"].get<double>();
+        tui_.stats_.tps = static_cast<double>(get_num("tps", -1));
+        tui_.stats_.prompt_tokens = get_num("prompt_tokens", -1);
+        tui_.stats_.completion_tokens = get_num("completion_tokens", -1);
+        tui_.stats_.valid = true;
     }
-    std::vector<RestoredCall> pending;
+    std::vector<SessionController::RestoredCall> pending;
     for (const auto& m : s.messages)
         restore_message_lines(m, pending);
     if (!s.messages.empty()) {
-        win().scroll_top = max_scroll();
+        tui_.win().scroll_top = tui_.render_engine_->max_scroll();
     }
-    append_line(P_STATUS, "loaded session " + s.id);
-    draw();
+    tui_.append_line(P_STATUS, "loaded session " + s.id);
+    tui_.draw();
 }
 
 
@@ -224,14 +224,14 @@ bool matches_filter(const std::string& title, const std::string& filter) {
 
 } // namespace
 
-void Tui::session_browser() {
+void SessionController::session_browser() {
     auto all = store_.list();
     if (all.empty()) {
-        append_line(P_STATUS, "no saved sessions");
+        tui_.append_line(P_STATUS, "no saved sessions");
         return;
     }
 
-    int sh = height(), sw = width();
+    int sh = tui_.render_engine_->height(), sw = tui_.render_engine_->width();
     int dw = std::min(sw - 4, 120);
     int dh = std::min(sh - 6, sh - 2);
 
@@ -391,7 +391,7 @@ void Tui::session_browser() {
                             all.erase(all.begin() + del_idx);
                             sel = 0; scroll_off = 0;
                             if (all.empty()) {
-                                append_line(P_STATUS, "no saved sessions");
+                                tui_.append_line(P_STATUS, "no saved sessions");
                                 done = true;
                             }
                         }
@@ -413,14 +413,26 @@ void Tui::session_browser() {
     }
 
     curs_set(1);
-    draw();
+    tui_.draw();
+}
+
+void SessionController::save_window_sessions() {
+    for (const auto& window : tui_.window_manager_->all()) {
+        Window& w = *window;
+        if (!w.dirty || !w.agent || w.agent->context().get_all().empty()) continue;
+        std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
+        std::fflush(stderr);
+        agent::Session s = snapshot(w);
+        if (store_.save(s)) w.session_id = s.id;
+    }
+    std::fprintf(stderr, "\rsession save complete\n");
 }
 
 void Tui::lazy_load_active() {
     auto& w = win();
     if (!w.agent || !w.agent->context().empty() || w.session_id.empty()) return;
     agent::Session s;
-    if (!store_.load(w.session_id, s)) {
+    if (!session_controller_->store().load(w.session_id, s)) {
         w.session_id.clear();
         return;
     }
@@ -444,19 +456,19 @@ void Tui::lazy_load_active() {
         stats_.valid = true;
     }
     w.lines.clear();
-    pending_tools_.clear();  // spinner lines belong to the old scrollback
-    std::vector<RestoredCall> pending;
+    router_->pending_tools().clear();  // spinner lines belong to the old scrollback
+    std::vector<SessionController::RestoredCall> pending;
     for (const auto& m : s.messages)
-        restore_message_lines(m, pending);
+        session_controller_->restore_message_lines(m, pending);
     if (!s.messages.empty())
-        win().scroll_top = max_scroll();
+        win().scroll_top = render_engine_->max_scroll();
 }
 
 void Tui::switch_to(size_t idx) {
     if (idx >= window_manager_->all().size() || idx == window_manager_->active()) return;
     if (busy_reject("window switch")) return;
     window_manager_->set_active(idx);
-    pending_tools_.clear();  // spinner indices belong to the old window
+    router_->pending_tools().clear();  // spinner indices belong to the old window
     lazy_load_active();
     draw();
 }
@@ -472,37 +484,36 @@ void Tui::close_window() {
     autosave();
     window_manager_->all().erase(window_manager_->all().begin() + window_manager_->active());
     if (window_manager_->active() >= window_manager_->all().size()) window_manager_->set_active(window_manager_->all().size() - 1);
-    pending_tools_.clear();
+    router_->pending_tools().clear();
     draw();
 }
 
-void Tui::request_quit() { quit_ = true; }
 
-void Tui::save_workspace_now() {
+void SessionController::save_workspace_now() {
     agent::WorkspaceState ws;
-    for (const auto& w : window_manager_->all()) {
+    for (const auto& w : tui_.window_manager_->all()) {
         agent::WorkspaceState::WindowEntry we;
         we.session_id = w->session_id;
         we.title = w->title;
         we.prompt_history = w->prompt_history;
         ws.windows.push_back(we);
     }
-    ws.active = window_manager_->active();
+    ws.active = tui_.window_manager_->active();
     store_.save_workspace(ws);
 }
-void Tui::redraw_after_modal() {
-    modal_open_ = false;
+void SessionController::redraw_after_modal() {
+    tui_.modal_open_ = false;
     // Resolve any approvals that arrived while a modal dialog was open. Each
     // resolve shows its own (non-nested) approval dialog on the now-live loop.
-    while (!pending_approvals_.empty()) {
-        AgentEvent ev = std::move(pending_approvals_.front());
-        pending_approvals_.pop();
-        resolve_approval(ev);
+    while (!tui_.router_->pending_approvals().empty()) {
+        AgentEvent ev = std::move(tui_.router_->pending_approvals().front());
+        tui_.router_->pending_approvals().pop();
+        tui_.router_->resolve_approval(ev);
     }
     touchwin(stdscr);
-    draw();
-    draw_input("");
-    flush();
+    tui_.draw();
+    tui_.render_engine_->draw_input("");
+    tui_.flush();
 }
 
 } // namespace tui

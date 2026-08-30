@@ -1,110 +1,12 @@
-
 #include "tui.h"
-#include "welcome.h"
 #include "tool_display.h"
 
-#include "tui/drawer_rows.h"
-
-#include <algorithm>
-#include <cmath>
 #include <ctime>
+#include <string>
+#include <vector>
+#include <utility>
 
 namespace tui {
-
-int Tui::height() const { int y, x; getmaxyx(stdscr, y, x); (void)x; return y; }
-int Tui::width() const { int y, x; getmaxyx(stdscr, y, x); (void)y; return x; }
-int Tui::chat_top() const { return 0; }
-int Tui::chat_height() const { return std::max(1, height() - 2); }
-int Tui::lines_per_page() const { return chat_height(); }
-std::vector<rich::Line> Tui::build_view_without_working(const Window& w) const {
-    std::vector<rich::Line> view = w.lines;
-    if (show_reasoning_ && !w.reason_folded && !w.reason_buf.empty()) {
-        rich::Line label;
-        rich::Run r0; r0.pair = P_REASONING; r0.dim = true;
-        r0.text = "thinking...";
-        label.runs.push_back(r0);
-        view.push_back(label);
-        rich::Line body;
-        rich::Run r1; r1.pair = P_REASONING; r1.dim = true; r1.text = w.reason_buf;
-        body.runs.push_back(r1);
-        for (auto& l : rich::wrap(body, width())) view.push_back(std::move(l));
-        if (!w.stream_buf.empty())
-            view.push_back(rich::Line{});
-    }
-    if (!w.stream_buf.empty()) {
-        if (w.markdown_on) {
-            auto preview = md::render(w.stream_buf, md_style_);
-            if (!preview.empty()) {
-                rich::Run ts;
-                ts.text = (w.stream_ts.empty() ? timestamp() : w.stream_ts) + " ";
-                ts.pair = P_REASONING;
-                ts.dim = true;
-                preview.front().runs.insert(preview.front().runs.begin(), std::move(ts));
-                for (auto& l : preview) view.push_back(std::move(l));
-            }
-        } else {
-            append_rich_to(view, w.stream_buf, w.stream_color, width());
-        }
-    }
-    bool live = router_->busy() && (!w.stream_buf.empty() || !w.reason_buf.empty());
-    if (live) {
-        if (view.empty() || !view.back().runs.empty())
-            view.push_back(rich::Line{});
-    }
-    // Ensure HR always has blank lines around it so a missing newline in
-    // the source markdown never makes it render inline (looks like an
-    // underline extension of the previous paragraph).
-    {
-        std::vector<rich::Line> fixed;
-        fixed.reserve(view.size() + 4);
-        for (size_t i = 0; i < view.size(); ++i) {
-            if (view[i].is_hr) {
-                if (!fixed.empty() && !fixed.back().runs.empty())
-                    fixed.push_back(rich::Line{});
-                fixed.push_back(view[i]);
-                bool next_is_blank = (i + 1 < view.size() && view[i + 1].runs.empty());
-                if (!next_is_blank)
-                    fixed.push_back(rich::Line{});
-            } else {
-                fixed.push_back(view[i]);
-            }
-        }
-        view.swap(fixed);
-    }
-    return view;
-}
-std::vector<rich::Line> Tui::build_view(const Window& w) const {
-    auto view = build_view_without_working(w);
-    if (router_->busy() && working_visible_) {
-        if (!view.empty() && !view.back().runs.empty())
-            view.push_back(rich::Line{});
-        auto now = std::chrono::steady_clock::now();
-        size_t secs = static_cast<size_t>(
-            std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
-        std::string label = tool_display::working_label(
-            text::glyph::spinner_round(anim_phase_), secs, running_tool_desc_);
-        rich::Line wl;
-        rich::Run r;
-        r.pair = P_STATUS;
-        r.text = label;
-        wl.runs.push_back(std::move(r));
-        view.push_back(std::move(wl));
-        // Gap after working so the spinner never sits on the status bar edge.
-        view.push_back(rich::Line{});
-    }
-    return view;
-}
-int Tui::max_scroll(const Window& w) const {
-    // Working row is sticky (outside scrollable canvas) — don't count it in
-    // max_scroll. Only the scrollable view matters.
-    auto view = build_view_without_working(w);
-    int total = static_cast<int>(rich::rewrap_all(view, width()).size());
-    bool show_working = router_->busy() && working_visible_;
-    int ch = chat_height();
-    if (show_working) ch = std::max(1, ch - 1);
-    int m = total - ch;
-    return m < 0 ? 0 : m;
-}
 
 size_t Tui::utf8_len(const std::string& s, size_t i) {
     return text::utf8_len(s, i);
@@ -139,11 +41,11 @@ size_t Tui::append_line_to(Window& w, int color, const std::string& text,
         head.runs.push_back({ts, P_REASONING, false, true});  // faint timestamp
     rich::Run body; body.pair = color; body.text = text;
     head.runs.push_back(body);
-    auto wrapped = rich::wrap(head, width());
+    auto wrapped = rich::wrap(head, render_engine_->width());
     size_t first = w.lines.size();
     for (auto& l : wrapped) w.lines.push_back(std::move(l));
     trim_lines(w);
-    int max = max_scroll(w);
+    int max = render_engine_->max_scroll(w);
     if (w.scroll_top >= max - 2)
         w.scroll_top = max;
     return first;
@@ -155,7 +57,7 @@ void Tui::append_rich(const rich::Line& l) {
 void Tui::append_rich_to(Window& w, const rich::Line& l) {
     w.lines.push_back(l);
     trim_lines(w);
-    w.scroll_top = max_scroll(w);
+    w.scroll_top = render_engine_->max_scroll(w);
 }
 void Tui::append_markdown(Window& w, const std::string& md) {
     if (w.markdown_on) {
@@ -163,7 +65,7 @@ void Tui::append_markdown(Window& w, const std::string& md) {
         // timestamp run to the first rendered line so it stays on the same
         // line as the reply (matching user/tool/status lines) instead of
         // floating on its own row above a blank gap.
-        auto lines = md::render(md, md_style_);
+        auto lines = md::render(md, render_engine_->md_style());
         if (!lines.empty()) {
             rich::Run ts;
             ts.text = (w.stream_ts.empty() ? timestamp()
@@ -178,21 +80,14 @@ void Tui::append_markdown(Window& w, const std::string& md) {
         append_line_to(w, P_ASSISTANT, md);
     }
     trim_lines(w);
-    w.scroll_top = max_scroll(w);
+    w.scroll_top = render_engine_->max_scroll(w);
 }
 void Tui::banner(const std::string& text) {
     rich::Line l;
     rich::Run r; r.pair = P_BANNER; r.bold = true; r.text = text;
     l.runs.push_back(r);
     win().lines.push_back(std::move(l));
-    win().scroll_top = max_scroll();
-}
-void Tui::append_rich_to(std::vector<rich::Line>& view, const std::string& text,
-                         int color, int w) {
-    rich::Line l;
-    rich::Run r; r.pair = color; r.text = text;
-    l.runs.push_back(r);
-    for (auto& x : rich::wrap(l, w)) view.push_back(std::move(x));
+    win().scroll_top = render_engine_->max_scroll();
 }
 void Tui::trim_lines(Window& w) {
     if (w.lines.size() <= 10000) return;
@@ -200,7 +95,7 @@ void Tui::trim_lines(Window& w) {
     // Pending tool lines hold indices into this window's scrollback; shift
     // surviving entries by the trimmed amount and invalidate the rest so
     // spinner animation can never write to a moved line.
-    for (auto& pt : pending_tools_) {
+    for (auto& pt : router_->pending_tools()) {
         if (pt.window_id != w.id) continue;
         if (pt.index < 5000) {
             pt.index = std::string::npos;
@@ -210,507 +105,15 @@ void Tui::trim_lines(Window& w) {
     }
 }
 
-int Tui::display_cols(const std::string& s) { return text::display_cols(s); }
-std::wstring Tui::to_wide(const std::string& s) { return text::to_wide(s); }
-std::string Tui::kfmt(long n) { return agent::bar::kfmt(n); }
-
-int Tui::gauge_pair(double f) {
-    switch (agent::bar::pressure(f)) {
-        case agent::bar::Pressure::Crit: return P_GAUGE_CRIT;
-        case agent::bar::Pressure::Warn: return P_GAUGE_WARN;
-        default:                         return P_GAUGE_OK;
-    }
-}
-
-std::vector<Tui::Seg> Tui::bar_segments() const {
-    std::vector<Seg> segs;
-    std::string wtag = "[" + std::to_string(window_manager_->active() + 1) + "/" +
-                       std::to_string(window_manager_->all().size()) + "]";
-    segs.push_back({wtag, P_BANNER, 3});
-    // Model + reasoning strength in ONE bracket: [model(high)] — the effort
-    // never visually concatenates with anything. Green bracket; the
-    // strength color-coding was too loud at high.
-    segs.push_back({" [" + cfg_.model +
-                        tool_display::reasoning_badge(cfg_.reasoning_effort) +
-                        "]",
-                    P_GAUGE_OK, 5});
-
-    // Agent mode label with full words and colour coding.
-    std::string mode_txt;
-    int mode_pair = P_BAR_DIM;
-    switch (cfg_.mode) {
-        case agent::AgentMode::Read:
-            mode_txt = " read ";
-            mode_pair = P_GAUGE_OK;      // green on blue — safe
-            break;
-        case agent::AgentMode::Write:
-            mode_txt = " write ";
-            mode_pair = P_GAUGE_WARN;    // yellow on blue — cautious
-            break;
-        case agent::AgentMode::Yolo:
-            mode_txt = " yolo ";
-            mode_pair = P_BUTTON_ACT;    // white on yellow — most prominent
-            break;
-    }
-    segs.push_back({mode_txt, mode_pair, 2});
-
-    if (scroll_mode_) {
-        segs.push_back({" S ", P_GAUGE_OK, 0});
-    }
-
-    if (stats_.latency_ms >= 0) {
-        char b[32];
-        std::snprintf(b, sizeof(b), "  lag %.0fms", stats_.latency_ms);
-        int lag_pair;
-        if (stats_.latency_ms > 5000) lag_pair = P_GAUGE_CRIT;
-        else if (stats_.latency_ms > 1000) lag_pair = P_GAUGE_WARN;
-        else lag_pair = P_BAR_DIM;
-        segs.push_back({b, lag_pair, 6});
-    } else {
-        segs.push_back({"  lag " + std::string(text::glyph::emdash()), P_BAR_DIM, 6});
-    }
-    if (stats_.tps > 0) {
-        char b[32];
-        std::snprintf(b, sizeof(b), "  %.0f t/s", stats_.tps);
-        segs.push_back({b, P_BAR_DIM, 4});
-    } else {
-        segs.push_back({"  " + std::string(text::glyph::emdash()) + " t/s", P_BAR_DIM, 4});
-    }
-    std::string up = stats_.prompt_tokens >= 0 ? kfmt(stats_.prompt_tokens)
-                                               : text::glyph::emdash();
-    std::string dn = stats_.completion_tokens >= 0
-                         ? kfmt(stats_.completion_tokens) : text::glyph::emdash();
-    segs.push_back({"  " + std::string(text::glyph::up()) + up + " " +
-                    text::glyph::down() + dn, P_BAR_DIM, 7});
-
-    // Background jobs: count plus a live countdown to the nearest idle/hard
-    // deadline so the user can see a server will be auto-reaped soon.
-    int njobs = jobs_.running_count();
-    if (njobs > 0) {
-        std::string s = "  " + std::to_string(njobs) + " job" +
-                        (njobs > 1 ? "s" : "");
-        int rem = jobs_.min_timeout_remaining();
-        if (rem >= 0) s += " " + std::to_string(rem) + "s";
-        segs.push_back({s, P_GAUGE_WARN, 1});
-    } else if (!running_tool_.empty()) {
-        // A synchronous tool (e.g. bash) is executing on the agent worker; it
-        // is not a JobService background job but the user should still see it
-        // running here rather than the bar looking idle.
-        segs.push_back({"  " + running_tool_ + "…", P_GAUGE_WARN, 1});
-    }
-
-    // Connected MCP servers; a failed one is flagged with '!'.
-    std::string mcp_txt;
-    for (const auto& st : mcp_servers_.snapshot()) {
-        if (!st.connected && st.error.empty()) continue;
-        if (!mcp_txt.empty()) mcp_txt += "·";
-        mcp_txt += (st.connected ? "" : "!") + st.name;
-    }
-    if (!mcp_txt.empty())
-        segs.push_back({"  mcp: " + mcp_txt, P_BAR_DIM, 8});
-    return segs;
-}
-
-void Tui::draw() {
-    dirty_ = true;
-    if (win().welcome_art) {
-        erase();
-        welcome::render(stdscr, chat_top(), width());
-        draw_status_bar("welcome");
-        wnoutrefresh(stdscr);
-        return;
-    }
-
-    bool show_working = router_->busy() && working_visible_;
-    std::vector<rich::Line> view = build_view_without_working(win());
-    int ch = chat_height();
-    if (show_working) ch = std::max(1, ch - 1);
-    chat_canvas_.resize(chat_top(), ch, width());
-    chat_canvas_.set_lines(view);
-    if (static_cast<size_t>(win().scroll_top) >
-        static_cast<size_t>(chat_canvas_.max_top()))
-        win().scroll_top = chat_canvas_.max_top();
-    chat_canvas_.set_top(win().scroll_top);
-    chat_canvas_.render();
-    if (show_working) {
-        int wy = chat_top() + ch;
-        move(wy, 0);
-        clrtoeol();
-        auto now = std::chrono::steady_clock::now();
-        size_t secs = static_cast<size_t>(
-            std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
-        std::string label = tool_display::working_label(
-            text::glyph::spinner_round(anim_phase_), secs, running_tool_desc_);
-        attron(COLOR_PAIR(P_STATUS));
-        mvaddnstr(wy, 0, label.c_str(), width());
-        attroff(COLOR_PAIR(P_STATUS));
-    }
-
-    {
-        int total = chat_canvas_.wrapped_count();
-        // When working is sticky, the visible area is ch + 1 (working row)
-        // but total is without working; include the sticky row for percentage.
-        if (show_working) total += 1;
-        int pos = win().scroll_top;
-        int vis = chat_height();
-        std::string scroll_glyph;
-        if (total > vis) {
-            int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis)
-                                             / (total - vis));
-            scroll_glyph = " P:" + std::to_string(pct) + "%";
-        }
-        draw_status_bar(scroll_glyph);
-    }
-    wnoutrefresh(stdscr);
-}
-
-void Tui::draw_status_bar(const std::string& tail) {
-    int w = width();
-    int y = height() - 2;
-
-    std::time_t t = std::time(nullptr);
-    std::tm tm{};
-    localtime_r(&t, &tm);
-    char clk[16];
-    std::strftime(clk, sizeof(clk), "[%H:%M:%S]", &tm);
-    std::string clock = clk;
-    int clock_w = display_cols(clock);
-
-    // Width of the framed activity indicator ([ |...| ]) that is right-justified
-    // just left of the clock. Segments must stop before it so they are never
-    // overwritten by it.
-    constexpr int kIW = 12;
-    int activity_w = kIW + 1;  // indicator + a leading gap
-
-    attron(COLOR_PAIR(P_BANNER));
-    mvhline(y, 0, ' ', w);
-    attroff(COLOR_PAIR(P_BANNER));
-
-    std::vector<Seg> segs = bar_segments();
-
-    bool have_ctx = (cfg_.context_size > 0);
-    long ctx_used = ctx_used_ >= 0 ? ctx_used_ + live_ctx_offset_ : live_ctx_offset_;
-    double frac = have_ctx
-                      ? static_cast<double>(ctx_used) / cfg_.context_size
-                      : 0.0;
-
-    // Reserve the clock and the activity indicator so the jobs segment (added
-    // last, hence rightmost) is never drawn under the indicator.
-    int right_w = clock_w + 1 + activity_w;
-    int budget = w - right_w;
-    if (budget < 0) budget = 0;
-
-    int gauge_min = have_ctx ? 12 : 0;
-    auto text_cols = [&]() {
-        int c = 0;
-        for (auto& s : segs) c += display_cols(s.text);
-        return c;
-    };
-    while (text_cols() + gauge_min > budget && !segs.empty()) {
-        int worst = -1, worst_i = -1;
-        for (size_t i = 0; i < segs.size(); ++i)
-            if (segs[i].drop > worst) { worst = segs[i].drop; worst_i = (int)i; }
-        if (worst <= 0) break;
-        segs.erase(segs.begin() + worst_i);
-    }
-
-    int x = 0;
-    auto put = [&](const std::string& s, int pair) {
-        if (x >= budget) return;
-        std::wstring ws = to_wide(s);
-        int room = budget - x;
-        if (static_cast<int>(ws.size()) > room) ws.resize(room);
-        attron(COLOR_PAIR(pair));
-        mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
-        attroff(COLOR_PAIR(pair));
-        x += static_cast<int>(ws.size());
-        if (x > budget) x = budget;
-    };
-
-    for (auto& s : segs) put(s.text, s.pair);
-
-    if (have_ctx && x < budget) {
-        put("  ctx ", P_BAR_DIM);
-        int cells = std::min(24, std::max(6, (budget - x) - 14));
-        if (cells > 0 && x < budget) {
-            put(text::glyph::block_l(), P_BAR_DIM);
-            std::string bar = text::glyph::utf8()
-                                  ? agent::bar::gauge_bar(frac, cells)
-                                  : agent::bar::gauge_bar_ascii(frac, cells);
-            put(bar, gauge_pair(frac));
-            put(text::glyph::block_r(), P_BAR_DIM);
-            char b[48];
-            std::snprintf(b, sizeof(b), " %d%% %s/%s",
-                          static_cast<int>(std::lround(frac * 100)),
-                          kfmt(ctx_used).c_str(),
-                          kfmt(cfg_.context_size).c_str());
-            put(b, gauge_pair(frac));
-        }
-    }
-
-    if (!tail.empty() && x + display_cols(tail) + 1 < budget)
-        put("  " + tail, P_BAR_DIM);
-
-    // Framed activity indicator, right-justified before the clock.
-    // wattron/wattroff used throughout (not chtype |) for reliable colour
-    // pair rendering in ncursesw.
-    int ix = w - clock_w - kIW - 1;  // one space left of the clock
-    if (ix > x + 4) {
-        wattron(stdscr, COLOR_PAIR(P_BAR_DIM));
-        mvaddch(y, ix, '[');
-        if (router_->busy()) {
-            // Advance phase at ~150ms intervals (~6 fps) so the wave
-            // travels at a pleasant, observable pace.
-            static auto last_phase = std::chrono::steady_clock::now();
-            auto now = std::chrono::steady_clock::now();
-            if (now - last_phase > std::chrono::milliseconds(150)) {
-                ++anim_phase_;
-                last_phase = now;
-            }
-            for (int i = 0; i < kIW - 2; ++i) {
-                int c = anim_phase_ % 16;
-                if (c >= 8) c = 16 - c;
-                int d = std::abs(i - c);
-                chtype a = A_NORMAL;
-                if (d == 0)      a = A_BOLD;
-                else if (d > 2)  a = A_DIM;
-                attron(a);
-                mvaddch(y, ix + 1 + i, '|');
-                attroff(a);
-            }
-        } else {
-            anim_phase_ = 0;
-            mvaddstr(y, ix + 1, "   idle   ");  // 10 chars, centered
-        }
-        mvaddch(y, ix + kIW - 1, ']');
-        wattroff(stdscr, COLOR_PAIR(P_BAR_DIM));
-    }
-
-    if (clock_w < w) {
-        std::wstring wc = to_wide(clock);
-        attron(COLOR_PAIR(P_BAR_DIM));
-        mvaddnwstr(y, w - clock_w, wc.c_str(), static_cast<int>(wc.size()));
-        attroff(COLOR_PAIR(P_BAR_DIM));
-    }
-}
-
-void Tui::tick_clock() {
-    dirty_ = true;
-    int total = max_scroll() + chat_height();
-    int vis = chat_height();
-    int pos = win().scroll_top;
-    std::string tail;
-    if (total > vis) {
-        int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis)
-                                         / (total - vis));
-        tail = " P:" + std::to_string(pct) + "%";
-    }
-    draw_status_bar(tail);
-    wnoutrefresh(stdscr);
-}
-
-void Tui::advance_tool_spinners() {
-    if (pending_tools_.empty()) return;
-    bool changed = false;
-    for (auto& pt : pending_tools_) {
-        Window* w = window_by_id(pt.window_id);
-        if (!w || pt.index >= w->lines.size()) {
-            pt.index = std::string::npos;
-            continue;
-        }
-        ++pt.frame;
-        auto& runs = w->lines[pt.index].runs;
-        if (runs.empty()) continue;
-        // The body run is the LAST run (runs[0] is the timestamp).
-        runs.back().text = std::string(text::glyph::spinner_round(pt.frame)) +
-                           pt.tail;
-        changed = true;
-    }
-    pending_tools_.erase(
-        std::remove_if(pending_tools_.begin(), pending_tools_.end(),
-                       [](const PendingToolLine& pt) {
-                           return pt.index == std::string::npos;
-                       }),
-        pending_tools_.end());
-    if (changed) draw();
-}
-
-void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
-    dirty_ = true;
-    draw_drawer(s);
-    int y = height() - 1;
-    int w = width();
-    int x = 0;
-    int prompt_w = 0;
-
-    move(y, 0);
-    clrtoeol();
-
-    // ── Prompt segments (colored, same pattern as bar_segments) ────────
-    auto put = [&](const std::string& text, int pair, int attrs = 0) {
-        if (x >= w) return;
-        std::wstring ws = to_wide(text);
-        int room = w - x;
-        if (static_cast<int>(ws.size()) > room) ws.resize(room);
-        if (attrs)
-            attron(COLOR_PAIR(pair) | attrs);
-        else
-            attron(COLOR_PAIR(pair));
-        mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
-        if (attrs)
-            attroff(COLOR_PAIR(pair) | attrs);
-        else
-            attroff(COLOR_PAIR(pair));
-        x += static_cast<int>(ws.size());
-    };
-
-    // Always show project name. Git branch and diff stats when available.
-    auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
-    decor("\u2514\u2500[");
-    put(git_project_, P_USER);
-    if (!git_branch_.empty()) {
-        decor("]\u2500[");
-        put(git_branch_, P_ASSISTANT);
-        if (git_ins_ > 0 || git_del_ > 0) {
-            decor("]\u2500[");
-            if (git_ins_ > 0)
-                put("+" + std::to_string(git_ins_), P_GIT_PLUS);
-            decor("/");
-            if (git_del_ > 0)
-                put("-" + std::to_string(git_del_), P_GIT_MINUS);
-        }
-    }
-    decor("]\u2500\u276f ");
-
-    prompt_w = x;  // columns consumed by prompt (x is already in wide-char count)
-    int total_w = prompt_w + display_cols(s) + display_cols(shadow);
-    // Cursor column: prompt width + input text before cursor.
-    int cursor_col = prompt_w + display_cols(s.substr(0, cursor));
-    int scroll_off = 0;
-    if (cursor_col >= w) scroll_off = cursor_col - w + 1;
-    if (scroll_off < prompt_w) scroll_off = 0;
-    if (total_w - scroll_off <= 0) {
-        scroll_off = std::max(0, total_w - w);
-    }
-
-    // Render visible part of input text starting at column prompt_w.
-    int input_start = prompt_w - scroll_off;
-    if (input_start < 0) input_start = 0;
-    if (input_start < w && scroll_off > prompt_w) {
-        // Scrolled past prompt — render input only.
-        const char* input_visible = s.c_str();
-        auto skip = static_cast<size_t>(scroll_off - prompt_w);
-        int input_len;
-        if (skip < s.size()) {
-            input_visible += skip;
-            input_len = static_cast<int>(s.size()) - static_cast<int>(skip);
-        } else {
-            input_len = 0;
-        }
-        if (input_len > 0) {
-            if (input_len > w) input_len = w;
-            attron(COLOR_PAIR(P_USER));
-            mvaddnstr(y, input_start, input_visible, input_len);
-            attroff(COLOR_PAIR(P_USER));
-        }
-    } else if (input_start < w && scroll_off <= prompt_w) {
-        // Input starts after prompt on same line.
-        const char* input_visible = s.c_str();
-        int input_len = static_cast<int>(s.size());
-        if (input_len > w - input_start)
-            input_len = w - input_start;
-        if (input_len > 0) {
-            attron(COLOR_PAIR(P_USER));
-            mvaddnstr(y, input_start, input_visible, input_len);
-            attroff(COLOR_PAIR(P_USER));
-        }
-    }
-
-    // ── Shadow (faded completion hint after cursor) ────────────────────
-    if (!shadow.empty() && cursor == s.size()) {
-        int input_w = prompt_w + display_cols(s);
-        int shadow_start = input_w - scroll_off;
-        if (shadow_start >= 0 && shadow_start < w) {
-            attron(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
-            mvaddnstr(y, shadow_start, shadow.c_str(),
-                       std::min(static_cast<int>(shadow.size()), w - shadow_start));
-            attroff(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
-        }
-    }
-
-    // ── Cursor ─────────────────────────────────────────────────────────
-    int cx = cursor_col - scroll_off;
-    if (cx < 0) cx = 0;
-    if (cx >= w) cx = w - 1;
-    curs_set(1);
-    move(y, cx);
-    wnoutrefresh(stdscr);
-}
-
-std::string Tui::drawer_token(const std::string& input) {
+std::string RenderEngine::drawer_token(const std::string& input) {
     return palette::token(input);
 }
-bool Tui::drawer_has_arg(const std::string& input) {
+bool RenderEngine::drawer_has_arg(const std::string& input) {
     return palette::has_arg(input);
 }
-std::vector<const Command*> Tui::filter_commands(const std::string& token) {
-    return palette::filter(commands(), token);
+std::vector<const palette::Command*> RenderEngine::filter_commands(const std::string& token) {
+    return palette::filter(tui_.commands(), token);
 }
 
-void Tui::draw_drawer(const std::string& input) {
-    if (!drawer_open_) return;
-    // Don't draw the drawer when a modal dialog is active — it uses raw
-    // move/addch which bypasses the panel system and paints on top of
-    // modal dialogs (approval, info, menu_select). Clear the area to
-    // remove any stale text that would peek through the modal.
-    if (modal_open_) {
-        int bar_row = height() - 2;
-        for (int row = std::max(0, bar_row - 8); row < bar_row; ++row) {
-            move(row, 0); clrtoeol();
-        }
-        return;
-    }
-
-    int bar_row = height() - 2;
-    bool arg_mode = drawer_has_arg(input);
-    // Rows are pure data from the command tree (children + help + choices)
-    // so the drawer stays 1:1 with completions and is unit-testable.
-    std::vector<std::string> rows = drawer_rows(input, settings_);
-
-    int nsel = arg_mode ? 0 : static_cast<int>(rows.size());
-    if (drawer_sel_ >= nsel) drawer_sel_ = std::max(0, nsel - 1);
-    if (drawer_sel_ < 0) drawer_sel_ = 0;
-
-    int max_rows = std::max(1, bar_row - chat_top());
-    int header = 1;
-    int shown = std::min<int>(rows.size(), max_rows - header);
-    int top = bar_row - header - shown;
-
-    for (int row = top; row < bar_row; ++row) {
-        move(row, 0);
-        clrtoeol();
-    }
-
-    std::string hdr = " options  (Tab complete  Up/Down select  Enter run  ? help  Esc cancel) ";
-    move(top, 0);
-    attron(COLOR_PAIR(P_STATUS) | A_BOLD);
-    for (int i = 0; i < width(); ++i) addch(' ');
-    mvaddnstr(top, 0, hdr.c_str(), width());
-    attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
-
-    for (int i = 0; i < shown; ++i) {
-        int y = top + header + i;
-        bool sel = (!arg_mode && i == drawer_sel_);
-        if (sel) {
-            attron(A_REVERSE);
-            mvaddnstr(y, 0, rows[i].c_str(), width());
-            attroff(A_REVERSE);
-        } else {
-            attron(COLOR_PAIR(P_ASSISTANT));
-            mvaddnstr(y, 0, rows[i].c_str(), width());
-            attroff(COLOR_PAIR(P_ASSISTANT));
-        }
-    }
-}
 
 } // namespace tui
