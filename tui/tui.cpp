@@ -121,6 +121,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     router_ = std::make_unique<EventRouter>();
     render_engine_ = std::make_unique<RenderEngine>(*this);
     session_controller_ = std::make_unique<SessionController>(*this);
+    slash_dispatcher_ = std::make_unique<SlashDispatcher>(*this);
 
     reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
     mcp_servers_.connect_all();
