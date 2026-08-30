@@ -119,6 +119,8 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     feed_manager_ = std::make_unique<FeedManager>(*this);
     window_manager_ = std::make_unique<WindowManager>(cfg_, reg_);
     router_ = std::make_unique<EventRouter>();
+    render_engine_ = std::make_unique<RenderEngine>(*this);
+    session_controller_ = std::make_unique<SessionController>(*this);
 
     reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
     mcp_servers_.connect_all();
