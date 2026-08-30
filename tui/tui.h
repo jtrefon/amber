@@ -23,6 +23,7 @@
 #include "window_manager.h"
 #include "render_engine.h"
 #include "session_controller.h"
+#include "slash_dispatcher.h"
 
 #include <atomic>
 #include <chrono>
@@ -48,6 +49,7 @@ class WindowManager;
 class EventRouter;
 class RenderEngine;
 class SessionController;
+class SlashDispatcher;
 
  // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
@@ -58,6 +60,7 @@ class Tui {
     friend class EventRouter;
     friend class RenderEngine;
     friend class SessionController;
+    friend class SlashDispatcher;
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
@@ -207,6 +210,7 @@ private:
     void session_browser();
     std::unique_ptr<RenderEngine> render_engine_;
     std::unique_ptr<SessionController> session_controller_;
+    std::unique_ptr<SlashDispatcher> slash_dispatcher_;
 
 
     // ---- window management (owned by WindowManager) ---------------------
