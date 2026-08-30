@@ -83,8 +83,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
       providers_(agent::make_default_provider_service(cfg_)),
       reg_(reg), jobs_(jobs), subagents_(subagents),
       plugins_(plugins), plugin_reg_(plugin_reg),
-      mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token),
-      settings_path_(agent::Workspace::local_dir() + "/settings") {
+      mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token) {
     std::setlocale(LC_ALL, "");
     g_terminal_guard.capture();
     initscr();
@@ -118,7 +117,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     plugin_reg_.set_context(plugin_ctx_.get());
     feed_manager_ = std::make_unique<FeedManager>(*this);
     window_manager_ = std::make_unique<WindowManager>(cfg_, reg_);
-    router_ = std::make_unique<EventRouter>();
+    router_ = std::make_unique<EventRouter>(*this);
     render_engine_ = std::make_unique<RenderEngine>(*this);
     session_controller_ = std::make_unique<SessionController>(*this);
     slash_dispatcher_ = std::make_unique<SlashDispatcher>(*this);
@@ -131,7 +130,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
 
     // Restore previous workspace: open saved sessions in their own windows.
     // On first launch (no saved workspace) show the welcome mural instead.
-    auto ws = store_.load_workspace();
+    auto ws = session_controller_->load_workspace();
     if (!ws.windows.empty()) {
         for (const auto& we : ws.windows) {
             Window& w = new_window(we.title.empty() ? "chat" : we.title);
@@ -156,12 +155,12 @@ Tui::~Tui() {
         std::scoped_lock lk(router_->mutex());
         router_->set_shutting_down(true);
         deny_all_pending_approvals(router_->queue());
-        deny_all_pending_approvals(pending_approvals_);
+        deny_all_pending_approvals(router_->pending_approvals());
     }
     if (router_->thread().joinable()) router_->thread().join();
     endwin();
-    save_window_sessions();
-    save_workspace_now();
+    session_controller_->save_window_sessions();
+    session_controller_->save_workspace_now();
 }
 
 Window& Tui::new_window(const std::string& title) {
@@ -181,96 +180,11 @@ const Window& Tui::win() const { return window_manager_->win(); }
 
 // ---- thread / event machinery -------------------------------------------
 
-bool Tui::drain_events() {
-    std::vector<AgentEvent> batch = router_->pop_all();
 
-    if (batch.empty()) return false;
 
-    for (auto& ev : batch) {
-        Window* w = route_event(window_manager_->all(), ev, window_manager_->active());
-        switch (ev.type) {
-        case AgentEvent::StateChange:
-            state_ = ev.state;
-            if (ev.state == agent::RunState::Idle ||
-                ev.state == agent::RunState::Error)
-                running_tool_.clear();
-            break;
-        case AgentEvent::Reasoning:
-            on_reasoning(w, ev);
-            break;
-        case AgentEvent::Token:
-            on_token(w, ev);
-            break;
-        case AgentEvent::Status:
-            // Worker status belongs to the conversation that emitted it.
-            if (w) append_line_to(*w, P_STATUS, ev.text);
-            break;
-        case AgentEvent::ToolCall:
-            on_tool_call(w, ev);
-            break;
-        case AgentEvent::ToolResult:
-            on_tool_result(w, ev);
-            break;
-        case AgentEvent::Assistant:
-            on_assistant(w, ev);
-            break;
-        case AgentEvent::Stats:
-            stats_ = ev.stats;
-            if (ev.stats.prompt_tokens >= 0) {
-                ctx_used_ = ev.stats.prompt_tokens;
-                live_ctx_offset_ = 0;
-            }
-            break;
-        case AgentEvent::Error:
-            on_error(w, ev);
-            break;
-        case AgentEvent::Done:
-            on_done(w, ev);
-            break;
-        case AgentEvent::CompressResult:
-            on_compress_result(w, ev);
-            break;
-        case AgentEvent::Approval: {
-            // While a modal dialog is open the main thread is not in the event
-            // loop; queue the approval so we don't nest ncurses dialogs or
-            // deadlock the worker on its promise. Resolved in
-            // redraw_after_modal() once the modal closes.
-            if (modal_open_) {
-                pending_approvals_.push(std::move(ev));
-                break;
-            }
-            resolve_approval(ev);
-            break;
-        }
-        }
-    }
 
-    pump_pending_approvals();
-    return true;
-}
 
-void Tui::pump_pending_approvals() {
-    // Resolve any approvals queued while a modal was open. Only one per pump
-    // so a nested approval (during the approval dialog) queues and resolves
-    // on a later tick rather than re-entering this loop.
-    if (modal_open_ || pending_approvals_.empty()) return;
-    AgentEvent ev = std::move(pending_approvals_.front());
-    pending_approvals_.pop();
-    resolve_approval(ev);
-}
 
-void Tui::resolve_approval(const AgentEvent& ev) {
-    agent::Approval d = approve_dialog(ev.text, policy_timeout_, 0);
-    const char* verdict = "denied";
-    if (d == agent::Approval::AllowOnce) verdict = "allowed once";
-    else if (d == agent::Approval::AllowSession) verdict = "allowed session";
-    else if (d == agent::Approval::AlwaysAllow) verdict = "always allow";
-    else if (d == agent::Approval::AlwaysDeny) verdict = "always deny";
-    append_line(P_STATUS,
-                std::string("approval: ") + verdict + "  (" + ev.text + ")");
-    if (ev.approval_promise)
-        ev.approval_promise->set_value(d);
-}
 
 
 std::string Tui::expand_at_references(const std::string& raw) const {
@@ -320,8 +234,7 @@ void Tui::send_async(const std::string& raw_prompt) {
     router_->clear();
 
     router_->set_busy(true);
-    working_since_ = std::chrono::steady_clock::now();
-    working_visible_ = true;
+    render_engine_->mark_working();
     router_->clear_cancel();
 
     ensure_chat_window();
@@ -330,7 +243,7 @@ void Tui::send_async(const std::string& raw_prompt) {
     auto& w = win();
     w.reason_buf.clear();
     w.reason_folded = false;
-    show_reasoning_ = cfg_.show_reasoning;
+    render_engine_->set_show_reasoning(cfg_.show_reasoning);
     w.stream_ts = timestamp();
 
     std::string prompt = expand_at_references(raw_prompt);
@@ -346,117 +259,27 @@ void Tui::send_async(const std::string& raw_prompt) {
     });
 }
 
-void Tui::on_reasoning(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    w->reason_buf += ev.text;
-    if (!w->reason_folded && show_reasoning_)
-        w->scroll_top = max_scroll(*w);
-}
 
-void Tui::on_token(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    working_visible_ = false;  // output is displaying — row retires
-    if (!w->reason_folded && !w->reason_buf.empty())
-        fold_reasoning(*w);
-    w->stream_color = P_ASSISTANT;
-    w->stream_buf += ev.text;
-    live_ctx_offset_ += (static_cast<long>(ev.text.size()) / 4) + 1;
-    w->scroll_top = max_scroll(*w);
-}
 
-void Tui::on_tool_call(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    running_tool_ = ev.tool_name;
-    running_tool_desc_ = tool_display::describe_tool_call(
-        ev.tool_name, ev.tool_args);
-    working_visible_ = true;
-    flush_stream(*w);
-    // One "open" line per advertised call, animated together: round
-    // spinner + a human description of what is actually running
-    // (bash -> the command, read/write -> path, search -> pattern).
-    PendingToolLine pt;
-    pt.name = ev.tool_name;
-    pt.fingerprint = ev.tool_args.dump();
-    pt.frame = 0;
-    pt.tail = " " + tool_display::describe_tool_call(ev.tool_name,
-                                                     ev.tool_args);
-    const char* frame = text::glyph::spinner_round(0);
-    pt.window_id = ev.window_id;
-    pt.index = append_line_to(*w, P_STATUS,
-                              std::string(frame) + pt.tail);
-    pending_tools_.push_back(std::move(pt));
-}
 
-void Tui::on_tool_result(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    running_tool_.clear();
-    running_tool_desc_.clear();
-    // Summary line: colored success/failure icon + one-line report,
-    // closed IN PLACE on the open line (single line per tool call).
-    rich::Line summary = tool_display::result_line(
-        ev.tool_name, ev.tool_args, ev.tool_result.ok,
-        ev.tool_result.output, ev.tool_result.error);
-    // Match the pending line for this call (same window + name + args, FIFO).
-    size_t match = find_pending_tool(ev.window_id, ev.tool_name,
-                                     ev.tool_args.dump());
-    if (match != std::string::npos) {
-        auto& pt = pending_tools_[match];
-        Window* ow = window_by_id(pt.window_id);
-        if (ow && pt.index < ow->lines.size()) {
-            size_t li = pt.index;
-            // Close in place: keep the open line's timestamp run.
-            ow->lines[li] = tool_display::close_tool_line(
-                ow->lines[li], std::move(summary));
-            pending_tools_.erase(pending_tools_.begin() + match);
-        } else {
-            append_rich_to(*w, summary);
-        }
-    } else {
-        append_rich_to(*w, summary);
-    }
-    // Tool may have modified files — refresh git state for prompt.
-    git_refresh();
-}
 
-void Tui::on_assistant(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    if (w->stream_buf.empty())
-        append_markdown(*w, ev.text);
-}
 
-void Tui::on_error(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    state_ = agent::RunState::Error;
-    flush_stream(*w);
-    append_line_to(*w, P_STATUS, std::string("error: ") + ev.error_msg);
-}
 
-void Tui::on_done(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    if (state_ != agent::RunState::Error)
-        state_ = agent::RunState::Idle;
-    running_tool_.clear();
-    flush_stream(*w);
-    w->dirty = true;
-    autosave(*w);
-}
 
-void Tui::on_compress_result(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    auto& r = ev.compress_result;
-    state_ = agent::RunState::Idle;
-    ctx_used_ = static_cast<long>(r.tokens_after);
-    append_line_to(*w, P_STATUS, compress_summary(r));
-    w->dirty = true;
-}
 
-agent::AgentHooks Tui::make_agent_hooks(size_t window_id) {
-    return router_->make_hooks(window_id);
-}
+
+
+
+
+
+
+
+
+
 
 void Tui::agent_worker(Window& my_win, size_t window_id,
                        const std::string& prompt) {
-    agent::AgentHooks hooks = make_agent_hooks(window_id);
+    agent::AgentHooks hooks = router_->make_hooks(window_id);
 
     // Subscribe to context change events for live token count updates.
     my_win.agent->context_events().subscribe(
@@ -495,8 +318,7 @@ void Tui::compress_worker(Window& my_win, size_t window_id) {
     if (router_->thread().joinable())
         router_->thread().join();
     router_->set_busy(true);
-    working_since_ = std::chrono::steady_clock::now();
-    working_visible_ = true;
+    render_engine_->mark_working();
     router_->thread() = std::thread([this, my_win = &my_win, window_id]() {
         AgentEvent ev = run_compression(*my_win, window_id);
         router_->push(std::move(ev));
@@ -524,89 +346,15 @@ AgentEvent Tui::run_compression(Window& my_win, size_t window_id) {
     return ev;
 }
 
-void Tui::git_refresh() {
-    auto read_stdout = [](const char* cmd) -> std::string {
-        std::string result;
-        FILE* pipe = popen(cmd, "r");
-        if (!pipe) return result;
-        char buf[256];
-        while (fgets(buf, sizeof(buf), pipe))
-            result += buf;
-        pclose(pipe);
-        return result;
-    };
 
-    // Project name from cwd basename.
-    {
-        std::string cwd;
-        std::array<char, 4096> buf;
-        if (getcwd(buf.data(), buf.size()))
-            cwd = buf.data();
-        size_t slash = cwd.rfind('/');
-        git_project_ = (slash == std::string::npos) ? cwd : cwd.substr(slash + 1);
-        if (git_project_.empty()) git_project_ = "project";
-    }
 
-    std::string ref = read_stdout("git symbolic-ref HEAD 2>/dev/null");
-    if (ref.empty()) {
-        git_branch_.clear();
-        git_ins_ = 0;
-        git_del_ = 0;
-        return;
-    }
-    ref.erase(ref.find_last_not_of(" \n\r") + 1);
-    if (ref.compare(0, 11, "refs/heads/") == 0)
-        git_branch_ = ref.substr(11);
-    else
-        git_branch_ = ref;
 
-    std::string stat = read_stdout(
-        "git diff --shortstat -- . ':!bench/results' ':!*.o' ':!*.a' ':!*.d' 2>/dev/null");
-    git_ins_ = 0;
-    git_del_ = 0;
-    if (!stat.empty()) {
-        auto extract = [&](const std::string& needle) -> int {
-            size_t pos = stat.find(needle);
-            if (pos == std::string::npos) return 0;
-            size_t start = pos;
-            while (start > 0 && isdigit(static_cast<unsigned char>(stat[start - 1])))
-                --start;
-            return std::stoi(stat.substr(start, pos - start));
-        };
-        git_ins_ = extract(" insertion");
-        git_del_ = extract(" deletion");
-    }
-}
-
-void Tui::refresh_completions() {
-    settings_.reset_completion_index();
-    auto try_load = [&](const std::string& path) {
-        if (path.empty()) return false;
-        bool ok = settings_.load_completions_json(path);
-        if (ok) append_line(P_DEBUG, "loaded completions from " + path);
-        return ok;
-    };
-    // Search order: CWD, binary dir, workspace, user data dirs, system data
-    // dirs — shared with prompt resolution so packaged installs work from any
-    // working directory.
-    std::string exed = agent::exe_dir();
-    for (const auto& c : agent::data_file_candidates(
-             "completions.json", exed.empty() ? nullptr : exed.c_str()))
-        if (try_load(c)) break;
-    // Plugin namespaces merge on top so their commands complete and show help
-    // like core ones.
-    for (const auto& p : plugins_.plugins())
-        if (p.state == agent::PluginState::Enabled)
-            settings_.merge_completions_json(p.manifest.completion);
-    // Live MCP tools get their own <server> branches under the mcp command.
-    settings_.merge_completions_json(agent::mcp_completion_subtree(reg_));
-}
 
 void Tui::run() {
-    git_refresh();
-    draw();
-    draw_input("");
-    flush();
+    render_engine_->git_refresh();
+    render_engine_->draw();
+    render_engine_->draw_input("");
+    render_engine_->flush();
     detect_server(false);
     timeout(kTickTimeoutMs);
 
@@ -662,16 +410,16 @@ void Tui::run() {
                 std::scoped_lock lk(router_->mutex());
                 router_->set_shutting_down(true);
                 deny_all_pending_approvals(router_->queue());
-                deny_all_pending_approvals(pending_approvals_);
+                deny_all_pending_approvals(router_->pending_approvals());
             }
             // endwin() first: the session-save progress writes to stderr and
             // must not interleave with a terminal ncurses still controls.
             endwin();
             if (router_->thread().joinable() && !router_->busy()) {
                 router_->thread().join();
-                save_window_sessions();
+                session_controller_->save_window_sessions();
             }
-            save_workspace_now();
+            session_controller_->save_workspace_now();
             _Exit(128 + g_signal_state.signal());
         }
         bool had_events = drain_events();
@@ -686,27 +434,23 @@ void Tui::run() {
             if (had_events) { draw(); }
             else {
                 auto now = std::chrono::steady_clock::now();
-                if (now - last_status_tick_ > std::chrono::milliseconds(150)) {
-                    last_status_tick_ = now;
+                if (now - render_engine_->last_status_tick() > std::chrono::milliseconds(150)) {
+                    render_engine_->set_last_status_tick(now);
                     if (router_->busy()) {
-                        // Full redraw while busy: the sticky working row and
-                        // tool spinners animate even during a quiet wait when
-                        // no events arrive (events alone used to leave the
-                        // chat area stale until the first output token).
-                        advance_tool_spinners();
-                        draw();
+                        router_->advance_tool_spinners();
+                        render_engine_->draw();
                     } else {
-                        advance_tool_spinners();
-                        tick_clock();
+                        router_->advance_tool_spinners();
+                        render_engine_->tick_clock();
                     }
                 }
             }
-            draw_input(cl.text(), cl.cursor(), cl.shadow());
+            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
             if (!router_->busy() && !pending_prompt_.empty()) {
                 std::string p = std::move(pending_prompt_);
                 send_async(p);
             }
-            if (dirty_) flush();
+            if (render_engine_->dirty()) render_engine_->flush();
             continue;
         }
 
@@ -718,24 +462,24 @@ void Tui::run() {
         }
         if (ch == 14 && !router_->busy()) {
             new_window("chat");
-            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue;
+            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow()); continue;
         }
 
         // ESC handling — toggle scroll mode or window switch.
         if (ch == 27) {
             if (cl.drawer_open()) {
-                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
             int n = getch();
             if (n >= '1' && n <= '9') {
                 switch_to(static_cast<size_t>(n - '1'));
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
             if (n == 'b' || n == 'B') {
                 cl.on_ctrl_w();
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
             // Cancel when agent is busy (ESC alone).
@@ -743,14 +487,14 @@ void Tui::run() {
                 cfg_.cancel_token.request();
                 router_->request_cancel();
                 append_line(P_STATUS, "cancelling…");
-                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
             // Plain ESC (not busy, no key within timeout): toggle scroll mode.
-            scroll_mode_ = !scroll_mode_;
-            if (scroll_mode_)
+            render_engine_->set_scroll_mode(!render_engine_->scroll_mode());
+            if (render_engine_->scroll_mode())
                 append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
-            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
             continue;
         }
 
@@ -760,10 +504,10 @@ void Tui::run() {
                 cfg_.cancel_token.request();
                 router_->request_cancel();
                 append_line(P_STATUS, "cancelling…");
-                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
-            save_workspace_now();
+            session_controller_->save_workspace_now();
             quit_ = true;
             break;
         }
@@ -775,14 +519,14 @@ void Tui::run() {
         switch (ch) {
         case '	':            result = cl.on_tab(); break;
         case KEY_UP:
-            if (scroll_mode_)
-                { win().scroll_top = std::max(0, win().scroll_top - 1); draw(); }
+            if (render_engine_->scroll_mode())
+                { win().scroll_top = std::max(0, win().scroll_top - 1); render_engine_->draw(); }
             else
                 result = cl.on_up();
             break;
         case KEY_DOWN:
-            if (scroll_mode_)
-                { win().scroll_top += 1; draw(); }
+            if (render_engine_->scroll_mode())
+                { win().scroll_top += 1; render_engine_->draw(); }
             else
                 result = cl.on_down();
             break;
@@ -791,16 +535,16 @@ void Tui::run() {
         case KEY_HOME:          result = cl.on_home(); break;
         case KEY_END:           result = cl.on_end(); break;
         case KEY_PPAGE:
-            if (scroll_mode_)
-                { win().scroll_top = std::max(0, win().scroll_top - 10); draw(); }
+            if (render_engine_->scroll_mode())
+                { win().scroll_top = std::max(0, win().scroll_top - 10); render_engine_->draw(); }
             break;
         case KEY_NPAGE:
-            if (scroll_mode_)
-                { win().scroll_top = std::min(max_scroll(), win().scroll_top + 10); draw(); }
+            if (render_engine_->scroll_mode())
+                { win().scroll_top = std::min(render_engine_->max_scroll(), win().scroll_top + 10); render_engine_->draw(); }
             break;
         case KEY_BACKSPACE: case 127: case 8: result = cl.on_backspace(); break;
         case 10: case 13: case KEY_ENTER:
-            if (scroll_mode_) { scroll_mode_ = false; draw(); }
+            if (render_engine_->scroll_mode()) { render_engine_->set_scroll_mode(false); render_engine_->draw(); }
             result = cl.on_enter();
             break;
         case 1:  result = cl.on_ctrl_a(); break;
@@ -814,7 +558,7 @@ void Tui::run() {
         case 4:  result = cl.on_ctrl_d(); break;
         case 18:
             append_line(P_STATUS, "Ctrl-R: not yet implemented");
-            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
             continue;
         default:
             if (ch >= 32 && ch <= 126)
@@ -828,8 +572,8 @@ void Tui::run() {
             // Update completion context for shadow computation.
             update_completions();
             // Sync drawer state from CommandLine (CommandLine owns drawer logic now).
-            drawer_open_ = cl.drawer_open();
-            drawer_sel_ = cl.drawer_sel();
+            render_engine_->set_drawer_open(cl.drawer_open());
+            render_engine_->set_drawer_sel(cl.drawer_sel());
             switch (result.action) {
             case CommandLine::Result::Dispatch: {
                 std::string text = result.dispatch_text;
@@ -841,7 +585,7 @@ void Tui::run() {
                 win().history_pos = ph.size();
                 cl.set_history(ph);
                 if (handle_slash(text)) {
-                    draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+                    render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                     continue;
                 }
                 if (router_->busy()) {
@@ -851,7 +595,7 @@ void Tui::run() {
                     ensure_chat_window();
                     send_async(text);
                 }
-                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
             case CommandLine::Result::ShowPopup: {
@@ -876,7 +620,7 @@ void Tui::run() {
                     }
                 } else {
                     std::string tok = palette::token(cl.text());
-                    auto matches = filter_commands(tok);
+                    auto matches = render_engine_->filter_commands(tok);
                     if (!matches.empty()) {
                         std::vector<std::string> items;
                         items.reserve(matches.size());
@@ -885,7 +629,7 @@ void Tui::run() {
                         menu_select("options:", items);
                     }
                 }
-                draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
     case CommandLine::Result::ShowHelpPage: {
@@ -950,7 +694,7 @@ void Tui::run() {
                            " – " + std::to_string((int)rhi));
             info_dialog(help_key, page);
             redraw_after_modal();
-            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
             continue;
         }
         // Fallback to one-line status for leaf settings without man text.
@@ -969,57 +713,69 @@ void Tui::run() {
             if (settings_.range_for(help_key, rlo, rhi))
                 msg += "  range: " + std::to_string(rlo) + "-" + std::to_string(rhi);
             append_line(P_STATUS, msg);
-            draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
             continue;
         }
         // Fallback to cmd_help for top-level commands.
         size_t sp = node.find(' ');
         if (sp != std::string::npos) node.resize(sp);
-        cmd_help(node);
-        draw(); draw_input(cl.text(), cl.cursor(), cl.shadow());
+        slash_dispatcher_->cmd_help(node);
+        render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
         continue;
     }
             default:
                 break;
             }
-            // Redraw full screen to clear any previous drawer overlay content.
-            draw();
-            draw_input(cl.text(), cl.cursor(), cl.shadow());
-            if (dirty_) { flush(); dirty_ = false; }
+            render_engine_->draw();
+            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+            if (render_engine_->dirty()) { render_engine_->flush(); render_engine_->clear_dirty(); }
             continue;
         }
 
         // Unhandled keys.
-        if (ch == KEY_NPAGE) { win().scroll_top += lines_per_page(); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
-        if (ch == KEY_PPAGE) { win().scroll_top = std::max(0, win().scroll_top - lines_per_page()); draw(); draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
-        if (dirty_) { flush(); dirty_ = false; }
+        if (ch == KEY_NPAGE) { win().scroll_top += render_engine_->lines_per_page(); render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+        if (ch == KEY_PPAGE) { win().scroll_top = std::max(0, win().scroll_top - render_engine_->lines_per_page()); render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
+        if (render_engine_->dirty()) { render_engine_->flush(); render_engine_->clear_dirty(); }
     }
 }
 
-size_t Tui::find_pending_tool(size_t window_id, const std::string& name,
-                              const std::string& fingerprint) const {
-    size_t fallback = std::string::npos;
-    for (size_t i = 0; i < pending_tools_.size(); ++i) {
-        if (pending_tools_[i].window_id != window_id ||
-            pending_tools_[i].name != name)
-            continue;
-        if (pending_tools_[i].fingerprint == fingerprint) return i;
-        if (fallback == std::string::npos) fallback = i;
-    }
-    return fallback;
-}
 
-void Tui::save_window_sessions() {
-    for (const auto& window : window_manager_->all()) {
-        Window& w = *window;
-        if (!w.dirty || !w.agent || w.agent->context().get_all().empty()) continue;
-        std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
-        std::fflush(stderr);
-        agent::Session s = snapshot(w);
-        if (store_.save(s)) w.session_id = s.id;
-    }
-    std::fprintf(stderr, "\rsession save complete\n");
+
+void Tui::save_window_sessions() { session_controller_->save_window_sessions(); }
+void Tui::save_workspace_now() { session_controller_->save_workspace_now(); }
+void Tui::redraw_after_modal() { session_controller_->redraw_after_modal(); }
+void Tui::autosave() { session_controller_->autosave(); }
+void Tui::autosave(Window& w) { session_controller_->autosave(w); }
+void Tui::load_session(const std::string& id) { session_controller_->load_session(id); }
+void Tui::draw() { render_engine_->draw(); }
+void Tui::draw_status_bar(const std::string& tail) { render_engine_->draw_status_bar(tail); }
+void Tui::tick_clock() { render_engine_->tick_clock(); }
+void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) { render_engine_->draw_input(s, cursor, shadow); }
+void Tui::draw_drawer(const std::string& input) { render_engine_->draw_drawer(input); }
+void Tui::git_refresh() { render_engine_->git_refresh(); }
+void Tui::build_settings() { slash_dispatcher_->build_settings(); }
+bool Tui::drain_events() { return router_->drain_events(); }
+const std::vector<tui::Command>& Tui::commands() { return slash_dispatcher_->commands(); }
+void Tui::build_commands() { slash_dispatcher_->build_commands(); }
+bool Tui::handle_slash(const std::string& line) { return slash_dispatcher_->handle_slash(line); }
+void Tui::register_action(const std::string& action,
+                          std::function<void(const std::string&)> handler) {
+    slash_dispatcher_->register_action(action, std::move(handler));
 }
+void Tui::register_builtin_actions() { slash_dispatcher_->register_builtin_actions(); }
+void Tui::refresh_completions() { slash_dispatcher_->refresh_completions(); }
+void Tui::refresh_model_list() { slash_dispatcher_->refresh_model_list(); }
+void Tui::refresh_policy_feed() { slash_dispatcher_->refresh_policy_feed(); }
+void Tui::refresh_provider_feed() { slash_dispatcher_->refresh_provider_feed(); }
+void Tui::refresh_job_feed() { slash_dispatcher_->refresh_job_feed(); }
+bool Tui::busy_reject(const std::string& what) { return slash_dispatcher_->busy_reject(what); }
+void Tui::request_quit() { slash_dispatcher_->request_quit(); }
+void Tui::cmd_model_set(const std::string& arg) { slash_dispatcher_->cmd_model_set(arg); }
+void Tui::cmd_provider(const std::string& arg) { slash_dispatcher_->cmd_provider(arg); }
+void Tui::job_kill(const std::string& id) { slash_dispatcher_->job_kill(id); }
+void Tui::job_read(const std::string& id) { slash_dispatcher_->job_read(id); }
+void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) { slash_dispatcher_->apply_policy_rule(name, lvl); }
+void Tui::show_policy_rule(const std::string& name) { slash_dispatcher_->show_policy_rule(name); }
 
 Window* Tui::window_by_id(size_t id) {
     return find_window(window_manager_->all(), id);

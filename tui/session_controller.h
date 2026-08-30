@@ -6,11 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace agent {
-struct Session;
-struct Message;
-class SessionStore;
-} // namespace agent
+#include <agent/session.h>
 
 namespace tui {
 class Tui;
@@ -26,18 +22,23 @@ public:
     void save_session();
     void load_session(const std::string& id);
     void session_browser();
-    void lazy_load_active();
     void save_workspace_now();
     void redraw_after_modal();
-
-private:
+    agent::WorkspaceState load_workspace();
+    agent::SessionStore& store() noexcept { return store_; }
+    std::string settings_path() const { return settings_path_; }
     struct RestoredCall {
         std::string name;
         nlohmann::json args;
     };
     void restore_message_lines(const agent::Message& m, std::vector<RestoredCall>& pending);
 
+private:
     Tui& tui_;
+    agent::SessionStore store_;
+    std::string settings_path_;
+public:
+    void init_path(const std::string& p) { settings_path_ = p; }
 };
 
 } // namespace tui
