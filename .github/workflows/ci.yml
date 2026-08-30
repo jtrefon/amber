@@ -78,6 +78,31 @@ jobs:
         run: make check
 
   # ---------------------------------------------------------------------------
+  # Complexity — informational, no fail (CCN>15 or length>50 via lizard).
+  # Keeps tech debt visible without blocking; tighten to CCN 10 later.
+  # ---------------------------------------------------------------------------
+  complexity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install lizard
+        run: pip install lizard -q
+      - name: Complexity (lizard)
+        run: make complexity
+
+  # ---------------------------------------------------------------------------
+  # Format — clang-format dry-run (deterministic, low noise).
+  # ---------------------------------------------------------------------------
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang-format
+      - name: Format check
+        run: make format-check
+
+  # ---------------------------------------------------------------------------
   # Build + unit test — runs under both g++ and clang++ so ABI/syntax
   # differences are caught at PR time.
   # ---------------------------------------------------------------------------

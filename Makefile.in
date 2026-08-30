@@ -228,6 +228,18 @@ duplicates:
 	@python3 "$(SRC_DIR)/tools/duplicate_detector.py" --min-lines=$(DUPLICATE_MIN_LINES) $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/tests $(SRC_DIR)/src
 	@echo "  clean"
 
+complexity:
+	@echo "lizard complexity (informational, CCN>15 or length>50)..."
+	@python3 -m lizard -l cpp --CCN 15 -L 50 --exclude third_party --exclude bench/results $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src 2>&1 | tee /tmp/lizard.log; \
+	if grep -q "WARN" /tmp/lizard.log; then echo "complexity: $(grep -c WARN /tmp/lizard.log) functions exceed CCN>15 or length>50 (informational)"; cat /tmp/lizard.log | head -n 30; fi; \
+	echo "  clean (informational)"
+
+format-check:
+	@echo "clang-format --dry-run..."
+	@clang-format --dry-run --Werror $(shell find $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/include -name '*.cpp' -o -name '*.h' | tr '\n' ' ') 2>&1 | head -n 50; \
+	rc=$$?; if [ $$rc -ne 0 ]; then echo "clang-format: run 'clang-format -i' on listed files"; exit 1; fi; \
+	echo "  clean"
+
 SYSINFO_PLUGIN = $(BUILD_DIR)/tools/plugins/sysinfo/sysinfo-plugin
 CDP_PLUGIN = $(BUILD_DIR)/tools/plugins/cdp/cdp-plugin
 CDP_MAIN_OBJ = $(BUILD_DIR)/tools/plugins/cdp/main.o
