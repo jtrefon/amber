@@ -46,7 +46,7 @@ std::vector<rich::Line> Tui::build_view_without_working(const Window& w) const {
             append_rich_to(view, w.stream_buf, w.stream_color, width());
         }
     }
-    bool live = agent_busy_.load() && (!w.stream_buf.empty() || !w.reason_buf.empty());
+    bool live = router_->busy() && (!w.stream_buf.empty() || !w.reason_buf.empty());
     if (live) {
         if (view.empty() || !view.back().runs.empty())
             view.push_back(rich::Line{});
@@ -75,7 +75,7 @@ std::vector<rich::Line> Tui::build_view_without_working(const Window& w) const {
 }
 std::vector<rich::Line> Tui::build_view(const Window& w) const {
     auto view = build_view_without_working(w);
-    if (agent_busy_.load() && working_visible_) {
+    if (router_->busy() && working_visible_) {
         if (!view.empty() && !view.back().runs.empty())
             view.push_back(rich::Line{});
         auto now = std::chrono::steady_clock::now();
@@ -99,7 +99,7 @@ int Tui::max_scroll(const Window& w) const {
     // max_scroll. Only the scrollable view matters.
     auto view = build_view_without_working(w);
     int total = static_cast<int>(rich::rewrap_all(view, width()).size());
-    bool show_working = agent_busy_.load() && working_visible_;
+    bool show_working = router_->busy() && working_visible_;
     int ch = chat_height();
     if (show_working) ch = std::max(1, ch - 1);
     int m = total - ch;
@@ -224,8 +224,8 @@ int Tui::gauge_pair(double f) {
 
 std::vector<Tui::Seg> Tui::bar_segments() const {
     std::vector<Seg> segs;
-    std::string wtag = "[" + std::to_string(active_ + 1) + "/" +
-                       std::to_string(windows_.size()) + "]";
+    std::string wtag = "[" + std::to_string(window_manager_->active() + 1) + "/" +
+                       std::to_string(window_manager_->all().size()) + "]";
     segs.push_back({wtag, P_BANNER, 3});
     // Model + reasoning strength in ONE bracket: [model(high)] — the effort
     // never visually concatenates with anything. Green bracket; the
@@ -321,7 +321,7 @@ void Tui::draw() {
         return;
     }
 
-    bool show_working = agent_busy_.load() && working_visible_;
+    bool show_working = router_->busy() && working_visible_;
     std::vector<rich::Line> view = build_view_without_working(win());
     int ch = chat_height();
     if (show_working) ch = std::max(1, ch - 1);
@@ -458,7 +458,7 @@ void Tui::draw_status_bar(const std::string& tail) {
     if (ix > x + 4) {
         wattron(stdscr, COLOR_PAIR(P_BAR_DIM));
         mvaddch(y, ix, '[');
-        if (agent_busy_.load()) {
+        if (router_->busy()) {
             // Advance phase at ~150ms intervals (~6 fps) so the wave
             // travels at a pleasant, observable pace.
             static auto last_phase = std::chrono::steady_clock::now();

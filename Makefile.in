@@ -124,6 +124,8 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
               $(BUILD_DIR)/tui/menu_select.o \
               $(BUILD_DIR)/tui/session_browser_core.o \
              $(BUILD_DIR)/tui/feed_manager.o \
+             $(BUILD_DIR)/tui/window_manager.o \
+             $(BUILD_DIR)/tui/event_router.o \
              $(BUILD_DIR)/tui/textutil.o \
             $(BUILD_DIR)/tui/palette.o \
             $(BUILD_DIR)/tui/welcome.o \
