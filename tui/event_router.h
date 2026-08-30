@@ -4,9 +4,14 @@
 #include "agent_event.h"
 #include "window.h"
 
+#include <agent.h>
+
+#include <atomic>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <queue>
+#include <thread>
 #include <vector>
 
 namespace tui {
@@ -52,6 +57,47 @@ inline void deny_all_pending_approvals(std::queue<AgentEvent>& q) {
         q.pop();
     }
 }
+
+class EventRouter {
+public:
+    EventRouter() = default;
+    ~EventRouter() { if (thread_.joinable()) thread_.join(); }
+
+    EventRouter(const EventRouter&) = delete;
+    EventRouter& operator=(const EventRouter&) = delete;
+
+    void push(AgentEvent ev);
+    std::vector<AgentEvent> pop_all();
+    bool empty() const;
+    void clear();
+
+    bool busy() const noexcept { return busy_.load(); }
+    void set_busy(bool v) noexcept { busy_.store(v); }
+    bool cancel_requested() const noexcept { return cancel_.load(); }
+    void request_cancel() noexcept { cancel_.store(true); }
+    void clear_cancel() noexcept { cancel_.store(false); }
+    bool shutting_down() const noexcept { return shutting_down_; }
+    void set_shutting_down(bool v) noexcept { shutting_down_ = v; }
+
+    std::thread& thread() noexcept { return thread_; }
+    const std::thread& thread() const noexcept { return thread_; }
+    void join_thread();
+
+    std::mutex& mutex() noexcept { return mtx_; }
+    std::queue<AgentEvent>& queue() noexcept { return queue_; }
+
+    agent::AgentHooks make_hooks(size_t window_id);
+
+    void shutdown_queues(std::queue<AgentEvent>& pending_approvals);
+
+private:
+    std::queue<AgentEvent> queue_;
+    mutable std::mutex mtx_;
+    std::thread thread_;
+    std::atomic<bool> busy_{false};
+    std::atomic<bool> cancel_{false};
+    bool shutting_down_ = false;
+};
 
 } // namespace tui
 

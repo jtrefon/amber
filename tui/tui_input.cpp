@@ -67,7 +67,7 @@ void Tui::cmd_set_detection_toggle(const std::string& key, const std::string& va
     else if (val == "off") new_val = false;
     else new_val = !*field;
     *field = new_val;
-    for (auto& w : windows_) {
+    for (auto& w : window_manager_->all()) {
         if (!w->agent) continue;
         if (key == "loop") w->agent->set_detection_loop(new_val);
         else w->agent->set_detection_duplicate(new_val);
@@ -131,7 +131,7 @@ void Tui::cmd_get_subagent() {
 }
 
 bool Tui::busy_reject(const std::string& what) {
-    if (!agent_busy_.load()) return false;
+    if (!router_->busy()) return false;
     append_line(P_STATUS, what + ": agent is busy \u2014 apply when idle");
     return true;
 }
@@ -146,7 +146,7 @@ void Tui::cmd_set_reasoning_effort(const std::string& val) {
         return;
     }
     cfg_.reasoning_effort = val;
-    for (auto& w : windows_)
+    for (auto& w : window_manager_->all())
         if (w->agent) w->agent->set_reasoning_effort(val);
     cfg_.save_settings(settings_path_);
     append_line(P_STATUS, "reasoning effort: " + val +
@@ -316,12 +316,12 @@ void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) {
     }
     agent::PolicyLevel pl = agent::policy_level_from_name(lvl);
     if (pl == agent::PolicyLevel::Ask) {
-        for (auto& w : windows_)
+        for (auto& w : window_manager_->all())
             if (w->agent) w->agent->policy().revoke(name);
         append_line(P_STATUS, "policy rule revoked for " + name);
     } else if (pl == agent::PolicyLevel::AlwaysAllow ||
                pl == agent::PolicyLevel::AlwaysDeny) {
-        for (auto& w : windows_)
+        for (auto& w : window_manager_->all())
             if (w->agent) w->agent->policy().set_rule(name, pl);
         append_line(P_STATUS, "policy rule " + lvl + " for " + name);
     } else {
@@ -882,7 +882,7 @@ void Tui::register_builtin_actions() {
     });
     register_action("core.stop", [this](const std::string&) {
         cfg_.cancel_token.request();
-        agent_cancel_.store(true);
+        router_->request_cancel();
         append_line(P_STATUS, "stop requested");
     });
     register_action("core.compress",
@@ -1273,7 +1273,7 @@ void Tui::cmd_model_set(const std::string& arg) {
     }
     cfg_.model = arg;
     cfg_.model_explicit = true;
-    for (auto& w : windows_) {
+    for (auto& w : window_manager_->all()) {
         if (!w->agent) continue;
         // The running agent's LLM client holds a config snapshot — rebuild it
         // so the next turn actually talks to the new model.
@@ -1374,7 +1374,7 @@ void Tui::cmd_provider(const std::string& a) {
     agent::apply_selection(cfg_, sel);
     if (!sel.warning.empty())
         append_line(P_STATUS, "warning: " + sel.warning);
-    for (auto& w : windows_)
+    for (auto& w : window_manager_->all())
         if (w->agent)
             w->agent->set_connection(cfg_.api_base, cfg_.api_key, cfg_.model);
     std::string global = agent::global_config_path();
@@ -1676,9 +1676,9 @@ void Tui::cmd_window_new() { new_window("chat"); draw(); }
 void Tui::cmd_window_close() { close_window(); }
 void Tui::cmd_window_list() {
     std::string s = "windows:";
-    for (size_t i = 0; i < windows_.size(); ++i)
-        s += " " + std::to_string(i + 1) + ":" + windows_[i]->title +
-             (i == active_ ? "*" : "");
+    for (size_t i = 0; i < window_manager_->all().size(); ++i)
+        s += " " + std::to_string(i + 1) + ":" + window_manager_->all()[i]->title +
+             (i == window_manager_->active() ? "*" : "");
     append_line(P_STATUS, s);
 }
 void Tui::cmd_window_rename(const std::string& name) {
@@ -1722,7 +1722,7 @@ void Tui::cmd_compress(const std::string&) {
         append_line(P_STATUS, "no active session to compress");
         return;
     }
-    if (agent_busy_.load()) {
+    if (router_->busy()) {
         append_line(P_STATUS, "compress: agent is busy");
         return;
     }
@@ -2031,7 +2031,7 @@ void Tui::apply_compression_threshold(const std::string& v) {
     }
     cfg_.compression_threshold = *t;
     cfg_.compression_threshold_explicit = true;
-    for (auto& w : windows_)
+    for (auto& w : window_manager_->all())
         if (w && w->agent) w->agent->set_compression_threshold(*t);
     append_line(P_STATUS, "compression threshold: " + std::to_string(*t));
     if (!cfg_.save_settings(settings_path_))
@@ -2047,7 +2047,7 @@ void Tui::apply_compression_min_turns(const std::string& v) {
     }
     cfg_.compression_min_turns = *n;
     cfg_.compression_min_turns_explicit = true;
-    for (auto& w : windows_)
+    for (auto& w : window_manager_->all())
         if (w && w->agent) w->agent->set_compression_min_turns(*n);
     append_line(P_STATUS, "compression min_turns: " + std::to_string(*n));
     if (!cfg_.save_settings(settings_path_))
@@ -2073,7 +2073,7 @@ void Tui::build_settings() {
             if (v == "toggle") cfg_.detection_loop = !cfg_.detection_loop;
             else cfg_.detection_loop = (v == "on");
             cfg_.save_settings(settings_path_);
-            for (auto& w : windows_) if (w && w->agent) w->agent->set_detection_loop(cfg_.detection_loop);
+            for (auto& w : window_manager_->all()) if (w && w->agent) w->agent->set_detection_loop(cfg_.detection_loop);
         });
     add("detection.duplicate", "Duplicate call detection", "<on|off|toggle>", Setting::Choice,
         {"on","off","toggle"}, 0, 0,
@@ -2090,7 +2090,7 @@ void Tui::build_settings() {
             if (v != "off" && v != "low" && v != "medium" && v != "high") return;
             if (busy_reject("reasoning effort")) return;
             cfg_.reasoning_effort = v;
-            for (auto& w : windows_)
+            for (auto& w : window_manager_->all())
                 if (w->agent) w->agent->set_reasoning_effort(v);
             cfg_.save_settings(settings_path_);
         });

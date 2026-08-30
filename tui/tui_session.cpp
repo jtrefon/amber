@@ -133,7 +133,7 @@ void Tui::load_session(const std::string& id) {
           / std::max(1, cfg_.context_size);
     if (utilisation > 0.40) {
         append_line(P_STATUS, "large session — background compression started");
-        switch_to(windows_.size() - 1);
+        switch_to(window_manager_->all().size() - 1);
         Window* my_win = &w;
         size_t my_id = w.id;
         compress_worker(*my_win, my_id);
@@ -453,9 +453,9 @@ void Tui::lazy_load_active() {
 }
 
 void Tui::switch_to(size_t idx) {
-    if (idx >= windows_.size() || idx == active_) return;
+    if (idx >= window_manager_->all().size() || idx == window_manager_->active()) return;
     if (busy_reject("window switch")) return;
-    active_ = idx;
+    window_manager_->set_active(idx);
     pending_tools_.clear();  // spinner indices belong to the old window
     lazy_load_active();
     draw();
@@ -465,13 +465,13 @@ void Tui::close_window() {
     // Destroying a Window while the agent worker is inside its Agent::run()
     // is a use-after-free; wait until the run finishes.
     if (busy_reject("window close")) return;
-    if (windows_.size() <= 1) {
+    if (window_manager_->all().size() <= 1) {
         append_line(P_STATUS, "cannot close the last window");
         return;
     }
     autosave();
-    windows_.erase(windows_.begin() + active_);
-    if (active_ >= windows_.size()) active_ = windows_.size() - 1;
+    window_manager_->all().erase(window_manager_->all().begin() + window_manager_->active());
+    if (window_manager_->active() >= window_manager_->all().size()) window_manager_->set_active(window_manager_->all().size() - 1);
     pending_tools_.clear();
     draw();
 }
@@ -480,14 +480,14 @@ void Tui::request_quit() { quit_ = true; }
 
 void Tui::save_workspace_now() {
     agent::WorkspaceState ws;
-    for (const auto& w : windows_) {
+    for (const auto& w : window_manager_->all()) {
         agent::WorkspaceState::WindowEntry we;
         we.session_id = w->session_id;
         we.title = w->title;
         we.prompt_history = w->prompt_history;
         ws.windows.push_back(we);
     }
-    ws.active = active_;
+    ws.active = window_manager_->active();
     store_.save_workspace(ws);
 }
 void Tui::redraw_after_modal() {

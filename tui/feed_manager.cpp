@@ -40,7 +40,7 @@ void FeedManager::refresh_provider_feed() {
 
 void FeedManager::refresh_policy_feed() {
     std::map<std::string, std::string> rule_help;
-    for (auto& w : tui_.windows_) {
+    for (auto& w : tui_.window_manager_->all()) {
         if (!w->agent) continue;
         for (const auto& r : w->agent->policy().rules()) {
             if (r.level == agent::PolicyLevel::Ask) continue;

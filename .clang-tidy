@@ -41,6 +41,7 @@ Checks: >
    -readability-make-member-function-const,
    -bugprone-empty-catch,
    -readability-avoid-nested-conditional-operator,
+   -readability-enum-initial-value,
    -cppcoreguidelines-*,
    -google-*,
    -abseil-*
