@@ -21,6 +21,8 @@
 #include "agent_event.h"
 #include "event_router.h"
 #include "window_manager.h"
+#include "render_engine.h"
+#include "session_controller.h"
 
 #include <atomic>
 #include <chrono>
@@ -44,6 +46,8 @@ using palette::Command;
 class FeedManager;
 class WindowManager;
 class EventRouter;
+class RenderEngine;
+class SessionController;
 
  // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
@@ -52,6 +56,8 @@ class Tui {
     friend class FeedManager;
     friend class WindowManager;
     friend class EventRouter;
+    friend class RenderEngine;
+    friend class SessionController;
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
@@ -199,6 +205,8 @@ private:
     void save_session();
     void load_session(const std::string& id);
     void session_browser();
+    std::unique_ptr<RenderEngine> render_engine_;
+    std::unique_ptr<SessionController> session_controller_;
 
 
     // ---- window management (owned by WindowManager) ---------------------
