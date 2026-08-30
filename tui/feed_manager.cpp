@@ -72,9 +72,9 @@ void FeedManager::refresh_policy_feed() {
 }
 
 void FeedManager::refresh_model_list() {
-    tui_.model_info_ = agent::list_model_info(tui_.cfg_);
+    tui_.slash_dispatcher_->set_model_info(agent::list_model_info(tui_.cfg_));
     nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& m : tui_.model_info_) {
+    for (const auto& m : tui_.slash_dispatcher_->model_info()) {
         std::string id = m.id;
         nlohmann::json& leaf = subtree["set"]["children"]["model"]["children"][id];
         leaf["action"] = "core.config.set.model." + id;

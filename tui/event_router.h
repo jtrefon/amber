@@ -15,6 +15,7 @@
 #include <vector>
 
 namespace tui {
+class Tui;
 
 // Deliver an event to its origin window. Stamped events match the window's
 // stable id (Window::id), so erasing other windows never redirects them; an
@@ -58,9 +59,18 @@ inline void deny_all_pending_approvals(std::queue<AgentEvent>& q) {
     }
 }
 
+struct PendingToolLine {
+    size_t index = std::string::npos;
+    size_t window_id = std::string::npos;
+    std::string name;
+    std::string fingerprint;
+    std::string tail;
+    int frame = 0;
+};
+
 class EventRouter {
 public:
-    EventRouter() = default;
+    explicit EventRouter(Tui& tui);
     ~EventRouter() { if (thread_.joinable()) thread_.join(); }
 
     EventRouter(const EventRouter&) = delete;
@@ -90,13 +100,36 @@ public:
 
     void shutdown_queues(std::queue<AgentEvent>& pending_approvals);
 
+    std::vector<PendingToolLine>& pending_tools() noexcept { return pending_tools_; }
+    std::queue<AgentEvent>& pending_approvals() noexcept { return pending_approvals_; }
+
+    // ---- event dispatch (drain_events machinery) -------------------------
+    bool drain_events();
+    void on_reasoning(Window* w, const AgentEvent& ev);
+    void on_token(Window* w, const AgentEvent& ev);
+    void on_tool_call(Window* w, const AgentEvent& ev);
+    void on_tool_result(Window* w, const AgentEvent& ev);
+    void on_assistant(Window* w, const AgentEvent& ev);
+    void on_error(Window* w, const AgentEvent& ev);
+    void on_done(Window* w, const AgentEvent& ev);
+    void on_compress_result(Window* w, const AgentEvent& ev);
+    void resolve_approval(const AgentEvent& ev);
+    void pump_pending_approvals();
+    void advance_tool_spinners();
+
 private:
+    size_t find_pending_tool(size_t window_id, const std::string& name,
+                             const std::string& fingerprint) const;
+
+    Tui& tui_;
     std::queue<AgentEvent> queue_;
     mutable std::mutex mtx_;
     std::thread thread_;
     std::atomic<bool> busy_{false};
     std::atomic<bool> cancel_{false};
     bool shutting_down_ = false;
+    std::vector<PendingToolLine> pending_tools_;
+    std::queue<AgentEvent> pending_approvals_;
 };
 
 } // namespace tui
