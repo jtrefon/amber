@@ -7,6 +7,13 @@ Plugins don't just add agent tools — they enhance the platform in any directio
 UI rendering, LLM providers, memory backends, search engines, prompt templates,
 compression strategies, and the agent loop itself.
 
+**Demarcation with MCP:** MCP extends the *agent* (tools, resources, prompts
+for the LLM). Plugins extend the *application* (UI, providers, memory, search,
+events, themes, the agent loop itself). A plugin can observe and modify
+anything the harness does; an MCP server can only offer capabilities to the
+model. This is the core distinction: **plugin = app extension, MCP = agent
+extension.**
+
 This spec defines the v2 framework: a hybrid two-tier architecture where core
 plugins run in-process for deep integration, and external plugins run as separate
 processes for isolation. Both tiers implement the same `IPlugin` interface and
@@ -188,6 +195,7 @@ enum class EventType {
 
     // LLM events
     LLMRequestBefore,      // before HTTP request (interceptable: modify body)
+    LLMTokenReceived,      // per-token streaming (observable: inspect/modify each token)
     LLMResponseAfter,      // after HTTP response (observable: inspect usage)
 
     // UI events
@@ -431,6 +439,14 @@ struct ThemeImpl {
     std::function<void(RenderContext&)> apply; // render-time overrides
 };
 ```
+
+The `Theme` capability is the **floor**, not the ceiling. A theme plugin can
+override colors, borders, and layout. A *UI plugin* (future `UI` capability)
+can replace entire render passes, add new panels, inject widgets, or redesign
+the TUI layout entirely. The `TUIRender` event is interceptable — a plugin can
+replace the entire render output. The `TUIKeyPress` event is interceptable —
+a plugin can consume or remap any key. Together these give a plugin the
+ability to **redesign the entire UI experience**, not just re-skin it.
 
 #### PromptSource Capability
 
