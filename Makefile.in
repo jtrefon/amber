@@ -275,7 +275,7 @@ test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test
 
 $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 	$(CXX) $(CXXFLAGS) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
@@ -290,18 +290,18 @@ $(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o 
 	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 bench: $(BUILD_DIR)/$(BENCH_BIN)
 
 $(BUILD_DIR)/$(BENCH_BIN): $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 lib: $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 
@@ -315,14 +315,14 @@ cli: $(BUILD_DIR)/$(CLI_BIN)
 
 $(BUILD_DIR)/$(CLI_BIN): $(CLI_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(CLI_OBJ) \
-	    -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group \
+	    $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
 	    $(CURL_LIBS)
 
 tui: $(BUILD_DIR)/$(TUI_BIN)
 
 $(BUILD_DIR)/$(TUI_BIN): $(TUI_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(TUI_OBJS) \
-	    -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group \
+	    $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
 	    $(CURL_LIBS) $(NCURSES_LIBS)
 
 # Object compilation rules. The library and tools are compiled once into the
