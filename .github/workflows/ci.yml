@@ -145,6 +145,29 @@ jobs:
         run: make test
 
   # ---------------------------------------------------------------------------
+  # macOS build-and-test — verifies the portable link lines (no --start-group)
+  # and that the core compiles + tests pass on Apple's toolchain.
+  # ---------------------------------------------------------------------------
+  build-and-test-macos:
+    needs: [lint, analyze, check]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          brew install curl ncurses pkg-config
+
+      - name: Configure
+        run: ./configure
+
+      - name: Build
+        run: make
+
+      - name: Test
+        run: make test
+
+  # ---------------------------------------------------------------------------
   # CD — build release artifacts on every push to main (not just tags), so the
   # latest main is always shippable. Artifacts are stored for 7 days.
   # ---------------------------------------------------------------------------
@@ -212,6 +235,48 @@ jobs:
         with:
           name: amber-linux-deb
           path: dist/*.deb*
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # CD (macOS) — build the macOS release artifact on every push to main so the
+  # latest main is always shippable on Apple silicon + Intel. Produces a
+  # self-contained tarball (binaries + data) for the Homebrew tap.
+  # ---------------------------------------------------------------------------
+  cd-macos:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    needs: [build-and-test-macos]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: brew install curl ncurses pkg-config
+
+      - name: Configure
+        run: ./configure --prefix=/usr/local
+
+      - name: Build
+        run: make
+
+      - name: Stage install tree
+        run: |
+          rm -rf stage
+          make install DESTDIR="$PWD/stage"
+
+      - name: Build tarball + checksum
+        run: |
+          version="$(cat VERSION)-main"
+          arch="$(uname -m)"
+          name="amber-${version}-darwin-${arch}"
+          mkdir -p dist
+          tar -C stage -czf "dist/${name}.tar.gz" .
+          ( cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v7
+        with:
+          name: amber-macos-tarball
+          path: dist/*.tar.gz*
           retention-days: 7
 
   # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   release:
+    needs: [release-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -157,6 +158,12 @@ jobs:
           echo "bootstrap OK (exit $rc — server connection expected to fail)"
           sudo dpkg -r amber >/dev/null
 
+      - name: Download macOS tarball
+        uses: actions/download-artifact@v7
+        with:
+          name: amber-macos-tarball
+          path: dist
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -172,3 +179,56 @@ jobs:
             dist/*.rpm
             dist/*.rpm.sha256
             dist/amber-plugin-cdp*
+            amber-macos-tarball
+
+  # ---------------------------------------------------------------------------
+  # macOS release — builds the darwin tarball in parallel with the Linux job.
+  # The Linux job's release step attaches the macOS artifact (amber-macos-tarball)
+  # so both platforms ship in one GitHub Release.
+  # ---------------------------------------------------------------------------
+  release-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve version
+        id: ver
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: brew install curl ncurses pkg-config
+
+      - name: Sync VERSION to tag
+        run: printf '%s\n' "${{ steps.ver.outputs.version }}" > VERSION
+
+      - name: Configure
+        run: ./configure --prefix=/usr/local
+
+      - name: Build
+        run: make
+
+      - name: Test
+        run: make test
+
+      - name: Stage install tree
+        run: |
+          rm -rf stage
+          make install DESTDIR="$PWD/stage"
+
+      - name: Build tarball + checksum
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          arch="$(uname -m)"
+          name="amber-${version}-darwin-${arch}"
+          mkdir -p dist
+          tar -C stage -czf "dist/${name}.tar.gz" .
+          ( cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+
+      - name: Upload macOS tarball
+        uses: actions/upload-artifact@v7
+        with:
+          name: amber-macos-tarball
+          path: dist/*.tar.gz*
+          retention-days: 7
