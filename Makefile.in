@@ -246,6 +246,8 @@ CDP_PLUGIN = $(BUILD_DIR)/tools/plugins/cdp/cdp-plugin
 CDP_MAIN_OBJ = $(BUILD_DIR)/tools/plugins/cdp/main.o
 CDP_WS_OBJ = $(BUILD_DIR)/tools/plugins/cdp/ws_client.o
 WS_TEST_OBJ = $(BUILD_DIR)/tools/plugins/cdp/ws_test.o
+CDP_URL_OBJ = $(BUILD_DIR)/tools/plugins/cdp/url.o
+URL_TEST_OBJ = $(BUILD_DIR)/tools/plugins/cdp/url_test.o
 
 all: lib cli tui bench $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
 
@@ -256,18 +258,21 @@ $(BUILD_DIR)/tools/plugins/cdp/%.o: tools/plugins/cdp/%.cpp
 $(SYSINFO_PLUGIN): tools/plugins/sysinfo/main.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -o $@ tools/plugins/sysinfo/main.cpp
 
-$(CDP_PLUGIN): $(CDP_MAIN_OBJ) $(CDP_WS_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(CDP_MAIN_OBJ) $(CDP_WS_OBJ)
+$(CDP_PLUGIN): $(CDP_MAIN_OBJ) $(CDP_WS_OBJ) $(CDP_URL_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(CDP_MAIN_OBJ) $(CDP_WS_OBJ) $(CDP_URL_OBJ)
 
 $(BUILD_DIR)/ws_test: $(WS_TEST_OBJ) $(CDP_WS_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(WS_TEST_OBJ) $(CDP_WS_OBJ)
+
+$(BUILD_DIR)/url_test: $(URL_TEST_OBJ) $(CDP_URL_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(URL_TEST_OBJ) $(CDP_URL_OBJ)
 
 check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 	sh $(SRC_DIR)/tests/build_hygiene.sh
 
-test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
-	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/bench_test
+test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
+	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test
 
 $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o -Wl,--start-group $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) -Wl,--end-group $(CURL_LIBS)
@@ -374,6 +379,8 @@ $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 -include $(WS_TEST_OBJ:.o=.d)
 -include $(CDP_WS_OBJ:.o=.d)
 -include $(CDP_MAIN_OBJ:.o=.d)
+-include $(CDP_URL_OBJ:.o=.d)
+-include $(URL_TEST_OBJ:.o=.d)
 -include $(SYSINFO_PLUGIN).d
 -include $(BUILD_DIR)/ws_test.d
 
@@ -425,7 +432,8 @@ clean:
 	rm -f $(BUILD_DIR)/tools/plugins/cdp/*.o $(BUILD_DIR)/tools/plugins/cdp/*.d
 	rm -f $(BUILD_DIR)/plugins/metrics/*.o $(BUILD_DIR)/plugins/metrics/*.d
 	rm -f $(BUILD_DIR)/ws_test.d
+	rm -f $(BUILD_DIR)/url_test $(BUILD_DIR)/url_test.d
 	rm -f $(CORE_LIB) $(TOOLS_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)
-	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/smoketest
+	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/smoketest
 	rm -f $(BUILD_DIR)/run_command_line_test $(BUILD_DIR)/run_completions_test $(BUILD_DIR)/run_e2e_test
 	rm -f amber-smoke.txt

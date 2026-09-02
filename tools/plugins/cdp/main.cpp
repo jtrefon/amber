@@ -3,6 +3,7 @@
 // to a CDP endpoint (default ws://127.0.0.1:9222) over its own WebSocket
 // client. The core app never learns about CDP or WebSockets.
 #include "ws_client.h"
+#include "url.h"
 
 #include <chrono>
 #include <ctime>
@@ -36,13 +37,12 @@ std::string trim(std::string s) {
 }
 
 // HTTP base derived from the ws endpoint (ws://host:port/path → http://host:port).
+// Pure URL value type (cdp::Url) — scheme translation is a data table, not
+// control flow; see url.cpp. The old find('/', 7) offset was wrong for the
+// 8-char https:// scheme and truncated the wss:// path to "https:/".
 std::string http_base() {
-    std::string base = endpoint;
-    if (base.rfind("wss://", 0) == 0) base = "https://" + base.substr(6);
-    if (base.rfind("ws://", 0) == 0) base = "http://" + base.substr(5);
-    size_t slash = base.find('/', 7);
-    if (slash != std::string::npos) base.resize(slash);
-    return base;
+    cdp::Url u;
+    return cdp::Url::parse(endpoint, u) ? u.toHttpBase() : "";
 }
 
 std::string ws_json_get(const std::string& url) {
