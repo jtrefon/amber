@@ -5,11 +5,6 @@ namespace agent {
 
 namespace {
 
-auto read_int = [](const json& o, const char* k) -> int {
-    auto it = o.find(k);
-    return (it != o.end() && it->is_number_integer()) ? it->get<int>() : 0;
-};
-
 // Repair a tool parameters_schema so the server's grammar builder never sees
 // null types or arrays without items (llama.cpp 400s with "type must be
 // array, but is null"). Applied to every tool before the request is sent.

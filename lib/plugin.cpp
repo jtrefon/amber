@@ -17,6 +17,8 @@
 #include <mutex>
 #include <poll.h>
 #include <regex>
+#include <signal.h>
+#include <sstream>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -190,7 +192,7 @@ void PluginManager::discover(const std::vector<std::string>& dirs) {
     }
 }
 
-const PluginInfo* PluginManager::find(const std::string& id) const {
+const PluginInfo* PluginManager::find(const std::string& id) const noexcept {
     for (const auto& p : plugins_)
         if (p.id == id) return &p;
     return nullptr;
@@ -481,7 +483,7 @@ bool PluginManager::disable(const std::string& id, ToolRegistry& reg) {
 // ---------------------------------------------------------------------------
 
 std::string PluginManager::get_setting(const std::string& id,
-                                       const std::string& key) const {
+                                       const std::string& key) const noexcept {
     const PluginInfo* info = find(id);
     if (!info || !info->settings.contains(key)) return "";
     const json& v = info->settings[key];

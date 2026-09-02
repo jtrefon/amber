@@ -59,7 +59,7 @@ public:
     // Uses the default XDG directory when `dir` is empty.
     explicit SessionStore(const std::string& dir = "");
 
-    const std::string& dir() const { return dir_; }
+    const std::string& dir() const noexcept { return dir_; }
 
     // Create the storage directory if needed. Returns false if it can't.
     bool ensure_dir() const;

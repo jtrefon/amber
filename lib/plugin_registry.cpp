@@ -69,15 +69,7 @@ EventBus& PluginRegistry::event_bus() { return bus_; }
 void PluginRegistry::set_context(PluginContext* ctx) { ctx_ = ctx; }
 
 const PluginContext& PluginRegistry::context() const {
-    if (!ctx_) {
-        assert(ctx_ && "PluginRegistry::context called without context");
-        static EventBus s_bus;
-        static ToolRegistry s_tools;
-        static Config s_cfg;
-        static Workspace s_ws;
-        static PluginContext empty{s_bus, s_tools, s_cfg, s_ws};
-        return empty;
-    }
+    assert(ctx_ && "PluginRegistry::context called before set_context()");
     return *ctx_;
 }
 

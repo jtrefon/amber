@@ -80,7 +80,6 @@ private:
     std::vector<PolicyRule> rules_;
     std::set<std::string> session_grants_;
     std::unordered_map<std::string, PolicyLevel> last_choices_;
-    int next_id_ = 0;
 
     PolicyRule* mutable_find(const std::string& tool);
 };

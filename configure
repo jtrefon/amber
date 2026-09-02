@@ -134,6 +134,19 @@ else
 fi
 echo "  ncurses libs: $NCURSES_LIBS"
 
+# linker group flags: GNU ld uses --start-group/--end-group to resolve circular
+# references between archives; Apple ld does not support them (archives are
+# searched exhaustively by default).
+echo "checking for linker group flags..."
+if $CXX -Wl,--start-group -Wl,--end-group -x c++ -o /dev/null - < /dev/null 2>/dev/null; then
+    LDFLAGS_GROUP_START="-Wl,--start-group"
+    LDFLAGS_GROUP_END="-Wl,--end-group"
+else
+    LDFLAGS_GROUP_START=""
+    LDFLAGS_GROUP_END=""
+fi
+echo "  group flags: $LDFLAGS_GROUP_START $LDFLAGS_GROUP_END"
+
 # version header: read the semantic version from the VERSION file and stamp the
 # build date, generating include/agent/version.h from its .in template.
 echo "generating version header..."
@@ -167,6 +180,8 @@ sed -e "s|@srcdir@|$srcdir|g" \
     -e "s|@CURL_CFLAGS@|$CURL_CFLAGS|g" \
     -e "s|@CURL_LIBS@|$CURL_LIBS|g" \
     -e "s|@NCURSES_LIBS@|$NCURSES_LIBS|g" \
+    -e "s|@LDFLAGS_GROUP_START@|$LDFLAGS_GROUP_START|g" \
+    -e "s|@LDFLAGS_GROUP_END@|$LDFLAGS_GROUP_END|g" \
     -e "s|@NCURSES_CFLAGS@|$NCURSES_CFLAGS|g" \
     "$srcdir/Makefile.in" > "$builddir/Makefile"
 

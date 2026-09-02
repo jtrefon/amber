@@ -341,7 +341,7 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
     return reply;
 }
 
-const AgentHooks& Agent::silent_hooks() const {
+const AgentHooks& Agent::silent_hooks() const noexcept {
     static const AgentHooks silent = [] {
         AgentHooks h;
         h.on_state = [](RunState) {};

@@ -40,8 +40,8 @@ public:
     size_t subscribe(EventType type, Observer handler);
     size_t intercept(EventType type, Interceptor handler);
     bool fire(EventType type, Event& event);
-    void unsubscribe(size_t id);
-    void clear();
+    void unsubscribe(size_t id) noexcept;
+    void clear() noexcept;
 
 private:
     struct ObserverEntry {

@@ -8,7 +8,7 @@ bool MetricsPlugin::initialize(const PluginContext& ctx) {
         EventType::AgentTurnStart,
         [this](const Event& e) { on_turn_start(e); });
 
-    auto end_sub = ctx.event_bus.subscribe(
+    ctx.event_bus.subscribe(
         EventType::AgentTurnEnd,
         [this](const Event& e) { on_turn_end(e); });
 
@@ -27,7 +27,7 @@ void MetricsPlugin::shutdown() {
     stats_ = Stats{};
 }
 
-std::vector<Capability> MetricsPlugin::capabilities() const {
+std::vector<Capability> MetricsPlugin::capabilities() const noexcept {
     return {};
 }
 

@@ -19,7 +19,7 @@
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
-#include "tests/test_util.h"
+#include "test_util.h"
 
 #include <array>
 #include <cstdio>
@@ -3474,7 +3474,11 @@ TEST(environment_card_omits_unknown_fields) {
 TEST(environment_probe_collects_facts) {
     auto info = agent::probe_environment();
     ASSERT_FALSE(info.os.empty());
+#if defined(__APPLE__)
+    ASSERT(info.os.find("macOS") != std::string::npos);
+#else
     ASSERT(info.os.find("Linux") != std::string::npos);
+#endif
     ASSERT_FALSE(info.user.empty());
     ASSERT_EQ(info.workspace, agent::Workspace::root());
     ASSERT_FALSE(info.date.empty());
@@ -4147,6 +4151,7 @@ TEST(compression_gate_hermetic_conditions) {
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
+#ifdef __linux__
 TEST(llm_reasoning_effort_in_request_body) {
     std::string body;
     int srv = spawn_mock_sse(8915, body);
@@ -4162,6 +4167,7 @@ TEST(llm_reasoning_effort_in_request_body) {
     ASSERT(body.find("\"reasoning_effort\":\"high\"") != std::string::npos);
     close(srv);
 }
+#endif
 
 TEST(agent_set_reasoning_effort_rebuilds_client) {
     agent::Workspace::set_root("/tmp/amber_rsn_test");

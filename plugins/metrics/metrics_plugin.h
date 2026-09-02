@@ -10,14 +10,14 @@ namespace agent::plugins {
 
 class MetricsPlugin : public IPlugin {
 public:
-    std::string id() const override { return "metrics"; }
-    std::string version() const override { return "1.0.0"; }
-    std::string name() const override { return "Metrics"; }
+    std::string id() const noexcept override { return "metrics"; }
+    std::string version() const noexcept override { return "1.0.0"; }
+    std::string name() const noexcept override { return "Metrics"; }
 
     bool initialize(const PluginContext& ctx) override;
     void shutdown() override;
 
-    std::vector<Capability> capabilities() const override;
+    std::vector<Capability> capabilities() const noexcept override;
 
     struct Stats {
         int turns = 0;

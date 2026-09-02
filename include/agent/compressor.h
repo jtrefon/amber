@@ -114,7 +114,7 @@ class CompressionGate {
 public:
     virtual ~CompressionGate() = default;
     virtual bool should_compress(const Context& context,
-                                  const Config& agent_cfg) const = 0;
+                                  const Config& agent_cfg) const noexcept = 0;
     virtual void set_last_compress_turn(size_t turn) { (void)turn; }
     virtual bool is_within_cooldown(size_t current_turn) const {
         (void)current_turn; return false;
@@ -124,7 +124,7 @@ public:
     // Last decision inputs (tokens, window, threshold) for the host's
     // gate-fire debug log. Default no-op for custom gates.
     virtual void last_decision(double& /*tokens*/, double& /*budget*/,
-                               double& /*threshold*/) const {}
+                               double& /*threshold*/) const noexcept {}
 };
 
 class CompressionStrategy {

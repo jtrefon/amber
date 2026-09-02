@@ -149,18 +149,18 @@ struct Config {
     // Persist the LLM provider settings (api_base, api_key, model) to a global
     // config file. Provider settings live globally because they are not project-
     // specific. Returns false if unwritable.
-    bool save_global(const std::string& path) const;
+    bool save_global(const std::string& path) const noexcept;
 
     // Persist only the project-local (non-LLM-provider) settings to a KEY=VALUE
     // file. LLM provider settings (api_base, api_key, model, context_size) are
     // intentionally omitted so they stay in the global config and are not
     // duplicated into a project-local file. Returns false if unwritable.
-    bool save_settings(const std::string& path) const;
+    bool save_settings(const std::string& path) const noexcept;
 
     // Validate the resolved configuration. Returns a list of human-readable
     // problems; an empty vector means the config is usable. UIs decide how to
     // surface these (abort with a message, warn, etc.). Kept UI-free here.
-    std::vector<std::string> validate() const;
+    std::vector<std::string> validate() const noexcept;
 
     std::string api_url() const noexcept { return api_base + "/chat/completions"; }
     std::string models_url() const noexcept { return api_base + "/models"; }

@@ -110,7 +110,7 @@ public:
 
     // Read-only access to the conversation context stack.
     // Used by UIs to persist a session.
-    const Context& context() const { return context_; }
+    const Context& context() const noexcept { return context_; }
 
     // Replace the conversation with a previously saved one (e.g. loaded from a
     // session file). Clears telemetry log association.
@@ -134,11 +134,11 @@ public:
 
     // Replace the UI callbacks. Lets a long-lived agent receive fresh closures
     // each turn (e.g. a TUI window rebinding lambdas that capture live state).
-    void set_hooks(AgentHooks hooks) { hooks_ = std::move(hooks); }
+    void set_hooks(AgentHooks hooks) noexcept { hooks_ = std::move(hooks); }
 
     // Enable or disable detection subsystems at runtime (/set detection namespace).
-    void set_detection_loop(bool on) { cfg_.detection_loop = on; }
-    void set_detection_duplicate(bool on) { cfg_.detection_duplicate = on; }
+    void set_detection_loop(bool on) noexcept { cfg_.detection_loop = on; }
+    void set_detection_duplicate(bool on) noexcept { cfg_.detection_duplicate = on; }
 
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the
@@ -197,7 +197,7 @@ private:
     Message chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display = true);
 
     // Hooks with the display callbacks removed, for silent internal exchanges.
-    const AgentHooks& silent_hooks() const;
+    const AgentHooks& silent_hooks() const noexcept;
 
     // Ask the model to confirm/finish; dispatch any further tool calls it
     // requests, or return the accepted final text. Empty return means "keep

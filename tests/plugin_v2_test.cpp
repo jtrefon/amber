@@ -15,9 +15,9 @@ public:
     StubPlugin(std::string id, std::string ver)
         : id_(std::move(id)), version_(std::move(ver)) {}
 
-    std::string id() const override { return id_; }
-    std::string version() const override { return version_; }
-    std::string name() const override { return "Stub " + id_; }
+    std::string id() const noexcept override { return id_; }
+    std::string version() const noexcept override { return version_; }
+    std::string name() const noexcept override { return "Stub " + id_; }
 
     bool initialize(const PluginContext&) override {
         initialized_ = true;
@@ -26,7 +26,7 @@ public:
 
     void shutdown() override { shutdown_ = true; }
 
-    std::vector<Capability> capabilities() const override {
+    std::vector<Capability> capabilities() const noexcept override {
         return capabilities_;
     }
 
@@ -42,12 +42,12 @@ private:
 
 class FailingPlugin : public IPlugin {
 public:
-    std::string id() const override { return "failing"; }
-    std::string version() const override { return "1.0.0"; }
-    std::string name() const override { return "Failing"; }
+    std::string id() const noexcept override { return "failing"; }
+    std::string version() const noexcept override { return "1.0.0"; }
+    std::string name() const noexcept override { return "Failing"; }
     bool initialize(const PluginContext&) override { return false; }
     void shutdown() override {}
-    std::vector<Capability> capabilities() const override { return {}; }
+    std::vector<Capability> capabilities() const noexcept override { return {}; }
 };
 
 } // namespace
@@ -216,6 +216,18 @@ TEST(plugin_registry_event_bus_shared) {
     EventBus& bus1 = reg.event_bus();
     EventBus& bus2 = reg.event_bus();
     ASSERT(&bus1 == &bus2);
+}
+
+TEST(plugin_registry_context_after_set_context) {
+    PluginRegistry reg;
+    EventBus bus;
+    ToolRegistry tools;
+    Config cfg;
+    Workspace ws;
+    PluginContext ctx{bus, tools, cfg, ws};
+    reg.set_context(&ctx);
+    const PluginContext& ref = reg.context();
+    ASSERT(&ref == &ctx);
 }
 
 TEST(plugin_registry_activate_requires_context) {

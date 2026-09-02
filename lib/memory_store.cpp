@@ -38,7 +38,7 @@ public:
     double score_of(const KnowledgeItem& item) const override {
         return memory_detail::compute_score(item, "", current_turn_);
     }
-    bool set_promoted(const std::string& id, bool pinned) override {
+    bool set_promoted(const std::string& id, bool pinned) noexcept override {
         if (auto it = memories_.find(id); it != memories_.end()) {
             it->second.promoted = pinned;
             return true;
@@ -60,14 +60,14 @@ public:
         return nullptr;
     }
     void decay_all() override { memory_detail::decay_maps(memories_, skills_, cfg_); }
-    size_t store_size() const override { return memories_.size() + skills_.size(); }
+    size_t store_size() const noexcept override { return memories_.size() + skills_.size(); }
     bool load(const std::string& path) override {
         return memory_detail::load_store(path, memories_, skills_);
     }
     bool save(const std::string& path) const override {
         return memory_detail::save_store(path, memories_, skills_);
     }
-    int deprecate(const std::string& content) override {
+    int deprecate(const std::string& content) noexcept override {
         int rc = memory_detail::deprecate_one_map(content, memories_);
         if (rc >= 0) return rc;
         return memory_detail::deprecate_one_map(content, skills_);

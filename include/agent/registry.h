@@ -27,14 +27,14 @@ public:
     void register_tool(std::unique_ptr<Tool> tool);
     // Shared lease: the caller keeps the tool alive across a concurrent
     // unregister/replacement (dispatch holds the lease through execute()).
-    std::shared_ptr<Tool> find(const std::string& name) const;
-    bool empty() const;
+    std::shared_ptr<Tool> find(const std::string& name) const noexcept;
+    bool empty() const noexcept;
 
     // Build the tools[] payload for the chat/completions request.
     json schema() const;
 
     // Snapshot of the owned tools, consistent under the registry lock.
-    std::vector<std::shared_ptr<Tool>> snapshot_tools() const;
+    std::vector<std::shared_ptr<Tool>> snapshot_tools() const noexcept;
 
     // Remove every tool whose name starts with `prefix` (e.g. "mcp_github_").
     // Returns the number removed.

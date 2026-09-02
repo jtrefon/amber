@@ -56,8 +56,6 @@ std::vector<Message> apply_classification(
     std::vector<Message> core;
     struct ArchiveSeg { size_t start; size_t end; std::string summary; };
     std::vector<ArchiveSeg> archive_segments;
-    size_t prune_count = 0;
-
     // Archive entries from a previous compressed-context message carry over:
     // re-compression updates the archive instead of replacing it. The old
     // compressed message itself is consumed (never duplicated in the output).
@@ -90,7 +88,6 @@ std::vector<Message> apply_classification(
                 }
                 break;
             case Classification::prune:
-                ++prune_count;
                 break;
         }
     }

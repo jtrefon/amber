@@ -11,10 +11,16 @@
 #include <pwd.h>
 #include <sstream>
 #include <string>
-#include <sys/sysinfo.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#if defined(__linux__)
+#include <sys/sysinfo.h>
+#elif defined(__APPLE__)
+#include <mach/mach.h>
+#include <sys/sysctl.h>
+#endif
 
 namespace agent {
 
@@ -44,6 +50,7 @@ bool shell_ok(const std::string& cmd) {
     return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
 }
 
+#if defined(__linux__)
 std::string distro_name() {
     std::ifstream f("/etc/os-release");
     std::string line;
@@ -56,10 +63,12 @@ std::string distro_name() {
     }
     return "";
 }
+#endif
 
 std::string os_string() {
     struct utsname u {};
-    if (uname(&u) != 0) return "Linux";
+    if (uname(&u) != 0) return "Unknown";
+#if defined(__linux__)
     std::string out = distro_name();
     if (!out.empty()) out += " (";
     out += "Linux ";
@@ -68,6 +77,20 @@ std::string os_string() {
     out += u.machine;
     if (!distro_name().empty()) out += ")";
     return out;
+#elif defined(__APPLE__)
+    std::string out = "macOS ";
+    out += u.release;
+    out += " ";
+    out += u.machine;
+    return out;
+#else
+    std::string out = u.sysname;
+    out += " ";
+    out += u.release;
+    out += " ";
+    out += u.machine;
+    return out;
+#endif
 }
 
 std::string user_string() {
@@ -78,15 +101,37 @@ std::string user_string() {
     return "";
 }
 
-std::string resources_string() {
+namespace {
+long count_cores() {
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? n : 1;
+}
+
+#if defined(__linux__)
+double total_ram_gb() {
     struct sysinfo si {};
-    if (sysinfo(&si) != 0) return "";
-    long nproc = sysconf(_SC_NPROCESSORS_ONLN);
-    if (nproc < 1) nproc = 1;
-    double gb = static_cast<double>(si.totalram) *
-                static_cast<double>(si.mem_unit) / (1024.0 * 1024.0 * 1024.0);
+    if (sysinfo(&si) != 0) return 0.0;
+    return static_cast<double>(si.totalram) *
+           static_cast<double>(si.mem_unit) / (1024.0 * 1024.0 * 1024.0);
+}
+#elif defined(__APPLE__)
+double total_ram_gb() {
+    int mib[2] = {CTL_HW, HW_MEMSIZE};
+    uint64_t mem = 0;
+    size_t len = sizeof(mem);
+    if (sysctl(mib, 2, &mem, &len, nullptr, 0) != 0) return 0.0;
+    return static_cast<double>(mem) / (1024.0 * 1024.0 * 1024.0);
+}
+#else
+double total_ram_gb() { return 0.0; }
+#endif
+} // namespace
+
+std::string resources_string() {
+    double gb = total_ram_gb();
     char buf[64];
-    std::snprintf(buf, sizeof buf, "%ld cores \u00b7 %.0f GB RAM", nproc, gb);
+    std::snprintf(buf, sizeof buf, "%ld cores \u00b7 %.0f GB RAM",
+                  count_cores(), gb);
     return buf;
 }
 

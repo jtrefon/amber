@@ -40,7 +40,7 @@ bool EventBus::fire(EventType type, Event& event) {
     return true;
 }
 
-void EventBus::unsubscribe(size_t id) {
+void EventBus::unsubscribe(size_t id) noexcept {
     std::scoped_lock lk(mtx_);
     observers_.erase(
         std::remove_if(observers_.begin(), observers_.end(),
@@ -52,7 +52,7 @@ void EventBus::unsubscribe(size_t id) {
         interceptors_.end());
 }
 
-void EventBus::clear() {
+void EventBus::clear() noexcept {
     std::scoped_lock lk(mtx_);
     observers_.clear();
     interceptors_.clear();

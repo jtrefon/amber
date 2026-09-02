@@ -64,8 +64,8 @@ public:
     // Never throws; failures are recorded per plugin.
     void discover(const std::vector<std::string>& dirs = {});
 
-    const std::vector<PluginInfo>& plugins() const { return plugins_; }
-    const PluginInfo* find(const std::string& id) const;
+    const std::vector<PluginInfo>& plugins() const noexcept { return plugins_; }
+    const PluginInfo* find(const std::string& id) const noexcept;
     PluginInfo* find(const std::string& id);
 
     // Lifecycle: enable spawns the process and performs the protocol
@@ -75,7 +75,7 @@ public:
     bool disable(const std::string& id, ToolRegistry& reg);
 
     // Persisted key/value settings (state.json in the user config dir).
-    std::string get_setting(const std::string& id, const std::string& key) const;
+    std::string get_setting(const std::string& id, const std::string& key) const noexcept;
     bool set_setting(const std::string& id, const std::string& key,
                      const std::string& value);
 

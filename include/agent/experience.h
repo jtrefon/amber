@@ -66,7 +66,7 @@ public:
     // the store's canonical identity key). Returns the new evidence count,
     // or 0 when the item was removed, or -1 when no item matched. The
     // store owns the id mapping — callers never touch hashes.
-    virtual int deprecate(const std::string& content) {
+    virtual int deprecate(const std::string& content) noexcept {
         (void)content;
         return -1;
     }
@@ -111,7 +111,7 @@ public:
 
     // Set/clear the promoted flag on the item with `id`. Returns false when
     // the id is unknown.
-    virtual bool set_promoted(const std::string& id, bool pinned) {
+    virtual bool set_promoted(const std::string& id, bool pinned) noexcept {
         (void)id;
         (void)pinned;
         return false;
@@ -128,7 +128,7 @@ public:
     virtual void decay_all() = 0;
 
     // Total number of items (memories + skills) in the store.
-    virtual size_t store_size() const = 0;
+    virtual size_t store_size() const noexcept = 0;
 
     virtual bool load(const std::string& path) = 0;
     virtual bool save(const std::string& path) const = 0;

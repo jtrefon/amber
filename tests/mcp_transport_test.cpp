@@ -1,6 +1,7 @@
 
 #include <cerrno>
 #include <fstream>
+#include <signal.h>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>

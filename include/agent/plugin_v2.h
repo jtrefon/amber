@@ -43,14 +43,14 @@ class IPlugin {
 public:
     virtual ~IPlugin() = default;
 
-    virtual std::string id() const = 0;
-    virtual std::string version() const = 0;
-    virtual std::string name() const = 0;
+    virtual std::string id() const noexcept = 0;
+    virtual std::string version() const noexcept = 0;
+    virtual std::string name() const noexcept = 0;
 
     virtual bool initialize(const PluginContext& ctx) = 0;
     virtual void shutdown() = 0;
 
-    virtual std::vector<Capability> capabilities() const = 0;
+    virtual std::vector<Capability> capabilities() const noexcept = 0;
 };
 
 } // namespace agent

@@ -19,7 +19,7 @@ public:
         : cfg_(cfg) {}
 
     bool should_compress(const Context& context,
-                         const Config& agent_cfg) const override {
+                         const Config& agent_cfg) const noexcept override {
         if (is_within_cooldown(agent_cfg.turn_counter)) return false;
         if (!threshold_exceeded(context, agent_cfg)) return false;
         if (!sufficient_turns(context)) return false;
@@ -38,7 +38,7 @@ public:
 
     // Last decision inputs, for the host's gate-fire debug log.
     void last_decision(double& tokens, double& budget,
-                       double& threshold) const override {
+                       double& threshold) const noexcept override {
         tokens = last_tokens_;
         budget = last_budget_;
         threshold = last_threshold_;

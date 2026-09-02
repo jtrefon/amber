@@ -147,7 +147,7 @@ std::string global_config_path() {
     return global_config_dir() + "/config";
 }
 
-bool Config::save_global(const std::string& path) const {
+bool Config::save_global(const std::string& path) const noexcept {
     std::error_code ec;
     std::filesystem::path p(path);
     std::filesystem::create_directories(p.parent_path(), ec);
@@ -162,7 +162,7 @@ bool Config::save_global(const std::string& path) const {
     return static_cast<bool>(f);
 }
 
-bool Config::save_settings(const std::string& path) const {
+bool Config::save_settings(const std::string& path) const noexcept {
     // Ensure the parent directory exists (e.g. .amber/ for .amber/settings)
     std::error_code ec;
     std::filesystem::path p(path);
@@ -232,7 +232,7 @@ void Config::apply_environment() {
     if (sr) show_reasoning = (std::string(sr) == "1" || std::string(sr) == "true");
 }
 
-std::vector<std::string> Config::validate() const {
+std::vector<std::string> Config::validate() const noexcept {
     std::vector<std::string> errs;
 
     if (api_base.empty()) {
