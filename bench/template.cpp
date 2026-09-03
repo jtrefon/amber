@@ -80,7 +80,11 @@ std::string run_capture(const std::string& cmd, int* status) {
     char buf[4096];
     size_t n;
     while ((n = fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
-    *status = WEXITSTATUS(pclose(f));
+    // pclose returns the raw wait status; macOS's WEXITSTATUS macro takes the
+    // address of its argument, so it cannot be applied to the pclose() rvalue
+    // directly (clang error). Bind to a local first.
+    int raw = pclose(f);
+    *status = WEXITSTATUS(raw);
     return out;
 }
 
