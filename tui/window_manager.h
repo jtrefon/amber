@@ -6,7 +6,7 @@
 #include <vector>
 
 namespace agent {
-class Config;
+struct Config;
 class ToolRegistry;
 } // namespace agent
 
