@@ -865,7 +865,7 @@ void SlashDispatcher::register_builtin_actions() {
         tui_.win().reason_buf.clear();
         tui_.win().reason_folded = false;
         tui_.win().scroll_top = 0;
-        tui_.ctx_used_ = -1;
+        tui_.ctx_used_.store(-1);
         tui_.live_ctx_offset_ = 0;
         tui_.append_line(P_STATUS, "conversation cleared \u2014 next message starts fresh");
         tui_.render_engine_->set_drawer_open(false);

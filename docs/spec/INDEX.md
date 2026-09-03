@@ -100,6 +100,12 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `compression/loop-collapse.md` | Consecutive tool-call merging rules, lossless vs lossy |
 | `compression/turn-classification.md` | Tag assignment: keep/drop/summarize per-turn logic |
 
+## Context
+
+| File | Covers |
+|------|--------|
+| `context/context-ownership-and-parallel-compression.md` | Inviolable deque/immutability contract, single-owner-thread model, event-driven progress, parallel two-thread compression (KV-reuse + worker assemble) |
+
 ## Skills
 
 | File | Covers |

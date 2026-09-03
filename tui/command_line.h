@@ -112,6 +112,7 @@ private:
     // Internal helpers
     void recompute();              // update shadow, drawer after mutation
     void save_undo();              // save state for undo
+    std::vector<std::string> drawer_items() const;  // completions_ filtered by the trailing partial token
 
     void advance_cycle(int dir);
     void reset_cycle();

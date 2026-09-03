@@ -6,6 +6,8 @@
 
 #include "tui/view.h"
 #include "tui/command_line.h"
+#include "tui/drawer_rows.h"
+#include "tui/setting_registry.h"
 
 // ── MockView: records everything for test assertions ─────────────────
 
@@ -359,6 +361,29 @@ TEST(test_shadow_sequential_typing) {
     PASS;
 }
 
+// End-to-end regression: the REAL registry + drawer feed the CommandLine the
+// way Tui::run does. Typing /c must produce a non-empty shadow (so /compress
+// is reachable via Tab). This bypasses hand-injected completions and would
+// have caught the first-token-partial bug.
+TEST(test_registry_wired_slash_c_shadow) {
+    std::cout << "[TEST] registry-wired /c shadow...";
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    tui::CommandLine cl;
+    cl.on_char('/');
+    // Host updates completions from the registry after each keystroke.
+    cl.set_completions(tui::drawer_entry_names(cl.text(), reg));
+    ASSERT(cl.shadow().empty());  // "/" alone: no shadow (list shown, not a partial)
+    cl.on_char('c');
+    cl.set_completions(tui::drawer_entry_names(cl.text(), reg));
+    // /c must produce a shadow (the remainder of the first c* command).
+    ASSERT(!cl.shadow().empty());
+    // Tab must accept it into a dispatchable command.
+    cl.on_tab();
+    ASSERT(!cl.text().empty());
+    PASS;
+}
+
 TEST(test_up_down_history) {
     std::cout << "[TEST] Up/Down history...";
     MockView view;
@@ -367,6 +392,43 @@ TEST(test_up_down_history) {
     view.keys_ = {tui::View::KEY_UP};
     auto r = simulate(view, cl);
     ASSERT_EQ(cl.text(), "second");
+    PASS;
+}
+
+// Drawer arrow navigation: with the drawer open (typing /c, which yields
+// multiple c* commands), Down and Up must move the highlight through the
+// filtered items and Enter must dispatch the highlighted command —
+// independently of Tab. Regression: arrows used to fall through to history
+// navigation because they gated on cycle_matches_, which is only populated
+// once Tab is pressed.
+TEST(test_drawer_arrows_navigate_and_enter_dispatches) {
+    std::cout << "[TEST] drawer arrows navigate + Enter dispatch...";
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    tui::CommandLine cl;
+    cl.set_history({"older prompt"});  // history must NOT be navigated
+    // Type "/c" (multiple drawer items: close, compress).
+    for (char ch : std::string("/c")) {
+        cl.on_char(ch);
+        cl.set_completions(tui::drawer_entry_names(cl.text(), reg));
+    }
+    ASSERT(cl.drawer_open());
+    ASSERT(!cl.shadow().empty());
+    auto items = tui::drawer_entry_names("/c", reg);
+    ASSERT(items.size() >= 2u);
+
+    // Down moves the highlight to the second item.
+    int sel0 = cl.drawer_sel();
+    cl.on_down();
+    cl.set_completions(tui::drawer_entry_names(cl.text(), reg));
+    ASSERT_EQ(cl.drawer_sel(), sel0 + 1);
+
+    // Enter dispatches the highlighted (second) item, preserving "/".
+    auto r = cl.on_enter();
+    ASSERT_EQ(r.action, tui::CommandLine::Result::Dispatch);
+    ASSERT(!r.dispatch_text.empty());
+    ASSERT_EQ(r.dispatch_text, "/" + items[1]);
+
     PASS;
 }
 
@@ -525,10 +587,12 @@ int main() {
     test_ctrl_a_e();
     test_backspace();
     test_up_down_history();
+    test_drawer_arrows_navigate_and_enter_dispatches();
     test_shadow_appears_with_completions();
     test_shadow_empty_without_completions();
     test_shadow_updates_as_you_type();
     test_shadow_sequential_typing();
+    test_registry_wired_slash_c_shadow();
     test_get_dete_shadow();
     test_get_question_help();
     test_shadow_depth2_get_detection_dot_l();

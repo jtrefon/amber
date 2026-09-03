@@ -72,7 +72,7 @@ agent::Session SessionController::snapshot(Window& w) const {
         s.meta = w.agent->meta_;
     }
     // Persist UI state so it survives exit/reload.
-    s.meta["ctx_used"] = tui_.ctx_used_;
+    s.meta["ctx_used"] = tui_.ctx_used_.load();
     s.meta["ctx_size"] = tui_.cfg_.context_size;
     if (tui_.stats_.valid) {
         s.meta["latency_ms"] = tui_.stats_.latency_ms;
@@ -91,6 +91,9 @@ void SessionController::autosave() {
 
 void SessionController::autosave(Window& w) {
     if (!w.dirty || !w.agent || w.agent->context().empty()) return;
+    // Called from on_done (agent finished — quiescent) and shutdown paths,
+    // never mid-run. The single-owner rule is respected by the callers: the
+    // context is only snapshotted here when the worker is not mutating it.
     agent::Session s = snapshot(w);
     if (store_.save(s)) {
         w.session_id = s.id;
@@ -103,6 +106,14 @@ void SessionController::save_session() {
     Window& w = tui_.win();
     if (!w.agent || w.agent->context().empty()) {
         tui_.append_line(P_STATUS, "nothing to save (empty conversation)");
+        return;
+    }
+    // Single-owner rule (see autosave): never snapshot a context the worker
+    // is mid-mutation on. A background compression sets busy for its whole
+    // run; saving then would race the rebuild.
+    if (tui_.router_->busy()) {
+        tui_.append_line(P_STATUS,
+                         "save deferred \u2014 agent is busy (finishes and auto-saves)");
         return;
     }
     agent::Session s = snapshot(w);
@@ -145,7 +156,7 @@ void SessionController::load_session(const std::string& id) {
         return (s.meta.contains(key) && s.meta[key].is_number())
                    ? s.meta[key].get<long>() : def;
     };
-    tui_.ctx_used_ = get_num("ctx_used", -1);
+    tui_.ctx_used_.store(get_num("ctx_used", -1));
     long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
         tui_.cfg_.context_size = static_cast<int>(restored_ctx);
@@ -444,7 +455,7 @@ void Tui::lazy_load_active() {
         return (s.meta.contains(key) && s.meta[key].is_number())
                    ? s.meta[key].get<long>() : def;
     };
-    ctx_used_ = get_num("ctx_used", -1);
+    ctx_used_.store(get_num("ctx_used", -1));
     long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
         cfg_.context_size = static_cast<int>(restored_ctx);

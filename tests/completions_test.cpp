@@ -574,6 +574,107 @@ TEST(test_complete_top_level_from_tree) {
     ASSERT(has_get);
 }
 
+// ── Test: bare "/" drawer — children_of returns top-level commands ──
+
+TEST(test_bare_slash_children_of) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto kids = reg.children_of("");
+    REQUIRE_NONEMPTY(kids);
+    bool has_get = false, has_set = false;
+    for (const auto& k : kids) {
+        if (k == "get") has_get = true;
+        if (k == "set") has_set = true;
+    }
+    ASSERT(has_get);
+    ASSERT(has_set);
+}
+
+// ── Test: bare "/" drawer rows show top-level commands ──
+
+TEST(test_bare_slash_drawer_rows) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto rows = tui::drawer_rows("/", reg);
+    REQUIRE_NONEMPTY(rows);
+    bool has_get = false, has_set = false;
+    for (const auto& r : rows) {
+        if (r.find("get") != std::string::npos) has_get = true;
+        if (r.find("set") != std::string::npos) has_set = true;
+    }
+    ASSERT(has_get);
+    ASSERT(has_set);
+}
+
+// ── Test: bare "/" drawer entry names for Tab completion ──
+
+TEST(test_bare_slash_drawer_entry_names) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto names = tui::drawer_entry_names("/", reg);
+    REQUIRE_NONEMPTY(names);
+    bool has_get = false, has_set = false;
+    for (const auto& n : names) {
+        if (n == "get") has_get = true;
+        if (n == "set") has_set = true;
+    }
+    ASSERT(has_get);
+    ASSERT(has_set);
+}
+
+// ── Regression: first-token partial ("/c") must filter the top-level
+// command list — the drawer entry names feed CommandLine::set_completions,
+// which computes the Tab shadow. Previously the no-space branch treated "/c"
+// as a namespace to resolve exactly (children_of("c") is never indexed), so
+// it returned empty and no shadow appeared for /compress. ──
+
+TEST(test_partial_first_token_entry_names_include_compress) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto names = tui::drawer_entry_names("/c", reg);
+    REQUIRE_NONEMPTY(names);
+    bool has_compress = false;
+    for (const auto& n : names) {
+        if (n == "compress") has_compress = true;
+        if (n == "set") {
+            std::cerr << "FAIL: partial /c must not return non-c* command\n";
+            failed++;
+            return;
+        }
+    }
+    ASSERT(has_compress);
+}
+
+TEST(test_partial_first_token_drawer_rows_include_compress) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto rows = tui::drawer_rows("/c", reg);
+    REQUIRE_NONEMPTY(rows);
+    bool saw_compress = false;
+    for (const auto& r : rows)
+        if (r.find("compress") != std::string::npos) saw_compress = true;
+    ASSERT(saw_compress);
+}
+
+// ── Regression guard: an exact top-level command that is ALSO a namespace
+// ("/get") must still descend into its children (the ambiguous case), not be
+// treated as a partial filter. ──
+
+TEST(test_exact_top_level_namespace_still_descends) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto names = tui::drawer_entry_names("/get", reg);
+    REQUIRE_NONEMPTY(names);
+    // "get" is a namespace: its children are dotted paths like
+    // detection / model / policy... but drawer_entry_names returns bare
+    // child keys at this depth. Assert it returns subcommands, not that "/get"
+    // was treated as a partial filter of the top level (which would include
+    // "get" itself or unrelated top-level names).
+    bool has_get = false;
+    for (const auto& n : names) if (n == "get") has_get = true;
+    ASSERT(!has_get);  // must not list "get" as a sibling
+}
+
 int main() {
     try {
     test_json_loads_all_commands();
@@ -604,6 +705,12 @@ int main() {
     test_feed_leaves_visible_after_merge();
     test_drawer_rows_children_and_help();
     test_complete_top_level_from_tree();
+    test_bare_slash_children_of();
+    test_bare_slash_drawer_rows();
+    test_bare_slash_drawer_entry_names();
+    test_partial_first_token_entry_names_include_compress();
+    test_partial_first_token_drawer_rows_include_compress();
+    test_exact_top_level_namespace_still_descends();
     } catch (const std::exception& e) {
         std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
         failed++;

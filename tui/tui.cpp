@@ -284,7 +284,7 @@ void Tui::agent_worker(Window& my_win, size_t window_id,
     // Subscribe to context change events for live token count updates.
     my_win.agent->context_events().subscribe(
         [this](size_t tokens, size_t) {
-            ctx_used_ = static_cast<long>(tokens);
+            ctx_used_.store(static_cast<long>(tokens));
         });
 
     try {

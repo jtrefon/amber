@@ -113,6 +113,15 @@ void CompressionReporter::on_loop_collapse(size_t removed) {
     pump();
 }
 
+void CompressionReporter::on_progress(size_t tokens, size_t msgs) {
+    // Emitted as the working set shrinks (collapse/prune/apply). Keep it a
+    // compact status line so the host's context gauge can tick downward
+    // without spamming the scrollback.
+    log("  ... " + std::to_string(msgs) + " msgs, ~"
+        + std::to_string(tokens) + " tok remain");
+    pump();
+}
+
 void CompressionReporter::on_llm_request_sent() {
     log("sending LLM request...");
     pump();
@@ -241,19 +250,30 @@ public:
         if (observer) {
             size_t removed = pre_loop - copy.size();
             if (removed > 0) observer->on_loop_collapse(removed);
+            observer->on_progress(estimate_tokens(copy), copy.size());
         }
         prune_tool_io(copy);
+        if (observer)
+            observer->on_progress(estimate_tokens(copy), copy.size());
+
+        // The classify prefix is the post-collapse history (the message list
+        // the classifier sees). The extract request replays this SAME prefix
+        // plus the classify prompt + response, so the second LLM call shares
+        // the first's KV cache (no full prefill between the compression
+        // calls). Keep it aside — apply_classification below must not clobber
+        // the prefix the extract step replays.
+        std::vector<Message> classify_prefix = copy;
 
         // Step 2: classify turns — the request is assembled from the
         // working copy, so the LLM sees exactly what apply will consume.
         CompressionResponse cr;
+        Message class_reply;
         {
             Message class_req =
                 build_classify_request(has_compressed_context(copy));
             auto request = append_message(copy, class_req);
 
             if (observer) observer->on_llm_request_sent();
-            Message class_reply;
             try {
                 class_reply = client.chat(request, {});
             } catch (const std::exception& e) {
@@ -279,22 +299,27 @@ public:
             copy = enforce_headroom(std::move(copy),
                                     static_cast<size_t>(cfg.context_size));
 
-            if (observer) observer->on_apply_result({});
+            if (observer) {
+                observer->on_apply_result({});
+                // The working set just shrank to its final size — surface it
+                // so the host's gauge drops before the swap completes.
+                observer->on_progress(estimate_tokens(copy), copy.size());
+            }
         }
 
         // Step 3: extract memories/skills (second LLM call). The request
-        // replays the classify pair (request + stored reply) before the
-        // extract prompt — the extract step says "Review the classification
-        // above", and the shared prefix keeps the server's prompt cache
-        // warm across both calls.
+        // replays the classify pair on the ORIGINAL (post-collapse) prefix so
+        // the two LLM calls share a KV prefix — the extract step says "Review
+        // the classification above", and the classify prompt + its response
+        // are replayed before the extract prompt.
         {
             Message class_req =
-                build_classify_request(has_compressed_context(copy));
+                build_classify_request(has_compressed_context(classify_prefix));
             Message ext_req = build_extract_request();
-            auto request = append_message(copy, class_req);
+            auto request = append_message(classify_prefix, class_req);
             Message stored_reply;
             stored_reply.role = "assistant";
-            stored_reply.content = "(classification consumed)";
+            stored_reply.content = class_reply.content;
             request = append_message(std::move(request), std::move(stored_reply));
             request = append_message(std::move(request), ext_req);
 

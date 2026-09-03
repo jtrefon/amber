@@ -124,6 +124,31 @@ for f in tests/run_tests.cpp lib/session.cpp tui/tui_render.cpp tui/tui_input.cp
     fi
 done
 
+# P6
+# The Context deque contract is inviolable (AGENTS.md "Context stack
+# architecture"): thread safety is by single ownership, NOT by locking. A
+# mutex, a copy-returning get_all(), or a message-mutation method would let
+# callers bypass the sealed-message/hash-chain design — flag any of them.
+ctx_hdr=include/agent/context.h
+if grep -qE 'std::mutex|lock_guard|scoped_lock' "$ctx_hdr"; then
+    warn "P6: $ctx_hdr must not contain a mutex/lock (single-owner, not locking)"
+else
+    ok "context.h has no mutex/lock (single-owner contract intact)"
+fi
+if grep -qE 'get_all\(\).*std::vector|std::vector<Message> get_all' "$ctx_hdr"; then
+    warn "P6: $ctx_hdr get_all() must return the const deque ref, not a copy"
+else
+    ok "context.h get_all() returns the read-only deque reference"
+fi
+for m in replace insert update set_message set_content edit modify; do
+    if grep -qE "\b(void|Message|bool|size_t) $m\s*\(" "$ctx_hdr"; then
+        warn "P6: $ctx_hdr must not add a '$m' mutation method (rebuild via clear+push only)"
+    fi
+done
+if grep -qE '\b(mutex|recursive_mutex)\b' "$ctx_hdr"; then
+    warn "P6: $ctx_hdr must not include <mutex> or declare a mutex member"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
     exit 1

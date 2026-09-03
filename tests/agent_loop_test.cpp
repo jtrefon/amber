@@ -343,9 +343,67 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
     ASSERT_EQ(cr.segments.size(), size_t{1});
     ASSERT(cr.segments[0].tag == agent::Classification::context);
     ASSERT_EQ(cr.memory_ops.size(), size_t{1});
-    // The classify/extract requests were popped again — context unchanged.
+    // The pipeline is pure — it reads the context and works on a copy, so
+    // the live context is untouched by the classify/extract calls.
     ASSERT_EQ(ctx.size(), 2);
-    (void)ctx.get_all();  // hash chain intact after the push/pop pairs
+    (void)ctx.get_all();  // hash chain intact
+}
+
+// KV-reuse guarantee: the compression pipeline makes TWO LLM calls
+// (classify, then extract). For the server's prompt cache to stay warm the
+// extract request must replay the classify request as a prefix — the second
+// call then extends the first's KV instead of triggering a full prefill.
+// This test pins that content-identity contract. It is the real mechanism
+// behind the spec's "no full prefill between the compression calls" — the
+// pipeline achieves it with a pure copy, not by mutating the live context.
+TEST(compression_extract_request_shares_classify_prefix) {
+    agent::CompressionConfig cc;
+    auto compressor = agent::make_compressor(cc);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+
+    agent_test::FakeReply classify;
+    classify.content =
+        R"({"classification":[{"turns":"0-1","tag":"context","summary":"greeting"}],)"
+        R"("memories":[],"skills":[]})";
+    fake->script.push_back(std::move(classify));
+    agent_test::FakeReply extract;
+    extract.content = R"({"memories":[],"skills":[]})";
+    fake->script.push_back(std::move(extract));
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "hello";
+    ctx.push(std::move(user));
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
+    ASSERT(!out.empty());
+    // Exactly two LLM calls: classify, then extract.
+    ASSERT_EQ(raw->requests.size(), size_t{2});
+
+    const auto& classify_req = raw->requests[0];
+    const auto& extract_req = raw->requests[1];
+    // The extract request is strictly longer and its leading messages are
+    // byte-identical to the classify request (the classify prompt + a stored
+    // "(classification consumed)" assistant reply are replayed before the
+    // extract prompt).
+    ASSERT(extract_req.size() > classify_req.size());
+    for (size_t i = 0; i < classify_req.size(); ++i) {
+        ASSERT_EQ(extract_req[i].role, classify_req[i].role);
+        ASSERT_EQ(extract_req[i].content, classify_req[i].content);
+    }
+    // The classify prompt itself is present in both (the shared prefix).
+    bool saw_classify = false;
+    for (const auto& m : classify_req)
+        if (m.content.find("Classify ALL turn ranges") != std::string::npos)
+            saw_classify = true;
+    ASSERT(saw_classify);
 }
 
 // Spec invariant 7: if any LLM call or parse fails, the input history is

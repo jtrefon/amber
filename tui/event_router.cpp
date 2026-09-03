@@ -170,7 +170,7 @@ bool EventRouter::drain_events() {
         case AgentEvent::Stats:
             tui_.stats_ = ev.stats;
             if (ev.stats.prompt_tokens >= 0) {
-                tui_.ctx_used_ = ev.stats.prompt_tokens;
+                tui_.ctx_used_.store(ev.stats.prompt_tokens);
                 tui_.live_ctx_offset_ = 0;
             }
             break;
@@ -334,7 +334,7 @@ void EventRouter::on_compress_result(Window* w, const AgentEvent& ev) {
     if (!w) return;
     auto& r = ev.compress_result;
     tui_.state_ = agent::RunState::Idle;
-    tui_.ctx_used_ = static_cast<long>(r.tokens_after);
+    tui_.ctx_used_.store(static_cast<long>(r.tokens_after));
     {
         std::string s;
         if (r.messages_before == 0) s = "compress: no compressor configured";
