@@ -37,12 +37,15 @@ std::vector<Message> apply_classification(
         }
     }
 
-    // Safety net: the last `keep_prompts` user turns and everything after
-    // them survive verbatim — a misclassification must never drop the active
-    // task. (Legacy default 2; pipeline default 10, configurable.)
+    // Safety net: the last `keep_prompts` REAL user prompts and everything
+    // after them survive verbatim — a misclassification must never drop the
+    // active task. Internal confirmation probes ("Are you finished?") are not
+    // real prompts and must not count toward (or inflate) the protected tail.
+    // (Legacy default 2; pipeline default 10, configurable.)
     std::vector<size_t> user_positions;
     for (size_t i = 1; i < history.size(); ++i)
-        if (history[i].role == "user") user_positions.push_back(i);
+        if (history[i].role == "user" && !is_confirmation_probe(history[i]))
+            user_positions.push_back(i);
     size_t guard_start = history.size();
     if (!user_positions.empty()) {
         auto protect = static_cast<size_t>(keep_prompts);
@@ -215,7 +218,9 @@ std::vector<Message> enforce_target_budget(std::vector<Message> compressed,
     {
         std::vector<size_t> users;
         for (size_t i = 1; i < compressed.size(); ++i)
-            if (compressed[i].role == "user") users.push_back(i);
+            if (compressed[i].role == "user" &&
+                !is_confirmation_probe(compressed[i]))
+                users.push_back(i);
         auto protect = static_cast<size_t>(keep);
         if (protect > users.size()) protect = users.size();
         if (protect > 0) tail_start = users[users.size() - protect];
