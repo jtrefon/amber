@@ -375,6 +375,40 @@ TEST(request_builder_merges_consecutive_system_messages) {
     ASSERT_EQ(body2["messages"][0]["content"], "main prompt");
 }
 
+TEST(request_builder_hoists_midstream_system_into_leading_block) {
+    // The compressed-context archive is a role=system message that sits AFTER
+    // the conversation turns (apply_classification appends it, then prepends
+    // the real system prompt). A strict GGUF template rejects a system message
+    // that is not at the start (HTTP 500 "System message must be at the
+    // beginning"). Every system message — wherever it appears — must merge into
+    // ONE block emitted BEFORE the first non-system message.
+    agent::Config c;
+    std::vector<agent::Message> msgs;
+    agent::Message s1; s1.role = "system"; s1.content = "main prompt"; msgs.push_back(s1);
+    agent::Message u;  u.role = "user";    u.content = "hi";         msgs.push_back(u);
+    agent::Message a;  a.role = "assistant"; a.content = "hello";    msgs.push_back(a);
+    // Trailing system: the compressed-context archive after the turns.
+    agent::Message arch; arch.role = "system";
+    arch.content = "Compressed conversation context:\n{\"archive\":[]}";
+    msgs.push_back(arch);
+
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
+    json body = build_chat_body(c, msgs, no_tools, false);
+    const auto& wire = body["messages"];
+    // Exactly one system message, at the front, carrying BOTH system contents.
+    size_t system_count = 0;
+    for (const auto& m : wire)
+        if (m["role"] == "system") ++system_count;
+    ASSERT_EQ(system_count, 1u);
+    ASSERT_EQ(wire[0]["role"], "system");
+    std::string sys = wire[0]["content"];
+    ASSERT(sys.find("main prompt") != std::string::npos);
+    ASSERT(sys.find("Compressed conversation context") != std::string::npos);
+    // Original turn order preserved after the single leading system block.
+    ASSERT_EQ(wire[1]["role"], "user");
+    ASSERT_EQ(wire[2]["role"], "assistant");
+}
+
 TEST(request_builder_assistant_message_always_has_content) {
     // Regression: a reasoning model can answer with content "" and the whole
     // reply in reasoning_content. Serializing that as {"role":"assistant"}
