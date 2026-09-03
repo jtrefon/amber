@@ -38,6 +38,8 @@ namespace tui {
 namespace {
 // One-line compression result summary for the status bar.
 std::string compress_summary(const agent::CompressionResult& r) {
+    if (!r.error.empty())
+        return "compress: " + r.error;
     if (r.messages_before == 0)
         return "compress: no compressor configured";
     if (r.messages_after >= r.messages_before)

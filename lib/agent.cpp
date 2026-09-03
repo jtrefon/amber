@@ -383,7 +383,19 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
 bool Agent::run_compression(std::function<void()> progress_cb,
                             CompressionResult* out) {
     // Snapshot BEFORE compression — immutable, never mutate live stack.
-    if (!compression_ || context_.size() < 2) return false;
+    if (!compression_) {
+        CompressionResult r;
+        r.error = "no compressor configured";
+        if (out) *out = std::move(r);
+        return false;
+    }
+    if (context_.size() < 2) {
+        CompressionResult r;
+        r.messages_before = context_.size();
+        r.error = "conversation too short to compress";
+        if (out) *out = std::move(r);
+        return false;
+    }
     auto before = context_.get_all();
     size_t msgs_before = before.size();
     size_t tokens_before = context_.token_count();
@@ -410,8 +422,14 @@ bool Agent::run_compression(std::function<void()> progress_cb,
     gate_->set_last_compress_turn(turn_counter_);
 
     // Spec invariant 7: a failed compression leaves the context untouched.
+    // Report the real error — a failure here must not masquerade as "no
+    // compressor configured" (the TUI keys off messages_before == 0).
     if (!cr.error.empty()) {
+        r.messages_before = msgs_before;
+        r.tokens_before = tokens_before;
+        r.error = cr.error;
         reporter.on_error(cr.error);
+        if (out) *out = std::move(r);
         return false;
     }
 

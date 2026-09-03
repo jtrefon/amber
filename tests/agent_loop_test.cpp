@@ -442,6 +442,46 @@ TEST(compression_pipeline_failure_returns_history_unchanged) {
         ASSERT(out[i].content == before[i].content);
 }
 
+// A failed compression must report the REAL error (with the before-stats) —
+// not a zeroed CompressionResult that the TUI misreads as "no compressor
+// configured". Regression: run_compression returned before setting
+// messages_before, so a pipeline LLM failure looked identical to a missing
+// compressor.
+TEST(compression_failure_reports_real_error_not_no_compressor) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 32768;
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto gate = agent::make_compression_gate(comp_cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    // Classify call fails (e.g. server error on the compression LLM call).
+    agent_test::FakeReply err;
+    err.error = "simulated server failure";
+    fake->script.push_back(std::move(err));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    {}, {}, std::move(fake));
+    std::vector<agent::Message> msgs;
+    agent::Message sys; sys.role = "system"; sys.content = "Amber";
+    msgs.push_back(std::move(sys));
+    for (int i = 0; i < 6; ++i) {
+        agent::Message u; u.role = "user"; u.content = "q" + std::to_string(i);
+        msgs.push_back(std::move(u));
+        agent::Message m; m.role = "assistant"; m.content = "a" + std::to_string(i);
+        msgs.push_back(std::move(m));
+    }
+    ag.set_context(std::move(msgs));
+    auto r = ag.compress_now();
+    ASSERT(!r.error.empty());
+    ASSERT(r.error.find("simulated server failure") != std::string::npos);
+    // messages_before must reflect the real context size — not 0 (which the
+    // TUI maps to "no compressor configured").
+    ASSERT(r.messages_before > 0u);
+    // Context untouched (spec invariant 7).
+    ASSERT(ag.context().size() >= 13u);
+}
+
 // [AL-12] The context hash chain survives a full session (get_all() asserts
 // integrity on every read; every test above already exercises it).
 TEST(agent_loop_hash_chain_intact) {
