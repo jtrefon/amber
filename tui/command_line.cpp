@@ -113,20 +113,16 @@ void CommandLine::recompute() {
 
 // ── Event handlers ──────────────────────────────────────────────────
 
-// The drawer's visible items: completions_ filtered by the trailing partial
-// token (the token being typed after the last space). This is exactly the
-// list the drawer renders, so arrow navigation and Enter dispatch index the
-// same rows the user sees.
+// The drawer's visible items: the completions the host set. The host
+// (drawer_entry_names) has ALREADY applied the namespace-descend and the
+// prefix filter, so this list is exactly the rows the drawer renders — arrow
+// navigation and Enter dispatch index the same rows the user sees. Re-filtering
+// here against the raw input token is wrong: for an exact-command descend
+// ("/window" -> children new/close/list/rename) the trailing token is a
+// consumed namespace, not a partial, so re-filtering would empty the list and
+// send arrows into history navigation.
 std::vector<std::string> CommandLine::drawer_items() const {
-    std::vector<std::string> out;
-    size_t tok_start = input_.rfind(' ');
-    tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
-    std::string partial = input_.substr(tok_start);
-    for (const auto& name : completions_) {
-        if (completion_matches(name, partial))
-            out.push_back(name);
-    }
-    return out;
+    return completions_;
 }
 
 CommandLine::Result CommandLine::on_char(char c) {
@@ -269,14 +265,23 @@ CommandLine::Result CommandLine::on_enter() {
     // Match against the filtered drawer items (not cycle_matches_, which may
     // be stale or unfiltered from Tab cycling).
     if (drawer_open_ && drawer_sel_ >= 0) {
-        size_t tok_start = input_.rfind(' ');
-        tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
         std::vector<std::string> filtered = drawer_items();
         if (drawer_sel_ < static_cast<int>(filtered.size())) {
             r.action = Result::Dispatch;
-            // Preserve the typed prefix ("/set model " + "llama3-8b"); only
-            // the trailing partial token is replaced by the completion.
-            r.dispatch_text = input_.substr(0, tok_start) + filtered[drawer_sel_];
+            // Preserve the typed prefix. When the host supplied an explicit
+            // dispatch prefix ("/window " for a namespace descend) use it;
+            // otherwise keep the legacy input-derived prefix (everything up
+            // to the trailing partial token).
+            std::string prefix;
+            if (!dispatch_prefix_.empty()) {
+                prefix = dispatch_prefix_;
+            } else {
+                size_t tok_start = input_.rfind(' ');
+                tok_start = (tok_start == std::string::npos) ? 1
+                                                            : tok_start + 1;
+                prefix = input_.substr(0, tok_start);
+            }
+            r.dispatch_text = prefix + filtered[drawer_sel_];
             r.drawer_open = false;
             input_.clear();
             cursor_ = 0;
