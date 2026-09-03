@@ -51,7 +51,13 @@ The entire architecture is designed around **zero full prefills during compressi
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key property:** Both LLM calls push/pop on the SAME live context. The first call extends the KV cache from the conversation prefix. After the first pop restores the context, the second push extends from the same prefix again — no full prefill between them. The final clear+push is a pure stack rebuild (no mutation, just unstack + restack).
+**Key property:** Both LLM calls share a content-identical prefix. The extract
+request replays the classify request (classify prompt + a stored assistant
+reply) before the extract prompt, so the second call extends the first's KV
+cache — no full prefill between them. The pipeline is **pure**: it reads the
+live context into a working copy and never mutates the deque; the final
+clear+push is a pure stack rebuild (no mutation, just unstack + restack) done
+by the caller on success.
 
 ---
 

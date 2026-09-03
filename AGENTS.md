@@ -158,8 +158,8 @@ operations are:
 | Operation | What it does |
 |-----------|-------------|
 | `push(msg)` | Append a sealed message to the **top** of the stack. |
-| `pop()` | Remove the **most recently pushed** message (LIFO). Used by compression to push a classify/extract request, call the LLM, then pop it. |
-| `clear()` | Remove all messages. Used by compression rebuild after assembly. |
+| `pop()` | Remove the **most recently pushed** message (LIFO). |
+| `clear()` | Remove all messages. Used by the compression rebuild after assembly. |
 | `get_all()` | **Read-only** view of the entire stack. Asserts FNV-1a hash-chain integrity before returning. |
 
 Every `push()` computes `h_i = FNV(prev_hash || msg)` and stores it in a parallel
@@ -172,11 +172,22 @@ rogue `replace` method, direct deque access) breaks a link and crashes with
 - NEVER add a mutation method (replace, insert, update, set_message, etc.).
   If you need to rebuild the context, call `clear()` then `push()` each message.
 - NEVER modify a message after it has been pushed (including via `const_cast`).
+- NEVER add a mutex inside `Context` or change `get_all()` to return a copy.
+  Thread safety is by **single ownership**, not locking: exactly one thread
+  (the agent/compress worker) mutates a given `Context`; every other consumer
+  interacts only via immutable snapshots taken when the owner is quiescent, or
+  via `ContextEventSource` events.
 - The `assert(verify_chain())` in `get_all()` is the integrity gate. If you
   bypass `get_all()` to read the deque directly, you are responsible for
   verifying the chain yourself.
 - See `tests/run_tests.cpp` (`context_hash_chain_integrity`) for the test that
   exercises every mutation path and verifies the chain survives.
+- The compression pipeline is **pure**: it reads the context into a working
+  copy and never pushes/pops the live deque. KV reuse between the classify and
+  extract LLM calls comes from content-identical prefixes (the extract request
+  replays the classify request), not from mutating the live context. The
+  rebuild (`clear()` + `push()`) happens only on success, in `run_compression`.
+- Full design: `docs/spec/context/context-ownership-and-parallel-compression.md`.
 
 ## Runtime / config
 

@@ -283,8 +283,8 @@ $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 $(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
 	$(CXX) $(CXXFLAGS) -o $@ $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
 
-$(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
-	$(CXX) $(CXXFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
+$(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
+	$(CXX) $(CXXFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 
 $(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o

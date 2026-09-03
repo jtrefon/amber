@@ -176,7 +176,11 @@ private:
 
     agent::RunState state_ = agent::RunState::Idle;
     agent::Stats stats_;
-    long ctx_used_ = -1;
+    // Context token gauge. Written by the agent/compress worker thread via
+    // context events and by the UI thread (session load/restore); read by
+    // the UI thread for the gauge. Atomic: the writers and readers are on
+    // different threads (single-owner context, event-driven progress).
+    std::atomic<long> ctx_used_ = -1;
     long live_ctx_offset_ = 0;   // running token count during streaming
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;

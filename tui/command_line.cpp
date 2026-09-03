@@ -113,6 +113,22 @@ void CommandLine::recompute() {
 
 // ── Event handlers ──────────────────────────────────────────────────
 
+// The drawer's visible items: completions_ filtered by the trailing partial
+// token (the token being typed after the last space). This is exactly the
+// list the drawer renders, so arrow navigation and Enter dispatch index the
+// same rows the user sees.
+std::vector<std::string> CommandLine::drawer_items() const {
+    std::vector<std::string> out;
+    size_t tok_start = input_.rfind(' ');
+    tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
+    std::string partial = input_.substr(tok_start);
+    for (const auto& name : completions_) {
+        if (completion_matches(name, partial))
+            out.push_back(name);
+    }
+    return out;
+}
+
 CommandLine::Result CommandLine::on_char(char c) {
     Result r;
     save_undo();
@@ -250,17 +266,12 @@ CommandLine::Result CommandLine::on_enter() {
     if (input_.empty()) return r;
 
     // If drawer is open with selection, dispatch the selected command.
-    // Match against completions_ (filtered) rather than cycle_matches_
-    // (which may be stale or unfiltered from Tab cycling).
+    // Match against the filtered drawer items (not cycle_matches_, which may
+    // be stale or unfiltered from Tab cycling).
     if (drawer_open_ && drawer_sel_ >= 0) {
         size_t tok_start = input_.rfind(' ');
         tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
-        std::string partial = input_.substr(tok_start);
-        std::vector<std::string> filtered;
-        for (const auto& name : completions_) {
-            if (completion_matches(name, partial))
-                filtered.push_back(name);
-        }
+        std::vector<std::string> filtered = drawer_items();
         if (drawer_sel_ < static_cast<int>(filtered.size())) {
             r.action = Result::Dispatch;
             // Preserve the typed prefix ("/set model " + "llama3-8b"); only
@@ -380,9 +391,20 @@ CommandLine::Result CommandLine::on_undo() {
 
 CommandLine::Result CommandLine::on_up() {
     Result r;
-    // If drawer is open with matches, cycle up through them.
-    if (drawer_open_ && !cycle_matches_.empty()) {
-        return on_shift_tab();
+    // Drawer open: move the highlight up through the filtered rows. The
+    // arrows navigate the drawer independently of Tab (cycle_matches_ is
+    // only populated once Tab is pressed); Enter dispatches the highlight.
+    if (drawer_open_) {
+        auto filtered = drawer_items();
+        if (!filtered.empty()) {
+            if (drawer_sel_ > 0) {
+                --drawer_sel_;
+            } else {
+                drawer_sel_ = static_cast<int>(filtered.size()) - 1;  // wrap
+            }
+            recompute();
+            return r;
+        }
     }
     // Otherwise, history.
     if (!history_.empty() && history_pos_ > 0) {
@@ -395,8 +417,18 @@ CommandLine::Result CommandLine::on_up() {
 
 CommandLine::Result CommandLine::on_down() {
     Result r;
-    if (drawer_open_ && !cycle_matches_.empty()) {
-        return on_tab();
+    // Drawer open: move the highlight down through the filtered rows.
+    if (drawer_open_) {
+        auto filtered = drawer_items();
+        if (!filtered.empty()) {
+            if (drawer_sel_ < static_cast<int>(filtered.size()) - 1) {
+                ++drawer_sel_;
+            } else {
+                drawer_sel_ = 0;  // wrap
+            }
+            recompute();
+            return r;
+        }
     }
     if (!history_.empty() && history_pos_ < history_.size() - 1) {
         ++history_pos_;

@@ -77,7 +77,22 @@ std::vector<std::string> drawer_rows(const std::string& input,
             ns_path.resize(last_sp);
         }
     } else {
+        // No space yet — the user is typing the FIRST token after "/". If it
+        // names an exact top-level command/namespace (e.g. "/get"), descend
+        // into it. If it is only a PARTIAL (e.g. "/c"), treat it as a filter
+        // against the top-level command list: children_of("") returns the
+        // top-level keys, and the caller filters them by this prefix below.
         ns_path = input.substr(1);
+        if (!ns_path.empty()) {
+            auto top = settings.complete("");
+            bool exact = false;
+            for (const auto& t : top)
+                if (t == ns_path) { exact = true; break; }
+            if (!exact) {
+                partial = ns_path;
+                ns_path.clear();
+            }
+        }
     }
     std::string ns = dotted_path(ns_path);
 
@@ -141,7 +156,19 @@ std::vector<std::string> drawer_entry_names(const std::string& input,
             ns_path.resize(last_sp);
         }
     } else {
+        // Same first-token-partial handling as drawer_rows: an exact
+        // top-level command descends; a partial filters the top-level list.
         ns_path = input.substr(1);
+        if (!ns_path.empty()) {
+            auto top = settings.complete("");
+            bool exact = false;
+            for (const auto& t : top)
+                if (t == ns_path) { exact = true; break; }
+            if (!exact) {
+                partial = ns_path;
+                ns_path.clear();
+            }
+        }
     }
     std::string ns = dotted_path(ns_path);
     auto kids = settings.children_of(ns);

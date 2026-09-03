@@ -392,10 +392,12 @@ bool Agent::run_compression(std::function<void()> progress_cb,
     CompressionReporter reporter(hooks_, r, std::move(progress_cb));
     reporter.set_before(msgs_before, tokens_before);
 
-    // Call pipeline on the LIVE context so both LLM calls extend the KV
-    // cache from the same prefix (no full prefill between them). Pipeline
-    // touches context_ only via push/pop (classify/extract requests); the
-    // actual compressed result is applied below via pop-all + push.
+    // Run the pipeline on a snapshot. The pipeline is pure: it reads the
+    // context, works on a copy, and returns the compressed message list.
+    // KV reuse between the classify and extract LLM calls comes from
+    // content-identical prefixes (the extract request replays the classify
+    // request), not from mutating the live context. The rebuild below is the
+    // only place the live context changes, and only on success.
     auto cc = load_compression_config(cfg_);
     CompressionResponse cr;
     auto compressed = compression_->compress(context_, cc, *client_,

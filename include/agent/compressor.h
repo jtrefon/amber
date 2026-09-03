@@ -108,6 +108,12 @@ struct CompressionObserver {
     virtual void on_apply_result(const CompressionResult& /*r*/) {}
     virtual void on_error(const std::string& /*msg*/) {}
     virtual void on_compress_done(const CompressionResult& /*r*/) {}
+    // Intermediate progress: fired as the pipeline moves through phases so a
+    // host can render a live (decreasing) context gauge. tokens_remaining /
+    // msgs_remaining are the current working estimate, which shrinks as
+    // collapse/prune/apply drop messages.
+    virtual void on_progress(size_t /*tokens_remaining*/,
+                             size_t /*msgs_remaining*/) {}
 };
 
 class CompressionGate {
@@ -230,6 +236,7 @@ public:
     void on_apply_result(const CompressionResult&) override;
     void on_error(const std::string& msg) override;
     void on_compress_done(const CompressionResult& final) override;
+    void on_progress(size_t tokens, size_t msgs) override;
 private:
     const AgentHooks& hooks_;
     CompressionResult& r_;

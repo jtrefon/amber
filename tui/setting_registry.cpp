@@ -122,7 +122,19 @@ std::string SettingRegistry::man_for(const std::string& key) const {
 std::vector<std::string> SettingRegistry::children_of(const std::string& key) const {
     std::string rk = resolve_key(key);
     auto it = key_children_.find(rk);
-    return (it != key_children_.end()) ? it->second : std::vector<std::string>();
+    if (it != key_children_.end()) return it->second;
+    // Bare "/" (empty key after stripping the slash) — top-level command
+    // names from the JSON tree, mirroring complete(""). Without this the
+    // bare "/" drawer path returns empty (key_children_ is never indexed
+    // by ""). Only trigger when the caller's key was actually empty —
+    // not when resolve_key failed to find a non-empty key.
+    if (key.empty() && tree_.contains("commands") && tree_["commands"].is_object()) {
+        std::vector<std::string> out;
+        for (auto it2 = tree_["commands"].begin(); it2 != tree_["commands"].end(); ++it2)
+            out.push_back(it2.key());
+        return out;
+    }
+    return {};
 }
 
 void SettingRegistry::index_node(const nlohmann::json& node,
