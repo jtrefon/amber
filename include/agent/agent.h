@@ -160,6 +160,14 @@ public:
         cfg_.compression_min_turns_explicit = true;
         if (gate_) gate_->set_min_turns(n);
     }
+    void set_compression_target_pct(int pct) {
+        cfg_.compression_target_pct = pct;
+        cfg_.compression_target_pct_explicit = true;
+    }
+    void set_compression_keep_last_prompts(int n) {
+        cfg_.compression_keep_last_prompts = n;
+        cfg_.compression_keep_last_prompts_explicit = true;
+    }
 
     // Policy store for tool approval rules.
     PolicyStore& policy() { return policy_; }

@@ -418,8 +418,9 @@ bool Agent::run_compression(std::function<void()> progress_cb,
     // Cooldown applies to the attempt, not just the success: a failing
     // classifier must not re-fire the pipeline on every following turn and
     // burn two LLM calls each time — the gate stays silent for the cooldown
-    // window and retries later.
-    gate_->set_last_compress_turn(turn_counter_);
+    // window and retries later. (Gate may be null when the host built the
+    // agent with a compressor but no gate — direct pipeline use.)
+    if (gate_) gate_->set_last_compress_turn(turn_counter_);
 
     // Spec invariant 7: a failed compression leaves the context untouched.
     // Report the real error — a failure here must not masquerade as "no

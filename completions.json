@@ -221,6 +221,26 @@
         1,
         999
        ]
+      },
+      "target_pct": {
+       "action": "core.config.get.compression.target_pct",
+       "help": "Target context usage after compression (% of window).",
+       "man": "Shows the post-compression target as a percentage of the context window. Compression archives older turns until the context is about this fraction.",
+       "type": "int",
+       "range": [
+        1,
+        90
+       ]
+      },
+      "keep_last_prompts": {
+       "action": "core.config.get.compression.keep_last_prompts",
+       "help": "Most-recent prompts kept verbatim after compression.",
+       "man": "Shows how many of the most-recent user prompts survive compression verbatim so the active task continues.",
+       "type": "int",
+       "range": [
+        1,
+        100
+       ]
       }
      }
     },
@@ -381,6 +401,26 @@
        "range": [
         1,
         999
+       ]
+      },
+      "target_pct": {
+       "action": "core.config.set.compression.target_pct",
+       "help": "Target context usage after compression (% of window).",
+       "man": "Compression archives older turns until the context is about this percentage of the window (default 10). Lower values compress harder but keep less history. Range 1-90.",
+       "type": "int",
+       "range": [
+        1,
+        90
+       ]
+      },
+      "keep_last_prompts": {
+       "action": "core.config.set.compression.keep_last_prompts",
+       "help": "Most-recent prompts kept verbatim after compression.",
+       "man": "The last N user prompts (and their turns) survive compression verbatim so the active task continues seamlessly. Older turns are summarized into the archive. Range 1-100.",
+       "type": "int",
+       "range": [
+        1,
+        100
        ]
       }
      }

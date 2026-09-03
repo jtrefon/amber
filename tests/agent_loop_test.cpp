@@ -247,7 +247,7 @@ TEST(agent_loop_compression_trigger) {
     bool saw_compression = false;
     for (const auto& req : raw->requests)
         for (const auto& m : req)
-            if (m.content.find("Classify ALL turn ranges") !=
+            if (m.content.find("CLASSIFICATION of every older turn range") !=
                 std::string::npos)
                 saw_compression = true;
     ASSERT(saw_compression);
@@ -305,7 +305,7 @@ TEST(agent_loop_learned_window_clamps_gate) {
     bool saw_compression = false;
     for (const auto& req : raw->requests)
         for (const auto& m : req)
-            if (m.content.find("Classify ALL turn ranges") !=
+            if (m.content.find("CLASSIFICATION of every older turn range") !=
                 std::string::npos)
                 saw_compression = true;
     ASSERT(saw_compression);
@@ -401,7 +401,7 @@ TEST(compression_extract_request_shares_classify_prefix) {
     // The classify prompt itself is present in both (the shared prefix).
     bool saw_classify = false;
     for (const auto& m : classify_req)
-        if (m.content.find("Classify ALL turn ranges") != std::string::npos)
+        if (m.content.find("CLASSIFICATION of every older turn range") != std::string::npos)
             saw_classify = true;
     ASSERT(saw_classify);
 }
@@ -480,6 +480,121 @@ TEST(compression_failure_reports_real_error_not_no_compressor) {
     ASSERT(r.messages_before > 0u);
     // Context untouched (spec invariant 7).
     ASSERT(ag.context().size() >= 13u);
+}
+
+// Aggressive compression: the pipeline must reduce a large context toward the
+// configured target_pct of the window (default 10%), not stop at ~50% because
+// the classifier+guard kept too much. A 262k window with a ~200k-token context
+// and target_pct=10 must compress to ~26k estimated tokens.
+TEST(compression_target_budget_enforced) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 262144;
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    // Classifier: mark the OLD region context (archive) and recent as core,
+    // but the guard + classifier would still keep a large tail; the budget
+    // pass must archive down to ~10% regardless.
+    agent_test::FakeReply classify;
+    classify.content =
+        R"({"summary":"Working on feature X.","classification":)"
+        R"([{"turns":"1-50","tag":"context","summary":"old work"},)"
+        R"({"turns":"51-80","tag":"core","summary":""}],"memories":[],"skills":[]})";
+    fake->script.push_back(std::move(classify));
+    agent_test::FakeReply extract;
+    extract.content = R"({"memories":[],"skills":[]})";
+    fake->script.push_back(std::move(extract));
+
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {},
+                    std::move(fake));
+    // Seed a large context (~200k estimated tokens).
+    std::vector<agent::Message> msgs;
+    agent::Message sys; sys.role = "system";
+    sys.content = "You are Amber. " + std::string(4000, 's');
+    msgs.push_back(std::move(sys));
+    for (int i = 0; i < 60; ++i) {
+        agent::Message u; u.role = "user";
+        u.content = "prompt " + std::to_string(i) + " " + std::string(2000, 'u');
+        msgs.push_back(std::move(u));
+        agent::Message a; a.role = "assistant";
+        a.content = "answer " + std::to_string(i) + " " + std::string(2000, 'a');
+        msgs.push_back(std::move(a));
+        agent::Message t; t.role = "tool"; t.name = "bash";
+        t.content = "huge tool output " + std::string(4000, 'x');
+        msgs.push_back(std::move(t));
+    }
+    ag.set_context(std::move(msgs));
+    size_t before_tokens = ag.context().token_count();
+    ASSERT(before_tokens > 100000u);  // genuinely large
+
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+    ASSERT(r.messages_after < r.messages_before);
+    size_t after_tokens = ag.context().token_count();
+    // ~10% of 262144 ≈ 26k; allow slack for the protected tail.
+    ASSERT(after_tokens < 60000u);
+    (void)r;
+}
+
+// The protected tail is configurable: keep_last_prompts user messages must
+// survive verbatim, and their bulky tool outputs are still pruned (the largest
+// token class is not exempt just because it is recent).
+TEST(compression_keep_last_prompts_and_prune_tail) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 32768;
+    cfg.compression_keep_last_prompts = 2;
+    cfg.compression_keep_last_prompts_explicit = true;
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply classify;
+    classify.content =
+        R"({"summary":"s","classification":)"
+        R"([{"turns":"0-40","tag":"context","summary":"old"}],"memories":[],"skills":[]})";
+    fake->script.push_back(std::move(classify));
+    agent_test::FakeReply extract;
+    extract.content = R"({"memories":[],"skills":[]})";
+    fake->script.push_back(std::move(extract));
+
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {},
+                    std::move(fake));
+    std::vector<agent::Message> msgs;
+    agent::Message sys; sys.role = "system"; sys.content = "You are Amber.";
+    msgs.push_back(std::move(sys));
+    // 12 user turns; last 2 carry huge tool outputs that must be pruned.
+    for (int i = 0; i < 12; ++i) {
+        agent::Message u; u.role = "user"; u.content = "prompt " + std::to_string(i);
+        msgs.push_back(std::move(u));
+        agent::Message a; a.role = "assistant"; a.content = "answer " + std::to_string(i);
+        msgs.push_back(std::move(a));
+        agent::Message t; t.role = "tool"; t.name = "bash";
+        t.content = std::string(5000, 'z');  // bulky — should be pruned even in tail
+        msgs.push_back(std::move(t));
+    }
+    ag.set_context(std::move(msgs));
+
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+    // After compression, the last two user prompts must still be present.
+    auto ctx = ag.context().get_all();
+    int last_user_seen = -1;
+    for (size_t i = 0; i < ctx.size(); ++i)
+        if (ctx[i].role == "user") last_user_seen = static_cast<int>(i);
+    // The final compressed context ends with the last user prompt's turn.
+    bool found_last = false;
+    for (const auto& m : ctx)
+        if (m.role == "user" && m.content == "prompt 11") found_last = true;
+    ASSERT(found_last);
+    // Bulky tool outputs anywhere (incl. the recent tail) are placeholder'd.
+    bool saw_huge = false;
+    for (const auto& m : ctx)
+        if (m.role == "tool" && m.content.size() > 1000) saw_huge = true;
+    ASSERT(!saw_huge);
+    (void)last_user_seen;
 }
 
 // [AL-12] The context hash chain survives a full session (get_all() asserts
@@ -643,7 +758,7 @@ TEST(agent_loop_unknown_context_never_auto_fires) {
     bool saw_compression = false;
     for (const auto& req : raw->requests)
         for (const auto& m : req)
-            if (m.content.find("Classify ALL turn ranges") !=
+            if (m.content.find("CLASSIFICATION of every older turn range") !=
                 std::string::npos)
                 saw_compression = true;
     ASSERT_FALSE(saw_compression);

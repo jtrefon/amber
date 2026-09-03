@@ -88,6 +88,10 @@ CompressionResponse parse_compression_response(const std::string& json_str) {
             return cr;  // Classification only — no memory/skill ops
         }
 
+        // Parse the work-state summary (top-level string the classifier emits).
+        if (j.contains("summary") && j["summary"].is_string())
+            cr.summary = j["summary"].get<std::string>();
+
         // Parse classification segments from an object
         if (j.contains("classification") && j["classification"].is_array()) {
             for (const auto& seg : j["classification"]) {

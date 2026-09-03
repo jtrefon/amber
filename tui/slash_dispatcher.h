@@ -118,6 +118,8 @@ public:
     void cmd_get(const std::string& arg);
     void apply_compression_threshold(const std::string& v);
     void apply_compression_min_turns(const std::string& v);
+    void apply_compression_target_pct(const std::string& v);
+    void apply_compression_keep_last_prompts(const std::string& v);
     void cmd_skills_set(const std::string& rest);
     void cmd_skills_get(const std::string& sub);
     void cmd_mcp(const std::string& rest);

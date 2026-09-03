@@ -252,7 +252,7 @@ public:
             if (removed > 0) observer->on_loop_collapse(removed);
             observer->on_progress(estimate_tokens(copy), copy.size());
         }
-        prune_tool_io(copy);
+        prune_tool_io(copy, &cfg);
         if (observer)
             observer->on_progress(estimate_tokens(copy), copy.size());
 
@@ -293,9 +293,17 @@ public:
             }
 
             if (observer) observer->on_parse_result(cr);
-            copy = apply_classification(copy, cr);
+            copy = apply_classification(copy, cr, &cfg);
 
-            // Enforce headroom: leave at least 25% free.
+            // Enforce the post-compression target budget (context_size *
+            // target_pct / 100): archive older core messages until the output
+            // fits the target — the real lever for aggressive compression.
+            copy = enforce_target_budget(std::move(copy),
+                                         static_cast<size_t>(cfg.context_size),
+                                         cfg);
+
+            // Enforce headroom: leave at least 25% free (final safety net;
+            // normally already satisfied by the target budget).
             copy = enforce_headroom(std::move(copy),
                                     static_cast<size_t>(cfg.context_size));
 
@@ -365,6 +373,10 @@ CompressionConfig load_compression_config(const Config& cfg) {
         cc.min_turns = cfg.compression_min_turns;
     if (cfg.compression_cooldown_turns_explicit)
         cc.cooldown_turns = cfg.compression_cooldown_turns;
+    if (cfg.compression_target_pct_explicit)
+        cc.target_pct = cfg.compression_target_pct;
+    if (cfg.compression_keep_last_prompts_explicit)
+        cc.keep_last_prompts = cfg.compression_keep_last_prompts;
     cc.context_size = cfg.context_size;
     return cc;
 }

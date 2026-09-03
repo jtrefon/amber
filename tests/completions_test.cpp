@@ -220,9 +220,18 @@ TEST(test_complete_depth1_compression_namespace) {
     reg.load_completions_json("completions.json");
     auto r = reg.complete("get.compression");
     REQUIRE_NONEMPTY(r);
-    ASSERT_EQ(r.size(), 2u);
-    ASSERT_EQ(r.front(), "get.compression.min_turns");
-    ASSERT_EQ(r[1], "get.compression.threshold");
+    bool has_min = false, has_threshold = false;
+    bool has_target = false, has_keep = false;
+    for (const auto& c : r) {
+        has_min |= (c == "get.compression.min_turns");
+        has_threshold |= (c == "get.compression.threshold");
+        has_target |= (c == "get.compression.target_pct");
+        has_keep |= (c == "get.compression.keep_last_prompts");
+    }
+    ASSERT(has_min);
+    ASSERT(has_threshold);
+    ASSERT(has_target);
+    ASSERT(has_keep);
 }
 
 TEST(test_complete_nonexistent_namespace) {

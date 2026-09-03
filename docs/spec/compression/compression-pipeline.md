@@ -193,6 +193,16 @@ has. `model_probe` does not fabricate a window when `n_ctx` is unknown; the
 context gauge hides until a real value is known. See
 `llm-client/agent-loop-reliability.md` [AL-11].
 
+**Post-compression target:** the pipeline enforces `compression_target_pct`
+(default 10) — after classification + the protected tail, `enforce_target_budget`
+archives older core messages into the compressed-context archive until the
+output is ~target_pct of the window. The `compression_keep_last_prompts`
+(default 10) most-recent user prompts and their turns survive verbatim so the
+active task continues. Both are settable via `/set compression.target_pct` and
+`/set compression.keep_last_prompts`. Bulky tool outputs (>200 chars) are
+placeholder-pruned across the WHOLE history, including the recent tail (the
+session log retains originals).
+
 **Atomicity:** if the classify call or its parse fails, the pipeline returns
 the ORIGINAL history untouched (no loop collapse, no partial apply — spec
 invariant 7) and sets `CompressionResponse::error`; the caller keeps the live

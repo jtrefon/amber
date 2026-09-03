@@ -6,39 +6,52 @@ namespace agent {
 Message build_classify_request(bool update_previous) {
     Message req;
     req.role = "user";
-    std::string body = R"JSON(Analyze the conversation above. Your job is to reduce token waste while preserving everything the agent needs to continue working.
+    std::string body = R"JSON(Analyze the conversation above. You are compressing it so work can continue with the most recent exchanges preserved verbatim and everything older reduced to a clear, self-contained summary.
 
-== STEP 1: Identify the current task ==
-Read the last 3-5 turns. What is the agent actively working on right now?
+== What to produce ==
 
-== STEP 2: Classify ALL turn ranges ==
-For every contiguous block of turns, assign one of:
+1. WORK-STATE SUMMARY — a single, solid paragraph capturing:
+   - What problem/task is being worked on right now.
+   - What has been done so far (completed steps, key files touched, decisions made).
+   - Important findings, constraints, or gotchas discovered.
+   - What remains to do next.
+   Write it densely but completely — after compression this summary plus the
+   preserved recent tail is ALL the agent will have to continue from.
 
-  "core"    = KEEP VERBATIM — current active task, active files, recent decisions
-  "prune"   = REMOVE ENTIRELY — completed investigations, competing branches,
-              dead-end file reads, irrelevant grep results, loops
-  "context" = ARCHIVE WITH ONE-LINE SUMMARY — build config, project structure,
-              workflows discovered, settled decisions
+2. CLASSIFICATION of every older turn range into one of:
+   "core"    = KEEP VERBATIM — ONLY the current active task's working set:
+               the most recent user requests and their immediate tool activity.
+   "prune"   = REMOVE ENTIRELY — completed investigations, dead ends, noise,
+               irrelevant file reads/grep output, superseded attempts.
+   "context" = ARCHIVE — anything useful but not active: build config,
+               project structure, workflows, settled decisions, finished work.
+               It belongs in the summary, not verbatim in the conversation.
 
-Summaries must be at most 200 characters.
+Keep verbatim is the EXPENSIVE choice. Prefer "context" for anything older
+than the current request, and "prune" for anything already reflected in the
+summary. Summaries must be at most 200 characters.
 
-Respond with ONLY this JSON array — no text outside it, no markdown fences:
-[
-  {"turns": "0-5", "tag": "prune", "summary": ""},
-  {"turns": "6-8", "tag": "core", "summary": ""},
-  {"turns": "9-10", "tag": "context", "summary": "investigated config paths"}
-])JSON";
+Respond with ONLY this JSON object — no text outside it, no markdown fences:
+{
+  "summary": "<the work-state summary paragraph>",
+  "classification": [
+    {"turns": "0-5", "tag": "prune", "summary": ""},
+    {"turns": "6-8", "tag": "core", "summary": ""},
+    {"turns": "9-10", "tag": "context", "summary": "investigated config paths"}
+  ]
+})JSON";
     if (update_previous) {
         // A previous compression is visible above as a system message with
         // an archive. Extend it: keep its existing entries, only classify
         // turns AFTER that message, and never tag the compressed-context
-        // message itself.
+        // message itself. The new summary should build on the prior one.
         body += R"JSON(
 
 The conversation above already contains a "Compressed conversation context"
 system message. Update it: classify only the turns that came AFTER that
-message, leave the existing archive entries alone, and tag the
-compressed-context message itself as "core".)JSON";
+message, leave the existing archive entries alone, tag the compressed-context
+message itself as "core", and write the summary to cover BOTH the prior
+compressed state and the new turns since it.)JSON";
     }
     req.content = std::move(body);
     return req;
