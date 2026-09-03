@@ -44,8 +44,8 @@ jobs:
       - name: Sync VERSION to tag
         run: |
           # Keep the in-binary version (mural / kVersion) consistent with the
-          # release tag. configure reads VERSION to stamp include/agent/version.h.
-          printf '%s\n' "${{ steps.ver.outputs.version }}" > VERSION
+          # release tag. configure reads version.txt to stamp version.h.
+          printf '%s\n' "${{ steps.ver.outputs.version }}" > version.txt
 
       - name: Configure
         run: ./configure --prefix=/usr
@@ -201,10 +201,14 @@ jobs:
         run: brew install curl ncurses pkg-config
 
       - name: Sync VERSION to tag
-        run: printf '%s\n' "${{ steps.ver.outputs.version }}" > VERSION
+        run: printf '%s\n' "${{ steps.ver.outputs.version }}" > version.txt
 
       - name: Configure
-        run: ./configure --prefix=/usr/local
+        # brew's ncurses is keg-only; point pkg-config at it so the wide
+        # ncursesw (required for the TUI's UTF-8 wide-char rendering) is found.
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix ncurses)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          ./configure --prefix=/usr/local
 
       - name: Build
         run: make

@@ -159,7 +159,13 @@ jobs:
           brew install curl ncurses pkg-config
 
       - name: Configure
-        run: ./configure
+        # brew's ncurses is keg-only, so pkg-config cannot see its .pc files
+        # without PKG_CONFIG_PATH pointing at the brew prefix. Without the wide
+        # ncursesw the TUI's UTF-8 wide-char calls (mvaddnwstr/mvaddwstr) fail
+        # to compile on macOS.
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix ncurses)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          ./configure
 
       - name: Build
         run: make
@@ -253,7 +259,11 @@ jobs:
         run: brew install curl ncurses pkg-config
 
       - name: Configure
-        run: ./configure --prefix=/usr/local
+        # brew's ncurses is keg-only; point pkg-config at it so the wide
+        # ncursesw (required for the TUI's UTF-8 wide-char rendering) is found.
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix ncurses)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          ./configure --prefix=/usr/local
 
       - name: Build
         run: make
@@ -265,7 +275,7 @@ jobs:
 
       - name: Build tarball + checksum
         run: |
-          version="$(cat VERSION)-main"
+          version="$(cat version.txt)-main"
           arch="$(uname -m)"
           name="amber-${version}-darwin-${arch}"
           mkdir -p dist
