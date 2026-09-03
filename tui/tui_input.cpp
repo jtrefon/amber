@@ -383,10 +383,12 @@ void SlashDispatcher::cmd_get_detection(const std::string& sub) {
 }
 
 void SlashDispatcher::cmd_get_compression() {
+    auto cc = agent::load_compression_config(tui_.cfg_);
     double t = compression_threshold_effective();
-    int mt = agent::load_compression_config(tui_.cfg_).min_turns;
     tui_.append_line(P_STATUS, "compression threshold: " + std::to_string(t));
-    tui_.append_line(P_STATUS, "compression min_turns: " + std::to_string(mt));
+    tui_.append_line(P_STATUS, "compression min_turns: " + std::to_string(cc.min_turns));
+    tui_.append_line(P_STATUS, "compression target_pct: " + std::to_string(cc.target_pct));
+    tui_.append_line(P_STATUS, "compression keep_last_prompts: " + std::to_string(cc.keep_last_prompts));
 }
 
 void SlashDispatcher::cmd_skills_set(const std::string& rest) {
@@ -1031,6 +1033,12 @@ void SlashDispatcher::register_builtin_actions() {
     register_action("core.config.set.compression.min_turns", [this](const std::string& v) {
         apply_compression_min_turns(v);
     });
+    register_action("core.config.set.compression.target_pct", [this](const std::string& v) {
+        apply_compression_target_pct(v);
+    });
+    register_action("core.config.set.compression.keep_last_prompts", [this](const std::string& v) {
+        apply_compression_keep_last_prompts(v);
+    });
     register_action("core.config.set.compression", [this](const std::string& a) { cmd_set(a); });
     register_action("core.config.set.think", [this](const std::string& v) {
         if (v != "on" && v != "off" && v != "auto") {
@@ -1117,6 +1125,16 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string&) {
             tui_.append_line(P_STATUS, "compression min_turns: " +
                 std::to_string(agent::load_compression_config(tui_.cfg_).min_turns));
+        });
+    register_action("core.config.get.compression.target_pct",
+        [this](const std::string&) {
+            tui_.append_line(P_STATUS, "compression target_pct: " +
+                std::to_string(agent::load_compression_config(tui_.cfg_).target_pct));
+        });
+    register_action("core.config.get.compression.keep_last_prompts",
+        [this](const std::string&) {
+            tui_.append_line(P_STATUS, "compression keep_last_prompts: " +
+                std::to_string(agent::load_compression_config(tui_.cfg_).keep_last_prompts));
         });
     register_action("core.config.get.skills",
         [this](const std::string& a) { cmd_skills_get(a); });
@@ -2055,6 +2073,38 @@ void SlashDispatcher::apply_compression_min_turns(const std::string& v) {
     tui_.draw();
 }
 
+void SlashDispatcher::apply_compression_target_pct(const std::string& v) {
+    auto n = text::parse_setting_int(v, 1, 90);
+    if (!n) {
+        tui_.append_line(P_STATUS, "compression.target_pct: invalid value (1-90): " + v);
+        return;
+    }
+    tui_.cfg_.compression_target_pct = *n;
+    tui_.cfg_.compression_target_pct_explicit = true;
+    for (auto& w : tui_.window_manager_->all())
+        if (w && w->agent) w->agent->set_compression_target_pct(*n);
+    tui_.append_line(P_STATUS, "compression target_pct: " + std::to_string(*n));
+    if (!tui_.cfg_.save_settings(tui_.session_controller_->settings_path()))
+        tui_.append_line(P_STATUS, "warning: could not save to " + tui_.session_controller_->settings_path());
+    tui_.draw();
+}
+
+void SlashDispatcher::apply_compression_keep_last_prompts(const std::string& v) {
+    auto n = text::parse_setting_int(v, 1, 100);
+    if (!n) {
+        tui_.append_line(P_STATUS, "compression.keep_last_prompts: invalid value (1-100): " + v);
+        return;
+    }
+    tui_.cfg_.compression_keep_last_prompts = *n;
+    tui_.cfg_.compression_keep_last_prompts_explicit = true;
+    for (auto& w : tui_.window_manager_->all())
+        if (w && w->agent) w->agent->set_compression_keep_last_prompts(*n);
+    tui_.append_line(P_STATUS, "compression keep_last_prompts: " + std::to_string(*n));
+    if (!tui_.cfg_.save_settings(tui_.session_controller_->settings_path()))
+        tui_.append_line(P_STATUS, "warning: could not save to " + tui_.session_controller_->settings_path());
+    tui_.draw();
+}
+
 void SlashDispatcher::build_settings() {
     tui_.settings_ = tui::SettingRegistry{};
     auto add = [&](const std::string& key, const std::string& help,
@@ -2169,6 +2219,18 @@ void SlashDispatcher::build_settings() {
         "<0-999> (0 = disabled)", Setting::Int, {}, 0, 999,
         [this]() -> std::string { return std::to_string(tui_.cfg_.compression_min_turns > 0 ? tui_.cfg_.compression_min_turns : 10); },
         [this](const std::string& v) { apply_compression_min_turns(v); });
+    add("compression.target_pct", "Target context usage after compression (% of window)",
+        "<1-90>", Setting::Int, {}, 1, 90,
+        [this]() -> std::string {
+            return std::to_string(agent::load_compression_config(tui_.cfg_).target_pct);
+        },
+        [this](const std::string& v) { apply_compression_target_pct(v); });
+    add("compression.keep_last_prompts", "Most-recent prompts kept verbatim after compression",
+        "<1-100>", Setting::Int, {}, 1, 100,
+        [this]() -> std::string {
+            return std::to_string(agent::load_compression_config(tui_.cfg_).keep_last_prompts);
+        },
+        [this](const std::string& v) { apply_compression_keep_last_prompts(v); });
 }
 
 } // namespace tui

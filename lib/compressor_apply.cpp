@@ -11,9 +11,16 @@ namespace agent {
 
 std::vector<Message> apply_classification(
     const std::vector<Message>& history,
-    const CompressionResponse& response) {
+    const CompressionResponse& response,
+    const CompressionConfig* cfg) {
     if (history.empty()) return history;
     if (response.segments.empty()) return history;
+
+    // How many of the most-recent user prompts survive verbatim (the active
+    // task guard). The pipeline passes cfg (default 10); direct callers
+    // without cfg keep the legacy 2.
+    const int keep_prompts =
+        cfg && cfg->keep_last_prompts > 0 ? cfg->keep_last_prompts : 2;
 
     // Build per-turn tag array from segments
     std::vector<Classification> tags(history.size(), Classification::core);
@@ -30,17 +37,18 @@ std::vector<Message> apply_classification(
         }
     }
 
-    // Safety net: the last two user turns and everything after them survive
-    // verbatim — a misclassification must never drop the active task.
-    size_t last_user = history.size();
-    size_t prev_user = history.size();
-    for (size_t i = 1; i < history.size(); ++i) {
-        if (history[i].role == "user") {
-            prev_user = last_user;
-            last_user = i;
-        }
+    // Safety net: the last `keep_prompts` user turns and everything after
+    // them survive verbatim — a misclassification must never drop the active
+    // task. (Legacy default 2; pipeline default 10, configurable.)
+    std::vector<size_t> user_positions;
+    for (size_t i = 1; i < history.size(); ++i)
+        if (history[i].role == "user") user_positions.push_back(i);
+    size_t guard_start = history.size();
+    if (!user_positions.empty()) {
+        auto protect = static_cast<size_t>(keep_prompts);
+        if (protect > user_positions.size()) protect = user_positions.size();
+        guard_start = user_positions[user_positions.size() - protect];
     }
-    size_t guard_start = prev_user < history.size() ? prev_user : last_user;
     for (size_t i = guard_start; i < history.size(); ++i)
         tags[i] = Classification::core;
 
@@ -113,6 +121,10 @@ std::vector<Message> apply_classification(
     ctx["type"] = "compressed_context";
     ctx["version"] = 1;
     ctx["archive"] = archive_json;
+    // The classifier's work-state summary is the anchor the agent continues
+    // from after compression; carry it on the compressed-context message.
+    if (!response.summary.empty())
+        ctx["summary"] = response.summary;
 
     json facts = json::object();
     for (const auto& msg : core) {
@@ -153,21 +165,134 @@ std::vector<Message> apply_classification(
     return core;
 }
 
-std::size_t prune_tool_io(std::vector<Message>& history) {
-    // Tail = everything from the second-to-last user message onward (same
-    // guard as apply_classification). Older bulky tool outputs are replaced
-    // with a short placeholder; the session log retains the original.
-    size_t last_user = history.size();
-    size_t prev_user = history.size();
-    for (size_t i = 1; i < history.size(); ++i) {
-        if (history[i].role == "user") {
-            prev_user = last_user;
-            last_user = i;
+// ---------------------------------------------------------------------------
+// Target-budget enforcement
+// ---------------------------------------------------------------------------
+
+// After apply_classification the output may still be far above the desired
+// post-compression occupancy (the classifier + protected tail can keep 50%+ of
+// a large window). This pass walks the output oldest-first and ARCHIVES
+// eligible core messages — moving their content into the compressed-context
+// archive block with a "(compressed)" summary — until the estimated tokens fit
+// `context_size * target_pct / 100`. Protected from archiving: the system
+// prompt (index 0), the compressed-context message itself, and the trailing
+// span covered by the last `keep_last_prompts` user messages (the active task
+// carried over verbatim). Returns the trimmed output (may be unchanged).
+std::vector<Message> enforce_target_budget(std::vector<Message> compressed,
+                                           size_t context_size,
+                                           const CompressionConfig& cfg) {
+    if (context_size == 0) return compressed;
+    const int pct = cfg.target_pct > 0 ? cfg.target_pct
+                                       : kDefaultCompressionTargetPct;
+    const auto target = static_cast<size_t>(
+        static_cast<double>(context_size) * static_cast<double>(pct) / 100.0);
+    if (target == 0) return compressed;
+
+    size_t used = estimate_tokens(compressed);
+    if (used <= target) return compressed;
+
+    // Locate the compressed-context archive message (system role, carries the
+    // JSON block we extend). It must exist (apply_classification always emits
+    // one); if not, bail — do not fabricate.
+    size_t ctx_idx = compressed.size();
+    for (size_t i = 0; i < compressed.size(); ++i) {
+        if (compressed[i].content.compare(
+                0, sizeof(kCompressedContextPrefix) - 1,
+                kCompressedContextPrefix) == 0) {
+            ctx_idx = i;
+            break;
         }
     }
-    const size_t guard = prev_user < history.size() ? prev_user : last_user;
+    if (ctx_idx == compressed.size()) return compressed;
+
+    // Protected tail boundary: the last `keep_last_prompts` user messages (and
+    // everything after them) stay verbatim — same rule as the classify guard.
+    // The compressed-context message is a trailing system message; ignore it.
+    const int keep = cfg.keep_last_prompts > 0
+                         ? cfg.keep_last_prompts
+                         : kDefaultCompressionKeepLastPrompts;
+    size_t tail_start = compressed.size();
+    {
+        std::vector<size_t> users;
+        for (size_t i = 1; i < compressed.size(); ++i)
+            if (compressed[i].role == "user") users.push_back(i);
+        auto protect = static_cast<size_t>(keep);
+        if (protect > users.size()) protect = users.size();
+        if (protect > 0) tail_start = users[users.size() - protect];
+    }
+
+    // Archive eligible core messages oldest-first until under budget. Eligible
+    // = before the protected tail, not the system prompt, not the archive msg.
+    std::vector<size_t> to_archive;
+    for (size_t i = 1; i < tail_start && i < compressed.size(); ++i) {
+        if (i == ctx_idx) continue;
+        if (compressed[i].role == "system") continue;
+        used -= message_tokens(compressed[i]);
+        to_archive.push_back(i);
+        if (used <= target) break;
+    }
+    if (to_archive.empty()) return compressed;
+
+    // Remove archived messages (descending keeps indices valid).
+    for (auto it = to_archive.rbegin(); it != to_archive.rend(); ++it)
+        compressed.erase(compressed.begin() + static_cast<ptrdiff_t>(*it));
+
+    // Re-locate the compressed-context message AFTER the erase (indices
+    // shifted left by every removed message that preceded it).
+    size_t ctx_idx2 = compressed.size();
+    for (size_t i = 0; i < compressed.size(); ++i) {
+        if (compressed[i].content.compare(
+                0, sizeof(kCompressedContextPrefix) - 1,
+                kCompressedContextPrefix) == 0) {
+            ctx_idx2 = i;
+            break;
+        }
+    }
+    if (ctx_idx2 == compressed.size()) return compressed;
+
+    // Append each archived message to the archive block as a compact entry so
+    // the carried summary still reflects what was dropped.
+    std::string json_part = compressed[ctx_idx2].content.substr(
+        sizeof(kCompressedContextPrefix) - 1);
+    json body = json::parse(json_part, nullptr, false);
+    if (!body.is_discarded() && body.is_object()) {
+        json archive = body.value("archive", json::array());
+        for (const size_t idx : to_archive) {
+            json entry;
+            entry["turns"] = std::to_string(idx);
+            entry["summary"] = "(compressed to meet target budget)";
+            archive.push_back(std::move(entry));
+        }
+        body["archive"] = std::move(archive);
+        compressed[ctx_idx2].content =
+            std::string(kCompressedContextPrefix) + "\n" + body.dump(2);
+    }
+    return compressed;
+}
+
+std::size_t prune_tool_io(std::vector<Message>& history,
+                          const CompressionConfig* cfg) {
+    // Bulky tool outputs are the largest single token class in agent sessions
+    // (multi-KB bash/read results). When the pipeline runs (cfg non-null) we
+    // prune them across the WHOLE history INCLUDING the recent tail — the
+    // session log retains the original, and sanitize_tool_pairs keeps the
+    // message sequence API-valid. With cfg null (direct legacy callers) only
+    // messages older than the two-user guard are pruned.
+    size_t limit = history.size();  // cfg path: prune everything
+    if (!cfg) {
+        // Legacy: prune only messages before the second-to-last user turn.
+        size_t last_user = history.size();
+        size_t prev_user = history.size();
+        for (size_t i = 1; i < history.size(); ++i) {
+            if (history[i].role == "user") {
+                prev_user = last_user;
+                last_user = i;
+            }
+        }
+        limit = prev_user < history.size() ? prev_user : last_user;
+    }
     std::size_t replaced = 0;
-    for (size_t i = 1; i < guard; ++i) {
+    for (size_t i = 1; i < limit; ++i) {
         Message& m = history[i];
         if (m.role == "tool" && m.content.size() > 200) {
             m.content = kToolOutputOmitted;

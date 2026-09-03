@@ -108,6 +108,14 @@ struct Config {
     bool compression_min_turns_explicit = false;
     int compression_cooldown_turns = 0;
     bool compression_cooldown_turns_explicit = false;
+    // Post-compression target as a percentage of the context window (default
+    // 10): compression keeps reducing (archiving older core turns) until the
+    // output is ~target_pct of context_size. Number of most-recent user
+    // prompts carried over verbatim (default 10) to continue the active task.
+    int compression_target_pct = 0;
+    bool compression_target_pct_explicit = false;
+    int compression_keep_last_prompts = 0;
+    bool compression_keep_last_prompts_explicit = false;
 
     // Current turn counter, updated by Agent after each chat_once.
     // Used by the compression gate for cooldown tracking.
