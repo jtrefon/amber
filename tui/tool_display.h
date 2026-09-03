@@ -24,10 +24,12 @@ rich::Line close_tool_line(const rich::Line& open, rich::Line summary);
 // Elapsed-time label for the working indicator: 12s, 1m 05s, 1h 02m.
 std::string elapsed_label(size_t secs);
 
-// The full working indicator: "<frame> working <elapsed>", plus an optional
+// The full working indicator: "<frame> <verb> <elapsed>", plus an optional
 // running-task description appended as " · <task>" (truncated to 40 cols).
-std::string working_label(const std::string& frame, size_t elapsed_secs,
-                          const std::string& task = {});
+// `verb` is a short activity word ("working", "thinking", "compressing",
+// "searching", ...) chosen by the caller from the agent's current state.
+std::string working_label(const std::string& frame, const std::string& verb,
+                          size_t elapsed_secs, const std::string& task = {});
 
 // Reasoning-strength badge text: "(<effort>)", composed inside the model
 // bracket ([model(high)]). Always shown, including the off state.

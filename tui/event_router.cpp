@@ -334,6 +334,7 @@ void EventRouter::on_compress_result(Window* w, const AgentEvent& ev) {
     if (!w) return;
     auto& r = ev.compress_result;
     tui_.state_ = agent::RunState::Idle;
+    tui_.compressing_ = false;
     tui_.ctx_used_.store(static_cast<long>(r.tokens_after));
     {
         std::string s;

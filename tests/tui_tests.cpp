@@ -673,7 +673,7 @@ TEST(tool_display_elapsed_label_formatting) {
 }
 
 TEST(tool_display_working_label) {
-    std::string w = tui::tool_display::working_label("◐", 12);
+    std::string w = tui::tool_display::working_label("◐", "working", 12);
     ASSERT(w.find("◐") == 0);
     ASSERT(w.find("working") != std::string::npos);
     ASSERT(w.find("12s") != std::string::npos);
@@ -681,16 +681,16 @@ TEST(tool_display_working_label) {
 
 TEST(tool_display_working_label_with_task) {
     std::string w = tui::tool_display::working_label(
-        "◐", 12, "grep -rn CancellationToken src/");
+        "◐", "searching", 12, "grep -rn CancellationToken src/");
     ASSERT(w.find("◐") == 0);
-    ASSERT(w.find("working") != std::string::npos);
+    ASSERT(w.find("searching") != std::string::npos);
     ASSERT(w.find("12s") != std::string::npos);
     ASSERT(w.find("· grep -rn CancellationToken src/") != std::string::npos);
 }
 
 TEST(tool_display_working_label_task_truncated) {
     std::string long_task(80, 'x');
-    std::string w = tui::tool_display::working_label("◐", 5, long_task);
+    std::string w = tui::tool_display::working_label("◐", "working", 5, long_task);
     size_t pos = w.find("· ");
     ASSERT(pos != std::string::npos);
     std::string shown = w.substr(pos + std::string("· ").size());
@@ -699,7 +699,7 @@ TEST(tool_display_working_label_task_truncated) {
 }
 
 TEST(tool_display_working_label_task_omitted_when_empty) {
-    std::string w = tui::tool_display::working_label("◐", 5, "");
+    std::string w = tui::tool_display::working_label("◐", "working", 5, "");
     ASSERT(w.find("·") == std::string::npos);
 }
 

@@ -320,6 +320,7 @@ void Tui::compress_worker(Window& my_win, size_t window_id) {
     if (router_->thread().joinable())
         router_->thread().join();
     router_->set_busy(true);
+    compressing_ = true;
     render_engine_->mark_working();
     router_->thread() = std::thread([this, my_win = &my_win, window_id]() {
         AgentEvent ev = run_compression(*my_win, window_id);
