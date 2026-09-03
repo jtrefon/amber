@@ -337,7 +337,8 @@ void EventRouter::on_compress_result(Window* w, const AgentEvent& ev) {
     tui_.ctx_used_.store(static_cast<long>(r.tokens_after));
     {
         std::string s;
-        if (r.messages_before == 0) s = "compress: no compressor configured";
+        if (!r.error.empty()) s = "compress: " + r.error;
+        else if (r.messages_before == 0) s = "compress: no compressor configured";
         else if (r.messages_after >= r.messages_before)
             s = "compress: nothing to prune (" + std::to_string(r.messages_before) +
                 " messages, ~" + std::to_string(r.tokens_before) + " tokens)";
