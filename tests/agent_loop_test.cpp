@@ -597,6 +597,64 @@ TEST(compression_keep_last_prompts_and_prune_tail) {
     (void)last_user_seen;
 }
 
+// Reasoning/thinking text dominates thinking-model sessions (never sent back
+// to the server) — compression must strip it, and internal confirmation probes
+// ("Are you finished?") must not count as real user prompts in the guard.
+TEST(compression_strips_reasoning_and_ignores_probes) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 262144;
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply classify;
+    classify.content =
+        R"({"summary":"s","classification":[{"turns":"0-60","tag":"context","summary":"old"}],"memories":[],"skills":[]})";
+    fake->script.push_back(std::move(classify));
+    agent_test::FakeReply extract;
+    extract.content = R"({"memories":[],"skills":[]})";
+    fake->script.push_back(std::move(extract));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {},
+                    std::move(fake));
+
+    std::vector<agent::Message> msgs;
+    agent::Message sys; sys.role = "system"; sys.content = "You are Amber.";
+    msgs.push_back(std::move(sys));
+    // 6 REAL prompts, each followed by a confirmation probe + a bulky
+    // reasoning assistant turn. Fewer real prompts than keep_last_prompts(10)
+    // would protect everything if probes counted as users.
+    for (int i = 0; i < 6; ++i) {
+        agent::Message u; u.role = "user"; u.content = "real prompt " + std::to_string(i);
+        msgs.push_back(std::move(u));
+        agent::Message probe; probe.role = "user";
+        probe.content = "Are you finished? If you need more information or analysis, use tools now.";
+        msgs.push_back(std::move(probe));
+        agent::Message a; a.role = "assistant";
+        a.content = "answer " + std::to_string(i);
+        a.reasoning = std::string(9000, 'r');  // thinking bloat
+        msgs.push_back(std::move(a));
+    }
+    ag.set_context(std::move(msgs));
+    size_t before = ag.context().token_count();
+    ASSERT(before > 10000u);  // reasoning inflates the count
+
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+    auto ctx = ag.context().get_all();
+    // No reasoning survives compression.
+    for (const auto& m : ctx)
+        if (m.role == "assistant") ASSERT(m.reasoning.empty());
+    // The last real prompt survives (probes did not push it out of the guard).
+    bool found_last = false;
+    for (const auto& m : ctx)
+        if (m.role == "user" && m.content == "real prompt 5") found_last = true;
+    ASSERT(found_last);
+    // Dramatically smaller.
+    size_t after = ag.context().token_count();
+    ASSERT(after < before / 3);
+}
+
 // [AL-12] The context hash chain survives a full session (get_all() asserts
 // integrity on every read; every test above already exercises it).
 TEST(agent_loop_hash_chain_intact) {

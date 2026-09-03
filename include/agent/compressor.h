@@ -46,6 +46,15 @@ inline constexpr char kToolOutputOmitted[] = "[tool output omitted \u2014 sessio
 inline constexpr char kCompressedContextPrefix[] =
     "Compressed conversation context:";
 
+// True when a user-role message is the agent's INTERNAL confirmation probe
+// ("Are you finished? ...") injected by confirm_turn — NOT a real user prompt.
+// The compression guard counts only genuine user prompts, so these probes must
+// not inflate the protected recent tail.
+inline bool is_confirmation_probe(const Message& m) noexcept {
+    return m.role == "user" &&
+           m.content.compare(0, 17, "Are you finished?") == 0;
+}
+
 // ---------------------------------------------------------------------------
 // Value types
 // ---------------------------------------------------------------------------
