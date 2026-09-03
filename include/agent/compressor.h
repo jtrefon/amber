@@ -25,6 +25,14 @@ struct ExtractionItem;
 // load_compression_config, and the UIs all read this value.
 inline constexpr double kDefaultCompressionThreshold = 0.70;
 
+// Default post-compression target: 10% of the context window. Compression
+// keeps archiving older core turns until the output is ~this fraction.
+inline constexpr int kDefaultCompressionTargetPct = 10;
+
+// Default number of the most-recent user prompts carried over verbatim so the
+// agent can continue the active task after compression.
+inline constexpr int kDefaultCompressionKeepLastPrompts = 10;
+
 // Longest summary the pipeline accepts from the classifier; anything longer
 // is truncated so a slop response cannot bloat the archive message.
 inline constexpr std::size_t kMaxSummaryChars = 200;
@@ -64,6 +72,10 @@ struct CompressionConfig {
     int    min_turns        = 10;
     int    cooldown_turns   = 20;
     int    context_size     = 0;       // filled from Config for headroom enforcement
+    // Post-compression target (% of context window) and how many of the most
+    // recent user prompts survive verbatim. Defaults match the pipeline.
+    int    target_pct           = kDefaultCompressionTargetPct;
+    int    keep_last_prompts    = kDefaultCompressionKeepLastPrompts;
 };
 
 // One classified span in the LLM response.
@@ -88,6 +100,10 @@ struct CompressionResponse {
     std::vector<ClassifiedSegment> segments;
     std::vector<KnowledgeOp> memory_ops;
     std::vector<KnowledgeOp> skill_ops;
+    // Coherent work-state summary the classifier produced ("what's being
+    // worked on, what's done, what remains"). Placed in the compressed-context
+    // message so the agent can continue from the summary + preserved tail.
+    std::string summary;
     std::string error;               // non-empty when the pipeline failed;
                                      // callers must keep the context untouched
 };
@@ -157,11 +173,13 @@ public:
 // Collapse detected loops in history (modifies in place).
 void collapse_loops(std::vector<Message>& history);
 
-// Phase-0 cheap pass: replace bulky tool outputs (>200 chars) OUTSIDE the
-// protected tail (everything from the second-to-last user message onward)
-// with a short placeholder. No LLM call; returns the number of messages
-// replaced. The session log retains the original content.
-std::size_t prune_tool_io(std::vector<Message>& history);
+// Phase-0 cheap pass: replace bulky tool outputs (>200 chars) with a short
+// placeholder. When `cfg` is non-null the ENTIRE history is pruned (including
+// the recent tail — bulky tool output is the largest token class; the session
+// log retains the original). With cfg null only messages older than the legacy
+// two-user guard are pruned. Returns the number of messages replaced.
+std::size_t prune_tool_io(std::vector<Message>& history,
+                          const CompressionConfig* cfg = nullptr);
 
 // Repair tool_call/tool_result group splits left by classification: orphaned
 // tool messages (no preceding assistant tool_calls) are removed, and
@@ -183,9 +201,13 @@ Message build_extract_request();
 CompressionResponse parse_compression_response(const std::string& json);
 
 // Apply classification segments to history, returning compressed history.
+// When `cfg` is null the legacy defaults apply (protect the last two user
+// turns, no target-budget floor); the pipeline passes the real config so the
+// configurable keep-last-prompts guard and target_pct budget are honored.
 std::vector<Message> apply_classification(
     const std::vector<Message>& history,
-    const CompressionResponse& response);
+    const CompressionResponse& response,
+    const CompressionConfig* cfg = nullptr);
 
 // Apply memory/skill upsert/deprecate ops to a MemoryStore.
 // When `items` is non-null, it receives one ExtractionItem per op for UI
@@ -205,6 +227,14 @@ void apply_skill_ops(MemoryStore& store,
 // modified. Returns the tightened vector (it may be shorter than input).
 std::vector<Message> enforce_headroom(std::vector<Message> compressed,
                                        size_t context_size);
+
+// Enforce the post-compression target budget (context_size * target_pct / 100)
+// by archiving eligible oldest core messages into the compressed-context
+// archive until the output fits. The last `keep_last_prompts` user messages
+// and the system prompt are never archived. Returns the trimmed vector.
+std::vector<Message> enforce_target_budget(std::vector<Message> compressed,
+                                           size_t context_size,
+                                           const CompressionConfig& cfg);
 
 // ---------------------------------------------------------------------------
 // Factory functions
