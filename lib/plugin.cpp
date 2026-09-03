@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <dirent.h>
 #include <cstdlib>
@@ -17,7 +18,6 @@
 #include <mutex>
 #include <poll.h>
 #include <regex>
-#include <signal.h>
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/types.h>
