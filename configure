@@ -134,14 +134,14 @@ else
 fi
 echo "  ncurses libs: $NCURSES_LIBS"
 
-# version header: read the semantic version from the VERSION file and stamp the
+# version header: read the semantic version from the version.txt file and stamp the
 # build date, generating include/agent/version.h from its .in template.
 echo "generating version header..."
-if [ -f "$srcdir/VERSION" ]; then
-    VERSION=$(sed -n '1p' "$srcdir/VERSION" | tr -d ' \t\r\n')
+if [ -f "$srcdir/version.txt" ]; then
+    VERSION=$(sed -n '1p' "$srcdir/version.txt" | tr -d ' \t\r\n')
 else
     VERSION="0.0.0"
-    echo "  warning: no VERSION file; defaulting to $VERSION"
+    echo "  warning: no version.txt file; defaulting to $VERSION"
 fi
 BUILD_DATE=$(date -u +%Y-%m-%d)
 sed -e "s|@VERSION@|$VERSION|g" \

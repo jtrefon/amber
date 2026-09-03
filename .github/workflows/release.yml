@@ -41,11 +41,11 @@ jobs:
             pkg-config ruby ruby-dev rpm
           sudo gem install --no-document fpm
 
-      - name: Sync VERSION to tag
+      - name: Sync version.txt to tag
         run: |
           # Keep the in-binary version (mural / kVersion) consistent with the
-          # release tag. configure reads VERSION to stamp include/agent/version.h.
-          printf '%s\n' "${{ steps.ver.outputs.version }}" > VERSION
+          # release tag. configure reads version.txt to stamp include/agent/version.h.
+          printf '%s\n' "${{ steps.ver.outputs.version }}" > version.txt
 
       - name: Configure
         run: ./configure --prefix=/usr
@@ -200,8 +200,8 @@ jobs:
       - name: Install dependencies
         run: brew install curl ncurses pkg-config
 
-      - name: Sync VERSION to tag
-        run: printf '%s\n' "${{ steps.ver.outputs.version }}" > VERSION
+      - name: Sync version.txt to tag
+        run: printf '%s\n' "${{ steps.ver.outputs.version }}" > version.txt
 
       - name: Configure
         run: ./configure --prefix=/usr/local
