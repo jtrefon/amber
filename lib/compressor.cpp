@@ -253,6 +253,15 @@ public:
             observer->on_progress(estimate_tokens(copy), copy.size());
         }
         prune_tool_io(copy, &cfg);
+
+        // Strip reasoning/thinking text from the working copy. Reasoning is
+        // NEVER sent back to the server (request_builder emits only content +
+        // tool_calls) — it exists for display and the session log. In thinking
+        // models it is by far the largest token class (a 262k window can be
+        // 80%+ reasoning), so dropping it on compression is the single biggest
+        // reduction and loses nothing the model needs to continue.
+        for (auto& m : copy) m.reasoning.clear();
+
         if (observer)
             observer->on_progress(estimate_tokens(copy), copy.size());
 
