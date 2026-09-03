@@ -11,10 +11,14 @@
 #include <pwd.h>
 #include <sstream>
 #include <string>
-#include <sys/sysinfo.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#else
+#include <sys/sysinfo.h>
+#endif
 
 namespace agent {
 
@@ -59,10 +63,11 @@ std::string distro_name() {
 
 std::string os_string() {
     struct utsname u {};
-    if (uname(&u) != 0) return "Linux";
+    if (uname(&u) != 0) return "";
     std::string out = distro_name();
     if (!out.empty()) out += " (";
-    out += "Linux ";
+    out += u.sysname;
+    out += " ";
     out += u.release;
     out += " ";
     out += u.machine;
@@ -79,12 +84,20 @@ std::string user_string() {
 }
 
 std::string resources_string() {
-    struct sysinfo si {};
-    if (sysinfo(&si) != 0) return "";
     long nproc = sysconf(_SC_NPROCESSORS_ONLN);
     if (nproc < 1) nproc = 1;
-    double gb = static_cast<double>(si.totalram) *
-                static_cast<double>(si.mem_unit) / (1024.0 * 1024.0 * 1024.0);
+    double gb = 0.0;
+#ifdef __APPLE__
+    uint64_t memsize = 0;
+    size_t len = sizeof(memsize);
+    if (sysctlbyname("hw.memsize", &memsize, &len, nullptr, 0) == 0)
+        gb = static_cast<double>(memsize) / (1024.0 * 1024.0 * 1024.0);
+#else
+    struct sysinfo si {};
+    if (sysinfo(&si) == 0)
+        gb = static_cast<double>(si.totalram) *
+             static_cast<double>(si.mem_unit) / (1024.0 * 1024.0 * 1024.0);
+#endif
     char buf[64];
     std::snprintf(buf, sizeof buf, "%ld cores \u00b7 %.0f GB RAM", nproc, gb);
     return buf;
