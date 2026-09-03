@@ -5,6 +5,9 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
+#ifdef __APPLE__
+#include <net/if_dl.h>   // AF_LINK (link-layer address family)
+#endif
 
 #include <fstream>
 #include <iostream>
@@ -119,7 +122,13 @@ std::string tool_net() {
     struct ifaddrs* ifa = nullptr;
     if (getifaddrs(&ifa) == 0) {
         for (struct ifaddrs* p = ifa; p; p = p->ifa_next) {
+            // Skip the link-layer address: AF_PACKET on Linux, AF_LINK on
+            // macOS/BSD. AF_PACKET is undeclared on macOS, so guard both.
+#ifdef __APPLE__
+            if (!p->ifa_addr || p->ifa_addr->sa_family == AF_LINK) continue;
+#else
             if (!p->ifa_addr || p->ifa_addr->sa_family == AF_PACKET) continue;
+#endif
             char buf[INET6_ADDRSTRLEN] = {};
             void* src = nullptr;
             if (p->ifa_addr->sa_family == AF_INET)
