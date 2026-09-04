@@ -20,9 +20,9 @@ void SlashDispatcher::refresh_completions() {
         if (ok) tui_.append_line(P_DEBUG, "loaded completions from " + path);
         return ok;
     };
-    std::string exed = agent::exe_dir();
+    std::string exe = agent::exe_path();
     for (const auto& c : agent::data_file_candidates(
-             "completions.json", exed.empty() ? nullptr : exed.c_str()))
+             "completions.json", exe.empty() ? nullptr : exe.c_str()))
         if (try_load(c)) break;
     for (const auto& p : tui_.plugins_.plugins())
         if (p.state == agent::PluginState::Enabled)

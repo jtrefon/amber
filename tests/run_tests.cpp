@@ -3622,6 +3622,36 @@ TEST(data_path_returns_empty_when_missing) {
     ASSERT_EQ(got, "");
 }
 
+// Regression: a relocatable FHS install keeps data in <prefix>/share/amber,
+// NOT next to the binary. When the binary is <prefix>/bin/amber and argv0 is
+// that file path, data_file_candidates must find <prefix>/share/amber via the
+// sibling rule (<bin>/../share/amber). This is the Homebrew layout; a bug
+// where the caller passed exe_dir() (a directory) instead of the executable
+// file path made dirname_of strip the wrong component and broke the search —
+// the installed amber then showed only the feed-merged slash commands.
+TEST(data_path_finds_fhs_sibling_share_dir) {
+    DataTree t = make_data_tree();
+    // <prefix>/bin/amber (argv0) + <prefix>/share/amber/completions.json
+    std::string prefix = t.base + "/prefix";
+    std::string bin_dir = prefix + "/bin";
+    std::string share_dir = prefix + "/share/amber";
+    run_cmd("mkdir -p " + bin_dir + " " + share_dir);
+    std::ofstream(share_dir + "/completions.json") << "{}";
+
+    // argv0 is the executable FILE path (what bootstrap passes; the fix makes
+    // the TUI pass the resolved exe path the same way).
+    std::string argv0s = bin_dir + "/amber";
+    const char* argv0 = argv0s.c_str();
+
+    std::string got =
+        agent::resolve_data_path("completions.json", argv0);
+    // The sibling rule yields <bin>/../share/amber/completions.json (the ".."
+    // is left literal but the OS resolves it); assert the file is found and
+    // points into the share dir.
+    ASSERT_FALSE(got.empty());
+    ASSERT(got.find("share/amber/completions.json") != std::string::npos);
+}
+
 // ---------------------------------------------------------------------------
 // WS-A: fail-fast bootstrap. The app must not start when critical data files
 // are missing; the validator reports each missing file and the locations
