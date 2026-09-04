@@ -1,14 +1,15 @@
 # macOS porting & CI — status and native-Mac handoff
 
-_Last updated: 2026-09-04. Author: consolidation session._
+_Last updated: 2026-09-04. Author: consolidation session + native-Mac session._
 
 ## Goal
 
 The macOS pipeline (`build-and-test-macos` in `.github/workflows/ci.yml`) must
 go green: it builds amber on `macos-latest` and (on main) produces the
-Homebrew-cask tarball via `cd-macos`. The build is fixed; a small set of
-**runtime test failures** remain that need investigation on a **native Mac**
-(not 15-minute blind macOS-CI cycles).
+Homebrew-cask tarball via `cd-macos`. The build is fixed; the two remaining
+**runtime test failure classes** were reproduced and fixed on a native Mac
+(see "Resolved in PR #72"). PR #72's checks are gated on this job, so the
+remaining work is to verify the fix on CI and merge.
 
 ## What is already fixed (all merged to main)
 
@@ -32,99 +33,76 @@ fixed on `main`:
 | `523e757` | `job_service_caps_output_at_one_mib` + `job_eof_daemon_is_terminated`: fixed sleeps → polling (timing on slow runners) |
 | `beed491` | MCP HTTP fixture waits: 1s → 3s for the Python server statefile |
 
-## Remaining macOS failures (need native-Mac investigation)
+## Resolved in PR #72 (native-Mac session)
 
-After all the above, `build-and-test-macos` (Test step) still reports these
-failures. Reproduced from the last full CI run (run id 33857666352):
+Both remaining failure classes were reproduced on a native Mac and fixed.
 
-### 1. MCP HTTP fixture tests — Python server never writes its statefile
+### 1. MCP HTTP fixture tests — Python server never wrote its statefile
 
-Failing tests (all in `tests/mcp_transport_test.cpp` via `HttpFixture`):
-- `mcp_http_json_roundtrip`
-- `mcp_http_sse_streaming_response`
-- `mcp_http_session_expiry`
-- and `mcp_manager_http_connect` (`tests/mcp_config_test.cpp:238`)
+The tests launched a fixture via
+`std::system("python3 tests/fixtures/mcp_http_server.py ... &")` with stderr
+suppressed, so whatever failed on the macOS runner was invisible. Rather than
+rely on the runner's Python at all, the test suite no longer depends on
+Python:
 
-Symptom: `wait_for_file(statefile)` fails — the statefile at
-`/tmp/mcp_http_<mode>.txt` never appears even after the wait was raised to 3s.
+- `tests/fixtures/mcp_echo.cpp` — stdio JSON-RPC server (modes: default,
+  `stderr`, `boom`), behavior-identical to the old `mcp_echo.py`.
+- `tests/fixtures/mcp_http.cpp` — HTTP server (modes: `echo`, `sse`,
+  `session`) writing the `PORT:/PID:` statefile, mirroring
+  `mcp_http_server.py`. A header-parse bug surfaced during the port (the
+  final header line lost its value when it had no trailing CRLF) was fixed.
+- `tests/fixtures/mcp_ignore_sigterm.cpp` — SIGTERM-ignoring daemon writing
+  its PID file, mirroring `mcp_ignore_sigterm.py`.
 
-Mechanism (`tests/mcp_transport_test.cpp:134-140`):
-```cpp
-std::string cmd = "python3 tests/fixtures/mcp_http_server.py " +
-                  statefile + " " + mode + " >/dev/null 2>&1 &";
-ASSERT(std::system(cmd.c_str()) == 0);
-ASSERT(wait_for_file(statefile));
-```
-The fixture stderr is suppressed (`2>/dev/null`), so **we cannot see why
-python3 fails to start** on the macOS runner. The fixture script itself
-(`tests/fixtures/mcp_http_server.py`) is portable stdlib Python (binds
-`127.0.0.1:0`, writes `PORT:<port>\nPID:<pid>\n`).
-
-**Native-Mac investigation checklist:**
-1. Run `make test` on a Mac and capture whether `python3` exists / which one
-   (`which python3`, `python3 --version`). The GitHub `macos-latest` runner's
-   `python3` may differ from a dev Mac's.
-2. Run the fixture manually:
-   `python3 tests/fixtures/mcp_http_server.py /tmp/t.txt echo` — does it write
-   the statefile?
-3. Check the test's CWD when `make test` runs — `tests/fixtures/...` is a
-   relative path; if the binary runs from a different CWD the script isn't
-   found (and stderr is swallowed).
-4. **Recommended fix direction**: capture the fixture's stderr to a temp file
-   and `ASSERT`-report it on failure (so CI shows the real error), and/or
-   resolve the fixture path absolutely from the test binary's location.
-   Also confirm this isn't a port/statefile collision from a prior test's
-   server not being cleaned up (the same family flaked once on Linux).
+The fixtures are standalone C++ executables built by `make test` (no libagent
+link; header-only nlohmann/json), and the Python scripts were deleted. Tests
+invoke them as `tests/fixtures/mcp_echo` instead of `python3
+tests/fixtures/....py`, so **`make test` runs with zero Python dependency**.
+The external-plugin fixture (`tests/plugins/fake_plugin.py`) is separate and
+tracked as follow-up.
 
 ### 2. `job_eof_daemon_is_terminated` — exit code race
 
-`tests/run_tests.cpp` (~line 4346). The test starts
-`exec 1>&- 2>&-; sleep 30`, waits for the EOF-reap path to force-kill it, and
-asserts:
-```cpp
-ASSERT(info.state != agent::JobState::Running);   // passes now
-ASSERT_EQ(info.exit_code, 128 + SIGKILL);          // FAILS: -1 != 137
-```
-`exit_code` reads **-1** instead of **137**. In `lib/job.cpp`, `begin_kill()`
-(force-kill path) sets `exit_code_ = -1` and state `Killed`, while
-`reap_after_eof()`/`reader_loop()` set `exit_code_ = 128 + WTERMSIG(status)`
-when the `waitpid` reap observes the signal. On macOS the kill lands but the
-reap's exit-code assignment races the test's read — the state machine has two
-writers to `exit_code_` without the reap consistently winning.
+The test read `exit_code == -1` instead of `128 + SIGKILL` because the job
+state machine had two writers to `exit_code` without the reap consistently
+winning: `begin_kill()` published `state = Killed` and `exit_code = -1`
+optimistically, and `reap_after_eof()` overwrote the exit code with the real
+`128 + WTERMSIG` only after the `waitpid` reap — a window large on macOS
+(slow process-group teardown) during which a poller observes the stale `-1`.
 
-**Native-Mac investigation checklist:**
-1. Reproduce on a Mac: does `sleep 30` (the child) get SIGKILLed as a process
-   group on macOS the same way? macOS `kill(-pid, SIGKILL)` semantics differ
-   subtly from Linux (no `kill(-1)` surprises, but process-group signaling
-   from a non-group-leader parent can differ).
-2. Examine `lib/job.cpp` `begin_kill()` vs `reap_after_eof()`: the race is
-   that `begin_kill()` sets `exit_code_ = -1` optimistically; the reap should
-   overwrite it with the real signal status but may run before/after
-   nondeterministically. **Recommended fix direction**: in the killed path,
-   have the reader/reaper own the final `exit_code_` write (e.g. after
-   `kill_process_group`, `waitpid` once and set `128 + WTERMSIG`), rather than
-   hardcoding -1, or make the test accept either `-1` or `137` (the state
-   already proves it was force-killed).
+**Fix** (`lib/job.cpp` + `include/agent/job.h`): `begin_kill()` now only
+signals the process group and latches `kill_done_`; the reader thread's
+single `finalize()` writer sets the exit code **before** publishing the state,
+under one lock. A consumer can never observe `Done`/`Killed` with a stale
+exit code, on any platform; the reader loop's time-out path was deduplicated
+onto the same `finalize()`.
 
 ## Related PR / branch state
 
 - **PR #72** (`fix/macos-consolidated-review` → main): carries the two UI
-  fixes that are independent of the macOS runtime tests:
+  fixes **and** the two macOS runtime fixes above:
   - `feat: state-aware working indicator verbs + fix spinner mojibake`
   - `fix: drawer arrows clobber input on exact-command descend; Alt+number switch`
-  Its checks are gated on `build-and-test-macos`; merging it is blocked until
-  the macOS Test step is green OR the repo's required checks are adjusted.
+  - MCP test fixtures rewritten in C++ (no Python test dependency)
+  - job EOF reap finalizes the exit code before publishing state
+  Its checks are gated on `build-and-test-macos`; merging is blocked until
+  the macOS Test step is green.
 - All the small-model macOS PRs (#66, #67, #69, #70, #71) are **closed as
   superseded**; their content is on main or in #72.
 - `main` carries all the macOS build fixes listed above.
 
-## How to continue on a native Mac
+## How to continue
 
-1. Check out `main` (has all build fixes) or PR #72.
-2. Run `make clean && make && make test` locally on macOS.
-3. Fix the two failure classes above using the checklists.
-4. Push to a branch; the macOS CI should go green; merge #72's UI fixes (or
-   fold them into the macOS work).
-5. Consider adding a macOS-specific test that exercises `sysctlbyname`
+1. Check out PR #72 (`fix/macos-consolidated-review`).
+2. On a Mac: `brew install ncurses` (keg-only; CI installs it), then
+   `PKG_CONFIG_PATH="$(brew --prefix ncurses)/lib/pkgconfig" ./configure` and
+   `make clean && make && make test`. The suite no longer needs Python.
+3. Push; macOS CI should go green; merge #72 (or fold it into further macOS
+   work).
+4. Consider adding a macOS-specific test exercising `sysctlbyname`
    (`hw.memsize`) and the semantic-search filesystem walk, so the portability
-   fixes are covered on the platform that needs them.
+   fixes stay covered on the platform that needs them.
+5. Follow-up (independent of this PR): replace the Python external-plugin
+   fixture (`tests/plugins/fake_plugin.py`) and the Python benchmark oracle
+   (`bench/template.cpp`) so `make test`/`make bench` never require a Python
+   runtime.

@@ -86,6 +86,10 @@ private:
     // terminate and reap its group; never leaves an unreaped child.
     void reap_after_eof();
     void set_state(JobState s);
+    // Terminal (exit_code, state) writer under one lock: the exit code is
+    // set before the state is published, so Done/Killed is never observable
+    // with a stale exit code. `killed` distinguishes Killed from Done.
+    void finalize(int status, bool reaped, bool killed);
     long sec_since(const std::chrono::steady_clock::time_point& tp) const;
 
     std::string id_;

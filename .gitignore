@@ -30,6 +30,9 @@ sysinfo-plugin
 cdp-plugin
 ws_test
 session_browser_test
+tests/fixtures/mcp_echo
+tests/fixtures/mcp_http
+tests/fixtures/mcp_ignore_sigterm
 
 # Release packaging output
 stage/

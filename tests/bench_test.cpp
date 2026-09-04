@@ -168,11 +168,16 @@ TEST(oracle_empty_oracle_success) {
 
 TEST(scenario_loader_roundtrip) {
     std::string dir = tmp_dir("loader");
-    write_file(dir + "/s.json", R"({
+#ifdef __APPLE__
+    const char* platform_json = R"(["darwin"])";
+#else
+    const char* platform_json = R"(["linux"])";
+#endif
+    write_file(dir + "/s.json", std::string(R"({
         "name": "demo",
         "suite": "tools",
         "description": "d",
-        "platforms": ["linux"],
+        "platforms": )") + platform_json + R"(,
         "prompt": "do it",
         "oracle": [
             {"tool": "read", "args": {"path": "*"}},
@@ -222,10 +227,17 @@ TEST(scenario_loader_missing_file_fails) {
 
 TEST(scenario_platform_filter) {
     Scenario s;
+#ifdef __APPLE__
+    s.platforms = {"darwin"};
+    ASSERT(bench::platform_supported(s));
+    s.platforms = {"linux"};
+    ASSERT_FALSE(bench::platform_supported(s));
+#else
     s.platforms = {"darwin"};
     ASSERT_FALSE(bench::platform_supported(s));
     s.platforms = {"linux"};
     ASSERT(bench::platform_supported(s));
+#endif
     s.platforms.clear();
     ASSERT(bench::platform_supported(s));
 }
