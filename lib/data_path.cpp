@@ -53,6 +53,27 @@ std::string exe_dir() {
 #endif
 }
 
+// Full path of the running binary (resolved through symlinks), or "" if
+// unknown. This is what data_file_candidates' argv0 parameter expects: a FILE
+// path whose dirname is the binary's directory. exe_dir() is the dirname of
+// this; callers that need to feed the FHS sibling rule must pass the file
+// path, not the directory.
+std::string exe_path() {
+    std::array<char, 4096> buf{};
+#ifdef __APPLE__
+    uint32_t size = buf.size() - 1;
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) return "";
+    std::array<char, 4096> resolved{};
+    if (realpath(buf.data(), resolved.data()) == nullptr) return "";
+    return resolved.data();
+#else
+    ssize_t len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
+    if (len <= 0) return "";
+    buf[len] = '\0';
+    return buf.data();
+#endif
+}
+
 std::vector<std::string> data_file_candidates(const std::string& path,
                                               const char* argv0) {
     std::vector<std::string> out;

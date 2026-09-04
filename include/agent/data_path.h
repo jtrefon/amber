@@ -32,8 +32,15 @@ inline bool file_exists(const std::string& path) {
     return stat(path.c_str(), &st) == 0;
 }
 
-// Full path of the running binary (via /proc/self/exe), or "" if unknown.
+// Full path of the running binary's directory (via /proc/self/exe or
+// _NSGetExecutablePath), or "" if unknown.
 std::string exe_dir();
+
+// Full path of the running binary (resolved through symlinks), or "" if
+// unknown. Pass this (not exe_dir()) as data_file_candidates' argv0 so the
+// binary-dir and FHS sibling (<bin>/../share/amber) resolution is correct for
+// a relocatable install (Homebrew Cellar path resolved through the symlink).
+std::string exe_path();
 
 } // namespace agent
 
