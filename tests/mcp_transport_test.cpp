@@ -1,5 +1,6 @@
 
 #include <cerrno>
+#include <csignal>
 #include <fstream>
 #include <string>
 #include <sys/wait.h>
