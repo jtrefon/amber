@@ -3504,7 +3504,12 @@ TEST(environment_card_omits_unknown_fields) {
 TEST(environment_probe_collects_facts) {
     auto info = agent::probe_environment();
     ASSERT_FALSE(info.os.empty());
+    // os_string() reports the actual utsname sysname ("Linux" / "Darwin").
+#ifdef __APPLE__
+    ASSERT(info.os.find("Darwin") != std::string::npos);
+#else
     ASSERT(info.os.find("Linux") != std::string::npos);
+#endif
     ASSERT_FALSE(info.user.empty());
     ASSERT_EQ(info.workspace, agent::Workspace::root());
     ASSERT_FALSE(info.date.empty());
