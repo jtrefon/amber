@@ -153,6 +153,30 @@ std::string global_config_path() {
     return global_config_dir() + "/config";
 }
 
+// First-run bootstrap: write a commented default global config. The CLI and
+// TUI call this at startup; the provider-domain defaults in Config already
+// make amber usable with zero configuration, so the file is a jumping-off
+// point, not a requirement. An empty `model=` keeps server auto-detection
+// enabled.
+bool ensure_global_config() {
+    const std::string path = global_config_path();
+    std::ifstream probe(path);
+    if (probe) return false;
+    std::error_code ec;
+    std::filesystem::create_directories(
+        std::filesystem::path(path).parent_path(), ec);
+    std::ofstream f(path, std::ios::trunc);
+    if (!f) return false;
+    f << "# amber global settings (LLM provider)\n"
+      << "# Uncomment and edit to connect to your LLM provider.\n"
+      << "# provider=openai\n"
+      << "# api_base=http://localhost:8081/v1\n"
+      << "# api_key=\n"
+      << "# Empty model = auto-detect from the server.\n"
+      << "model=\n";
+    return static_cast<bool>(f);
+}
+
 bool Config::save_global(const std::string& path) const {
     std::error_code ec;
     std::filesystem::path p(path);

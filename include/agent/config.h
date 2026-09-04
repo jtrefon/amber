@@ -181,6 +181,11 @@ std::string global_config_path();
 // Directory holding global amber state (~/.config/amber, or $XDG_CONFIG_HOME/amber).
 std::string global_config_dir();
 
+// Create the global config file with commented defaults on first run so a
+// fresh install has a file to edit instead of silently running bare defaults.
+// Never overwrites an existing file; returns true when a file was written.
+bool ensure_global_config();
+
 } // namespace agent
 
 #endif // AGENT_CONFIG_H

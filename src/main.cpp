@@ -7,6 +7,8 @@
 #include <agent/mcp_commands.h>
 #include <cctype>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -62,6 +64,12 @@ int main(int argc, char** argv) {
             }
         }
     }
+
+    // First run with no config: write a commented default so there is a file
+    // to edit. Never touches an existing config.
+    if (config_file.empty() && agent::ensure_global_config())
+        std::cerr << "info: wrote default config to "
+                  << agent::global_config_path() << "\n";
 
     // Load the project config by default so `amber` works without --config.
     // Explicit flags and --config override these; the file is only a base.
