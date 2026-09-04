@@ -3641,6 +3641,26 @@ TEST(bootstrap_validator_reports_missing_files) {
     ASSERT(missing[1].find("tools") != std::string::npos);
 }
 
+// The missing-file diagnostic must be self-explanatory: it lists every
+// searched path with an existence annotation, the install prefix the app
+// believes it lives in, and a hint — so a broken install is diagnosable from
+// the message alone.
+TEST(bootstrap_validator_reports_searched_paths_and_hint) {
+    DataTree t = make_data_tree();
+    agent::Config cfg;
+    cfg.system_prompt_path = "prompts/system.md";
+    std::string argv0 = dp_argv0(t.bin);
+    auto missing = agent::missing_bootstrap_files(cfg, argv0.c_str(), false);
+    ASSERT_EQ(missing.size(), 1u);  // only the prompt (completions not required)
+    const std::string& m = missing[0];
+    ASSERT(m.find("system prompt") != std::string::npos);
+    ASSERT(m.find("searched:") != std::string::npos);
+    ASSERT(m.find(t.bin) != std::string::npos);   // argv0-dir candidate listed
+    ASSERT(m.find("[missing]") != std::string::npos);
+    ASSERT(m.find("expected:") != std::string::npos);  // install-prefix hint
+    ASSERT(m.find("hint:") != std::string::npos);
+}
+
 TEST(bootstrap_validator_passes_when_files_exist) {
     DataTree t = make_data_tree();
     run_cmd("mkdir -p " + t.cwd + "/prompts " + t.xdg + "/amber");
