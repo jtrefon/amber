@@ -8,6 +8,24 @@ OpenAI-compatible LLM API. System and tool descriptions are
 written as Markdown prompts. The request is routed to the LLM, which may
 invoke tools; results are fed back until the agent terminates.
 
+Install (macOS):
+
+  One-line installer (also installs Homebrew if you don't have it):
+
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/jtrefon/homebrew-amber/main/install.sh)"
+
+  Or with Homebrew directly:
+
+    brew install jtrefon/homebrew-amber/amber
+
+  Both install the prebuilt `amber` (TUI), `amber-cli` (headless CLI) and
+  `amber-bench` (benchmark harness) binaries with no compilation. Because
+  amber ships as a Homebrew formula, there is no Gatekeeper prompt and no
+  Apple Developer certificate needed. (Intel Macs are supported from
+  v0.5.0 onward; Apple Silicon works today.)
+
+  Linux users build from source — see "Building" below.
+
 Build requirements:
   - A C++17 compiler (g++ or clang++)
   - GNU make
