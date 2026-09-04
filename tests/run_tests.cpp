@@ -1767,11 +1767,18 @@ TEST(job_service_caps_output_at_one_mib) {
     std::string id = jobs.start(
         "head -c 2000000 /dev/zero | tr '\\0' 'A'", "/tmp");
     ASSERT_FALSE(id.empty());
-    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    // Wait (polling) for the reader to hit the cap — a fixed sleep is racy on
+    // slow CI runners (macOS), where 2 MiB through the pipe can exceed it.
     std::shared_ptr<agent::Job> j = jobs.get(id);
     ASSERT(j != nullptr);
+    bool saw_truncated = false;
+    for (int i = 0; i < 50; ++i) {
+        agent::JobInfo info = j->info();
+        if (info.truncated) { saw_truncated = true; break; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT(saw_truncated);
     agent::JobInfo info = j->info();
-    ASSERT(info.truncated);
     ASSERT(info.bytes <= (1u << 20) + 16);
     jobs.stop(id);
 }
@@ -4340,10 +4347,17 @@ TEST(job_eof_daemon_is_terminated) {
     agent::JobService jobs;
     std::string id = jobs.start("exec 1>&- 2>&-; sleep 30", "/tmp", 60, 30);
     ASSERT(!id.empty());
-    // Past the 2s reap grace: the EOF path force-kills the group.
-    std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+    // Poll past the 2s reap grace for the EOF path to force-kill the group —
+    // a fixed sleep is racy on slow CI runners (macOS process teardown can
+    // exceed 3.5s).
     auto j = jobs.get(id);
     ASSERT(j != nullptr);
+    agent::JobState final_state = agent::JobState::Running;
+    for (int i = 0; i < 60; ++i) {
+        final_state = j->info().state;
+        if (final_state != agent::JobState::Running) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     agent::JobInfo info = j->info();
     // The daemon was terminated and reaped — either the reader forced it
     // (Killed) or the reap landed before the transition (Done). Never an
