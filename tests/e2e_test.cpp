@@ -432,6 +432,63 @@ TEST(test_drawer_arrows_navigate_and_enter_dispatches) {
     PASS;
 }
 
+// Exact-command descend: typing "/window" shows its CHILDREN in the drawer.
+// Arrows must move the highlight (NOT fall through to history and clobber the
+// input), and Enter must dispatch "/window <child>" — keeping the namespace.
+// This simulates the host's update_completions, which passes the dispatch
+// prefix alongside the child names.
+TEST(test_drawer_arrows_over_exact_command_children) {
+    std::cout << "[TEST] drawer arrows over /window children...";
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    tui::CommandLine cl;
+    cl.set_history({"old history entry"});  // must NOT be navigated
+    for (char ch : std::string("/window")) {
+        cl.on_char(ch);
+        std::string input = cl.text();
+        auto names = tui::drawer_entry_names(input, reg);
+        // Host computes dispatch prefix: /window is an exact namespace, so
+        // prefix = "/window ".
+        cl.set_completions(names, input + " ");
+    }
+    ASSERT(cl.drawer_open());
+    auto items = tui::drawer_entry_names("/window", reg);
+    ASSERT(items.size() >= 4u);  // new/close/list/rename
+
+    std::string text_before = cl.text();
+    // Down moves the highlight — input text must NOT be replaced/cleared.
+    int sel0 = cl.drawer_sel();
+    cl.on_down();
+    ASSERT_EQ(cl.drawer_sel(), sel0 + 1);
+    ASSERT_EQ(cl.text(), text_before);  // not clobbered by history nav
+
+    // Enter dispatches "/window <selected child>" (namespace preserved).
+    auto r = cl.on_enter();
+    ASSERT_EQ(r.action, tui::CommandLine::Result::Dispatch);
+    ASSERT_EQ(r.dispatch_text, "/window " + items[1]);
+    PASS;
+}
+
+// Nested namespace descend: "/set model" shows model's children; Enter must
+// dispatch "/set model <child>" not "/set <child>".
+TEST(test_enter_dispatches_nested_namespace_child) {
+    std::cout << "[TEST] /set model nested descend...";
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    tui::CommandLine cl;
+    for (char ch : std::string("/set model")) {
+        cl.on_char(ch);
+        std::string input = cl.text();
+        cl.set_completions(tui::drawer_entry_names(input, reg), input + " ");
+    }
+    auto items = tui::drawer_entry_names("/set model", reg);
+    ASSERT(!items.empty());
+    auto r = cl.on_enter();
+    ASSERT_EQ(r.action, tui::CommandLine::Result::Dispatch);
+    ASSERT_EQ(r.dispatch_text, "/set model " + items[0]);
+    PASS;
+}
+
 // -- 3-level deep shadow tests ------------------------------------------
 
 TEST(test_shadow_depth2_get_detection_dot_l) {
@@ -588,6 +645,8 @@ int main() {
     test_backspace();
     test_up_down_history();
     test_drawer_arrows_navigate_and_enter_dispatches();
+    test_drawer_arrows_over_exact_command_children();
+    test_enter_dispatches_nested_namespace_child();
     test_shadow_appears_with_completions();
     test_shadow_empty_without_completions();
     test_shadow_updates_as_you_type();

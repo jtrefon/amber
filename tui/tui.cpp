@@ -92,6 +92,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     raw();        // capture Ctrl-C as keypress (ASCII 3) instead of SIGINT
     noecho();
     keypad(stdscr, TRUE);
+    meta(stdscr, TRUE);   // receive the high-bit (0xB1..0xB9) Alt+number form
     set_escdelay(25);
     curs_set(1);
     start_color();
@@ -320,6 +321,7 @@ void Tui::compress_worker(Window& my_win, size_t window_id) {
     if (router_->thread().joinable())
         router_->thread().join();
     router_->set_busy(true);
+    compressing_ = true;
     render_engine_->mark_working();
     router_->thread() = std::thread([this, my_win = &my_win, window_id]() {
         AgentEvent ev = run_compression(*my_win, window_id);
@@ -386,7 +388,36 @@ void Tui::run() {
             // The drawer is the visible contract: feed exactly its entry
             // names so arrow selection and Enter dispatch index the same
             // rows the user sees (aliases are not drawer rows).
-            cl.set_completions(drawer_entry_names(input, settings_));
+            auto names = drawer_entry_names(input, settings_);
+            // Dispatch prefix Enter prepends to the selected row:
+            //   "/window"        (namespace descend) -> "/window "  (keep ns)
+            //   "/c"             (partial)           -> "/"         (replace)
+            //   "/set model "    (trailing space)    -> "/set model "
+            std::string prefix;
+            if (!input.empty() && input.back() == ' ') {
+                prefix = input;                       // explicit descend
+            } else {
+                size_t tok_start = input.rfind(' ');
+                tok_start = (tok_start == std::string::npos) ? 1
+                                                            : tok_start + 1;
+                std::string last_tok = input.substr(tok_start);
+                // drawer_entry_names descends into a namespace when the
+                // trailing token resolves to children (drawer_rows.cpp); in
+                // that case the namespace is KEPT (prefix = input + " ").
+                // Otherwise the token is a partial being typed and is
+                // REPLACED (prefix = input minus the token).
+                std::string ns_so_far = input.substr(1, tok_start - 1);
+                while (!ns_so_far.empty() && ns_so_far.back() == ' ')
+                    ns_so_far.pop_back();
+                std::string probe = ns_so_far.empty()
+                                        ? last_tok
+                                        : ns_so_far + "." + last_tok;
+                if (!settings_.children_of(probe).empty())
+                    prefix = input + " ";
+                else
+                    prefix = input.substr(0, tok_start);
+            }
+            cl.set_completions(names, prefix);
             return;
         }
         // Non-slash text: top-level command names from the tree, including
@@ -473,7 +504,13 @@ void Tui::run() {
                 render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
+            // Alt+digit arrives as ESC then the digit (xterm default). Give
+            // the follow-up read a brief window beyond the 50ms tick so the
+            // digit reliably arrives; set_escdelay(25) lets a lone ESC fall
+            // through quickly.
+            timeout(200);
             int n = getch();
+            timeout(kTickTimeoutMs);
             if (n >= '1' && n <= '9') {
                 switch_to(static_cast<size_t>(n - '1'));
                 render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());

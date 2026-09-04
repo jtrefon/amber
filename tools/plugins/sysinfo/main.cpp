@@ -1,12 +1,16 @@
 // sysinfo plugin — host facts for the agent (memory, CPU, partitions, network).
 // Standalone executable speaking the amber plugin protocol (JSON-RPC 2.0,
-// newline-delimited over stdio). Intentionally dependency-free: reads /proc
-// and getifaddrs only.
+// newline-delimited over stdio). Intentionally dependency-free: reads /proc on
+// Linux, sysctl/getfsstat/getifaddrs on macOS/BSD.
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #ifdef __APPLE__
-#include <net/if_dl.h>   // AF_LINK (link-layer address family)
+#include <net/if_dl.h>  // AF_LINK (link-layer address family)
+#include <sys/mount.h>
+#include <sys/param.h>
+#include <sys/sysctl.h>  // struct loadavg is declared here on Darwin
+#include <sys/ucred.h>
 #endif
 
 #include <fstream>
@@ -14,6 +18,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using json = nlohmann::json;
 
@@ -30,6 +35,7 @@ std::string trim(std::string s) {
     return s;
 }
 
+#ifndef __APPLE__
 // Reads a /proc file fully.
 std::string read_proc(const char* path) {
     std::ifstream f(path);
@@ -38,8 +44,38 @@ std::string read_proc(const char* path) {
     ss << f.rdbuf();
     return ss.str();
 }
+#endif
 
 std::string tool_mem() {
+#ifdef __APPLE__
+    uint64_t total = 0;
+    size_t len = sizeof total;
+    if (sysctlbyname("hw.memsize", &total, &len, nullptr, 0) != 0)
+        return "ERROR: cannot query hw.memsize";
+    uint64_t page_size = 0, free_pages = 0, inactive_pages = 0;
+    len = sizeof page_size;
+    sysctlbyname("vm.pagesize", &page_size, &len, nullptr, 0);
+    len = sizeof free_pages;
+    sysctlbyname("vm.page_free_count", &free_pages, &len, nullptr, 0);
+    len = sizeof inactive_pages;
+    sysctlbyname("vm.page_inactive_count", &inactive_pages, &len, nullptr, 0);
+    const double total_mb = static_cast<double>(total) / 1048576.0;
+    const double avail_mb =
+        (static_cast<double>(free_pages + inactive_pages) *
+         static_cast<double>(page_size)) /
+        1048576.0;
+    struct xsw_usage swap{};
+    len = sizeof swap;
+    const bool have_swap =
+        sysctlbyname("vm.swapusage", &swap, &len, nullptr, 0) == 0;
+    std::ostringstream out;
+    out << "memory total " << total_mb << " MB, used " << (total_mb - avail_mb)
+        << " MB, free " << avail_mb << " MB, available " << avail_mb << " MB\n";
+    if (have_swap)
+        out << "swap total " << swap.xsu_total / 1048576.0 << " MB, used "
+            << swap.xsu_used / 1048576.0 << " MB";
+    return out.str();
+#else
     std::string raw = read_proc("/proc/meminfo");
     if (raw.empty()) return "ERROR: cannot read /proc/meminfo";
     long total_kb = 0, free_kb = 0, avail_kb = 0, swap_total = 0, swap_free = 0;
@@ -61,9 +97,26 @@ std::string tool_mem() {
         << "swap total " << mb(swap_total) << " MB, used "
         << mb(swap_total - swap_free) << " MB";
     return out.str();
+#endif
 }
 
 std::string tool_cpu() {
+#ifdef __APPLE__
+    struct loadavg la{};
+    size_t len = sizeof la;
+    long cores = 0;
+    size_t clen = sizeof cores;
+    if (sysctlbyname("vm.loadavg", &la, &len, nullptr, 0) != 0)
+        return "ERROR: cannot query vm.loadavg";
+    if (sysctlbyname("hw.activecpu", &cores, &clen, nullptr, 0) != 0) cores = 0;
+    std::ostringstream out;
+    out << "load average 1/5/15 min: "
+        << static_cast<double>(la.ldavg[0]) / la.fscale << " / "
+        << static_cast<double>(la.ldavg[1]) / la.fscale << " / "
+        << static_cast<double>(la.ldavg[2]) / la.fscale << " on " << cores
+        << " cores";
+    return out.str();
+#else
     std::string raw = read_proc("/proc/loadavg");
     if (raw.empty()) return "ERROR: cannot read /proc/loadavg";
     std::istringstream ss(raw);
@@ -78,9 +131,33 @@ std::string tool_cpu() {
     out << "load average 1/5/15 min: " << l1 << " / " << l5 << " / " << l15
         << " on " << (cores > 0 ? cores - 1 : 0) << " cores";
     return out.str();
+#endif
 }
 
 std::string tool_partitions() {
+#ifdef __APPLE__
+    int count = getfsstat(nullptr, 0, MNT_NOWAIT);
+    if (count <= 0) return "ERROR: cannot enumerate mounted filesystems";
+    std::vector<struct statfs> fs(static_cast<size_t>(count));
+    count = getfsstat(fs.data(),
+                      static_cast<int>(fs.size() * sizeof(struct statfs)),
+                      MNT_NOWAIT);
+    if (count <= 0) return "ERROR: cannot enumerate mounted filesystems";
+    std::ostringstream out;
+    for (int i = 0; i < count; ++i) {
+        const std::string mnt = fs[i].f_mntonname;
+        // macOS read-only firmware/preboot/VM mounts duplicate the Data
+        // volume; report the real filesystems only.
+        if (mnt.rfind("/System/Volumes/", 0) == 0 && mnt != "/System/Volumes/Data")
+            continue;
+        out << fs[i].f_mntfromname << " mounted on " << mnt << " "
+            << static_cast<double>(static_cast<uint64_t>(fs[i].f_bsize) *
+                                   fs[i].f_blocks) /
+                   1073741824.0
+            << " GB\n";
+    }
+    return trim(out.str());
+#else
     std::string raw = read_proc("/proc/partitions");
     if (raw.empty()) return "ERROR: cannot read /proc/partitions";
     std::istringstream ss(raw);
@@ -96,9 +173,30 @@ std::string tool_partitions() {
         }
     }
     return trim(out.str());
+#endif
 }
 
 std::string tool_net() {
+#ifdef __APPLE__
+    std::ostringstream out;
+    struct ifaddrs* ifa = nullptr;
+    if (getifaddrs(&ifa) != 0) return "ERROR: getifaddrs failed";
+    for (struct ifaddrs* p = ifa; p; p = p->ifa_next) {
+        // Skip the link-layer address: AF_PACKET on Linux, AF_LINK on
+        // macOS/BSD.
+        if (!p->ifa_addr || p->ifa_addr->sa_family == AF_LINK) continue;
+        char buf[INET6_ADDRSTRLEN] = {};
+        void* src = nullptr;
+        if (p->ifa_addr->sa_family == AF_INET)
+            src = &reinterpret_cast<struct sockaddr_in*>(p->ifa_addr)->sin_addr;
+        else if (p->ifa_addr->sa_family == AF_INET6)
+            src = &reinterpret_cast<struct sockaddr_in6*>(p->ifa_addr)->sin6_addr;
+        if (src && inet_ntop(p->ifa_addr->sa_family, src, buf, sizeof buf))
+            out << p->ifa_name << " " << buf << "\n";
+    }
+    freeifaddrs(ifa);
+    return trim(out.str());
+#else
     std::ifstream dev("/proc/net/dev");
     if (!dev) return "ERROR: cannot read /proc/net/dev";
     std::string line;
@@ -123,12 +221,8 @@ std::string tool_net() {
     if (getifaddrs(&ifa) == 0) {
         for (struct ifaddrs* p = ifa; p; p = p->ifa_next) {
             // Skip the link-layer address: AF_PACKET on Linux, AF_LINK on
-            // macOS/BSD. AF_PACKET is undeclared on macOS, so guard both.
-#ifdef __APPLE__
-            if (!p->ifa_addr || p->ifa_addr->sa_family == AF_LINK) continue;
-#else
+            // macOS/BSD.
             if (!p->ifa_addr || p->ifa_addr->sa_family == AF_PACKET) continue;
-#endif
             char buf[INET6_ADDRSTRLEN] = {};
             void* src = nullptr;
             if (p->ifa_addr->sa_family == AF_INET)
@@ -141,6 +235,7 @@ std::string tool_net() {
         freeifaddrs(ifa);
     }
     return trim(out.str());
+#endif
 }
 
 json dispatch(const std::string& name, const json& args) {

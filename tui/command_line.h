@@ -79,7 +79,17 @@ public:
 
     // Provide the list of valid command/subcommand names at the current depth.
     // CommandLine uses these to compute the shadow (faded completion hint).
-    void set_completions(const std::vector<std::string>& names) { completions_ = names; recompute(); }
+    // `dispatch_prefix` is the text Enter should prepend to the selected row
+    // to build the dispatch string: for an exact-namespace descend ("/window"
+    // + child "new") it is "/window " (the namespace is kept); for a partial
+    // ("/c" -> "close") it is "/" (the partial is replaced). When omitted it
+    // defaults to the input up to the trailing partial token (legacy).
+    void set_completions(const std::vector<std::string>& names,
+                         const std::string& dispatch_prefix = {}) {
+        completions_ = names;
+        dispatch_prefix_ = dispatch_prefix;
+        recompute();
+    }
 
     // ── Direct state control (for test setup) ───────────────────────
 
@@ -104,6 +114,9 @@ private:
 
     // Completion context (valid names at current depth)
     std::vector<std::string> completions_;
+    // Text Enter prepends to the selected row to build the dispatch string
+    // (set by the host alongside completions_; empty = legacy input-derived).
+    std::string dispatch_prefix_;
 
     // History
     std::vector<std::string> history_;

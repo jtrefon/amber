@@ -79,9 +79,9 @@ std::string elapsed_label(size_t secs) {
     return b;
 }
 
-std::string working_label(const std::string& frame, size_t elapsed_secs,
-                          const std::string& task) {
-    std::string out = frame + " working " + elapsed_label(elapsed_secs);
+std::string working_label(const std::string& frame, const std::string& verb,
+                          size_t elapsed_secs, const std::string& task) {
+    std::string out = frame + " " + verb + " " + elapsed_label(elapsed_secs);
     if (!task.empty())
         out += " \u00b7 " + truncate(task, kTaskCap);
     return out;

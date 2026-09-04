@@ -90,7 +90,8 @@ std::vector<rich::Line> RenderEngine::build_view(const Window& w) const {
         size_t secs = static_cast<size_t>(
             std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
         std::string label = tool_display::working_label(
-            text::glyph::spinner_round(anim_phase_), secs, tui_.running_tool_desc_);
+            text::glyph::spinner_round(anim_phase_), activity_verb(), secs,
+            tui_.running_tool_desc_);
         rich::Line wl;
         rich::Run r;
         r.pair = P_STATUS;
@@ -100,6 +101,39 @@ std::vector<rich::Line> RenderEngine::build_view(const Window& w) const {
         view.push_back(rich::Line{});
     }
     return view;
+}
+
+// The word that leads the working indicator, describing what the agent is
+// actually doing right now. Priority:
+//   compression in flight  -> "compressing"
+//   RunState::Thinking     -> "thinking"   (model is reasoning)
+//   RunState::Streaming    -> "talking"    (model is replying)
+//   a tool is executing    -> per-tool verb (searching/reading/writing/...)
+//   otherwise              -> "working"
+std::string RenderEngine::activity_verb() const {
+    if (tui_.compressing_) return "compressing";
+    switch (tui_.state_) {
+        case agent::RunState::Thinking:  return "thinking";
+        case agent::RunState::Streaming: return "talking";
+        case agent::RunState::Waiting:   return "waiting";
+        case agent::RunState::Error:     return "retrying";
+        default: break;
+    }
+    const std::string& tool = tui_.running_tool_;
+    if (tool == "search")            return "searching";
+    if (tool == "read")              return "reading";
+    if (tool == "write")             return "editing";
+    if (tool == "bash")              return "running";
+    if (tool == "process_start")     return "spawning";
+    if (tool == "process_read")      return "reading";
+    if (tool == "process_stop")      return "stopping";
+    if (tool == "task")              return "delegating";
+    if (tool == "todowrite")         return "planning";
+    if (tool == "read_skill" ||
+        tool == "list_skills")       return "consulting";
+    if (tool == "write_skill")       return "authoring";
+    if (tool.rfind("mcp_", 0) == 0)  return "calling";
+    return "working";
 }
 
 int RenderEngine::max_scroll(const Window& w) const {
@@ -251,9 +285,18 @@ void RenderEngine::draw() {
         size_t secs = static_cast<size_t>(
             std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
         std::string label = tool_display::working_label(
-            text::glyph::spinner_round(anim_phase_), secs, tui_.running_tool_desc_);
+            text::glyph::spinner_round(anim_phase_), activity_verb(), secs,
+            tui_.running_tool_desc_);
         attron(COLOR_PAIR(P_STATUS));
-        mvaddnstr(wy, 0, label.c_str(), width());
+        // mvaddnstr counts BYTES and would truncate mid-UTF-8-sequence when the
+        // label (spinner glyph + middot + task) is wider than the terminal,
+        // leaving a mojibake fragment (e.g. "M-b~W~S"). Render via the wide
+        // string, truncated by DISPLAY COLUMNS so a multibyte glyph is never
+        // split.
+        std::wstring wlabel = to_wide(label);
+        if (static_cast<int>(wlabel.size()) > width())
+            wlabel.resize(static_cast<size_t>(width()));
+        mvaddwstr(wy, 0, wlabel.c_str());
         attroff(COLOR_PAIR(P_STATUS));
     }
 

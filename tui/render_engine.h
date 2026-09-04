@@ -84,6 +84,12 @@ private:
     static std::string kfmt(long n);
     static int gauge_pair(double f);
 
+    // The activity word leading the working indicator ("thinking", "talking",
+    // "compressing", "searching", "working", ...) derived from the agent's
+    // current run state, the in-flight tool, and whether compression is
+    // running.
+    std::string activity_verb() const;
+
     Tui& tui_;
     Canvas chat_canvas_;
     md::Style md_style_;

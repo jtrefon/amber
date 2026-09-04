@@ -261,9 +261,8 @@ TEST(mcp_client_cancel_interrupts_hung_call) {
     std::string pidfile = "/tmp/mcp_cancel_pid.txt";
     unlink(pidfile.c_str());
     agent::StdioTransport t(
-        "python3",
-        std::vector<std::string>{"tests/fixtures/mcp_ignore_sigterm.py",
-                                 pidfile},
+        "tests/fixtures/mcp_ignore_sigterm",
+        std::vector<std::string>{pidfile},
         ".", nullptr, 10000, &token);
     std::thread canceller([&]() {
         usleep(100 * 1000);

@@ -107,8 +107,7 @@ TEST(mcp_register_server_tools_end_to_end) {
     agent::McpServerConfig cfg;
     cfg.name = "echo";
     cfg.type = "stdio";
-    cfg.command = "python3";
-    cfg.args = {"tests/fixtures/mcp_echo.py"};
+    cfg.command = "tests/fixtures/mcp_echo";
     cfg.cwd = cwd;
     agent::ServerManager mgr({{"echo", cfg}});
     ASSERT_EQ(mgr.connect("echo"), "");
@@ -139,8 +138,7 @@ TEST(mcp_read_resource_tool) {
     agent::McpServerConfig cfg;
     cfg.name = "echo";
     cfg.type = "stdio";
-    cfg.command = "python3";
-    cfg.args = {"tests/fixtures/mcp_echo.py"};
+    cfg.command = "tests/fixtures/mcp_echo";
     cfg.cwd = cwd;
     agent::ServerManager mgr({{"echo", cfg}});
     ASSERT_EQ(mgr.connect("echo"), "");
@@ -186,8 +184,7 @@ TEST(mcp_reconnect_server_tools_no_stale_adapters) {
     agent::McpServerConfig cfg;
     cfg.name = "echo";
     cfg.type = "stdio";
-    cfg.command = "python3";
-    cfg.args = {"tests/fixtures/mcp_echo.py"};
+    cfg.command = "tests/fixtures/mcp_echo";
     cfg.cwd = cwd;
     agent::ServerManager mgr({{"echo", cfg}});
     ASSERT_EQ(mgr.connect("echo"), "");
@@ -216,8 +213,7 @@ TEST(mcp_adapter_lease_survives_disconnect) {
     agent::McpServerConfig cfg;
     cfg.name = "echo";
     cfg.type = "stdio";
-    cfg.command = "python3";
-    cfg.args = {"tests/fixtures/mcp_echo.py"};
+    cfg.command = "tests/fixtures/mcp_echo";
     cfg.cwd = cwd;
     agent::ServerManager mgr({{"echo", cfg}});
     ASSERT_EQ(mgr.connect("echo"), "");

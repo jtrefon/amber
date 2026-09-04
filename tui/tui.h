@@ -88,6 +88,7 @@ private:
     std::unique_ptr<EventRouter> router_;
     std::string running_tool_;
     std::string running_tool_desc_;
+    bool compressing_ = false;  // context compression in flight (working verb)
     bool modal_open_ = false;
     std::string pending_prompt_;
 

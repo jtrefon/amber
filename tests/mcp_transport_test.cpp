@@ -134,8 +134,8 @@ struct HttpFixture {
     explicit HttpFixture(const std::string& mode)
         : statefile("/tmp/mcp_http_" + mode + ".txt") {
         unlink(statefile.c_str());
-        std::string cmd = "python3 tests/fixtures/mcp_http_server.py " +
-                          statefile + " " + mode + " >/dev/null 2>&1 &";
+        std::string cmd = "tests/fixtures/mcp_http " + statefile + " " +
+                          mode + " >/dev/null 2>&1 &";
         ASSERT(std::system(cmd.c_str()) == 0);
         ASSERT(wait_for_file(statefile));
         std::ifstream f(statefile);
@@ -166,8 +166,7 @@ struct HttpFixture {
 
 // [MT-01] Echo round-trip over newline-framed stdio.
 TEST(mcp_stdio_echo_roundtrip) {
-    agent::StdioTransport t("python3", {"tests/fixtures/mcp_echo.py"}, ".",
-                            {}, 5000);
+    agent::StdioTransport t("tests/fixtures/mcp_echo", {}, ".", {}, 5000);
     ASSERT_EQ(t.failure_reason(), "");
 
     auto resp = t.request(1, "initialize",
@@ -197,8 +196,7 @@ TEST(mcp_stdio_sigterm_escalates_to_sigkill) {
     unlink(pidfile.c_str());
     {
         agent::StdioTransport t(
-            "python3",
-            {"tests/fixtures/mcp_ignore_sigterm.py", pidfile}, ".", {}, 5000);
+            "tests/fixtures/mcp_ignore_sigterm", {pidfile}, ".", {}, 5000);
         ASSERT(wait_for_file(pidfile));
         int pid = -1;
         {
@@ -216,7 +214,7 @@ TEST(mcp_stdio_sigterm_escalates_to_sigkill) {
 // [MT-03] stderr never pollutes the protocol; it is retained for diagnostics.
 TEST(mcp_stdio_stderr_isolated) {
     agent::StdioTransport t(
-        "python3", {"tests/fixtures/mcp_echo.py", "stderr"}, ".", {}, 5000);
+        "tests/fixtures/mcp_echo", {"stderr"}, ".", {}, 5000);
     auto resp = t.request(1, "ping", json::object());
     ASSERT(resp.status == agent::McpTransportStatus::Ok);
     auto m = resp.message;
@@ -228,7 +226,7 @@ TEST(mcp_stdio_stderr_isolated) {
 // A server that dies at startup surfaces its stderr in failure_reason().
 TEST(mcp_stdio_startup_failure_reports_stderr) {
     agent::StdioTransport t(
-        "python3", {"tests/fixtures/mcp_echo.py", "boom"}, ".", {}, 2000);
+        "tests/fixtures/mcp_echo", {"boom"}, ".", {}, 2000);
     std::string reason;
     for (int i = 0; i < 200; ++i) {
         reason = t.failure_reason();
