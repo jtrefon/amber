@@ -9,6 +9,7 @@
 
 #include <clocale>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 
 int main(int argc, char** argv) {
@@ -64,6 +65,12 @@ int main(int argc, char** argv) {
         std::ifstream sf2("amber.conf");
         if (sf2) cfg.load("amber.conf");
     }
+
+    // First run with no config: write a commented default so there is a file
+    // to edit. Never touches an existing config.
+    if (config_file.empty() && agent::ensure_global_config())
+        std::fprintf(stderr, "info: wrote default config to %s\n",
+                     agent::global_config_path().c_str());
 
     // Project-local overrides (non-LLM settings) live in .amber/settings so they
     // stay with the project while provider config remains global.

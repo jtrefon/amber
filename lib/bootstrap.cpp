@@ -30,14 +30,14 @@ std::vector<std::string> missing_bootstrap_files(const Config& cfg,
     std::vector<std::string> out;
     if (cfg.system_prompt_path.empty() ||
         resolve_data_path(cfg.system_prompt_path, argv0).empty())
-        out.push_back(describe_missing("system prompt", cfg.system_prompt_path,
+        out.push_back(describe_missing("system prompt", "prompts/system.md",
                                        argv0));
     // An explicitly cleared tools prompt means the auto-rendered reference is
     // intended; only a configured-but-unfindable file is fatal.
     if (!cfg.tools_prompt_path.empty() &&
         resolve_data_path(cfg.tools_prompt_path, argv0).empty())
         out.push_back(
-            describe_missing("tools prompt", cfg.tools_prompt_path, argv0));
+            describe_missing("tools prompt", "prompts/tools.md", argv0));
     if (require_completions &&
         resolve_data_path("completions.json", argv0).empty())
         out.push_back(describe_missing("command tree", "completions.json",

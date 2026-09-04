@@ -48,8 +48,16 @@ std::vector<std::string> data_file_candidates(const std::string& path,
     // 1. As given — CWD when relative.
     if (path[0] == '/' || file_exists(path))
         out.push_back(path);
-    // 2. Next to the binary.
-    if (argv0) add_if_unique(out, dirname_of(argv0), path);
+    // 2. Next to the binary, and its sibling FHS share dir
+    //    (<prefix>/bin/amber + <prefix>/share/amber). This keeps dev
+    //    workflows working and makes packaged installs relocatable to any
+    //    prefix — Homebrew on Intel (/usr/local) and Apple Silicon
+    //    (/opt/homebrew), or a custom --prefix.
+    if (argv0) {
+        std::string bindir = dirname_of(argv0);
+        add_if_unique(out, bindir, path);
+        add_if_unique(out, bindir + "/../share/amber", path);
+    }
     // 3. Workspace root.
     if (const char* ws = std::getenv("AMBER_WORKSPACE"))
         add_if_unique(out, ws, path);
