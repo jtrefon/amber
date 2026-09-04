@@ -5,7 +5,10 @@
 #include <array>
 #include <cmath>
 #include <cctype>
+#include <filesystem>
 #include <fstream>
+
+namespace fs = std::filesystem;
 
 namespace agent {
 
@@ -83,29 +86,29 @@ std::string shell_quote(const std::string& s) {
 void walk(const std::string& dir, const std::string& glob,
           const std::vector<std::string>& exclude_dirs,
           std::vector<std::string>& files) {
-    // portable recursive directory walk via nftw is not used to avoid extra
-    // deps; use a simple popen to `find` which is universally available on the
-    // target Linux servers.
-    std::string cmd = "find " + shell_quote(dir) + " -type f -readable";
-    for (const auto& d : exclude_dirs) {
-        cmd += " -not -path '*/";
-        cmd += d;
-        cmd += "/*'";
+    // Portable recursive walk via std::filesystem. The old implementation
+    // shelled out to GNU `find -readable`, which is a GNU extension absent on
+    // macOS/BSD find — so the semantic index was always empty there. Avoid the
+    // shell entirely.
+    std::error_code ec;
+    fs::path root(dir);
+    if (!fs::is_directory(root, ec)) return;
+    for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
+         it != end && !ec; it.increment(ec)) {
+        const fs::path& p = it->path();
+        if (!fs::is_regular_file(p, ec)) continue;
+        // Honor exclude dirs by their top-level name anywhere in the path.
+        bool excluded = false;
+        for (const auto& d : exclude_dirs) {
+            for (const auto& seg : p) {
+                if (seg.string() == d) { excluded = true; break; }
+            }
+            if (excluded) break;
+        }
+        if (excluded) continue;
+        if (!matches_glob(p.filename().string(), glob)) continue;
+        files.push_back(p.string());
     }
-    cmd += " 2>/dev/null";
-    std::array<char, 512> buf{};
-    FILE* p = popen(cmd.c_str(), "r");
-    if (!p) return;
-    std::string line;
-    while (fgets(buf.data(), static_cast<int>(buf.size()), p)) {
-        line = buf.data();
-        while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
-            line.pop_back();
-        if (line.empty()) continue;
-        std::string base = line.substr(line.find_last_of('/') + 1);
-        if (matches_glob(base, glob)) files.push_back(line);
-    }
-    pclose(p);
 }
 
 } // namespace agent
