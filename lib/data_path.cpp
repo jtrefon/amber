@@ -6,6 +6,10 @@
 #include <cstring>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 namespace agent {
 
 namespace {
@@ -35,10 +39,18 @@ void add_if_unique(std::vector<std::string>& out, std::string dir,
 
 std::string exe_dir() {
     std::array<char, 4096> buf{};
+#ifdef __APPLE__
+    uint32_t size = buf.size() - 1;
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) return "";
+    std::array<char, 4096> resolved{};
+    if (realpath(buf.data(), resolved.data()) == nullptr) return "";
+    return dirname_of(resolved.data());
+#else
     ssize_t len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
     if (len <= 0) return "";
     buf[len] = '\0';
     return dirname_of(buf.data());
+#endif
 }
 
 std::vector<std::string> data_file_candidates(const std::string& path,
@@ -55,8 +67,15 @@ std::vector<std::string> data_file_candidates(const std::string& path,
     //    (/opt/homebrew), or a custom --prefix.
     if (argv0) {
         std::string bindir = dirname_of(argv0);
+        // A bare argv0 (no slash) means the binary was launched via PATH;
+        // resolve the real executable path so a relocatable install prefix
+        // (Homebrew, /usr/local, custom) can be found next to it.
+        if (std::string(argv0).find('/') == std::string::npos) {
+            std::string real = exe_dir();
+            if (!real.empty()) bindir = real;
+        }
         add_if_unique(out, bindir, path);
-        add_if_unique(out, bindir + "/../share/amber", path);
+        if (bindir != ".") add_if_unique(out, bindir + "/../share/amber", path);
     }
     // 3. Workspace root.
     if (const char* ws = std::getenv("AMBER_WORKSPACE"))
