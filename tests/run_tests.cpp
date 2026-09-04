@@ -1177,9 +1177,6 @@ TEST(statusbar_gauge_bar_glyphs) {
 // LLM streaming SSE parse (integration via a tiny in-process HTTP server)
 // ---------------------------------------------------------------------------
 
-#ifdef __linux__
-#include <netinet/in.h>
-
 namespace {
 // Serve one canned SSE response (a streamed tool call in two fragments), then
 // close. Lets us exercise LLMClient::chat_stream including fragment merging
@@ -1424,7 +1421,6 @@ TEST(llm_streaming_captures_usage_stats) {
     ASSERT_TRUE(stats.latency_ms >= 0);
     close(srv);
 }
-#endif // __linux__
 
 // ---------------------------------------------------------------------------
 // Session persistence
