@@ -158,10 +158,20 @@ jobs:
           echo "bootstrap OK (exit $rc — server connection expected to fail)"
           sudo dpkg -r amber >/dev/null
 
-      - name: Download macOS tarball
+      - name: Download macOS tarball (arm64)
         uses: actions/download-artifact@v7
         with:
-          name: amber-macos-tarball
+          name: amber-macos-tarball-arm64
+          path: dist
+
+      # Intel is built on legacy macos-13 runners that are often
+      # over-subscribed; attach the x86_64 tarball when it exists but never
+      # let it block the release.
+      - name: Download macOS tarball (x86_64)
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: amber-macos-tarball-x86_64
           path: dist
 
       - name: Create GitHub Release
@@ -179,22 +189,24 @@ jobs:
             dist/*.rpm
             dist/*.rpm.sha256
             dist/amber-plugin-cdp*
-            amber-macos-tarball
 
   # ---------------------------------------------------------------------------
   # macOS release — builds the darwin tarball in parallel with the Linux job.
-  # matrix expands to arm64 (macos-latest, Apple Silicon) and x86_64
-  # (macos-13, Intel); the Linux job's release step attaches both so a release
-  # carries distributors for every macOS architecture. The Homebrew tap
-  # (jtrefon/homebrew-amber) picks both checksums up via its bump workflow.
+  # Matrix expands to arm64 (macos-latest, Apple Silicon) and x86_64
+  # (macos-13, Intel). Each arch uploads its own artifact so a slow or
+  # over-subscribed Intel runner never blocks the Apple Silicon tarball: the
+  # Linux job attaches whatever is present, and the Homebrew tap
+  # (jtrefon/homebrew-amber) picks each arch's checksum up when it exists.
   # ---------------------------------------------------------------------------
   release-macos:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest   # Apple Silicon
-          - os: macos-13       # Intel
+          - os: macos-latest       # Apple Silicon
+            marker: arm64
+          - os: macos-13           # Intel
+            marker: x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -241,6 +253,6 @@ jobs:
       - name: Upload macOS tarball
         uses: actions/upload-artifact@v7
         with:
-          name: amber-macos-tarball
+          name: amber-macos-tarball-${{ matrix.marker }}
           path: dist/*.tar.gz*
           retention-days: 7
