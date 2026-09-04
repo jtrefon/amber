@@ -205,7 +205,7 @@ jobs:
 
       - name: Build tarball + checksum
         run: |
-          version="$(cat VERSION)-main"
+          version="$(cat version.txt)-main"
           name="amber-${version}-linux-x86_64"
           mkdir -p dist
           tar -C stage -czf "dist/${name}.tar.gz" .
@@ -213,7 +213,7 @@ jobs:
 
       - name: Build .deb (fpm)
         run: |
-          version="$(cat VERSION)-main"
+          version="$(cat version.txt)-main"
           fpm -s dir -t deb \
             -n amber \
             -v "${version}" \
