@@ -113,7 +113,9 @@ TEST(mcp_wire_string_id_tolerated) {
 
 namespace {
 
-bool wait_for_file(const std::string& path, int attempts = 100) {
+bool wait_for_file(const std::string& path, int attempts = 300) {
+    // ~3s budget: the Python fixture server can take >1s to boot on slow CI
+    // runners (macOS), where a 1s wait raced the statefile write.
     for (int i = 0; i < attempts; ++i) {
         std::ifstream f(path);
         if (f.is_open()) return true;
