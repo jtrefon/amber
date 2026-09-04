@@ -26,7 +26,8 @@ double cosine(const std::vector<double>& a, const std::vector<double>& b);
 bool matches_glob(const std::string& name, const std::string& glob);
 std::string shell_quote(const std::string& s);
 
-// Recursive file discovery (via `find`) honoring a glob on the basename.
+// Recursive file discovery (std::filesystem) honoring a glob on the basename
+// and skipping excluded top-level directory names anywhere in the path.
 void walk(const std::string& dir, const std::string& glob,
           const std::vector<std::string>& exclude_dirs,
           std::vector<std::string>& files);
