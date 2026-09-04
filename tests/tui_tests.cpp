@@ -5,6 +5,7 @@
 // test binary has no dependency on tui/ headers.
 
 #include "agent.h"
+#include <csignal>
 #include "tui/action_registry.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
