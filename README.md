@@ -16,13 +16,17 @@ Install (macOS):
 
   Or with Homebrew directly:
 
-    brew install jtrefon/homebrew-amber/amber
+    brew install jtrefon/homebrew-amber/amber-agent
 
   Both install the prebuilt `amber` (TUI), `amber-cli` (headless CLI) and
   `amber-bench` (benchmark harness) binaries with no compilation. Because
   amber ships as a Homebrew formula, there is no Gatekeeper prompt and no
   Apple Developer certificate needed. (Intel Macs are supported from
   v0.5.0 onward; Apple Silicon works today.)
+
+  Note: an unrelated project named `amber` (a Crystal web framework) is in
+  homebrew-core, so always use the full name above — never bare
+  `brew install amber`.
 
   Linux users build from source — see "Building" below.
 
