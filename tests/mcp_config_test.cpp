@@ -222,7 +222,7 @@ TEST(mcp_manager_http_connect) {
     std::ifstream f;
     int port = -1;
     int pid = -1;
-    for (int i = 0; i < 100 && port < 0; ++i) {
+    for (int i = 0; i < 300 && port < 0; ++i) {  // ~3s: Python fixture boot on slow CI
         usleep(10 * 1000);
         f.open(statefile);
         if (f.is_open()) {
