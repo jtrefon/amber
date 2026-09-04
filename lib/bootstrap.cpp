@@ -39,7 +39,6 @@ std::string describe_missing(const std::string& label,
     std::string exed = exe_dir();
     if (!exed.empty()) {
         std::string expected = exed + "/../share/amber/" + path;
-        std::error_code ec2;
         msg << "\n    expected: " << expected
             << (file_exists(expected) ? "  [found]" : "  [missing]");
         msg << "\n    hint: install the amber data bundle (prompts/ + "

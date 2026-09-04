@@ -1,157 +1,150 @@
-#!/bin/sh
-# Build-hygiene invariants (AGENTS.md "Build & verify" + the architecture-audit
-# table). Static checks only: dry-run make, no writes to the tree.
-# Run from the repository root, or via `make check`.
-#   P1  `make test` must build the plugin fixtures tests/plugin_test.cpp reads.
-#   P2  every compiled TU emits a .d dependency file (AGENTS.md gotcha).
-#   P3  `make clean` removes every build artifact.
-#   P4  compile_commands.json is never committed (stale machine-specific flags).
-#   P5  AGENTS.md audit-table line counts match the tree.
+#!/ bin / sh
+#Build - hygiene invariants(AGENTS.md "Build & verify" + the architecture - audit
+#table).Static checks only : dry - run make, no writes to the tree.
+#Run from the repository root, or via `make check`.
+#P1  `make test` must build the plugin fixtures tests / plugin_test.cpp reads.
+#P2 every compiled TU emits a.d dependency file(AGENTS.md gotcha).
+#P3  `make clean` removes every build artifact.
+#P4 compile_commands.json is never committed(stale machine - specific flags).
+#P5 AGENTS.md audit - table line counts match the tree.
 
-cd "$(dirname "$0")/.." || exit 1
-failures=0
-warn() { echo "FAIL: $1"; failures=$((failures + 1)); }
-ok() { echo "  ok: $1"; }
+cd "$(dirname " $0 ")/.." || exit 1 failures = 0 warn() {
+    echo "FAIL: $1";
+    failures = $((failures + 1));
+}
+ok() {
+    echo "  ok: $1";
+}
 
-# P1
-if make -n -B test 2>/dev/null | grep -q 'sysinfo-plugin'; then
-    ok "make test builds sysinfo-plugin"
-else
-    warn "P1: 'make test' does not build sysinfo-plugin (tests/plugin_test.cpp requires it)"
-fi
-if make -n -B test 2>/dev/null | grep -q 'cdp-plugin'; then
-    ok "make test builds cdp-plugin"
-else
-    warn "P1: 'make test' does not build cdp-plugin (tests/plugin_test.cpp requires it)"
-fi
+#P1
+if make
+    - n - B test 2 > / dev / null | grep - q 'sysinfo-plugin';
+then ok "make test builds sysinfo-plugin" else warn
+            "P1: 'make test' does not build sysinfo-plugin (tests/plugin_test.cpp requires "
+            "it)" fi if make -
+            n - B test 2 >
+        / dev / null |
+    grep - q 'cdp-plugin';
+then ok "make test builds cdp-plugin" else warn
+    "P1: 'make test' does not build cdp-plugin (tests/plugin_test.cpp requires it)" fi
 
-# P2
-test_out=$(make -n -B test 2>/dev/null)
-if echo "$test_out" | grep -E 'ws_test' | grep -q -- '-MMD'; then
+#P2
+        test_out = $(make - n - B test 2 > / dev / null) if echo "$test_out" | grep - E 'ws_test' |
+                   grep - q-- '-MMD'; then
     ok "ws_test compiles with -MMD"
 else
     warn "P2: ws_test compiles without -MMD dependency generation"
 fi
-for p in sysinfo-plugin 'tools/plugins/cdp'; do
-    if echo "$test_out" | grep -E "$p" | grep -q -- '-MMD'; then
-        ok "$p compiles with -MMD"
-    else
-        warn "P2: $p compiles without -MMD dependency generation"
-    fi
-done
-if awk '/^-include/{print}' Makefile.in | grep -q 'TUI_TEST_OBJ'; then
-    ok "tui_tests.d is in the -include list"
-else
-    warn "P2: TUI_TEST_OBJ missing from the -include list (stale tui_tests.o risk)"
-fi
-if awk '/^-include/{print}' Makefile.in | grep -q 'PLUGIN_TEST_OBJ'; then
-    ok "plugin_test.d is in the -include list"
-else
-    warn "P2: PLUGIN_TEST_OBJ missing from the -include list (stale plugin_test.o risk)"
-fi
-if awk '/^-include/{print}' Makefile.in | grep -q 'COMP_TEST_OBJ'; then
-    ok "completions_test.d is in the -include list"
-else
-    warn "P2: COMP_TEST_OBJ missing from the -include list (stale completions_test.o risk)"
-fi
-if awk '/^-include/{print}' Makefile.in | grep -q 'SB_TEST_OBJ'; then
-    ok "session_browser_test.d is in the -include list"
-else
-    warn "P2: SB_TEST_OBJ missing from the -include list (stale session_browser_test.o risk)"
-fi
-if echo "$test_out" | grep -E 'md4c/md4c' | grep -q -- '-MMD'; then
-    ok "md4c compiles with -MMD"
-else
-    warn "P2: md4c compiles without -MMD dependency generation"
-fi
-if awk '/^-include/{print}' Makefile.in | grep -q 'md4c'; then
+for p in sysinfo-plugin 'tools/plugins/cdp';
+do
+    if echo
+        "$test_out" | grep - E "$p" | grep - q-- '-MMD';
+then ok "$p compiles with -MMD" else warn "P2: $p compiles without -MMD dependency generation" fi
+        done if awk '/^-include/{print}' Makefile.in |
+    grep - q 'TUI_TEST_OBJ';
+then ok "tui_tests.d is in the -include list" else warn
+    "P2: TUI_TEST_OBJ missing from the -include list (stale tui_tests.o "
+    "risk)" fi if awk '/^-include/{print}' Makefile.in |
+    grep - q 'PLUGIN_TEST_OBJ';
+then ok "plugin_test.d is in the -include list" else warn
+    "P2: PLUGIN_TEST_OBJ missing from the -include list (stale plugin_test.o "
+    "risk)" fi if awk '/^-include/{print}' Makefile.in |
+    grep - q 'COMP_TEST_OBJ';
+then ok "completions_test.d is in the -include list" else warn
+    "P2: COMP_TEST_OBJ missing from the -include list (stale completions_test.o "
+    "risk)" fi if awk '/^-include/{print}' Makefile.in |
+    grep - q 'SB_TEST_OBJ';
+then ok "session_browser_test.d is in the -include list" else warn
+    "P2: SB_TEST_OBJ missing from the -include list (stale session_browser_test.o risk)" fi if echo
+    "$test_out" |
+    grep - E 'md4c/md4c' | grep - q-- '-MMD';
+then ok "md4c compiles with -MMD" else warn
+    "P2: md4c compiles without -MMD dependency generation" fi if awk '/^-include/{print}' Makefile
+        .in |
+    grep - q 'md4c'; then
     ok "md4c.d is in the -include list"
 else
     warn "P2: md4c.d missing from the -include list (stale md4c.o risk)"
 fi
-for v in CDP_MAIN_OBJ CDP_WS_OBJ WS_TEST_OBJ; do
-    if awk '/^-include/{print}' Makefile.in | grep -q "$v"; then
+for v in CDP_MAIN_OBJ CDP_WS_OBJ WS_TEST_OBJ;
+do
+    if awk
+        '/^-include/{print}' Makefile.in | grep - q "$v"; then
         ok "$v .d is in the -include list"
     else
         warn "P2: $v missing from the -include list (stale plugin/ws_test object risk)"
     fi
 done
 
-# P3
+#P3
 artifacts="run_tests command_line_test session_browser_test e2e_test completions_test plugin_test ws_test bench_test smoketest run_command_line_test run_completions_test run_e2e_test amber-cli amber amber-bench sysinfo-plugin cdp-plugin libagent_core.a libagent_tools.a tests/fixtures/mcp_echo tests/fixtures/mcp_http tests/fixtures/mcp_ignore_sigterm"
 clean_out=$(make -n clean 2>/dev/null)
-for f in $artifacts; do
-    if echo "$clean_out" | grep -qF "$f"; then
+for f in $artifacts;
+do
+    if echo
+        "$clean_out" | grep - qF "$f"; then
         ok "make clean removes $f"
     else
         warn "P3: 'make clean' does not remove $f"
     fi
 done
-for p in 'lib/*.o' 'lib/*.d' 'src/*.o' 'src/*.d' 'tui/*.o' 'tui/*.d' 'tests/*.o' 'tests/*.d' 'bench/*.o' 'bench/*.d' 'tools/*.o' 'tools/*.d' 'tools/search/*.o' 'tools/search/*.d' 'third_party/md4c/*.o' 'third_party/md4c/*.d' 'tools/plugins/cdp/*.o' 'tools/plugins/cdp/*.d' 'ws_test.d' 'sysinfo-plugin.d'; do
-    if echo "$clean_out" | grep -qF "$p"; then
-        ok "make clean removes $p"
-    else
-        warn "P3: 'make clean' does not remove $p"
-    fi
-done
-if echo "$clean_out" | grep -q 'libagent\.a'; then
-    warn "P3: 'make clean' still references the retired libagent.a"
-else
-    ok "make clean has no legacy libagent.a reference"
-fi
+for p in 'lib/*.o' 'lib/*.d' 'src/*.o' 'src/*.d' 'tui/*.o' 'tui/*.d' 'tests/*.o' 'tests/*.d' 'bench/*.o' 'bench/*.d' 'tools/*.o' 'tools/*.d' 'tools/search/*.o' 'tools/search/*.d' 'third_party/md4c/*.o' 'third_party/md4c/*.d' 'tools/plugins/cdp/*.o' 'tools/plugins/cdp/*.d' 'ws_test.d' 'sysinfo-plugin.d';
+do
+    if echo
+        "$clean_out" | grep - qF "$p";
+then ok "make clean removes $p" else warn "P3: 'make clean' does not remove $p" fi done if echo
+    "$clean_out" |
+    grep - q 'libagent\.a';
+then warn "P3: 'make clean' still references the retired libagent.a" else ok
+        "make clean has no legacy libagent.a reference" fi
 
-# P4
-if git ls-files --error-unmatch -- compile_commands.json >/dev/null 2>&1; then
-    warn "P4: compile_commands.json is tracked (stale machine-specific flags)"
-else
-    ok "compile_commands.json is not tracked"
-fi
-if grep -q 'compile_commands' .gitignore; then
+#P4
+        if git ls -
+        files-- error - unmatch-- compile_commands.json >
+    / dev / null 2 > &1;
+then warn "P4: compile_commands.json is tracked (stale machine-specific flags)" else ok
+    "compile_commands.json is not tracked" fi if grep -
+    q 'compile_commands'.gitignore; then
     ok "compile_commands.json is gitignored"
 else
     warn "P4: compile_commands.json is not gitignored"
 fi
 
-# P5
-for f in tests/run_tests.cpp lib/session.cpp tui/tui_render.cpp tui/tui_input.cpp; do
-    # BSD wc pads with spaces (macOS); strip so the numeric compare is portable.
-    actual=$(wc -l < "$f" | tr -d ' ')
-    doc=$(grep -E "^\| \`$f\` \| " AGENTS.md | head -1 |
-          sed -E 's/^\| [^|]* \| ([0-9]+) \|.*/\1/')
-    if [ -n "$doc" ] && [ "$doc" = "$actual" ]; then
-        ok "AGENTS.md lists $f at $actual lines"
-    else
-        warn "P5: AGENTS.md audit table lists $f at '$doc' lines; tree has $actual"
-    fi
-done
+#P5
+for f in tests/run_tests.cpp lib/session.cpp tui/tui_render.cpp tui/tui_input.cpp;
+do
+#BSD wc pads with spaces(macOS); strip so the numeric compare is portable.
+    actual = $(wc - l < "$f" | tr - d ' ') doc =
+        $(grep - E "^\| \`$f\` \| " AGENTS.md | head - 1 |
+          sed - E 's/^\| [^|]* \| ([0-9]+) \|.*/\1/') if[-n "$doc"] &&
+        ["$doc" = "$actual"];
+then ok "AGENTS.md lists $f at $actual lines" else warn
+    "P5: AGENTS.md audit table lists $f at '$doc' lines; tree has $actual" fi done
 
-# P6
-# The Context deque contract is inviolable (AGENTS.md "Context stack
-# architecture"): thread safety is by single ownership, NOT by locking. A
-# mutex, a copy-returning get_all(), or a message-mutation method would let
-# callers bypass the sealed-message/hash-chain design — flag any of them.
-ctx_hdr=include/agent/context.h
-if grep -qE 'std::mutex|lock_guard|scoped_lock' "$ctx_hdr"; then
-    warn "P6: $ctx_hdr must not contain a mutex/lock (single-owner, not locking)"
-else
-    ok "context.h has no mutex/lock (single-owner contract intact)"
-fi
-if grep -qE 'get_all\(\).*std::vector|std::vector<Message> get_all' "$ctx_hdr"; then
+#P6
+#The Context deque contract is inviolable(AGENTS.md "Context stack
+#architecture "): thread safety is by single ownership, NOT by locking. A
+#mutex, a copy - returning get_all(), or a message - mutation method would let
+#callers bypass the sealed - message / hash - chain design — flag any of them.
+        ctx_hdr =
+            include / agent / context.h if grep - qE 'std::mutex|lock_guard|scoped_lock' "$ctx_hdr";
+then warn "P6: $ctx_hdr must not contain a mutex/lock (single-owner, not locking)" else ok
+    "context.h has no mutex/lock (single-owner contract intact)" fi if grep -
+    qE 'get_all\(\).*std::vector|std::vector<Message> get_all' "$ctx_hdr"; then
     warn "P6: $ctx_hdr get_all() must return the const deque ref, not a copy"
 else
     ok "context.h get_all() returns the read-only deque reference"
 fi
-for m in replace insert update set_message set_content edit modify; do
-    if grep -qE "\b(void|Message|bool|size_t) $m\s*\(" "$ctx_hdr"; then
-        warn "P6: $ctx_hdr must not add a '$m' mutation method (rebuild via clear+push only)"
-    fi
-done
-if grep -qE '\b(mutex|recursive_mutex)\b' "$ctx_hdr"; then
-    warn "P6: $ctx_hdr must not include <mutex> or declare a mutex member"
-fi
+for m in replace insert update set_message set_content edit modify;
+do
+    if grep
+        - qE "\b(void|Message|bool|size_t) $m\s*\("
+             "$ctx_hdr";
+then warn "P6: $ctx_hdr must not add a '$m' mutation method (rebuild via clear+push only)" fi
+        done if grep -
+    qE '\b(mutex|recursive_mutex)\b' "$ctx_hdr";
+then warn "P6: $ctx_hdr must not include <mutex> or declare a mutex member" fi
 
-if [ "$failures" -gt 0 ]; then
-    echo "build-hygiene: $failures invariant(s) FAILED"
-    exit 1
-fi
-echo "build-hygiene: all invariants hold"
+    if["$failures" - gt 0];
+then echo "build-hygiene: $failures invariant(s) FAILED" exit 1 fi echo
+    "build-hygiene: all invariants hold"
