@@ -12,6 +12,29 @@
 #include <filesystem>
 #include <fstream>
 
+namespace {
+
+void print_usage(const char* argv0) {
+    std::fprintf(stderr,
+                 "Usage: %s [options]\n"
+                 "\n"
+                 "  amber — interactive terminal UI for the amber agent.\n"
+                 "\n"
+                 "Options:\n"
+                 "  -v, --version      Print version and exit\n"
+                 "  -h, --help         Show this help\n"
+                 "  --config <file>    Load an explicit config file\n"
+                 "  --api-base <url>   LLM API base URL\n"
+                 "  --api-key <key>    LLM API key\n"
+                 "  --model <name>     LLM model\n"
+                 "  --system <file>    System prompt path\n"
+                 "  --tools <file>     Tools prompt path\n"
+                 "  --no-stream        Disable streaming responses\n",
+                 argv0);
+}
+
+} // namespace
+
 int main(int argc, char** argv) {
     // ncursesw (wide-char) only operates in UTF-8 mode once the process locale
     // is set; without this it stays in the "C" locale and drops/mangles every
@@ -24,6 +47,20 @@ int main(int argc, char** argv) {
         std::setlocale(LC_ALL, "C.UTF-8");
     if (!std::setlocale(LC_ALL, ""))
         std::setlocale(LC_ALL, "en_US.UTF-8");
+
+    // Version/help must work even when the data files the UI needs are
+    // missing or misplaced, so handle them before any config or bootstrap
+    // work. Otherwise `amber -v` on a broken install dies with "critical
+    // data files missing" instead of answering.
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "-v" || a == "--version") {
+            std::printf("amber %s (%s)\n", agent::kVersion, agent::kBuildDate);
+            return 0;
+        }
+        if (a == "-h" || a == "--help") { print_usage(argv[0]); return 0; }
+    }
+
     agent::Config cfg;
     std::string config_file;
     for (int i = 1; i < argc; ++i) {
