@@ -183,11 +183,19 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # macOS release — builds the darwin tarball in parallel with the Linux job.
-  # The Linux job's release step attaches the macOS artifact (amber-macos-tarball)
-  # so both platforms ship in one GitHub Release.
+  # matrix expands to arm64 (macos-latest, Apple Silicon) and x86_64
+  # (macos-13, Intel); the Linux job's release step attaches both so a release
+  # carries distributors for every macOS architecture. The Homebrew tap
+  # (jtrefon/homebrew-amber) picks both checksums up via its bump workflow.
   # ---------------------------------------------------------------------------
   release-macos:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest   # Apple Silicon
+          - os: macos-13       # Intel
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
