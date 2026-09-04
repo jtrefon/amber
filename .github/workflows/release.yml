@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   release:
-    needs: [release-macos]
+    needs: [release-macos-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -191,23 +191,16 @@ jobs:
             dist/amber-plugin-cdp*
 
   # ---------------------------------------------------------------------------
-  # macOS release — builds the darwin tarball in parallel with the Linux job.
-  # Matrix expands to arm64 (macos-latest, Apple Silicon) and x86_64
-  # (macos-13, Intel). Each arch uploads its own artifact so a slow or
-  # over-subscribed Intel runner never blocks the Apple Silicon tarball: the
-  # Linux job attaches whatever is present, and the Homebrew tap
+  # macOS release — builds the darwin tarballs in parallel with the Linux job.
+  # Two independent jobs: release-macos-arm64 (required) and
+  # release-macos-x86_64 (optional, on legacy macos-13 runners that are often
+  # over-subscribed). The Linux publisher depends only on the arm64 job, so a
+  # queued Intel runner never blocks the Apple Silicon tarball; it attaches
+  # the x86_64 artifact when present. The Homebrew tap
   # (jtrefon/homebrew-amber) picks each arch's checksum up when it exists.
   # ---------------------------------------------------------------------------
-  release-macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest       # Apple Silicon
-            marker: arm64
-          - os: macos-13           # Intel
-            marker: x86_64
-    runs-on: ${{ matrix.os }}
+  release-macos-arm64:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -253,6 +246,57 @@ jobs:
       - name: Upload macOS tarball
         uses: actions/upload-artifact@v7
         with:
-          name: amber-macos-tarball-${{ matrix.marker }}
+          name: amber-macos-tarball-arm64
+          path: dist/*.tar.gz*
+          retention-days: 7
+
+  release-macos-x86_64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve version
+        id: ver
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: brew install curl ncurses pkg-config
+
+      - name: Sync VERSION to tag
+        run: printf '%s\n' "${{ steps.ver.outputs.version }}" > version.txt
+
+      - name: Configure
+        # brew's ncurses is keg-only; point pkg-config at it so the wide
+        # ncursesw (required for the TUI's UTF-8 wide-char rendering) is found.
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix ncurses)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          ./configure --prefix=/usr/local
+
+      - name: Build
+        run: make
+
+      - name: Test
+        run: make test
+
+      - name: Stage install tree
+        run: |
+          rm -rf stage
+          make install DESTDIR="$PWD/stage"
+
+      - name: Build tarball + checksum
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          arch="$(uname -m)"
+          name="amber-${version}-darwin-${arch}"
+          mkdir -p dist
+          tar -C stage -czf "dist/${name}.tar.gz" .
+          ( cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+
+      - name: Upload macOS tarball
+        uses: actions/upload-artifact@v7
+        with:
+          name: amber-macos-tarball-x86_64
           path: dist/*.tar.gz*
           retention-days: 7
