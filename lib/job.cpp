@@ -110,21 +110,32 @@ void Job::kill() {
 
 // Kill-once state transition: exactly one caller signals the process group
 // and flips the latch (two concurrent kill() calls must not both reach
-// reader_.join(), which is UB).
+// reader_.join(), which is UB). The exit code and state are NOT touched here:
+// the reader thread owns them in finalize() once the child is reaped, so no
+// consumer can observe Killed with a stale exit code.
 bool Job::begin_kill() {
     std::scoped_lock lk(mtx_);
     if (kill_done_) return false;
     bool was_running =
         (state_ == JobState::Running || state_ == JobState::Starting);
-    if (was_running) {
-        kill_process_group(pid_);
-        if (state_ != JobState::Done) {
-            exit_code_ = -1;
-            state_ = JobState::Killed;
-        }
-    }
+    if (was_running) kill_process_group(pid_);
     kill_done_ = true;
     return true;
+}
+
+// Single writer of the terminal (exit_code, state) pair, under one lock:
+// the exit code is finalized BEFORE the state becomes observable, so a
+// poller that sees Done/Killed always reads the real exit code.
+void Job::finalize(int status, bool reaped, bool killed) {
+    std::scoped_lock lk(mtx_);
+    if (reaped) {
+        if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
+        else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
+    } else {
+        exit_code_ = -1;  // kill landed but the child could not be reaped
+    }
+    if (state_ == JobState::Running || state_ == JobState::Starting)
+        state_ = killed ? JobState::Killed : JobState::Done;
 }
 
 bool Job::check_timeouts() {
@@ -161,11 +172,7 @@ void Job::reap_after_eof() {
             w = waitpid(pid_, &status, WNOHANG);
         }
     }
-    if (w == pid_) {
-        std::scoped_lock lk(mtx_);
-        if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
-        else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
-    }
+    finalize(status, w == pid_, kill_done_.load());
 }
 
 void Job::reader_loop() {
@@ -191,17 +198,13 @@ void Job::reader_loop() {
         int status = 0;
         pid_t w = waitpid(pid_, &status, WNOHANG);
         if (w == pid_) {
-            {
-                std::scoped_lock lk(mtx_);
-                if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
-                else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
-            }
-            // Drain any final buffered bytes before declaring done.
+            // Drain any final buffered bytes before publishing the outcome.
             while ((n = read(read_fd_, buf.data(), buf.size())) > 0) {
                 std::scoped_lock lk(mtx_);
                 if (output_.size() < kCap) output_.append(buf.data(), (std::size_t)n);
                 else if (!truncated_) truncated_ = true;
             }
+            finalize(status, true, kill_done_.load());
             break;
         }
         usleep(20000);

@@ -147,11 +147,11 @@ TEST(mcp_config_save_delete_roundtrip) {
 TEST(mcp_manager_connect_all) {
     McpEnv env("conn");
     write_file(env.project_mcp + "/echo.conf",
-               "type=stdio\ncommand=python3\n"
-               "args=tests/fixtures/mcp_echo.py\ncwd=" + env.cwd + "\nauto_connect=1\n");
+               "type=stdio\ncommand=tests/fixtures/mcp_echo\n"
+               "cwd=" + env.cwd + "\nauto_connect=1\n");
     write_file(env.project_mcp + "/off.conf",
-               "type=stdio\ncommand=python3\n"
-               "args=tests/fixtures/mcp_echo.py\ncwd=" + env.cwd + "\nenabled=0\n");
+               "type=stdio\ncommand=tests/fixtures/mcp_echo\n"
+               "cwd=" + env.cwd + "\nenabled=0\n");
 
     agent::ServerManager mgr(agent::load_mcp_servers());
     mgr.connect_all();
@@ -173,8 +173,8 @@ TEST(mcp_manager_connect_all) {
 TEST(mcp_manager_connect_disabled_refused) {
     McpEnv env("dis");
     write_file(env.project_mcp + "/off.conf",
-               "type=stdio\ncommand=python3\n"
-               "args=tests/fixtures/mcp_echo.py\ncwd=" + env.cwd + "\nenabled=0\n");
+               "type=stdio\ncommand=tests/fixtures/mcp_echo\n"
+               "cwd=" + env.cwd + "\nenabled=0\n");
 
     agent::ServerManager mgr(agent::load_mcp_servers());
     std::string err = mgr.connect("off");
@@ -216,7 +216,7 @@ TEST(mcp_manager_http_connect) {
     McpEnv env("http");
     std::string statefile = "/tmp/mcp_mgr_http.txt";
     unlink(statefile.c_str());
-    std::string cmd = "python3 tests/fixtures/mcp_http_server.py " +
+    std::string cmd = "tests/fixtures/mcp_http " +
                       statefile + " echo >/dev/null 2>&1 &";
     ASSERT(std::system(cmd.c_str()) == 0);
     std::ifstream f;
@@ -296,8 +296,7 @@ struct EchoManager {
                    agent::McpServerConfig cfg;
                    cfg.name = "echo";
                    cfg.type = "stdio";
-                   cfg.command = "python3";
-                   cfg.args = {"tests/fixtures/mcp_echo.py"};
+                   cfg.command = "tests/fixtures/mcp_echo";
                    cfg.cwd = cwd;
                    return cfg;
                }()}}) {}

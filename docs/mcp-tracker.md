@@ -89,7 +89,7 @@ encode/decode layer with id correlation and the JSON-RPC error table.
 | **Depends on** | MC-IMP-001 (wire), `lib/process.cpp` (spawn) |
 | **Blocks** | MC-IMP-004 (client session) |
 | **Estimated effort** | 5-7 hours |
-| **Files touched** | `lib/process.cpp`/`include/agent/process.h` (`spawn_mcp_server`: fork/exec, 3 pipes), `lib/mcp_transport_stdio.cpp` (new), `tests/mcp_transport_test.cpp`, `tests/fixtures/mcp_echo.py` / `mcp_ignore_sigterm.py` (new fixtures) |
+| **Files touched** | `lib/process.cpp`/`include/agent/process.h` (`spawn_mcp_server`: fork/exec, 3 pipes), `lib/mcp_transport_stdio.cpp` (new), `tests/mcp_transport_test.cpp`, `tests/fixtures/mcp_echo.cpp` / `tests/fixtures/mcp_ignore_sigterm.cpp` (new C++ fixtures) |
 | **Spec refs** | `mcp/mcp-transport.md` [MT-01]–[MT-03] |
 
 ### Problem
@@ -134,7 +134,7 @@ SIGTERM→SIGKILL shutdown.
 | **Depends on** | MC-IMP-001 (wire), existing `libcurl`/`sse_parser` |
 | **Blocks** | MC-IMP-004 (client session) |
 | **Estimated effort** | 5-7 hours |
-| **Files touched** | `lib/mcp_transport_http.cpp` (new), `lib/sse_parser.cpp` (reuse), `tests/mcp_transport_test.cpp`, `tests/fixtures/mcp_http_server.py` (new) |
+| **Files touched** | `lib/mcp_transport_http.cpp` (new), `lib/sse_parser.cpp` (reuse), `tests/mcp_transport_test.cpp`, `tests/fixtures/mcp_http.cpp` (new C++ fixture) |
 | **Spec refs** | `mcp/mcp-transport.md` [MT-04]–[MT-06] |
 
 ### Problem
