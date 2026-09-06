@@ -118,8 +118,10 @@ bool Workspace::confine(const std::string& path, std::string& resolved,
         fs::path canon = fs::weakly_canonical(anchor, ec);
         if (!ec) {
             if (!is_within(cbase, canon.generic_string())) {
-                error = "path resolves outside workspace root (" + base +
-                        "): " + path;
+                error = "path resolves outside workspace root (";
+                error += base;
+                error += "): ";
+                error += path;
                 return false;
             }
             resolved = norm;
