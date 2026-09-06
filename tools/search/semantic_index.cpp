@@ -87,8 +87,7 @@ std::vector<std::string> shell_split(const std::string& s) {
     std::vector<std::string> out;
     std::string cur;
     bool in_single = false, in_double = false;
-    for (size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
+    for (char c : s) {
         if (in_single) {
             if (c == '\'') in_single = false;
             else cur += c;
