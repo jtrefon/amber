@@ -29,8 +29,7 @@ std::vector<Tok> tokenize(const std::string& s) {
     std::string cur;
     bool quoted = false;
     bool in_single = false, in_double = false;
-    for (std::size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
+    for (char c : s) {
         if (in_single) {
             if (c == '\'') in_single = false;
             else cur += c;
@@ -86,9 +85,9 @@ bool is_escape_token(const Tok& t) {
     const std::string& s = t.text;
     if (s == "&" || s == "`" || s.rfind("$(", 0) == 0) return true;
     if (s.rfind("2>&", 0) == 0 || s.rfind("1>&", 0) == 0) return false;
-    for (char c : s)
-        if (c == ';' || c == '&' || c == '|' || c == '`') return true;
-    return false;
+    return std::any_of(s.begin(), s.end(), [](char c) {
+        return c == ';' || c == '&' || c == '|' || c == '`';
+    });
 }
 
 // Output redirection (">", ">>", ">f", "2>f", "&>f"): the command writes a
@@ -101,8 +100,9 @@ bool output_redirect_target(const Tok& t, std::string& target) {
     if (s == ">" || s == ">>" || s == "&>") return true;  // target follows
     if (s == "2>" || s == "2>>" || s == "1>" || s == "1>>") return true;
     if (s[0] == '>') i = 1;
-    else if (s.rfind("2>", 0) == 0 || s.rfind("1>", 0) == 0) i = 2;
-    else if (s.rfind("&>", 0) == 0) i = 2;
+    else if (s.rfind("2>", 0) == 0 || s.rfind("1>", 0) == 0 ||
+             s.rfind("&>", 0) == 0)
+        i = 2;
     if (i == std::string::npos) return false;
     while (i < s.size() && s[i] == '>') ++i;
     target = s.substr(i);
@@ -222,11 +222,11 @@ ShellClass classify_shell(const std::string& command,
     std::size_t begin = 0;
     for (std::size_t i = 0; i < toks.size(); ++i) {
         if (is_chain_op(toks[i].text)) {
-            segs.push_back({begin, i});
+            segs.emplace_back(begin, i);
             begin = i + 1;
         }
     }
-    segs.push_back({begin, toks.size()});
+    segs.emplace_back(begin, toks.size());
     bool composed = segs.size() > 1;
 
     std::string first_destructive;
