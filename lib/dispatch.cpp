@@ -3,6 +3,7 @@
 #include "agent/agent_helpers.h"
 #include "agent/context.h"
 #include "agent/policy.h"
+#include "agent/policy_engine.h"
 #include "agent/subagent.h"
 
 #include <chrono>
@@ -120,43 +121,49 @@ std::string find_duplicate_call(const std::string& fn, const json& args,
 
 } // namespace
 
-// Consult the policy store and host hooks to decide whether a tool call is
-// approved. PolicyStore rules (always_allow / always_deny) set the dialog
-// default and short-circuit on timeout; the dialog always appears as a
-// last-chance safety net. Session grants bypass the dialog entirely.
-bool approve_tool(const Tool& tool, const json& args, const AgentHooks& hooks,
+// Gate one tool call: apply the decision engine, and when the verdict is
+// Prompt, consult the host hook and record the outcome against the scope.
+// Returns true when the call may run. With no host hook the call is denied
+// (fail-safe).
+bool approve_tool(const Tool& tool, const json& args, const Config& cfg,
+                  const AgentHooks& hooks,
                   std::set<std::string>& session_approved,
                   PolicyStore* policy) {
-    if (!hooks.on_approval) return false;
-    std::string name = tool.name();
+    if (!hooks.on_approval) return false;   // fail-safe: no host, no approval
+    if (!policy) {
+        // No policy store: fall back to the legacy whole-tool dialog.
+        std::string summary = tool.summarize(args);
+        Approval d = hooks.on_approval(tool.name(), args, summary);
+        if (d == Approval::AllowSession) session_approved.insert(tool.name());
+        return d == Approval::AllowOnce || d == Approval::AllowSession ||
+               d == Approval::AlwaysAllow;
+    }
+    Decision dec = decide_approval(cfg, tool, args, *policy);
+    if (dec.v != Verdict::Prompt) return dec.v == Verdict::Allow;
+
+    const std::string& scope = dec.scope_id;
     std::string summary = tool.summarize(args);
+    Approval d = hooks.on_approval(tool.name(), args, summary);
 
-    // Session grant already exists — skip dialog.
-    if (policy && policy->is_granted_session(name))
-        return true;
-
-    // Compute the dialog default from the policy store (last choice per tool).
-    Approval d = hooks.on_approval(name, args, summary);
-
-    // Process the result and update policy state.
+    // Process the result and update policy state, keyed by the scope so an
+    // "always allow" for `rm` never silently approves `dd` (and never asks
+    // again for the same command kind).
     if (d == Approval::AlwaysAllow) {
-        if (policy) policy->set_rule(name, PolicyLevel::AlwaysAllow);
+        policy->set_rule(scope, PolicyLevel::AlwaysAllow);
         return true;
     }
     if (d == Approval::AlwaysDeny) {
-        if (policy) policy->set_rule(name, PolicyLevel::AlwaysDeny);
+        policy->set_rule(scope, PolicyLevel::AlwaysDeny);
         return false;
     }
     if (d == Approval::AllowSession) {
-        session_approved.insert(name);
-        if (policy) {
-            policy->grant_session(name);
-            policy->record_choice(name, PolicyLevel::AllowSession);
-        }
+        session_approved.insert(scope);
+        policy->grant_session(scope);
+        policy->record_choice(scope, PolicyLevel::AllowSession);
         return true;
     }
     if (d == Approval::AllowOnce) {
-        if (policy) policy->record_choice(name, PolicyLevel::AllowOnce);
+        policy->record_choice(scope, PolicyLevel::AllowOnce);
         return true;
     }
     return false; // Deny
@@ -199,18 +206,35 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
                 dup = find_duplicate_call(c.fn, c.args, context->get_all(), c.id);
             if (!dup.empty()) {
                 c.denied_reason = dup;
-            } else if (cfg.mode != agent::AgentMode::Yolo &&
-                       cfg.policy_approval &&
-                       c.tool->requires_approval(c.args) &&
-                       !session_approved.count(c.fn) &&
-                       !(hooks.on_approval &&
-                         approve_tool(*c.tool, c.args, hooks,
-                                      session_approved, policy))) {
-                c.denied_reason = "denied by user: " + c.fn + " was not approved.";
+            } else if (policy) {
+                // Decision engine: mode (Yolo bypass / Read deny), tool
+                // contract, shell classifier (benign writes free), stored
+                // always-allow/deny, and per-scope session grants. Only a
+                // Prompt verdict reaches the host dialog.
+                Decision dec = decide_approval(cfg, *c.tool, c.args, *policy);
+                bool approved = dec.v == Verdict::Allow;
+                if (dec.v == Verdict::Prompt)
+                    approved = approve_tool(*c.tool, c.args, cfg, hooks,
+                                            session_approved, policy);
+                if (!approved) {
+                    c.denied_reason =
+                        "denied by user: " + c.fn + " was not approved.";
+                    log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
+                                              {"args", c.args}});
+                } else {
+                    c.approved = true;
+                }
+            } else if (cfg.mode == agent::AgentMode::Yolo ||
+                       !c.tool->requires_approval(c.args) ||
+                       (hooks.on_approval &&
+                        approve_tool(*c.tool, c.args, cfg, hooks,
+                                     session_approved, policy))) {
+                c.approved = true;
+            } else {
+                c.denied_reason =
+                    "denied by user: " + c.fn + " was not approved.";
                 log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
                                           {"args", c.args}});
-            } else {
-                c.approved = true;
             }
         }
         todo.push_back(std::move(c));

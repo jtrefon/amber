@@ -72,8 +72,71 @@ bool Workspace::confine(const std::string& path, std::string& resolved,
         error = "path escapes workspace root (" + base + "): " + path;
         return false;
     }
-    resolved = norm;
-    return true;
+    // A lexically-inside path is not enough: a symlink component can point
+    // outside the root, and the tools open the path afterwards. Resolve the
+    // real target of the deepest existing prefix and verify it stays inside
+    // the root; the returned path remains the lexical form so callers keep
+    // seeing the root prefix they configured.
+    //
+    // The containment base is the canonicalized root: the root may itself be
+    // reached through a symlink (e.g. /tmp -> /private/tmp on macOS), and a
+    // lexical comparison against it would reject every in-workspace path.
+    std::error_code ec;
+    fs::path canon_base = fs::weakly_canonical(fs::path(base), ec);
+    if (ec) canon_base = fs::path(base);   // root does not exist yet
+    const std::string cbase = canon_base.generic_string();
+
+    // If the whole path exists, canonical() follows every component including
+    // a symlink leaf; the real target must be inside the root.
+    fs::path canon_full = fs::canonical(abs, ec);
+    if (!ec) {
+        if (!is_within(cbase, canon_full.generic_string())) {
+            error = "path resolves outside workspace root (" + base +
+                    "): " + path;
+            return false;
+        }
+        resolved = norm;
+        return true;
+    }
+
+    // canonical() failed: the path does not exist, or ends in a dangling
+    // symlink. A dangling symlink leaf is a write escape — ofstream would
+    // create the target wherever the link points — so refuse it outright.
+    {
+        std::error_code lec;
+        if (fs::is_symlink(fs::symlink_status(abs, lec))) {
+            error = "path is a symlink whose target does not exist; "
+                    "refusing: " + path;
+            return false;
+        }
+    }
+
+    // The path does not exist yet. Climb to the deepest existing ancestor and
+    // verify that ancestor's real location stays inside the root.
+    fs::path anchor = abs;
+    while (true) {
+        fs::path canon = fs::weakly_canonical(anchor, ec);
+        if (!ec) {
+            if (!is_within(cbase, canon.generic_string())) {
+                error = "path resolves outside workspace root (" + base +
+                        "): " + path;
+                return false;
+            }
+            resolved = norm;
+            return true;
+        }
+        // Anchor does not exist. Peel its last component and resolve the next
+        // existing ancestor, but never climb above the root itself.
+        if (anchor == fs::path(base) ||
+            anchor.parent_path() == fs::path(base) ||
+            anchor == anchor.root_path()) {
+            // The root itself does not exist (or does not resolve), so no
+            // symlink can be hiding in it yet — the lexical result stands.
+            resolved = norm;
+            return true;
+        }
+        anchor = anchor.parent_path();
+    }
 }
 
 std::string Workspace::relative(const std::string& path) {

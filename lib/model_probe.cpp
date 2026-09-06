@@ -122,29 +122,8 @@ ServerInfo parse_models(const std::string& body,
 
 ServerInfo probe_server(const Config& cfg) {
     std::string response;
-    CURL* c = curl_easy_init();
-    if (!c) return {};
-
-    struct curl_slist* headers = nullptr;
-    if (!cfg.api_key.empty()) {
-        std::string auth = "Authorization: Bearer " + cfg.api_key;
-        headers = curl_slist_append(headers, auth.c_str());
-    }
-
-    curl_easy_setopt(c, CURLOPT_URL, cfg.models_url().c_str());
-    if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 5L);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 3L);
-
-    CURLcode rc = curl_easy_perform(c);
-    if (headers) curl_slist_free_all(headers);
-    curl_easy_cleanup(c);
-    if (rc != CURLE_OK) {
-        debug_log(cfg.debug_log, "probe-error",
-                  std::string(curl_easy_strerror(rc)));
+    if (fetch_models(cfg, response) != CURLE_OK) {
+        debug_log(cfg.debug_log, "probe-error", "fetch failed");
         return {};
     }
     debug_log(cfg.debug_log, "probe", response);

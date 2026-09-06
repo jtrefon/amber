@@ -19,6 +19,9 @@
 #include "agent/agent_helpers.h"
 #include "agent/job.h"
 #include "agent/tools.h"
+#include "agent/policy.h"
+#include "agent/shell_classify.h"
+#include "agent/policy_engine.h"
 
 namespace agent {
 

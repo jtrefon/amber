@@ -141,22 +141,22 @@
       "mode": {
        "action": "core.config.get.policy.mode",
        "help": "Agent access mode (read/write/yolo).",
-       "man": "Displays the current agent mode. Read mode restricts tools to observation only. Write mode enables all tools with approval gating. Yolo mode bypasses all restrictions."
+       "man": "Displays the current agent mode. Read mode restricts tools to observation only. Write mode enables all tools; destructive commands and outside-workspace writes ask approval. Yolo mode bypasses all restrictions."
       },
       "approval": {
        "action": "core.config.get.policy.approval",
        "help": "Master switch for permission gating.",
-       "man": "Shows whether policy-based approval gating is enabled in Write mode. When off, gated tools run without prompting (legacy behavior)."
+       "man": "Shows whether policy-based approval gating is enabled in Write mode. When off, gated tools run without prompting."
       },
       "timeout": {
        "action": "core.config.get.policy.timeout",
        "help": "Approval dialog timeout in seconds.",
-       "man": "The countdown timer for the approval dialog. When the timer expires the default choice is auto-selected. Set to 0 to disable the timeout (wait indefinitely for user input)."
+       "man": "The countdown timer for the approval dialog. When the timer expires the request is DENIED (fail-safe — never auto-confirmed). Set to 0 to disable the timeout (wait indefinitely for user input)."
       },
       "rule": {
        "action": "core.config.get.policy.rule",
-       "help": "Show a tool's permission rule.",
-       "man": "The rule branch reads the curated dangerous-command list: every tool with a stored approval rule (allow/deny) is listed with its level and usage count. Tools without a rule ask for approval each time."
+       "help": "Show a permission rule.",
+       "man": "The rule branch reads the stored approval rules: every command kind with a stored rule (allow/deny) is listed with its level and usage count. Kinds without a rule ask for approval each time."
       }
      }
     },
@@ -307,7 +307,7 @@
       "mode": {
        "action": "core.config.set.policy.mode",
        "help": "Agent access mode.",
-       "man": "Read mode restricts tools to read-only operations (no writes). Write mode enables all tools with configurable approval gating. Yolo mode bypasses all restrictions and runs everything without prompting.",
+       "man": "Read mode restricts tools to read-only operations (no writes, no dialogs). Write mode enables all tools: read-only and benign in-workspace commands run freely, destructive or system-wide commands ask approval (once per command kind per session unless granted permanently), and writes outside the workspace ask once per target folder. Yolo mode bypasses all restrictions and runs everything without prompting.",
        "choices": [
         "read",
         "write",
@@ -317,7 +317,7 @@
       "approval": {
        "action": "core.config.set.policy.approval",
        "help": "Master switch for permission gating.",
-       "man": "When on, gated tools in Write mode show an approval dialog before executing. When off, the pre-policy legacy behavior is restored and tools run without prompting. Has no effect in Read or Yolo modes.",
+       "man": "When on, gated tools in Write mode show an approval dialog before executing. When off, tools run without prompting. Has no effect in Read or Yolo modes.",
        "choices": [
         "on",
         "off",
@@ -327,7 +327,7 @@
       "timeout": {
        "action": "core.config.set.policy.timeout",
        "help": "Approval dialog timeout in seconds.",
-       "man": "Sets how many seconds the approval dialog waits before auto-selecting the default choice. 0 means no timeout — the dialog waits indefinitely for user input.",
+       "man": "Sets how many seconds the approval dialog waits before DENYING (the fail-safe default; it never auto-confirms). 0 means no timeout — the dialog waits indefinitely for user input.",
        "type": "int",
        "range": [
         0,
@@ -336,8 +336,8 @@
       },
       "rule": {
        "action": "core.config.set.policy.rule",
-       "help": "Set or clear a tool's permission rule.",
-       "man": "Curates the dangerous-command list: '/set policy rule <tool> allow|deny|ask' grants, blocks, or clears a tool's approval. Tool names complete from the registry; existing rules show their current level. 'ask' removes the stored rule."
+       "help": "Set or clear a permission rule.",
+       "man": "Curates the permission rules: '/set policy rule <name> allow|deny|ask' grants, blocks, or clears approval for a command kind. Names complete from the registered tools and the curated dangerous-command list (bash.rm, bash.git reset, ...); existing rules show their current level. 'ask' removes the stored rule."
       }
      }
     },
@@ -621,22 +621,12 @@
   "provider": {
    "action": "core.provider",
    "help": "Manage API providers.",
-   "man": "The provider command manages LLM API provider configurations. Providers are stored globally in ~/.config/amber/providers/ and can be shared across projects. Built-in providers include OpenRouter, Kilo Code, and Custom. Use '/provider add' to configure a new endpoint.",
+   "man": "The provider command manages LLM API provider configurations. Providers are stored globally in ~/.config/amber/providers/ and can be shared across projects. Built-in providers include OpenRouter, Kilo Code, and Custom. Use '/settings' to add or edit a provider endpoint.",
    "children": {
     "list": {
      "action": "core.provider.list",
      "help": "List all saved API providers.",
      "man": "Lists all saved provider configurations with their names, API base URLs, and whether they require an API key."
-    },
-    "add": {
-     "action": "core.provider.add",
-     "help": "Add a new provider (opens settings form).",
-     "man": "Opens a form to add a new provider configuration including name, API base URL, default model, and API key."
-    },
-    "edit": {
-     "action": "core.provider.edit",
-     "help": "Edit an existing provider's configuration.",
-     "man": "Opens a form pre-filled with the selected provider's configuration for editing."
     },
     "delete": {
      "action": "core.provider.delete",

@@ -264,7 +264,7 @@ void SlashDispatcher::cmd_get_policy(const std::string& arg) {
         if (ag) {
             for (const auto& r : ag->policy().rules()) {
                 if (r.level == agent::PolicyLevel::Ask) continue;
-                tui_.append_line(P_STATUS, "  " + r.tool + " \u2192 " +
+                tui_.append_line(P_STATUS, "  " + agent::scope_display(r) + " \u2192 " +
                     agent::policy_level_name(r.level) +
                     " (used " + std::to_string(r.count) + "x)");
             }
@@ -274,11 +274,23 @@ void SlashDispatcher::cmd_get_policy(const std::string& arg) {
     show_policy_rule(arg);
 }
 
+// The completion feed shows dotted names ("bash.rm", "outside./etc"); the
+// policy store keys on scope ids ("bash:rm", "outside:/etc"). Translate a
+// user-facing name into its scope id, mapping the FIRST '.' after the tool
+// back to ':'; everything after it stays literal.
+std::string scope_from_display(const std::string& name) {
+    std::size_t dot = name.find('.');
+    if (dot == std::string::npos) return name;
+    std::string scope = name;
+    scope[dot] = ':';
+    return scope;
+}
+
 void SlashDispatcher::show_policy_rule(const std::string& name) {
     if (auto* ag = tui_.win().agent.get()) {
-        const auto* r = ag->policy().find(name);
+        const auto* r = ag->policy().find(scope_from_display(name));
         if (r) {
-            tui_.append_line(P_STATUS, "rule " + r->tool + ": " +
+            tui_.append_line(P_STATUS, "rule " + name + ": " +
                 agent::policy_level_name(r->level) +
                 " (last: " + agent::policy_level_name(r->last_choice) +
                 ", used " + std::to_string(r->count) + "x)");
@@ -296,7 +308,7 @@ void SlashDispatcher::cmd_get_policy_rule(const std::string& arg) {
         for (const auto& r : ag->policy().rules()) {
             if (r.level == agent::PolicyLevel::Ask) continue;
             any = true;
-            std::string line = "  " + r.tool + " \u2192 " +
+            std::string line = "  " + agent::scope_display(r) + " \u2192 " +
                 agent::policy_level_name(r.level);
             if (r.count > 0)
                 line += " (used " + std::to_string(r.count) + "x)";
@@ -314,15 +326,16 @@ void SlashDispatcher::apply_policy_rule(const std::string& name, const std::stri
         show_policy_rule(name);
         return;
     }
+    std::string scope = scope_from_display(name);
     agent::PolicyLevel pl = agent::policy_level_from_name(lvl);
     if (pl == agent::PolicyLevel::Ask) {
         for (auto& w : tui_.window_manager_->all())
-            if (w->agent) w->agent->policy().revoke(name);
+            if (w->agent) w->agent->policy().revoke(scope);
         tui_.append_line(P_STATUS, "policy rule revoked for " + name);
     } else if (pl == agent::PolicyLevel::AlwaysAllow ||
                pl == agent::PolicyLevel::AlwaysDeny) {
         for (auto& w : tui_.window_manager_->all())
-            if (w->agent) w->agent->policy().set_rule(name, pl);
+            if (w->agent) w->agent->policy().set_rule(scope, pl);
         tui_.append_line(P_STATUS, "policy rule " + lvl + " for " + name);
     } else {
         tui_.append_line(P_STATUS, "invalid level: " + lvl + " (use allow, deny, or ask)");
@@ -868,6 +881,7 @@ void SlashDispatcher::register_builtin_actions() {
         tui_.win().reason_folded = false;
         tui_.win().scroll_top = 0;
         tui_.ctx_used_.store(-1);
+        tui_.ctx_estimate_ = 0;
         tui_.live_ctx_offset_ = 0;
         tui_.append_line(P_STATUS, "conversation cleared \u2014 next message starts fresh");
         tui_.render_engine_->set_drawer_open(false);
@@ -902,9 +916,8 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string& a) { cmd_session_load(a); });
     register_action("core.session.delete",
         [this](const std::string& a) { cmd_session_delete(a); });
-    register_action("core.session.rename", [this](const std::string&) {
-        tui_.append_line(P_STATUS, "rename not yet implemented");
-    });
+    register_action("core.session.rename",
+        [this](const std::string& a) { cmd_session_rename(a); });
     register_action("core.session", [this](const std::string& a) {
         if (!a.empty())
             tui_.append_line(P_STATUS, "usage: /session list|save|load|delete|rename <id> <title>");
@@ -917,12 +930,6 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string& a) { cmd_provider(a); });
     register_action("core.provider.list",
         [this](const std::string&) { cmd_provider_list(); });
-    register_action("core.provider.add", [this](const std::string&) {
-        tui_.append_line(P_STATUS, "use /settings to add/edit providers");
-    });
-    register_action("core.provider.edit", [this](const std::string&) {
-        tui_.append_line(P_STATUS, "use /settings to add/edit providers");
-    });
     register_action("core.provider.delete",
         [this](const std::string& a) { cmd_provider_delete(a); });
     register_action("core.provider.test",
@@ -1443,6 +1450,32 @@ void SlashDispatcher::cmd_session_delete(const std::string& id) {
     tui_.append_line(P_STATUS, "deleted session: " + id);
 }
 
+void SlashDispatcher::cmd_session_rename(const std::string& rest) {
+    auto trim = [](const std::string& s) {
+        size_t b = s.find_first_not_of(" \t");
+        size_t e = s.find_last_not_of(" \t");
+        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    };
+    size_t sp = rest.find(' ');
+    std::string id = trim(sp == std::string::npos ? rest : rest.substr(0, sp));
+    std::string title =
+        sp == std::string::npos ? "" : trim(rest.substr(sp + 1));
+    if (id.empty() || title.empty()) {
+        tui_.append_line(P_STATUS, "usage: /session rename <id> <title>");
+        return;
+    }
+    agent::Session sess;
+    if (!tui_.session_controller_->store().load(id, sess)) {
+        tui_.append_line(P_STATUS, "session not found: " + id);
+        return;
+    }
+    sess.title = title;
+    if (!tui_.session_controller_->store().save(sess))
+        tui_.append_line(P_STATUS, "failed to rename session: " + id);
+    else
+        tui_.append_line(P_STATUS, "renamed session " + id + " to \"" + title + "\"");
+}
+
 void SlashDispatcher::cmd_files_ls(const std::string& rest) {
     namespace fs = std::filesystem;
     std::string root = agent::Workspace::root();
@@ -1885,8 +1918,6 @@ static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
 
 void Tui::settings_screen() {
     // Step 1: Build provider list from saved + built-in presets
-    // DEBUG: the fact you can see this message means the NEW settings_screen is running
-    append_line(P_STATUS, "Loading provider list...");
     const auto providers = providers_->available();
 
     std::vector<std::string> prov_display;

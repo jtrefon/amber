@@ -1,5 +1,6 @@
 
 #include "agent/policy.h"
+#include "agent/shell_classify.h"
 
 #include <algorithm>
 #include <chrono>
@@ -11,7 +12,23 @@
 
 namespace agent {
 
-static std::string timestamp() {
+namespace {
+
+// Parse a scope id into (tool, pattern). Scopes look like "bash:rm",
+// "bash:git reset", "outside:/abs/dir", or a bare tool name ("write").
+void split_scope(const std::string& scope, std::string& tool,
+                 std::string& pattern) {
+    std::size_t colon = scope.find(':');
+    if (colon == std::string::npos) {
+        tool = scope;
+        pattern = "";
+        return;
+    }
+    tool = scope.substr(0, colon);
+    pattern = scope.substr(colon + 1);
+}
+
+std::string timestamp() {
     auto now = std::chrono::system_clock::now();
     auto t = std::chrono::system_clock::to_time_t(now);
     std::ostringstream os;
@@ -19,7 +36,7 @@ static std::string timestamp() {
     return os.str();
 }
 
-static json rule_to_json(const PolicyRule& r) {
+json rule_to_json(const PolicyRule& r) {
     return {
         {"tool", r.tool},
         {"args_pattern", r.args_pattern},
@@ -31,7 +48,7 @@ static json rule_to_json(const PolicyRule& r) {
     };
 }
 
-static PolicyRule json_to_rule(const json& j) {
+PolicyRule json_to_rule(const json& j) {
     PolicyRule r;
     r.tool = j.value("tool", "");
     r.args_pattern = j.value("args_pattern", "");
@@ -42,6 +59,8 @@ static PolicyRule json_to_rule(const json& j) {
     r.last_used = j.value("last_used", "");
     return r;
 }
+
+} // namespace
 
 void PolicyStore::init(const std::string& path) {
     std::ifstream f(path);
@@ -86,31 +105,45 @@ void PolicyStore::save(const std::string& path) const {
     std::filesystem::rename(tmp, path, ec);
 }
 
-const PolicyRule* PolicyStore::find(const std::string& tool) const {
+const PolicyRule* PolicyStore::find(const std::string& scope_id) const {
+    std::string tool, pattern;
+    split_scope(scope_id, tool, pattern);
+    // An exact pattern match first: "bash:rm" hits the "rm" rule even when a
+    // legacy whole-tool "bash" rule also exists.
     for (const auto& r : rules_) {
-        if (r.tool == tool && r.args_pattern.empty()) {
-            return &r;
+        if (r.args_pattern == pattern && r.tool == tool) return &r;
+    }
+    // Legacy whole-tool rules (empty pattern) match a bare-tool scope id.
+    if (pattern.empty()) {
+        for (const auto& r : rules_) {
+            if (r.args_pattern.empty() && r.tool == tool) return &r;
         }
     }
     return nullptr;
 }
 
-PolicyRule* PolicyStore::mutable_find(const std::string& tool) {
+PolicyRule* PolicyStore::mutable_find(const std::string& scope_id) {
+    std::string tool, pattern;
+    split_scope(scope_id, tool, pattern);
     for (auto& r : rules_) {
-        if (r.tool == tool && r.args_pattern.empty()) return &r;
+        if (r.args_pattern == pattern && r.tool == tool) return &r;
+    }
+    if (pattern.empty()) {
+        for (auto& r : rules_) {
+            if (r.args_pattern.empty() && r.tool == tool) return &r;
+        }
     }
     return nullptr;
 }
 
-void PolicyStore::set_rule(const std::string& tool, PolicyLevel level) {
-    auto* existing = mutable_find(tool);
+void PolicyStore::set_rule(const std::string& scope_id, PolicyLevel level) {
+    auto* existing = mutable_find(scope_id);
     if (existing) {
         existing->level = level;
         existing->last_used = timestamp();
     } else {
         PolicyRule r;
-        r.tool = tool;
-        r.args_pattern = "";
+        split_scope(scope_id, r.tool, r.args_pattern);
         r.level = level;
         r.last_choice = PolicyLevel::AllowOnce;
         r.created = timestamp();
@@ -119,24 +152,27 @@ void PolicyStore::set_rule(const std::string& tool, PolicyLevel level) {
     }
 }
 
-void PolicyStore::revoke(const std::string& tool) {
+void PolicyStore::revoke(const std::string& scope_id) {
+    std::string tool, pattern;
+    split_scope(scope_id, tool, pattern);
     auto it = std::remove_if(rules_.begin(), rules_.end(),
-        [&](const PolicyRule& r) { return r.tool == tool; });
+        [&](const PolicyRule& r) {
+            return r.tool == tool &&
+                   (pattern.empty() || r.args_pattern == pattern);
+        });
     rules_.erase(it, rules_.end());
-    last_choices_.erase(tool);
+    session_grants_.erase(scope_id);
 }
 
-void PolicyStore::record_choice(const std::string& tool, PolicyLevel choice) {
-    last_choices_[tool] = choice;
-    auto* existing = mutable_find(tool);
+void PolicyStore::record_choice(const std::string& scope_id, PolicyLevel choice) {
+    auto* existing = mutable_find(scope_id);
     if (existing) {
         existing->last_choice = choice;
         existing->count++;
         existing->last_used = timestamp();
     } else {
         PolicyRule r;
-        r.tool = tool;
-        r.args_pattern = "";
+        split_scope(scope_id, r.tool, r.args_pattern);
         r.level = PolicyLevel::Ask;
         r.last_choice = choice;
         r.count = 1;
@@ -146,26 +182,16 @@ void PolicyStore::record_choice(const std::string& tool, PolicyLevel choice) {
     }
 }
 
-bool PolicyStore::is_granted_session(const std::string& tool) const {
-    return session_grants_.count(tool) > 0;
+bool PolicyStore::is_granted_session(const std::string& scope_id) const {
+    return session_grants_.count(scope_id) > 0;
 }
 
-void PolicyStore::grant_session(const std::string& tool) {
-    session_grants_.insert(tool);
+void PolicyStore::grant_session(const std::string& scope_id) {
+    session_grants_.insert(scope_id);
 }
 
 void PolicyStore::clear_session() {
     session_grants_.clear();
-    last_choices_.clear();
-}
-
-PolicyLevel PolicyStore::last_choice(const std::string& tool) const {
-    auto it = last_choices_.find(tool);
-    if (it != last_choices_.end()) return it->second;
-    const auto* rule = find(tool);
-    if (rule && rule->last_choice != PolicyLevel::Ask)
-        return rule->last_choice;
-    return PolicyLevel::AllowOnce;
 }
 
 std::vector<PolicyRule> PolicyStore::default_harmful_patterns() {
@@ -178,33 +204,8 @@ std::vector<PolicyRule> PolicyStore::default_harmful_patterns() {
         r.last_choice = PolicyLevel::AllowOnce;
         list.push_back(std::move(r));
     };
-    add("bash", "rm");
-    add("bash", "rmdir");
-    add("bash", "mv");
-    add("bash", "cp");
-    add("bash", "dd");
-    add("bash", "mkfs");
-    add("bash", "fdisk");
-    add("bash", "chmod");
-    add("bash", "chown");
-    add("bash", "sudo");
-    add("bash", "apt");
-    add("bash", "apt-get");
-    add("bash", "kill");
-    add("bash", "pkill");
-    add("bash", "git reset");
-    add("bash", "git push --force");
-    add("bash", "git clean");
-    add("bash", "git revert");
-    add("bash", "pip install");
-    add("bash", "npm install");
-    add("bash", "npm publish");
-    add("bash", "docker");
-    add("bash", "systemctl");
-    add("bash", "sed -i");
-    add("bash", ">");
-    add("bash", ">>");
-    add("bash", "|");
+    for (const std::string& pat : destructive_command_patterns())
+        add("bash", pat);
     add("process_start", "");
     add("process_stop", "");
     return list;

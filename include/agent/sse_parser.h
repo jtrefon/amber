@@ -53,9 +53,6 @@ public:
     // The bounded raw byte accumulation (error diagnostics).
     const std::string& raw_body() const { return raw_body_; }
 
-    void dispatch_event(const std::string& data);
-    void segment_think(const std::string& text, StreamChunk& chunk);
-
     Message& out_;
     ChunkSink on_chunk_;    // stored by value: an `auto` lambda binds through a
                             // temporary std::function, and a reference member

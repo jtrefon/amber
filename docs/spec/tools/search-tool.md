@@ -2,8 +2,8 @@
 
 ### Purpose
 Search file contents using either `grep` (fast, regex-based) or a dependency-free
-semantic index (TF-IDF with hashing trick). The tool is read-only, relaxed about
-path confinement, and dispatches to the chosen backend via the `mode` parameter.
+semantic index (TF-IDF with hashing trick). The tool is read-only, confined to
+the workspace root, and dispatches to the chosen backend via the `mode` parameter.
 
 ### Ownership
 - **Source files**: `tools/search_tool.cpp` (SearchTool, 122 lines), `tools/search/grep_backend.cpp` (GrepBackend, 89 lines), `tools/search/semantic_backend.cpp` (SemanticBackend, 126 lines), `tools/search/semantic_index.cpp` (walk, tokenize, embed, cosine, 109 lines), `include/agent/search_backend.h` (SearchBackend, SearchHit)
@@ -26,7 +26,7 @@ path confinement, and dispatches to the chosen backend via the `mode` parameter.
 
 1. Pattern is required and must not exceed 256 characters.
 2. Backend defaults to `grep` for any `mode` other than `"semantic"`.
-3. Path confinement is lenient: if `Workspace::confine()` fails, the raw (unconfined) path is used anyway (read-only).
+3. Path confinement is strict: an explicit `path` is run through `Workspace::confine()` and an out-of-workspace path is rejected with an error (consistent with read/write tools).
 4. The `.amber`, `.git`, and `third_party/` directories are always excluded from search.
 5. Grep mode excludes binary files via `-I` flag.
 6. Semantic mode caches the index and does NOT detect file changes between searches.
@@ -73,8 +73,8 @@ path confinement, and dispatches to the chosen backend via the `mode` parameter.
 
 - **Given**: Workspace root = `/project`, path = `/etc`
 - **Input**: `{"pattern": "root", "path": "/etc"}`
-- **Expected**: `Workspace::confine()` rejects `/etc` → falls back to raw `/etc`. Search runs on `/etc`. Results returned.
-- **Note**: Search is deliberately lenient for read-only operations.
+- **Expected**: `Workspace::confine()` rejects `/etc` → `ok=false`, `error` mentions the workspace root. No search runs on the unconfined path.
+- **Note**: Search is read-only and ungated, so honoring an escape would hand the model arbitrary file contents; it must be as strict as read/write.
 
 #### [ST-07] Missing pattern
 
@@ -115,7 +115,7 @@ path confinement, and dispatches to the chosen backend via the `mode` parameter.
 
 ### Known gaps
 
-1. **Path fallback on confinement failure** — Inconsistent with read/write tools which reject out-of-workspace paths. Search silently works on unconfined paths.
+1. **Path fallback on confinement failure** — Resolved: search now rejects out-of-workspace paths like read/write tools (invariant 3, ST-06).
 2. **No regex validation** — Invalid regex in grep mode silently returns no results (stderr redirected to `/dev/null`).
 3. **Semantic index never invalidates** — File changes between searches are not detected. The `ensure_index()` check only compares root and glob strings.
 4. **Backend selection checks mode string** — `mode == "semantic"` should check `backend->name()` for extensibility.
