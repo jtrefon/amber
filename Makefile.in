@@ -63,6 +63,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
              $(BUILD_DIR)/lib/mcp_tools.o \
              $(BUILD_DIR)/lib/mcp_commands.o \
              $(BUILD_DIR)/lib/policy.o \
+             $(BUILD_DIR)/lib/shell_classify.o \
+             $(BUILD_DIR)/lib/policy_engine.o \
              $(BUILD_DIR)/lib/environment.o \
              $(BUILD_DIR)/lib/data_path.o \
               $(BUILD_DIR)/lib/bootstrap.o \

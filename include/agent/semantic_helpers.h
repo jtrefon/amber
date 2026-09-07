@@ -26,6 +26,12 @@ double cosine(const std::vector<double>& a, const std::vector<double>& b);
 bool matches_glob(const std::string& name, const std::string& glob);
 std::string shell_quote(const std::string& s);
 
+// Split a shell command line into whitespace-separated tokens, honoring single
+// and double quotes (no escape processing inside double quotes beyond \").
+// Used for approval classification: a quoted argument must not be mistaken for
+// a command word (e.g. echo "rm -rf").
+std::vector<std::string> shell_split(const std::string& s);
+
 // Recursive file discovery (std::filesystem) honoring a glob on the basename
 // and skipping excluded top-level directory names anywhere in the path.
 void walk(const std::string& dir, const std::string& glob,

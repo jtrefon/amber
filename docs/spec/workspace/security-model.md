@@ -24,7 +24,7 @@ confinement, and approval gating for side-effect operations.
 
 1. Read mode blocks ALL non-read-only tools — no file modifications, no bash.
 2. Path confinement is enforced before any file I/O in read and write tools.
-3. Bash write commands require approval (Read mode blocks them entirely; Write/Yolo auto-approve).
+3. Bash commands are classified by `shell_classify` into read-only / benign in-workspace write / destructive / outside. Read-only and benign writes run free in Write mode; destructive commands (curated list: `rm`, `dd`, `git reset`, ...) and writes outside the workspace prompt for approval once per scope (command kind / target folder) unless a stored or session rule grants them.
 4. Background processes (`process_start`, `process_stop`) require approval.
 5. Fail-safe: no `on_approval` handler → tool denied.
 6. Fail-safe: non-TTY CLI with no `--yes` → tool denied.
@@ -49,12 +49,26 @@ confinement, and approval gating for side-effect operations.
 - **Expected**: `Workspace::confine()` rejects. `ToolResult{ok=false, error="path escapes workspace root..."}`.
 - **On failure**: File outside workspace read.
 
-#### [SM-03] Bash write command requires approval
+#### [SM-03] Destructive command requires approval
 
 - **Given**: `requires_approval()` called for `rm -rf /tmp/x`
-- **Input**: `is_read_only_shell` returns false
-- **Expected**: `requires_approval` returns true. Approval gate fires (or auto-approved in Write/Yolo).
-- **On failure**: Write command executes without approval in Read mode (but Gate 1 would block it).
+- **Input**: `classify_shell` returns Destructive (scope `bash:rm`)
+- **Expected**: `requires_approval` returns true. Approval gate fires in Write mode unless a stored/session rule for `bash:rm` exists; Yolo bypasses.
+- **On failure**: Destructive command executes without approval in Write mode.
+
+#### [SM-03b] Benign command runs free
+
+- **Given**: `command = "echo x > out.txt"` inside the workspace
+- **Input**: `classify_shell` in Write mode
+- **Expected**: Benign in-workspace write → no approval dialog.
+- **On failure**: Benign commands prompt (the `ls`/`wc` re-prompt bug).
+
+#### [SM-03c] Outside-workspace write prompts per folder
+
+- **Given**: `command = "echo x > /etc/notes"` from a workspace rooted elsewhere
+- **Input**: `classify_shell`
+- **Expected**: `Outside` with scope `outside:/etc` → one approval per target folder; grant covers the folder for the session.
+- **On failure**: Every outside write prompts, or the model writes outside silently after one unrelated grant.
 
 #### [SM-04] Fail-safe: no approval handler
 
@@ -81,7 +95,7 @@ confinement, and approval gating for side-effect operations.
 
 - **Given**: `command = "ls -la"`
 - **Input**: `requires_approval()`
-- **Expected**: `is_read_only_shell("ls -la")` → true. `requires_approval` returns false.
+- **Expected**: `classify_shell("ls -la")` → ReadOnly. `requires_approval` returns false.
 - **On failure**: Approval dialog for `ls`.
 
 #### [SM-08] Search tool bypasses confinement
@@ -113,7 +127,7 @@ reads. No skill text can raise privilege or escape the tool-gating model; see
 
 - **Given**: Skill `evil-cmd` body instructs the model to `rm -rf /` via bash
 - **Input**: Model activates `evil-cmd`, then follows its instruction
-- **Expected**: The bash tool's existing gates apply unchanged — Read mode blocks it, Write mode requires approval (or auto-approves per mode), confinement governs paths. Skill text has no special authority.
+- **Expected**: The bash tool's existing gates apply unchanged — Read mode blocks it, Write mode requires approval for the destructive command (or grants per scope), Yolo auto-approves, confinement governs paths. Skill text has no special authority.
 - **On failure**: Skill body bypasses approval or confinement.
 
 #### [SM-10] allowed-tools frontmatter is ignored

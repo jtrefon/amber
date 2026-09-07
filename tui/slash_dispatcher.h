@@ -52,6 +52,7 @@ public:
     void cmd_provider_test(const std::string& name);
     void cmd_session_load(const std::string& id);
     void cmd_session_delete(const std::string& id);
+    void cmd_session_rename(const std::string& rest);
     void cmd_files_ls(const std::string& rest);
     void cmd_files_tree(const std::string& rest);
     void cmd_files_open(const std::string& rest);

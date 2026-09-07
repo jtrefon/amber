@@ -234,10 +234,16 @@ long Job::sec_since(const std::chrono::steady_clock::time_point& tp) const {
 std::string JobService::start(const std::string& command,
                                const std::string& cwd, long hard_timeout_s,
                                long idle_timeout_s) {
-    std::string id = std::to_string(++counter_);
-    std::string err;
+    // Confine the working directory to the workspace: an unconfined cwd would
+    // let the model root a background shell anywhere on disk.
     std::string dir = cwd.empty() ? Workspace::root() : cwd;
-    auto job = Job::start(id, command, dir, hard_timeout_s, idle_timeout_s, err);
+    std::string confined, err;
+    if (!Workspace::confine(dir, confined, err)) return "";  // empty id = error
+    dir = confined;
+    std::string id = std::to_string(++counter_);
+    std::string spawn_err;
+    auto job = Job::start(id, command, dir, hard_timeout_s, idle_timeout_s,
+                          spawn_err);
     if (!job) return "";  // spawn failed; empty id signals error
     std::scoped_lock lk(mtx_);
     jobs_[id] = std::move(job);

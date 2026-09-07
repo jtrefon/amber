@@ -21,10 +21,12 @@ struct Message;
 
 using json = nlohmann::json;
 
-// Consult the policy store and host hooks to decide whether a tool call is
-// approved. Returns true only when the host hook grants the call (or a session
-// grant already exists); with no hook set, approval always fails (fail-safe).
-bool approve_tool(const Tool& tool, const json& args, const AgentHooks& hooks,
+// Consult the decision engine and, when it prompts, the host hook. Records
+// the outcome (session grant / persisted rule) against the decision's scope
+// id. Returns true only when the call may run; with no hook set, approval
+// always fails (fail-safe).
+bool approve_tool(const Tool& tool, const json& args, const Config& cfg,
+                  const AgentHooks& hooks,
                   std::set<std::string>& session_approved,
                   PolicyStore* policy);
 

@@ -17,10 +17,25 @@ inline CurlPtr make_curl() {
     return CurlPtr(curl_easy_init(), curl_easy_cleanup);
 }
 
-// RAII wrapper around a curl_slist of request headers.
+// RAII wrapper around a curl_slist of request headers. Owns the list: copying
+// would double-free, so copies are deleted and moves are defaulted.
 struct HeaderList {
     curl_slist* list = nullptr;
     ~HeaderList();
+    HeaderList() = default;
+    HeaderList(const HeaderList&) = delete;
+    HeaderList& operator=(const HeaderList&) = delete;
+    HeaderList(HeaderList&& other) noexcept : list(other.list) {
+        other.list = nullptr;
+    }
+    HeaderList& operator=(HeaderList&& other) noexcept {
+        if (this != &other) {
+            if (list) curl_slist_free_all(list);
+            list = other.list;
+            other.list = nullptr;
+        }
+        return *this;
+    }
     void add(const std::string& h) {
         list = curl_slist_append(list, h.c_str());
     }
@@ -41,8 +56,9 @@ std::string post_completion(Config& cfg, const std::string& payload,
 void stream_completion(Config& cfg, const std::string& payload,
                        StreamParser& parser, Stats* stats, long& status_out);
 
-// Parse a buffered /chat/completions JSON body into a Message, throwing on a
-// malformed or error response.
+// Parse a buffered /chat/completions JSON body into a Message. Degrades
+// gracefully on malformed/error responses: the message carries the raw body as
+// text so the agent loop can feed it back to the model (never throws).
 Message message_from_completion(const std::string& response);
 
 // Build the human-readable HTTP error message. When the body carries a known

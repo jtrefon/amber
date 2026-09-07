@@ -36,29 +36,6 @@
 namespace tui {
 
 namespace {
-// One-line compression result summary for the status bar.
-std::string compress_summary(const agent::CompressionResult& r) {
-    if (!r.error.empty())
-        return "compress: " + r.error;
-    if (r.messages_before == 0)
-        return "compress: no compressor configured";
-    if (r.messages_after >= r.messages_before)
-        return "compress: nothing to prune ("
-               + std::to_string(r.messages_before)
-               + " messages, ~" + std::to_string(r.tokens_before)
-               + " tokens)";
-    return "compress: " + std::to_string(r.messages_before)
-           + " \u2192 " + std::to_string(r.messages_after)
-           + " msgs, ~" + std::to_string(r.tokens_before)
-           + " \u2192 ~" + std::to_string(r.tokens_after) + " tokens"
-           + "  (core:" + std::to_string(r.core_count)
-           + " ctx:" + std::to_string(r.context_count)
-           + " prune:" + std::to_string(r.prune_count) + ")";
-}
-
-} // namespace
-
-namespace {
 // Process-global signal state. The handler may only touch async-signal-safe
 // machinery: set the flag, restore the terminal, arm the alarm fallback. The
 // main event loop turns the flag into a graceful teardown (workspace save +
@@ -284,10 +261,12 @@ void Tui::agent_worker(Window& my_win, size_t window_id,
                        const std::string& prompt) {
     agent::AgentHooks hooks = router_->make_hooks(window_id);
 
-    // Subscribe to context change events for live token count updates.
+    // ONE subscription per window keeps the estimate fresh for the gauge;
+    // ctx_used_ holds the server-reported truth and is never clobbered by
+    // the chars/4 estimate (see gauge_tokens: server wins when known).
     my_win.agent->context_events().subscribe(
         [this](size_t tokens, size_t) {
-            ctx_used_.store(static_cast<long>(tokens));
+            ctx_estimate_ = static_cast<long>(tokens);
         });
 
     try {
@@ -780,35 +759,28 @@ void Tui::run() {
 
 
 
-void Tui::save_window_sessions() { session_controller_->save_window_sessions(); }
-void Tui::save_workspace_now() { session_controller_->save_workspace_now(); }
 void Tui::redraw_after_modal() { session_controller_->redraw_after_modal(); }
 void Tui::autosave() { session_controller_->autosave(); }
 void Tui::autosave(Window& w) { session_controller_->autosave(w); }
 void Tui::load_session(const std::string& id) { session_controller_->load_session(id); }
 void Tui::draw() { render_engine_->draw(); }
-void Tui::draw_status_bar(const std::string& tail) { render_engine_->draw_status_bar(tail); }
-void Tui::tick_clock() { render_engine_->tick_clock(); }
 void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) { render_engine_->draw_input(s, cursor, shadow); }
-void Tui::draw_drawer(const std::string& input) { render_engine_->draw_drawer(input); }
-void Tui::git_refresh() { render_engine_->git_refresh(); }
 void Tui::build_settings() { slash_dispatcher_->build_settings(); }
 bool Tui::drain_events() { return router_->drain_events(); }
 const std::vector<tui::Command>& Tui::commands() { return slash_dispatcher_->commands(); }
-void Tui::build_commands() { slash_dispatcher_->build_commands(); }
 bool Tui::handle_slash(const std::string& line) { return slash_dispatcher_->handle_slash(line); }
 void Tui::register_action(const std::string& action,
                           std::function<void(const std::string&)> handler) {
     slash_dispatcher_->register_action(action, std::move(handler));
 }
-void Tui::register_builtin_actions() { slash_dispatcher_->register_builtin_actions(); }
+bool Tui::busy_reject(const std::string& what) {
+    return slash_dispatcher_->busy_reject(what);
+}
 void Tui::refresh_completions() { slash_dispatcher_->refresh_completions(); }
 void Tui::refresh_model_list() { slash_dispatcher_->refresh_model_list(); }
 void Tui::refresh_policy_feed() { slash_dispatcher_->refresh_policy_feed(); }
 void Tui::refresh_provider_feed() { slash_dispatcher_->refresh_provider_feed(); }
 void Tui::refresh_job_feed() { slash_dispatcher_->refresh_job_feed(); }
-bool Tui::busy_reject(const std::string& what) { return slash_dispatcher_->busy_reject(what); }
-void Tui::request_quit() { slash_dispatcher_->request_quit(); }
 void Tui::cmd_model_set(const std::string& arg) { slash_dispatcher_->cmd_model_set(arg); }
 void Tui::cmd_provider(const std::string& arg) { slash_dispatcher_->cmd_provider(arg); }
 void Tui::job_kill(const std::string& id) { slash_dispatcher_->job_kill(id); }

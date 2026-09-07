@@ -149,20 +149,24 @@ void Agent::ensure_system_prompt() {
 
     switch (cfg_.mode) {
     case agent::AgentMode::Read:
-        system += "\n\nYou are in READ mode. You can only use read-only tools "
-                  "(search, grep, read). Writing files or running shell commands "
-                  "is disallowed. Answer questions about the codebase but do not "
-                  "make changes.";
+        system += "\n\nYou are in READ mode: you can explore and answer "
+                  "questions using read-only tools (search, grep, read). "
+                  "Writing files or running shell commands is not available "
+                  "here, so prefer read-only investigation and report back.";
         break;
     case agent::AgentMode::Write:
-        system += "\n\nYou are in WRITE mode. All tools run without interactive "
-                  "approval. You can read, edit, create files, and run commands. "
-                  "You are trusted to modify the project.";
+        system += "\n\nYou are in WRITE mode: you work inside the workspace, "
+                  "reading, editing, creating files and running commands "
+                  "freely. Destructive or system-wide commands (rm, dd, git "
+                  "reset, sudo, package installs, ...) pause for the user's "
+                  "approval, as does writing outside the workspace (once per "
+                  "target folder). A command request the user grants runs "
+                  "silently for the rest of the session or permanently.";
         break;
     case agent::AgentMode::Yolo:
-        system += "\n\nYou are in YOLO mode. All tools run without approval and "
-                  "execute immediately with full system access. The user trusts "
-                  "you completely.";
+        system += "\n\nYou are in YOLO mode: every tool runs immediately with "
+                  "no approval gate. The user trusts you completely, so keep "
+                  "the same careful, deliberate working style.";
         break;
     }
 

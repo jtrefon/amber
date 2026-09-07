@@ -7,7 +7,7 @@ specific behaviours: dedicated `reasoning_content` fields, inline `<think>` tags
 and fragmented tool-call arguments that arrive over multiple SSE events.
 
 ### Ownership
-- **Source files**: `lib/llm.cpp` (`chat_stream()`), `lib/sse_parser.cpp` (`StreamParser`, `dispatch_event_impl`, `segment_think_impl`, `accumulate_arguments`, `finalize_impl`), `include/agent/sse_parser.h`, `include/agent/llm.h` (`StreamChunk`, `Message`)
+- **Source files**: `lib/llm.cpp` (`chat_stream()`), `lib/sse_parser.cpp` (`StreamParser`, `dispatch_event_impl`, `segment_think_impl`, `accumulate_arguments`, `finalize_impl`), `include/agent/sse_parser.h`, `include/agent/llm.h` (`StreamChunk`, `Message`) — the `*_impl` helpers are file-local (anonymous namespace); `StreamParser` exposes only `on_write`/`finalize` plus stat accessors.
 - **Test files**: `tests/run_tests.cpp` — 4 SSE parser tests (lines 843–1003)
 
 ---
@@ -114,7 +114,7 @@ and fragmented tool-call arguments that arrive over multiple SSE events.
 
 - **Given**: A garbled `data:` line in the stream
 - **Input**: `data: not json`
-- **Expected**: `dispatch_event_impl()` → `json::parse` returns discarded. Function returns silently. Stream continues to next event.
+- **Expected**: The internal `dispatch_event_impl()` → `json::parse` returns discarded. Function returns silently. Stream continues to next event.
 
 #### [ST-12] Empty content fields
 

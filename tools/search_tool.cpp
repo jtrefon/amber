@@ -71,18 +71,21 @@ public:
                       "a giant alternation of every symbol";
             return r;
         }
-        // Default the search root to the workspace root so a bare search always
-        // covers the project regardless of the process cwd (the other
-        // filesystem tools already confine to the workspace). An explicit
-        // relative path is confined under the workspace; an absolute or
-        // out-of-workspace path is honoured as given (search is read-only).
+        // Confine the search root to the workspace: an absolute or
+        // out-of-workspace path is refused (search is read-only and ungated,
+        // so honoring an escape would hand the model arbitrary file
+        // contents). A bare search defaults to the workspace root so it
+        // covers the project regardless of the process cwd.
         std::string req_path = a.value("path", std::string(""));
         std::string path = agent::Workspace::root();
         if (!req_path.empty()) {
             std::string confined, err;
-            path = (agent::Workspace::confine(req_path, confined, err))
-                       ? confined
-                       : req_path;
+            if (!agent::Workspace::confine(req_path, confined, err)) {
+                r.ok = false;
+                r.error = err;
+                return r;
+            }
+            path = confined;
         }
         // Hidden/vendored dirs are skipped by default; an explicit path
         // inside one of them means the agent deliberately wants it, so that

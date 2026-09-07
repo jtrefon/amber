@@ -157,6 +157,7 @@ void SessionController::load_session(const std::string& id) {
                    ? s.meta[key].get<long>() : def;
     };
     tui_.ctx_used_.store(get_num("ctx_used", -1));
+    tui_.ctx_estimate_ = 0;  // refilled by the restore's context events
     long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
         tui_.cfg_.context_size = static_cast<int>(restored_ctx);
@@ -456,6 +457,7 @@ void Tui::lazy_load_active() {
                    ? s.meta[key].get<long>() : def;
     };
     ctx_used_.store(get_num("ctx_used", -1));
+    ctx_estimate_ = 0;  // refilled by the restore's context events
     long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
         cfg_.context_size = static_cast<int>(restored_ctx);

@@ -68,7 +68,6 @@ public:
     Window& ensure_chat_window();
     void run();
 
-    void save_workspace_now();
     void redraw_after_modal();
     void config_screen() const;
     void detect_server(bool force);
@@ -122,34 +121,26 @@ private:
 
     // ---- rendering (owned by RenderEngine) -------------------------------
     void draw();
-    void draw_status_bar(const std::string& tail);
-    void tick_clock();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
-    void draw_drawer(const std::string& input);
-    void git_refresh();
     std::unique_ptr<RenderEngine> render_engine_;
 
     // ---- session persistence (owned by SessionController) ----------------
     void autosave();
     void autosave(Window& w);
-    void save_window_sessions();
     void load_session(const std::string& id);
     std::unique_ptr<SessionController> session_controller_;
 
     // ---- slash command framework (owned by SlashDispatcher) --------------
     const std::vector<tui::Command>& commands();
-    void build_commands();
     bool handle_slash(const std::string& line);
+    void refresh_completions();
     void register_action(const std::string& action,
                          std::function<void(const std::string&)> handler);
-    void register_builtin_actions();
-    void refresh_completions();
+    bool busy_reject(const std::string& what);
     void refresh_model_list();
     void refresh_policy_feed();
     void refresh_provider_feed();
     void refresh_job_feed();
-    bool busy_reject(const std::string& what);
-    void request_quit();
     void cmd_model_set(const std::string& arg);
     void cmd_provider(const std::string& arg);
     void job_kill(const std::string& id);
@@ -181,7 +172,11 @@ private:
     // context events and by the UI thread (session load/restore); read by
     // the UI thread for the gauge. Atomic: the writers and readers are on
     // different threads (single-owner context, event-driven progress).
+    // ctx_used_ is the server-reported prompt_tokens (-1 until known);
+    // ctx_estimate_ is the live chars/4 estimate from the per-window
+    // context-event subscription; gauge_tokens() picks the single source.
     std::atomic<long> ctx_used_ = -1;
+    std::atomic<long> ctx_estimate_ = 0;
     long live_ctx_offset_ = 0;   // running token count during streaming
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;

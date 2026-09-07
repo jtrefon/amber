@@ -121,9 +121,15 @@ an empty string as `old`.
 
 ## bash
 
-Execute a shell command. Approval required only in READ mode (where
-bash is blocked entirely); in WRITE and YOLO modes commands run
-immediately.
+Execute a shell command. Read-only commands (ls, cat, grep, git status, ...)
+run freely. In WRITE mode, benign in-workspace changes (writing a file,
+moving files inside the workspace, running a build) also run without
+approval. Destructive or system-wide commands (rm, dd, git reset, sudo,
+package installs, ...) pause for user approval — the request names the
+command kind, and once the user grants it for the session or permanently,
+later uses of the same kind run without asking. Writing to a path outside
+the workspace asks approval once per target folder. READ mode blocks bash
+entirely; YOLO mode skips every approval.
 
 Every call runs in a fresh shell whose working directory is the workspace
 root — commands already start there, so a `cd <workspace> &&` prefix is
