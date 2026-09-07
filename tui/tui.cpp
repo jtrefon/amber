@@ -136,6 +136,7 @@ Tui::~Tui() {
         router_->set_shutting_down(true);
         deny_all_pending_approvals(router_->queue());
         deny_all_pending_approvals(router_->pending_approvals());
+        deny_all_pending_api_keys(router_->pending_api_keys());
     }
     if (router_->thread().joinable()) router_->thread().join();
     endwin();
@@ -423,6 +424,7 @@ void Tui::run() {
                 router_->set_shutting_down(true);
                 deny_all_pending_approvals(router_->queue());
                 deny_all_pending_approvals(router_->pending_approvals());
+                deny_all_pending_api_keys(router_->pending_api_keys());
             }
             // endwin() first: the session-save progress writes to stderr and
             // must not interleave with a terminal ncurses still controls.

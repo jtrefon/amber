@@ -59,6 +59,22 @@ inline void deny_all_pending_approvals(std::queue<AgentEvent>& q) {
     }
 }
 
+// Shutdown path for pending API-key requests: resolve with an empty key
+// (user/UI gone — fail closed, no retry).
+inline void deny_all_pending_api_keys(std::queue<AgentEvent>& q) {
+    while (!q.empty()) {
+        AgentEvent& ev = q.front();
+        if (ev.api_key_promise) {
+            try {
+                ev.api_key_promise->set_value(std::string());
+            } catch (const std::future_error&) {
+                // Already resolved by the UI thread; nothing to do.
+            }
+        }
+        q.pop();
+    }
+}
+
 struct PendingToolLine {
     size_t index = std::string::npos;
     size_t window_id = std::string::npos;
@@ -98,10 +114,12 @@ public:
 
     agent::AgentHooks make_hooks(size_t window_id);
 
-    void shutdown_queues(std::queue<AgentEvent>& pending_approvals);
+    void shutdown_queues(std::queue<AgentEvent>& pending_approvals,
+                         std::queue<AgentEvent>& pending_api_keys);
 
     std::vector<PendingToolLine>& pending_tools() noexcept { return pending_tools_; }
     std::queue<AgentEvent>& pending_approvals() noexcept { return pending_approvals_; }
+    std::queue<AgentEvent>& pending_api_keys() noexcept { return pending_api_keys_; }
 
     // ---- event dispatch (drain_events machinery) -------------------------
     bool drain_events();
@@ -115,6 +133,8 @@ public:
     void on_compress_result(Window* w, const AgentEvent& ev);
     void resolve_approval(const AgentEvent& ev);
     void pump_pending_approvals();
+    void resolve_api_key(const AgentEvent& ev);
+    void pump_pending_api_keys();
     void advance_tool_spinners();
 
 private:
@@ -130,6 +150,7 @@ private:
     bool shutting_down_ = false;
     std::vector<PendingToolLine> pending_tools_;
     std::queue<AgentEvent> pending_approvals_;
+    std::queue<AgentEvent> pending_api_keys_;
 };
 
 } // namespace tui

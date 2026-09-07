@@ -72,6 +72,15 @@ struct AgentHooks {
     std::function<Approval(const std::string& tool, const json& args,
                            const std::string& summary)> on_approval;
 
+    // Ask the host for an API key/token for the active provider. `reason` is
+    // human-readable ("provider 'kilocode' requires an API key", "API key
+    // rejected (HTTP 401)"). The host is responsible for persisting the key to
+    // the provider's config; the core only rebuilds the client and retries.
+    // Returns the entered key, or an empty string when the user
+    // declines/cancels or no host prompt exists (fail-safe: headless runs
+    // never block on input).
+    std::function<std::string(const std::string& reason)> on_api_key;
+
     // Emitted for every internal step (tool calls, tool results, state
     // transitions, errors) when the host has debug tracing enabled. Lets a UI
     // mirror the agent's internals to the screen without the core knowing

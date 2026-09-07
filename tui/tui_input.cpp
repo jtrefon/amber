@@ -1396,6 +1396,34 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
             return;
         }
     }
+
+    // Key-requiring provider with no key configured: prompt for the key
+    // inline (same edit form as /settings) so switching never strands the
+    // user on a provider that cannot authenticate. Esc cancels the switch.
+    if (sel.provider.requires_key && sel.provider.api_key.empty() &&
+        !sel.warning.empty()) {
+        agent::Config prov_cfg;
+        prov_cfg.provider_name = a;
+        prov_cfg.api_base = sel.provider.api_base;
+        prov_cfg.api_key = tui_.cfg_.api_key;   // keep an existing global key
+        prov_cfg.model = sel.provider.default_model;
+        if (tui_.cfg_.provider_name == a) {
+            prov_cfg.api_base = tui_.cfg_.api_base;
+            prov_cfg.api_key = tui_.cfg_.api_key;
+            prov_cfg.model = tui_.cfg_.model;
+        }
+        if (!edit_provider_form(prov_cfg, "Configure: " + a)) return;
+        tui_.providers_->save(agent::Provider{
+            prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+            !prov_cfg.api_key.empty(), prov_cfg.model, prov_cfg.context_size,
+            sel.provider.builtin});
+        sel = tui_.providers_->select(a);
+        if (!sel.ok()) {
+            tui_.append_line(P_STATUS, "error: " + sel.error);
+            return;
+        }
+    }
+
     agent::apply_selection(tui_.cfg_, sel);
     if (!sel.warning.empty())
         tui_.append_line(P_STATUS, "warning: " + sel.warning);
@@ -1914,6 +1942,45 @@ static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
         else       { cfg.context_explicit = false; }
     } catch (...) { cfg.context_explicit = false; }
     return true;
+}
+
+std::string Tui::prompt_api_key(const std::string& reason) {
+    // Runs on the UI thread (EventRouter::resolve_api_key). Seed the form
+    // from the active provider's current values so only the key needs
+    // typing; Esc/Cancel returns "" (the agent then degrades gracefully).
+    const std::string provider = cfg_.provider_name.empty() ? "custom"
+                                                            : cfg_.provider_name;
+    agent::Config prov_cfg;
+    prov_cfg.provider_name = provider;
+    prov_cfg.api_base = cfg_.api_base;
+    prov_cfg.api_key = cfg_.api_key;
+    prov_cfg.model = cfg_.model;
+    prov_cfg.model_explicit = cfg_.model_explicit;
+    prov_cfg.context_size = cfg_.context_size;
+    prov_cfg.context_explicit = cfg_.context_explicit;
+
+    std::vector<FieldSpec> fields = {
+        {"Provider", provider, false},
+        {"API Key", prov_cfg.api_key, true},
+    };
+    if (!form_edit("API key required", fields)) return "";
+    std::string key = fields[1].value;
+    if (key.empty()) return "";   // blank = cancel
+    prov_cfg.api_key = key;
+
+    // Persist to the provider's own config file (overlays the preset on
+    // restart) and to the global config, exactly like the provider editor.
+    auto sel = providers_->find(provider);
+    bool builtin = sel ? sel->builtin : false;
+    providers_->save(agent::Provider{
+        provider, prov_cfg.api_base, key,
+        /*requires_key=*/true, prov_cfg.model, prov_cfg.context_size,
+        builtin});
+    cfg_.api_key = key;
+    cfg_.provider_name = provider;
+    cfg_.save_global(agent::global_config_path());
+    (void)reason;
+    return key;
 }
 
 void Tui::settings_screen() {

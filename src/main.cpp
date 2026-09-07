@@ -276,6 +276,46 @@ int main(int argc, char** argv) {
         if (c == 'g') return agent::Approval::AlwaysAllow;
         return agent::Approval::Deny;
     };
+    // API-key request (HTTP 401/403 or keyless key-requiring provider).
+    // Prompt on a TTY; persist to the active provider's config file so the
+    // next run starts authenticated. Non-TTY headless runs fail closed
+    // (never block on stdin).
+    hooks.on_api_key = [&cfg, tty](const std::string& reason) -> std::string {
+        if (!tty) {
+            std::cerr << "[auth] " << reason
+                      << "  (re-run with --api-key <key> or set it in "
+                         "~/.config/amber/)\n";
+            return "";
+        }
+        std::cerr << "\n[auth] " << reason << "\n"
+                  << "  API key: " << std::flush;
+        std::string key;
+        if (!std::getline(std::cin, key)) return "";
+        // Trim trailing whitespace/newline.
+        while (!key.empty() &&
+               (key.back() == ' ' || key.back() == '\t' ||
+                key.back() == '\r' || key.back() == '\n'))
+            key.pop_back();
+        if (key.empty()) return "";
+        // Persist to the active provider's <name>.conf (overlays the preset
+        // on the next run) and to the global config.
+        auto providers = agent::make_default_provider_service(cfg);
+        const std::string name = cfg.provider_name.empty() ? "custom"
+                                                           : cfg.provider_name;
+        auto existing = providers->find(name);
+        agent::Provider p;
+        p.name = name;
+        p.api_base = cfg.api_base;
+        p.api_key = key;
+        p.requires_key = true;
+        p.default_model = cfg.model;
+        p.builtin = existing ? existing->builtin : false;
+        providers->save(p);
+        cfg.api_key = key;
+        cfg.save_global(agent::global_config_path());
+        std::cerr << "[auth] key saved for provider '" << name << "'\n";
+        return key;
+    };
 
     // Build compression + experience pipeline.
     // The compressor receives the LLM client at call time (per compress()),

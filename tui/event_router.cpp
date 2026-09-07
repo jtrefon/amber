@@ -40,11 +40,13 @@ void EventRouter::join_thread() {
     if (thread_.joinable()) thread_.join();
 }
 
-void EventRouter::shutdown_queues(std::queue<AgentEvent>& pending_approvals) {
+void EventRouter::shutdown_queues(std::queue<AgentEvent>& pending_approvals,
+                                  std::queue<AgentEvent>& pending_api_keys) {
     std::scoped_lock lk(mtx_);
     shutting_down_ = true;
     deny_all_pending_approvals(queue_);
     deny_all_pending_approvals(pending_approvals);
+    deny_all_pending_api_keys(pending_api_keys);
 }
 
 agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
@@ -130,6 +132,23 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
         return f.get();
     };
 
+    hooks.on_api_key = [this, window_id](const std::string& reason) -> std::string {
+        if (cancel_.load()) return "";
+        auto p = std::make_shared<std::promise<std::string>>();
+        auto f = p->get_future();
+        AgentEvent ev;
+        ev.type = AgentEvent::ApiKey;
+        ev.text = reason;
+        ev.api_key_promise = p;
+        {
+            std::scoped_lock lk(mtx_);
+            if (shutting_down_) return "";
+            ev.window_id = window_id;
+            queue_.push(std::move(ev));
+        }
+        return f.get();
+    };
+
     return hooks;
 }
 
@@ -195,10 +214,19 @@ bool EventRouter::drain_events() {
             resolve_approval(ev);
             break;
         }
+        case AgentEvent::ApiKey: {
+            if (tui_.modal_open_) {
+                pending_api_keys_.push(std::move(ev));
+                break;
+            }
+            resolve_api_key(ev);
+            break;
+        }
         }
     }
 
     pump_pending_approvals();
+    pump_pending_api_keys();
     return true;
 }
 
@@ -225,6 +253,32 @@ void EventRouter::resolve_approval(const AgentEvent& ev) {
                 std::string("approval: ") + verdict + "  (" + ev.text + ")");
     if (ev.approval_promise)
         ev.approval_promise->set_value(d);
+}
+
+void EventRouter::pump_pending_api_keys() {
+    // Resolve key requests queued while a modal was open (same cadence as
+    // pending approvals: one per pump).
+    if (tui_.modal_open_ || pending_api_keys_.empty()) return;
+    AgentEvent ev = std::move(pending_api_keys_.front());
+    pending_api_keys_.pop();
+    resolve_api_key(ev);
+}
+
+void EventRouter::resolve_api_key(const AgentEvent& ev) {
+    // Runs on the UI thread. Prompt for the key with the same secret form
+    // used by the provider editor, persist it to the active provider's
+    // config, then hand the key back to the waiting agent worker. An empty
+    // result means the user cancelled (Esc).
+    std::string key = tui_.prompt_api_key(ev.text);
+    if (!key.empty()) {
+        tui_.append_line(P_STATUS,
+                    "API key updated for provider '" +
+                        tui_.cfg_.provider_name + "'");
+    } else {
+        tui_.append_line(P_STATUS, "API key request cancelled: " + ev.text);
+    }
+    if (ev.api_key_promise)
+        ev.api_key_promise->set_value(std::move(key));
 }
 
 

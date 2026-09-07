@@ -56,8 +56,9 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
 enum class RequestFailure : std::uint8_t {
     None,           // not a known recoverable request fault
     ModelName,      // server rejected the model id (vLLM-style "does not exist")
-    TemplateParser  // server cannot parse the tool grammar for the loaded
+    TemplateParser, // server cannot parse the tool grammar for the loaded
                     // template (llama.cpp "Unable to generate parser ...")
+    Auth            // API key/token rejected (HTTP 401/403)
 };
 
 RequestFailure classify_request_failure(const std::string& error_text);
