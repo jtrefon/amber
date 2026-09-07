@@ -4243,7 +4243,9 @@ TEST(request_failure_classifier) {
         "HTTP 400 from LLM server: {\"error\":\"The model ornith-35b does "
         "not exist\"}") == RequestFailure::ModelName);
     ASSERT(agent::classify_request_failure(
-        "HTTP 401 from LLM server: bad key") == RequestFailure::None);
+        "HTTP 401 from LLM server: bad key") == RequestFailure::Auth);
+    ASSERT(agent::classify_request_failure(
+        "HTTP 403 from LLM server: forbidden") == RequestFailure::Auth);
     ASSERT(agent::classify_request_failure(
         "HTTP 400 from LLM server: context overflow") == RequestFailure::None);
 }

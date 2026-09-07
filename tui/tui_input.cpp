@@ -1944,6 +1944,45 @@ static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
     return true;
 }
 
+std::string Tui::prompt_api_key(const std::string& reason) {
+    // Runs on the UI thread (EventRouter::resolve_api_key). Seed the form
+    // from the active provider's current values so only the key needs
+    // typing; Esc/Cancel returns "" (the agent then degrades gracefully).
+    const std::string provider = cfg_.provider_name.empty() ? "custom"
+                                                            : cfg_.provider_name;
+    agent::Config prov_cfg;
+    prov_cfg.provider_name = provider;
+    prov_cfg.api_base = cfg_.api_base;
+    prov_cfg.api_key = cfg_.api_key;
+    prov_cfg.model = cfg_.model;
+    prov_cfg.model_explicit = cfg_.model_explicit;
+    prov_cfg.context_size = cfg_.context_size;
+    prov_cfg.context_explicit = cfg_.context_explicit;
+
+    std::vector<FieldSpec> fields = {
+        {"Provider", provider, false},
+        {"API Key", prov_cfg.api_key, true},
+    };
+    if (!form_edit("API key required", fields)) return "";
+    std::string key = fields[1].value;
+    if (key.empty()) return "";   // blank = cancel
+    prov_cfg.api_key = key;
+
+    // Persist to the provider's own config file (overlays the preset on
+    // restart) and to the global config, exactly like the provider editor.
+    auto sel = providers_->find(provider);
+    bool builtin = sel ? sel->builtin : false;
+    providers_->save(agent::Provider{
+        provider, prov_cfg.api_base, key,
+        /*requires_key=*/true, prov_cfg.model, prov_cfg.context_size,
+        builtin});
+    cfg_.api_key = key;
+    cfg_.provider_name = provider;
+    cfg_.save_global(agent::global_config_path());
+    (void)reason;
+    return key;
+}
+
 void Tui::settings_screen() {
     // Step 1: Build provider list from saved + built-in presets
     const auto providers = providers_->available();

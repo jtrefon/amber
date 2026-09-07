@@ -22,6 +22,7 @@ struct AgentEvent {
         Stats,
         Assistant,
         Approval,
+        ApiKey,
         Error,
         Done,
         CompressResult,
@@ -39,6 +40,10 @@ struct AgentEvent {
     // Worker thread blocks on this promise until the UI thread
     // shows the approval dialog and resolves it.
     std::shared_ptr<std::promise<agent::Approval>> approval_promise;
+
+    // Worker thread blocks on this promise until the UI thread shows the
+    // API-key dialog and resolves it with the entered key (or "" on cancel).
+    std::shared_ptr<std::promise<std::string>> api_key_promise;
 
     // Window the event belongs to (captured when the worker started); npos
     // means "the active window at drain time". Streaming and tool events are
