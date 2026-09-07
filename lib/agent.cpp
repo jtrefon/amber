@@ -657,7 +657,7 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
         return chat_once({}, display);
     };
     ChatAdapter adapt =
-        [this, &tools, &chat_no_tools, display](const std::string& err)
+        [this, stage, &tools, &chat_no_tools, display](const std::string& err)
         -> std::function<Message()> {
         switch (classify_request_failure(err)) {
         case RequestFailure::TemplateParser:
@@ -676,6 +676,27 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
                 };
             }
             break;
+        }
+        case RequestFailure::Auth: {
+            // One-shot: ask the host for an API key, rebuild the client, and
+            // retry. The host persists the key to the provider config; when
+            // no key is provided (hook unset or user cancelled) no repair
+            // applies and the turn degrades as before.
+            if (!hooks_.on_api_key) break;
+            std::string reason = "API key for provider '" +
+                                 cfg_.provider_name +
+                                 "' was rejected (HTTP 401/403)";
+            if (hooks_.on_status)
+                hooks_.on_status(reason + " - requesting a new key");
+            std::string key = hooks_.on_api_key(reason);
+            if (key.empty()) break;
+            if (hooks_.on_debug)
+                hooks_.on_debug("auth: key updated, retrying " +
+                                std::string(stage));
+            set_connection(cfg_.api_base, key, cfg_.model);
+            return [this, &tools, display]() {
+                return chat_once(tools, display);
+            };
         }
         default:
             break;

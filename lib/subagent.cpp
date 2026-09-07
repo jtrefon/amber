@@ -79,6 +79,7 @@ std::string SubAgentExecutor::run_task(const std::string& prompt,
     AgentHooks sub_hooks;
     sub_hooks.on_approval = hooks_.on_approval;
     sub_hooks.on_status = hooks_.on_status;
+    sub_hooks.on_api_key = hooks_.on_api_key;
 
     Config sub_cfg = cfg_;
     if (sub_cfg.max_tool_iterations <= 0 ||

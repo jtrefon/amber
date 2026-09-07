@@ -1109,6 +1109,72 @@ public:
     }
 };
 
+// An HTTP 401 with an on_api_key hook: the one-shot auth repair prompts for a
+// key, rebuilds the client with it (factory observes the new key), and retries
+// the SAME turn — the reply comes back instead of degrading.
+TEST(agent_loop_auth_401_recovers_with_new_key) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.provider_name = "kilocode";
+    agent::ToolRegistry reg;
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    agent_test::FakeReply auth_err;
+    auth_err.error = "HTTP 401 from LLM server: invalid api key";
+    auth_err.retryable = false;
+    script->push_back(std::move(auth_err));
+    push_text(script, "recovered after key");
+    push_text(script, "done");
+
+    std::vector<std::string> seen_keys;
+    auto factory = [&](const agent::Config& c) {
+        seen_keys.push_back(c.api_key);
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = script;
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    };
+    agent::AgentHooks hooks;
+    hooks.on_api_key = [](const std::string&) { return std::string("sk-new"); };
+    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, {}, factory);
+
+    std::string reply = ag.run("hi");
+    ASSERT_EQ(reply, "recovered after key");
+    // Client rebuilt: first construction (empty key) + set_connection (new key).
+    ASSERT_EQ(seen_keys.size(), 2u);
+    ASSERT_EQ(seen_keys[0], "");
+    ASSERT_EQ(seen_keys[1], "sk-new");
+}
+
+// An HTTP 401 with the user declining the key prompt (hook returns ""): the
+// turn degrades exactly like any other non-retryable failure — no retry.
+TEST(agent_loop_auth_401_declined_key_degrades) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    agent_test::FakeReply auth_err;
+    auth_err.error = "HTTP 401 from LLM server: invalid api key";
+    auth_err.retryable = false;
+    script->push_back(std::move(auth_err));
+    push_text(script, "done");
+    bool prompted = false;
+
+    auto factory = [&](const agent::Config&) {
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = script;
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    };
+    agent::AgentHooks hooks;
+    hooks.on_api_key = [&prompted](const std::string&) {
+        prompted = true;
+        return std::string();   // user cancelled
+    };
+    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, {}, factory);
+
+    std::string reply = ag.run("hi");
+    ASSERT(prompted);
+    ASSERT(reply.find("error during") != std::string::npos);
+}
+
 // The parent delegates one task; the sub-agent completes it with its own
 // context and the parent receives the sub-agent's final reply.
 TEST(agent_loop_subagent_focused_task) {

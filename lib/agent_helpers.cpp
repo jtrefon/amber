@@ -171,6 +171,11 @@ RequestFailure classify_request_failure(const std::string& error_text) {
         error_text.find("model not found") != std::string::npos ||
         error_text.find("unknown model") != std::string::npos)
         return RequestFailure::ModelName;
+    // Auth rejections come back as HTTP 401 (bad/expired key) or 403
+    // (forbidden); the gateway error text always leads with the status.
+    if (error_text.find("HTTP 401") != std::string::npos ||
+        error_text.find("HTTP 403") != std::string::npos)
+        return RequestFailure::Auth;
     return RequestFailure::None;
 }
 

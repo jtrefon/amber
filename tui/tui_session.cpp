@@ -523,6 +523,12 @@ void SessionController::redraw_after_modal() {
         tui_.router_->pending_approvals().pop();
         tui_.router_->resolve_approval(ev);
     }
+    // Same for API-key requests that arrived during a modal.
+    while (!tui_.router_->pending_api_keys().empty()) {
+        AgentEvent ev = std::move(tui_.router_->pending_api_keys().front());
+        tui_.router_->pending_api_keys().pop();
+        tui_.router_->resolve_api_key(ev);
+    }
     touchwin(stdscr);
     tui_.draw();
     tui_.render_engine_->draw_input("");

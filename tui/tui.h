@@ -75,6 +75,13 @@ public:
     void settings_screen();
     void send(const std::string& prompt);
 
+    // Prompt for an API key for the active provider (UI thread, secret
+    // field), persist it to the provider's config file, and return the
+    // entered key — or "" when the user cancels. Called from
+    // EventRouter::resolve_api_key in response to an AgentHooks::on_api_key
+    // request (401/403 or keyless provider switch).
+    std::string prompt_api_key(const std::string& reason);
+
 private:
     // ---- event machinery (owned by EventRouter) --------------------------
     bool drain_events();
