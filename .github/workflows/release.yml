@@ -159,7 +159,7 @@ jobs:
           sudo dpkg -r amber >/dev/null
 
       - name: Download macOS tarball (arm64)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: amber-macos-tarball-arm64
           path: dist
@@ -168,7 +168,7 @@ jobs:
       # over-subscribed; attach the x86_64 tarball when it exists but never
       # let it block the release.
       - name: Download macOS tarball (x86_64)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: amber-macos-tarball-x86_64
