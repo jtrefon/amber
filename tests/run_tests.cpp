@@ -269,7 +269,7 @@ TEST(config_global_save_roundtrip_preserves_provider) {
     std::remove(path.c_str());
 }
 
-TEST(provider_service_missing_key_is_warning) {
+ TEST(provider_service_missing_key_is_warning) {
     // The key-required policy lives in the domain: select() warns, never
     // fails, when a key-requiring provider has no key (the user may set
     // one via env / F10 without switching again).
@@ -277,6 +277,40 @@ TEST(provider_service_missing_key_is_warning) {
     auto sel = svc->select("openrouter");
     ASSERT(sel.ok());
     ASSERT(sel.warning.find("API key") != std::string::npos);
+}
+
+TEST(provider_builtin_key_save_clears_warning) {
+    // The /set provider inline key prompt persists a key for a built-in
+    // provider (kilocode/openrouter) into its <name>.conf, which the file
+    // repo (later) overlays over the static preset. After the save the
+    // requires-key warning must be gone — switching must not re-prompt.
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_builtin_key", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_builtin_key");
+    {
+        auto svc = agent::make_default_provider_service(agent::Config{});
+        auto sel = svc->select("kilocode");
+        ASSERT(sel.ok());
+        ASSERT(sel.provider.builtin);
+        ASSERT(sel.provider.requires_key);
+        ASSERT(sel.warning.find("API key") != std::string::npos);
+
+        // The TUI saves the provider with the user-entered key, keeping the
+        // builtin marker so the preset's endpoint/model defaults survive.
+        agent::Provider k = sel.provider;
+        k.api_key = "kilo-sk-test";
+        ASSERT(svc->save(k));
+    }
+    {
+        // Fresh service (restart): the file repo now carries the key.
+        auto svc2 = agent::make_default_provider_service(agent::Config{});
+        auto sel2 = svc2->select("kilocode");
+        ASSERT(sel2.ok());
+        ASSERT_EQ(sel2.provider.api_key, "kilo-sk-test");
+        ASSERT_EQ(sel2.provider.api_base, "https://api.kilo.ai/api/gateway");
+        ASSERT(sel2.warning.empty());   // no re-prompt after restart
+    }
+    std::filesystem::remove_all("/tmp/amber_xdg_builtin_key");
+    unsetenv("XDG_CONFIG_HOME");
 }
 
 TEST(config_validate_skips_api_key_for_custom) {

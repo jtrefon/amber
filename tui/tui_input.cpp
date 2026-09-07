@@ -1396,6 +1396,34 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
             return;
         }
     }
+
+    // Key-requiring provider with no key configured: prompt for the key
+    // inline (same edit form as /settings) so switching never strands the
+    // user on a provider that cannot authenticate. Esc cancels the switch.
+    if (sel.provider.requires_key && sel.provider.api_key.empty() &&
+        !sel.warning.empty()) {
+        agent::Config prov_cfg;
+        prov_cfg.provider_name = a;
+        prov_cfg.api_base = sel.provider.api_base;
+        prov_cfg.api_key = tui_.cfg_.api_key;   // keep an existing global key
+        prov_cfg.model = sel.provider.default_model;
+        if (tui_.cfg_.provider_name == a) {
+            prov_cfg.api_base = tui_.cfg_.api_base;
+            prov_cfg.api_key = tui_.cfg_.api_key;
+            prov_cfg.model = tui_.cfg_.model;
+        }
+        if (!edit_provider_form(prov_cfg, "Configure: " + a)) return;
+        tui_.providers_->save(agent::Provider{
+            prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+            !prov_cfg.api_key.empty(), prov_cfg.model, prov_cfg.context_size,
+            sel.provider.builtin});
+        sel = tui_.providers_->select(a);
+        if (!sel.ok()) {
+            tui_.append_line(P_STATUS, "error: " + sel.error);
+            return;
+        }
+    }
+
     agent::apply_selection(tui_.cfg_, sel);
     if (!sel.warning.empty())
         tui_.append_line(P_STATUS, "warning: " + sel.warning);
