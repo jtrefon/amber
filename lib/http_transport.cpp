@@ -15,6 +15,7 @@ size_t write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
 }
 } // namespace
 #include <stdexcept>
+#include <sstream>
 #include <nlohmann/json.hpp>
 
 namespace agent {
@@ -141,6 +142,40 @@ Message message_from_completion(const std::string& response) {
     return out;
 }
 
+// True when a non-2xx response is a transient upstream failure rather than a
+// request rejection. Gateways (kilocode's OpenAI-compatible router among
+// them) surface an overloaded/crashed upstream as HTTP 400 whose body is an
+// empty SSE stream (at most comments / a bare [DONE]) — retrying that shape
+// rides through the blip, while a genuine schema-rejection 400 (JSON error
+// body) stays non-retryable.
+bool is_retryable_http_error(long http_code, const std::string& body) {
+    if (http_code == 429 || http_code >= 500) return true;
+    if (http_code != 400) return false;
+    // 400 with a JSON error body is a real rejection (bad schema, bad model,
+    // bad auth) — never retry. An empty SSE stream means the upstream died
+    // before producing anything; that is transient.
+    json parsed = json::parse(body, nullptr, false);
+    if (!parsed.is_discarded()) return false;
+    // Allow SSE comments (`: KILO PROCESSING`) and a bare [DONE]; anything
+    // else (a JSON error, a data payload) is a real response.
+    std::stringstream ss(body);
+    std::string line;
+    while (std::getline(ss, line)) {
+        if (line.empty() || line[0] == ':') continue;
+        if (line == "data: [DONE]" || line == "[DONE]") continue;
+        if (line.rfind("data:", 0) == 0) {
+            // An empty `data:` line is ignorable; any payload is a real
+            // response (the upstream said something before dying).
+            std::string payload = line.substr(5);
+            size_t p = payload.find_first_not_of(" \t\r");
+            if (p == std::string::npos) continue;
+            return false;
+        }
+        return false;   // unrecognized content: genuine response body
+    }
+    return true;
+}
+
 // Fill `stats` from a buffered response body and its transfer timings.
 void fill_buffered_stats(Stats& stats, const std::string& response, double ttfb,
                          double total) {
@@ -247,7 +282,7 @@ std::string post_completion(Config& cfg, const std::string& payload,
                 cfg.context_explicit = true;
             }
         }
-        bool retryable = http_code == 429 || http_code >= 500;
+        bool retryable = is_retryable_http_error(http_code, response);
         throw ApiError(http_code, retryable, describe_http_error(http_code, response));
     }
     return response;
@@ -271,7 +306,7 @@ void stream_completion(Config& cfg, const std::string& payload,
                 cfg.context_explicit = true;
             }
         }
-        bool retryable = status_out == 429 || status_out >= 500;
+        bool retryable = is_retryable_http_error(status_out, parser.raw_body_);
         throw ApiError(status_out, retryable,
                        describe_http_error(status_out, parser.raw_body_));
     }
