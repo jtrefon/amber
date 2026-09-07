@@ -58,6 +58,7 @@ void Config::load(const std::string& path) {
             val = val.substr(1, val.size() - 2);
         if (key == "api_base") api_base = val;
         else if (key == "api_key") api_key = val;
+        else if (key == "kilo_balance_token") kilo_balance_token = val;
         else if (key == "model") {
             // An empty model in the config means "auto-detect from the server";
             // do not treat it as an explicit choice (that would disable probing).
@@ -187,6 +188,8 @@ bool Config::save_global(const std::string& path) const {
     f << "provider=" << provider_name << "\n";
     f << "api_base=" << api_base << "\n";
     f << "api_key=" << api_key << "\n";
+    if (!kilo_balance_token.empty())
+        f << "kilo_balance_token=" << kilo_balance_token << "\n";
     f << "model=" << model << "\n";
     f << "context_size=" << context_size << "\n";
     return static_cast<bool>(f);

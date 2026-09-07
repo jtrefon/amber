@@ -269,6 +269,28 @@ TEST(config_global_save_roundtrip_preserves_provider) {
     std::remove(path.c_str());
 }
 
+TEST(config_global_save_roundtrip_kilo_balance_token) {
+    std::string path = "/tmp/amber_global_kilo.conf";
+    agent::Config c;
+    c.kilo_balance_token = "kilo-account-oauth-token";
+    ASSERT_TRUE(c.save_global(path));
+
+    agent::Config d;
+    d.load(path);
+    ASSERT_EQ(d.kilo_balance_token, "kilo-account-oauth-token");
+    std::remove(path.c_str());
+
+    // No token configured -> the key is not written, load stays empty
+    // (anonymous kilo use has no balance readout).
+    std::string p2 = "/tmp/amber_global_kilo2.conf";
+    agent::Config f;
+    ASSERT_TRUE(f.save_global(p2));
+    agent::Config g;
+    g.load(p2);
+    ASSERT_TRUE(g.kilo_balance_token.empty());
+    std::remove(p2.c_str());
+}
+
  TEST(provider_service_missing_key_is_warning) {
     // The key-required policy lives in the domain: select() warns, never
     // fails, when a key-requiring provider has no key (the user may set
@@ -1064,6 +1086,33 @@ TEST(probe_parse_models_malformed_is_not_ok) {
     ASSERT_FALSE(agent::LLMClient::parse_models("not json").ok);
     ASSERT_FALSE(agent::LLMClient::parse_models("{}").ok);
     ASSERT_FALSE(agent::LLMClient::parse_models(R"({"data":[]})").ok);
+}
+
+// OpenAI-compatible gateways (kilocode, OpenRouter, ...) advertise the window
+// as a top-level context_length with meta absent. Regression: the probe only
+// read n_ctx/meta.n_ctx, so kilo-auto/free (context_length: 256000) yielded an
+// unknown window — the TUI gauge stayed hidden and auto-compression was
+// disabled.
+TEST(probe_parse_kilocode_context_length) {
+    std::string body = R"({"data":[{"id":"kilo-auto/free","object":"model",)"
+        R"("owned_by":"kilo","context_length":256000,"meta":null},)"
+        R"({"id":"kilo-auto/frontier","object":"model",)"
+        R"("owned_by":"kilo","context_length":1000000,"meta":null}]})";
+    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    ASSERT_TRUE(info.ok);
+    ASSERT_EQ(info.model, "kilo-auto/free");
+    ASSERT_EQ(info.context_size, 256000);
+    ASSERT_EQ(info.context_train, 256000);
+}
+
+// When a server reports both n_ctx (llama.cpp) and context_length, the
+// llama.cpp shape wins — it is the loaded model's real window.
+TEST(probe_prefers_n_ctx_over_context_length) {
+    std::string body = R"({"data":[{"id":"hybrid","object":"model",)"
+        R"("meta":{"n_ctx":32768,"n_ctx_train":32768},"context_length":131072}]})";
+    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    ASSERT_TRUE(info.ok);
+    ASSERT_EQ(info.context_size, 32768);
 }
 
 // The window must come from the ACTIVE model, not from the first entry in

@@ -25,6 +25,13 @@ struct Config {
     std::string system_prompt_path;      // markdown file
     std::string tools_prompt_path;       // markdown file advertising tools
     std::string git_prompt_path;         // markdown file for git workflow
+
+    // Optional kilo.ai account token for the balance readout
+    // (GET https://api.kilo.ai/api/profile/balance). Distinct from api_key
+    // (the gateway chat credential): balance requires the account OAuth
+    // token, and anonymous free usage has no balance. Empty disables the
+    // readout.
+    std::string kilo_balance_token;
     int max_tool_iterations = 100;
     long max_wall_ms = 0;        // 0 = unlimited; loop deadline (engine-enforced)
     double temperature = 0.2;
