@@ -23,7 +23,7 @@ class Amber < Formula
   license "Apache-2.0"
 
   # Bump per release; the release workflow names the tarball amber-<ver>-darwin-<arch>.
-  version "0.4.7"
+  version "0.4.8"
 
   url "https://github.com/jtrefon/amber/releases/download/v#{version}/amber-#{version}-darwin-#{Hardware::CPU.arm? ? 'arm64' : 'x86_64'}.tar.gz"
 
