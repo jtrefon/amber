@@ -94,7 +94,8 @@ private:
 
     std::string id_;
     std::string command_;
-    std::string cwd_;
+    std::string cwd_;          // resolved (confined) working directory
+    std::string initial_cwd_;  // cwd before confinement, for error reporting
     pid_t pid_ = 0;
     int read_fd_ = -1;
     long hard_timeout_s_ = 0;

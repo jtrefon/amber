@@ -2,7 +2,7 @@
 # amber shell prompt — single line, project-aware, git-aware
 #
 # Source from .zshrc (adjust path to your checkout):
-#   source /home/jack/Projects/cpp-agent/scripts/amber-prompt.zsh
+#   source /path/to/amber/scripts/amber-prompt.zsh
 #
 # Or from any directory:
 #   source <path-to-amber>/scripts/amber-prompt.zsh

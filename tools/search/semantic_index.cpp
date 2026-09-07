@@ -83,6 +83,33 @@ std::string shell_quote(const std::string& s) {
     return q + "'";
 }
 
+std::vector<std::string> shell_split(const std::string& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    bool in_single = false, in_double = false;
+    for (char c : s) {
+        if (in_single) {
+            if (c == '\'') in_single = false;
+            else cur += c;
+            continue;
+        }
+        if (in_double) {
+            if (c == '"') in_double = false;
+            else cur += c;
+            continue;
+        }
+        if (c == '\'') { in_single = true; continue; }
+        if (c == '"') { in_double = true; continue; }
+        if (c == ' ' || c == '\t' || c == '\n') {
+            if (!cur.empty()) { out.push_back(cur); cur.clear(); }
+            continue;
+        }
+        cur += c;
+    }
+    if (!cur.empty()) out.push_back(cur);
+    return out;
+}
+
 void walk(const std::string& dir, const std::string& glob,
           const std::vector<std::string>& exclude_dirs,
           std::vector<std::string>& files) {

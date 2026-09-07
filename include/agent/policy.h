@@ -2,12 +2,12 @@
 #ifndef AGENT_POLICY_H
 #define AGENT_POLICY_H
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -43,6 +43,16 @@ inline PolicyLevel policy_level_from_name(const std::string& n) {
     return PolicyLevel::Ask;
 }
 
+// A stored approval rule keyed by a scope id. Scope ids are:
+//   "bash:rm"              — a destructive command pattern (see
+//                            shell_classify.h), e.g. "bash:rm", "bash:git reset"
+//   "bash:*"               — any unclassifiable / path-qualified bash command
+//   "outside:/abs/dir"     — writes (redirects/paths) outside the workspace
+//   "<tool>"               — a whole tool (e.g. "write", "process_start");
+//                            legacy rules persisted with args_pattern == ""
+//                            migrate to this bare-tool scope on load.
+// `args_pattern` holds the pattern portion ("rm", "git reset", "") and is
+// matched by prefix against the command words at the gate.
 struct PolicyRule {
     std::string tool;
     std::string args_pattern;
@@ -53,22 +63,32 @@ struct PolicyRule {
     std::string last_used;
 };
 
+// Human-readable scope for menus/completions: "bash:rm" -> "bash.rm",
+// "outside:/etc" -> "outside./etc", bare "write" stays "write".
+inline std::string scope_display(const PolicyRule& r) {
+    std::string s = r.args_pattern.empty() ? r.tool
+                                           : r.tool + "." + r.args_pattern;
+    std::replace(s.begin(), s.end(), ':', '.');
+    return s;
+}
+
 class PolicyStore {
 public:
     void load(const std::string& path);
     void save(const std::string& path) const;
 
-    const PolicyRule* find(const std::string& tool) const;
+    // Look up the rule whose stored scope exactly matches `scope_id`. Legacy
+    // whole-tool rules (args_pattern == "") match only a bare-tool scope id.
+    const PolicyRule* find(const std::string& scope_id) const;
 
-    void set_rule(const std::string& tool, PolicyLevel level);
-    void revoke(const std::string& tool);
-    void record_choice(const std::string& tool, PolicyLevel choice);
+    void set_rule(const std::string& scope_id, PolicyLevel level);
+    void revoke(const std::string& scope_id);
+    void record_choice(const std::string& scope_id, PolicyLevel choice);
 
-    bool is_granted_session(const std::string& tool) const;
-    void grant_session(const std::string& tool);
+    bool is_granted_session(const std::string& scope_id) const;
+    void grant_session(const std::string& scope_id);
     void clear_session();
 
-    PolicyLevel last_choice(const std::string& tool) const;
     const std::vector<PolicyRule>& rules() const { return rules_; }
 
     // Initialize: load from path, or seed defaults if file missing.
@@ -79,19 +99,8 @@ public:
 private:
     std::vector<PolicyRule> rules_;
     std::set<std::string> session_grants_;
-    std::unordered_map<std::string, PolicyLevel> last_choices_;
-    int next_id_ = 0;
 
-    PolicyRule* mutable_find(const std::string& tool);
-};
-
-// Approval result from the host dialog, extended with persistent levels.
-enum class ApprovalResult : std::uint8_t {
-    Deny,           // reject this invocation only
-    AllowOnce,      // permit just this one call
-    AllowSession,   // permit for rest of conversation
-    AlwaysAllow,    // persist — never ask again for this tool
-    AlwaysDeny      // persist — always block this tool
+    PolicyRule* mutable_find(const std::string& scope_id);
 };
 
 } // namespace agent

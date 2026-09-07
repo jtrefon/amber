@@ -4,6 +4,7 @@
 #include "agent/workspace.h"
 #include "agent/process.h"
 #include "agent/job.h"
+#include "agent/shell_classify.h"   // approval classification for the gate
 
 #include <algorithm>
 #include <array>
@@ -13,6 +14,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -21,31 +23,6 @@
 namespace agent {
 
 namespace {
-
-// Returns true for commands that can cause data loss or system damage.
-// Only these trigger the approval dialog — everything else runs freely.
-bool is_dangerous_shell(const std::string& cmd) {
-    if (cmd.empty()) return false;
-    const char* dangerous[] = {
-        "rm -rf", "rm -r", "rm -f", "rm --",
-        "dd", "mkfs", "fdisk", "parted",
-        "git reset --hard", "git push -f", "git push --force",
-        "git clean -f", "git clean -fd",
-        "sudo rm", "sudo dd", "sudo mkfs",
-        "chmod -R", "chown -R",
-        "shutdown", "reboot", "halt", "poweroff",
-        "kill -9", "pkill -9",
-        "docker rm -f", "docker rmi", "docker system prune",
-        "docker volume rm", "docker network rm",
-        "npm uninstall", "pip uninstall",
-    };
-    auto matches = [&](const char* pattern) {
-        if (cmd.rfind(pattern, 0) != 0) return false;
-        char following = cmd[std::strlen(pattern)];
-        return following == '\0' || following == ' ';
-    };
-    return std::any_of(std::begin(dangerous), std::end(dangerous), matches);
-}
 
 constexpr int kMaxTimeout = 3600;          // 1 hour ceiling
 constexpr std::size_t kMaxOutput = std::size_t{64} * 1024;   // 64 KiB cap
@@ -166,15 +143,17 @@ void format_result(std::string output, bool timed_out, int code, int timeout,
 // stdout+stderr and exit status. Args:
 //   command  (string, required) the command line, run via `sh -c`
 //   timeout  (int, optional)    seconds of NO output before the command is
-//                              killed (default 60); output resets the budget, so
-//                              a long-running task that keeps emitting is never cut off
+//                              killed (default 60); output resets the idle
+//                              budget, but a hard ceiling of 2x timeout bounds
+//                              total wall time so an emitting command cannot
+//                              run forever
 //
-// Safety: this tool executes arbitrary commands, so it declares
-// is_dangerous_shell() == true triggers the approval gate. Benign commands
-// (mkdir, touch, cp, mv, python, etc.) run freely without prompting.
-// grants approval (a TUI confirmation dialog or a CLI opt-in). It runs with the
-// working directory set to the confined workspace root, in its own process
-// group so a timeout can reliably kill the whole subtree.
+// Safety: this tool executes arbitrary commands, so commands outside the
+// read-only allowlist trigger the approval gate. Benign read-only commands
+// (ls, cat, grep, git status, ...) run freely; write/destructive commands
+// prompt first. It runs with the working directory set to the confined
+// workspace root, in its own process group so a timeout can reliably kill the
+// whole subtree.
 class BashTool : public Tool {
 public:
     explicit BashTool(JobService* jobs = nullptr,
@@ -191,8 +170,9 @@ private:
     std::string description() const noexcept override {
         return "Run a shell command in the workspace directory and return "
                "combined stdout/stderr and exit code. Handles file operations "
-               "(cat, ls, grep, find, git), builds, and tests. Write "
-               "operations (rm, mv, sed -i, >) require user approval.";
+               "(cat, ls, grep, find, git status), builds, and tests. "
+               "Destructive or state-changing operations (rm, mv, sed -i, "
+               "write redirects) require user approval.";
     }
 
     json parameters_schema() const override {
@@ -201,14 +181,17 @@ private:
             {"properties", {
                 {"command", {{"type", "string"},
                              {"description",
-                              "Shell command. Use cat/grep/ls for read-only "
-                              "tasks (no approval needed). Use sed/rm/mv for "
-                              "writes (requires approval). Always prefer a "
-                              "single bash call over multiple separate ones."}}},
+                              "Shell command. Use cat/grep/ls/git status for "
+                              "read-only tasks (no approval needed). "
+                              "Destructive commands (rm, mv, sed -i, writes) "
+                              "require approval. Always prefer a single bash "
+                              "call over multiple separate ones."}}},
                  {"timeout", {{"type", "integer"},
                               {"description",
                                "Seconds of no output before the command is "
-                               "killed (default 60); output resets the budget"}}}
+                               "killed (default 60); output resets the idle "
+                               "budget, but total wall time is capped at 2x "
+                               "this value"}}}
             }},
             {"required", {"command"}}
         };
@@ -218,7 +201,10 @@ private:
         std::string cmd;
         if (a.contains("command") && a["command"].is_string())
             cmd = a["command"].get<std::string>();
-        return is_dangerous_shell(cmd);
+        // A command must be PROVABLY read-only to run without approval;
+        // anything else (writes, destructive commands, escapes) is gated.
+        return classify_shell(cmd, Workspace::root()).effect !=
+               ShellEffect::ReadOnly;
     }
 
     bool is_read_only() const noexcept override { return false; }
@@ -242,13 +228,13 @@ private:
         // can be killed. The result is still returned synchronously to the
         // model exactly as the direct path below does.
         if (jobs_) {
-            // Idle-timeout semantics: the command is killed only after
-            // `timeout` seconds with NO output. A long-running task that keeps
-            // emitting output (e.g. a build) is never cut off. Enforcing it here
-            // (rather than relying on the TUI's per-tick check_timeouts) keeps
-            // the result identical headless and in tests.
+            // Idle-timeout semantics: the command is killed after `timeout`
+            // seconds with NO output. A long-running task that keeps emitting
+            // output (e.g. a build) is normally never cut off, but a hard
+            // wall-clock ceiling (2x the idle budget) guarantees a constantly
+            // emitting command cannot run forever.
             std::string id = jobs_->start(command, Workspace::root(),
-                                           /*hard_timeout_s=*/0,
+                                           /*hard_timeout_s=*/2L * timeout,
                                            /*idle_timeout_s=*/timeout);
             if (id.empty()) {
                 r.ok = false;
@@ -256,17 +242,19 @@ private:
                 return r;
             }
             bool timed_out = false;
+            const auto hard_deadline = std::chrono::steady_clock::now() +
+                                       std::chrono::seconds(2L * timeout);
             while (true) {
                 if (cancel_token_.is_requested()) {
                     timed_out = true;
-                    cancel_token_.clear();
                     break;
                 }
                 std::shared_ptr<Job> j = jobs_->get(id);
                 if (!j) break;
                 JobInfo i = j->info();
                 if (j->is_done()) break;
-                if (i.seconds_since_output >= timeout) {
+                if (i.seconds_since_output >= timeout ||
+                    std::chrono::steady_clock::now() >= hard_deadline) {
                     timed_out = true;
                     break;
                 }
@@ -277,8 +265,9 @@ private:
             std::shared_ptr<Job> j = jobs_->get(id);
             std::string output = j ? j->output() : std::string();
             int code = j ? j->exit_code() : 0;
+            bool stopped = !j;  // erased = a concurrent stop killed it
             bool killed = j && j->info().state == JobState::Killed;
-            timed_out = timed_out || killed;
+            timed_out = timed_out || killed || stopped;
             jobs_->stop(id);  // erase: bash returns output inline, not via /job
             format_result(std::move(output), timed_out, code, timeout,
                           elapsed_ms(t0), r);

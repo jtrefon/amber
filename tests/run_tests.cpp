@@ -880,6 +880,41 @@ TEST(read_write_tools_reject_paths_outside_workspace) {
     ASSERT(wr.error.find("workspace") != std::string::npos);
 }
 
+TEST(workspace_rejects_symlink_escape) {
+    std::string root = "/tmp/amber_ws_symlink";
+    std::string outside = "/tmp/amber_outside_symlink";
+    run_cmd("rm -rf " + root + " " + outside + " && mkdir -p " + root +
+            " && mkdir -p " + outside);
+    agent::Workspace::set_root(root);
+
+    // A symlink inside the workspace that points outside must not be readable
+    // or writable through the confined tools.
+    run_cmd("ln -s " + outside + " " + root + "/escape");
+    {
+        std::ofstream secret(outside + "/secret.txt");
+        secret << "top secret\n";
+    }
+    auto rtool = agent::make_read_tool();
+    auto rr = rtool->execute({{"path", "escape/secret.txt"}});
+    ASSERT_FALSE(rr.ok);
+
+    auto wtool = agent::make_write_tool();
+    auto wr = wtool->execute({{"path", "escape/pwned.txt"},
+                              {"edits", {{{"old", ""}, {"new", "x"}}}}});
+    ASSERT_FALSE(wr.ok);
+    ASSERT_FALSE(std::filesystem::exists(outside + "/pwned.txt"));
+
+    // A symlink that stays inside the workspace remains usable: `inner` ->
+    // root, so inner/real/file.txt is root/real/file.txt.
+    run_cmd("ln -s " + root + " " + root + "/inner && mkdir -p " + root + "/real");
+    std::string resolved, err;
+    ASSERT_TRUE(agent::Workspace::confine("inner/real/file.txt", resolved, err));
+    ASSERT_EQ(resolved, root + "/inner/real/file.txt");
+    auto rtool2 = agent::make_read_tool();
+    auto rr2 = rtool2->execute({{"path", "inner/real/file.txt"}});
+    ASSERT_FALSE(rr2.ok);  // file does not exist yet — but confine must not reject the path
+}
+
 // ---------------------------------------------------------------------------
 // search backends
 // ---------------------------------------------------------------------------
@@ -949,6 +984,7 @@ TEST(search_semantic_backend_ranks_relevant) {
 
 TEST(search_tool_mode_switch) {
     std::string dir = make_search_tree();
+    agent::Workspace::set_root(dir);
     auto tool = agent::make_search_tool();
 
     auto g = tool->execute({{"pattern", "register_default_tools"},
@@ -961,6 +997,7 @@ TEST(search_tool_mode_switch) {
     ASSERT_TRUE(s.ok);
     ASSERT(s.output.find("[semantic]") != std::string::npos);
     run_cmd("rm -rf " + dir);
+    agent::Workspace::set_root(".");   // leave a valid root for later tests
 }
 
 // ---------------------------------------------------------------------------
@@ -1492,7 +1529,6 @@ TEST(bash_tool_runs_and_reports_exit) {
     auto tool = agent::make_bash_tool();
     ASSERT_TRUE(tool->requires_approval({{"command", "rm -rf /tmp/test"}}));
     ASSERT_FALSE(tool->requires_approval({{"command", "echo hello"}}));
-
     auto ok = tool->execute({{"command", "echo hello"}});
     ASSERT_TRUE(ok.ok);
     ASSERT(ok.output.find("hello") != std::string::npos);
@@ -1576,6 +1612,54 @@ TEST(bash_tool_tracked_by_job_service) {
     ASSERT(jobs.list().empty());
 }
 
+// A requested cancellation token must stop the command AND stay requested:
+// the token may be shared session state (the /stop flag), so the tool must not
+// clear it — otherwise a later cancellation of other in-flight work is lost.
+TEST(bash_tool_cancel_token_stays_requested) {
+    agent::CancellationToken token;
+    agent::JobService jobs;
+    auto tool = agent::make_bash_tool(&jobs, token);
+
+    token.request();
+    auto r = tool->execute({{"command", "sleep 30"}, {"timeout", 60}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(token.is_requested());  // must NOT have been cleared
+    ASSERT(jobs.list().empty());   // job killed and erased
+
+    // The same token still cancels subsequent work.
+    token.clear();
+    auto ok = tool->execute({{"command", "echo still-works"}});
+    ASSERT_TRUE(ok.ok);
+    ASSERT(!token.is_requested());
+}
+
+TEST(bash_approval_allowlist) {
+    auto tool = agent::make_bash_tool();
+    // Read-only commands run without approval.
+    ASSERT_FALSE(tool->requires_approval({{"command", "ls -la"}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "cat foo.txt"}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "git status"}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "grep -rn foo ."}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "echo 'rm -rf /'"}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "echo \"rm -rf /\""}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "git diff HEAD~1"}}));
+    // Mutating / bypass attempts require approval.
+    ASSERT_TRUE(tool->requires_approval({{"command", "rm file.txt"}}));
+    ASSERT_TRUE(tool->requires_approval({{"command", "/bin/rm -rf /"}}));       // qualified path
+    ASSERT_TRUE(tool->requires_approval({{"command", "sudo ls"}}));              // prefix command
+    ASSERT_TRUE(tool->requires_approval({{"command", "git push origin main"}})); // non-read-only subcmd
+    ASSERT_TRUE(tool->requires_approval({{"command", "git reset --hard"}}));
+    ASSERT_TRUE(tool->requires_approval({{"command", "find . -delete"}}));
+    ASSERT_TRUE(tool->requires_approval({{"command", "sed -i s/a/b/ f"}}));
+    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi > file.txt"}}));   // redirect
+    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi >file.txt"}}));    // glued redirect
+    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi >>file.txt"}}));   // glued append
+    ASSERT_TRUE(tool->requires_approval({{"command", "echo $(rm -rf /)"}}));     // cmd substitution
+    ASSERT_TRUE(tool->requires_approval({{"command", "cat a && rm b"}}));        // composition
+    ASSERT_TRUE(tool->requires_approval({{"command", "cat a | grep b"}}));       // pipe
+    ASSERT_TRUE(tool->requires_approval({{"command", "rm -fr /"}}));             // reordered flags
+}
+
 // ---------------------------------------------------------------------------
 // Approval gate (side-effecting tools require host approval)
 // ---------------------------------------------------------------------------
@@ -1606,6 +1690,214 @@ TEST(agent_denies_gated_tool_without_handler) {
                                           t->summarize({{"command", "ls"}}));
     ASSERT_TRUE(called);
     ASSERT(d == agent::Approval::AllowSession);
+}
+
+// ---------------------------------------------------------------------------
+// Shell command classification (read-only vs benign-write vs destructive vs
+// outside-workspace). The classifier drives the approval gate: read-only and
+// benign in-workspace writes run free in WRITE mode; destructive commands and
+// outside-workspace paths prompt.
+// ---------------------------------------------------------------------------
+
+TEST(shell_classify_readonly) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // Read-only commands never require approval.
+    ASSERT(agent::classify_shell("ls -la", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    ASSERT(agent::classify_shell("wc -l file.txt", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    ASSERT(agent::classify_shell("git status", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    ASSERT(agent::classify_shell("grep -rn foo .", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    ASSERT(agent::classify_shell("cat < input.txt", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    agent::Workspace::set_root(".");
+}
+
+TEST(shell_classify_write_vs_destructive) {
+    // Benign in-workspace writes run free in WRITE mode.
+    ASSERT(agent::classify_shell("echo x > out.txt", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Write);
+    ASSERT(agent::classify_shell("mv a.txt b.txt", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Write);
+    ASSERT(agent::classify_shell("touch newfile", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Write);
+    // Destructive commands prompt.
+    ASSERT(agent::classify_shell("rm -rf build", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Destructive);
+    ASSERT(agent::classify_shell("git reset --hard", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Destructive);
+    // Composition/redirection ends the read-only claim.
+    ASSERT(agent::classify_shell("echo hi > file.txt", "/tmp/amber_cls_ws").effect !=
+           agent::ShellEffect::ReadOnly);
+    ASSERT(agent::classify_shell("cat a && rm b", "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Destructive);
+    ASSERT(agent::classify_shell("cat a | grep b", "/tmp/amber_cls_ws").effect !=
+           agent::ShellEffect::ReadOnly);
+}
+
+TEST(shell_classify_outside_workspace) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // A path escaping the sandbox is Outside with a folder scope id.
+    auto c1 = agent::classify_shell("echo x > /tmp/amber_outside_ws/f", "/tmp/amber_cls_ws");
+    ASSERT(c1.effect == agent::ShellEffect::Outside);
+    ASSERT(c1.scope_id == "outside:/tmp/amber_outside_ws");
+    auto c2 = agent::classify_shell("rm /etc/hosts", "/tmp/amber_cls_ws");
+    ASSERT(c2.effect == agent::ShellEffect::Outside);
+    ASSERT(c2.scope_id == "outside:/etc");
+    agent::Workspace::set_root(".");
+}
+
+TEST(shell_requires_approval_matches_classifier) {
+    // The bash tool's coarse approval contract delegates to the classifier.
+    auto tool = agent::make_bash_tool();
+    ASSERT_FALSE(tool->requires_approval({{"command", "ls"}}));
+    ASSERT_TRUE(tool->requires_approval({{"command", "rm -rf x"}}));
+    ASSERT_FALSE(tool->requires_approval({{"command", "git status"}}));
+}
+
+// ---------------------------------------------------------------------------
+// Approval gate decision engine (mode x classification x stored rules)
+// ---------------------------------------------------------------------------
+
+TEST(policy_engine_modes) {
+    agent::Config cfg;
+    agent::PolicyStore policy;
+    auto bash = agent::make_bash_tool();
+    const json args = {{"command", "rm -rf x"}};
+
+    // Read mode: destructive calls deny silently, no prompt.
+    cfg.mode = agent::AgentMode::Read;
+    agent::Decision d = agent::decide_approval(cfg, *bash, args, policy);
+    ASSERT(d.v == agent::Verdict::DenySilent);
+
+    // Write mode: destructive calls prompt.
+    cfg.mode = agent::AgentMode::Write;
+    d = agent::decide_approval(cfg, *bash, args, policy);
+    ASSERT(d.v == agent::Verdict::Prompt);
+    ASSERT(d.scope_id == "bash:rm");
+
+    // Yolo mode: everything runs, no prompt.
+    cfg.mode = agent::AgentMode::Yolo;
+    d = agent::decide_approval(cfg, *bash, args, policy);
+    ASSERT(d.v == agent::Verdict::Allow);
+
+    // Master switch off: no prompts in write mode.
+    cfg.mode = agent::AgentMode::Write;
+    cfg.policy_approval = false;
+    d = agent::decide_approval(cfg, *bash, args, policy);
+    ASSERT(d.v == agent::Verdict::Allow);
+    cfg.policy_approval = true;
+}
+
+TEST(policy_always_allow_suppresses_dialog) {
+    // THE regression test for the reported bug: an "always allow" rule must
+    // suppress the approval dialog for the same command kind, not just persist
+    // to JSON and re-prompt.
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::PolicyStore policy;
+    auto bash = agent::make_bash_tool();
+    const json args = {{"command", "rm -rf x"}};
+
+    policy.set_rule("bash:rm", agent::PolicyLevel::AlwaysAllow);
+    agent::Decision d = agent::decide_approval(cfg, *bash, args, policy);
+    ASSERT(d.v == agent::Verdict::Allow);
+}
+
+TEST(policy_always_deny_blocks_silently) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::PolicyStore policy;
+    auto bash = agent::make_bash_tool();
+    const json args = {{"command", "rm -rf x"}};
+
+    policy.set_rule("bash:rm", agent::PolicyLevel::AlwaysDeny);
+    agent::Decision d = agent::decide_approval(cfg, *bash, args, policy);
+    ASSERT(d.v == agent::Verdict::DenySilent);
+}
+
+TEST(policy_session_grant_per_scope) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::PolicyStore policy;
+    auto bash = agent::make_bash_tool();
+
+    // A session grant for rm suppresses a second rm...
+    policy.grant_session("bash:rm");
+    agent::Decision d1 =
+        agent::decide_approval(cfg, *bash, {{"command", "rm -rf x"}}, policy);
+    ASSERT(d1.v == agent::Verdict::Allow);
+    // ...but a different destructive command still prompts.
+    agent::Decision d2 =
+        agent::decide_approval(cfg, *bash, {{"command", "dd if=/dev/zero of=x"}}, policy);
+    ASSERT(d2.v == agent::Verdict::Prompt);
+    // Clearing session grants restores prompting.
+    policy.clear_session();
+    agent::Decision d3 =
+        agent::decide_approval(cfg, *bash, {{"command", "rm -rf x"}}, policy);
+    ASSERT(d3.v == agent::Verdict::Prompt);
+}
+
+TEST(policy_benign_write_free_in_write_mode) {
+    // In WRITE mode, benign in-workspace writes must NOT prompt (this is the
+    // "ls/wc keep prompting" class of bug, on the write side).
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::PolicyStore policy;
+    auto bash = agent::make_bash_tool();
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+
+    agent::Decision d =
+        agent::decide_approval(cfg, *bash, {{"command", "echo x > out.txt"}}, policy);
+    ASSERT(d.v == agent::Verdict::Allow);
+    agent::Workspace::set_root(".");
+}
+
+TEST(policy_outside_scope_prompts_and_grants) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::PolicyStore policy;
+    auto bash = agent::make_bash_tool();
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+
+    const json args = {{"command", "echo x > /tmp/amber_outside_ws/f"}};
+    agent::Decision d = agent::decide_approval(cfg, *bash, args, policy);
+    ASSERT(d.v == agent::Verdict::Prompt);
+    ASSERT(d.scope_id == "outside:/tmp/amber_outside_ws");
+
+    // Granting the folder scope makes subsequent writes to the SAME folder
+    // silent; a different outside folder still prompts.
+    policy.grant_session("outside:/tmp/amber_outside_ws");
+    agent::Decision d2 = agent::decide_approval(cfg, *bash, args, policy);
+    ASSERT(d2.v == agent::Verdict::Allow);
+    agent::Decision d3 = agent::decide_approval(
+        cfg, *bash, {{"command", "echo x > /etc/hosts"}}, policy);
+    ASSERT(d3.v == agent::Verdict::Prompt);
+    agent::Workspace::set_root(".");
+}
+
+TEST(policy_rule_roundtrip_preserves_scopes) {
+    // Pattern rules (bash:rm, outside:...) survive a save/load roundtrip.
+    agent::PolicyStore policy;
+    policy.set_rule("bash:rm", agent::PolicyLevel::AlwaysAllow);
+    policy.set_rule("bash:git reset", agent::PolicyLevel::AlwaysDeny);
+    policy.set_rule("outside:/tmp/amber_outside_ws", agent::PolicyLevel::AlwaysAllow);
+    std::string path = "/tmp/amber_policy_roundtrip.json";
+    policy.save(path);
+
+    agent::PolicyStore loaded;
+    loaded.load(path);
+    const auto* r = loaded.find("bash:rm");
+    ASSERT(r != nullptr);
+    ASSERT(r->level == agent::PolicyLevel::AlwaysAllow);
+    ASSERT(loaded.find("bash:git reset") != nullptr);
+    ASSERT(loaded.find("bash:git reset")->level == agent::PolicyLevel::AlwaysDeny);
+    ASSERT(loaded.find("outside:/tmp/amber_outside_ws") != nullptr);
+    ASSERT(loaded.find("outside:/tmp/amber_outside_ws")->level ==
+           agent::PolicyLevel::AlwaysAllow);
+    run_cmd("rm -f " + path);
 }
 
 // A model that keeps emitting a tool call with EMPTY arguments (e.g. search {})
@@ -1684,8 +1976,10 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
 // ---------------------------------------------------------------------------
 
 TEST(job_service_start_read_stop) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
+    run_cmd("mkdir -p /tmp/amber_job_ws");
     agent::JobService jobs;
-    std::string id = jobs.start("printf 'hello\\nworld\\n'", "/tmp");
+    std::string id = jobs.start("printf 'hello\\nworld\\n'", "/tmp/amber_job_ws");
     ASSERT_FALSE(id.empty());
     ASSERT_EQ(jobs.running_count(), 1);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -1701,9 +1995,10 @@ TEST(job_service_start_read_stop) {
 }
 
 TEST(job_service_idle_timeout_kills) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
     // No output for 1s -> auto-killed by check_timeouts.
-    std::string id = jobs.start("sleep 5", "/tmp", 600, 1);
+    std::string id = jobs.start("sleep 5", "/tmp/amber_job_ws", 600, 1);
     ASSERT_FALSE(id.empty());
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     jobs.check_timeouts();
@@ -1711,8 +2006,9 @@ TEST(job_service_idle_timeout_kills) {
 }
 
 TEST(job_service_hard_timeout_kills) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
-    std::string id = jobs.start("sleep 5", "/tmp", 1, 600);
+    std::string id = jobs.start("sleep 5", "/tmp/amber_job_ws", 1, 600);
     ASSERT_FALSE(id.empty());
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     jobs.check_timeouts();
@@ -1753,8 +2049,9 @@ TEST(process_stop_returns_captured_output) {
 }
 
 TEST(job_service_stop_finished_returns_true) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
-    std::string id = jobs.start("true", "/tmp");
+    std::string id = jobs.start("true", "/tmp/amber_job_ws");
     ASSERT_FALSE(id.empty());
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
     ASSERT(jobs.stop(id));      // still in the map -> true
@@ -1762,10 +2059,11 @@ TEST(job_service_stop_finished_returns_true) {
 }
 
 TEST(job_service_caps_output_at_one_mib) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
     // Emit ~2 MiB of 'A's; the reader must cap at 1 MiB and flag truncation.
     std::string id = jobs.start(
-        "head -c 2000000 /dev/zero | tr '\\0' 'A'", "/tmp");
+        "head -c 2000000 /dev/zero | tr '\\0' 'A'", "/tmp/amber_job_ws");
     ASSERT_FALSE(id.empty());
     // Wait (polling) for the reader to hit the cap — a fixed sleep is racy on
     // slow CI runners (macOS), where 2 MiB through the pipe can exceed it.
@@ -3431,6 +3729,24 @@ TEST(search_tool_explicit_path_inside_excluded) {
     run_cmd("rm -rf " + dir);
 }
 
+// Search must not silently honor out-of-workspace paths: it is read-only and
+// ungated, so an escape would hand the model arbitrary file contents.
+TEST(search_tool_rejects_out_of_workspace_path) {
+    std::string dir = make_exclusion_tree();
+    std::string outside = "/tmp/amber_outside_search";
+    agent::Workspace::set_root(dir);
+    run_cmd("rm -rf " + outside + " && mkdir -p " + outside);
+    std::ofstream(outside + "/secret.txt") << "needle_secret_marker\n";
+
+    auto tool = agent::make_search_tool();
+    auto r = tool->execute({{"pattern", "needle_secret_marker"},
+                            {"path", outside}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("workspace") != std::string::npos);
+    run_cmd("rm -rf " + dir + " " + outside);
+    agent::Workspace::set_root(".");   // leave a valid root for later tests
+}
+
 // ---------------------------------------------------------------------------
 // Environment card ([I-9]): a compact session-fixed system-prompt section
 // telling the agent its OS, user + privilege, the workspace root (where bash
@@ -4394,8 +4710,10 @@ TEST(registry_lease_survives_unregister) {
 // A child that closes stdout but keeps running must be terminated and reaped
 // by the EOF path — never marked Done with a live orphan (which would zombie).
 TEST(job_eof_daemon_is_terminated) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
-    std::string id = jobs.start("exec 1>&- 2>&-; sleep 30", "/tmp", 60, 30);
+    std::string id = jobs.start("exec 1>&- 2>&-; sleep 30", "/tmp/amber_job_ws",
+                                60, 30);
     ASSERT(!id.empty());
     // Poll past the 2s reap grace for the EOF path to force-kill the group —
     // a fixed sleep is racy on slow CI runners (macOS process teardown can

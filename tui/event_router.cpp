@@ -319,7 +319,7 @@ void EventRouter::on_error(Window* w, const AgentEvent& ev) {
 }
 
 
-void EventRouter::on_done(Window* w, const AgentEvent& ev) {
+void EventRouter::on_done(Window* w, const AgentEvent&) {
     if (!w) return;
     if (tui_.state_ != agent::RunState::Error)
         tui_.state_ = agent::RunState::Idle;
@@ -335,7 +335,11 @@ void EventRouter::on_compress_result(Window* w, const AgentEvent& ev) {
     auto& r = ev.compress_result;
     tui_.state_ = agent::RunState::Idle;
     tui_.compressing_ = false;
-    tui_.ctx_used_.store(static_cast<long>(r.tokens_after));
+    // The server prompt count describes the PRE-compression context: mark it
+    // stale and let the gauge fall back to the fresh chars/4 estimate until
+    // the next chat refreshes the server truth.
+    tui_.ctx_used_.store(-1);
+    tui_.ctx_estimate_ = static_cast<long>(r.tokens_after);
     {
         std::string s;
         if (!r.error.empty()) s = "compress: " + r.error;

@@ -17,6 +17,10 @@ Window& WindowManager::new_window(const std::string& title) {
     auto w = std::make_unique<Window>();
     w->id = next_id_++;
     w->title = title;
+    // The gate reads the LIVE config on every check (threshold_exceeded uses
+    // agent_cfg.context_size), so it is safe to build from the current cfg:
+    // a late /set model or an autodetect window reaches the gate through the
+    // agent's cfg_ the next time Agent::resolve_window runs.
     auto comp_cfg = agent::load_compression_config(cfg_);
     auto gate = agent::make_compression_gate(comp_cfg);
     auto compressor = agent::make_compressor(comp_cfg);

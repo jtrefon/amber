@@ -338,9 +338,9 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     std::vector<Seg> segs = bar_segments();
 
     bool have_ctx = (tui_.cfg_.context_size > 0);
-    long ctx_used_base = tui_.ctx_used_.load();
-    long ctx_used = ctx_used_base >= 0 ? ctx_used_base + tui_.live_ctx_offset_
-                                       : tui_.live_ctx_offset_;
+    long ctx_used = tool_display::gauge_tokens(tui_.ctx_used_.load(),
+                                               tui_.ctx_estimate_.load(),
+                                               tui_.live_ctx_offset_);
     double frac = have_ctx
                       ? static_cast<double>(ctx_used) / tui_.cfg_.context_size
                       : 0.0;

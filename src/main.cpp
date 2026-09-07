@@ -25,7 +25,8 @@ void print_usage(const char* prog) {
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"
               << "  --prompt TEXT      User prompt (else read from stdin)\n"
-              << "  --yes              Auto-approve tools that need confirmation (e.g. bash)\n"
+              << "  --yes              Auto-approve gated tools for this session\n"
+              << "  --yolo             YOLO mode: run everything with no approval gate\n"
               << "  --version          Print version and exit\n"
               << "  -h, --help         Show this help\n";
 }
@@ -97,7 +98,8 @@ int main(int argc, char** argv) {
         else if (a == "--tools")      cfg.tools_prompt_path = next("");
         else if (a == "--config")     config_file = next("");
         else if (a == "--prompt")     prompt = next("");
-        else if (a == "--yes" || a == "--yolo") auto_approve = true;
+        else if (a == "--yes") auto_approve = true;
+        else if (a == "--yolo") { cfg.mode = agent::AgentMode::Yolo; auto_approve = true; }
         else if (a == "--mcp-list")   mcp_list_only = true;
         else if (a == "--mcp-connect") mcp_connect_name = next("");
         else if (a == "--mcp") {
@@ -263,13 +265,15 @@ int main(int argc, char** argv) {
             return agent::Approval::Deny;
         }
         std::cerr << "\n[approval] the agent wants to " << summary << "\n"
-                  << "  allow? [y]es once / [a]llow session / [N]o: " << std::flush;
+                  << "  allow? [y]es once / [a]llow session / [g]rant always / [N]o: "
+                  << std::flush;
         std::string line;
         if (!std::getline(std::cin, line) || line.empty())
             return agent::Approval::Deny;
         char c = static_cast<char>(std::tolower(line[0]));
         if (c == 'y') return agent::Approval::AllowOnce;
         if (c == 'a') return agent::Approval::AllowSession;
+        if (c == 'g') return agent::Approval::AlwaysAllow;
         return agent::Approval::Deny;
     };
 

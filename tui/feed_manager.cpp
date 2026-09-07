@@ -4,7 +4,9 @@
 #include <agent/job.h>
 #include <agent/model_probe.h>
 #include <agent/policy.h>
+#include <agent/shell_classify.h>
 
+#include <algorithm>
 #include <map>
 #include <set>
 
@@ -46,12 +48,20 @@ void FeedManager::refresh_policy_feed() {
             if (r.level == agent::PolicyLevel::Ask) continue;
             std::string info = agent::policy_level_name(r.level);
             if (r.count > 0) info += " (used " + std::to_string(r.count) + "x)";
-            rule_help[r.tool] = info;
+            rule_help[agent::scope_display(r)] = info;
         }
     }
     std::set<std::string> tools;
     for (const auto& t : tui_.reg_.snapshot_tools()) tools.insert(t->name());
     for (const auto& [tool, _] : rule_help) tools.insert(tool);
+    // The curated destructive-command patterns are configurable rules too:
+    // expose them as "bash.rm", "bash.git reset", ... so /set policy rule can
+    // raise or lower them without hunting for the scope id.
+    for (const auto& pat : agent::destructive_command_patterns()) {
+        std::string display = "bash." + pat;
+        std::replace(display.begin(), display.end(), ':', '.');
+        tools.insert(display);
+    }
     nlohmann::json subtree = nlohmann::json::object();
     for (const auto& tool : tools) {
         std::string info = rule_help.count(tool) ? rule_help.at(tool) : "no rule (ask)";
