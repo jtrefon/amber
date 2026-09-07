@@ -438,6 +438,7 @@ void Tui::run() {
         }
         bool had_events = drain_events();
         jobs_.check_timeouts();
+        poll_kilo_balance();
         if (!input_fill_.empty()) {
             cl.set_text(input_fill_);
             input_fill_.clear();

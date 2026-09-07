@@ -41,6 +41,13 @@ std::vector<ModelInfo> parse_model_list_info(const std::string& body);
 // Returns empty on error.
 std::vector<ModelInfo> list_model_info(const Config& cfg);
 
+// Fetch the kilo.ai account balance in USD via
+// GET https://api.kilo.ai/api/profile/balance with `token` as the Bearer
+// credential (the account OAuth token — anonymous gateway keys have no
+// balance). Returns the balance on success, or a negative value on any
+// transport/HTTP/parse failure so callers can hide the readout.
+double fetch_kilo_balance(const std::string& token);
+
 } // namespace agent
 
 #endif // AGENT_MODEL_PROBE_H

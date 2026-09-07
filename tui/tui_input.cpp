@@ -1857,6 +1857,37 @@ void SlashDispatcher::job_start(const std::string& cmd) {
     tui_.draw();
 }
 
+void Tui::poll_kilo_balance() {
+    // Throttled (60 s) + async: the curl GET runs on a detached thread so a
+    // slow/unreachable endpoint never blocks the UI tick. Only active when a
+    // kilo balance token is configured. The thread holds a shared_ptr to the
+    // state, so an in-flight fetch at exit cannot write freed memory.
+    if (cfg_.kilo_balance_token.empty()) return;
+    auto st = kilo_balance_;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < st->next_poll) return;
+    st->next_poll = now + std::chrono::seconds(60);
+    if (st->inflight.exchange(true)) return;
+
+    std::string token = cfg_.kilo_balance_token;  // snapshot for the thread
+    std::thread([st, token]() {
+        double bal = agent::fetch_kilo_balance(token);
+        st->balance.store(bal);
+        st->valid.store(true);
+        st->inflight.store(false);
+    }).detach();
+}
+
+std::string Tui::kilo_balance_label() const {
+    if (cfg_.kilo_balance_token.empty() || !kilo_balance_->valid.load())
+        return "";
+    const double bal = kilo_balance_->balance.load();
+    if (bal < 0) return "kilo balance \u2014";   // fetch failed/offline
+    char b[48];
+    std::snprintf(b, sizeof(b), "kilo $%.2f", bal);
+    return b;
+}
+
 void Tui::config_screen() const {
     auto mask = [](const std::string& s) {
         return s.empty() ? std::string("(unset)") : std::string(s.size(), '*');
