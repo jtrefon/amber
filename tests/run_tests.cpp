@@ -4766,6 +4766,45 @@ TEST(sse_raw_body_bounded) {
     ASSERT(p.raw_body().size() <= agent::kMaxRawBodyBytes);
 }
 
+// Some gateways (kilocode routing to MiniMax et al.) stream tool-call deltas
+// with 1-BASED `index` values, which the zero-based OpenAI contract does not
+// use. The parser must not leave the leading placeholder slot (index 0) as an
+// empty {} tool call: dispatch would log "unknown tool: " and the empty call
+// would poison history replay (next request HTTP 400). Regression for the
+// kilocode kilo-auto/free failures.
+TEST(sse_one_based_tool_call_index_compacted) {
+    agent::Message m;
+    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto ev = [](const agent::json& tc) -> std::string {
+        agent::json delta = {{"tool_calls", tc}};
+        agent::json choice = {{"delta", delta}};
+        return "data: " +
+               agent::json{{"choices", agent::json::array({choice})}}.dump() +
+               "\n\n";
+    };
+    // The kilocode gateway's real wire shape: index is 1, never 0.
+    agent::json frag = {{"index", 1}, {"id", "call_1"},
+                        {"type", "function"},
+                        {"function", {{"name", "read"},
+                                      {"arguments", "{}"}}}};
+    std::string sse = ev(agent::json::array({frag}));
+    p.on_write(sse.c_str(), sse.size(), 1);
+    p.finalize();
+
+    ASSERT(m.tool_calls.is_array());
+    // The sparse placeholder at index 0 must be compacted away; only the
+    // real, name-bearing call at index 1 survives, reindexed to 0.
+    ASSERT_EQ(m.tool_calls.size(), 1u);
+    ASSERT_EQ(m.tool_calls[0]["function"]["name"], "read");
+    ASSERT_EQ(m.tool_calls[0]["id"], "call_1");
+    // No element may be an empty/nameless placeholder.
+    for (const auto& tc : m.tool_calls) {
+        ASSERT(tc.contains("function"));
+        ASSERT(tc["function"].contains("name"));
+        ASSERT(!tc["function"]["name"].get<std::string>().empty());
+    }
+}
+
 // One bad line must not discard the whole config or crash startup.
 TEST(config_bad_line_skipped_rest_parsed) {
     std::string path = "/tmp/amber_cfg_badline.txt";

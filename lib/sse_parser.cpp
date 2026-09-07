@@ -97,10 +97,34 @@ void accumulate_arguments(json& fn, const json& frag) {
     fn["arguments"] = frag.dump();
 }
 
+// A tool-call slot is "real" once it has an id or a function name. Slots that
+// never became real are sparse-index placeholders: some gateways (e.g.
+// kilocode routing to MiniMax) stream tool calls with 1-based `index`
+// values, so slot 0 stays an empty {} unless we drop it. Emitting `{}` as a
+// tool call makes dispatch log "unknown tool: " and poisons history replay.
+void drop_empty_tool_slots(json& calls) {
+    if (calls.is_null() || !calls.is_array()) return;
+    json dense = json::array();
+    for (auto& tc : calls) {
+        if (!tc.is_object()) continue;
+        bool has_id = tc.contains("id") && tc["id"].is_string() &&
+                      !tc["id"].get<std::string>().empty();
+        const json& fn = tc.value("function", json::object());
+        bool has_name = fn.is_object() && fn.contains("name") &&
+                        fn["name"].is_string() &&
+                        !fn["name"].get<std::string>().empty();
+        if (has_id || has_name) dense.push_back(std::move(tc));
+    }
+    calls = std::move(dense);
+}
+
 void finalize_impl(SseState& st, Message& out,
                    const StreamParser::ChunkSink& on_chunk) {
     if (st.finished) return;
     st.finished = true;
+    // Compact before emitting the terminal chunk so downstream dispatch only
+    // ever sees dense, name-bearing tool calls.
+    drop_empty_tool_slots(out.tool_calls);
     if (!st.pending.empty()) {
         StreamChunk chunk;
         if (st.in_think) chunk.reasoning = st.pending;
