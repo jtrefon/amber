@@ -31,13 +31,18 @@ ModelInfo parse_entry(const json& e) {
         m.id = e["model"].get<std::string>();
     else if (e.contains("name") && e["name"].is_string())
         m.id = e["name"].get<std::string>();
+    // Context window: llama.cpp reports it under meta.n_ctx; OpenAI-compatible
+    // gateways (kilocode, OpenRouter, ...) advertise context_length at the top
+    // level with meta absent. Prefer the llama.cpp shape when both exist.
     if (e.contains("meta") && e["meta"].is_object()) {
         const json& meta = e["meta"];
         m.context = read_int(meta, "n_ctx");
         m.context_train = read_int(meta, "n_ctx_train");
     }
     if (m.context == 0) m.context = read_int(e, "n_ctx");
+    if (m.context == 0) m.context = read_int(e, "context_length");
     if (m.context_train == 0) m.context_train = read_int(e, "n_ctx_train");
+    if (m.context_train == 0) m.context_train = read_int(e, "context_length");
     return m;
 }
 
@@ -188,6 +193,40 @@ std::vector<std::string> list_models(const Config& cfg) {
     for (const auto& m : list_model_info(cfg))
         out.push_back(m.id);
     return out;
+}
+
+double fetch_kilo_balance(const std::string& token) {
+    if (token.empty()) return -1.0;
+    CURL* c = curl_easy_init();
+    if (!c) return -1.0;
+
+    std::string response;
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers,
+                                ("Authorization: Bearer " + token).c_str());
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    curl_easy_setopt(c, CURLOPT_URL,
+                     "https://api.kilo.ai/api/profile/balance");
+    if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
+    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
+
+    CURLcode rc = curl_easy_perform(c);
+    long http_code = 0;
+    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http_code);
+    if (headers) curl_slist_free_all(headers);
+    curl_easy_cleanup(c);
+
+    if (rc != CURLE_OK || http_code < 200 || http_code >= 300) return -1.0;
+    json j = json::parse(response, nullptr, false);
+    if (j.is_discarded() || !j.contains("balance") ||
+        !j["balance"].is_number())
+        return -1.0;
+    return j["balance"].get<double>();
 }
 
 } // namespace agent

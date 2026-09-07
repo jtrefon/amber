@@ -234,6 +234,12 @@ std::vector<RenderEngine::Seg> RenderEngine::bar_segments() const {
     segs.push_back({"  " + std::string(text::glyph::up()) + up + " " +
                     text::glyph::down() + dn, P_BAR_DIM, 7});
 
+    // Optional kilo.ai balance readout (only when a token is configured and a
+    // fetch has completed).
+    std::string kilo = tui_.kilo_balance_label();
+    if (!kilo.empty())
+        segs.push_back({"  " + kilo, P_BAR_DIM, 5});
+
     int njobs = tui_.jobs_.running_count();
     if (njobs > 0) {
         std::string s = "  " + std::to_string(njobs) + " job" +
@@ -344,12 +350,16 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     double frac = have_ctx
                       ? static_cast<double>(ctx_used) / tui_.cfg_.context_size
                       : 0.0;
+    // Reserve room for the gauge whether or not the window is known: the
+    // count is meaningful on its own ("ctx 44.7k"), the fraction only once a
+    // window exists. Keeping gauge_min constant stops the bar layout from
+    // jumping when the window is detected mid-session.
+    int gauge_min = (have_ctx || ctx_used > 0) ? 12 : 0;
 
     int right_w = clock_w + 1 + activity_w;
     int budget = w - right_w;
     if (budget < 0) budget = 0;
 
-    int gauge_min = have_ctx ? 12 : 0;
     auto text_cols = [&]() {
         int c = 0;
         for (auto& s : segs) c += display_cols(s.text);
@@ -378,22 +388,32 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
 
     for (auto& s : segs) put(s.text, s.pair);
 
-    if (have_ctx && x < budget) {
+    if (x < budget && (have_ctx || ctx_used > 0)) {
         put("  ctx ", P_BAR_DIM);
-        int cells = std::min(24, std::max(6, (budget - x) - 14));
-        if (cells > 0 && x < budget) {
-            put(text::glyph::block_l(), P_BAR_DIM);
-            std::string bar = text::glyph::utf8()
-                                  ? agent::bar::gauge_bar(frac, cells)
-                                  : agent::bar::gauge_bar_ascii(frac, cells);
-            put(bar, gauge_pair(frac));
-            put(text::glyph::block_r(), P_BAR_DIM);
-            char b[48];
-            std::snprintf(b, sizeof(b), " %d%% %s/%s",
-                          static_cast<int>(std::lround(frac * 100)),
-                          kfmt(ctx_used).c_str(),
-                          kfmt(tui_.cfg_.context_size).c_str());
-            put(b, gauge_pair(frac));
+        if (have_ctx) {
+            int cells = std::min(24, std::max(6, (budget - x) - 14));
+            if (cells > 0 && x < budget) {
+                put(text::glyph::block_l(), P_BAR_DIM);
+                std::string bar = text::glyph::utf8()
+                                      ? agent::bar::gauge_bar(frac, cells)
+                                      : agent::bar::gauge_bar_ascii(frac, cells);
+                put(bar, gauge_pair(frac));
+                put(text::glyph::block_r(), P_BAR_DIM);
+                char b[48];
+                std::snprintf(b, sizeof(b), " %d%% %s/%s",
+                              static_cast<int>(std::lround(frac * 100)),
+                              kfmt(ctx_used).c_str(),
+                              kfmt(tui_.cfg_.context_size).c_str());
+                put(b, gauge_pair(frac));
+            }
+        } else {
+            // Window unknown: show the live count alone rather than hiding
+            // the gauge entirely (the old <=0-hides behavior left users blind
+            // to unbounded context growth on providers that do not advertise
+            // a window).
+            char b[32];
+            std::snprintf(b, sizeof(b), "%s", kfmt(ctx_used).c_str());
+            put(b, P_BAR_DIM);
         }
     }
 
