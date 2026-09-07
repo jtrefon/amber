@@ -67,6 +67,14 @@ Message message_from_completion(const std::string& response);
 // not a request problem).
 std::string describe_http_error(long http_code, const std::string& body);
 
+// True when a non-2xx response is a transient upstream failure rather than a
+// request rejection. Gateways (kilocode's OpenAI-compatible router among
+// them) surface an overloaded/crashed upstream as HTTP 400 whose body is an
+// empty SSE stream (at most comments / a bare [DONE]) — retrying that shape
+// rides through the blip, while a genuine schema-rejection 400 (JSON error
+// body) stays non-retryable.
+bool is_retryable_http_error(long http_code, const std::string& body);
+
 // Fill `stats` from a buffered response body and its transfer timings (seconds).
 // Mirrors the telemetry that stream_completion() produces for the streamed path.
 void fill_buffered_stats(Stats& stats, const std::string& response, double ttfb,
