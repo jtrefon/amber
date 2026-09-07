@@ -1118,6 +1118,35 @@ TEST(http_error_describes_parser_generation_failure) {
     ASSERT(plain.find("HTTP 400 from LLM server") != std::string::npos);
 }
 
+// A gateway (kilocode) that loses its upstream mid-request returns HTTP 400
+// whose body is an empty SSE stream ("data: \n[DONE]") — a transient blip that
+// must retry, not a request rejection. Regression: the retry classifier only
+// retried 429/5xx, so one upstream hiccup aborted the whole turn.
+TEST(http_error_empty_stream_400_is_retryable) {
+    // The exact kilocode shape from a live failure.
+    ASSERT_TRUE(agent::is_retryable_http_error(400, "data: \n[DONE]\n\n"));
+    // Keep-alive comments plus a bare [DONE] are also empty.
+    ASSERT_TRUE(agent::is_retryable_http_error(
+        400, ": KILO PROCESSING\n: KILO PROCESSING\ndata: [DONE]\n\n"));
+    // Plain empty body.
+    ASSERT_TRUE(agent::is_retryable_http_error(400, ""));
+    // 429 and 5xx stay retryable regardless of body.
+    ASSERT_TRUE(agent::is_retryable_http_error(429, R"({"error":"rate"})"));
+    ASSERT_TRUE(agent::is_retryable_http_error(502, "error code: 1101"));
+}
+
+TEST(http_error_json_400_is_not_retryable) {
+    // Genuine request rejections (schema/model/auth) carry a JSON error body.
+    ASSERT_FALSE(agent::is_retryable_http_error(
+        400, R"({"error":{"message":"Bad request","type":"invalid_request_error"}})"));
+    // A data payload in the stream means the upstream responded — real body.
+    ASSERT_FALSE(agent::is_retryable_http_error(
+        400, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"));
+    // Non-400, non-retryable stays put.
+    ASSERT_FALSE(agent::is_retryable_http_error(401, R"({"error":"auth"})"));
+    ASSERT_FALSE(agent::is_retryable_http_error(403, R"({"error":"forbidden"})"));
+}
+
 // The auto-detect merge policy: probe results fill only fields the user left on
 // auto; explicit values are never overwritten. Network-free (merge_server_info).
 TEST(autodetect_fills_only_auto_fields) {
