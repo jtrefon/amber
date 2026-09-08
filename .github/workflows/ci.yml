@@ -245,7 +245,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # CD (macOS) — build the macOS release artifact on every push to main so the
-  # latest main is always shippable on Apple silicon + Intel. Produces a
+  # latest main is always shippable on Apple silicon. Produces a
   # self-contained tarball (binaries + data) for the Homebrew tap.
   # ---------------------------------------------------------------------------
   cd-macos:
