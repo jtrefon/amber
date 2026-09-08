@@ -31,7 +31,7 @@ private:
 };
 
 // Captures the terminal's termios before initscr() switches it to raw mode.
-// restore() is async-signal-safe (tcsetattr + a plain write) so a signal
+// restore() is async-signal-safe (tcsetattr) so a signal
 // handler can always leave the user's shell usable, even when the app dies
 // without endwin().
 class TerminalGuard {
@@ -41,8 +41,6 @@ public:
     }
     void restore() noexcept {
         if (valid_) tcsetattr(STDIN_FILENO, TCSANOW, &saved_);
-        static const char exit_alt_scroll[] = "\033[?1007l";
-        (void)write(STDOUT_FILENO, exit_alt_scroll, sizeof(exit_alt_scroll) - 1);
     }
 
 private:
