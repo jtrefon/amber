@@ -6,6 +6,7 @@
 #include "confirm_panel.h"
 #include "drawer_rows.h"
 #include "tool_display.h"
+#include "scroll_dispatch.h"
 #include "signal_guard.h"
 #include "event_router.h"
 #include "feed_manager.h"
@@ -73,13 +74,13 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     set_escdelay(25);
     curs_set(1);
     start_color();
-    // Enable xterm alternate scroll mode so the mouse wheel sends cursor keys
-    // instead of mouse events.  This keeps native text selection working
-    // (click-and-drag, Cmd-C) while still letting the wheel scroll the chat.
-    // Without this, mousemask() would intercept all mouse input and break
-    // terminal-level selection on macOS and Linux.
-    std::fputs("\033[?1007h", stdout);
-    std::fflush(stdout);
+    // Mouse wheel events (BUTTON4/5) scroll the chat log. Enabling mouse
+    // reporting replaces terminal-level click-drag selection — the trade-off
+    // documented in docs/architecture/scroll-design.md — but keeps wheel
+    // ticks distinct from arrow keys, so Up/Down stay prompt-history
+    // navigation instead of the xterm alt-scroll aliasing.
+    mousemask(BUTTON4_PRESSED | BUTTON5_PRESSED, nullptr);
+    mouseinterval(0);
     set_modal_flag(&modal_open_);
     use_default_colors();
     use_legacy_coding(1);
@@ -127,9 +128,6 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
 }
 
 Tui::~Tui() {
-    std::fputs("\033[?1007l", stdout);
-    std::fflush(stdout);
-
     router_->request_cancel();
     {
         std::scoped_lock lk(router_->mutex());
@@ -531,6 +529,25 @@ void Tui::run() {
             session_controller_->save_workspace_now();
             quit_ = true;
             break;
+        }
+
+        // Mouse wheel: scroll the chat log (never prompt history). Wheel
+        // ticks arrive as KEY_MOUSE (alt-scroll is off), so this branch is
+        // the only place they can land; Up/Down keys keep their meaning.
+        if (ch == KEY_MOUSE) {
+            MEVENT ev;
+            if (getmouse(&ev) == OK) {
+                int delta = scroll_dispatch::wheel_delta(ev.bstate);
+                if (delta != 0) {
+                    win().scroll_top = scroll_dispatch::clamped_scroll_top(
+                        win().scroll_top, delta,
+                        render_engine_->max_scroll(win()));
+                    render_engine_->draw();
+                    render_engine_->draw_input(cl.text(), cl.cursor(),
+                                               cl.shadow());
+                }
+            }
+            continue;
         }
 
         // ── Route through CommandLine (pure logic, unit tested) ─
