@@ -291,6 +291,29 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
     std::remove(p2.c_str());
 }
 
+// The balance readout resolves its token from the explicit override, else the
+// active kilocode provider's api_key (where the TUI key prompt stores it) —
+// so a token entered via the prompt powers the readout with no extra config.
+TEST(resolve_kilo_balance_token_falls_back_to_kilocode_api_key) {
+    agent::Config c;
+    c.provider_name = "openrouter";
+    c.api_key = "sk-openrouter";
+    ASSERT_TRUE(agent::resolve_kilo_balance_token(c).empty());
+
+    c.provider_name = "kilocode";
+    c.api_key = "kilo-jwt";
+    ASSERT_EQ(agent::resolve_kilo_balance_token(c), "kilo-jwt");
+
+    // Explicit override wins regardless of the provider.
+    c.kilo_balance_token = "kilo-override";
+    ASSERT_EQ(agent::resolve_kilo_balance_token(c), "kilo-override");
+
+    // Anonymous kilocode (no key at all) resolves to nothing.
+    agent::Config anon;
+    anon.provider_name = "kilocode";
+    ASSERT_TRUE(agent::resolve_kilo_balance_token(anon).empty());
+}
+
  TEST(provider_service_missing_key_is_warning) {
     // The key-required policy lives in the domain: select() warns, never
     // fails, when a key-requiring provider has no key (the user may set
@@ -1355,6 +1378,11 @@ TEST(statusbar_kfmt) {
     ASSERT_EQ(agent::bar::kfmt(5000), "5.0k");
     ASSERT_EQ(agent::bar::kfmt(1500), "1.5k");
     ASSERT_EQ(agent::bar::kfmt(128000), "128k");
+    // Millions tier: "1000k" is not a thing — 1m/1.5m, integer from 10m up.
+    ASSERT_EQ(agent::bar::kfmt(1000000), "1m");
+    ASSERT_EQ(agent::bar::kfmt(1500000), "1.5m");
+    ASSERT_EQ(agent::bar::kfmt(10000000), "10m");
+    ASSERT_EQ(agent::bar::kfmt(12300000), "12m");
 }
 
 TEST(statusbar_pressure_thresholds) {
@@ -1459,6 +1487,55 @@ int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_overr
     return fd;
 }
 } // namespace
+
+// Router-style /models listing (kilocode et al.): kilo-auto/frontier (1M)
+// is listed BEFORE kilo-auto/free (256k). The autodetect probe must adopt the
+// ACTIVE model's window (the user's explicit model), not the first entry with
+// a context window — the wrong-model adoption sized the gauge and the
+// compression budget to 1M while running kilo-auto/free.
+TEST(probe_autodetect_prefers_explicit_active_model) {
+    std::string dummy;
+    int srv = spawn_mock_sse(8924, dummy, R"({"data":[
+        {"id":"kilo-auto/frontier","object":"model","owned_by":"kilo",
+         "context_length":1000000,"meta":null},
+        {"id":"kilo-auto/free","object":"model","owned_by":"kilo",
+         "context_length":256000,"meta":null}]})");
+    ASSERT(srv >= 0);
+    usleep(100000);  // let the listener bind
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8924/v1";
+    cfg.model = "kilo-auto/free";
+    cfg.model_explicit = true;
+    agent::apply_server_autodetect(cfg);
+    close(srv);
+
+    ASSERT_EQ(cfg.context_size, 256000);
+    ASSERT_EQ(cfg.model, "kilo-auto/free");
+}
+
+// With no explicit model the autodetect keeps its documented behavior: the
+// first entry reporting a window wins (auto-detect mode picks the server's
+// lead model, e.g. llama.cpp's single listing).
+TEST(probe_autodetect_first_with_context_when_auto) {
+    std::string dummy;
+    int srv = spawn_mock_sse(8925, dummy, R"({"data":[
+        {"id":"kilo-auto/frontier","object":"model","owned_by":"kilo",
+         "context_length":1000000,"meta":null},
+        {"id":"kilo-auto/free","object":"model","owned_by":"kilo",
+         "context_length":256000,"meta":null}]})");
+    ASSERT(srv >= 0);
+    usleep(100000);  // let the listener bind
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8925/v1";
+    cfg.model_explicit = false;   // auto-detect
+    agent::apply_server_autodetect(cfg);
+    close(srv);
+
+    ASSERT_EQ(cfg.context_size, 1000000);
+    ASSERT_EQ(cfg.model, "kilo-auto/frontier");
+}
 
  TEST(llm_streaming_tool_call_object_arguments_preserved) {
     // Some OpenAI-compatible servers stream tool-call `arguments` as a JSON
