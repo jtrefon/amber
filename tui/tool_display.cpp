@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <utility>
 
 #include "tui/textutil.h"
 
@@ -12,6 +13,22 @@ namespace {
 
 constexpr size_t kCommandCap = 160;
 constexpr size_t kTaskCap = 40;
+
+// Tool name -> working-indicator verb, in declaration order.
+constexpr std::pair<const char*, const char*> kToolVerbs[] = {
+    {"bash", "hacking"},
+    {"list_skills", "consulting"},
+    {"process_read", "reading"},
+    {"process_start", "spawning"},
+    {"process_stop", "stopping"},
+    {"read", "reading"},
+    {"read_skill", "consulting"},
+    {"search", "searching"},
+    {"task", "delegating"},
+    {"todowrite", "planning"},
+    {"write", "writing"},
+    {"write_skill", "authoring"},
+};
 
 std::string truncate(const std::string& s, size_t cap) {
     if (s.size() <= cap) return s;
@@ -26,9 +43,22 @@ std::string arg(const agent::json& args, const char* key) {
 
 } // namespace
 
-// RED stub: always "working" until the real priority logic lands.
-std::string activity_verb(bool, agent::RunState, const std::string&) {
-    return "working";
+std::string activity_verb(bool compressing, agent::RunState state,
+                          const std::string& running_tool) {
+    if (compressing) return "compressing";
+    if (!running_tool.empty()) {
+        for (const auto& [name, verb] : kToolVerbs)
+            if (running_tool == name) return verb;
+        if (running_tool.rfind("mcp_", 0) == 0) return "calling";
+        return "working";
+    }
+    switch (state) {
+        case agent::RunState::Thinking:  return "thinking";
+        case agent::RunState::Streaming: return "talking";
+        case agent::RunState::Waiting:   return "waiting";
+        case agent::RunState::Error:     return "retrying";
+        default:                         return "working";
+    }
 }
 
 std::string describe_tool_call(const std::string& name,
