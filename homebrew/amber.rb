@@ -1,31 +1,21 @@
-# Homebrew formula for amber.
+# Homebrew formula for amber (Apple Silicon only — Intel macOS builds were
+# retired; the release workflow ships darwin-arm64 tarballs only).
 #
-# The release tarball (amber-<ver>-darwin-<arch>.tar.gz) is a staged install
+# The release tarball (amber-<ver>-darwin-arm64.tar.gz) is a staged install
 # tree: bin/, lib/, include/, share/amber/. This formula installs that tree
-# into the Cellar prefix.
-#
-# NOTE (Apple Silicon): the app resolves its data files (prompts, completions,
-# plugins) via lib/data_path.cpp, which currently checks XDG_DATA_HOME/amber,
-# ~/.local/share/amber, ~/.config/amber, /usr/local/share/amber, and
-# /usr/share/amber. On Intel Homebrew the prefix is /usr/local, so the data
-# lands at /usr/local/share/amber and is found. On Apple Silicon the prefix is
-# /opt/homebrew, so the data lands at /opt/homebrew/share/amber and is NOT in
-# the search list. Two fixes (either works):
-#   1. (recommended) add the Homebrew prefix to data_path.cpp's search list,
-#      or
-#   2. run with XDG_DATA_HOME="$(brew --prefix)/share" amber-cli ...
-# Until then, `brew install amber` works on Intel; on Apple Silicon set the
-# env var above.
+# into the Cellar prefix. The installed app resolves its data files relative
+# to argv0 (<prefix>/bin/amber -> <prefix>/share/amber), so the layout works
+# from any Homebrew prefix.
 
 class Amber < Formula
   desc "C++ AI agent harness with a headless CLI and ncurses TUI"
   homepage "https://github.com/jtrefon/amber"
   license "Apache-2.0"
 
-  # Bump per release; the release workflow names the tarball amber-<ver>-darwin-<arch>.
+  # Bump per release; the release workflow names the tarball amber-<ver>-darwin-arm64.
   version "0.4.9"
 
-  url "https://github.com/jtrefon/amber/releases/download/v#{version}/amber-#{version}-darwin-#{Hardware::CPU.arm? ? 'arm64' : 'x86_64'}.tar.gz"
+  url "https://github.com/jtrefon/amber/releases/download/v#{version}/amber-#{version}-darwin-arm64.tar.gz"
 
   depends_on "curl"
   depends_on "ncurses"
@@ -43,11 +33,6 @@ class Amber < Formula
     (include/"nlohmann").install "include/nlohmann/json.hpp"
 
     # Data files (prompts, completions, plugins).
-    # NOTE (Apple Silicon): the app resolves data via lib/data_path.cpp, which
-    # checks /usr/local/share/amber and /usr/share/amber. On Intel Homebrew the
-    # prefix is /usr/local so this is found; on Apple Silicon the prefix is
-    # /opt/homebrew, so set XDG_DATA_HOME="$(brew --prefix)/share" until
-    # data_path.cpp gains the Homebrew prefix in its search list.
     share.install "share/amber"
   end
 
