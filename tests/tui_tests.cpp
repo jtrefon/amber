@@ -12,6 +12,7 @@
 #include "tui/rich.h"
 #include "tui/markdown.h"
 #include "tui/tool_display.h"
+#include "tui/scroll_dispatch.h"
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
 #include "tui/event_router.h"
@@ -702,6 +703,33 @@ TEST(tool_display_working_label_task_truncated) {
 TEST(tool_display_working_label_task_omitted_when_empty) {
     std::string w = tui::tool_display::working_label("◐", "working", 5, "");
     ASSERT(w.find("·") == std::string::npos);
+}
+
+TEST(scroll_dispatch_wheel_up_delta) {
+    // BUTTON4_PRESSED = wheel up: scroll back (negative delta).
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED), -3);
+}
+
+TEST(scroll_dispatch_wheel_down_delta) {
+    // BUTTON5_PRESSED = wheel down: scroll forward (positive delta).
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON5_PRESSED), 3);
+}
+
+TEST(scroll_dispatch_non_wheel_is_zero) {
+    // The disconnect pin: non-wheel input (arrow keys, clicks, drags) never
+    // produces a scroll delta, so prompt-history Up/Down is unaffected.
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(0), 0);
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON1_PRESSED), 0);
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED |
+                                                BUTTON5_PRESSED), 0);
+}
+
+TEST(scroll_dispatch_clamp_bounds) {
+    ASSERT_EQ(tui::scroll_dispatch::clamped_scroll_top(5, 0, 10), 5);
+    ASSERT_EQ(tui::scroll_dispatch::clamped_scroll_top(8, 3, 10), 10);
+    ASSERT_EQ(tui::scroll_dispatch::clamped_scroll_top(2, -3, 10), 0);
+    ASSERT_EQ(tui::scroll_dispatch::clamped_scroll_top(0, -5, 10), 0);
+    ASSERT_EQ(tui::scroll_dispatch::clamped_scroll_top(10, 5, 10), 10);
 }
 
 TEST(tool_display_reasoning_badge_mapping) {
