@@ -16,6 +16,21 @@ Pressure pressure(double frac) {
 std::string kfmt(long n) {
     if (n < 0) return "?";
     if (n < 1000) return std::to_string(n);
+    double m = n / 1000000.0;
+    if (m >= 1.0) {
+        char buf[24];
+        // Millions: one decimal below 10m with a trailing ".0" dropped
+        // (1m, 1.5m), integer from 10m up (12m). "1000k" is not a thing.
+        if (m < 10.0) {
+            if (m == static_cast<long>(m))
+                std::snprintf(buf, sizeof(buf), "%.0fm", m);
+            else
+                std::snprintf(buf, sizeof(buf), "%.1fm", m);
+        } else {
+            std::snprintf(buf, sizeof(buf), "%.0fm", m);
+        }
+        return buf;
+    }
     double k = n / 1000.0;
     char buf[24];
     std::snprintf(buf, sizeof(buf), k < 10 ? "%.1fk" : "%.0fk", k);

@@ -48,6 +48,13 @@ std::vector<ModelInfo> list_model_info(const Config& cfg);
 // transport/HTTP/parse failure so callers can hide the readout.
 double fetch_kilo_balance(const std::string& token);
 
+// Resolve the token the balance readout should use: the explicit
+// kilo_balance_token override when set, else the provider's api_key when the
+// active provider is kilocode (its gateway key IS the account token — models
+// only work with a valid one, and the TUI key prompt stores it as api_key).
+// Empty when no usable token exists (other providers, anonymous use).
+std::string resolve_kilo_balance_token(const Config& cfg);
+
 } // namespace agent
 
 #endif // AGENT_MODEL_PROBE_H

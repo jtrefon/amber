@@ -132,7 +132,11 @@ ServerInfo probe_server(const Config& cfg) {
         return {};
     }
     debug_log(cfg.debug_log, "probe", response);
-    return parse_models(response);
+    // Prefer the ACTIVE model's entry when the user picked one explicitly: a
+    // router (kilocode et al.) lists models in its own order, and the first
+    // entry with a context window is not necessarily the one in use — adopting
+    // it sizes the gauge and the compression budget to the wrong model.
+    return parse_models(response, cfg.model_explicit ? cfg.model : "");
 }
 
 void merge_server_info(Config& cfg, const ServerInfo& info) {
@@ -227,6 +231,15 @@ double fetch_kilo_balance(const std::string& token) {
         !j["balance"].is_number())
         return -1.0;
     return j["balance"].get<double>();
+}
+
+std::string resolve_kilo_balance_token(const Config& cfg) {
+    if (!cfg.kilo_balance_token.empty()) return cfg.kilo_balance_token;
+    // kilocode's gateway key is the account token (its models only work with
+    // a valid token, and the TUI key prompt stores it as api_key), so the
+    // api_key powers the balance readout without extra configuration.
+    if (cfg.provider_name == "kilocode") return cfg.api_key;
+    return "";
 }
 
 } // namespace agent
