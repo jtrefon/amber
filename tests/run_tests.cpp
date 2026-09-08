@@ -491,6 +491,76 @@ TEST(request_builder_assistant_message_always_has_content) {
     }
 }
 
+// Legacy/corrupt history must never reach the wire: a restored session file
+// can carry a name-less "{}" placeholder tool_call (a sparse-index stream on
+// an older build), and a strict gateway rejects the whole request with
+// "Invalid discriminator value ... tool_calls.0.type". build_chat_body drops
+// placeholders and defaults a missing `type` to "function".
+TEST(request_builder_sanitizes_placeholder_tool_calls) {
+    agent::Config c;
+    std::vector<agent::Message> msgs;
+    agent::Message u; u.role = "user"; u.content = "hi"; msgs.push_back(u);
+    agent::Message a; a.role = "assistant";
+    a.tool_calls = json::array({
+        json::object(),   // <-- the corrupt placeholder (messages.7 case)
+        {{"function", {{"name", "bash"},
+                       {"arguments", R"({"command":"ls -loha"})"}}},
+         {"id", "call_1"}},                    // type missing -> defaulted
+        {{"type", "function"},
+         {"function", {{"name", "read"},
+                       {"arguments", R"({"path":"a.txt"})"}}},
+         {"id", "call_2"}}                     // fully valid, unchanged
+    });
+    msgs.push_back(a);
+
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
+    json body = build_chat_body(c, msgs, no_tools, false);
+    const auto& wire = body["messages"][1]["tool_calls"];
+    ASSERT_EQ(wire.size(), 2u);
+    ASSERT_EQ(wire[0]["function"]["name"], "bash");
+    ASSERT_EQ(wire[0]["type"], "function");   // defaulted, not absent
+    ASSERT_EQ(wire[1]["id"], "call_2");
+    ASSERT_EQ(wire[1]["type"], "function");
+    // No element is an empty placeholder.
+    for (const auto& tc : wire) {
+        ASSERT(tc.contains("function"));
+        ASSERT(tc["function"].contains("name"));
+        ASSERT(!tc["function"]["name"].get<std::string>().empty());
+    }
+}
+
+// When EVERY tool_call in an assistant message is a placeholder, the wire
+// message degrades to plain content — never an empty tool_calls array.
+TEST(request_builder_all_placeholder_tool_calls_degrades) {
+    agent::Config c;
+    std::vector<agent::Message> msgs;
+    agent::Message a; a.role = "assistant";
+    a.content = "I tried but nothing ran.";
+    a.tool_calls = json::array({json::object(), json::object()});
+    msgs.push_back(a);
+
+    std::vector<std::shared_ptr<agent::Tool>> no_tools;
+    json body = build_chat_body(c, msgs, no_tools, false);
+    const auto& m = body["messages"][0];
+    ASSERT_FALSE(m.contains("tool_calls"));
+    ASSERT_EQ(m["content"], "I tried but nothing ran.");
+}
+
+// The buffered (non-streaming) ingestion path applies the same sanitizer, so
+// junk from a server response never enters the context stack either.
+TEST(message_from_completion_sanitizes_tool_calls) {
+    std::string body = R"({"choices":[{"message":{)"
+        R"("role":"assistant","content":null,"tool_calls":[)"
+        R"({},)"
+        R"({"function":{"name":"read","arguments":"{\"path\":\"a.txt\"}"},"id":"c1"})"
+        R"(]}}]})";
+    agent::Message m = agent::message_from_completion(body);
+    ASSERT(m.tool_calls.is_array());
+    ASSERT_EQ(m.tool_calls.size(), 1u);
+    ASSERT_EQ(m.tool_calls[0]["function"]["name"], "read");
+    ASSERT_EQ(m.tool_calls[0]["type"], "function");   // defaulted
+}
+
 // ---------------------------------------------------------------------------
 // Tool registry
 // ---------------------------------------------------------------------------
@@ -4917,6 +4987,31 @@ TEST(sse_one_based_tool_call_index_compacted) {
         ASSERT(tc["function"].contains("name"));
         ASSERT(!tc["function"]["name"].get<std::string>().empty());
     }
+}
+
+// A truncated stream that delivered an id but never the function name must
+// not yield a dispatchable (then denied, history-poisoning) tool call: the
+// id-only slot is dropped at finalize like any other incomplete call.
+TEST(sse_id_only_tool_call_dropped) {
+    agent::Message m;
+    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto ev = [](const agent::json& tc) -> std::string {
+        agent::json delta = {{"tool_calls", tc}};
+        agent::json choice = {{"delta", delta}};
+        return "data: " +
+               agent::json{{"choices", agent::json::array({choice})}}.dump() +
+               "\n\n";
+    };
+    // id + type but the function name never arrives (truncated/errored
+    // stream) — this is not a call amber can execute or replay.
+    agent::json frag = {{"index", 0}, {"id", "call_ghost"},
+                        {"type", "function"},
+                        {"function", {{"arguments", "{}"}}}};
+    std::string sse = ev(agent::json::array({frag}));
+    p.on_write(sse.c_str(), sse.size(), 1);
+    p.finalize();
+
+    ASSERT(m.tool_calls.is_null() || m.tool_calls.empty());
 }
 
 // One bad line must not discard the whole config or crash startup.

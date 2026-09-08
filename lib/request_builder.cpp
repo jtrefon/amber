@@ -46,6 +46,32 @@ void sanitize_tool_schema(json& schema) {
     sanitize_node(schema);
 }
 
+json sanitize_tool_calls(const json& calls) {
+    if (calls.is_null() || !calls.is_array()) return json::array();
+    json out = json::array();
+    for (const auto& tc : calls) {
+        if (!tc.is_object()) continue;
+        // A call without a function name is an unfilled placeholder (e.g. a
+        // "{}" slot left by a sparse-index stream on an older build). Sending
+        // it makes strict gateways reject the whole request with a
+        // type-discriminator 400 — drop it instead.
+        const json& fn = tc.value("function", json::object());
+        if (!fn.is_object()) continue;
+        auto it = fn.find("name");
+        if (it == fn.end() || !it->is_string() ||
+            it->get<std::string>().empty())
+            continue;
+        json kept = tc;
+        // Some paths (text-extracted calls, restored sessions) omit `type`;
+        // the OpenAI contract requires the discriminator.
+        if (!kept.contains("type") || !kept["type"].is_string() ||
+            kept["type"].get<std::string>().empty())
+            kept["type"] = "function";
+        out.push_back(std::move(kept));
+    }
+    return out;
+}
+
 json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
                      const std::vector<std::shared_ptr<Tool>>& tools, bool stream) {
     json body = {
@@ -105,11 +131,22 @@ json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
         }
         json jm = {{"role", m.role}};
         if (m.role == "assistant" && !m.tool_calls.is_null()) {
-            jm["tool_calls"] = m.tool_calls;
-            // Some servers reject an assistant message that has tool_calls but
-            // no content field at all; emit an explicit empty string.
-            if (m.content.empty()) jm["content"] = "";
-            else jm["content"] = m.content;
+            // Sanitize on the way out: history restored from an old session
+            // file (or assembled by an older parser) can carry name-less
+            // placeholder tool_calls, which strict gateways reject with a
+            // type-discriminator 400. The in-memory context is untouched.
+            json calls = sanitize_tool_calls(m.tool_calls);
+            if (!calls.empty()) {
+                jm["tool_calls"] = std::move(calls);
+                // Some servers reject an assistant message that has tool_calls
+                // but no content field at all; emit an explicit empty string.
+                if (m.content.empty()) jm["content"] = "";
+                else jm["content"] = m.content;
+            } else {
+                // Every call was a placeholder — degrade to a plain assistant
+                // text message rather than sending an empty tool_calls array.
+                jm["content"] = m.content;
+            }
         } else {
             // Every other role MUST carry a content field; an omitted content
             // yields HTTP 400 ("Assistant message must contain either
