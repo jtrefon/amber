@@ -3,6 +3,7 @@
 #include "agent/agent_helpers.h"
 #include "agent/debug_log.h"
 #include "agent/process.h"
+#include "agent/request_builder.h"
 
 #include <curl/curl.h>
 
@@ -137,7 +138,15 @@ Message message_from_completion(const std::string& response) {
                 if (parsed.is_discarded()) { valid = false; break; }
             }
         }
-        if (!valid) out.tool_calls = json::value_t::null;
+        if (valid) {
+            // Drop name-less placeholders and default `type`, same as the
+            // SSE path, so junk never enters the context stack.
+            out.tool_calls = sanitize_tool_calls(out.tool_calls);
+            if (out.tool_calls.empty())
+                out.tool_calls = json::value_t::null;
+        } else {
+            out.tool_calls = json::value_t::null;
+        }
     }
     return out;
 }
