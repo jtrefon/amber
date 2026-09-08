@@ -26,6 +26,11 @@ std::string arg(const agent::json& args, const char* key) {
 
 } // namespace
 
+// RED stub: always "working" until the real priority logic lands.
+std::string activity_verb(bool, agent::RunState, const std::string&) {
+    return "working";
+}
+
 std::string describe_tool_call(const std::string& name,
                                const agent::json& args) {
     if (name == "bash") {
