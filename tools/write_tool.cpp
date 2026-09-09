@@ -89,8 +89,9 @@ public:
         std::ofstream fout(path, std::ios::trunc);
         if (!fout) { r.ok = false; r.error = "cannot write: " + path; return r; }
         fout << content;
-        r.meta = {{"applied", applied}, {"path", path}};
-        r.output = "applied " + std::to_string(applied) + " edit(s) to " + path;
+        std::string rel = Workspace::relative(path);
+        r.meta = {{"applied", applied}, {"path", rel}};
+        r.output = "applied " + std::to_string(applied) + " edit(s) to " + rel;
         return r;
      }
 };
