@@ -328,8 +328,6 @@ void EventRouter::on_tool_call(Window* w, const AgentEvent& ev) {
 
 void EventRouter::on_tool_result(Window* w, const AgentEvent& ev) {
     if (!w) return;
-    tui_.running_tool_.clear();
-    tui_.running_tool_desc_.clear();
     // Summary line: colored success/failure icon + one-line report,
     // closed IN PLACE on the open line (single line per tool call).
     rich::Line summary = tool_display::result_line(
@@ -346,12 +344,25 @@ void EventRouter::on_tool_result(Window* w, const AgentEvent& ev) {
             // Close in place: keep the open line's timestamp run.
             ow->lines[li] = tool_display::close_tool_line(
                 ow->lines[li], std::move(summary));
-            pending_tools_.erase(pending_tools_.begin() + match);
         } else {
             tui_.append_rich_to(*w, summary);
         }
+        pending_tools_.erase(pending_tools_.begin() + match);
     } else {
         tui_.append_rich_to(*w, summary);
+    }
+    // The working row reflects the active call; when results close out of
+    // order mid-batch, promote the next queued call of this window so the
+    // verb and task text stay live until the whole batch finishes.
+    tui_.running_tool_.clear();
+    tui_.running_tool_desc_.clear();
+    for (const auto& pt : pending_tools_) {
+        if (pt.window_id == ev.window_id && !pt.name.empty()) {
+            tui_.running_tool_ = pt.name;
+            tui_.running_tool_desc_ =
+                pt.tail.size() > 1 ? pt.tail.substr(1) : "";
+            break;
+        }
     }
     // Tool may have modified files — refresh git state for prompt.
     tui_.render_engine_->git_refresh();

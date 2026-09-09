@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <utility>
 
 #include "agent/workspace.h"
 #include "tui/textutil.h"
@@ -20,6 +21,22 @@ std::string display_path(const std::string& p) {
     return agent::Workspace::relative(p);
 }
 
+// Tool name -> working-indicator verb, in declaration order.
+constexpr std::pair<const char*, const char*> kToolVerbs[] = {
+    {"bash", "hacking"},
+    {"list_skills", "consulting"},
+    {"process_read", "reading"},
+    {"process_start", "spawning"},
+    {"process_stop", "stopping"},
+    {"read", "reading"},
+    {"read_skill", "consulting"},
+    {"search", "searching"},
+    {"task", "delegating"},
+    {"todowrite", "planning"},
+    {"write", "writing"},
+    {"write_skill", "authoring"},
+};
+
 std::string truncate(const std::string& s, size_t cap) {
     if (s.size() <= cap) return s;
     return s.substr(0, cap - 1) + "\u2026";
@@ -32,6 +49,24 @@ std::string arg(const agent::json& args, const char* key) {
 }
 
 } // namespace
+
+std::string activity_verb(bool compressing, agent::RunState state,
+                          const std::string& running_tool) {
+    if (compressing) return "compressing";
+    if (!running_tool.empty()) {
+        for (const auto& [name, verb] : kToolVerbs)
+            if (running_tool == name) return verb;
+        if (running_tool.rfind("mcp_", 0) == 0) return "calling";
+        return "working";
+    }
+    switch (state) {
+        case agent::RunState::Thinking:  return "thinking";
+        case agent::RunState::Streaming: return "talking";
+        case agent::RunState::Waiting:   return "waiting";
+        case agent::RunState::Error:     return "retrying";
+        default:                         return "working";
+    }
+}
 
 std::string describe_tool_call(const std::string& name,
                                const agent::json& args) {

@@ -5,10 +5,19 @@
 #include <cstddef>
 #include <string>
 
+#include "agent/agent.h"
 #include "agent/llm.h"
 #include "tui/rich.h"
 
 namespace tui::tool_display {
+
+// The activity word leading the working indicator. Priority: an active tool
+// (non-empty name) -> per-tool verb (reading/writing/searching/hacking/...);
+// otherwise the run-state word (thinking/talking/waiting/retrying);
+// otherwise "working". "waiting" is produced only when no tool is in flight.
+// Pure so the label logic is unit-testable without ncurses.
+std::string activity_verb(bool compressing, agent::RunState state,
+                          const std::string& running_tool);
 
 // Human-readable description of a tool call for the scrollback line.
 // bash -> the command verbatim (no tool name); read/write -> path;
