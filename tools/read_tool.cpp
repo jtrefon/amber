@@ -72,7 +72,11 @@ public:
         }
 
         std::ifstream in(path, std::ios::binary);
-        if (!in) { r.ok = false; r.error = "cannot open: " + path; return r; }
+        if (!in) {
+            r.ok = false;
+            r.error = "cannot open: " + Workspace::relative(path);
+            return r;
+        }
 
         // Refuse binary files up front: NUL bytes in the first chunk mean
         // compressed/compiled content whose random newlines would flood the

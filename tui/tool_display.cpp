@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "agent/workspace.h"
 #include "tui/textutil.h"
 
 namespace tui::tool_display {
@@ -12,6 +13,12 @@ namespace {
 
 constexpr size_t kCommandCap = 160;
 constexpr size_t kTaskCap = 40;
+
+// Tool args may carry absolute workspace paths; relativize them for display
+// so a status line stays short enough to render on a single row.
+std::string display_path(const std::string& p) {
+    return agent::Workspace::relative(p);
+}
 
 std::string truncate(const std::string& s, size_t cap) {
     if (s.size() <= cap) return s;
@@ -34,13 +41,14 @@ std::string describe_tool_call(const std::string& name,
         if (!cmd.empty()) return truncate(cmd, kCommandCap);
     } else if (name == "read" || name == "write") {
         std::string path = arg(args, "path");
-        if (!path.empty()) return name + " " + path;
+        if (!path.empty()) return name + " " + display_path(path);
     } else if (name == "search") {
         std::string pattern = arg(args, "pattern");
         if (!pattern.empty()) {
             std::string path = arg(args, "path");
             return path.empty() ? "search " + pattern
-                                : "search " + pattern + " in " + path;
+                                : "search " + pattern + " in " +
+                                      display_path(path);
         }
     }
     // Generic fallback: name + truncated raw args (unchanged behaviour).

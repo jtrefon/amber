@@ -949,6 +949,17 @@ TEST(read_tool_missing_path_errors) {
     ASSERT_FALSE(r.error.empty());
 }
 
+TEST(read_tool_cannot_open_error_is_relative) {
+    agent::Workspace::set_root("/tmp");
+    std::string path = "/tmp/amber_missing_rel88.txt";
+    std::remove(path.c_str());
+    auto tool = agent::make_read_tool();
+    auto r = tool->execute({{"path", path}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("/tmp/amber_missing_rel88.txt") == std::string::npos);
+    ASSERT(r.error.find("amber_missing_rel88.txt") != std::string::npos);
+}
+
 // ---------------------------------------------------------------------------
 // write tool (patch style)
 // ---------------------------------------------------------------------------
@@ -986,6 +997,20 @@ TEST(write_tool_missing_old_fails) {
                             {"edits", {{{"old", "nope"}, {"new", "x"}}}}});
     ASSERT_FALSE(r.ok);
     ASSERT(r.error.find("not found") != std::string::npos);
+    std::remove(path.c_str());
+}
+
+TEST(write_tool_result_reports_relative_path) {
+    agent::Workspace::set_root("/tmp");
+    std::string path = "/tmp/amber_write_rel88.txt";
+    std::remove(path.c_str());
+    auto tool = agent::make_write_tool();
+    auto r = tool->execute({{"path", path},
+                            {"edits", {{{"old", ""}, {"new", "x\n"}}}}});
+    ASSERT_TRUE(r.ok);
+    ASSERT(r.output.find("/tmp/amber_write_rel88.txt") == std::string::npos);
+    ASSERT(r.output.find("amber_write_rel88.txt") != std::string::npos);
+    ASSERT_EQ(r.meta.value("path", ""), "amber_write_rel88.txt");
     std::remove(path.c_str());
 }
 

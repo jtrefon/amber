@@ -5,6 +5,7 @@
 // test binary has no dependency on tui/ headers.
 
 #include "agent.h"
+#include "agent/workspace.h"
 #include <csignal>
 #include "tui/action_registry.h"
 #include "tui/textutil.h"
@@ -633,6 +634,60 @@ TEST(tool_display_search_shows_pattern_and_path) {
     std::string d2 = tui::tool_display::describe_tool_call(
         "search", agent::json{{"pattern", "foo"}});
     ASSERT_EQ(d2, "search foo");
+}
+
+TEST(tool_display_read_relativizes_workspace_path) {
+    agent::Workspace::set_root("/tmp/amber_td_ws88");
+    std::string d = tui::tool_display::describe_tool_call(
+        "read", agent::json{{"path", "/tmp/amber_td_ws88/include/agent/config.h"}});
+    ASSERT_EQ(d, "read include/agent/config.h");
+    agent::Workspace::set_root(".");
+}
+
+TEST(tool_display_write_relativizes_workspace_path) {
+    agent::Workspace::set_root("/tmp/amber_td_ws88");
+    std::string d = tui::tool_display::describe_tool_call(
+        "write", agent::json{{"path", "/tmp/amber_td_ws88/lib/compressor.cpp"}});
+    ASSERT_EQ(d, "write lib/compressor.cpp");
+    agent::Workspace::set_root(".");
+}
+
+TEST(tool_display_search_relativizes_path_in_clause) {
+    agent::Workspace::set_root("/tmp/amber_td_ws88");
+    std::string d = tui::tool_display::describe_tool_call(
+        "search", agent::json{{"pattern", "CancellationToken"},
+                              {"path", "/tmp/amber_td_ws88/src/"}});
+    ASSERT_EQ(d, "search CancellationToken in src/");
+    agent::Workspace::set_root(".");
+}
+
+TEST(tool_display_keeps_outside_absolute_path) {
+    agent::Workspace::set_root("/tmp/amber_td_ws88");
+    std::string d = tui::tool_display::describe_tool_call(
+        "read", agent::json{{"path", "/etc/hosts"}});
+    ASSERT_EQ(d, "read /etc/hosts");
+    agent::Workspace::set_root(".");
+}
+
+TEST(tool_display_relative_input_unchanged) {
+    agent::Workspace::set_root("/tmp/amber_td_ws88");
+    std::string d = tui::tool_display::describe_tool_call(
+        "read", agent::json{{"path", "include/agent/config.h"}});
+    ASSERT_EQ(d, "read include/agent/config.h");
+    agent::Workspace::set_root(".");
+}
+
+TEST(tool_display_result_line_relativizes) {
+    agent::Workspace::set_root("/tmp/amber_td_ws88");
+    auto ln = tui::tool_display::result_line(
+        "read",
+        agent::json{{"path", "/tmp/amber_td_ws88/include/agent/config.h"}},
+        true, "line one\nline two\n", "");
+    std::string text;
+    for (const auto& r : ln.runs) text += r.text;
+    ASSERT(text.find("read include/agent/config.h") != std::string::npos);
+    ASSERT(text.find("/tmp/amber_td_ws88") == std::string::npos);
+    agent::Workspace::set_root(".");
 }
 
 TEST(tool_display_unknown_tool_falls_back) {
