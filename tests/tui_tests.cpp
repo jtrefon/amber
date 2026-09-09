@@ -760,6 +760,70 @@ TEST(tool_display_working_label_task_omitted_when_empty) {
     ASSERT(w.find("·") == std::string::npos);
 }
 
+TEST(tool_display_activity_verb_waiting_state_with_tool_uses_tool_verb) {
+    // Reported bug: a tool executing under RunState::Waiting read "waiting".
+    std::string v = tui::tool_display::activity_verb(
+        false, agent::RunState::Waiting, "read");
+    ASSERT_EQ(v, "reading");
+}
+
+TEST(tool_display_activity_verb_idle_with_tool_uses_tool_verb) {
+    std::string v = tui::tool_display::activity_verb(
+        false, agent::RunState::Idle, "search");
+    ASSERT_EQ(v, "searching");
+}
+
+TEST(tool_display_activity_verb_bash_is_hacking) {
+    std::string v = tui::tool_display::activity_verb(
+        false, agent::RunState::Idle, "bash");
+    ASSERT_EQ(v, "hacking");
+}
+
+TEST(tool_display_activity_verb_write_is_writing) {
+    std::string v = tui::tool_display::activity_verb(
+        false, agent::RunState::Idle, "write");
+    ASSERT_EQ(v, "writing");
+}
+
+TEST(tool_display_activity_verb_waiting_reserved_when_no_tool) {
+    std::string v = tui::tool_display::activity_verb(
+        false, agent::RunState::Waiting, "");
+    ASSERT_EQ(v, "waiting");
+}
+
+TEST(tool_display_activity_verb_state_words_without_tool) {
+    ASSERT_EQ(tui::tool_display::activity_verb(
+                  false, agent::RunState::Thinking, ""),
+              "thinking");
+    ASSERT_EQ(tui::tool_display::activity_verb(
+                  false, agent::RunState::Streaming, ""),
+              "talking");
+    ASSERT_EQ(tui::tool_display::activity_verb(
+                  false, agent::RunState::Error, ""),
+              "retrying");
+}
+
+TEST(tool_display_activity_verb_compressing_wins) {
+    std::string v = tui::tool_display::activity_verb(
+        true, agent::RunState::Streaming, "read");
+    ASSERT_EQ(v, "compressing");
+}
+
+TEST(tool_display_activity_verb_unknown_tool_is_working) {
+    ASSERT_EQ(tui::tool_display::activity_verb(
+                  false, agent::RunState::Idle, ""),
+              "working");
+    ASSERT_EQ(tui::tool_display::activity_verb(
+                  false, agent::RunState::Idle, "frobnicate"),
+              "working");
+}
+
+TEST(tool_display_activity_verb_mcp_prefix_calls) {
+    std::string v = tui::tool_display::activity_verb(
+        false, agent::RunState::Idle, "mcp_files_read");
+    ASSERT_EQ(v, "calling");
+}
+
 TEST(scroll_dispatch_wheel_up_delta) {
     // BUTTON4_PRESSED = wheel up: scroll back (negative delta).
     ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED), -3);

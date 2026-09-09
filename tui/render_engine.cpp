@@ -103,37 +103,17 @@ std::vector<rich::Line> RenderEngine::build_view(const Window& w) const {
     return view;
 }
 
-// The word that leads the working indicator, describing what the agent is
-// actually doing right now. Priority:
-//   compression in flight  -> "compressing"
-//   RunState::Thinking     -> "thinking"   (model is reasoning)
-//   RunState::Streaming    -> "talking"    (model is replying)
-//   a tool is executing    -> per-tool verb (searching/reading/writing/...)
-//   otherwise              -> "working"
+// The word leading the working indicator. Priority and wording live in the
+// pure tool_display::activity_verb: an active tool wins over the run-state
+// word, so "waiting" only appears when nothing is in flight. While a batch
+// of tool results closes out of order, fall back to the next queued call.
 std::string RenderEngine::activity_verb() const {
-    if (tui_.compressing_) return "compressing";
-    switch (tui_.state_) {
-        case agent::RunState::Thinking:  return "thinking";
-        case agent::RunState::Streaming: return "talking";
-        case agent::RunState::Waiting:   return "waiting";
-        case agent::RunState::Error:     return "retrying";
-        default: break;
+    std::string tool = tui_.running_tool_;
+    if (tool.empty()) {
+        const auto& pending = tui_.router_->pending_tools();
+        if (!pending.empty()) tool = pending.front().name;
     }
-    const std::string& tool = tui_.running_tool_;
-    if (tool == "search")            return "searching";
-    if (tool == "read")              return "reading";
-    if (tool == "write")             return "editing";
-    if (tool == "bash")              return "running";
-    if (tool == "process_start")     return "spawning";
-    if (tool == "process_read")      return "reading";
-    if (tool == "process_stop")      return "stopping";
-    if (tool == "task")              return "delegating";
-    if (tool == "todowrite")         return "planning";
-    if (tool == "read_skill" ||
-        tool == "list_skills")       return "consulting";
-    if (tool == "write_skill")       return "authoring";
-    if (tool.rfind("mcp_", 0) == 0)  return "calling";
-    return "working";
+    return tool_display::activity_verb(tui_.compressing_, tui_.state_, tool);
 }
 
 int RenderEngine::max_scroll(const Window& w) const {
