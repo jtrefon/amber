@@ -145,6 +145,27 @@ CompressionResponse parse_compression_response(const std::string& json_str) {
                     cr.skill_ops.push_back(op);
             }
         }
+
+        // Parse session brief (non-fatal: absent/malformed brief does not
+        // affect memories/skills — the store retains its last good state).
+        if (j.contains("brief") && j["brief"].is_object()) {
+            const auto& b = j["brief"];
+            SessionBrief brief;
+            brief.intent = b.value("intent", "");
+            brief.direction = b.value("direction", "");
+            brief.earlier = b.value("earlier", "");
+            brief.next = b.value("next", "");
+            if (b.contains("done") && b["done"].is_array())
+                for (const auto& d : b["done"])
+                    if (d.is_string()) brief.done.push_back(d.get<std::string>());
+            if (b.contains("avoid") && b["avoid"].is_array())
+                for (const auto& a : b["avoid"])
+                    if (a.is_string()) brief.avoid.push_back(a.get<std::string>());
+            if (!brief.intent.empty() || !brief.direction.empty() ||
+                !brief.done.empty() || !brief.next.empty() ||
+                !brief.avoid.empty())
+                cr.brief = std::move(brief);
+        }
     } catch (const std::exception&) { // NOLINT: invalid JSON from LLM is expected, not exceptional
     }
 

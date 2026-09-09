@@ -18,6 +18,7 @@
 #include "agent/context.h"
 #include "agent/experience.h"
 #include "agent/policy.h"
+#include "agent/session_brief.h"
 #include "agent/skill_catalog.h"
 #include "agent/tool_recovery.h"
 
@@ -196,6 +197,11 @@ public:
     MemoryStore* memory_store() { return memory_store_.get(); }
     const MemoryStore* memory_store() const { return memory_store_.get(); }
 
+    // The session brief store (always present — the brief is harness-owned,
+    // not model-owned, so it exists regardless of experience config).
+    SessionBriefStore* session_brief_store() { return &brief_store_; }
+    const SessionBriefStore* session_brief_store() const { return &brief_store_; }
+
     // The resolved experience configuration (store path, budgets).
     const ExperienceConfig& experience_config() const { return experience_cfg_; }
 
@@ -273,6 +279,10 @@ private:
     // Updates last_extraction_ for UI reporting.
     void apply_compression_result(const CompressionResponse& cr);
 
+    // Merge the extracted session brief into the brief store (called after
+    // a successful compression cycle). Non-fatal: a missing brief is a no-op.
+    void apply_brief(const CompressionResponse& cr);
+
     // Resolve the effective context window for the gate and gauge: the
     // active model's probed window (when the user did not set context_size
     // explicitly), clamped by any window the server taught us via a 400
@@ -296,6 +306,7 @@ private:
     std::unique_ptr<MemoryStore> memory_store_;
     std::unique_ptr<MemoryRetriever> retriever_;
     std::unique_ptr<SkillCatalog> skills_;
+    SessionBriefStore brief_store_;
     ExperienceConfig experience_cfg_;
     PolicyStore policy_;
     size_t turn_counter_ = 0;

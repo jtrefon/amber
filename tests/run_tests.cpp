@@ -16,6 +16,7 @@
 #include "agent/model_probe.h"
 #include "agent/tool_call_parser.h"
 #include "agent/todo.h"
+#include "agent/session_brief.h"
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
@@ -5215,4 +5216,159 @@ TEST(session_save_keeps_index) {
     s.title = "t";
     ASSERT(store.save(s));
     ASSERT(std::filesystem::exists(dir + "/index.json"));
+}
+
+// ---------------------------------------------------------------------------
+// Session brief — store, merge, parse (RED: agent::SessionBriefStore)
+// Spec: docs/plan/session-brief.md
+// ---------------------------------------------------------------------------
+
+// [SB-01] The store round-trips to disk and persists across a simulated
+// restart (load after save in a fresh store instance).
+TEST(session_brief_store_load_save) {
+    std::string path = "/tmp/amber_brief_loadsave.json";
+    std::remove(path.c_str());
+    agent::SessionBriefStore store;
+    agent::SessionBrief b;
+    b.intent = "Fix the parser crash on empty input";
+    b.direction = "Add a null check in parse_body() before dereferencing";
+    b.done = {"added null check", "ran unit tests"};
+    b.earlier = "reproduced the crash with empty stdin";
+    b.next = "add a regression test in tests/run_tests.cpp";
+    b.avoid = {"rewriting parse_body from scratch — too risky"};
+    store.merge(b);
+    ASSERT(store.save(path));
+
+    agent::SessionBriefStore reloaded;
+    ASSERT(reloaded.load(path));
+    ASSERT(!reloaded.empty());
+    std::string rendered = reloaded.render();
+    ASSERT(rendered.find("Fix the parser crash") != std::string::npos);
+    ASSERT(rendered.find("null check") != std::string::npos);
+    ASSERT(rendered.find("added null check") != std::string::npos);
+    ASSERT(rendered.find("regression test") != std::string::npos);
+    ASSERT(rendered.find("rewriting parse_body") != std::string::npos);
+    std::remove(path.c_str());
+}
+
+// [SB-02] Merge appends new Done entries, caps at 10, and folds older into
+// the earlier: line (extend, not regenerate).
+TEST(session_brief_merge_done_append_and_cap) {
+    agent::SessionBriefStore store;
+    agent::SessionBrief b1;
+    b1.done = {"step1", "step2", "step3"};
+    b1.earlier = "initial work";
+    store.merge(b1);
+
+    // Merge a second brief that adds more done entries — total exceeds 10.
+    agent::SessionBrief b2;
+    b2.done = {"step4", "step5", "step6", "step7", "step8", "step9",
+               "step10", "step11", "step12"};
+    store.merge(b2);
+
+    std::string rendered = store.render();
+    // The last 10 done entries should be present verbatim (step3..step12).
+    ASSERT(rendered.find("step12") != std::string::npos);
+    ASSERT(rendered.find("step3") != std::string::npos);
+    // step1 and step2 were folded into earlier: — they should NOT appear
+    // as individual done entries but the earlier: line must exist.
+    ASSERT(rendered.find("earlier:") != std::string::npos);
+}
+
+// [SB-03] Avoid is append-only — it never replaces; drops oldest when capped.
+TEST(session_brief_merge_avoid_append_only) {
+    agent::SessionBriefStore store;
+    agent::SessionBrief b1;
+    b1.avoid = {"approach-A — failed: too slow"};
+    store.merge(b1);
+
+    agent::SessionBrief b2;
+    b2.avoid = {"approach-B — failed: breaks API"};
+    store.merge(b2);
+
+    std::string rendered = store.render();
+    // Both avoid entries survive — append-only, never replaced.
+    ASSERT(rendered.find("approach-A") != std::string::npos);
+    ASSERT(rendered.find("approach-B") != std::string::npos);
+}
+
+// [SB-04] Intent, Direction, and Next are replaced (not appended) on merge.
+TEST(session_brief_merge_intent_replace) {
+    agent::SessionBriefStore store;
+    agent::SessionBrief b1;
+    b1.intent = "original intent";
+    b1.direction = "original direction";
+    b1.next = "original next";
+    store.merge(b1);
+
+    agent::SessionBrief b2;
+    b2.intent = "refined intent";
+    b2.direction = "refined direction";
+    b2.next = "refined next";
+    store.merge(b2);
+
+    std::string rendered = store.render();
+    ASSERT(rendered.find("refined intent") != std::string::npos);
+    ASSERT(rendered.find("refined direction") != std::string::npos);
+    ASSERT(rendered.find("refined next") != std::string::npos);
+    // Original values must be gone (replace, not append).
+    ASSERT(rendered.find("original intent") == std::string::npos);
+    ASSERT(rendered.find("original direction") == std::string::npos);
+    ASSERT(rendered.find("original next") == std::string::npos);
+}
+
+// [SB-05] parse_compression_response extracts the brief field alongside
+// memories and skills. A malformed brief does not affect memories/skills.
+TEST(session_brief_parse_extracts_brief) {
+    std::string json = R"({
+        "classification": [{"turns": "0-0", "tag": "core", "summary": ""}],
+        "memories": [{"content": "uses make", "tags": ["build"], "action": "upsert"}],
+        "skills": [],
+        "brief": {
+            "intent": "fix the bug",
+            "direction": "patch parser.c",
+            "done": ["found the bug", "wrote the fix"],
+            "next": "run tests",
+            "avoid": ["rewriting parser — too risky"]
+        }
+    })";
+    auto cr = agent::parse_compression_response(json);
+    ASSERT(cr.segments.size() == 1u);
+    ASSERT(cr.memory_ops.size() == 1u);
+    ASSERT(cr.brief.has_value());
+    ASSERT(cr.brief->intent == "fix the bug");
+    ASSERT(cr.brief->direction == "patch parser.c");
+    ASSERT(cr.brief->done.size() == 2u);
+    ASSERT(cr.brief->next == "run tests");
+    ASSERT(cr.brief->avoid.size() == 1u);
+}
+
+// [SB-06] A malformed or missing brief in the extract response does not
+// affect memories/skills — the brief store retains its last good state.
+TEST(session_brief_parse_failure_nonfatal) {
+    std::string json = R"({
+        "classification": [{"turns": "0-0", "tag": "core", "summary": ""}],
+        "memories": [{"content": "uses make", "tags": ["build"], "action": "upsert"}],
+        "skills": [{"content": "run tests", "trigger_phrase": "test", "action": "upsert"}]
+    })";
+    auto cr = agent::parse_compression_response(json);
+    // Memories and skills parsed fine.
+    ASSERT(cr.memory_ops.size() == 1u);
+    ASSERT(cr.skill_ops.size() == 1u);
+    // Brief is absent — optional, no crash.
+    ASSERT(!cr.brief.has_value());
+}
+
+// [SB-07] The rendered brief is capped at ~2 KB so re-injection stays cheap.
+TEST(session_brief_size_cap) {
+    agent::SessionBriefStore store;
+    agent::SessionBrief b;
+    b.intent = std::string(500, 'i');
+    b.direction = std::string(500, 'd');
+    b.next = std::string(500, 'n');
+    b.done = {std::string(200, 'x'), std::string(200, 'y')};
+    b.avoid = {std::string(200, 'a')};
+    store.merge(b);
+    std::string rendered = store.render();
+    ASSERT(rendered.size() <= 2048u);
 }
