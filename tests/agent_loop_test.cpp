@@ -1492,7 +1492,11 @@ TEST(agent_loop_cancel_does_not_fabricate_message) {
 TEST(session_brief_extracted_on_compression) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
-    cfg.context_size = 2000;
+    // Large window so warm-up turns stay below threshold; the 16 KB big
+    // prompt pushes it over, firing compression exactly once (on the big
+    // prompt turn). This ensures the scripted JSON replies are consumed
+    // by the compression call, not by warm-up chat calls.
+    cfg.context_size = 8000;
     cfg.compression_threshold = 0.5;
     cfg.compression_min_turns = 2;
     agent::ToolRegistry reg;
@@ -1526,7 +1530,7 @@ TEST(session_brief_extracted_on_compression) {
                     {}, {}, std::move(fake));
     for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
 
-    std::string big_prompt(8000, 'x');
+    std::string big_prompt(16000, 'x');
     ag.run(big_prompt);
 
     // The brief store was updated with the extracted brief.
@@ -1547,7 +1551,7 @@ TEST(session_brief_extracted_on_compression) {
 TEST(session_brief_survives_compression) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
-    cfg.context_size = 2000;
+    cfg.context_size = 8000;
     cfg.compression_threshold = 0.5;
     cfg.compression_min_turns = 2;
     agent::ToolRegistry reg;
@@ -1590,7 +1594,7 @@ TEST(session_brief_survives_compression) {
     brief_store->merge(seed);
 
     for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
-    std::string big_prompt(8000, 'x');
+    std::string big_prompt(16000, 'x');
     ag.run(big_prompt);
 
     // After compression, the brief was refined (replaced) by the extract.

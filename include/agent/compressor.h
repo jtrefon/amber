@@ -6,11 +6,13 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "agent/config.h"
 #include "agent/llm.h"
+#include "agent/session_brief.h"
 
 namespace agent {
 
@@ -113,6 +115,10 @@ struct CompressionResponse {
     // worked on, what's done, what remains"). Placed in the compressed-context
     // message so the agent can continue from the summary + preserved tail.
     std::string summary;
+    // Session brief extracted by the extract step (intent/direction/done/
+    // next/avoid). Absent when the LLM did not produce one — non-fatal
+    // (memories/skills still apply). See docs/plan/session-brief.md.
+    std::optional<SessionBrief> brief;
     std::string error;               // non-empty when the pipeline failed;
                                      // callers must keep the context untouched
 };

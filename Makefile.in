@@ -75,7 +75,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \
-             $(BUILD_DIR)/lib/tool_call_parser.o
+             $(BUILD_DIR)/lib/tool_call_parser.o \
+             $(BUILD_DIR)/lib/session_brief.o
 
 TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/write_tool.o \
