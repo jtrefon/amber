@@ -1250,3 +1250,59 @@ paid tiers.
 | search | 1 | 10 | 9 | 10 |
 | write | 12 | 14 | 2 | 85 |
 
+
+## Session Brief — hermetic regression check (2026-09-09)
+
+**Branch:** `feature/session-brief` (PR #97)
+**Change:** harness-maintained session brief extracted during compression,
+re-injected as a dedicated `[session-brief]` system message. See
+`docs/plan/session-brief.md`.
+
+**Method:** hermetic benchmark (fake LLM) on the `compression` and
+`agent-failures` suites, run on both `main` (before) and
+`feature/session-brief` (after). The hermetic fake LLM does not emit a
+`brief` field, so the brief store stays empty and re-injection is a no-op
+— this verifies the feature introduces zero regression on existing
+scenarios. The brief's value (reduced redundant calls, preserved ruled-out
+approaches, improved post-compression continuation) requires a live LLM
+that emits structured briefs; that benchmark is a follow-up.
+
+```sh
+./amber-bench run --suite compression    --out bench/results/session-brief-before.json
+./amber-bench run --suite agent-failures --out bench/results/session-brief-before-agent.json
+# switch to feature/session-brief, rebuild
+./amber-bench run --suite compression    --out bench/results/session-brief-after.json
+./amber-bench run --suite agent-failures --out bench/results/session-brief-after-agent.json
+./amber-bench delta bench/results/session-brief-before.json        bench/results/session-brief-after.json
+./amber-bench delta bench/results/session-brief-before-agent.json  bench/results/session-brief-after-agent.json
+```
+
+### compression suite
+
+| scenario | before | after | dScore | verdict |
+|---|---|---|---|---|
+| k-01-compression-stress | 59.5 | 59.5 | +0.0 | same |
+
+**win 0 | lose 0 | same 1** — no regression.
+
+### agent-failures suite
+
+| scenario | before | after | dScore | verdict |
+|---|---|---|---|---|
+| f-01-redundant-call-elimination | 86.5 | 86.5 | +0.0 | same |
+| f-02-mistake-then-recover | 90.5 | 90.5 | +0.0 | same |
+| f-03-mid-stream-dropout | 91.0 | 91.0 | +0.0 | same |
+| f-04-parallel-vs-sequential | 100.0 | 100.0 | +0.0 | same |
+| f-06-empty-reply-recovery | 97.5 | 97.5 | +0.0 | same |
+| f-07-tool-denied-grace | 85.5 | 85.5 | +0.0 | same |
+
+**win 0 | lose 0 | same 6** — no regression.
+
+### conclusion
+
+Zero regression across all 7 hermetic scenarios. The session brief feature
+is architecturally invisible when the LLM does not emit a `brief` field
+(empty store, no injection). Live benchmark with a real LLM emitting
+structured briefs is the follow-up to measure the positive impact
+(reduced redundant reads, avoided ruled-out approaches, post-compression
+continuation fidelity).

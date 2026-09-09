@@ -356,6 +356,7 @@ public:
             CompressionResponse er = parse_compression_response(ext_reply.content);
             cr.memory_ops = std::move(er.memory_ops);
             cr.skill_ops = std::move(er.skill_ops);
+            if (er.brief) cr.brief = std::move(er.brief);
         }
 
         if (response_out) *response_out = std::move(cr);

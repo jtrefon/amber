@@ -318,6 +318,22 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
         }
     }
 
+    // Inject the session brief as a system message, last in the injected
+    // stack (after memories and skills, before the conversation). The brief
+    // lives in the store, not the context, so it survives compression and
+    // never touches the hash chain. Injected last because it changes more
+    // frequently than memories/skills — a brief change invalidates KV only
+    // for the conversation tail, which re-prefills every turn regardless.
+    if (!brief_store_.empty()) {
+        std::string rendered = brief_store_.render();
+        if (!rendered.empty()) {
+            Message brief_msg;
+            brief_msg.role = "system";
+            brief_msg.content = std::move(rendered);
+            prompt_copy.push_back(std::move(brief_msg));
+        }
+    }
+
     const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
         reply = client_->chat_stream(prompt_copy, tools,
@@ -451,6 +467,9 @@ bool Agent::run_compression(std::function<void()> progress_cb,
 
     // Apply memory/skill ops from the LLM classification response.
     apply_compression_result(cr);
+
+    // Apply the session brief extracted by the extract step (non-fatal).
+    apply_brief(cr);
 
     // Stats — captured BEFORE the snapshot was taken.
     r.messages_before = msgs_before;
@@ -852,6 +871,13 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
     if (!summary.empty()) log_status("extraction: " + summary);
     size_t st = memory_store_->store_size();
     log_status("memory store: " + std::to_string(st) + " total (memories + skills)");
+}
+
+void Agent::apply_brief(const CompressionResponse& cr) {
+    if (!cr.brief) return;
+    brief_store_.merge(*cr.brief);
+    if (hooks_.on_status && !brief_store_.empty())
+        hooks_.on_status("session brief: updated (intent/direction/done/next/avoid)");
 }
 
 } // namespace agent

@@ -1,0 +1,609 @@
+{
+  "engine_version": "0.4.12",
+  "mode": "hermetic",
+  "model": "fake",
+  "model_score": 920.75,
+  "model_score_ci": -10.0,
+  "profile": "",
+  "reasoning": "auto",
+  "run_id": "run-1788973601836464",
+  "scenarios": [
+    {
+      "agentic_actual_by_tool": {
+        "read": 3
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 66.66666666666666,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 2
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 0.6666666666666666,
+      "agentic_score": 70.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 6912,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "breakout_latency": 0,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 45,
+      "calls_per_step_mean": 1.0,
+      "calls_per_step_p95": 1.0,
+      "compile_ok": true,
+      "completion_tokens": 36,
+      "compressions": 0,
+      "cpu_ms": 3,
+      "dependency_violation": false,
+      "difficulty": 3,
+      "failure_taxonomy": {},
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done. a.txt contains hello world and b.txt contains second file.",
+      "hard_stop": false,
+      "max_calls_per_step": 1,
+      "name": "f-01-redundant-call-elimination",
+      "peak_rss_kb": 7808,
+      "plan_adherence_ratio": 1.0,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 236,
+      "recoveries": 0,
+      "redundant": 1,
+      "repeat_n": 1,
+      "repeat_scores": [
+        86.5
+      ],
+      "replan_adapted": false,
+      "retries": 0,
+      "score": 86.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 70.0,
+      "score_median": 86.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steer_effective": false,
+      "steps": 4,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "agent-failures",
+      "templated": false,
+      "tool_call_accuracy": 0.6666666666666666,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"b.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 3,
+      "tool_denied": 0,
+      "tool_details": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 13,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 10,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        },
+        {
+          "args": "{\"path\":\"b.txt\"}",
+          "denied": false,
+          "duration_ms": 12,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        }
+      ],
+      "tool_failures": 0,
+      "total_steps": 4,
+      "tps_avg": -1.0,
+      "ttft_ms": 0.0,
+      "wall_ms": 57,
+      "wasted": 1
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 2
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 50.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 65.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 7808,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "breakout_latency": 0,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 32,
+      "calls_per_step_mean": 1.0,
+      "calls_per_step_p95": 1.0,
+      "compile_ok": true,
+      "completion_tokens": 26,
+      "compressions": 0,
+      "cpu_ms": 2,
+      "dependency_violation": false,
+      "difficulty": 3,
+      "failure_taxonomy": {
+        "error": 1
+      },
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done. a.txt contains hello world.",
+      "hard_stop": false,
+      "max_calls_per_step": 1,
+      "name": "f-02-mistake-then-recover",
+      "peak_rss_kb": 7904,
+      "plan_adherence_ratio": 1.0,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 181,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        90.5
+      ],
+      "replan_adapted": true,
+      "retries": 0,
+      "score": 90.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 90.0,
+      "score_median": 90.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steer_effective": false,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "agent-failures",
+      "templated": false,
+      "tool_call_accuracy": 0.5,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"missing.txt\"}",
+          "tool": "read [error]"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 0,
+      "tool_details": [
+        {
+          "args": "{\"path\":\"missing.txt\"}",
+          "denied": false,
+          "duration_ms": 11,
+          "error": "cannot open: missing.txt",
+          "status": "error",
+          "timeout": false,
+          "tool": "read"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 12,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        }
+      ],
+      "tool_failures": 1,
+      "total_steps": 3,
+      "tps_avg": -1.0,
+      "ttft_ms": 0.0,
+      "wall_ms": 44,
+      "wasted": 1
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 70.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 7904,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "breakout_latency": 0,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 1053,
+      "calls_per_step_mean": 1.0,
+      "calls_per_step_p95": 1.0,
+      "compile_ok": true,
+      "completion_tokens": 16,
+      "compressions": 0,
+      "cpu_ms": 3,
+      "dependency_violation": false,
+      "difficulty": 4,
+      "failure_taxonomy": {},
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done. a.txt contains hello world.",
+      "hard_stop": false,
+      "max_calls_per_step": 1,
+      "name": "f-03-mid-stream-dropout",
+      "peak_rss_kb": 8000,
+      "plan_adherence_ratio": 1.0,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 111,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        91.0
+      ],
+      "replan_adapted": false,
+      "retries": 1,
+      "score": 91.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 91.0,
+      "score_robustness": 70.0,
+      "score_stddev": 0.0,
+      "steer_effective": false,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "agent-failures",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_details": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 11,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        }
+      ],
+      "tool_failures": 0,
+      "total_steps": 2,
+      "tps_avg": -1.0,
+      "ttft_ms": 0.0,
+      "wall_ms": 1064,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 2
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 2
+      },
+      "agentic_plan_tools": 2,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 8000,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "breakout_latency": 0,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 27,
+      "calls_per_step_mean": 2.0,
+      "calls_per_step_p95": 2.0,
+      "compile_ok": true,
+      "completion_tokens": 26,
+      "compressions": 0,
+      "cpu_ms": 2,
+      "dependency_violation": false,
+      "difficulty": 3,
+      "failure_taxonomy": {},
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done. a.txt is alpha and b.txt is beta.",
+      "hard_stop": false,
+      "max_calls_per_step": 2,
+      "name": "f-04-parallel-vs-sequential",
+      "peak_rss_kb": 8096,
+      "plan_adherence_ratio": 1.0,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 121,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        100.0
+      ],
+      "replan_adapted": false,
+      "retries": 0,
+      "score": 100.0,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 100.0,
+      "score_median": 100.0,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steer_effective": false,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "agent-failures",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"b.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 0,
+      "tool_details": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 13,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        },
+        {
+          "args": "{\"path\":\"b.txt\"}",
+          "denied": false,
+          "duration_ms": 23,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        }
+      ],
+      "tool_failures": 0,
+      "total_steps": 2,
+      "tps_avg": -1.0,
+      "ttft_ms": 0.0,
+      "wall_ms": 50,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "read": 1
+      },
+      "agentic_deviation": 0,
+      "agentic_efficiency_pct": 100.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 1.0,
+      "agentic_score": 100.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 8096,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "breakout_latency": 0,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 23,
+      "calls_per_step_mean": 1.0,
+      "calls_per_step_p95": 1.0,
+      "compile_ok": true,
+      "completion_tokens": 16,
+      "compressions": 0,
+      "cpu_ms": 2,
+      "dependency_violation": false,
+      "difficulty": 4,
+      "failure_taxonomy": {},
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done. a.txt contains hello world.",
+      "hard_stop": false,
+      "max_calls_per_step": 1,
+      "name": "f-06-empty-reply-recovery",
+      "peak_rss_kb": 8128,
+      "plan_adherence_ratio": 1.0,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 151,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        97.5
+      ],
+      "replan_adapted": false,
+      "retries": 0,
+      "score": 97.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 90.0,
+      "score_median": 97.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steer_effective": false,
+      "steps": 2,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "agent-failures",
+      "templated": false,
+      "tool_call_accuracy": 1.0,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 1,
+      "tool_denied": 0,
+      "tool_details": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 12,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        }
+      ],
+      "tool_failures": 0,
+      "total_steps": 2,
+      "tps_avg": -1.0,
+      "ttft_ms": 0.0,
+      "wall_ms": 35,
+      "wasted": 0
+    },
+    {
+      "agentic_actual_by_tool": {
+        "bash": 1,
+        "read": 1
+      },
+      "agentic_deviation": 1,
+      "agentic_efficiency_pct": 50.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.5,
+      "agentic_score": 65.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 8128,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "breakout_latency": 0,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 20,
+      "calls_per_step_mean": 1.0,
+      "calls_per_step_p95": 1.0,
+      "compile_ok": true,
+      "completion_tokens": 26,
+      "compressions": 0,
+      "cpu_ms": 1,
+      "dependency_violation": false,
+      "difficulty": 3,
+      "failure_taxonomy": {},
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done. a.txt contains hello world.",
+      "hard_stop": false,
+      "max_calls_per_step": 1,
+      "name": "f-07-tool-denied-grace",
+      "peak_rss_kb": 8176,
+      "plan_adherence_ratio": 1.0,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 181,
+      "recoveries": 0,
+      "redundant": 0,
+      "repeat_n": 1,
+      "repeat_scores": [
+        85.5
+      ],
+      "replan_adapted": false,
+      "retries": 0,
+      "score": 85.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 70.0,
+      "score_median": 85.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steer_effective": false,
+      "steps": 3,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "agent-failures",
+      "templated": false,
+      "tool_call_accuracy": 0.5,
+      "tool_calls": [
+        {
+          "args": "{\"command\":\"rm -rf /tmp/amber_denied_probe\"}",
+          "tool": "bash [denied]"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 2,
+      "tool_denied": 1,
+      "tool_details": [
+        {
+          "args": "{\"command\":\"rm -rf /tmp/amber_denied_probe\"}",
+          "denied": true,
+          "duration_ms": 0,
+          "error": "denied by user: bash was not approved.",
+          "status": "denied",
+          "timeout": false,
+          "tool": "bash"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 12,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        }
+      ],
+      "tool_failures": 0,
+      "total_steps": 3,
+      "tps_avg": -1.0,
+      "ttft_ms": 0.0,
+      "wall_ms": 33,
+      "wasted": 1
+    }
+  ],
+  "timestamp": "1788973601836465"
+}

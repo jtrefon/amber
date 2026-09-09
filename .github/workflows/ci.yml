@@ -22,7 +22,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
+          sudo apt-get update || true
           sudo apt-get install -y --no-install-recommends \
             build-essential clang libcurl4-openssl-dev \
             libncursesw5-dev pkg-config clang-tidy
@@ -44,7 +45,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
+          sudo apt-get update || true
           sudo apt-get install -y --no-install-recommends \
             build-essential libcurl4-openssl-dev \
             libncursesw5-dev pkg-config cppcheck
@@ -66,7 +68,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
+          sudo apt-get update || true
           sudo apt-get install -y --no-install-recommends \
             build-essential libcurl4-openssl-dev \
             libncursesw5-dev pkg-config
@@ -87,7 +90,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
+          sudo apt-get update || true
           sudo apt-get install -y --no-install-recommends \
             build-essential libcurl4-openssl-dev \
             libncursesw5-dev pkg-config
@@ -105,7 +109,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
+          sudo apt-get update || true
           sudo apt-get install -y --no-install-recommends \
             build-essential libcurl4-openssl-dev \
             libncursesw5-dev pkg-config clang-format
@@ -130,7 +135,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
+          sudo apt-get update || true
           sudo apt-get install -y --no-install-recommends \
             build-essential clang libcurl4-openssl-dev \
             libncursesw5-dev pkg-config
@@ -186,7 +192,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
+          sudo apt-get update || true
           sudo apt-get install -y --no-install-recommends \
             build-essential libcurl4-openssl-dev libncursesw5-dev \
             pkg-config ruby ruby-dev

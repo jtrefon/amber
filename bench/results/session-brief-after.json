@@ -1,0 +1,140 @@
+{
+  "engine_version": "0.4.12",
+  "mode": "hermetic",
+  "model": "fake",
+  "model_score": 595.0,
+  "model_score_ci": -10.0,
+  "profile": "",
+  "reasoning": "auto",
+  "run_id": "run-1788973598455314",
+  "scenarios": [
+    {
+      "agentic_actual_by_tool": {
+        "read": 4
+      },
+      "agentic_deviation": 3,
+      "agentic_efficiency_pct": 25.0,
+      "agentic_has_plan": true,
+      "agentic_plan_by_tool": {
+        "read": 1
+      },
+      "agentic_plan_tools": 1,
+      "agentic_ratio": 0.25,
+      "agentic_score": 10.0,
+      "arg_precision": 1.0,
+      "artifact_score": 1.0,
+      "baseline_rss_kb": 6880,
+      "bash_cd_prefix": 0,
+      "behavior_equivalent": true,
+      "breakout_latency": 0,
+      "bullseye": 1.0,
+      "bullseye_at_ms": 42,
+      "calls_per_step_mean": 1.0,
+      "calls_per_step_p95": 1.0,
+      "compile_ok": true,
+      "completion_tokens": 26,
+      "compressions": 1,
+      "cpu_ms": 4,
+      "dependency_violation": false,
+      "difficulty": 4,
+      "failure_taxonomy": {},
+      "failures": [],
+      "files_touched": 0,
+      "final_text": "done. a.txt contains hello world.",
+      "hard_stop": false,
+      "max_calls_per_step": 1,
+      "name": "k-01-compression-stress",
+      "peak_rss_kb": 7920,
+      "plan_adherence_ratio": 1.0,
+      "prompt_adherence": 1.0,
+      "prompt_tokens": 10500,
+      "recoveries": 0,
+      "redundant": 3,
+      "repeat_n": 1,
+      "repeat_scores": [
+        59.5
+      ],
+      "replan_adapted": false,
+      "retries": 0,
+      "score": 59.5,
+      "score_adherence": 100.0,
+      "score_correctness": 100.0,
+      "score_efficiency": 9.999999999999993,
+      "score_median": 59.5,
+      "score_robustness": 100.0,
+      "score_stddev": 0.0,
+      "steer_effective": false,
+      "steps": 5,
+      "structure_checks": 1.0,
+      "success": true,
+      "suite": "compression",
+      "templated": false,
+      "tool_call_accuracy": 0.25,
+      "tool_calls": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "tool": "read [ok]"
+        }
+      ],
+      "tool_calls_total": 4,
+      "tool_denied": 0,
+      "tool_details": [
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 10,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 12,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 11,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        },
+        {
+          "args": "{\"path\":\"a.txt\"}",
+          "denied": false,
+          "duration_ms": 13,
+          "error": "",
+          "status": "ok",
+          "timeout": false,
+          "tool": "read"
+        }
+      ],
+      "tool_failures": 0,
+      "total_steps": 5,
+      "tps_avg": -1.0,
+      "ttft_ms": 0.0,
+      "wall_ms": 89,
+      "wasted": 3
+    }
+  ],
+  "timestamp": "1788973598455315"
+}

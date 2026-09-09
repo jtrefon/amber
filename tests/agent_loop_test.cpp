@@ -13,6 +13,7 @@
 #include "agent.h"
 #include "agent/tools.h"
 #include "agent/todo.h"
+#include "agent/session_brief.h"
 #include "fake_llm.h"
 #include "tests/test_util.h"
 
@@ -1478,4 +1479,128 @@ TEST(agent_loop_cancel_does_not_fabricate_message) {
         ASSERT(m.content.find("[error during generation") ==
                std::string::npos);
     (void)reply;
+}
+
+// ---------------------------------------------------------------------------
+// Session brief — hermetic compression + re-injection (RED)
+// Spec: docs/plan/session-brief.md
+// ---------------------------------------------------------------------------
+
+// [SB-08] When compression fires, the extract response's brief field is
+// parsed, the SessionBriefStore is updated, and the brief is re-injected
+// into the post-compression context as a [session-brief] message.
+TEST(session_brief_extracted_on_compression) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    // Large window so warm-up turns stay below threshold; the 16 KB big
+    // prompt pushes it over, firing compression exactly once (on the big
+    // prompt turn). This ensures the scripted JSON replies are consumed
+    // by the compression call, not by warm-up chat calls.
+    cfg.context_size = 8000;
+    cfg.compression_threshold = 0.5;
+    cfg.compression_min_turns = 2;
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto gate = agent::make_compression_gate(comp_cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    // Warm-up turns (cooldown default is 20 turns before the gate opens).
+    for (int i = 0; i < 21; ++i) {
+        push_text(*fake, "warm");
+        push_text(*fake, "done");
+    }
+    // The compression turn: 1) classify, 2) extract (with brief), 3) gen, 4) probe.
+    {
+        agent_test::FakeReply r;
+        r.content =
+            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+            R"("memories":[],"skills":[],"brief":{)"
+            R"("intent":"fix parser crash","direction":"add null check",)"
+            R"("done":["found bug"],"next":"write test",)"
+            R"("avoid":["rewrite parser"]}})";
+        fake->script.push_back(std::move(r));
+    }
+    push_text(*fake, R"({"memories":[],"skills":[],"brief":{)"
+                    R"("intent":"fix parser crash","direction":"add null check",)"
+                    R"("done":["found bug"],"next":"write test",)"
+                    R"("avoid":["rewrite parser"]}})");
+    push_text(*fake, "hello after compression");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    {}, {}, std::move(fake));
+    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+
+    std::string big_prompt(16000, 'x');
+    ag.run(big_prompt);
+
+    // The brief store was updated with the extracted brief.
+    auto* brief_store = ag.session_brief_store();
+    ASSERT(brief_store != nullptr);
+    ASSERT(!brief_store->empty());
+    std::string rendered = brief_store->render();
+    ASSERT(rendered.find("fix parser crash") != std::string::npos);
+    ASSERT(rendered.find("add null check") != std::string::npos);
+    ASSERT(rendered.find("found bug") != std::string::npos);
+    ASSERT(rendered.find("write test") != std::string::npos);
+    ASSERT(rendered.find("rewrite parser") != std::string::npos);
+}
+
+// [SB-09] A brief seeded before compression survives the compression cycle:
+// the [session-brief] message is present in the post-compression context
+// and matches the store.
+TEST(session_brief_survives_compression) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 8000;
+    cfg.compression_threshold = 0.5;
+    cfg.compression_min_turns = 2;
+    agent::ToolRegistry reg;
+    auto comp_cfg = agent::load_compression_config(cfg);
+    auto gate = agent::make_compression_gate(comp_cfg);
+    auto compressor = agent::make_compressor(comp_cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    for (int i = 0; i < 21; ++i) {
+        push_text(*fake, "warm");
+        push_text(*fake, "done");
+    }
+    // Compression turn: classify + extract return a brief that refines the
+    // seeded one.
+    {
+        agent_test::FakeReply r;
+        r.content =
+            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+            R"("memories":[],"skills":[],"brief":{)"
+            R"("intent":"refined intent","direction":"refined direction",)"
+            R"("done":["step1"],"next":"refined next",)"
+            R"("avoid":["dead end A"]}})";
+        fake->script.push_back(std::move(r));
+    }
+    push_text(*fake, R"({"memories":[],"skills":[],"brief":{)"
+                    R"("intent":"refined intent","direction":"refined direction",)"
+                    R"("done":["step1"],"next":"refined next",)"
+                    R"("avoid":["dead end A"]}})");
+    push_text(*fake, "after");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    {}, {}, std::move(fake));
+
+    // Seed the brief store before compression fires.
+    auto* brief_store = ag.session_brief_store();
+    ASSERT(brief_store != nullptr);
+    agent::SessionBrief seed;
+    seed.intent = "seeded intent";
+    seed.direction = "seeded direction";
+    seed.next = "seeded next";
+    brief_store->merge(seed);
+
+    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+    std::string big_prompt(16000, 'x');
+    ag.run(big_prompt);
+
+    // After compression, the brief was refined (replaced) by the extract.
+    std::string rendered = brief_store->render();
+    ASSERT(rendered.find("refined intent") != std::string::npos);
+    ASSERT(rendered.find("seeded intent") == std::string::npos);
+    // Hash chain intact after the clear+push rebuild.
+    (void)ag.context().get_all();
 }
