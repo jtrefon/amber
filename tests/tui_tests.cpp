@@ -17,10 +17,46 @@
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
 #include "tui/event_router.h"
+#include "tui/path_confine.h"
 #include "tests/test_util.h"
 
 #include <future>
 #include <queue>
+
+// ---------------------------------------------------------------------------
+// SEC-04: TUI path confinement (Red tests). All TUI slash commands and
+// @-reference expansion must route user/model-supplied paths through
+// confine_path, which rejects absolute escapes and ../ traversal.
+// ---------------------------------------------------------------------------
+
+TEST(sec04_confine_path_rejects_absolute) {
+    agent::Workspace::set_root("/tmp/amber_tui_confine");
+    std::string resolved, err;
+    ASSERT_FALSE(tui::confine_path("/etc/passwd", resolved, err));
+    ASSERT(!err.empty());
+}
+
+TEST(sec04_confine_path_rejects_parent_escape) {
+    agent::Workspace::set_root("/tmp/amber_tui_confine");
+    std::string resolved, err;
+    ASSERT_FALSE(tui::confine_path("../../etc/passwd", resolved, err));
+    ASSERT(!err.empty());
+}
+
+TEST(sec04_confine_path_accepts_relative) {
+    agent::Workspace::set_root("/tmp/amber_tui_confine");
+    std::string resolved, err;
+    ASSERT_TRUE(tui::confine_path("src/main.cpp", resolved, err));
+    ASSERT(resolved.find("/tmp/amber_tui_confine/src/main.cpp") != std::string::npos);
+}
+
+TEST(sec04_confine_path_accepts_workspace_root) {
+    agent::Workspace::set_root("/tmp/amber_tui_confine");
+    std::string resolved, err;
+    ASSERT_TRUE(tui::confine_path(".", resolved, err));
+    // Workspace::confine may normalize with a trailing slash.
+    ASSERT(resolved.find("/tmp/amber_tui_confine") != std::string::npos);
+}
 
 // ---------------------------------------------------------------------------
 // TUI text utilities (UTF-8 wrapping / width / decoding)
