@@ -57,27 +57,44 @@ driven by an OpenAI-compatible LLM API.
 - System/tool prompts are Markdown in `prompts/` (`system.md`, `tools.md`),
   loaded at runtime — editing those changes agent behavior without recompiling.
 
-## Plugin architecture (v2 — hybrid two-tier)
+## Plugin architecture (v2 — design agreed, phased build in progress)
 
-The plugin system is the harness extensibility backbone. Plugins enhance amber
-in any direction: tools, LLM providers, memory backends, search engines, TUI
-rendering, prompt templates, and agent-loop observation.
+The plugin system is the harness extensibility backbone: plugins contribute
+tools, LLM providers, commands, prompt blocks, status segments, panels,
+settings, and log sinks, and observe the agent loop through typed events.
 
-- **Core plugins** (`plugins/`) run in-process via `IPlugin` interface. Used for
-  deep integration: providers, memory, search, themes, prompt interceptors.
-  They link against `libagent_core.a` and have full access to harness internals
-  via narrow capability interfaces. A crash crashes the harness.
-- **External plugins** (`tools/plugins/`, `~/.config/amber/plugins/`) run as
-  separate processes communicating via JSON-RPC over stdio (v1 protocol). Used
-  for isolated integrations: browser automation, SSH, databases. A crash does
-  not affect the harness.
-- Both tiers implement `IPlugin` and register `Capability` objects in the
-  `PluginRegistry`. The registry treats them identically.
-- **EventBus** provides pub/sub for agent lifecycle events. Plugins can observe
-  (read-only) or intercept (modify/cancel) events like `AgentTurnStart`,
-  `ToolCallBefore`, `TUIRender`, etc.
-- Spec: `docs/spec/plugins/plugin-framework-v2.md`.
-- Developer guide: `docs/spec/plugins/developer-guide.md`.
+**Agreed model (binding — see the spec before touching any of it):**
+
+- **Three mechanisms.** Contribution registries (things that *exist*), typed
+  events (things that *happen*), host services (things the plugin needs the host
+  to do). Registration never happens through events; UI state is pulled at render
+  time, not pushed from worker threads.
+- **Declare, don't install.** A core plugin declares typed `Capability` objects;
+  the runtime installs each into its registry and records it in a per-plugin
+  ledger. `disable()` unwinds the ledger in reverse order — if a contribution can
+  survive deactivation, the ledger is broken and that is a tested invariant.
+- **Typed events over the tested `EventBus`.** Payload structs in
+  `include/agent/events.h`; no `void*` in the plugin-facing API. Unsubscribed
+  `publish()` is a single atomic load — **no per-token events, ever**
+  (streaming stays an `AgentHooks`/UI concern).
+- **Compiled-in core plugins** (`plugins/<id>/`, registered in one bundled list)
+  ship with amber; the external tier (`tools/plugins/`, process + JSON-RPC v1)
+  remains tools-only. Runtime loading (`dlopen`) is deferred but the registries
+  and state layout (`~/.config/amber/plugins/<id>/plugin.conf`) are shaped for it.
+- **Provider plugins are the flagship consumer**: `ProviderSpec` = flavor +
+  dialect factory + presets + auth spec. Wire behavior lives in the `Dialect`
+  (`docs/spec/llm-client/dialect.md`); a provider plugin must not open its own
+  HTTP client. Gemini is the first new-vendor proof; the built-ins
+  (kilocode/openrouter/anthropic) convert after, deleting the name-keyed
+  `capability_overrides()` table in `lib/providers_service.cpp`.
+- **Status check before planning work here:** much of the previous v2 surface is
+  inert (no production `fire()`, `capabilities()` unread, `PluginContext::tools`
+  const). Do not describe it as working; verify, then build.
+- Spec: `docs/spec/plugins/plugin-framework-v2.md` (contract, decisions,
+  scenarios).
+- Tracker: `docs/plugin-framework-tracker.md` (phases PF-1..PF-5, decision log,
+  availability table, deferred register with reasons).
+- Contributor guide: `docs/spec/plugins/developer-guide.md`.
 
 ## Conventions
 

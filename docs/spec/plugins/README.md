@@ -4,6 +4,14 @@
 **Owner:** amber core
 **Version:** protocol 1
 
+> **Scope note.** This document specifies the **external** plugin tier only:
+> separate processes, JSON-RPC over stdio, tools as the sole capability. The
+> in-process **core plugin** framework (providers, commands, prompt blocks,
+> status segments, panels, typed events, ledger-managed enable/disable) is a
+> separate design: `plugin-framework-v2.md`, tracked in
+> `docs/plugin-framework-tracker.md`. The two tiers share the word "plugin" and
+> nothing else.
+
 Plugins are self-contained programs that extend amber with new agent tools and
 new slash-command namespaces. The harness never links plugin code: every plugin
 is a separate executable speaking JSON-RPC over stdio, so a plugin crash cannot

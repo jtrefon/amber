@@ -1,441 +1,393 @@
 # Amber Plugin Developer Guide
 
-This guide explains how to build plugins for amber. It covers both core plugins
-(in-process, for deep integration) and external plugins (separate process, for
-isolation).
+How to extend amber. Two plugin tiers exist, and they are different products
+with different trade-offs — pick deliberately:
 
-## Quick Start
+| | **External plugin** (v1) | **Core plugin** (v2) |
+|---|---|---|
+| Ships today | ✅ Yes | ⏳ In progress — see the availability table below |
+| Language | Any (executable) | C++17, compiled into amber |
+| Isolation | Separate process; a crash cannot take amber down | Same process; a crash takes amber down |
+| Can contribute | Tools (+ inert command subtrees) | Tools, providers, commands, prompt blocks, status segments, panels, settings, log sinks, event hooks |
+| Distribution | User installs into `~/.config/amber/plugins/<id>/` | Bundled with amber (compiled-in) |
+| Spec | `plugins/README.md` (protocol), this guide §6 | `plugins/plugin-framework-v2.md` |
 
-### External Plugin (Simplest)
+**The framework is being built to be dogfooded.** Providers, status readouts,
+and the registry console are its first consumers. If you are here to add an LLM
+provider, read §5 — that path is the reason the framework exists.
 
-An external plugin is a standalone executable that speaks JSON-RPC over stdio.
-It needs only three things: a manifest, a main loop, and the ability to handle
-`initialize`, `tool.call`, and `shutdown` messages.
+---
 
-**1. Create the plugin directory:**
+## Availability
 
-```
-~/.config/amber/plugins/hello/
-├── manifest.json
-└── hello-plugin
-```
+The authority on status is `docs/plugin-framework-tracker.md`. This table mirrors
+it; if they disagree, the tracker wins (and file a fix).
 
-**2. Write `manifest.json`:**
+| Capability | Status | Phase |
+|---|---|---|
+| External tool plugin (subprocess, JSON-RPC) | ✅ Available | v1 |
+| Tool contribution (core) | ⏳ | PF-1 |
+| Command contribution, executable | ⏳ | PF-1 |
+| Typed event subscription | ⏳ | PF-1 |
+| Prompt block contribution | ⏳ | PF-1 |
+| Settings contribution | ⏳ | PF-1 |
+| v1 external plugins under the unified registry | ⏳ | PF-1 |
+| `/get plugin`, `/set plugin on\|off` | ⏳ | PF-1 |
+| Provider contribution | ⏳ | PF-2 |
+| Status segment contribution | ⏳ | PF-3 |
+| Panel contribution + registry console | ⏳ | PF-3 |
+| Host services (`ask_secret`, `choose`, …) | ⏳ | PF-3 |
+| Log sinks | – | Deferred (no consumer) |
+| Theme, key interception, window geometry, hot reload | – | Deferred register |
 
-```json
-{
-  "id": "hello",
-  "name": "Hello Plugin",
-  "version": "1.0.0",
-  "protocol_version": 1,
-  "author": "Your Name",
-  "url": "https://github.com/you/amber-hello",
-  "license": "MIT",
-  "description": "A minimal example plugin. Adds a /hello command.",
-  "main": "hello-plugin",
-  "tools": [
-    {
-      "name": "greet",
-      "description": "Greets the user by name",
-      "schema": {
-        "name": {
-          "type": "string",
-          "required": true,
-          "description": "Name to greet"
-        }
-      }
+Sections marked **⏳ target** describe the agreed contract. Do not build against
+them until the tracker flips them to available — the spec is the design of
+record, not a promise about `main`.
+
+---
+
+## 1. Core plugin anatomy
+
+A core plugin is a C++ class implementing `IPlugin` plus the capabilities it
+declares:
+
+```cpp
+#include "agent/plugin_v2.h"
+
+class HelloPlugin : public agent::IPlugin {
+public:
+    std::string id() const override { return "hello"; }        // slug, unique
+    std::string version() const override { return "1.0.0"; }   // semver
+    std::string name() const override { return "Hello"; }      // display
+    int api_version() const override { return agent::kPluginApiVersion; }
+
+    bool initialize(const agent::PluginContext& ctx) override {
+        ctx_ = &ctx;          // store; do not do work here that needs installing
+        return true;          // false => plugin marked Failed, nothing installed
     }
-  ],
-  "completion": {
-    "hello": {
-      "action": "plugin.hello",
-      "help": "Hello plugin commands",
-      "man": "A simple greeting plugin.",
-      "children": {
-        "greet": {
-          "action": "plugin.hello.greet",
-          "help": "Greet someone by name",
-          "man": "Usage: /hello greet <name>"
-        }
-      }
+
+    void shutdown() override {
+        // Release plugin-owned resources. Contributions are removed by the
+        // runtime's ledger — do not unregister them yourself.
     }
-  }
-}
+
+    std::vector<std::unique_ptr<agent::Capability>> capabilities() override;
+};
 ```
 
-**3. Write the plugin (Python example):**
+The runtime installs your capabilities, records each one in the ledger, and on
+disable unwinds them in reverse order. **You declare; the runtime installs.** A
+plugin that registers things outside this path is a bug, because it cannot be
+disabled cleanly.
 
-```python
-#!/usr/bin/env python3
-"""Minimal amber plugin — reads JSON-RPC from stdin, writes to stdout."""
-import sys, json
-
-def handle(msg):
-    method = msg.get("method")
-    if method == "initialize":
-        return {"protocol_version": 1, "ok": True}
-    elif method == "tool.call":
-        name = msg["params"]["name"]
-        args = msg["params"]["args"]
-        if name == "greet":
-            return {"ok": True, "output": f"Hello, {args.get('name', 'world')}!"}
-        return {"ok": False, "output": f"Unknown tool: {name}"}
-    elif method == "shutdown":
-        sys.exit(0)
-    return {"ok": False, "output": f"Unknown method: {method}"}
-
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    msg = json.loads(line)
-    resp = {"id": msg.get("id"), "result": handle(msg)}
-    print(json.dumps(resp), flush=True)
-```
-
-**4. Make it executable:**
-
-```bash
-chmod +x ~/.config/amber/plugins/hello/hello-plugin
-```
-
-**5. Enable it in amber:**
-
-```
-/plugin enable hello
-```
-
-The plugin's `greet` tool is now available to the agent, and `/hello greet
-<name>` appears in the command tree.
+Bundled plugins live in `plugins/<id>/` and are registered in one place
+(`register_bundled_plugins`), so the shipped set is enumerable at a glance.
 
 ---
 
-## Architecture Overview
+## 2. Capabilities ⏳ target
 
+One capability = one contribution. `kind()` tells the runtime which registry
+installs it; `install()` returns a handle the ledger keeps.
+
+```cpp
+class Capability {
+public:
+    virtual ~Capability() = default;
+    virtual std::string name() const = 0;       // unique within the plugin
+    virtual CapabilityKind kind() const = 0;
+    virtual InstallResult install(PluginServices&) = 0;
+};
 ```
-amber harness                    plugin executable
-┌──────────────────┐            ┌──────────────────┐
-│ PluginRegistry   │◄── pipe ──►│ main loop        │
-│   ├─ discover()  │  JSON-RPC  │   read stdin     │
-│   ├─ activate()  │            │   handle method  │
-│   └─ deactivate()│            │   write stdout   │
-│ ToolRegistry     │            └──────────────────┘
-│ EventBus         │
-│ SettingRegistry  │
-└──────────────────┘
-```
-
-- **Core plugins** are C++ classes linked into amber. They implement `IPlugin`
-  directly and have full access to the harness.
-- **External plugins** are separate processes. They communicate via newline-delimited
-  JSON-RPC 2.0 over stdin/stdout. A `V1PluginAdapter` in amber bridges the
-  wire protocol to the `IPlugin` interface.
-
-Both types register capabilities (tools, completions, hooks, etc.) through the
-same `PluginRegistry` API.
-
----
-
-## Plugin Lifecycle
-
-```
-Discovered → Registered → Active → Shutdown
-                 ↓            ↓
-              Failed      Deactivated
-```
-
-1. **Discovered**: amber finds `manifest.json` in a plugin directory.
-2. **Registered**: `PluginRegistry::register_plugin()` is called.
-3. **Active**: `initialize()` succeeds. Capabilities are registered in the
-   harness (tools in `ToolRegistry`, completions in `SettingRegistry`, etc.).
-4. **Failed**: `initialize()` returned false or threw. The plugin is skipped.
-5. **Deactivated**: `deactivate()` was called. Capabilities are unregistered.
-6. **Shutdown**: `shutdown()` was called. Resources are released.
-
-### Lifecycle Methods
-
-| Method | When called | What to do |
-|--------|------------|------------|
-| `initialize(ctx)` | Once, at activation | Store context, register capabilities, subscribe to events |
-| `capabilities()` | After `initialize` | Return the list of capabilities this plugin provides |
-| `shutdown()` | Once, at deactivation | Release resources, unsubscribe from events |
-
----
-
-## Capability Types
 
 ### Tool
 
-Register a tool that the agent can call:
-
 ```cpp
-ToolDef tool;
-tool.name = "greet";
-tool.description = "Greets the user by name";
-tool.schema = json{{"name", {{"type", "string"}, {"required", true}}}};
-tool.execute = [](const json& args) -> ToolResult {
-    std::string name = args.value("name", "world");
-    return {true, "Hello, " + name + "!", "", json{}};
-};
+class GreetTool : public agent::Capability {
+public:
+    std::string name() const override { return "greet"; }
+    agent::CapabilityKind kind() const override { return agent::CapabilityKind::Tool; }
 
-Capability cap;
-cap.type = Capability::Type::Tool;
-cap.name = "greet";
-cap.impl = &tool;
-```
-
-### Completion
-
-Contribute a subtree to the command tree:
-
-```cpp
-CompletionNode node;
-node.action = "plugin.hello";
-node.help = "Hello plugin commands";
-node.man = "A simple greeting plugin.";
-node.children["greet"] = CompletionNode{
-    "plugin.hello.greet",
-    "Greet someone by name",
-    "Usage: /hello greet <name>",
-    {}
-};
-
-Capability cap;
-cap.type = Capability::Type::Completion;
-cap.name = "hello";
-cap.impl = &node;
-```
-
-### Hook
-
-Observe or intercept agent events:
-
-```cpp
-HookHandler hook;
-hook.event_type = EventType::AgentTurnStart;
-hook.intercept = true;  // can modify the event
-hook.handler = [](Event& e) -> bool {
-    auto* data = static_cast<TurnStartEvent*>(e.data);
-    data->prompt = "You are a helpful assistant.\n" + data->prompt;
-    return true;  // continue processing
-};
-
-Capability cap;
-cap.type = Capability::Type::Hook;
-cap.name = "prompt_enhancer";
-cap.impl = &hook;
-```
-
-### Theme
-
-Override TUI rendering:
-
-```cpp
-static ThemeImpl my_theme{
-    "my_theme",
-    {
-        {"bg", ColorPair(COLOR_BLACK, COLOR_BLUE)},
-        {"fg", ColorPair(COLOR_WHITE, COLOR_BLACK)},
-    },
-    [](RenderContext& ctx) {
-        ctx.status_bar_style = StatusBarStyle::Compact;
+    agent::InstallResult install(agent::PluginServices& svc) override {
+        return svc.tools().add(std::unique_ptr<agent::Tool>(new GreetToolImpl));
     }
 };
-
-Capability cap;
-cap.type = Capability::Type::Theme;
-cap.name = "my_theme";
-cap.impl = &my_theme;
 ```
 
-### Provider
+Rules: return errors as `ToolResult{false, "", error}` — never throw
+(`AGENTS.md` error conventions). The tool name is namespaced so it cannot
+collide with a core tool.
 
-Register an LLM provider:
+### Command
 
 ```cpp
-static ProviderImpl my_provider;
-my_provider.name = "my_llm";
-my_provider.models = {{"my-model-1", 4096}, {"my-model-2", 8192}};
-my_provider.probe = [](const Config& cfg) -> ServerInfo {
-    // Check if the server is reachable
-    return {true, "my-model-1", 4096};
-};
-my_provider.chat = [](const Request& req, const Config& cfg) -> Message {
-    // Make API call and return response
-    return Message{"assistant", "Hello!"};
-};
-
-Capability cap;
-cap.type = Capability::Type::Provider;
-cap.name = "my_llm";
-cap.impl = &my_provider;
+agent::CommandSpec spec;
+spec.root = "hello";                       // one namespace root, owned by you
+spec.subtree = json::parse(R"({
+  "greet": { "help": "Greet someone", "man": "Usage: /hello greet <name>" }
+})");
+spec.handlers["greet"] = [](const std::string& arg) { /* ... */ };
 ```
 
----
+The runtime merges the subtree into the command tree and registers each leaf's
+handler — leaf entries in the drawer always execute. The command surface stays
+JSON-driven: never hardcode a path in a handler (`AGENTS.md`, command-tree
+rules).
 
-## Event Bus
-
-Subscribe to events to observe or modify agent behavior:
+### Prompt block
 
 ```cpp
-// Observe (read-only)
-ctx.event_bus.subscribe(EventType::ToolCallAfter, [](const Event& e) {
-    auto* data = static_cast<ToolResultEvent*>(e.data);
-    std::cerr << "Tool " << data->name << " returned ok=" << data->result.ok << "\n";
-});
+class ProjectFactsBlock : public agent::PromptBlockCapability {
+public:
+    std::string id() const override { return "project_facts"; }
+    int priority() const override { return 400; }   // ascending; core uses 100/200/300
 
-// Intercept (can modify or cancel)
-ctx.event_bus.intercept(EventType::ToolCallBefore, [](Event& e) -> bool {
-    auto* data = static_cast<ToolCallEvent*>(e.data);
-    if (data->name == "dangerous_tool") {
-        data->cancel = true;  // prevent execution
-        return false;
+    std::string render(const agent::PromptSnapshot&) const override {
+        return has_changed() ? "Project facts: …" : "";   // "" contributes nothing
     }
-    return true;  // continue
-});
+};
 ```
 
-### Event Types Reference
+Blocks are appended as their own `system` message on the **prompt copy** — the
+sealed `Context` is never mutated. **Determinism matters:** a block whose content
+changes every turn invalidates the server's KV prefix from its position onward.
+Keep volatile content at a high priority (near the tail), or cache until the
+underlying fact changes.
 
-| Event | Interceptable | `data` type | Use case |
-|-------|:------------:|------------|----------|
-| `AgentTurnStart` | Yes | `TurnStartEvent*` | Modify prompt, inject context |
-| `AgentTurnEnd` | No | `TurnEndEvent*` | Log stats, update UI |
-| `ToolCallBefore` | Yes | `ToolCallEvent*` | Modify args, block execution |
-| `ToolCallAfter` | No | `ToolResultEvent*` | Log results, update state |
-| `MessageAdded` | No | `MessageEvent*` | Track conversation |
-| `CompressionTriggered` | No | `CompressionEvent*` | Monitor compression |
-| `LLMRequestBefore` | Yes | `LLMRequestEvent*` | Modify request body |
-| `LLMResponseAfter` | No | `LLMResponseEvent*` | Inspect usage |
-| `TUIRender` | Yes | `RenderEvent*` | Override rendering |
-| `TUIKeyPress` | Yes | `KeyEvent*` | Remap keys |
-| `TUIInputChanged` | No | `InputEvent*` | Track input |
-| `PluginLoaded` | No | `PluginEvent*` | React to new plugins |
-| `PluginUnloaded` | No | `PluginEvent*` | Cleanup |
+### Status segment
+
+```cpp
+class BalanceSegment : public agent::StatusSegmentCapability {
+public:
+    std::string id() const override { return "kilocode_balance"; }
+    int priority() const override { return 500; }
+    int drop_priority() const override { return 10; }  // higher drops last
+
+    std::string text(const agent::StatusSnapshot&) const override {
+        return balance_ < 0 ? "" : "$" + fmt(balance_);
+    }
+};
+```
+
+Render callables run **inside frame composition on the UI thread**: fast, pure
+reads, no I/O, no locks, no mutation. Update the value from an event handler and
+publish the UI-visible snapshot with `post_to_ui` if needed.
+
+### Panel
+
+```cpp
+class ConsolePanel : public agent::PanelCapability {
+public:
+    std::string id() const override { return "registry_console"; }
+    std::string title() const override { return "Plugins"; }
+    void render(agent::PanelCanvas& c, const agent::StatusSnapshot&) const override;
+    bool handle_key(int key) override;   // true = consumed; called only when focused
+};
+```
+
+The host owns placement, focus, and overflow — plugins never address the screen
+directly. Keys arrive only while your panel is focused; the framework
+deliberately does not allow global key interception (see the deferred register).
+
+### Provider ⏳ target (PF-2)
+
+```cpp
+agent::ProviderSpec spec;
+spec.flavor = "gemini";
+spec.make_dialect = [] { return std::make_unique<GeminiDialect>(); };
+spec.presets = {{"gemini", "https://generativelanguage.googleapis.com", "gemini-2.5-pro", true}};
+spec.auth = agent::AuthSpec::api_key("GEMINI_API_KEY");   // may prompt via host services
+```
+
+Everything wire-specific — endpoints, auth headers, body, buffered parse, stream
+decoding, model listing, usage mapping, retry classification, overflow hints —
+belongs in the **dialect** (`docs/spec/llm-client/dialect.md`), not in the
+plugin's plumbing. A provider plugin must not open its own HTTP client: the
+transport is shared.
+
+### Settings and log sinks
+
+Settings contribute `/get`/`/set` entries with the same getter/setter contract
+the core uses. Log sinks receive `(level, tag, message)`; they must be bounded,
+non-blocking, and must not throw — the conversation log stays authoritative.
+
+### Runtime state: on/off and settings
+
+Bundled plugins are **on by default**. Users control them through the command
+tree, not through a config file edit:
+
+| Command | Effect |
+|---|---|
+| `/get plugin list` | Every plugin with tier, state, and what it contributes |
+| `/get plugin <id>` | Detail: version, api version, capabilities, state source |
+| `/set plugin <id> off` \| `on` | Enable/disable; applies immediately and persists |
+| `/set plugin <id> <key>=<value>` | Per-plugin settings |
+
+State lives in `~/.config/amber/plugins/<id>/plugin.conf` (the same directory a
+user-installed external plugin already uses for its `manifest.json`). Your plugin
+does not read or write that file — the runtime does, and a disabled plugin is
+never initialized.
+
+When a plugin contributes providers, toggling it re-publishes the provider feed:
+its providers appear in `/get provider list` and the completion drawer when on,
+and are gone when off, with no restart. If your contribution is expected to be
+visible live, say so in your PR description and add the feed-refresh test.
 
 ---
 
-## Manifest Reference
+## 3. Events ⏳ target
 
-### Required Fields
+Subscribe through a `Hook` capability so the subscription is ledger-owned:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique slug: `[a-z0-9_]+`. Used for directory name, tool prefix, namespace. |
-| `name` | string | Display name. |
-| `version` | string | Semver (e.g. `1.2.0`). |
-| `protocol_version` | integer | Must match harness (`1` for v1). |
-| `description` | string | How/when to use this plugin. Rendered in system prompt. |
-| `main` | string | Executable path relative to plugin directory. |
+```cpp
+class TurnCounter : public agent::HookCapability {
+public:
+    std::string name() const override { return "count_turns"; }
+    void install(agent::PluginServices& svc) override {
+        sub_ = svc.events().subscribe<agent::TurnEndedEvent>(
+            [this](const agent::TurnEndedEvent&) { ++turns_; });
+    }
+};
+```
 
-### Optional Fields
+Catalogue and fire sites: spec §6. What you can rely on:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `author` | string | Attribution. |
-| `url` | string | Homepage / source repository. |
-| `license` | string | SPDX license identifier. |
-| `settings` | object | Default key/value settings. Overridable via `/plugin set`. |
-| `tools` | array | Tool definitions (name, description, schema). |
-| `completion` | object | Command tree subtree (action, help, man, children). |
+- Payloads are **typed** — no `void*` casts.
+- Handlers run on the **thread that published** (the agent's owner thread for
+  turn/tool/LLM events). Do not block. Long work goes to your own worker.
+- `ToolRequested` fires **before** the approval gate: it means "the model asked",
+  not "this will run".
+- Hidden confirmation exchanges are never published.
+- **There is no per-token event.** Streaming tokens remain the host UI's channel;
+  a bus that fires per token would be a performance regression by design.
+- Error events are observation-only; classification (retryable? overflow?) is
+  provider behaviour and lives in the dialect.
 
 ---
 
-## Installation
+## 4. Host services (talking to the user) ⏳ target
 
-### User plugins
-
-Place in `~/.config/amber/plugins/<id>/`:
-
-```bash
-mkdir -p ~/.config/amber/plugins/myplugin
-cp manifest.json myplugin-plugin ~/.config/amber/plugins/myplugin/
-chmod +x ~/.config/amber/plugins/myplugin/myplugin-plugin
+```cpp
+std::string key = ctx_->ui().ask_secret({"Gemini API key", "Paste the key"});
+int choice = ctx_->ui().choose({"Pick a model", model_ids});
+bool ok = ctx_->ui().confirm({"Overwrite the config?", "This cannot be undone"});
+ctx_->ui().notify(agent::Level::Info, "Balance refreshed");
+ctx_->ui().post_to_ui([this] { snapshot_ = build_snapshot(); });
 ```
 
-### Workspace plugins
-
-Place in `<workspace>/.amber/plugins/<id>/`:
-
-```bash
-mkdir -p .amber/plugins/myplugin
-cp manifest.json myplugin-plugin .amber/plugins/myplugin/
-chmod +x .amber/plugins/myplugin/myplugin-plugin
-```
-
-### System plugins
-
-Place in `$(datadir)/amber/plugins/<id>/` (requires root):
-
-```bash
-sudo cp -r myplugin /usr/share/amber/plugins/
-```
-
-### Install from archive
-
-```
-/plugin install /path/to/myplugin-1.0.0.tar.gz
-/plugin install https://example.com/myplugin-1.0.0.tar.gz
-```
-
-The archive must contain `manifest.json` and the executable at its root.
+- Calls are blocking on *your* thread; the host shows the UI on its own thread
+  and returns the answer. In a non-interactive CLI run they fail closed, the
+  same way the bash tool's approval does.
+- Use `post_to_ui` for anything the render callables will read — that is the
+  sanctioned cross-thread update path.
+- Never assume a terminal. Your plugin must work in the headless CLI.
 
 ---
 
-## Admin Commands
+## 5. Adding a provider (the flagship path) ⏳ target
 
-| Command | Description |
-|---------|-------------|
-| `/plugin list` | List all discovered plugins and their state |
-| `/plugin status <id>` | Show detailed status of a plugin |
-| `/plugin enable <id>` | Activate a plugin (initialize + register capabilities) |
-| `/plugin disable <id>` | Deactivate a plugin (unregister + shutdown) |
-| `/plugin info <id>` | Show manifest metadata (author, url, license) |
-| `/plugin get <id> [key]` | Read a plugin setting |
-| `/plugin set <id> <key>=<value>` | Set a plugin setting |
-| `/plugin install <path\|url>` | Install from tar.gz archive |
-| `/plugin uninstall <id>` | Remove a user-installed plugin |
+1. **Config-only first.** If the endpoint speaks the OpenAI wire protocol
+   (`/chat/completions`, bearer auth, OpenAI SSE), it is **already supported** —
+   add a provider definition, no code at all.
+2. **A new wire protocol** is a plugin: write the dialect
+   (`chat_url`, `models_url`, `auth_headers`, `build_chat_body`,
+   `parse_completion`, `make_decoder`, `parse_models_response`, `parse_usage`,
+   `is_retryable`, `context_overflow_hint`), then a `ProviderSpec` that registers
+   it with presets and auth.
+3. **Test it hermetically** — body/parse/stream fixtures like
+   `tests/dialect_anthropic_test.cpp`. No live network in `make test`.
+4. **Prove the seam held:** your diff must not touch `lib/http_transport.cpp`,
+   the agent loop, or the TUI. If it does, the framework — not your plugin — is
+   missing an extension point; say so in the PR instead of working around it.
 
----
-
-## Security
-
-- External plugin code is **untrusted**. It runs with your privileges but is
-  isolated in a separate process. A crash does not affect amber.
-- Path arguments are confined to the workspace before the plugin sees them.
-- Output is capped at 64 KiB per tool call.
-- Plugin tools appear in the agent's tool list with the `plugin_<id>_` prefix.
-  Approval rules can target them by name.
-- Core plugins are **trusted** (in-process). They have full access to the
-  harness. Only install core plugins you trust.
+The Gemini plugin (PF-2) is the worked reference implementation.
 
 ---
 
-## Differences: Core vs External
+## 6. External plugins (available today)
 
-| Property | Core plugin | External plugin |
-|----------|------------|----------------|
-| Language | C++ | Any (Python, Go, Rust, etc.) |
-| Process | Same as amber | Separate process |
-| Communication | Direct C++ calls | JSON-RPC over stdio |
-| Crash impact | Harness crash | No impact |
-| Path confinement | Bypassed | Enforced |
-| Performance | Zero overhead | IPC overhead |
-| Capability access | All types | All types (via protocol extension) |
-| Hot-reload | No | No (restart required) |
+External plugins are executables speaking newline-delimited JSON-RPC 2.0 over
+stdio. Full protocol: **`plugins/README.md`**. Minimal shape:
+
+```
+~/.config/amber/plugins/hello/
+├── manifest.json      # id, name, version, protocol_version, main, tools[], completion{}
+└── hello-plugin       # executable, chmod +x
+```
+
+Methods: `initialize`, `tool.call`, `shutdown` (others return
+`Method not found`). A tool call returns the standard envelope:
+
+```json
+{"id": 2, "result": {"ok": true, "output": "Hello, world!", "meta": {}}}
+```
+
+Manage with `/plugin list|status|enable|disable|install|uninstall`. Tools appear
+to the agent as `plugin_<id>_<name>`; the agent prompt advertises them when the
+plugin is enabled.
+
+**Known limitation:** command subtrees contributed by external plugins currently
+render in the completion drawer but cannot execute — no handler is registered for
+`plugin.*` actions. Until PF-1 lands command contribution, treat external
+plugin commands as documented-but-inert and rely on tools.
 
 ---
 
-## Examples
+## 7. Rules the framework enforces
 
-See the proof-of-concept plugins in `plugins/`:
-- `plugins/theme/` — TUI theme override (core plugin)
-- `plugins/prompt_interceptor/` — agent prompt modification (core plugin)
-- `plugins/google_llm/` — LLM provider registration (core plugin)
+| Rule | Why |
+|---|---|
+| Declare capabilities; let the runtime install them | Only the ledger can guarantee clean disable |
+| No screen access, no ncurses, no widget calls | Plugins must run headless; UI goes through host services |
+| Render callables are pure and fast | They run inside frame composition |
+| Never mutate `Context` | It is a sealed, hash-chained stack (`docs/spec/context/…`); prompt contributions go on the prompt copy |
+| No per-token work | The streaming path is the hot path |
+| No global key interception | Untestable and hostile to the user's UI |
+| No blocking in event handlers | Events fire on the agent's owner thread |
+| Errors are returned, not thrown | `ToolResult`/`InstallResult` conventions in `AGENTS.md` |
 
-See the existing v1 plugins for external plugin patterns:
-- `tools/plugins/sysinfo/` — host telemetry (C++)
-- `tools/plugins/cdp/` — browser automation (C++, WebSocket)
+---
 
-See the test fixture for a minimal example:
-- `tests/plugins/fake_plugin.py` — Python echo plugin (23 lines)
+## 8. Testing your plugin
+
+- **Unit**: capabilities against a fake `PluginServices`; assert what you
+  contribute and that removal is total.
+- **Hermetic integration**: register your plugin in a `Runtime`, drive a turn
+  with the fake LLM client (`tests/fake_llm.h`), assert observable effects. No
+  network, ever.
+- **Dialect tests** (providers): pure body/parse/stream fixtures.
+- **Regression**: run `make test` — your plugin's contributions must not leak
+  into other tests (the ledger test exists to catch exactly this).
+
+Every contribution lands with a failing test first (red), then the
+implementation (green), then a PR that keeps
+`make clean && make && make test && make lint && make analyze && make check`
+green on g++ and clang++.
+
+---
+
+## 9. Review checklist for plugin PRs
+
+- [ ] Plugin depends only on the public plugin API — no `tui/` includes, no
+      reaching into `Tui` internals.
+- [ ] Every contribution goes through a capability; nothing is registered in
+      `initialize` outside the ledger.
+- [ ] Render callables are pure; cross-thread state uses `post_to_ui`.
+- [ ] No blocking, no I/O in event handlers.
+- [ ] Tests: contribution, removal, and one hermetic end-to-end path.
+- [ ] The availability table in the tracker is updated in the same PR.
+- [ ] Zero new clang-tidy/cppcheck findings; size limits respected (class ≤200
+      lines, method ≤10 lines).
+
+---
+
+## 10. Where to look
+
+| Question | Document |
+|---|---|
+| What is the framework, exactly? | `docs/spec/plugins/plugin-framework-v2.md` |
+| What is being built when? | `docs/plugin-framework-tracker.md` |
+| Provider wire protocols | `docs/spec/llm-client/dialect.md` |
+| External plugin protocol (v1) | `docs/spec/plugins/README.md` |
+| Engineering standards, TDD workflow | `AGENTS.md` |
+| Command-tree rules | `AGENTS.md` (command tree architecture) |
