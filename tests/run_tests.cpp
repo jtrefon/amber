@@ -21,6 +21,8 @@
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
+#include "agent/subagent.h"
+#include "agent/plugin.h"
 #include "tests/test_util.h"
 
 #include <array>
@@ -1230,6 +1232,78 @@ TEST(search_semantic_backend_ranks_relevant) {
     run_cmd("rm -rf " + dir);
 }
 
+// ---------------------------------------------------------------------------
+// SEC-03: search backend hardening (Red tests).
+// GrepBackend must reject option-injection patterns (those starting with -
+// must be treated as patterns, not grep flags). SemanticIndex must not
+// follow symlinks that escape the workspace root. SearchTool must clamp
+// max to a sane upper bound.
+// ---------------------------------------------------------------------------
+
+TEST(sec03_grep_backend_pattern_starting_with_dash) {
+    // A pattern starting with "-" must be treated as a pattern, not a
+    // grep option. Without "--" before the pattern, grep would interpret
+    // "-foo" as an unknown option and fail (or worse, match a different
+    // flag). The backend must still find the literal text.
+    std::string dir = make_search_tree();
+    // Add a file containing a dash-prefixed token.
+    {
+        std::ofstream f(dir + "/dash.cpp");
+        f << "int -foo bar;\n";
+    }
+    auto be = agent::make_grep_backend();
+    auto hits = be->search("-foo", dir, "*.cpp", 100);
+    ASSERT_FALSE(hits.empty());
+    bool found = false;
+    for (const auto& h : hits) {
+        if (h.line.find("-foo") != std::string::npos) found = true;
+    }
+    ASSERT(found);
+    run_cmd("rm -rf " + dir);
+}
+
+TEST(sec03_semantic_index_skips_symlink_escape) {
+    // A symlink inside the workspace pointing to a file outside must not
+    // be indexed or returned by the semantic backend.
+    std::string dir = "/tmp/amber_sec03_sym";
+    std::string outside = "/tmp/amber_sec03_outside";
+    run_cmd("rm -rf " + dir + " " + outside);
+    std::filesystem::create_directories(dir);
+    std::filesystem::create_directories(outside);
+    // Outside file with a unique marker.
+    {
+        std::ofstream f(outside + "/secret.cpp");
+        f << "int SEC03_SYMLINK_ESCAPE_MARKER = 1;\n";
+    }
+    // Inside file with normal content.
+    {
+        std::ofstream f(dir + "/inside.cpp");
+        f << "int normal_code = 0;\n";
+    }
+    // Symlink inside the workspace pointing to the outside file.
+    std::filesystem::create_symlink(outside + "/secret.cpp", dir + "/link.cpp");
+
+    auto be = agent::make_semantic_backend();
+    auto hits = be->search("SEC03_SYMLINK_ESCAPE_MARKER", dir, "*.cpp", 100);
+    // The symlinked file must NOT appear in results: no hit path should
+    // contain "link.cpp" (the symlink).
+    for (const auto& h : hits) {
+        ASSERT(h.path.find("link.cpp") == std::string::npos);
+    }
+    run_cmd("rm -rf " + dir + " " + outside);
+}
+
+TEST(sec03_search_tool_clamps_max) {
+    // SearchTool must clamp max to a reasonable upper bound so a model
+    // cannot request an unbounded result set.
+    agent::Workspace::set_root("/tmp");
+    auto tool = agent::make_search_tool();
+    // A huge max must not crash or produce an unbounded query.
+    auto r = tool->execute({{"pattern", "x"}, {"max", 999999999}});
+    ASSERT_TRUE(r.ok);  // it runs, just clamped
+    run_cmd("rm -rf /tmp/amber_sec03_sym /tmp/amber_sec03_outside");
+}
+
 TEST(search_tool_mode_switch) {
     std::string dir = make_search_tree();
     agent::Workspace::set_root(dir);
@@ -2416,6 +2490,154 @@ TEST(shell_requires_approval_matches_classifier) {
     ASSERT_FALSE(tool->requires_approval({{"command", "ls"}}));
     ASSERT_TRUE(tool->requires_approval({{"command", "rm -rf x"}}));
     ASSERT_FALSE(tool->requires_approval({{"command", "git status"}}));
+}
+
+// ---------------------------------------------------------------------------
+// SEC-01: shell classifier security bypasses (Red tests).
+// Reader heads must not exempt out-of-workspace path arguments from
+// confinement; newline must act as a chain operator; input-redirect targets
+// must be confined; `cd` is not a read-only command.
+// ---------------------------------------------------------------------------
+
+TEST(sec01_reader_args_outside_workspace) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // Reader heads with outside-workspace args must be Outside, not ReadOnly.
+    ASSERT(agent::classify_shell("cat /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    ASSERT(agent::classify_shell("grep foo /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    ASSERT(agent::classify_shell("ls /tmp",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    ASSERT(agent::classify_shell("head /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    ASSERT(agent::classify_shell("tail /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    // In-workspace reader args stay ReadOnly (common case).
+    ASSERT(agent::classify_shell("cat file.txt",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    ASSERT(agent::classify_shell("grep -rn foo .",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    agent::Workspace::set_root(".");
+}
+
+TEST(sec01_cd_not_reader) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // `cd` changes process state and enables relative-path escapes; it is
+    // never read-only.
+    ASSERT(agent::classify_shell("cd /tmp",
+                                 "/tmp/amber_cls_ws").effect !=
+           agent::ShellEffect::ReadOnly);
+    // `cd /tmp && cat secret` escapes: the classifier must see the outside
+    // path, not treat the whole line as a read-only `cd`.
+    ASSERT(agent::classify_shell("cd /tmp && cat secret",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    agent::Workspace::set_root(".");
+}
+
+TEST(sec01_newline_is_chain_operator) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // An embedded newline separates commands exactly like ";". The second
+    // command reads /etc/passwd, so the whole line must be Outside, not
+    // ReadOnly (which the old tokenizer produced by merging both lines into
+    // one segment attributed to `echo`).
+    ASSERT(agent::classify_shell("echo a\ncat /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    // A newline-only composition of in-workspace readers stays non-ReadOnly
+    // (composed commands are never provably read-only), but must not be
+    // Outside either.
+    auto c = agent::classify_shell("ls .\ncat file.txt",
+                                    "/tmp/amber_cls_ws");
+    ASSERT(c.effect != agent::ShellEffect::ReadOnly);
+    ASSERT(c.effect != agent::ShellEffect::Outside);
+    agent::Workspace::set_root(".");
+}
+
+TEST(sec01_input_redirect_outside) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // Input redirect target must be confined: `cat < /etc/passwd` reads
+    // outside the workspace, so it must be Outside, not ReadOnly.
+    ASSERT(agent::classify_shell("cat < /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    // In-workspace input redirect stays ReadOnly.
+    ASSERT(agent::classify_shell("cat < input.txt",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    agent::Workspace::set_root(".");
+}
+
+// ---------------------------------------------------------------------------
+// SEC-02: approval-gate coverage for side-effecting tools (Red tests).
+// WriteTool (create/overwrite), TaskTool (sub-agent privilege escalation),
+// and PluginTool (external-process code execution) must opt into the
+// approval gate via requires_approval.
+// ---------------------------------------------------------------------------
+
+TEST(sec02_write_tool_create_requires_approval) {
+    auto tool = agent::make_write_tool();
+    // Create/overwrite (old == "") must require approval.
+    json create = {{"path", "x"}, {"edits", json::array({{{"old", ""}, {"new", "y"}}})}};
+    ASSERT_TRUE(tool->requires_approval(create));
+}
+
+TEST(sec02_write_tool_patch_no_approval) {
+    auto tool = agent::make_write_tool();
+    // In-place patch (old != "") does not require approval — the common
+    // agent workflow of editing existing files should not be gated.
+    json patch = {{"path", "x"}, {"edits", json::array({{{"old", "a"}, {"new", "b"}}})}};
+    ASSERT_FALSE(tool->requires_approval(patch));
+}
+
+TEST(sec02_task_tool_requires_approval) {
+    agent::SubAgentExecutor executor;
+    agent::ToolRegistry reg;
+    auto tool = agent::make_task_tool(executor, reg);
+    // TaskTool spawns a sub-agent with full tool access — always prompt.
+    ASSERT_TRUE(tool->requires_approval({{"prompt", "anything"}}));
+    ASSERT_TRUE(tool->requires_approval({}));
+}
+
+TEST(sec02_plugin_tool_requires_approval) {
+    // Stage the fake plugin and enable it to get a PluginTool into the
+    // registry, then verify it requires approval.
+    std::string base = "/tmp/amber_sec02_plugin";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    // EnvGuard equivalent
+    const char* old_xdg = std::getenv("XDG_CONFIG_HOME");
+    std::string saved_xdg = old_xdg ? old_xdg : "";
+    bool was_set = old_xdg != nullptr;
+    setenv("XDG_CONFIG_HOME", (base + "/xdg").c_str(), 1);
+
+    std::string dir = base + "/plugins/fake";
+    std::filesystem::create_directories(dir);
+    std::filesystem::copy_file("tests/plugins/fake_manifest.json", dir + "/manifest.json",
+                               std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file("tests/plugins/fake_plugin.py", dir + "/fake_plugin.py",
+                               std::filesystem::copy_options::overwrite_existing);
+    chmod((dir + "/fake_plugin.py").c_str(), 0755);
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    ASSERT(mgr.enable("fake", reg));
+    auto echo = reg.find("plugin_fake_echo");
+    ASSERT(echo != nullptr);
+    // PluginTool runs external-process code — always prompt.
+    ASSERT_TRUE(echo->requires_approval({{"text", "hello"}}));
+    ASSERT_TRUE(echo->requires_approval({}));
+
+    if (was_set) setenv("XDG_CONFIG_HOME", saved_xdg.c_str(), 1);
+    else unsetenv("XDG_CONFIG_HOME");
 }
 
 // ---------------------------------------------------------------------------

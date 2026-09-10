@@ -3,18 +3,22 @@
 #include "feed_manager.h"
 #include "tui/list_panel.h"
 #include "tui/confirm_panel.h"
+#include "tui/path_confine.h"
 #include "agent/model_probe.h"
 #include "agent/skill_commands.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_commands.h"
 
 #include <algorithm>
+#include <chrono>
 #include <csignal>
 #include <ctime>
 #include <fstream>
 #include <stdexcept>
 #include <thread>
 #include <unistd.h>
+#include <agent/job.h>
+#include <agent/workspace.h>
 
 namespace tui {
 // Provider edit form (Server URL / API Key / Model / Context). Returns
@@ -1506,9 +1510,11 @@ void SlashDispatcher::cmd_session_rename(const std::string& rest) {
 
 void SlashDispatcher::cmd_files_ls(const std::string& rest) {
     namespace fs = std::filesystem;
-    std::string root = agent::Workspace::root();
-    std::string path = rest.empty() ? "." : rest;
-    if (path[0] != '/') path = root + "/" + path;
+    std::string path, err;
+    if (!tui::confine_path(rest.empty() ? "." : rest, path, err)) {
+        tui_.append_line(P_STATUS, "path denied: " + err);
+        return;
+    }
     fs::path p(path);
     if (!fs::exists(p)) { tui_.append_line(P_STATUS, "not found: " + path); return; }
     if (fs::is_directory(p)) {
@@ -1524,9 +1530,11 @@ void SlashDispatcher::cmd_files_ls(const std::string& rest) {
 
 void SlashDispatcher::cmd_files_tree(const std::string& rest) {
     namespace fs = std::filesystem;
-    std::string root = agent::Workspace::root();
-    std::string path = rest.empty() ? "." : rest;
-    if (path[0] != '/') path = root + "/" + path;
+    std::string path, err;
+    if (!tui::confine_path(rest.empty() ? "." : rest, path, err)) {
+        tui_.append_line(P_STATUS, "path denied: " + err);
+        return;
+    }
     fs::path p(path);
     std::string out;
     if (fs::exists(p) && fs::is_directory(p)) {
@@ -1547,9 +1555,11 @@ void SlashDispatcher::cmd_files_tree(const std::string& rest) {
 
 void SlashDispatcher::cmd_files_open(const std::string& rest) {
     namespace fs = std::filesystem;
-    std::string root = agent::Workspace::root();
-    std::string path = rest.empty() ? "." : rest;
-    if (path[0] != '/') path = root + "/" + path;
+    std::string path, err;
+    if (!tui::confine_path(rest.empty() ? "." : rest, path, err)) {
+        tui_.append_line(P_STATUS, "path denied: " + err);
+        return;
+    }
     fs::path p(path);
     if (!fs::exists(p) || fs::is_directory(p)) {
         tui_.append_line(P_STATUS, "not a file: " + path);
@@ -1564,9 +1574,11 @@ void SlashDispatcher::cmd_files_open(const std::string& rest) {
 
 void SlashDispatcher::cmd_files_find(const std::string& rest) {
     namespace fs = std::filesystem;
-    std::string root = agent::Workspace::root();
-    std::string path = rest.empty() ? "." : rest;
-    if (path[0] != '/') path = root + "/" + path;
+    std::string path, err;
+    if (!tui::confine_path(rest.empty() ? "." : rest, path, err)) {
+        tui_.append_line(P_STATUS, "path denied: " + err);
+        return;
+    }
     fs::path p(path);
     if (!fs::exists(p) || !fs::is_directory(p)) {
         tui_.append_line(P_STATUS, "not a directory: " + path);
@@ -1578,17 +1590,19 @@ void SlashDispatcher::cmd_files_find(const std::string& rest) {
 
 void SlashDispatcher::cmd_system_exec(const std::string& rest) {
     if (rest.empty()) { tui_.append_line(P_STATUS, "usage: /system exec <command>"); return; }
-    auto run_cmd = [&](const std::string& cmd) -> std::string {
-        FILE* f = popen(cmd.c_str(), "r");
-        if (!f) return "(popen failed)";
-        std::string out;
-        char buf[4096];
-        while (fgets(buf, sizeof buf, f)) out += buf;
-        pclose(f);
-        if (out.size() > 4096) out.resize(4096);
-        return out;
-    };
-    tui_.append_line(P_ASSISTANT, run_cmd(rest));
+    // Route through JobService so the command is visible in /jobs, killable,
+    // timeout-bounded, and output-capped — no untracked raw popen.
+    std::string id = tui_.jobs_.start(rest, agent::Workspace::root(), 60, 30);
+    // Wait for completion (synchronous UX: the user typed the command and
+    // expects the output inline). Poll until the job exits.
+    for (int i = 0; i < 600; ++i) {
+        auto job = tui_.jobs_.get(id);
+        if (!job || job->is_done()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    std::string out = tui_.jobs_.output(id);
+    if (out.size() > 4096) out.resize(4096);
+    tui_.append_line(P_ASSISTANT, out);
 }
 
 void SlashDispatcher::cmd_system_delete(const std::string& rest) {

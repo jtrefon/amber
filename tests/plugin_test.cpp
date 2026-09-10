@@ -189,7 +189,104 @@ TEST(plugin_advertisement_lists_enabled_tools) {
     ASSERT(ad.find("Echo text back.") != std::string::npos);
 }
 
-// The bundled sysinfo plugin (built by make) must load and report real host
+// ---------------------------------------------------------------------------
+// SEC-05: plugin manifest path safety (Red tests). The manifest "main"
+// field must not allow path traversal (../) or absolute escapes, and
+// symlinked entry points must be rejected.
+// ---------------------------------------------------------------------------
+
+TEST(sec05_manifest_rejects_parent_escape_main) {
+    std::string base = "/tmp/amber_sec05_plugin";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+
+    std::string dir = base + "/plugins/escape";
+    std::filesystem::create_directories(dir);
+    // A manifest with main="../../bin/sh" — a path traversal escape.
+    {
+        std::ofstream f(dir + "/manifest.json");
+        f << R"({"id": "escape", "name": "Escape", "version": "1.0.0",
+                 "protocol_version": 1, "main": "../../bin/sh"})";
+    }
+    // Create a fake executable at the escaped path so is_executable would pass
+    // if the path check were absent.
+    std::string outside = base + "/bin";
+    std::filesystem::create_directories(outside);
+    {
+        std::ofstream f(outside + "/sh");
+        f << "#!/bin/sh\nexit 0\n";
+    }
+    chmod((outside + "/sh").c_str(), 0755);
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    const agent::PluginInfo* info = mgr.find("escape");
+    REQUIRE(info != nullptr);
+    // The manifest must be rejected for path traversal, not loaded.
+    ASSERT(info->state == agent::PluginState::Incompatible);
+    ASSERT(!info->error.empty());
+    std::filesystem::remove_all(base);
+}
+
+TEST(sec05_manifest_rejects_absolute_main) {
+    std::string base = "/tmp/amber_sec05_plugin";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+
+    std::string dir = base + "/plugins/abs";
+    std::filesystem::create_directories(dir);
+    // A manifest with main="/bin/sh" — an absolute path escape.
+    {
+        std::ofstream f(dir + "/manifest.json");
+        f << R"({"id": "abs", "name": "Abs", "version": "1.0.0",
+                 "protocol_version": 1, "main": "/bin/sh"})";
+    }
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    const agent::PluginInfo* info = mgr.find("abs");
+    REQUIRE(info != nullptr);
+    ASSERT(info->state == agent::PluginState::Incompatible);
+    ASSERT(!info->error.empty());
+    std::filesystem::remove_all(base);
+}
+
+TEST(sec05_manifest_rejects_symlink_main) {
+    std::string base = "/tmp/amber_sec05_plugin";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+
+    std::string dir = base + "/plugins/sym";
+    std::filesystem::create_directories(dir);
+    // A real executable outside the plugin dir.
+    std::string outside = base + "/outside.sh";
+    {
+        std::ofstream f(outside);
+        f << "#!/bin/sh\necho pwned\n";
+    }
+    chmod(outside.c_str(), 0755);
+    // A symlink inside the plugin dir pointing to the outside executable.
+    std::filesystem::create_symlink(outside, dir + "/link.sh");
+    {
+        std::ofstream f(dir + "/manifest.json");
+        f << R"({"id": "sym", "name": "Sym", "version": "1.0.0",
+                 "protocol_version": 1, "main": "link.sh"})";
+    }
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    const agent::PluginInfo* info = mgr.find("sym");
+    REQUIRE(info != nullptr);
+    // A symlinked main pointing outside the plugin dir must be rejected.
+    ASSERT(info->state == agent::PluginState::Incompatible);
+    ASSERT(!info->error.empty());
+    std::filesystem::remove_all(base);
+}
+
+// The bundled sysinfo plugin (built by make) must load and report real
 // facts through the same protocol as any other plugin.
 TEST(sysinfo_plugin_reports_host_facts) {
     std::string base = "/tmp/amber_plugin_test";
@@ -273,10 +370,13 @@ int main() {
     plugin_state_persists_across_manager_instances();
     plugin_install_stages_archive();
     plugin_advertisement_lists_enabled_tools();
+    sec05_manifest_rejects_parent_escape_main();
+    sec05_manifest_rejects_absolute_main();
+    sec05_manifest_rejects_symlink_main();
     sysinfo_plugin_reports_host_facts();
     cdp_plugin_protocol_roundtrip();
     if (failed) std::cerr << failed << " FAILED\n";
-    std::cout << (failed ? "FAILED" : "ALL PASSED") << " (0 failures)\n";
+    std::cout << (failed ? "FAILED" : "ALL PASSED") << " (" << failed << " failures)\n";
     return failed ? 1 : 0;
 }
 

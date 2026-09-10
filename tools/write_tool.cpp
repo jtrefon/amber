@@ -2,6 +2,7 @@
 #include "agent/tool.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -46,6 +47,24 @@ public:
             }},
             {"required", {"path", "edits"}}
         };
+    }
+
+    // Create/overwrite (any edit with old=="") is a state change the user
+    // should see; in-place patches of existing files are the common agent
+    // workflow and run free in WRITE mode.
+    bool requires_approval(const json& a) const noexcept override {
+        try {
+            if (!a.contains("edits") || !a["edits"].is_array()) return true;
+            return std::any_of(a["edits"].begin(), a["edits"].end(),
+                               [](const json& e) -> bool {
+                                   auto it = e.find("old");
+                                   if (it == e.end()) return true;
+                                   const auto* s = it->get_ptr<const std::string*>();
+                                   return s != nullptr && s->empty();
+                               });
+        } catch (...) {
+            return true;  // fail-safe: require approval on any error
+        }
     }
 
     ToolResult execute(const json& a) const override {

@@ -1053,6 +1053,10 @@ TEST(subagent_hooks_do_not_leak) {
 
     Recorder rec;
     AgentHooks hooks = rec.hooks();
+    hooks.on_approval = [](const std::string&, const json&,
+                           const std::string&) {
+        return Approval::AllowOnce;
+    };
     auto parent = std::make_unique<bench::FakeClient>();
     parent->script = *parent_script;
     executor.set_factory([sub_script](const Config&) {

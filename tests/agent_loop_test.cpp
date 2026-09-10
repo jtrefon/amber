@@ -33,6 +33,17 @@ agent::Config loop_cfg() {
     return cfg;
 }
 
+// Hooks that auto-approve every approval-gated tool, for tests that exercise
+// side-effecting tools (write create, task, plugin) without a real UI.
+agent::AgentHooks auto_approve_hooks() {
+    agent::AgentHooks h;
+    h.on_approval = [](const std::string&, const agent::json&,
+                       const std::string&) {
+        return agent::Approval::AllowOnce;
+    };
+    return h;
+}
+
 void push_text(agent_test::FakeLLMClient& fake, const std::string& text) {
     agent_test::FakeReply r;
     r.content = text;
@@ -1006,7 +1017,7 @@ TEST(agent_loop_tool_envelope_lean) {
                    {{"path", "bench_envelope_test.txt"}, {"edits", edits}});
     push_text(*fake, "done writing");
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(fake));
 
     ag.run("create bench_envelope_test.txt");
     std::remove("bench_envelope_test.txt");
@@ -1208,7 +1219,7 @@ TEST(agent_loop_subagent_focused_task) {
     });
     executor.set_config(cfg);
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::string reply = ag.run("delegate the reading");
     ASSERT_EQ(reply, "done");
     // The task result (the sub-agent's report) must be fed back to the parent.
@@ -1249,7 +1260,7 @@ TEST(agent_loop_subagent_iteration_cap) {
     });
     executor.set_config(cfg);
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::string reply = ag.run("delegate");
     // The sub-agent stopped at its own cap (message inside the task result),
     // never consuming the script's 200 reads.
@@ -1306,7 +1317,7 @@ TEST(agent_loop_subagent_serial_mode) {
     executor.set_config(cfg);
     executor.set_parallel(false);
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::string reply = ag.run("delegate two tasks");
     ASSERT_EQ(reply, "done");
     ASSERT_EQ(track->peak.load(), 1);  // never overlapped
@@ -1368,7 +1379,7 @@ TEST(agent_loop_subagent_parallel_mode) {
     executor.set_parallel(true);
     executor.set_max(2);
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::string reply = ag.run("delegate two tasks");
     ASSERT_EQ(reply, "done");
     ASSERT_EQ(track->peak.load(), 2);  // overlapped
@@ -1401,7 +1412,7 @@ TEST(agent_loop_subagent_nesting_guard) {
     });
     executor.set_config(cfg);
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::string reply = ag.run("delegate");
     ASSERT_EQ(reply, "done");
     // Exactly one sub-agent ever launched: the nested task call was blocked
@@ -1439,7 +1450,7 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
     });
     executor.set_config(cfg);
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(parent));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::shared_ptr<agent::Tool> before = reg.find("read_skill");
     ASSERT(before != nullptr);  // the parent registers its skill tools
 

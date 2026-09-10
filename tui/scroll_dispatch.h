@@ -4,6 +4,13 @@
 
 #include <ncurses.h>
 
+// macOS system ncurses does not define BUTTON5_PRESSED (wheel-down). Fall
+// back to the standard ncurses value (NCURSES_BUTTON_PRESSED << 24) so the
+// build and tests stay green on both platforms.
+#ifndef BUTTON5_PRESSED
+#define BUTTON5_PRESSED 0x2000000
+#endif
+
 namespace tui::scroll_dispatch {
 
 // Lines to scroll the chat log for one mouse-wheel event. Wheel-up is
