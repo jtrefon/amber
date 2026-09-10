@@ -11,6 +11,33 @@
 
 namespace agent {
 
+namespace {
+
+// The transport teaches the runtime context window by mutating the Config it
+// was handed on a 400 overflow rejection — and then throws. Capturing the
+// change as the scope exits covers BOTH paths; capturing it after the call
+// alone was unreachable, because the only code that mutates the window always
+// throws. Without this the host's clamp (Agent::resolve_window) never fires.
+class LearnedWindowCapture {
+public:
+    LearnedWindowCapture(const Config& cfg, int& learned)
+        : cfg_(cfg), before_(cfg.context_size), learned_(learned) {}
+    ~LearnedWindowCapture() {
+        if (cfg_.context_size != before_) learned_ = cfg_.context_size;
+    }
+    LearnedWindowCapture(const LearnedWindowCapture&) = delete;
+    LearnedWindowCapture& operator=(const LearnedWindowCapture&) = delete;
+    LearnedWindowCapture(LearnedWindowCapture&&) = delete;
+    LearnedWindowCapture& operator=(LearnedWindowCapture&&) = delete;
+
+private:
+    const Config& cfg_;
+    const int before_;
+    int& learned_;
+};
+
+} // namespace
+
 HttpLLMClient::HttpLLMClient(Config cfg)
     : HttpLLMClient(std::move(cfg), nullptr) {}
 
@@ -35,9 +62,8 @@ Message HttpLLMClient::chat(const std::vector<Message>& messages,
     debug_log(cfg_.debug_log, "request", payload);
 
     double ttfb = 0, total = 0;
-    const int ctx_before = cfg_.context_size;
+    LearnedWindowCapture learned_window(cfg_, learned_);
     std::string response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total);
-    if (cfg_.context_size != ctx_before) learned_ = cfg_.context_size;
     debug_log(cfg_.debug_log, "response", response);
 
     Message out = dialect_->parse_completion(response);
@@ -58,9 +84,8 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
     auto decoder = dialect_->make_decoder(out, on_chunk, cfg_.debug_log);
 
     long status = 0;
-    const int ctx_before = cfg_.context_size;
+    LearnedWindowCapture learned_window(cfg_, learned_);
     stream_completion(cfg_, *dialect_, payload, *decoder, stats, status);
-    if (cfg_.context_size != ctx_before) learned_ = cfg_.context_size;
     debug_log(cfg_.debug_log, "response-stream",
               "http=" + std::to_string(status) +
                   " content=" + out.content +

@@ -1,6 +1,6 @@
 # Provider Dialect Architecture Proposal — 2026-09-09
 
-- **Status:** FIX-027 + FIX-028 implemented (branches `test/pin-wire-layer`, `refactor/provider-dialect-seam`); FIX-029..032 drafted — awaiting sign-off
+- **Status:** FIX-027, FIX-028, FIX-029, FIX-030, FIX-032 implemented (branch `refactor/provider-dialect-seam`); FIX-031 specs drafted — awaiting sign-off
 - **Branch:** `test/pin-wire-layer` (FIX-027, landed); `refactor/provider-dialect-seam` (FIX-028, proposed); per-FIX PR branches inside
 - **Author:** Session analysis 2026-09-09 (3 parallel explorers + manual file verification)
 - **Target:** A provider layer that grows by *registration*, not by branching — any OpenAI-compatible endpoint stays config-only; genuinely different wire protocols (Anthropic, Gemini, …) become one dialect adapter each, touching zero shared code. Refactor is regression-protected by **characterization pins on the moving surface**, not by blocking on whole-app coverage.
@@ -80,7 +80,7 @@ Verified against `tests/run_tests.cpp` (the moving surface of FIX-028):
 | **G4** | `Config::models_url()` + learned-context propagation | `api_url()` is asserted but `models_url()` is not; `learned_context_size()` after a mock 400 overflow is never exercised |
 | **G5** | Mid-stream cancellation (`CancelledError`) through `HttpLLMClient` | Cancel-token is unit-tested (`cancel_token_*`) and bash-tool e2e-tested, but not the LLM transport path |
 
-**Status (2026-09-09):** G1-G5 are closed by the FIX-027 pin suite on `test/pin-wire-layer` (`tests/run_tests.cpp`, "Wire-layer characterization pins" section). Two pins revealed a design fact worth recording: the transport's 400-overflow "learned context" mutation is **not observable** through `HttpLLMClient::learned_context_size()` (capture happens only on the success path, but the learning only ever happens on the throwing 400 path) — see §6 FIX-027 note and the FIX-032 follow-up candidate.
+**Status (2026-09-09):** G1-G5 are closed by the FIX-027 pin suite on `test/pin-wire-layer` (`tests/run_tests.cpp`, "Wire-layer characterization pins" section). Two pins revealed a design fact worth recording: the transport's 400-overflow "learned context" mutation was **not observable** through `HttpLLMClient::learned_context_size()` (capture happened only on the success path, but the learning only ever happens on the throwing 400 path) — fixed by FIX-032 (§6).
 
 ---
 
@@ -299,6 +299,7 @@ Size limits: no class >200 lines, no method >10 with minimal branching — the o
 | **1** | `FIX-028` | Dialect seam: registry + `Dialect` port + `StreamDecoder` extraction; OpenAI behavior moved in **pure moves**; `HttpLLMClient` resolves dialect from `cfg.flavor`; pins relocate with their code | 027 | L | Pin suite green with **only mechanical renames** (D8 gate); untouched suites green; `grep` proof: no `api_url(` outside dialects; mutation spot-check (D9) passes |
 | **2** | `FIX-029` | Capabilities reach the wire: `Config.flavor`/`api_key_is_account_token`; `apply_selection` copies; dead `bearer_auth`/`supports_reasoning_effort` deleted; kilocode name-branch removed | 028 | S | Red test for name-free balance token; `grep provider_name ==` → 0 in `lib/` |
 | **3** | `FIX-030` | Proof dialect: Anthropic Messages API (auth, URL, body, buffered parse, event-stream decode, models parse) — hermetic fixtures only; static preset `anthropic` + capability row | 028, 029 | L | New `tests/dialect_test.cpp` green with zero live calls; zero edits to `http_transport.cpp`/agent/TUI |
+| **3.5** | `FIX-032` | Fix the learned-context capture: the 400-overflow window is learned on the throwing path; surface it through `learned_context_size()` on both exits so `Agent::resolve_window()` can clamp | 028 | S | The three FIX-027 pins flip from `0` to the learned values (red first); `agent_loop_learned_window_clamps_gate` stays green |
 | **4** | `FIX-031` | Docs & alignment: new `docs/spec/llm-client/dialect.md`; update `http-transport/model-probe/streaming.md` to dialect terms; note plugin v2 Phase-5 `ProviderImpl` = dialect factory registration; refresh `AGENTS.md` audit if line counts moved | 028-030 | S | Specs consistent with code (code is truth); no dead prose |
 
 **Order rationale:** 027 pins the blast radius of the whole effort *before* any production line moves — it is the insurance the user asked for, and it is cheap (test-only, green by construction). 028 is a behavior-preserving move with the biggest diff but zero risk once 027 is in (pins + existing tests are the net) and unblocks everything; 029 is tiny and independent enough to ride along after; 030 is the acceptance proof and must land only on top of a green 028+029 so any breakage is attributable to the new dialect, not the refactor; 031 is docs.
@@ -324,7 +325,7 @@ Implemented on `test/pin-wire-layer` (2026-09-09). New `TEST` blocks in `tests/r
 - **G4 → `config_models_url_derivation` + `client_serves_next_turn_after_overflow_rejection`.** `models_url()` derivation asserted; and (stronger than the original plan) the same client instance survives a 400 rejection and serves a healthy next turn — the rejection's internal `cfg_` mutation (`context_size` learned, `context_explicit` set) must not poison later requests.
 - **G5 → `llm_cancel_pre_requested_aborts_with_cancelled_error` + `llm_cancel_mid_stream_aborts_with_cancelled_error`.** A token requested before the call aborts fast; a mid-flight cancel against a stalled server aborts via curl's progress callback (~1s) with typed `CancelledError` — distinct from `ApiError`.
 
-**Note — learned-context capture gap (characterization finding, candidate FIX-032):** `post_completion`/`stream_completion` parse the 400 prose and mutate the client's internal `cfg_.context_size` **before throwing**, but `HttpLLMClient` captures `learned_` only after a successful return — and a 400 always throws. `learned_context_size()` is therefore always 0 in production, so `Agent::resolve_window()`'s "server taught us via a 400 rejection" clamp (`lib/agent.cpp:98-103`) never fires from the transport path. The FIX-027 pins document this fact (`learned_context_size() == 0` after a 400) so the pure-move refactor preserves it exactly. Making the learning observable (e.g. capture `learned_` in a catch path, or return the learned window through `ApiError`) is a deliberate behavior fix — FIX-032 candidate, NOT part of the dialect seam.
+**Note — learned-context capture gap (was the FIX-027 characterization finding, now fixed by FIX-032):** `post_completion`/`stream_completion` parse the 400 prose and mutate the client's internal `cfg_.context_size` **before throwing**, but `HttpLLMClient` captured `learned_` only after a successful return — and a 400 always throws. `learned_context_size()` was therefore always 0 in production, so `Agent::resolve_window()`'s "server taught us via a 400 rejection" clamp (`lib/agent.cpp:98-103`) could never fire from the transport path. The FIX-027 pins documented this fact (`learned_context_size() == 0` after a 400) so the pure-move refactor preserved it exactly; FIX-032 (§6) then flipped those assertions to the corrected behavior and fixed the capture.
 
 Gate: pin suite green on current code (verified: full core suite 431/431 on `test/pin-wire-layer`, TUI section excluded on macOS by a pre-existing ncurses `BUTTON5_PRESSED` gap in `tui/scroll_dispatch.cpp`/`tui_tests.cpp` unrelated to this change); diff contains **zero production-code changes**; `make format-check` reports no violations in `tests/run_tests.cpp`.
 
@@ -390,6 +391,20 @@ Gate: `grep -rn 'provider_name ==' lib/ include/` → 0 (the three remaining `pr
 **Tests (all hermetic, no network):** `tests/dialect_anthropic_test.cpp` — 12 tests covering endpoints, auth headers, full request translation (merged system, tool_use/tool_result blocks, parsed input), `input_schema` tools, buffered parse + usage, malformed-body degradation, the named-event stream decode (text + streamed JSON tool arguments + usage), nameless-tool-block dropping, model list/probe parse, error classification/overflow prose, plus the two registry tests (resolve, fallback, and registering a new factory).
 
 Gate: full suite **446/446**; cli + bench build; `make check` holds; cppcheck adds no findings.
+
+### FIX-032 — The learned context window actually surfaces
+
+**Implemented** on `refactor/provider-dialect-seam` (2026-09-09, same branch).
+
+**The bug:** `post_completion`/`stream_completion` learn the server's true window from a 400 overflow rejection by mutating the `Config` they were handed — and then throw. `HttpLLMClient` captured `learned_` only *after* a successful return, so the only code that ever mutates the window was unreachable from the capture. `learned_context_size()` was always 0 in production and `Agent::resolve_window()`'s clamp never fired.
+
+**Red first:** `2af136a` — the three FIX-027 pins that documented the gap now assert the corrected behavior (streaming `2048`, buffered `16384`, sticky `8192` across a healthy turn) and fail with `0 != expected`.
+
+**The fix:** a 15-line scope guard (`LearnedWindowCapture`) in `lib/llm.cpp` captures the window as the scope exits — success **or** failure. This covers both transport paths (`chat`, `chat_stream`) with one mechanism and no duplicated catch blocks. Chosen over (a) try/catch duplication in two call sites and (b) threading the value through `ApiError` (changes the error contract; more surface than the fix needs).
+
+**Behavior change (intended):** a server that rejects an oversized request now actively clamps the gauge and the compression budget to what it enforces — the contract the code comments and `agent_loop_learned_window_clamps_gate` already described. That agent-level test (which uses a fake returning a learned window) stays green; the real client now delivers what the fake simulated.
+
+Gate: the three pins green; full suite **446/446**; cli + bench build; `make check` holds.
 
 ### FIX-031 — Docs & plugin alignment
 
