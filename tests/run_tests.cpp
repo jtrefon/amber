@@ -4,8 +4,9 @@
 #include "agent.h"
 #include "agent/tools.h"
 #include "agent/search_backend.h"
-#include "agent/sse_parser.h"
-#include "agent/request_builder.h"
+#include "agent/dialect.h"
+#include "agent/dialect_openai.h"
+#include "agent/stream_decoder.h"
 #include "agent/compressor.h"
 #include "agent/dispatch.h"
 #include "agent/experience.h"
@@ -50,7 +51,7 @@ TEST(config_defaults) {
     ASSERT_EQ(c.model, "gpt-4o-mini");
     ASSERT_EQ(c.max_tool_iterations, 100);
     ASSERT_TRUE(c.stream);
-    ASSERT_EQ(c.api_url(), "http://localhost:8000/v1/chat/completions");
+    ASSERT_EQ(agent::make_dialect(c.flavor)->chat_url(c), "http://localhost:8000/v1/chat/completions");
 }
 
 TEST(config_validate_accepts_defaults) {
@@ -293,15 +294,20 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
 }
 
 // The balance readout resolves its token from the explicit override, else the
-// active kilocode provider's api_key (where the TUI key prompt stores it) —
-// so a token entered via the prompt powers the readout with no extra config.
+// active provider's api_key when that provider's key IS the account token
+// (capability flag; the TUI key prompt stores it there) — so a token entered
+// via the prompt powers the readout with no extra config. The decision is
+// capability data, never a provider-name comparison.
 TEST(resolve_kilo_balance_token_falls_back_to_kilocode_api_key) {
     agent::Config c;
     c.provider_name = "openrouter";
     c.api_key = "sk-openrouter";
     ASSERT_TRUE(agent::resolve_kilo_balance_token(c).empty());
 
+    // Any provider flagged as account-token-backed resolves its api_key —
+    // the name is irrelevant.
     c.provider_name = "kilocode";
+    c.api_key_is_account_token = true;
     c.api_key = "kilo-jwt";
     ASSERT_EQ(agent::resolve_kilo_balance_token(c), "kilo-jwt");
 
@@ -312,7 +318,60 @@ TEST(resolve_kilo_balance_token_falls_back_to_kilocode_api_key) {
     // Anonymous kilocode (no key at all) resolves to nothing.
     agent::Config anon;
     anon.provider_name = "kilocode";
+    anon.api_key_is_account_token = true;
     ASSERT_TRUE(agent::resolve_kilo_balance_token(anon).empty());
+
+    // A kilocode-named config WITHOUT the capability flag yields nothing: the
+    // name alone must not decide (the flag is the single source of truth).
+    agent::Config named_only;
+    named_only.provider_name = "kilocode";
+    named_only.api_key = "kilo-jwt";
+    ASSERT_TRUE(agent::resolve_kilo_balance_token(named_only).empty());
+}
+
+// A provider's wire capabilities must reach the transport Config on
+// selection: the client resolves the dialect from cfg.flavor and the balance
+// readout from cfg.api_key_is_account_token — no provider-name branching
+// anywhere downstream.
+TEST(apply_selection_copies_flavor_and_account_token_flag) {
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_caps", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_caps");
+
+    auto svc = agent::make_default_provider_service(agent::Config{});
+
+    auto kilo = svc->select("kilocode");
+    ASSERT(kilo.ok());
+    agent::Config kilo_cfg;
+    agent::apply_selection(kilo_cfg, kilo);
+    ASSERT_EQ(kilo_cfg.flavor, "openai");
+    ASSERT_TRUE(kilo_cfg.api_key_is_account_token);
+
+    auto router = svc->select("openrouter");
+    ASSERT(router.ok());
+    agent::Config router_cfg;
+    agent::apply_selection(router_cfg, router);
+    ASSERT_EQ(router_cfg.flavor, "openai");
+    ASSERT_FALSE(router_cfg.api_key_is_account_token);
+
+    std::filesystem::remove_all("/tmp/amber_xdg_caps");
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+// The derived capability fields are never persisted: they are recomputed from
+// the provider on every boot (like api_base), so a stale flavor can never
+// survive in a config file.
+TEST(flavor_and_capability_flag_not_persisted) {
+    std::string path = "/tmp/amber_flavor_persist.conf";
+    agent::Config c;
+    c.flavor = "openai";
+    c.api_key_is_account_token = true;
+    ASSERT_TRUE(c.save_global(path));
+
+    agent::Config back;
+    back.load(path);
+    ASSERT_EQ(back.flavor, "openai");              // default, not stored
+    ASSERT_FALSE(back.api_key_is_account_token);   // default, not stored
+    std::remove(path.c_str());
 }
 
  TEST(provider_service_missing_key_is_warning) {
@@ -414,7 +473,7 @@ TEST(request_body_survives_invalid_utf8) {
     msgs.push_back(tool);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     std::string payload;
     bool threw = false;
     try {
@@ -440,7 +499,7 @@ TEST(request_builder_merges_consecutive_system_messages) {
     agent::Message u; u.role = "user"; u.content = "hi"; msgs.push_back(u);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     const auto& wire = body["messages"];
     ASSERT_EQ(wire.size(), 2u);
     ASSERT_EQ(wire[0]["role"], "system");
@@ -450,7 +509,7 @@ TEST(request_builder_merges_consecutive_system_messages) {
     // A single system message is passed through untouched.
     std::vector<agent::Message> single;
     single.push_back(s1);
-    json body2 = build_chat_body(c, single, no_tools, false);
+    json body2 = agent::make_dialect("openai")->build_chat_body(c, single, no_tools, false);
     ASSERT_EQ(body2["messages"].size(), 1u);
     ASSERT_EQ(body2["messages"][0]["content"], "main prompt");
 }
@@ -473,7 +532,7 @@ TEST(request_builder_hoists_midstream_system_into_leading_block) {
     msgs.push_back(arch);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     const auto& wire = body["messages"];
     // Exactly one system message, at the front, carrying BOTH system contents.
     size_t system_count = 0;
@@ -506,7 +565,7 @@ TEST(request_builder_assistant_message_always_has_content) {
     msgs.push_back(t);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     ASSERT(body.contains("messages"));
     for (auto& m : body["messages"]) {
         // every message must carry a content field (regression: empty
@@ -538,7 +597,7 @@ TEST(request_builder_sanitizes_placeholder_tool_calls) {
     msgs.push_back(a);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     const auto& wire = body["messages"][1]["tool_calls"];
     ASSERT_EQ(wire.size(), 2u);
     ASSERT_EQ(wire[0]["function"]["name"], "bash");
@@ -564,7 +623,7 @@ TEST(request_builder_all_placeholder_tool_calls_degrades) {
     msgs.push_back(a);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     const auto& m = body["messages"][0];
     ASSERT_FALSE(m.contains("tool_calls"));
     ASSERT_EQ(m["content"], "I tried but nothing ran.");
@@ -578,7 +637,7 @@ TEST(message_from_completion_sanitizes_tool_calls) {
         R"({},)"
         R"({"function":{"name":"read","arguments":"{\"path\":\"a.txt\"}"},"id":"c1"})"
         R"(]}}]})";
-    agent::Message m = agent::message_from_completion(body);
+    agent::Message m = agent::make_dialect("openai")->parse_completion(body);
     ASSERT(m.tool_calls.is_array());
     ASSERT_EQ(m.tool_calls.size(), 1u);
     ASSERT_EQ(m.tool_calls[0]["function"]["name"], "read");
@@ -1184,7 +1243,7 @@ TEST(probe_parse_llamacpp_models) {
     std::string body = R"({"object":"list","data":[{"id":"Qwopus3.6-27B.gguf",)"
         R"("object":"model","owned_by":"llamacpp","meta":{"n_vocab":248320,)"
         R"("n_ctx":262144,"n_ctx_train":262144,"n_embd":5120}}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "Qwopus3.6-27B.gguf");
     ASSERT_EQ(info.context_size, 262144);
@@ -1195,16 +1254,16 @@ TEST(probe_parse_models_array_fallback) {
     // Ollama-ish {"models":[{"name":..,"n_ctx":..}]} fallback shape.
     std::string body =
         R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "llama-3.2-3b");
     ASSERT_EQ(info.context_size, 8192);
 }
 
 TEST(probe_parse_models_malformed_is_not_ok) {
-    ASSERT_FALSE(agent::LLMClient::parse_models("not json").ok);
-    ASSERT_FALSE(agent::LLMClient::parse_models("{}").ok);
-    ASSERT_FALSE(agent::LLMClient::parse_models(R"({"data":[]})").ok);
+    ASSERT_FALSE(agent::make_dialect("openai")->parse_models_response("not json").ok);
+    ASSERT_FALSE(agent::make_dialect("openai")->parse_models_response("{}").ok);
+    ASSERT_FALSE(agent::make_dialect("openai")->parse_models_response(R"({"data":[]})").ok);
 }
 
 // OpenAI-compatible gateways (kilocode, OpenRouter, ...) advertise the window
@@ -1217,7 +1276,7 @@ TEST(probe_parse_kilocode_context_length) {
         R"("owned_by":"kilo","context_length":256000,"meta":null},)"
         R"({"id":"kilo-auto/frontier","object":"model",)"
         R"("owned_by":"kilo","context_length":1000000,"meta":null}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "kilo-auto/free");
     ASSERT_EQ(info.context_size, 256000);
@@ -1229,7 +1288,7 @@ TEST(probe_parse_kilocode_context_length) {
 TEST(probe_prefers_n_ctx_over_context_length) {
     std::string body = R"({"data":[{"id":"hybrid","object":"model",)"
         R"("meta":{"n_ctx":32768,"n_ctx_train":32768},"context_length":131072}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.context_size, 32768);
 }
@@ -1242,7 +1301,7 @@ TEST(probe_prefers_the_active_model) {
         R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
         R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
     agent::ServerInfo info =
-        agent::LLMClient::parse_models(body, "Qwopus3.6-27B-Fusion");
+        agent::make_dialect("openai")->parse_models_response(body, "Qwopus3.6-27B-Fusion");
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "Qwopus3.6-27B-Fusion");
     ASSERT_EQ(info.context_size, 262144);
@@ -1253,7 +1312,7 @@ TEST(probe_active_model_without_meta_is_unknown) {
         R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
         R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
     agent::ServerInfo info =
-        agent::LLMClient::parse_models(body, "Devstral-Small-2-24B");
+        agent::make_dialect("openai")->parse_models_response(body, "Devstral-Small-2-24B");
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "Devstral-Small-2-24B");
     ASSERT_EQ(info.context_size, 0);  // honest: no metadata, no fabrication
@@ -1263,7 +1322,7 @@ TEST(probe_falls_back_to_first_model_with_context) {
     std::string body = R"({"data":[{"id":"Devstral-Small-2-24B","object":"model",)"
         R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
         R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.context_size, 262144);
 }
@@ -1274,7 +1333,7 @@ TEST(probe_parse_model_list_with_ctx) {
     std::string body =
         R"({"data":[{"id":"alpha","meta":{"n_ctx":8192,"n_ctx_train":32768}},)"
         R"({"id":"beta"}]})";
-    auto models = agent::parse_model_list_info(body);
+    auto models = agent::make_dialect("openai")->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "alpha");
     ASSERT_EQ(models[0].context, 8192);
@@ -1285,9 +1344,9 @@ TEST(probe_parse_model_list_with_ctx) {
 }
 
 TEST(probe_parse_model_list_malformed) {
-    ASSERT(agent::parse_model_list_info("not json").empty());
-    ASSERT(agent::parse_model_list_info("{}").empty());
-    ASSERT(agent::parse_model_list_info(R"({"data":[]})").empty());
+    ASSERT(agent::make_dialect("openai")->parse_model_list_response("not json").empty());
+    ASSERT(agent::make_dialect("openai")->parse_model_list_response("{}").empty());
+    ASSERT(agent::make_dialect("openai")->parse_model_list_response(R"({"data":[]})").empty());
 }
 
 TEST(probe_parse_model_list_ollama_shape) {
@@ -1295,7 +1354,7 @@ TEST(probe_parse_model_list_ollama_shape) {
     std::string body =
         R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192},)"
         R"({"name":"qwen-7b"}]})";
-    auto models = agent::parse_model_list_info(body);
+    auto models = agent::make_dialect("openai")->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "llama-3.2-3b");
     ASSERT_EQ(models[0].context, 8192);
@@ -1326,27 +1385,27 @@ TEST(http_error_describes_parser_generation_failure) {
 // retried 429/5xx, so one upstream hiccup aborted the whole turn.
 TEST(http_error_empty_stream_400_is_retryable) {
     // The exact kilocode shape from a live failure.
-    ASSERT_TRUE(agent::is_retryable_http_error(400, "data: \n[DONE]\n\n"));
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(400, "data: \n[DONE]\n\n"));
     // Keep-alive comments plus a bare [DONE] are also empty.
-    ASSERT_TRUE(agent::is_retryable_http_error(
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(
         400, ": KILO PROCESSING\n: KILO PROCESSING\ndata: [DONE]\n\n"));
     // Plain empty body.
-    ASSERT_TRUE(agent::is_retryable_http_error(400, ""));
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(400, ""));
     // 429 and 5xx stay retryable regardless of body.
-    ASSERT_TRUE(agent::is_retryable_http_error(429, R"({"error":"rate"})"));
-    ASSERT_TRUE(agent::is_retryable_http_error(502, "error code: 1101"));
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(429, R"({"error":"rate"})"));
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(502, "error code: 1101"));
 }
 
 TEST(http_error_json_400_is_not_retryable) {
     // Genuine request rejections (schema/model/auth) carry a JSON error body.
-    ASSERT_FALSE(agent::is_retryable_http_error(
+    ASSERT_FALSE(agent::make_dialect("openai")->is_retryable(
         400, R"({"error":{"message":"Bad request","type":"invalid_request_error"}})"));
     // A data payload in the stream means the upstream responded — real body.
-    ASSERT_FALSE(agent::is_retryable_http_error(
+    ASSERT_FALSE(agent::make_dialect("openai")->is_retryable(
         400, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"));
     // Non-400, non-retryable stays put.
-    ASSERT_FALSE(agent::is_retryable_http_error(401, R"({"error":"auth"})"));
-    ASSERT_FALSE(agent::is_retryable_http_error(403, R"({"error":"forbidden"})"));
+    ASSERT_FALSE(agent::make_dialect("openai")->is_retryable(401, R"({"error":"auth"})"));
+    ASSERT_FALSE(agent::make_dialect("openai")->is_retryable(403, R"({"error":"forbidden"})"));
 }
 
 // The auto-detect merge policy: probe results fill only fields the user left on
@@ -1451,62 +1510,101 @@ TEST(statusbar_gauge_bar_glyphs) {
 // ---------------------------------------------------------------------------
 
 namespace {
-// Serve one canned SSE response (a streamed tool call in two fragments), then
-// close. Lets us exercise LLMClient::chat_stream including fragment merging
-// without any external dependency.
-int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_override = "") {
+// Listen on loopback:port. Returns the listening fd, or -1 on failure.
+int bind_listener(int port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
-    int opt = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(static_cast<uint16_t>(port));
-    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) { close(fd); return -1; }
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
     listen(fd, 1);
+    return fd;
+}
+
+// Read one full HTTP request (headers + Content-Length body) from a client.
+std::string drain_request(int c) {
+    char buf[4096];
+    std::string req;
+    while (true) {
+        int n = recv(c, buf, sizeof(buf) - 1, 0);
+        if (n <= 0) break;
+        req.append(buf, n);
+        if (req.find("\r\n\r\n") == std::string::npos) continue;
+        const size_t cl = req.find("Content-Length:");
+        if (cl == std::string::npos) break;
+        const size_t hl = req.find("\r\n\r\n");
+        long len = std::atol(req.c_str() + cl + 15);
+        while ((long)req.size() < (long)hl + 4 + len) {
+            int m = recv(c, buf, sizeof(buf) - 1, 0);
+            if (m <= 0) break;
+            req.append(buf, m);
+        }
+        break;
+    }
+    return req;
+}
+
+// Serve one canned HTTP response (any status/content-type/payload), then
+// close. Lets the wire-layer pins exercise buffered chat, HTTP-error and
+// streaming paths without any external dependency.
+int spawn_mock_http(int port, std::string& body_out, const std::string& status,
+                    const std::string& content_type,
+                    const std::string& payload) {
+    int fd = bind_listener(port);
+    if (fd < 0) return -1;
     body_out.clear();
-    std::thread t([fd, sse_override, &body_out]() {
+    std::thread t([fd, status, content_type, payload, &body_out]() {
         int c = accept(fd, nullptr, nullptr);
         if (c < 0) return;
-        // read the request (headers + body) until we have it
-        char buf[4096];
-        std::string req;
-        while (true) {
-            int n = recv(c, buf, sizeof(buf) - 1, 0);
-            if (n <= 0) break;
-            req.append(buf, n);
-            if (req.find("\r\n\r\n") != std::string::npos) break;
-        }
-        // Drain the request body (Content-Length) so body_out is complete.
-        {
-            size_t hl = req.find("\r\n\r\n");
-            if (hl != std::string::npos) {
-                const size_t cl = req.find("Content-Length:");
-                if (cl != std::string::npos) {
-                    long len = std::atol(req.c_str() + cl + 15);
-                    while ((long)req.size() < (long)hl + 4 + len) {
-                        int n = recv(c, buf, sizeof(buf) - 1, 0);
-                        if (n <= 0) break;
-                        req.append(buf, n);
-                    }
-                }
-            }
-        }
-        body_out = req;
-        std::string sse = !sse_override.empty() ? sse_override :
-            std::string(
-            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
-            "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
-            "\"arguments\":\"\"}}]}}]}\n\n"
-            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
-            "\"function\":{\"arguments\":\"{\\\"pattern\\\":\\\"foo\\\",\\\"path\\\":\\\".\\\"}\"}}]}}]}\n\n"
-            "data: [DONE]\n\n");
-        std::string http =
-            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
-            "Content-Length: " + std::to_string(sse.size()) + "\r\n\r\n" + sse;
+        body_out = drain_request(c);
+        std::string http = status + "\r\nContent-Type: " + content_type +
+                           "\r\nContent-Length: " +
+                           std::to_string(payload.size()) + "\r\n\r\n" + payload;
         send(c, http.c_str(), http.size(), 0);
         // give client time to read
         usleep(200000);
+        close(c);
+    });
+    t.detach();
+    return fd;
+}
+
+// Serve one canned SSE response (a streamed tool call in two fragments by
+// default), then close. Lets us exercise LLMClient::chat_stream including
+// fragment merging without any external dependency.
+int spawn_mock_sse(int port, std::string& body_out,
+                   const std::string& sse_override = "") {
+    std::string sse = !sse_override.empty()
+        ? sse_override
+        : std::string(
+              "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
+              "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
+              "\"arguments\":\"\"}}]}}]}\n\n"
+              "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+              "\"function\":{\"arguments\":\"{\\\"pattern\\\":\\\"foo\\\",\\\"path\\\":\\\".\\\"}\"}}]}}]}\n\n"
+              "data: [DONE]\n\n");
+    return spawn_mock_http(port, body_out, "HTTP/1.1 200 OK",
+                           "text/event-stream", sse);
+}
+
+// Accept one request, drain it, then hold the connection open WITHOUT
+// responding. An in-flight LLM call against this server blocks until the
+// caller's cancel token aborts it (curl's progress callback polls the token).
+int spawn_stall_server(int port) {
+    int fd = bind_listener(port);
+    if (fd < 0) return -1;
+    std::thread t([fd]() {
+        int c = accept(fd, nullptr, nullptr);
+        if (c < 0) return;
+        drain_request(c);
+        sleep(30);  // hold open; the test cancels well before this expires
         close(c);
     });
     t.detach();
@@ -1570,7 +1668,7 @@ TEST(probe_autodetect_first_with_context_when_auto) {
     // at the tool as `{}` and errors ("missing 'pattern'").
     agent::Message m;
     auto sink = [](const agent::StreamChunk&) {};
-    agent::StreamParser p(m, sink, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, sink, "");
 
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
@@ -1592,9 +1690,9 @@ TEST(probe_autodetect_first_with_context_when_auto) {
     agent::json call2 = {{"index", 0}, {"function", fn2}};
     std::string s2 = ev(agent::json::array({call2}));
 
-    p.on_write(s1.c_str(), s1.size(), 1);
-    p.on_write(s2.c_str(), s2.size(), 1);
-    p.finalize();
+    p->on_write(s1.c_str(), s1.size(), 1);
+    p->on_write(s2.c_str(), s2.size(), 1);
+    p->finalize();
 
     ASSERT(m.tool_calls.is_array());
     ASSERT_EQ(m.tool_calls.size(), 1u);
@@ -1608,7 +1706,7 @@ TEST(probe_autodetect_first_with_context_when_auto) {
     ASSERT_EQ(parsed["pattern"], "ncurses");
 }
 
-// StreamParser must survive being constructed with a plain `auto` lambda
+// The stream decoder must survive being constructed with a plain `auto` lambda
 // sink. The constructor binds its ChunkSink member to the caller's sink
 // object; an `auto` lambda converts to a temporary std::function, so the
 // member must store a COPY, never a reference — otherwise the first content
@@ -1618,13 +1716,13 @@ TEST(probe_autodetect_first_with_context_when_auto) {
 TEST(llm_streaming_parser_accepts_auto_lambda_sink) {
     agent::Message m;
     auto sink = [](const agent::StreamChunk&) {};
-    agent::StreamParser p(m, sink, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, sink, "");
     const char* sse =
         "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
         "data: [DONE]\n\n";
     const std::string body(sse);
-    p.on_write(body.c_str(), body.size(), 1);
-    p.finalize();
+    p->on_write(body.c_str(), body.size(), 1);
+    p->finalize();
     ASSERT_EQ(m.content, "hello");
 }
 
@@ -1741,6 +1839,270 @@ TEST(llm_streaming_captures_usage_stats) {
     ASSERT_EQ(stats.prompt_tokens, 4096L);
     ASSERT_EQ(stats.completion_tokens, 128L);
     ASSERT_TRUE(stats.latency_ms >= 0);
+    close(srv);
+}
+
+// ---------------------------------------------------------------------------
+// Wire-layer characterization pins (FIX-027): lock the current OBSERVABLE
+// behavior of the HTTP/SSE layer before the dialect refactor (FIX-028) moves
+// it. Each test documents today's contract; the pure-move refactor must keep
+// every assertion true with only mechanical call-site renames.
+// ---------------------------------------------------------------------------
+
+TEST(apply_auth_emits_bearer_only_with_key) {
+    agent::Config cfg;  // no api_key
+    agent::HeaderList headers;
+    for (const auto& h : agent::make_dialect("openai")->auth_headers(cfg))
+        headers.add(h);
+    ASSERT(headers.list == nullptr);
+
+    cfg.api_key = "sk-test-123";
+    agent::HeaderList keyed;
+    for (const auto& h : agent::make_dialect("openai")->auth_headers(cfg))
+        keyed.add(h);
+    ASSERT(keyed.list != nullptr);
+    ASSERT_EQ(std::string(keyed.list->data),
+              "Authorization: Bearer sk-test-123");
+    ASSERT(keyed.list->next == nullptr);  // never more than the one auth header
+}
+
+TEST(config_models_url_derivation) {
+    agent::Config c;
+    auto d = agent::make_dialect("openai");
+    ASSERT_EQ(d->models_url(c), "http://localhost:8000/v1/models");
+    c.api_base = "https://api.example.com/v1";
+    ASSERT_EQ(d->models_url(c), "https://api.example.com/v1/models");
+}
+
+// The 400-overflow prose sniffer is the runtime truth for the context window:
+// each pattern family must keep working across the dialect move.
+TEST(dialect_context_overflow_hint_patterns) {
+    auto d = agent::make_dialect("openai");
+    ASSERT_EQ(d->context_overflow_hint("maximum context length is 8192 tokens"), 8192);
+    ASSERT_EQ(d->context_overflow_hint("max context length: 4096"), 4096);
+    ASSERT_EQ(d->context_overflow_hint("max context length is 2048"), 2048);
+    ASSERT_EQ(d->context_overflow_hint("n_ctx is 2048"), 2048);
+    ASSERT_EQ(d->context_overflow_hint("n_ctx = 1024"), 1024);
+    ASSERT_EQ(d->context_overflow_hint("context length exceeds 16384"), 16384);
+    ASSERT_EQ(d->context_overflow_hint("Request exceeds maximum context length (4096 tokens)"), 4096);
+    ASSERT_EQ(d->context_overflow_hint("context length of 32768"), 32768);
+    // OpenAI wraps the prose in an error object; the sniffer scans the body.
+    ASSERT_EQ(d->context_overflow_hint(
+                  R"({"error":{"message":"This model's maximum context length is 16384 tokens."}})"),
+              16384);
+    // No known pattern, or an implausible value, yields 0 (never a guess).
+    ASSERT_EQ(d->context_overflow_hint(R"({"error":"bad request"})"), 0);
+    ASSERT_EQ(d->context_overflow_hint(""), 0);
+    ASSERT_EQ(d->context_overflow_hint("maximum context length is 999999999 tokens"), 0);
+}
+
+TEST(buffered_chat_fills_stats_from_usage) {
+    // The buffered path's telemetry contract: usage.prompt_tokens /
+    // completion_tokens must land in Stats (mirrors the streamed path).
+    std::string req;
+    const std::string body =
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hello "
+        "there\"}}],\"usage\":{\"prompt_tokens\":50,\"completion_tokens\":3,"
+        "\"total_tokens\":53}}";
+    int srv = spawn_mock_http(8931, req, "HTTP/1.1 200 OK",
+                              "application/json", body);
+    ASSERT(srv >= 0);
+    usleep(100000);  // let the listener bind
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8931/v1";
+    agent::HttpLLMClient client(cfg);
+    agent::Stats stats;
+    agent::Message m = client.chat({}, {}, &stats);
+
+    ASSERT_EQ(m.role, "assistant");
+    ASSERT_EQ(m.content, "hello there");
+    ASSERT_TRUE(stats.valid);
+    ASSERT_EQ(stats.prompt_tokens, 50L);
+    ASSERT_EQ(stats.completion_tokens, 3L);
+    ASSERT(stats.latency_ms >= 0);
+    close(srv);
+}
+
+TEST(buffered_chat_malformed_body_degrades_to_recovery_message) {
+    // A 200 whose body is not a chat-completions JSON (here: an SSE-shaped
+    // stream served to the BUFFERED path) must degrade into an assistant
+    // message carrying the raw body — which the agent loop feeds back to the
+    // model for self-recovery — never an exception.
+    std::string dummy;
+    int srv = spawn_mock_sse(8932, dummy);  // default SSE tool-call stream
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8932/v1";
+    agent::HttpLLMClient client(cfg);
+    agent::Message m = client.chat({}, {}, nullptr);
+
+    ASSERT_EQ(m.role, "assistant");
+    const std::string prefix =
+        "[error: malformed LLM response, raw body follows]";
+    ASSERT_EQ(m.content.compare(0, prefix.size(), prefix), 0);
+    ASSERT(m.content.find("data:") != std::string::npos);  // raw body kept
+    close(srv);
+}
+
+TEST(overflow_400_streaming_throws_non_retryable_api_error) {
+    // llama.cpp-style plain-text overflow rejection on the streaming path.
+    // The client must throw a typed, non-retryable ApiError (never a fake
+    // assistant reply, never a retry loop).
+    std::string req;
+    int srv = spawn_mock_http(8933, req, "HTTP/1.1 400 Bad Request",
+                              "text/plain", "n_ctx is 2048");
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8933/v1";
+    agent::HttpLLMClient client(cfg);
+    bool threw = false;
+    try {
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    } catch (const agent::ApiError& e) {
+        threw = true;
+        ASSERT_EQ(e.status, 400L);
+        ASSERT_FALSE(e.retryable);
+        ASSERT_EQ(std::string(e.what()).find("HTTP 400 from LLM server"), 0u);
+    }
+    ASSERT(threw);
+
+    // The rejection taught the runtime window ("n_ctx is 2048") and the
+    // client must surface it even though the call threw: Agent::resolve_window
+    // clamps the gauge and the compression budget with it (FIX-032).
+    ASSERT_EQ(client.learned_context_size(), 2048);
+    close(srv);
+}
+
+TEST(overflow_400_buffered_throws_non_retryable_api_error) {
+    // OpenAI-style JSON-wrapped overflow rejection on the buffered path.
+    std::string req;
+    const std::string body =
+        "{\"error\":{\"message\":\"This model's maximum context length is "
+        "16384 tokens. However, you requested 20000 tokens.\"}}";
+    int srv = spawn_mock_http(8934, req, "HTTP/1.1 400 Bad Request",
+                              "application/json", body);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8934/v1";
+    agent::HttpLLMClient client(cfg);
+    bool threw = false;
+    try {
+        client.chat({}, {}, nullptr);
+    } catch (const agent::ApiError& e) {
+        threw = true;
+        ASSERT_EQ(e.status, 400L);
+        ASSERT_FALSE(e.retryable);
+    }
+    ASSERT(threw);
+    // "maximum context length is 16384 tokens" — surfaced despite the throw.
+    ASSERT_EQ(client.learned_context_size(), 16384);
+    close(srv);
+}
+
+TEST(client_serves_next_turn_after_overflow_rejection) {
+    // The 400 path mutates the client's internal Config (context_size learned,
+    // context_explicit set). A later healthy request on the SAME client must
+    // be unaffected — the rejection must not poison subsequent turns.
+    std::string req;
+    int srv400 = spawn_mock_http(8935, req, "HTTP/1.1 400 Bad Request",
+                                 "text/plain",
+                                 "maximum context length is 8192 tokens");
+    ASSERT(srv400 >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8935/v1";
+    cfg.stream = true;
+    agent::HttpLLMClient client(cfg);
+    try {
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+        ASSERT(false);  // the 400 must have thrown
+    } catch (const agent::ApiError&) {
+    }
+    close(srv400);
+
+    // Rebind the same port (SO_REUSEADDR) with a healthy SSE responder and
+    // drive the SAME client instance again.
+    const std::string sse =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"still works\"}}]}\n\n"
+        "data: [DONE]\n\n";
+    std::string dummy;
+    int srv2 = spawn_mock_sse(8935, dummy, sse);
+    ASSERT(srv2 >= 0);
+    usleep(100000);
+
+    agent::Message m =
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT_EQ(m.content, "still works");
+    // The teaching is sticky: the healthy turn neither clears nor changes it.
+    ASSERT_EQ(client.learned_context_size(), 8192);
+    close(srv2);
+}
+
+TEST(llm_cancel_pre_requested_aborts_with_cancelled_error) {
+    // A token already requested before the call must abort fast (the /stop
+    // "do not start another turn" path), typed CancelledError — never
+    // classified as a retryable failure or degraded into a fake reply.
+    int srv = spawn_stall_server(8936);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8936/v1";
+    cfg.cancel_token.request();
+    agent::HttpLLMClient client(cfg);
+    bool cancelled = false;
+    try {
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    } catch (const agent::CancelledError&) {
+        cancelled = true;
+    }
+    ASSERT(cancelled);
+    close(srv);
+}
+
+TEST(llm_cancel_mid_stream_aborts_with_cancelled_error) {
+    // Esc // /stop during a stalled generation: the in-flight transfer must
+    // abort (curl's progress callback polls the shared token) with
+    // CancelledError, distinct from ApiError and std::runtime_error.
+    int srv = spawn_stall_server(8937);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8937/v1";
+    agent::HttpLLMClient client(cfg);
+    std::exception_ptr err;
+    std::thread caller([&]() {
+        try {
+            client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+        } catch (...) {
+            err = std::current_exception();
+        }
+    });
+    usleep(300000);               // let the request go in-flight
+    cfg.cancel_token.request();   // copies share the flag with the client
+    caller.join();
+
+    ASSERT(err != nullptr);
+    std::string kind = "none";
+    try {
+        std::rethrow_exception(err);
+    } catch (const agent::CancelledError&) {
+        kind = "cancelled";
+    } catch (const agent::ApiError&) {
+        kind = "api_error";
+    } catch (const std::exception&) {
+        kind = "other";
+    }
+    ASSERT_EQ(kind, "cancelled");
     close(srv);
 }
 
@@ -4333,7 +4695,9 @@ TEST(parse_model_list_dedupes_ids) {
         {"id": "qwopus-27b"},
         {"id": "qwopus-27b"},
         {"id": "gemma4-12b-q4"}]})";
-    auto models = agent::parse_model_list(body);
+    std::vector<std::string> models;
+    for (const auto& m : agent::make_dialect("openai")->parse_model_list_response(body))
+        models.push_back(m.id);
     ASSERT_EQ(models.size(), 3u);
     bool saw_qwopus = false, saw_qwen = false;
     for (const auto& m : models) {
@@ -5030,7 +5394,8 @@ TEST(job_eof_daemon_is_terminated) {
 // index; the parser must cap it, never allocate a billion empty slots.
 TEST(sse_tool_call_index_capped) {
     agent::Message m;
-    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(
+        m, [](const agent::StreamChunk&) {}, "");
     agent::json delta = {{"tool_calls", agent::json::array({
         {{"index", 100000}, {"id", "bomb"}, {"type", "function"},
          {"function", {{"name", "search"}, {"arguments", "{}"}}}}
@@ -5040,17 +5405,18 @@ TEST(sse_tool_call_index_capped) {
         "data: " +
         agent::json{{"choices", agent::json::array({choice})}}.dump() +
         "\n\n";
-    p.on_write(data.data(), 1, data.size());
+    p->on_write(data.data(), 1, data.size());
     ASSERT(m.tool_calls.size() <= agent::kMaxToolCallsPerMessage);
 }
 
 // The raw stream accumulation is diagnostics-only; it must be bounded.
 TEST(sse_raw_body_bounded) {
     agent::Message m;
-    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(
+        m, [](const agent::StreamChunk&) {}, "");
     std::string junk(std::size_t(1024) * 1024, 'x');
-    p.on_write(junk.data(), 1, junk.size());
-    ASSERT(p.raw_body().size() <= agent::kMaxRawBodyBytes);
+    p->on_write(junk.data(), 1, junk.size());
+    ASSERT(p->raw_body().size() <= agent::kMaxRawBodyBytes);
 }
 
 // Some gateways (kilocode routing to MiniMax et al.) stream tool-call deltas
@@ -5061,7 +5427,8 @@ TEST(sse_raw_body_bounded) {
 // kilocode kilo-auto/free failures.
 TEST(sse_one_based_tool_call_index_compacted) {
     agent::Message m;
-    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(
+        m, [](const agent::StreamChunk&) {}, "");
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
         agent::json choice = {{"delta", delta}};
@@ -5075,8 +5442,8 @@ TEST(sse_one_based_tool_call_index_compacted) {
                         {"function", {{"name", "read"},
                                       {"arguments", "{}"}}}};
     std::string sse = ev(agent::json::array({frag}));
-    p.on_write(sse.c_str(), sse.size(), 1);
-    p.finalize();
+    p->on_write(sse.c_str(), sse.size(), 1);
+    p->finalize();
 
     ASSERT(m.tool_calls.is_array());
     // The sparse placeholder at index 0 must be compacted away; only the
@@ -5097,7 +5464,8 @@ TEST(sse_one_based_tool_call_index_compacted) {
 // id-only slot is dropped at finalize like any other incomplete call.
 TEST(sse_id_only_tool_call_dropped) {
     agent::Message m;
-    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(
+        m, [](const agent::StreamChunk&) {}, "");
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
         agent::json choice = {{"delta", delta}};
@@ -5111,8 +5479,8 @@ TEST(sse_id_only_tool_call_dropped) {
                         {"type", "function"},
                         {"function", {{"arguments", "{}"}}}};
     std::string sse = ev(agent::json::array({frag}));
-    p.on_write(sse.c_str(), sse.size(), 1);
-    p.finalize();
+    p->on_write(sse.c_str(), sse.size(), 1);
+    p->finalize();
 
     ASSERT(m.tool_calls.is_null() || m.tool_calls.empty());
 }

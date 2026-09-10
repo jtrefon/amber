@@ -1,14 +1,17 @@
 ## Spec: Model Probe (Server Auto-Detection)
 
 ### Purpose
-Query the LLM server's `/v1/models` endpoint to auto-detect the model name and
-context window size. Handles three JSON response formats (OpenAI, llama.cpp,
-Ollama). Results are merged into Config only for fields NOT marked explicit by
-the user.
+Query the provider's model-listing endpoint to auto-detect the model name and
+context window size. The endpoint, auth headers, and response parsing come
+from the resolved **dialect** (see `llm-client/dialect.md`): the openai dialect
+handles the OpenAI / llama.cpp / Ollama listing shapes, and a protocol without
+a listing endpoint returns an empty/not-ok result rather than a false negative.
+Results are merged into Config only for fields NOT marked explicit by the user.
 
 ### Ownership
-- **Source files**: `lib/model_probe.cpp` (155 lines), `include/agent/model_probe.h`, `lib/llm.cpp` (`LLMClient::probe_server()`, `LLMClient::list_models()`)
-- **Test files**: `tests/run_tests.cpp` — 4 probe tests (lines 667–735)
+- **Source files**: `lib/model_probe.cpp`, `include/agent/model_probe.h`; parsing lives in the dialects (`Dialect::parse_models_response` / `parse_model_list_response`)
+- **Consumers**: `LLMClient::probe_server()`, `agent::list_model_info()` / `list_models()` (TUI model drawer, `/provider test` via `HttpModelCatalog`)
+- **Test files**: `tests/run_tests.cpp` — probe pins (`probe_parse_*`, `probe_prefers_*`, `probe_autodetect_*`, `probe_active_model_without_meta_is_unknown`) and `tests/dialect_anthropic_test.cpp` (`anthropic_model_list_and_probe_parse`)
 
 ---
 
@@ -16,8 +19,8 @@ the user.
 
 | Dimension | Detail |
 |-----------|--------|
-| **Input** | `Config` with `api_base` and optional `api_key` |
-| **Output** | `ServerInfo{ok, model, context_size}` — populated from `/v1/models` response |
+| **Input** | `Config` with `api_base`, optional `api_key`, and `flavor`; the dialect derives the listing URL and auth |
+| **Output** | `ServerInfo{ok, model, context_size}` from the dialect's parsing of the listing response |
 | **Error states** | Connection failure → `ok=false`. Malformed JSON → `ok=false`. Empty data → `ok=false`. |
 | **Invariants** | See below. |
 | **Thread safety** | Startup only. |
@@ -28,7 +31,7 @@ the user.
 2. Context size resolution: `meta.n_ctx` (llama.cpp) > top-level `n_ctx` (Ollama) > `meta.n_ctx_train` > `n_ctx_train`.
 3. Probe returns `ok=true` only if at least model name or context size is found.
 4. Probes use raw `curl_easy_init/cleanup` (NOT RAII — known leak on exception).
-5. Timeout: 5s total, 3s connect.
+5. Timeout: 10s total, 5s connect.
 
 ---
 
@@ -80,9 +83,9 @@ the user.
 
 ### Cross-references
 
-- **Depends on**: `llm-client/http-transport.md` (curl usage — but probe uses raw curl, not RAII)
+- **Depends on**: `llm-client/dialect.md` (endpoint, auth, parsing), `llm-client/http-transport.md` (curl usage — but probe uses raw curl, not RAII)
 - **Depended on by**: `config/merge-semantics.md`, `config/ui-config.md` (settings screen test connection)
-- **Test coverage**: `tests/run_tests.cpp`: `probe_parse_models_data_array` (668), `probe_parse_models_array_fallback` (679), `probe_parse_models_malformed_is_not_ok` (689), `autodetect_fills_only_auto_fields` (697)
+- **Test coverage**: `tests/run_tests.cpp`: `probe_parse_llamacpp_models`, `probe_parse_models_array_fallback`, `probe_parse_models_malformed_is_not_ok`, `probe_prefers_the_active_model`, `probe_autodetect_prefers_explicit_active_model`, `probe_autodetect_first_with_context_when_auto`, `autodetect_noop_when_server_down`
 
 ### Known gaps
 

@@ -12,7 +12,7 @@
 #include "agent.h"
 #include "agent/context.h"
 #include "agent/dispatch.h"
-#include "agent/sse_parser.h"
+#include "agent/dialect.h"
 #include "agent/tool_call_parser.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
@@ -77,10 +77,10 @@ namespace {
 bool parse_probe_tool_calls_roundtrip(ProbeResult& r) {
     agent::Message m;
     auto sink = [](const agent::StreamChunk&) {};
-    agent::StreamParser p(m, sink, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, sink, "");
     const std::string sse(kToolCallsSse);
-    p.on_write(sse.c_str(), sse.size(), 1);
-    p.finalize();
+    p->on_write(sse.c_str(), sse.size(), 1);
+    p->finalize();
     r.expected = R"(1 tool call 'search' with arguments {"pattern":"foo"})";
     if (!m.tool_calls.is_array() || m.tool_calls.size() != 1u) {
         r.detail = "tool_calls absent or wrong count";
@@ -113,10 +113,10 @@ bool parse_probe_reasoning_segmentation(ProbeResult& r) {
         "data: [DONE]\n\n";
     agent::Message m;
     auto sink = [](const agent::StreamChunk&) {};
-    agent::StreamParser p(m, sink, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, sink, "");
     const std::string body(sse);
-    p.on_write(body.c_str(), body.size(), 1);
-    p.finalize();
+    p->on_write(body.c_str(), body.size(), 1);
+    p->finalize();
     r.expected = "content='answer', reasoning='reasoning'";
     if (m.content != "answer" || m.reasoning != "reasoning") {
         r.detail = "content='" + m.content + "' reasoning='" + m.reasoning + "'";

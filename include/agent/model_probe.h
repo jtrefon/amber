@@ -7,23 +7,15 @@
 
 namespace agent {
 
-// Query the server's GET /v1/models endpoint and report the first model's id
+class Dialect;
+
+// Query the server's model-listing endpoint and report the active model's id
 // and context window (n_ctx). Never throws: on any transport/parse failure it
-// returns a ServerInfo with ok == false.
+// returns a ServerInfo with ok == false. The endpoint, auth, and parsing are
+// the dialect's (resolved from cfg.flavor); the two-argument overload uses a
+// caller-held dialect (the client's).
 ServerInfo probe_server(const Config& cfg);
-
-// Parse a /v1/models JSON body into ServerInfo. Pure and network-free so the
-// extraction logic can be unit-tested without a live server. When
-// `preferred_model` is non-empty the matching entry wins; otherwise the
-// first entry reporting a positive context is used (fallback: first entry).
-ServerInfo parse_models(const std::string& body,
-                        const std::string& preferred_model = "");
-
-// Return all model IDs from a /v1/models response. Pure, no network.
-std::vector<std::string> parse_model_list(const std::string& body);
-
-// Fetch all model IDs from the configured server. Returns empty on error.
-std::vector<std::string> list_models(const Config& cfg);
+ServerInfo probe_server(const Config& cfg, const Dialect& dialect);
 
 // One model entry with its context window info (0 when the server did not
 // report it). Used by the TUI /set model drawer to show "id (ctx N)" inline.
@@ -33,13 +25,13 @@ struct ModelInfo {
     int context_train = 0;  // n_ctx_train (native max)
 };
 
-// Parse every model entry from a /v1/models response, keeping per-model
-// context info. Pure and network-free so it can be unit-tested.
-std::vector<ModelInfo> parse_model_list_info(const std::string& body);
-
 // Fetch all model entries with context info from the configured server.
-// Returns empty on error.
+// Returns empty on error (including a protocol without a listing endpoint).
 std::vector<ModelInfo> list_model_info(const Config& cfg);
+std::vector<ModelInfo> list_model_info(const Config& cfg, const Dialect& dialect);
+
+// Fetch all model IDs from the configured server. Returns empty on error.
+std::vector<std::string> list_models(const Config& cfg);
 
 // Fetch the kilo.ai account balance in USD via
 // GET https://api.kilo.ai/api/profile/balance with `token` as the Bearer

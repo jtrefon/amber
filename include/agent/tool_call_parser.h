@@ -13,7 +13,7 @@ using json = nlohmann::json;
 // response. Different models/servers format tool calls differently:
 //
 //   OpenAI / llama.cpp native (without --jinja):
-//     JSON tool_calls[] in the SSE delta — handled by sse_parser.
+//     JSON tool_calls[] in the SSE delta — handled by the OpenAI stream decoder.
 //
 //   Qwen/Jinja (llama.cpp --jinja):
 //     <tool_call><name>bash</name><arguments>{...}</arguments></tool_call>

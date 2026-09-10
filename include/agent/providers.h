@@ -36,11 +36,11 @@ struct Provider {
 
 // Per-provider differences from the OpenAI-compatible baseline. This is
 // the only place provider-specific behavior is declared; callers never
-// branch on provider names.
+// branch on provider names. Wire-protocol differences live in the Dialect
+// the flavor selects.
 struct ProviderCapabilities {
-    bool bearer_auth = true;                 // Authorization: Bearer <key>
-    bool supports_reasoning_effort = false;  // o-series / vLLM / DeepSeek
-    std::string flavor = "openai";           // future differences
+    std::string flavor = "openai";           // dialect selector
+    bool api_key_is_account_token = false;   // key doubles as account token
 };
 
 // ---------------------------------------------------------------------------
@@ -103,9 +103,6 @@ public:
 
     // Persist the last-used model for a provider (default_model).
     bool remember_model(const std::string& provider, const std::string& model);
-
-    // Provider-specific differences (defaults + override table).
-    ProviderCapabilities capabilities(const std::string& name) const;
 
     // Reachability probe via the model catalog.
     bool validate(const std::string& name);
