@@ -1,6 +1,9 @@
 # amber — Plugin Framework Tracker
 
-- **Status:** 🔵 Design agreed (2026-09-10) — implementation not started
+- **Status:** 🟢 PF-1 complete (2026-09-10) on `feat/plugin-framework-pf1` —
+  registries, typed events, ledger, runtime, get/set surface and the v1 adapter
+  all land and are green. One PF-1 follow-up outstanding (core prompt blocks on
+  the registry). PF-2 (provider capability + Gemini) is next.
 - **Reference:** `docs/spec/plugins/plugin-framework-v2.md` (the contract)
 - **Author guide:** `docs/spec/plugins/developer-guide.md`
 - **Related:** `docs/spec/llm-client/dialect.md` (provider wire seam),
@@ -64,6 +67,52 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
+
+### 2026-09-10 — PF-1.2, PF-1.4–PF-1.7: the framework runs
+
+- **Branch:** `feat/plugin-framework-pf1` (pushed; no PR yet — the feature is
+  not finished to a shippable state).
+- **Landed**
+  - **PF-1.2 publish sites** — `Agent::set_events`; TurnStarted (before the
+    prompt is sealed, so an interceptor can rewrite it), TurnEnded,
+    MessageAdded at every push site, LlmResponse, CompressionTriggered/
+    Completed, ErrorRaised; tool events in dispatch with an interceptable
+    ToolRequested that can rewrite arguments or veto a call. Hidden
+    confirmation exchanges publish nothing.
+  - **PF-1.4 registries** — prompt blocks, commands, per-plugin settings,
+    owner-tagged, plus four concrete capabilities (tool, command, prompt
+    block, setting). `ToolRegistry::remove_tool`.
+    The dead `void*`/Type-enum `Capability` struct is deleted; `IPlugin::
+    capabilities()` returns owned typed capabilities, called once at
+    activation.
+  - **PF-1.5 runtime** — composition root, ledger install/unwind,
+    `~/.config/amber/plugins/<id>/plugin.conf`, bundled-on-by-default,
+    `set_state` as the single write path. TUI: `/get plugin [list|<id>]`,
+    `/set plugin <id> on|off` as feed leaves, agents get the bus and the
+    prompt registry. CLI: same runtime, `--no-plugins`.
+  - **PF-1.6 v1 adapter** — `V1PluginAdapter` puts discovered external plugins
+    under the same surface (off by default; first-wins on id collision).
+  - **PF-1.7 dogfood (partial)** — metrics is live; an end-to-end test drives a
+    real Agent turn with the bus attached and asserts the plugin counted it,
+    then that disabling leaves the harness empty.
+- **Verification:** `make clean && make && make test` (exit 0), `./run_tests`
+  → **583 passed, 0 failed**, `make check` → all invariants hold, cppcheck
+  clean on the new sources. Live smoke: TUI drawer shows `/get plugin` →
+  `metrics on, bundled v1.0.0`; headless CLI run completes with the runtime
+  active.
+- **Deviation (recorded, not hidden):** PF-1.7's second half — migrating the
+  **core** prompt blocks (memory, skill discovery, session brief) onto the
+  PromptRegistry — is **not done**. Plugin blocks are appended after the core
+  blocks today, which is behaviour-preserving and keeps the KV prefix stable.
+  The core migration changes prompt assembly for every request, so it wants its
+  own focused pass rather than the tail end of a long one.
+- **Not covered:** PF-1.6's adapters are built at startup; a plugin installed
+  mid-session appears after a restart (the v1 install path still re-runs
+  discovery, but adapters are not rebuilt). Nothing consumes `CapabilityKind::
+  Provider` yet — that is PF-2.
+- **Environment caveat:** `clang-format` is not installed on this machine;
+  `make format-check` could not run locally. New files follow the
+  LLVM/4-space/100-col style and were checked by hand. CI must confirm.
 
 ### 2026-09-10 — PF-1.1 + PF-1.3: typed events and the ledger
 
@@ -141,14 +190,15 @@ What a plugin author can rely on today. Update with every landed task.
 | Capability | Status | Phase |
 |---|---|---|
 | External tool plugin (subprocess, JSON-RPC) | ✅ Shipping | v1 (unchanged) |
-| Tool contribution (core plugin) | ⏳ | PF-1 |
-| Command contribution (executable) | ⏳ | PF-1 |
-| Event subscription (typed) | ⏳ | PF-1 |
-| Enable/disable with clean unwinding | ⏳ | PF-1 |
-| v1 external plugins under the unified registry | ⏳ | PF-1 |
-| Prompt block contribution | ⏳ | PF-1 |
-| Settings contribution | ⏳ | PF-1 |
-| `/get plugin`, `/set plugin on\|off` (persisted, live) | ⏳ | PF-1 |
+| Tool contribution (core plugin) | ✅ | PF-1 |
+| Command contribution (executable) | ✅ | PF-1 |
+| Event subscription (typed) | ✅ | PF-1 |
+| Enable/disable with clean unwinding | ✅ | PF-1 |
+| v1 external plugins under the unified registry | ✅ | PF-1 |
+| Prompt block contribution | ✅ | PF-1 |
+| Settings contribution | ✅ | PF-1 |
+| `/get plugin`, `/set plugin on\|off` (persisted, live) | ✅ | PF-1 |
+| Core prompt blocks on the registry (dogfood) | ⏳ | PF-1 follow-up |
 | Provider contribution | ⏳ | PF-2 |
 | Provider list reflects plugin state without restart | ⏳ | PF-2 |
 | Status segment contribution | ⏳ | PF-3 |

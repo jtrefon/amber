@@ -87,9 +87,13 @@ settings, and log sinks, and observe the agent loop through typed events.
   HTTP client. Gemini is the first new-vendor proof; the built-ins
   (kilocode/openrouter/anthropic) convert after, deleting the name-keyed
   `capability_overrides()` table in `lib/providers_service.cpp`.
-- **Status check before planning work here:** much of the previous v2 surface is
-  inert (no production `fire()`, `capabilities()` unread, `PluginContext::tools`
-  const). Do not describe it as working; verify, then build.
+- **Status (2026-09-10, PF-1):** the framework runs. Typed events fire at the
+  agent and tool sites, capabilities install into typed registries through the
+  ledger, `/get plugin` and `/set plugin <id> on|off` control state persisted in
+  `~/.config/amber/plugins/<id>/plugin.conf`, and the bundled metrics plugin
+  observes real turns. Providers are still PF-2 — `CapabilityKind::Provider` has
+  no consumer yet. The runtime lives in `lib/plugin_runtime.cpp`; the bundled
+  set in `lib/plugins_bundled.cpp`.
 - Spec: `docs/spec/plugins/plugin-framework-v2.md` (contract, decisions,
   scenarios).
 - Tracker: `docs/plugin-framework-tracker.md` (phases PF-1..PF-5, decision log,

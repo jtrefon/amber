@@ -26,13 +26,13 @@ it; if they disagree, the tracker wins (and file a fix).
 | Capability | Status | Phase |
 |---|---|---|
 | External tool plugin (subprocess, JSON-RPC) | ✅ Available | v1 |
-| Tool contribution (core) | ⏳ | PF-1 |
-| Command contribution, executable | ⏳ | PF-1 |
-| Typed event subscription | ⏳ | PF-1 |
-| Prompt block contribution | ⏳ | PF-1 |
-| Settings contribution | ⏳ | PF-1 |
-| v1 external plugins under the unified registry | ⏳ | PF-1 |
-| `/get plugin`, `/set plugin on\|off` | ⏳ | PF-1 |
+| Tool contribution (core) | ✅ Available | PF-1 |
+| Command contribution, executable | ✅ Available | PF-1 |
+| Typed event subscription | ✅ Available | PF-1 |
+| Prompt block contribution | ✅ Available | PF-1 |
+| Settings contribution | ✅ Available | PF-1 |
+| v1 external plugins under the unified registry | ✅ Available | PF-1 |
+| `/get plugin`, `/set plugin on\|off` | ✅ Available | PF-1 |
 | Provider contribution | ⏳ | PF-2 |
 | Status segment contribution | ⏳ | PF-3 |
 | Panel contribution + registry console | ⏳ | PF-3 |
