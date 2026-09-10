@@ -19,7 +19,6 @@ enum Priority {
     kLag = 500,
     kTps = 600,
     kTokens = 700,
-    kBalance = 800,
     kActivity = 900,
     kMcp = 1000,
 };
@@ -34,7 +33,6 @@ enum Drop {
     kWindowDrop = 3,
     kTpsDrop = 4,
     kModelDrop = 5,
-    kBalanceDrop = 5,
     kLagDrop = 6,
     kTokensDrop = 7,
     kMcpDrop = 8,
@@ -100,14 +98,6 @@ void register_core_status_segments(StatusRegistry& registry) {
         return StatusText{"  " + dashed(bar::up()) + up + " " +
                               dashed(bar::down()) + down,
                           StatusTone::Dim};
-    });
-
-    // A provider's own readout (today the kilo.ai balance). A plugin that owns
-    // such a readout registers its own segment instead; this one exists for the
-    // built-in provider set until that conversion lands.
-    registry.add("", "balance", kBalance, kBalanceDrop, [](const StatusSnapshot& s) {
-        if (s.balance_label.empty()) return StatusText{};
-        return StatusText{"  " + s.balance_label, StatusTone::Dim};
     });
 
     registry.add("", "activity", kActivity, kActivityDrop,

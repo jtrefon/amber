@@ -188,22 +188,6 @@ private:
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;
 
-    // ---- kilo.ai balance readout (optional) ------------------------------
-    // Cached result of GET https://api.kilo.ai/api/profile/balance; < 0 means
-    // unknown/unavailable (no token, offline, error). Refreshed on an
-    // interval from the UI tick loop — the fetch runs on a detached thread so
-    // a slow endpoint never blocks a paint. The thread holds a shared_ptr to
-    // the state so it outlives the Tui if a fetch is in flight at exit.
-    struct KiloBalanceState {
-        std::atomic<double> balance = -1.0;
-        std::atomic<bool> valid = false;    // a fetch has completed
-        std::atomic<bool> inflight = false;
-        std::chrono::steady_clock::time_point next_poll{};
-    };
-    std::shared_ptr<KiloBalanceState> kilo_balance_ =
-        std::make_shared<KiloBalanceState>();
-    void poll_kilo_balance();           // UI thread; throttled + async
-    std::string kilo_balance_label() const;  // "" when nothing to show
 };
 
 } // namespace tui

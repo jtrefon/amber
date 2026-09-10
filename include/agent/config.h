@@ -23,10 +23,6 @@ struct Config {
     // (make_dialect). Set from the provider's capabilities on selection;
     // "openai" covers every OpenAI-compatible endpoint.
     std::string flavor = "openai";
-    // True when the provider's api_key doubles as its account token (the
-    // kilo.ai balance readout uses it without extra configuration). Derived
-    // from the provider's capabilities on selection — never persisted.
-    bool api_key_is_account_token = false;
     std::string api_base = "http://localhost:8000/v1";
     std::string api_key;                 // required for managed providers
     std::string model = "gpt-4o-mini";
@@ -34,11 +30,9 @@ struct Config {
     std::string tools_prompt_path;       // markdown file advertising tools
     std::string git_prompt_path;         // markdown file for git workflow
 
-    // Optional kilo.ai account token for the balance readout
-    // (GET https://api.kilo.ai/api/profile/balance). Distinct from api_key
-    // (the gateway chat credential): balance requires the account OAuth
-    // token, and anonymous free usage has no balance. Empty disables the
-    // readout.
+    // Explicit override for a provider's balance readout, read by the provider
+    // plugin that offers one (kilocode's account token, for instance). Empty
+    // means "use my own convention" — the plugin decides what that is.
     std::string kilo_balance_token;
     int max_tool_iterations = 100;
     long max_wall_ms = 0;        // 0 = unlimited; loop deadline (engine-enforced)

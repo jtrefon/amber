@@ -94,6 +94,10 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
+    // The runtime needs the LIVE config: the Tui owns cfg_ by value, so a
+    // plugin reading an API key or the active provider must be pointed at it
+    // rather than at the copy the runtime took at construction.
+    plugin_runtime_.attach_config(cfg_);
     feed_manager_ = std::make_unique<FeedManager>(*this);
     window_manager_ = std::make_unique<WindowManager>(cfg_, reg_, &plugin_runtime_);
     router_ = std::make_unique<EventRouter>(*this);
@@ -439,7 +443,9 @@ void Tui::run() {
         }
         bool had_events = drain_events();
         jobs_.check_timeouts();
-        poll_kilo_balance();
+        // Time-driven plugin work (a provider's balance refresh, say). The bar
+        // reads what the tick cached; segments themselves never fetch.
+        plugin_runtime_.tick();
         if (!input_fill_.empty()) {
             cl.set_text(input_fill_);
             input_fill_.clear();

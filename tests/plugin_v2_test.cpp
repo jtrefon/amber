@@ -59,7 +59,7 @@ TEST(plugin_v2_initialize_returns_bool) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
     ASSERT_TRUE(p.initialize(ctx));
     ASSERT_TRUE(p.initialized_);
 }
@@ -70,7 +70,7 @@ TEST(plugin_v2_initialize_failure) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
     ASSERT_FALSE(p.initialize(ctx));
 }
 
@@ -105,7 +105,7 @@ TEST(plugin_registry_activate_success) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
     reg.set_context(&ctx);
     auto plugin = std::make_shared<StubPlugin>("act", "1.0.0");
     reg.register_plugin(plugin);
@@ -125,7 +125,7 @@ TEST(plugin_registry_activate_failure_marks_failed) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
     reg.set_context(&ctx);
     auto plugin = std::make_shared<FailingPlugin>();
     reg.register_plugin(plugin);
@@ -139,7 +139,7 @@ TEST(plugin_registry_deactivate) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
     reg.set_context(&ctx);
     auto plugin = std::make_shared<StubPlugin>("deact", "1.0.0");
     reg.register_plugin(plugin);
@@ -169,7 +169,7 @@ TEST(plugin_registry_shutdown_all) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
     reg.set_context(&ctx);
     auto p1 = std::make_shared<StubPlugin>("s1", "1.0.0");
     auto p2 = std::make_shared<StubPlugin>("s2", "1.0.0");

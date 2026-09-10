@@ -12,19 +12,11 @@ class StaticProviderRepository : public ProviderRepository {
 public:
     std::vector<Provider> all() const override {
         std::vector<Provider> out;
-        out.push_back({"openrouter",
-                       "https://openrouter.ai/api/v1", "", true,
-                       "openai/gpt-4o", 0, /*builtin=*/true});
-        out.push_back({"kilocode",
-                       "https://api.kilo.ai/api/gateway", "", true,
-                       "kilo-auto/free", 0, /*builtin=*/true});
-        out.push_back({"anthropic",
-                       "https://api.anthropic.com", "", true,
-                       "claude-sonnet-4-5", 0, /*builtin=*/true,
-                       "anthropic"});
-        // Custom is a built-in preset too: always present, configured via
-        // its dedicated file (~/.config/amber/providers/custom.conf) like
-        // every other provider. Empty endpoint until the file exists.
+        // The named providers (openrouter, kilocode, anthropic, gemini) are
+        // contributed by their plugins: each owns its preset, so switching one
+        // off removes it. What remains here is the one provider that is not a
+        // vendor — the user's own endpoint, configured via
+        // ~/.config/amber/providers/custom.conf.
         out.push_back({"custom", "", "", false, "", 0, /*builtin=*/true});
         return out;
     }

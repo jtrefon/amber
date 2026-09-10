@@ -314,12 +314,15 @@ ProviderCapability::~ProviderCapability() = default;
 
 InstallResult ProviderCapability::install(PluginServices& services) {
     InstallResult r;
-    if (flavor_.empty() || !make_dialect_) {
-        r.error = "provider capability needs a flavor and a dialect factory";
+    if (flavor_.empty()) {
+        r.error = "provider capability needs a flavor";
         return r;
     }
     const std::string owner = services.owner();
-    register_dialect(flavor_, make_dialect_, owner);
+    // A factory means this plugin *provides* the protocol; without one it only
+    // speaks a protocol someone else provides (the shared openai dialect).
+    const bool provides_dialect = static_cast<bool>(make_dialect_);
+    if (provides_dialect) register_dialect(flavor_, make_dialect_, owner);
     for (const auto& preset : presets_) {
         Provider p;
         p.name = preset.name;
@@ -334,11 +337,12 @@ InstallResult ProviderCapability::install(PluginServices& services) {
     r.ok = true;
     r.contribution.kind = CapabilityKind::Provider;
     r.contribution.name = flavor_;
-    r.contribution.remove = [owner, flavor = flavor_] {
-        // Take back exactly this plugin's contribution: its dialect (marked
-        // unavailable, so a provider file pointing at it fails loudly) and its
-        // preset rows.
-        unregister_dialects_for(owner);
+    r.contribution.remove = [owner, flavor = flavor_, provides_dialect] {
+        // Take back exactly this plugin's contribution: the dialect it
+        // provided (marked unavailable, so a provider file pointing at it fails
+        // loudly rather than speaking another protocol) and its preset rows.
+        // A presets-only provider leaves the shared dialect alone.
+        if (provides_dialect) unregister_dialect(flavor, owner);
         unregister_provider_presets_for(owner);
     };
     return r;

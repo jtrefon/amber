@@ -1,6 +1,7 @@
 #include "agent/plugin_runtime.h"
 
 #include "agent/core_segments.h"
+#include "agent/dialect.h"
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_v1_adapter.h"
 
@@ -58,7 +59,8 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, const Config& config,
     services_ = std::make_unique<PluginServices>(tools, prompts_, commands_,
                                                  status_, settings_, bus_);
     context_ = std::make_unique<PluginContext>(
-        PluginContext{bus_, tools, config_, workspace});
+        PluginContext{bus_, tools, &config_, *workspace_});
+    services_->config = &config_;
     registry_.set_context(context_.get());
 }
 
@@ -70,7 +72,19 @@ bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
     if (!plugin) return false;
     const std::string id = plugin->id();
     if (plugins_.find(id) != plugins_.end()) return false;  // first registration wins
-    plugins_[id] = Entry{std::move(plugin), bundled};
+    Entry entry;
+    entry.plugin = std::move(plugin);
+    entry.bundled = bundled;
+    // Declarations are a property of the plugin, not of its activation: a
+    // plugin that ships switched off still declares the protocol it would
+    // provide, so a provider file pointing at that flavor reports "the plugin
+    // is disabled" rather than silently speaking another wire protocol.
+    entry.declared = entry.plugin->capabilities();
+    for (const auto& capability : entry.declared) {
+        if (capability && capability->kind() == CapabilityKind::Provider)
+            declare_flavor(capability->name(), id);
+    }
+    plugins_[id] = std::move(entry);
     registry_.register_plugin(plugins_[id].plugin);
     return true;
 }
@@ -82,6 +96,24 @@ void PluginRuntime::add_bundled() {
 void PluginRuntime::add_external(PluginManager& manager) {
     for (auto& plugin : make_v1_plugin_adapters(manager))
         add(std::move(plugin), /*bundled=*/false);
+}
+
+void PluginRuntime::attach_config(const Config& config) {
+    live_config_ = &config;
+    context_->config = &config;
+    services_->config = &config;
+}
+
+void PluginRuntime::tick() {
+    for (const auto& [id, entry] : plugins_) {
+        if (registry_.state(id) != PluginRegistry::State::Active) continue;
+        try {
+            entry.plugin->tick();
+        } catch (...) {
+            // A plugin's tick must never take the host down; the next frame
+            // simply shows whatever state it left behind.
+        }
+    }
 }
 
 void PluginRuntime::start() {
@@ -154,9 +186,13 @@ void PluginRuntime::deactivate(const std::string& id) {
     ledger_.unwind(id);
 }
 
-bool PluginRuntime::install_capabilities(const std::string& id, IPlugin& plugin) {
+bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
+    auto it = plugins_.find(id);
+    if (it == plugins_.end()) return false;
     services_->set_owner(id);
-    for (auto& capability : plugin.capabilities()) {
+    // The capabilities declared at registration are the ones installed; a
+    // plugin hands them over once and the runtime owns them from then on.
+    for (auto& capability : it->second.declared) {
         if (!capability) continue;
         InstallResult result = capability->install(*services_);
         if (!result.ok) return false;

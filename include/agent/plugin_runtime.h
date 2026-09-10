@@ -53,6 +53,12 @@ public:
     // collides with a bundled one is skipped, never silently overwritten.
     void add_external(PluginManager& manager);
 
+    // Point the runtime (and every plugin context it hands out) at the host's
+    // LIVE config. A host that takes its Config by value must call this after
+    // construction, so plugins read what the user has changed, not a snapshot
+    // taken at startup.
+    void attach_config(const Config& config);
+
     // --- Lifecycle ---------------------------------------------------------
 
     // Activate every plugin whose persisted state says it is on. Called once
@@ -61,6 +67,10 @@ public:
 
     // Stop every active plugin and unwind its contributions. Idempotent.
     void shutdown();
+
+    // Forward the host's UI tick to active plugins (time-driven work). Runs on
+    // the UI thread: a plugin must not block here.
+    void tick();
 
     // --- State (backs /get plugin and /set plugin) -------------------------
 
@@ -107,12 +117,15 @@ private:
     PluginRegistry registry_;
     std::unique_ptr<PluginServices> services_;
     std::unique_ptr<PluginContext> context_;
-    Config config_;
+    Config config_;                 // fallback until the host attaches its own
+    const Config* live_config_ = nullptr;
     const Workspace* workspace_;
 
     struct Entry {
         std::shared_ptr<IPlugin> plugin;
         bool bundled = true;
+        // What the plugin declared at registration; installed on activation.
+        std::vector<std::unique_ptr<Capability>> declared;
     };
     std::map<std::string, Entry> plugins_;
 };

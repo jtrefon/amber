@@ -281,7 +281,8 @@ TEST(runtime_provider_plugin_registers_and_unwinds) {
 
     // Disabling: the dialect and presets go, and the flavor refuses.
     ASSERT_TRUE(runtime.set_state("gemini", false));
-    ASSERT_TRUE(plugin_provider_presets().empty());
+    for (const auto& p : plugin_provider_presets())
+        ASSERT(p.name != std::string("gemini"));
     const std::string reason = flavor_unavailable_reason("gemini");
     ASSERT_FALSE(reason.empty());
     ASSERT(reason.find("gemini") != std::string::npos);

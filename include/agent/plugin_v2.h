@@ -18,7 +18,11 @@ namespace agent {
 struct PluginContext {
     EventBus& event_bus;
     const ToolRegistry& tools;
-    const Config& config;
+    // The host's LIVE configuration, not a copy: a plugin that reads an API
+    // key or the active provider must see what the user has changed since
+    // startup. The runtime rebinds this when the host hands it the real
+    // config (PluginRuntime::attach_config).
+    const Config* config = nullptr;
     const Workspace& workspace;
 };
 
@@ -32,6 +36,13 @@ public:
 
     virtual bool initialize(const PluginContext& ctx) = 0;
     virtual void shutdown() = 0;
+
+    // Called periodically by the host on its UI tick, for time-driven work
+    // (polling a balance, refreshing a remote value). It exists so that
+    // *rendering* can stay a pure read: a segment never fetches anything, the
+    // tick does the work and the segment reports the cached result.
+    // Must not block — schedule slow work on the plugin's own thread.
+    virtual void tick() {}
 
     // What this plugin contributes. Called once, at activation: the runtime
     // installs each capability and records the returned handle in its ledger,

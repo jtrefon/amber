@@ -82,6 +82,9 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
               $(BUILD_DIR)/plugins/gemini/gemini_plugin.o \
+              $(BUILD_DIR)/plugins/kilocode/kilocode_plugin.o \
+              $(BUILD_DIR)/plugins/openrouter/openrouter_plugin.o \
+              $(BUILD_DIR)/plugins/anthropic/anthropic_plugin.o \
               $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \
@@ -388,6 +391,18 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 
 $(BUILD_DIR)/plugins/gemini/%.o: $(SRC_DIR)/plugins/gemini/%.cpp
 	@mkdir -p $(BUILD_DIR)/plugins/gemini
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/plugins/kilocode/%.o: $(SRC_DIR)/plugins/kilocode/%.cpp
+	@mkdir -p $(BUILD_DIR)/plugins/kilocode
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) $(CURL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/plugins/openrouter/%.o: $(SRC_DIR)/plugins/openrouter/%.cpp
+	@mkdir -p $(BUILD_DIR)/plugins/openrouter
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) -c $< -o $@
+
+$(BUILD_DIR)/plugins/anthropic/%.o: $(SRC_DIR)/plugins/anthropic/%.cpp
+	@mkdir -p $(BUILD_DIR)/plugins/anthropic
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) -c $< -o $@
 
 $(BUILD_DIR)/plugins/metrics/%.o: $(SRC_DIR)/plugins/metrics/%.cpp

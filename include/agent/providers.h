@@ -39,14 +39,10 @@ struct Provider {
     std::string flavor = "openai";
 };
 
-// Per-provider differences from the OpenAI-compatible baseline. This is
-// the only place provider-specific behavior is declared; callers never
-// branch on provider names. Wire-protocol differences live in the Dialect
-// the flavor selects.
-struct ProviderCapabilities {
-    std::string flavor = "openai";           // dialect selector
-    bool api_key_is_account_token = false;   // key doubles as account token
-};
+// Provider-specific behaviour is declared by the provider itself: the wire
+// protocol is `Provider::flavor`, and anything else a provider needs (a
+// balance readout, its own auth convention) belongs to its plugin, not to a
+// table of flags here.
 
 // ---------------------------------------------------------------------------
 // Ports — implemented by adapters, never by the domain.

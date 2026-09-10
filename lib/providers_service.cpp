@@ -22,22 +22,6 @@ std::vector<std::pair<Provider, std::string>>& preset_table() {
     return table;
 }
 
-const std::vector<std::pair<std::string, ProviderCapabilities>>&
-capability_overrides() {
-    static const std::vector<std::pair<std::string, ProviderCapabilities>>
-        table = {
-            // OpenRouter and kilocode speak the OpenAI wire protocol; the
-            // kilocode gateway key doubles as the account token (balance
-            // readout).
-            {"openrouter", {"openai", false}},
-            {"kilocode", {"openai", true}},
-            // Native Messages API (x-api-key auth, content blocks, event
-            // stream) — the flavor selects the anthropic dialect.
-            {"anthropic", {"anthropic", false}},
-        };
-    return table;
-}
-
 } // namespace
 
 // Presets contributed by plugins (defined here so the service and the
@@ -72,19 +56,6 @@ std::vector<Provider> plugin_provider_presets() {
 }
 
 namespace {
-
-// Single source of capability data: the service and apply_selection both go
-// through here, so a provider's behavior can never drift between them.
-ProviderCapabilities capabilities_of(const std::string& name) {
-    // A plugin-provided preset carries its own flavor; the name-keyed table
-    // below is only for the built-ins.
-    for (const auto& preset : plugin_provider_presets())
-        if (preset.name == name)
-            return ProviderCapabilities{preset.flavor, false};
-    for (const auto& [n, caps] : capability_overrides())
-        if (n == name) return caps;
-    return ProviderCapabilities{};
-}
 
 // Adapter: plugin-contributed presets as a repository, so they merge into the
 // provider list exactly like the built-in and file layers.
@@ -200,13 +171,10 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     }
     if (sel.provider.default_context_size > 0 && !cfg.context_explicit)
         cfg.context_size = sel.provider.default_context_size;
-    // Wire capabilities: the dialect the client resolves and the balance
-    // readout's key semantics. The flavor travels with the provider (a plugin
-    // provider declares its own), so only the account-token quirk still needs
-    // a lookup. Derived on every selection, never persisted.
+    // The dialect the client resolves travels with the provider, so a provider
+    // contributed by a plugin needs nothing from a table in the core. Derived
+    // on every selection, never persisted.
     cfg.flavor = sel.provider.flavor;
-    const ProviderCapabilities caps = capabilities_of(sel.provider.name);
-    cfg.api_key_is_account_token = caps.api_key_is_account_token;
 }
 
 bool seed_custom_provider(const Config& connection) {

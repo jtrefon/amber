@@ -15,6 +15,8 @@
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
+#include "agent/plugin_runtime.h"
+#include "plugins/kilocode/kilocode_plugin.h"
 #include "agent/tool_call_parser.h"
 #include "agent/todo.h"
 #include "agent/session_brief.h"
@@ -233,8 +235,39 @@ TEST(config_context_default_is_auto) {
 // Provider presets and global/project settings tiers
 // ---------------------------------------------------------------------------
 
+namespace {
+
+// The vendor presets are contributed by plugins now, so a provider test needs
+// the same runtime the app builds at startup. The plugin state directory is
+// redirected to a scratch tree: a developer who disabled a provider plugin in
+// their own config must not change what these tests observe.
+class PluginTestEnv {
+public:
+    PluginTestEnv() {
+        const std::string dir = "/tmp/amber_plugin_test_env";
+        std::filesystem::remove_all(dir);
+        setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+        runtime.add_bundled();
+        runtime.start();
+    }
+    ~PluginTestEnv() {
+        unsetenv("XDG_CONFIG_HOME");
+        std::filesystem::remove_all("/tmp/amber_plugin_test_env");
+    }
+    PluginTestEnv(const PluginTestEnv&) = delete;
+    PluginTestEnv& operator=(const PluginTestEnv&) = delete;
+
+    agent::Config cfg;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime{tools, cfg, ws};
+};
+
+} // namespace
+
 TEST(config_provider_openrouter_preset) {
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    PluginTestEnv env;
+    auto svc = agent::make_default_provider_service(env.cfg);
     auto sel = svc->select("openrouter");
     ASSERT(sel.ok());
     ASSERT_EQ(sel.provider.api_base, "https://openrouter.ai/api/v1");
@@ -244,11 +277,24 @@ TEST(config_provider_openrouter_preset) {
 TEST(config_provider_kilocode_preset) {
     // Kilo's OpenAI-compatible gateway (docs: kilo.ai/docs/gateway). The
     // old api.kilocode.ai/v1 endpoint 404'd on every request.
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    PluginTestEnv env;
+    auto svc = agent::make_default_provider_service(env.cfg);
     auto sel = svc->select("kilocode");
     ASSERT(sel.ok());
     ASSERT_EQ(sel.provider.api_base, "https://api.kilo.ai/api/gateway");
     ASSERT(!sel.provider.default_model.empty());
+}
+
+TEST(config_provider_plugin_disabled_is_not_offered) {
+    // The provider set follows plugin state: with the plugin off, its provider
+    // is not in the list at all — and a provider file that still points at its
+    // flavor is refused loudly rather than falling back to another protocol.
+    PluginTestEnv env;
+    ASSERT_TRUE(env.runtime.set_state("openrouter", false));
+
+    auto svc = agent::make_default_provider_service(env.cfg);
+    ASSERT_FALSE(svc->select("openrouter").ok());
+    ASSERT_TRUE(svc->select("kilocode").ok());   // the others are unaffected
 }
 
 TEST(config_provider_unknown_is_loud_error) {
@@ -295,49 +341,58 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
     std::remove(p2.c_str());
 }
 
-// The balance readout resolves its token from the explicit override, else the
-// active provider's api_key when that provider's key IS the account token
-// (capability flag; the TUI key prompt stores it there) — so a token entered
-// via the prompt powers the readout with no extra config. The decision is
-// capability data, never a provider-name comparison.
-TEST(resolve_kilo_balance_token_falls_back_to_kilocode_api_key) {
-    agent::Config c;
-    c.provider_name = "openrouter";
-    c.api_key = "sk-openrouter";
-    ASSERT_TRUE(agent::resolve_kilo_balance_token(c).empty());
+// The balance readout belongs to the provider plugin that offers it: the
+// plugin resolves its own token (explicit override, else the gateway key when
+// its provider is active) and reports only what it can honestly show. Core
+// code has no idea the provider exists.
+TEST(kilocode_plugin_resolves_its_own_balance_token) {
+    agent::EventBus bus;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::Config cfg;
 
-    // Any provider flagged as account-token-backed resolves its api_key —
-    // the name is irrelevant.
-    c.provider_name = "kilocode";
-    c.api_key_is_account_token = true;
-    c.api_key = "kilo-jwt";
-    ASSERT_EQ(agent::resolve_kilo_balance_token(c), "kilo-jwt");
+    agent::plugins::KilocodePlugin plugin;
+    agent::PluginContext ctx{bus, tools, &cfg, ws};
+    ASSERT_TRUE(plugin.initialize(ctx));
 
-    // Explicit override wins regardless of the provider.
-    c.kilo_balance_token = "kilo-override";
-    ASSERT_EQ(agent::resolve_kilo_balance_token(c), "kilo-override");
+    // Another provider is active: the gateway key is not an account token.
+    cfg.provider_name = "openrouter";
+    cfg.api_key = "sk-openrouter";
+    ASSERT_TRUE(plugin.balance_token().empty());
+    ASSERT_TRUE(plugin.balance_label().empty());  // nothing fetched yet
 
-    // Anonymous kilocode (no key at all) resolves to nothing.
+    // Its own provider: the gateway key doubles as the account token.
+    cfg.provider_name = "kilocode";
+    cfg.api_key = "kilo-jwt";
+    ASSERT_EQ(plugin.balance_token(), std::string("kilo-jwt"));
+
+    // The explicit override wins regardless of the active provider.
+    cfg.kilo_balance_token = "kilo-override";
+    cfg.provider_name = "openrouter";
+    ASSERT_EQ(plugin.balance_token(), std::string("kilo-override"));
+
+    // No key at all: nothing to show.
     agent::Config anon;
     anon.provider_name = "kilocode";
-    anon.api_key_is_account_token = true;
-    ASSERT_TRUE(agent::resolve_kilo_balance_token(anon).empty());
-
-    // A kilocode-named config WITHOUT the capability flag yields nothing: the
-    // name alone must not decide (the flag is the single source of truth).
-    agent::Config named_only;
-    named_only.provider_name = "kilocode";
-    named_only.api_key = "kilo-jwt";
-    ASSERT_TRUE(agent::resolve_kilo_balance_token(named_only).empty());
+    agent::PluginContext anon_ctx{bus, tools, &anon, ws};
+    agent::plugins::KilocodePlugin fresh;
+    ASSERT_TRUE(fresh.initialize(anon_ctx));
+    ASSERT_TRUE(fresh.balance_token().empty());
+    ASSERT_TRUE(fresh.balance_label().empty());
 }
 
-// A provider's wire capabilities must reach the transport Config on
-// selection: the client resolves the dialect from cfg.flavor and the balance
-// readout from cfg.api_key_is_account_token — no provider-name branching
-// anywhere downstream.
-TEST(apply_selection_copies_flavor_and_account_token_flag) {
+// The provider's wire protocol travels with the provider itself. Nothing in
+// the core looks a provider's dialect up by name any more.
+TEST(apply_selection_copies_flavor_from_the_provider) {
     setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_caps", 1);
     std::filesystem::remove_all("/tmp/amber_xdg_caps");
+
+    agent::Config cfg;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(tools, cfg, ws);
+    runtime.add_bundled();
+    runtime.start();
 
     auto svc = agent::make_default_provider_service(agent::Config{});
 
@@ -345,42 +400,38 @@ TEST(apply_selection_copies_flavor_and_account_token_flag) {
     ASSERT(kilo.ok());
     agent::Config kilo_cfg;
     agent::apply_selection(kilo_cfg, kilo);
-    ASSERT_EQ(kilo_cfg.flavor, "openai");
-    ASSERT_TRUE(kilo_cfg.api_key_is_account_token);
+    ASSERT_EQ(kilo_cfg.flavor, "openai");   // the gateway speaks openai
 
-    auto router = svc->select("openrouter");
-    ASSERT(router.ok());
-    agent::Config router_cfg;
-    agent::apply_selection(router_cfg, router);
-    ASSERT_EQ(router_cfg.flavor, "openai");
-    ASSERT_FALSE(router_cfg.api_key_is_account_token);
+    auto gemini = svc->select("gemini");
+    ASSERT(gemini.ok());
+    agent::Config gemini_cfg;
+    agent::apply_selection(gemini_cfg, gemini);
+    ASSERT_EQ(gemini_cfg.flavor, "gemini");  // served by the plugin's preset
 
     std::filesystem::remove_all("/tmp/amber_xdg_caps");
     unsetenv("XDG_CONFIG_HOME");
 }
 
-// The derived capability fields are never persisted: they are recomputed from
-// the provider on every boot (like api_base), so a stale flavor can never
-// survive in a config file.
-TEST(flavor_and_capability_flag_not_persisted) {
+// The derived flavor is never persisted: it is recomputed from the provider on
+// every boot, so a stale value cannot survive in a config file.
+TEST(flavor_is_derived_and_not_persisted) {
     std::string path = "/tmp/amber_flavor_persist.conf";
     agent::Config c;
     c.flavor = "openai";
-    c.api_key_is_account_token = true;
     ASSERT_TRUE(c.save_global(path));
 
     agent::Config back;
     back.load(path);
-    ASSERT_EQ(back.flavor, "openai");              // default, not stored
-    ASSERT_FALSE(back.api_key_is_account_token);   // default, not stored
+    ASSERT_EQ(back.flavor, "openai");   // default, not stored
     std::remove(path.c_str());
 }
 
- TEST(provider_service_missing_key_is_warning) {
+TEST(provider_service_missing_key_is_warning) {
     // The key-required policy lives in the domain: select() warns, never
     // fails, when a key-requiring provider has no key (the user may set
     // one via env / F10 without switching again).
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    PluginTestEnv env;
+    auto svc = agent::make_default_provider_service(env.cfg);
     auto sel = svc->select("openrouter");
     ASSERT(sel.ok());
     ASSERT(sel.warning.find("API key") != std::string::npos);
@@ -393,8 +444,14 @@ TEST(provider_builtin_key_save_clears_warning) {
     // requires-key warning must be gone — switching must not re-prompt.
     setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_builtin_key", 1);
     std::filesystem::remove_all("/tmp/amber_xdg_builtin_key");
+    agent::Config cfg;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(tools, cfg, ws);
+    runtime.add_bundled();
+    runtime.start();
     {
-        auto svc = agent::make_default_provider_service(agent::Config{});
+        auto svc = agent::make_default_provider_service(cfg);
         auto sel = svc->select("kilocode");
         ASSERT(sel.ok());
         ASSERT(sel.provider.builtin);
@@ -409,7 +466,7 @@ TEST(provider_builtin_key_save_clears_warning) {
     }
     {
         // Fresh service (restart): the file repo now carries the key.
-        auto svc2 = agent::make_default_provider_service(agent::Config{});
+        auto svc2 = agent::make_default_provider_service(cfg);
         auto sel2 = svc2->select("kilocode");
         ASSERT(sel2.ok());
         ASSERT_EQ(sel2.provider.api_key, "kilo-sk-test");

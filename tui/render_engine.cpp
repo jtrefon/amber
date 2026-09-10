@@ -171,7 +171,6 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     snapshot.tps = tui_.stats_.tps;
     snapshot.prompt_tokens = tui_.stats_.prompt_tokens;
     snapshot.completion_tokens = tui_.stats_.completion_tokens;
-    snapshot.balance_label = tui_.kilo_balance_label();
     snapshot.running_jobs = tui_.jobs_.running_count();
     snapshot.job_seconds_left = tui_.jobs_.min_timeout_remaining();
     snapshot.running_tool = tui_.running_tool_;

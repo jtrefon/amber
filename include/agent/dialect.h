@@ -102,6 +102,17 @@ void register_dialect(const std::string& flavor,
 // one fails loudly instead of falling back to another protocol.
 void unregister_dialects_for(const std::string& owner);
 
+// Remove one flavor, but only if `owner` registered it. A provider that speaks
+// a shared protocol (an OpenAI-compatible gateway, say) contributes presets and
+// must never take the shared dialect down with it.
+bool unregister_dialect(const std::string& flavor, const std::string& owner);
+
+// Declare that `owner` provides `flavor`, without installing it. A plugin that
+// ships disabled still declares what it would provide, which is what lets a
+// provider file pointing at its flavor fail loudly instead of silently falling
+// back to another protocol. Installing the flavor clears the mark.
+void declare_flavor(const std::string& flavor, const std::string& owner);
+
 // Non-empty when `flavor` is known but its provider is not currently active
 // (the message names the plugin and the command that re-enables it). Empty for
 // flavors that are registered now, or that nobody has ever provided.

@@ -115,7 +115,6 @@ struct StatusSnapshot {
     double tps = -1.0;            // < 0: not measured yet
     long prompt_tokens = -1;      // < 0: not reported
     long completion_tokens = -1;
-    std::string balance_label;    // provider balance readout, empty when absent
     int running_jobs = 0;
     int job_seconds_left = -1;
     std::string running_tool;
@@ -250,6 +249,10 @@ public:
     const std::string& owner() const noexcept { return owner_; }
     void set_owner(std::string owner) { owner_ = std::move(owner); }
 
+    // The host's live configuration. Null before the host attaches one (tests
+    // and headless hosts that do not need it).
+    const Config* config = nullptr;
+
 private:
     ToolRegistry* tools_;
     PromptRegistry* prompts_;
@@ -309,13 +312,18 @@ private:
     PromptRegistry::Render render_;
 };
 
-// Contributes a provider wire protocol and the presets that use it (spec §7).
+// Contributes a provider: its presets, and optionally the wire protocol they
+// speak (spec §7).
 //
-// The dialect factory registers into the same table the built-ins use; the
-// presets become provider rows through the ordinary repository merge, so a
-// plugin provider appears in `/provider list` and the command feed with no new
-// concept. Wire behaviour lives entirely in the dialect - this capability only
-// carries data and the factory.
+// The dialect factory (when given) registers into the same table the built-ins
+// use; the presets become provider rows through the ordinary repository merge,
+// so a plugin provider appears in `/provider list` and the command feed with no
+// new concept. Wire behaviour lives entirely in the dialect - this capability
+// only carries data and the factory.
+//
+// A provider that speaks a shared protocol (an OpenAI-compatible gateway)
+// passes no factory: it contributes presets and leaves the dialect alone, so
+// switching it off cannot take the shared protocol down with it.
 class ProviderCapability : public Capability {
 public:
     struct Preset {
@@ -325,8 +333,10 @@ public:
         bool requires_key = true;
     };
 
+    // `make_dialect` empty: presets only, speaking a protocol provided
+    // elsewhere (the shared openai dialect).
     ProviderCapability(std::string flavor,
-                       std::function<std::unique_ptr<class Dialect>()> make_dialect,
+                       std::function<std::unique_ptr<class Dialect>()> make_dialect = {},
                        std::vector<Preset> presets = {});
     ~ProviderCapability() override;
 
