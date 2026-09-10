@@ -2419,6 +2419,89 @@ TEST(shell_requires_approval_matches_classifier) {
 }
 
 // ---------------------------------------------------------------------------
+// SEC-01: shell classifier security bypasses (Red tests).
+// Reader heads must not exempt out-of-workspace path arguments from
+// confinement; newline must act as a chain operator; input-redirect targets
+// must be confined; `cd` is not a read-only command.
+// ---------------------------------------------------------------------------
+
+TEST(sec01_reader_args_outside_workspace) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // Reader heads with outside-workspace args must be Outside, not ReadOnly.
+    ASSERT(agent::classify_shell("cat /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    ASSERT(agent::classify_shell("grep foo /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    ASSERT(agent::classify_shell("ls /tmp",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    ASSERT(agent::classify_shell("head /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    ASSERT(agent::classify_shell("tail /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    // In-workspace reader args stay ReadOnly (common case).
+    ASSERT(agent::classify_shell("cat file.txt",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    ASSERT(agent::classify_shell("grep -rn foo .",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    agent::Workspace::set_root(".");
+}
+
+TEST(sec01_cd_not_reader) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // `cd` changes process state and enables relative-path escapes; it is
+    // never read-only.
+    ASSERT(agent::classify_shell("cd /tmp",
+                                 "/tmp/amber_cls_ws").effect !=
+           agent::ShellEffect::ReadOnly);
+    // `cd /tmp && cat secret` escapes: the classifier must see the outside
+    // path, not treat the whole line as a read-only `cd`.
+    ASSERT(agent::classify_shell("cd /tmp && cat secret",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    agent::Workspace::set_root(".");
+}
+
+TEST(sec01_newline_is_chain_operator) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // An embedded newline separates commands exactly like ";". The second
+    // command reads /etc/passwd, so the whole line must be Outside, not
+    // ReadOnly (which the old tokenizer produced by merging both lines into
+    // one segment attributed to `echo`).
+    ASSERT(agent::classify_shell("echo a\ncat /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    // A newline-only composition of in-workspace readers stays non-ReadOnly
+    // (composed commands are never provably read-only), but must not be
+    // Outside either.
+    auto c = agent::classify_shell("ls .\ncat file.txt",
+                                    "/tmp/amber_cls_ws");
+    ASSERT(c.effect != agent::ShellEffect::ReadOnly);
+    ASSERT(c.effect != agent::ShellEffect::Outside);
+    agent::Workspace::set_root(".");
+}
+
+TEST(sec01_input_redirect_outside) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    // Input redirect target must be confined: `cat < /etc/passwd` reads
+    // outside the workspace, so it must be Outside, not ReadOnly.
+    ASSERT(agent::classify_shell("cat < /etc/passwd",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::Outside);
+    // In-workspace input redirect stays ReadOnly.
+    ASSERT(agent::classify_shell("cat < input.txt",
+                                 "/tmp/amber_cls_ws").effect ==
+           agent::ShellEffect::ReadOnly);
+    agent::Workspace::set_root(".");
+}
+
+// ---------------------------------------------------------------------------
 // Approval gate decision engine (mode x classification x stored rules)
 // ---------------------------------------------------------------------------
 
