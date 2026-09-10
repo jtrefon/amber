@@ -1092,7 +1092,8 @@ bool dispatch_probe_roundtrip(ProbeResult& r) {
     hooks.on_tool_result = [](const std::string&, const agent::ToolResult&,
                               const agent::json&) {};
     const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, &dctx);
+                                               approved, nullptr, nullptr,
+                                               &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1160,7 +1161,8 @@ bool dispatch_probe_parallel(ProbeResult& r) {
                 paired["echo BBB"] = res.output;
         };
     const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, &dctx);
+                                               approved, nullptr, nullptr,
+                                               &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1220,7 +1222,8 @@ bool dispatch_probe_out_of_order(ProbeResult& r) {
                 paired["echo FAST"] = res.output;
         };
     const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, &dctx);
+                                               approved, nullptr, nullptr,
+                                               &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1464,7 +1467,8 @@ bool fidelity_probe_params_value(ProbeResult& r) {
         got_args = args.dump();
     };
     const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, &dctx);
+                                               approved, nullptr, nullptr,
+                                               &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1559,7 +1563,7 @@ bool fidelity_probe_arg_shapes(ProbeResult& r) {
                           {"arguments", {{"command", "echo a"}}}};
         calls.push_back(tc);
         if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved,
-                                        nullptr, &dctx)) {
+                                        nullptr, nullptr, &dctx)) {
             r.detail = "object-typed arguments failed";
             return false;
         }
@@ -1575,7 +1579,7 @@ bool fidelity_probe_arg_shapes(ProbeResult& r) {
                           {"arguments", R"({"command":"echo b"})"}};
         calls.push_back(tc);
         if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved,
-                                        nullptr, &dctx)) {
+                                        nullptr, nullptr, &dctx)) {
             r.detail = "string-typed arguments failed";
             return false;
         }
@@ -1668,7 +1672,8 @@ bool output_probe_truncation(ProbeResult& r) {
         captured = res;
     };
     const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, &dctx);
+                                               approved, nullptr, nullptr,
+                                               &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;

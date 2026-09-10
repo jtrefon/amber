@@ -2994,7 +2994,7 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
 
     agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, &dctx);
+                                         approved, nullptr, nullptr, &dctx);
     ASSERT(ok);
     ASSERT(tool_results == 1);
     ASSERT(captured.ok);
@@ -3051,7 +3051,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     calls.push_back(tc2);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, &dctx);
+                                         approved, nullptr, nullptr, &dctx);
     // Should be rejected as duplicate
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
@@ -3089,7 +3089,7 @@ TEST(dispatch_auto_approves_in_write_mode) {
 
     agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, &dctx);
+                                         approved, nullptr, nullptr, &dctx);
     ASSERT(ok);
     // Write mode consults the approval callback for gated tools
     ASSERT(approval_called);
@@ -3122,7 +3122,7 @@ TEST(dispatch_missing_tool_reports_unknown) {
 
     agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, &dctx);
+                                         approved, nullptr, nullptr, &dctx);
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
     ASSERT_FALSE(captured.ok);

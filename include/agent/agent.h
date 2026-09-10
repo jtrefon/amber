@@ -13,6 +13,7 @@
 #include "agent/config.h"
 #include "agent/registry.h"
 #include "agent/llm.h"
+#include "agent/events.h"
 #include "agent/conversation_log.h"
 #include "agent/compressor.h"
 #include "agent/context.h"
@@ -191,6 +192,13 @@ public:
     // Fires on every push/pop/clear.
     ContextEventSource& context_events() { return context_events_; }
 
+    // Attach the harness event bus. Optional: an agent without one publishes
+    // nothing, and every publish site is a single atomic load away from a
+    // no-op, so a plugin subscription costs the loop nothing until it exists.
+    // Events are observable; hidden internal exchanges (the confirmation
+    // probe) are never published.
+    void set_events(EventBus& bus) noexcept { event_bus_ = &bus; }
+
     // The session's experience store (nullptr when experience is disabled).
     // Read-only use by the UI; mutation goes through learn_forget/learn_pin
     // so persistence stays in the core.
@@ -289,6 +297,20 @@ private:
     // overflow rejection. An unknown window stays 0 (no auto-compression).
     void resolve_window();
 
+    // Publish a typed event when a bus is attached. No bus, or no subscriber
+    // for this payload type, means the call compiles down to a null check.
+    template <class E>
+    void publish_event(E& event) {
+        if (!event_bus_) return;
+        Events(*event_bus_).publish(event);
+    }
+
+    // Announce a message that has just been sealed into the context.
+    void publish_message_added(const Message& msg);
+    // Announce a request failure the loop is about to repair or surface.
+    void publish_error(const std::string& kind, const std::string& message,
+                       bool retryable = false);
+
     // Per-model probed windows (model id -> context), fed by /set model.
     std::map<std::string, int> model_windows_;
 
@@ -309,6 +331,7 @@ private:
     SessionBriefStore brief_store_;
     ExperienceConfig experience_cfg_;
     PolicyStore policy_;
+    EventBus* event_bus_ = nullptr;
     size_t turn_counter_ = 0;
     CompressionResult last_compression_;
 };
