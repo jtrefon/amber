@@ -1,10 +1,11 @@
 # amber — Plugin Framework Tracker
 
-- **Status:** 🟢 PF-1 and PF-2 complete (2026-09-10) on
-  `feat/plugin-framework-pf1`. The framework runs; a provider plugin delivers a
-  genuinely incompatible vendor (Gemini) with no transport, agent-loop or UI
-  edits. Two follow-ups outstanding: core prompt blocks on the registry (PF-1)
-  and the built-in provider conversion (PF-4). PF-3 (UI surfaces) is next.
+- **Status:** 🟢 PF-1, PF-2, PF-4 and PF-3.1 complete (2026-09-10) on
+  `feat/plugin-framework-pf1`. The framework runs end to end: every vendor
+  provider (openrouter, kilocode, anthropic, gemini) is a plugin, the status
+  bar is composed from a registry, and switching a provider plugin off removes
+  it live. Outstanding: core prompt blocks on the registry (PF-1 follow-up),
+  host services (PF-3.3) and panels/console (PF-3.2).
 - **Reference:** `docs/spec/plugins/plugin-framework-v2.md` (the contract)
 - **Author guide:** `docs/spec/plugins/developer-guide.md`
 - **Related:** `docs/spec/llm-client/dialect.md` (provider wire seam),
@@ -68,6 +69,48 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
+
+### 2026-09-10 — PF-3.1 + PF-4: the status bar registry and the provider conversion
+
+- **Landed**
+  - **PF-3.1 status bar** — the bar is composed from `StatusRegistry`. Segments
+    return text plus a semantic `StatusTone` (the host maps it to the palette,
+    so a plugin never names a colour pair) and are pure functions of a
+    `StatusSnapshot` the host publishes each frame. Amber's own segments are
+    registered the same way, priorities preserve the previous order exactly,
+    and drop priorities preserve what was cut first on a narrow terminal.
+    `agent::bar` gained `utf8`/`emdash`/`up`/`down`/`reasoning_badge` so a core
+    segment needs no UI header; the TUI's glyph helpers forward to them.
+  - **PF-4 provider conversion** — openrouter, kilocode, anthropic and gemini
+    are plugins. `capability_overrides()`, `ProviderCapabilities` and
+    `Config::api_key_is_account_token` are **deleted**; `Provider::flavor` plus
+    the plugin's capabilities carry everything. The static preset repository
+    keeps only `custom` — the one provider that is not a vendor.
+  - **The kilo balance readout moved into its provider** — poll loop, atomic
+    cache and status segment now live in the kilocode plugin, which owns the
+    endpoint and the account-token convention. The TUI has no idea kilo.ai
+    exists, and `StatusSnapshot::balance_label` (the transitional field) is
+    gone.
+  - **Supporting design (recorded as decisions):** `IPlugin::tick()` (the host
+    tick is forwarded; rendering stays pure), live config via
+    `attach_config` (a plugin reading an API key must see what the user typed,
+    not a startup copy), declarations split from activation (a plugin that
+    ships off still declares its protocol), and presets-only provider
+    capabilities (a provider speaking a shared protocol must not take that
+    protocol down with it). `PluginRegistry::context()` deleted — dead API
+    whose static fallback masked a wiring bug (FIX-018).
+- **Verification:** `make clean && make && make test` (exit 0), `./run_tests` →
+  **612 passed, 0 failed**, `make check` → all invariants hold, cppcheck clean.
+  Live probe of the built binary: `/provider list` reports
+  custom/openrouter/kilocode/anthropic/gemini with their true flavors, and
+  writing `enabled=0` into `plugins/kilocode/plugin.conf` removes kilocode from
+  the list while the rest keep working.
+- **Bug caught by the suite during this work:** the presets-only declaration
+  marked the *shared* openai flavor unavailable, which would have refused every
+  OpenAI-compatible request. Caught by the existing wire tests, fixed by making
+  the unavailable mark apply only to flavors nobody is currently providing.
+- **Not covered:** host services (PF-3.3) and panels/console (PF-3.2); core
+  prompt blocks (PF-1 follow-up).
 
 ### 2026-09-10 — PF-2.1–PF-2.6: provider plugins, Gemini, race-free registry
 
@@ -218,6 +261,10 @@ Binding. Superseding a decision requires editing the spec in the same change.
 | **D15** | **Bundled plugins are enabled by default**; a user disables one for performance or preference, and a disabled plugin costs nothing at runtime (no subscriptions, no registry rows, no constructed dialect — invariant 8). | Opt-in activation — the default state would ship a harness with its own extensions switched off, and "enable to get the shipped behaviour" is a worse first run. |
 | **D16** | **Tier by isolation, not by size.** Bundled (compiled-in) is the only shipped tier; the process tier is deferred to PF-6 and gets a *different* capability shape (an external provider owns its transport and credentials); `dlopen` is **rejected**; threads are not a tier. | (a) `dlopen` — buys install-without-rebuild at the cost of a fragile C++ ABI contract and keeps the shared crash domain; the process tier is strictly better for that goal. (b) Process-everything — the streaming decoder runs per SSE chunk, so bundled providers must never cross an address space, and every process provider would re-implement retry/timeout/cancel. (c) Threads as isolation — same address space, same crash domain; threads are parallelism only. |
 | **D17** | **One write path for plugin state: `/set plugin <id> on\|off`** (plus `/set plugin <id> k=v`), read via `/get plugin list\|<id>`; `/plugin` keeps packaging verbs (`install`/`uninstall`/`info`) and drops `enable`/`disable`. Toggling re-publishes the feeds the plugin fed (provider list, command tree) with no restart. | Keeping `/plugin enable` *and* `/set plugin on` — two write paths to one state, which drift; it is the "no dead legacy dispatch" rule applied to the new surface. |
+| **D18** | **Rendering stays pure; time-driven work happens in `IPlugin::tick()`** (forwarded from the host's UI tick; must not block). | A segment fetching on render — it runs inside frame composition, so I/O or thread spawns there would make every paint unpredictable. The tick is what lets a plugin refresh a remote value while its segment stays a pure read of the cached result. |
+| **D19** | **Declarations are separated from activation:** the runtime reads a plugin's declared capabilities at *registration* and installs them at activation. | Installing-only knowledge — a plugin that ships switched off would leave no trace, so a provider file pointing at its flavor would silently fall back to another wire protocol instead of reporting the disabled plugin. This is also what the console will use to answer "what would this plugin add?". |
+| **D20** | **A provider capability may contribute presets with no dialect factory** (presets-only), and a presets-only provider never takes a shared protocol down with it. | Requiring a factory — an OpenAI-compatible gateway (kilocode, openrouter) would have to claim ownership of the shared `openai` dialect, so switching that one provider off would break OpenAI-compatible use everywhere. |
+| **D21** | **Plugins read the host's LIVE config** (`PluginRuntime::attach_config`), never a startup copy. | A snapshot taken at construction — a plugin resolving an API key or the active provider would act on stale state after the user changes either. |
 
 ---
 
@@ -238,12 +285,15 @@ What a plugin author can rely on today. Update with every landed task.
 | `/get plugin`, `/set plugin on\|off` (persisted, live) | ✅ | PF-1 |
 | Core prompt blocks on the registry (dogfood) | ⏳ | PF-1 follow-up |
 | Provider contribution (dialect + presets) | ✅ | PF-2 |
-| Provider list reflects plugin state without restart | ✅ | PF-2 |
+| Provider presets only (shared protocol) | ✅ | PF-4 |
+| Provider list reflects plugin state without restart | ✅ | PF-4 |
 | Config-only OpenAI-compatible provider | ✅ | shipping |
 | `flavor` in provider files | ✅ | PF-2 |
-| Status segment contribution | ⏳ | PF-3 |
-| Panel contribution + registry console | ⏳ | PF-3 |
-| Host services (ask/choose/confirm/notify) | ⏳ | PF-3 |
+| Status segment contribution | ✅ | PF-3.1 |
+| Time-driven work (`IPlugin::tick`) | ✅ | PF-3.1 |
+| Every vendor provider shipped as a plugin | ✅ | PF-4 |
+| Panel contribution + registry console | ⏳ | PF-3.2 |
+| Host services (ask/choose/confirm/notify) | ⏳ | PF-3.3 |
 | Log sinks | – | Deferred (no consumer) |
 | Theme, key interception, geometry, hot reload | – | Deferred Register |
 | External (process) tier | – | PF-6 (deferred, shaped for) |
