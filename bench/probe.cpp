@@ -614,23 +614,24 @@ bool loop_probe_fail_streak(ProbeResult& r) {
     s.max_steps = 12;
     s.detection_loop = true;
     // A bash call that always fails (exit 1). FailStreak counts 3 repeats.
-    // `cat /nonexistent` is read-only (no approval) but reliably exits nonzero.
+    // `cat nonexistent` is read-only (relative path, no approval) but
+    // reliably exits nonzero (file not found).
     s.fake_replies = agent::json::parse(R"([
         {"tool_calls": [{"id": "c1", "type": "function",
                          "function": {"name": "bash",
-                                      "arguments": "{\"command\":\"cat /nonexistent\"}"}}]},
+                                      "arguments": "{\"command\":\"cat nonexistent\"}"}}]},
         {"tool_calls": [{"id": "c2", "type": "function",
                          "function": {"name": "bash",
-                                      "arguments": "{\"command\":\"cat /nonexistent\"}"}}]},
+                                      "arguments": "{\"command\":\"cat nonexistent\"}"}}]},
         {"tool_calls": [{"id": "c3", "type": "function",
                          "function": {"name": "bash",
-                                      "arguments": "{\"command\":\"cat /nonexistent\"}"}}]},
+                                      "arguments": "{\"command\":\"cat nonexistent\"}"}}]},
         {"tool_calls": [{"id": "c4", "type": "function",
                          "function": {"name": "bash",
-                                      "arguments": "{\"command\":\"cat /nonexistent\"}"}}]},
+                                      "arguments": "{\"command\":\"cat nonexistent\"}"}}]},
         {"tool_calls": [{"id": "c5", "type": "function",
                          "function": {"name": "bash",
-                                      "arguments": "{\"command\":\"cat /nonexistent\"}"}}]}
+                                      "arguments": "{\"command\":\"cat nonexistent\"}"}}]}
     ])");
     ScenarioReport rep;
     std::string err;
