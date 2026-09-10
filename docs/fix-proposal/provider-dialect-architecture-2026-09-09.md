@@ -369,20 +369,27 @@ Gate: `grep -rn 'provider_name ==' lib/ include/` → 0 (the three remaining `pr
 
 ### FIX-030 — Anthropic proof dialect (hermetic)
 
-One new file `lib/dialect_anthropic.cpp` + `tests/dialect_anthropic_test.cpp` with **recorded JSON fixtures** (no network). Scope:
+**Implemented** on `refactor/provider-dialect-seam` (2026-09-09, same branch as FIX-028/029). The acceptance proof for the whole proposal.
 
-- `flavor() == "anthropic"`; `chat_url = api_base + "/v1/messages"`; `models_url = api_base + "/v1/models"` (list-only; context window unknown → `ModelInfo.context == 0`, same as today's tolerance).
-- `apply_auth`: `x-api-key: <key>` + `anthropic-version: 2023-06-01`; no Bearer.
-- `build_chat_body`: `{model, max_tokens (cfg.max_tokens — required by the API), system (merged, one block), messages[{role:"user"|"assistant", content:[{type:"text"|"tool_use"|"tool_result",…}]}], tools:[{name,description,input_schema}], stream}`. `cfg.thinking`/`reasoning_effort` map to nothing in v1 (documented limitation in the file, no silent passthrough).
-- `parse_completion`: joins `content[]` text blocks; `tool_use` blocks → internal `tool_calls` shape (D3); `usage{input_tokens,output_tokens}` → `Stats` mapping in the transport's existing stats path.
-- `make_decoder`: event-type state machine — `message_start` (usage), `content_block_start` (tool_use id+name), `content_block_delta` (`text_delta` → `chunk.delta`; `input_json_delta` → accumulating `arguments`), `content_block_stop`, `message_delta` (usage/stop_reason), `message_stop` → finalize. Reuses the shared framing base; synthesizes OpenAI-shaped tool calls at the edge so dispatch and history are untouched.
-- `is_retryable`: 429/5xx true, 4xx false (Anthropic overloaded = 529 → retryable via `>= 500` rule already). `context_overflow_hint`: Anthropic's `"maximum context length exceeded"` prose pattern.
+**Footprint — exactly what the seam promised:**
 
-Preset row (`providers_repo_static.cpp`) + capability row `{"anthropic", {flavor="anthropic", api_key_is_account_token=false}}`.
+| Change | File |
+|---|---|
+| New dialect (protocol + event decoder) | `lib/dialect_anthropic.cpp`, `include/agent/dialect_anthropic.h` |
+| Registry row | `lib/dialect.cpp` (one table entry) |
+| Provider preset row | `lib/providers_repo_static.cpp` (`anthropic`, `https://api.anthropic.com`) |
+| Capability row | `lib/providers_service.cpp` (`{"anthropic", {"anthropic", false}}`) |
+| Build + tests | `Makefile.in`, `tests/dialect_anthropic_test.cpp` |
 
-**Red tests:** body golden for a recorded conversation (system merge, tool_result blocks); buffered parse golden (text + tool_use → internal tool_calls); stream fixture (delta sequence → assembled Message with JSON-valid arguments); models-list parse; retry/overflow classification. All pure-string, all hermetic.
+**Zero changes** to `lib/http_transport.cpp`, `lib/llm.cpp`, `lib/model_probe.cpp`, `include/agent/agent.h`, the agent loop, the command tree, or the TUI. That is the growth claim, demonstrated rather than asserted.
 
-Gate: `tests/dialect_test.cpp` + `tests/dialect_anthropic_test.cpp` green; **diff stat: zero lines changed in `lib/http_transport.cpp`, `lib/model_probe.cpp`, `include/agent/agent.h`, `tui/`, agent loop** (except the 029 rename touched the TUI balance call site).
+**What the dialect implements** — Messages API translation: `chat_url` = `/v1/messages`; `auth_headers` = `x-api-key` + `anthropic-version`; one merged top-level `system` string; internal messages mapped to content blocks (`text`, `tool_use` with parsed `input`, `tool_result` with `tool_use_id`); tools carry `input_schema` (no `type:"function"` discriminator); `parse_completion` maps `content[]` blocks back to text + the internal tool_calls shape; `make_decoder` is an event-type state machine (`message_start` → usage, `content_block_start/delta/stop`, `input_json_delta` accumulation, `message_delta` → output tokens, `message_stop`), dropping nameless tool blocks at end like the OpenAI decoder; model listing from `/v1/models` (no context window reported — stays 0, never fabricated); `parse_usage` maps `input_tokens`/`output_tokens`; retry classification covers 429/5xx **including Anthropic's 529 overloaded**; the overflow hint parses `"… N tokens > M maximum"`.
+
+**Known limits (documented in the file, not silently dropped):** `cfg.thinking`/`reasoning_effort` have no Messages API equivalent and are not sent; streaming thinking deltas are collected when the API emits them.
+
+**Tests (all hermetic, no network):** `tests/dialect_anthropic_test.cpp` — 12 tests covering endpoints, auth headers, full request translation (merged system, tool_use/tool_result blocks, parsed input), `input_schema` tools, buffered parse + usage, malformed-body degradation, the named-event stream decode (text + streamed JSON tool arguments + usage), nameless-tool-block dropping, model list/probe parse, error classification/overflow prose, plus the two registry tests (resolve, fallback, and registering a new factory).
+
+Gate: full suite **446/446**; cli + bench build; `make check` holds; cppcheck adds no findings.
 
 ### FIX-031 — Docs & plugin alignment
 

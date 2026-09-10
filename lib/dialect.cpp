@@ -1,5 +1,6 @@
 
 #include "agent/dialect.h"
+#include "agent/dialect_anthropic.h"
 #include "agent/dialect_openai.h"
 
 #include <map>
@@ -13,6 +14,7 @@ using DialectFactory = std::function<std::unique_ptr<Dialect>()>;
 std::map<std::string, DialectFactory>& dialect_table() {
     static std::map<std::string, DialectFactory> table = {
         {"openai", []() { return make_openai_dialect(); }},
+        {"anthropic", []() { return make_anthropic_dialect(); }},
     };
     return table;
 }

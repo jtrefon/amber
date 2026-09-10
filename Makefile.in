@@ -29,6 +29,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/dialect.o \
             $(BUILD_DIR)/lib/stream_decoder.o \
             $(BUILD_DIR)/lib/dialect_openai.o \
+            $(BUILD_DIR)/lib/dialect_anthropic.o \
             $(BUILD_DIR)/lib/http_transport.o \
             $(BUILD_DIR)/lib/model_probe.o \
             $(BUILD_DIR)/lib/registry.o \
@@ -144,6 +145,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
             $(BUILD_DIR)/third_party/md4c/md4c.o
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
+               $(BUILD_DIR)/tests/dialect_anthropic_test.o \
                $(BUILD_DIR)/tests/skill_file_test.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \
                $(BUILD_DIR)/tests/mcp_transport_test.o \

@@ -18,6 +18,9 @@ capability_overrides() {
             // readout).
             {"openrouter", {"openai", false}},
             {"kilocode", {"openai", true}},
+            // Native Messages API (x-api-key auth, content blocks, event
+            // stream) — the flavor selects the anthropic dialect.
+            {"anthropic", {"anthropic", false}},
         };
     return table;
 }
