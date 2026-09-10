@@ -128,4 +128,12 @@ std::unique_ptr<SearchBackend> make_semantic_backend() {
     return std::make_unique<SemanticBackend>();
 }
 
+namespace {
+const bool semantic_registered = [] {
+    SearchBackendRegistry::instance().register_backend("semantic",
+                                                         make_semantic_backend);
+    return true;
+}();
+} // namespace
+
 } // namespace agent
