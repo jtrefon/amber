@@ -310,9 +310,10 @@ struct TestHarness {
     ToolRegistry tools;
     PromptRegistry prompts;
     CommandRegistry commands;
+    StatusRegistry status;
     PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services{tools, prompts, commands, settings, bus};
+    PluginServices services{tools, prompts, commands, status, settings, bus};
 };
 
 } // namespace

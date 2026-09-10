@@ -78,6 +78,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/plugin_runtime.o \
               $(BUILD_DIR)/lib/plugin_v1_adapter.o \
               $(BUILD_DIR)/lib/plugins_bundled.o \
+              $(BUILD_DIR)/lib/core_segments.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
               $(BUILD_DIR)/plugins/gemini/gemini_plugin.o \
@@ -169,6 +170,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_v2_test.o \
                $(BUILD_DIR)/tests/plugin_framework_test.o \
                $(BUILD_DIR)/tests/plugin_runtime_test.o \
+               $(BUILD_DIR)/tests/status_segments_test.o \
                $(BUILD_DIR)/tests/metrics_plugin_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o

@@ -1,5 +1,6 @@
 #include "agent/plugin_runtime.h"
 
+#include "agent/core_segments.h"
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_v1_adapter.h"
 
@@ -51,8 +52,11 @@ bool write_enabled(const std::string& id, bool enabled) {
 PluginRuntime::PluginRuntime(ToolRegistry& tools, const Config& config,
                              const Workspace& workspace)
     : tools_(&tools), config_(config), workspace_(&workspace) {
+    // Amber's own segments are registry entries like any other, so the bar is
+    // composed from one list whether a segment comes from the core or a plugin.
+    register_core_status_segments(status_);
     services_ = std::make_unique<PluginServices>(tools, prompts_, commands_,
-                                                 settings_, bus_);
+                                                 status_, settings_, bus_);
     context_ = std::make_unique<PluginContext>(
         PluginContext{bus_, tools, config_, workspace});
     registry_.set_context(context_.get());

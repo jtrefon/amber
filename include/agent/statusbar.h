@@ -34,6 +34,21 @@ std::string gauge_bar_ascii(double frac, int cells);
 // Count of filled whole cells (used by tests to assert fill precision).
 int gauge_full_cells(double frac, int cells);
 
+// Terminal capability: true unless the user opted out with AMBER_ASCII.
+// Deliberately not keyed on nl_langinfo(CODESET) — a failed or partial
+// setlocale() would otherwise silently smear every glyph into garbage.
+bool utf8();
+
+// Decorations shared by the status line. These live in the core with the rest
+// of the bar formatting so a status segment (including a plugin's) can build
+// its text without including a UI header.
+const char* emdash();
+const char* up();
+const char* down();
+
+// Reasoning-effort badge, e.g. "(high)".
+std::string reasoning_badge(const std::string& effort);
+
 } // namespace agent::bar
 
 

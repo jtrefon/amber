@@ -30,6 +30,7 @@ enum class CapabilityKind : std::uint8_t {
     Tool,
     Command,
     PromptBlock,
+    StatusSegment,
     Setting,
     Provider,
 };

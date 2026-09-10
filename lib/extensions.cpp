@@ -62,6 +62,64 @@ std::vector<ExtensionItem> PromptRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
+// StatusRegistry
+// ---------------------------------------------------------------------------
+
+Contribution StatusRegistry::add(const std::string& owner, const std::string& id,
+                                 int priority, int drop_priority, Render render) {
+    Entry entry;
+    entry.owner = owner;
+    entry.id = id;
+    entry.priority = priority;
+    entry.drop_priority = drop_priority;
+    entry.seq = next_seq_++;
+    entry.render = std::move(render);
+    entries_.push_back(std::move(entry));
+    // Priority first, registration order to break ties, so two segments at the
+    // same priority never swap places between frames.
+    std::stable_sort(entries_.begin(), entries_.end(),
+                     [](const Entry& a, const Entry& b) {
+                         if (a.priority != b.priority) return a.priority < b.priority;
+                         return a.seq < b.seq;
+                     });
+
+    Contribution c;
+    c.kind = CapabilityKind::StatusSegment;
+    c.name = id;
+    c.remove = [this, owner, id] {
+        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                      [&](const Entry& e) {
+                                          return e.owner == owner && e.id == id;
+                                      }),
+                       entries_.end());
+    };
+    return c;
+}
+
+std::vector<StatusSegment>
+StatusRegistry::render(const StatusSnapshot& snapshot) const {
+    std::vector<StatusSegment> out;
+    for (const auto& entry : entries_) {
+        if (!entry.render) continue;
+        StatusText text = entry.render(snapshot);
+        if (text.text.empty()) continue;   // a segment may decline to appear
+        out.push_back({entry.id, std::move(text.text), text.tone,
+                       entry.drop_priority});
+    }
+    return out;
+}
+
+std::vector<ExtensionItem> StatusRegistry::items() const {
+    std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_) {
+        out.push_back({CapabilityKind::StatusSegment, entry.owner, entry.id,
+                       "priority " + std::to_string(entry.priority)});
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // CommandRegistry
 // ---------------------------------------------------------------------------
 
@@ -180,11 +238,11 @@ std::vector<ExtensionItem> PluginSettingsStore::items() const {
 // ---------------------------------------------------------------------------
 
 PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
-                               CommandRegistry& commands,
+                               CommandRegistry& commands, StatusRegistry& status,
                                PluginSettingsStore& settings,
                                EventBus& events) noexcept
     : tools_(&tools), prompts_(&prompts), commands_(&commands),
-      settings_(&settings), events_(&events) {}
+      status_(&status), settings_(&settings), events_(&events) {}
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -283,6 +341,24 @@ InstallResult ProviderCapability::install(PluginServices& services) {
         unregister_dialects_for(owner);
         unregister_provider_presets_for(owner);
     };
+    return r;
+}
+
+StatusSegmentCapability::StatusSegmentCapability(std::string id, int priority,
+                                                 int drop_priority,
+                                                 StatusRegistry::Render render)
+    : id_(std::move(id)), priority_(priority), drop_priority_(drop_priority),
+      render_(std::move(render)) {}
+
+InstallResult StatusSegmentCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (id_.empty() || !render_) {
+        r.error = "status segment capability needs an id and a renderer";
+        return r;
+    }
+    r.contribution = services.status().add(services.owner(), id_, priority_,
+                                           drop_priority_, render_);
+    r.ok = true;
     return r;
 }
 

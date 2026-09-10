@@ -9,6 +9,7 @@
 // is a rendering concern: the host pulls from these registries when it composes
 // a frame or a prompt.
 
+#include "agent/config.h"
 #include "agent/event_bus.h"
 #include "agent/plugin_capability.h"
 #include "agent/providers.h"
@@ -16,6 +17,7 @@
 #include "agent/tool.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -69,6 +71,91 @@ private:
         Render render;
     };
     std::vector<Block> blocks_;
+    std::size_t next_seq_ = 0;
+};
+
+// ---------------------------------------------------------------------------
+// Status bar segments
+// ---------------------------------------------------------------------------
+
+// Semantic colour of a segment. The host owns the palette, so a segment never
+// names a terminal colour (and a plugin never learns what a colour pair is).
+enum class StatusTone : std::uint8_t {
+    Dim,     // secondary information
+    Good,    // healthy / active
+    Warn,    // needs attention
+    Crit,    // at a limit
+    Accent,  // highlighted state the user chose
+    Banner,  // leading identity tag
+};
+
+struct StatusText {
+    std::string text;
+    StatusTone tone = StatusTone::Dim;
+};
+
+// How an MCP server appears on the bar.
+struct StatusMcpServer {
+    std::string name;
+    bool connected = false;
+    bool has_error = false;
+};
+
+// What the host publishes about itself each frame. Segments are pure functions
+// of this snapshot: they are called during frame composition, so they must be
+// fast, allocation-light, and must not touch plugin state or do I/O.
+struct StatusSnapshot {
+    int window_index = 0;         // 1-based, as displayed
+    int window_count = 1;
+    std::string model;
+    std::string reasoning_effort;
+    AgentMode mode = AgentMode::Read;
+    bool scroll_mode = false;
+    long latency_ms = -1;         // < 0: not measured yet
+    double tps = -1.0;            // < 0: not measured yet
+    long prompt_tokens = -1;      // < 0: not reported
+    long completion_tokens = -1;
+    std::string balance_label;    // provider balance readout, empty when absent
+    int running_jobs = 0;
+    int job_seconds_left = -1;
+    std::string running_tool;
+    std::vector<StatusMcpServer> mcp_servers;
+};
+
+// A rendered segment, in display order.
+struct StatusSegment {
+    std::string id;
+    std::string text;
+    StatusTone tone = StatusTone::Dim;
+    int drop_priority = 0;  // higher drops first when the bar is too narrow
+};
+
+// The status bar is composed from these, never from a hardcoded list: amber's
+// own segments register here with the host as their owner, so a plugin's
+// segment and a core segment are the same kind of thing.
+class StatusRegistry {
+public:
+    using Render = std::function<StatusText(const StatusSnapshot&)>;
+
+    Contribution add(const std::string& owner, const std::string& id,
+                     int priority, int drop_priority, Render render);
+
+    // Segments that produced text, in (priority, registration) order.
+    std::vector<StatusSegment> render(const StatusSnapshot& snapshot) const;
+
+    std::vector<ExtensionItem> items() const;
+    std::size_t size() const noexcept { return entries_.size(); }
+
+private:
+    struct Entry {
+        std::string owner;
+        std::string id;
+        int priority = 0;
+        int drop_priority = 0;
+        std::size_t seq = 0;
+        Render render;
+    };
+    std::vector<Entry> entries_;
     std::size_t next_seq_ = 0;
 };
 
@@ -147,12 +234,13 @@ private:
 class PluginServices {
 public:
     PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
-                   CommandRegistry& commands, PluginSettingsStore& settings,
-                   EventBus& events) noexcept;
+                   CommandRegistry& commands, StatusRegistry& status,
+                   PluginSettingsStore& settings, EventBus& events) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
     PromptRegistry& prompts() noexcept { return *prompts_; }
     CommandRegistry& commands() noexcept { return *commands_; }
+    StatusRegistry& status() noexcept { return *status_; }
     PluginSettingsStore& settings() noexcept { return *settings_; }
     EventBus& events() noexcept { return *events_; }
 
@@ -166,6 +254,7 @@ private:
     ToolRegistry* tools_;
     PromptRegistry* prompts_;
     CommandRegistry* commands_;
+    StatusRegistry* status_;
     PluginSettingsStore* settings_;
     EventBus* events_;
     std::string owner_;
@@ -249,6 +338,22 @@ private:
     std::string flavor_;
     std::function<std::unique_ptr<class Dialect>()> make_dialect_;
     std::vector<Preset> presets_;
+};
+
+// Contributes one status-bar segment.
+class StatusSegmentCapability : public Capability {
+public:
+    StatusSegmentCapability(std::string id, int priority, int drop_priority,
+                            StatusRegistry::Render render);
+    std::string name() const override { return id_; }
+    CapabilityKind kind() const override { return CapabilityKind::StatusSegment; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    std::string id_;
+    int priority_;
+    int drop_priority_;
+    StatusRegistry::Render render_;
 };
 
 // Declares a setting key so the console can show it and the command tree can

@@ -84,6 +84,7 @@ public:
 
     PromptRegistry& prompts() noexcept { return prompts_; }
     CommandRegistry& commands() noexcept { return commands_; }
+    StatusRegistry& status() noexcept { return status_; }
     PluginSettingsStore& settings() noexcept { return settings_; }
     EventBus& events() noexcept { return bus_; }
 
@@ -99,6 +100,7 @@ private:
     ToolRegistry* tools_;
     PromptRegistry prompts_;
     CommandRegistry commands_;
+    StatusRegistry status_;
     PluginSettingsStore settings_;
     EventBus bus_;
     PluginLedger ledger_;
