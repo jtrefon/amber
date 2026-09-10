@@ -125,6 +125,11 @@ void PluginRuntime::tick() {
     }
 }
 
+IPlugin* PluginRuntime::find(const std::string& id) const noexcept {
+    auto it = plugins_.find(id);
+    return it == plugins_.end() ? nullptr : it->second.plugin.get();
+}
+
 void PluginRuntime::start() {
     for (const auto& [id, entry] : plugins_) {
         if (registry_.state(id) == PluginRegistry::State::Active)

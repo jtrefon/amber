@@ -59,22 +59,34 @@ int main(int argc, char** argv) {
             std::printf("amber %s (%s)\n", agent::kVersion, agent::kBuildDate);
             return 0;
         }
-        if (a == "-h" || a == "--help") { print_usage(argv[0]); return 0; }
+        if (a == "-h" || a == "--help") {
+            print_usage(argv[0]);
+            return 0;
+        }
     }
 
     agent::Config cfg;
     std::string config_file;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--config" && i + 1 < argc) config_file = argv[++i];
-        else if (a == "--api-base" && i + 1 < argc) cfg.api_base = argv[++i];
-        else if (a == "--api-key" && i + 1 < argc) cfg.api_key = argv[++i];
-        else if (a == "--model" && i + 1 < argc) { cfg.model = argv[++i]; cfg.model_explicit = true; }
-        else if (a == "--system" && i + 1 < argc) cfg.system_prompt_path = argv[++i];
-        else if (a == "--tools" && i + 1 < argc) cfg.tools_prompt_path = argv[++i];
-        else if (a == "--no-stream") cfg.stream = false;
+        if (a == "--config" && i + 1 < argc)
+            config_file = argv[++i];
+        else if (a == "--api-base" && i + 1 < argc)
+            cfg.api_base = argv[++i];
+        else if (a == "--api-key" && i + 1 < argc)
+            cfg.api_key = argv[++i];
+        else if (a == "--model" && i + 1 < argc) {
+            cfg.model = argv[++i];
+            cfg.model_explicit = true;
+        } else if (a == "--system" && i + 1 < argc)
+            cfg.system_prompt_path = argv[++i];
+        else if (a == "--tools" && i + 1 < argc)
+            cfg.tools_prompt_path = argv[++i];
+        else if (a == "--no-stream")
+            cfg.stream = false;
     }
-    if (!config_file.empty()) cfg.load(config_file);
+    if (!config_file.empty())
+        cfg.load(config_file);
 
     // Global settings: LLM provider config lives in ~/.config/amber/config.
     // This is loaded first so project-level and env overrides can layer on top.
@@ -82,7 +94,8 @@ int main(int argc, char** argv) {
     {
         std::string global_path = agent::global_config_path();
         std::ifstream sf(global_path);
-        if (sf) tmp.load(global_path);
+        if (sf)
+            tmp.load(global_path);
         // The provider domain resolves the active provider and auto-loads
         // its last-used model; the user's explicit choice is remembered
         // per provider (default_model), so it survives restarts. The
@@ -95,13 +108,15 @@ int main(int argc, char** argv) {
         auto providers = agent::make_default_provider_service(cfg);
         if (!tmp.provider_name.empty()) {
             auto sel = providers->select(tmp.provider_name);
-            if (sel.ok()) agent::apply_selection(cfg, sel);
+            if (sel.ok())
+                agent::apply_selection(cfg, sel);
         }
 
         // Project-level amber.conf may still pin data paths; endpoint and
         // model come from the provider domain above.
         std::ifstream sf2("amber.conf");
-        if (sf2) cfg.load("amber.conf");
+        if (sf2)
+            cfg.load("amber.conf");
     }
 
     // First run with no config: write a commented default so there is a file
@@ -114,7 +129,8 @@ int main(int argc, char** argv) {
     // stay with the project while provider config remains global.
     {
         std::ifstream sf(agent::Workspace::local_dir() + "/settings");
-        if (sf) cfg.load(agent::Workspace::local_dir() + "/settings");
+        if (sf)
+            cfg.load(agent::Workspace::local_dir() + "/settings");
     }
     cfg.apply_environment();
 
@@ -137,10 +153,10 @@ int main(int argc, char** argv) {
         cfg.tools_prompt_path = agent::resolve_data_path(cfg.tools_prompt_path, argv[0]);
 
     // Fail fast before the UI: prompts and the command tree are critical.
-    if (auto missing = agent::missing_bootstrap_files(cfg, argv[0], true);
-        !missing.empty()) {
+    if (auto missing = agent::missing_bootstrap_files(cfg, argv[0], true); !missing.empty()) {
         std::fprintf(stderr, "error: critical data files missing:\n");
-        for (const auto& m : missing) std::fprintf(stderr, "  - %s\n", m.c_str());
+        for (const auto& m : missing)
+            std::fprintf(stderr, "  - %s\n", m.c_str());
         return 2;
     }
 
@@ -148,8 +164,8 @@ int main(int argc, char** argv) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
-    agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
-                        cfg.plan_tool, subagents, cfg.task_tool);
+    agent::register_default_tools(registry, jobs, todos, cfg.cancel_token, cfg.plan_tool, subagents,
+                                  cfg.task_tool);
     subagents.set_config(cfg);
     subagents.set_parallel(cfg.subagent_parallel);
     subagents.set_max(cfg.subagent_max);
@@ -164,7 +180,9 @@ int main(int argc, char** argv) {
     agent::PluginRuntime plugin_runtime(registry, cfg, workspace);
     plugin_runtime.add_bundled();
     plugin_runtime.add_external(plugins);
-    plugin_runtime.start();
+    // Activation happens in the Tui constructor, immediately after it hands
+    // over the config the user actually mutates. Starting here would activate
+    // every plugin against the runtime's startup copy.
 
     tui::Tui tui(cfg, registry, jobs, subagents, plugins, plugin_runtime);
     tui.run();

@@ -339,6 +339,9 @@ int main(int argc, char** argv) {
     agent::PluginRuntime plugin_runtime(registry, cfg, workspace);
     plugin_runtime.add_bundled();
     plugin_runtime.add_external(plugins);
+    // Attach before activating: plugins read the live config, and this Config
+    // is the one the whole run uses.
+    plugin_runtime.attach_config(cfg);
     if (!no_plugins) plugin_runtime.start();
 
     try {

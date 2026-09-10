@@ -69,7 +69,7 @@ double fetch_kilocode_balance(const std::string& token, const std::string& api_b
 }
 
 bool KilocodePlugin::initialize(const PluginContext& ctx) {
-    config_ = ctx.config;
+    ctx_ = &ctx;
     state_ = std::make_shared<BalanceState>();
     return true;
 }
@@ -81,7 +81,8 @@ void KilocodePlugin::shutdown() {
 }
 
 void KilocodePlugin::tick() {
-    if (!state_ || !config_)
+    const Config* cfg = config();
+    if (!state_ || !cfg)
         return;
     const std::string token = balance_token();
     if (token.empty())
@@ -97,7 +98,7 @@ void KilocodePlugin::tick() {
 
     // Throttled and off-thread: a slow endpoint must never block a paint, and
     // the state outlives the plugin if a fetch is still running at shutdown.
-    std::thread([state, token, base = config_->api_base] {
+    std::thread([state, token, base = cfg->api_base] {
         const double balance = fetch_kilocode_balance(token, base);
         state->balance.store(balance);
         state->valid.store(true);
@@ -106,16 +107,17 @@ void KilocodePlugin::tick() {
 }
 
 std::string KilocodePlugin::balance_token() const {
-    if (!config_)
+    const Config* cfg = config();
+    if (!cfg)
         return {};
-    const std::string override_token = config_->kilo_balance_token;
+    const std::string override_token = cfg->kilo_balance_token;
     if (!override_token.empty())
         return override_token;
     // The gateway key doubles as the account token, so it is only usable when
     // this provider is the active one.
-    if (config_->provider_name != "kilocode")
+    if (cfg->provider_name != "kilocode")
         return {};
-    return config_->api_key;
+    return cfg->api_key;
 }
 
 std::string KilocodePlugin::balance_label() const {

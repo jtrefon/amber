@@ -46,7 +46,12 @@ public:
     std::string balance_label() const;
 
 private:
-    const Config* config_ = nullptr;
+    // The context, not the Config: the host may attach its own configuration
+    // after this plugin was activated (the TUI does), so a Config pointer
+    // cached at activation would keep pointing at the runtime's startup copy
+    // and the readout would silently go missing.
+    const PluginContext* ctx_ = nullptr;
+    const Config* config() const noexcept { return ctx_ ? ctx_->config : nullptr; }
     // Cached fetch result. Shared with the detached fetch thread so an
     // in-flight request at shutdown cannot write freed memory.
     std::shared_ptr<struct BalanceState> state_;

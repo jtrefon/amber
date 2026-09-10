@@ -99,6 +99,10 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     // plugin reading an API key or the active provider must be pointed at it
     // rather than at the copy the runtime took at construction.
     plugin_runtime_.attach_config(cfg_);
+    // Activate now, with the live config in place: a plugin that reads the
+    // configuration (a balance endpoint, an API key) must see the real thing
+    // from its first call.
+    plugin_runtime_.start();
     feed_manager_ = std::make_unique<FeedManager>(*this);
     window_manager_ = std::make_unique<WindowManager>(cfg_, reg_, &plugin_runtime_);
     router_ = std::make_unique<EventRouter>(*this);

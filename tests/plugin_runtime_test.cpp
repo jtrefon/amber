@@ -10,6 +10,7 @@
 #include "agent/plugins_bundled.h"
 #include "agent/tools.h"
 #include "fake_llm.h"
+#include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
 #include "test_util.h"
 
@@ -311,6 +312,41 @@ TEST(runtime_provider_plugin_registers_and_unwinds) {
     ASSERT_TRUE(runtime.set_state("gemini", true));
     ASSERT_TRUE(flavor_unavailable_reason("gemini").empty());
     ASSERT_EQ(make_dialect("gemini")->flavor(), std::string("gemini"));
+}
+
+// A plugin must read the host's configuration through the context it was
+// given, at the moment it needs it. Caching the Config pointer at activation
+// is a trap: hosts construct and start the runtime before they can hand over
+// the config they actually mutate (the TUI takes its Config by value), so the
+// cached pointer keeps pointing at the runtime's startup copy.
+//
+// This is the kilo wallet regression: the balance readout disappeared because
+// the plugin resolved its token from a stale copy.
+TEST(runtime_plugin_sees_the_hosts_config_attached_after_start) {
+    ScratchConfig scratch("live_config");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(); // plugins initialize here, before the host attaches
+
+    // The host's real configuration arrives afterwards.
+    Config live;
+    live.provider_name = "kilocode";
+    live.api_key = "kilo-jwt";
+    runtime.attach_config(live);
+
+    auto* kilocode = dynamic_cast<plugins::KilocodePlugin*>(runtime.find("kilocode"));
+    ASSERT(kilocode != nullptr);
+    ASSERT_EQ(kilocode->balance_token(), std::string("kilo-jwt"));
+}
+
+TEST(runtime_find_returns_null_for_unknown_plugins) {
+    ScratchConfig scratch("find_unknown");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    ASSERT_TRUE(runtime.find("metrics") != nullptr);
+    ASSERT_TRUE(runtime.find("nope") == nullptr);
 }
 
 TEST(runtime_bundled_set_registers_the_metrics_plugin) {

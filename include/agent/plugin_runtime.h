@@ -85,6 +85,10 @@ public:
     bool has(const std::string& id) const;
     PluginStatus status(const std::string& id) const;
 
+    // Non-owning access to a registered plugin (null when unknown). Hosts and
+    // tests use it to reach a plugin's own state; the runtime keeps ownership.
+    IPlugin* find(const std::string& id) const noexcept;
+
     // The single write path. Persists first, then applies, so a failed
     // activation does not leave a plugin recorded as on.
     bool set_state(const std::string& id, bool on);

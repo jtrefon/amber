@@ -77,6 +77,32 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
+### 2026-09-10 — Fix: the kilo wallet readout (regression from PF-4)
+
+- **Bug:** after the kilocode conversion the balance readout disappeared.
+- **Root cause (mine, from PF-4):** the plugin resolved its token from a
+  `Config*` cached in `initialize()`. Hosts construct and `start()` the
+  runtime *before* they can hand over the config they actually mutate (the TUI
+  takes its `Config` by value), so that pointer kept referencing the runtime's
+  startup copy — where `provider_name` is the `Config` default and `api_key`
+  is empty. `balance_token()` therefore returned "", no fetch was ever
+  scheduled, and the segment rendered nothing.
+- **Fix, three parts:** (1) the plugin reads the config through the
+  `PluginContext` it was given, at call time; (2) both hosts now attach their
+  config *before* activating plugins (TUI: activation moved into the
+  constructor right after `attach_config`; CLI: attach then start); (3) the
+  rule is documented in the guide, with the trap named.
+- **Verification:** red first —
+  `runtime_plugin_sees_the_hosts_config_attached_after_start` failed with
+  `"" != "kilo-jwt"` — then green. Suite 622 passed. Probe against the built
+  library with the *old* host order (attach after start): token resolves, the
+  fetch runs, and the bar renders `kilo balance —` for a rejected key — the
+  honest failure state, and exactly what was missing before.
+- **Lesson for the framework:** the config is the one piece of host state a
+  plugin reads directly, so its lifetime rule belongs in the guide next to the
+  threading rules, not in a comment somewhere. `PluginRuntime::find(id)` is
+  now public so a host (or a test) can reach a plugin's own state.
+
 ### 2026-09-10 — Open findings (need a decision, not more code)
 
 Two items are deliberately not implemented. Both are recorded here with the

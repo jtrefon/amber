@@ -205,6 +205,15 @@ belongs in the **dialect** (`docs/spec/llm-client/dialect.md`), not in the
 plugin's plumbing. A provider plugin must not open its own HTTP client: the
 transport is shared.
 
+**Reading the host's configuration:** keep the `PluginContext` you are given
+and read `ctx.config` (a pointer) at the moment you need it — never cache the
+`Config*` in a member. The host may attach the configuration it actually
+mutates *after* your plugin was activated (the TUI takes its `Config` by
+value), so a cached pointer keeps pointing at the runtime's startup copy and
+your feature silently stops working. This cost us the kilocode balance readout
+once; the regression test is
+`runtime_plugin_sees_the_hosts_config_attached_after_start`.
+
 ### Panel
 
 ```cpp
