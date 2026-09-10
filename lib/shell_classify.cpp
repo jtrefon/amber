@@ -62,11 +62,13 @@ std::vector<std::string> pattern_words(const std::string& pattern) {
 
 // Heads whose arguments are never executed and never name write targets:
 // they only read or print, so path-like arguments (even /etc/...) are data.
+// `cd` is deliberately excluded: it changes process state and enables
+// relative-path escapes, so it is never read-only.
 bool is_reader_head(const std::string& h) {
     static const char* kReaders[] = {
         "ls", "cat", "grep", "head", "tail", "wc", "sort", "uniq",
         "diff", "pwd", "which", "env", "printenv", "date", "echo",
-        "printf", "cd", "export"};
+        "printf", "export"};
     return std::any_of(std::begin(kReaders), std::end(kReaders),
                        [&](const char* s) { return h == s; });
 }
@@ -85,6 +87,10 @@ bool is_escape_token(const Tok& t) {
     const std::string& s = t.text;
     if (s == "&" || s == "`" || s.rfind("$(", 0) == 0) return true;
     if (s.rfind("2>&", 0) == 0 || s.rfind("1>&", 0) == 0) return false;
+    // Standalone chain operators (; && || |) are proper separators, not
+    // escapes — they are split into segments below. Only glued operators
+    // (a;b, cmd&, x|y) are escapes.
+    if (is_chain_op(s)) return false;
     return std::any_of(s.begin(), s.end(), [](char c) {
         return c == ';' || c == '&' || c == '|' || c == '`';
     });
@@ -200,7 +206,28 @@ const std::vector<std::string>& destructive_command_patterns() {
 ShellClass classify_shell(const std::string& command,
                           const std::string& /*workspace*/) {
     ShellClass out;
-    std::vector<Tok> toks = tokenize(command);
+    // Tokenize line-by-line and insert a chain-op sentinel between lines so
+    // embedded newlines act as command separators (like ";"). The tokenizer
+    // treats "\n" as whitespace, so without this, "echo a\ncat /etc/passwd"
+    // would merge into one segment attributed to `echo`.
+    std::vector<Tok> toks;
+    {
+        std::size_t pos = 0;
+        bool first_line = true;
+        while (pos <= command.size()) {
+            std::size_t nl = command.find('\n', pos);
+            std::string line = (nl == std::string::npos)
+                                   ? command.substr(pos)
+                                   : command.substr(pos, nl - pos);
+            if (!first_line && !toks.empty())
+                toks.push_back({";", false});  // chain-op sentinel
+            auto line_toks = tokenize(line);
+            toks.insert(toks.end(), line_toks.begin(), line_toks.end());
+            first_line = false;
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+    }
     if (toks.empty()) {
         out.effect = ShellEffect::ReadOnly;  // nothing to run
         return out;
@@ -290,7 +317,12 @@ ShellClass classify_shell(const std::string& command,
                 }
                 continue;
             }
-            if (is_input_redirect(t)) continue;  // reads are not writes
+            if (is_input_redirect(t)) {
+                // Input redirect target is the next token; scan it for
+                // path escape (cat < /etc/passwd must be Outside).
+                target_next = true;
+                continue;
+            }
             if (i == h) continue;                // the head itself
             // find -delete / -exec and sed -i mutate.
             if (head == "find" &&
@@ -304,8 +336,9 @@ ShellClass classify_shell(const std::string& command,
                 seg_write = true;
                 continue;
             }
-            if (reader) continue;  // args of readers are data/read targets
-            // Write-capable head: an escaping path argument prompts per folder.
+            // All heads (including readers) get path-escape checks on their
+            // arguments. Reader heads still skip the write classification
+            // below, but out-of-workspace paths are caught here.
             std::string scope = outside_scope_for(t, /*is_target=*/false);
             if (!scope.empty()) {
                 if (first_outside.empty()) first_outside = scope;
