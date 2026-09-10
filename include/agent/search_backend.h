@@ -2,9 +2,11 @@
 #ifndef AGENT_SEARCH_BACKEND_H
 #define AGENT_SEARCH_BACKEND_H
 
+#include <functional>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
 
 namespace agent {
 
@@ -50,6 +52,21 @@ public:
 // Backend factories (defined in tools/search/{grep,semantic}_backend.cpp).
 std::unique_ptr<SearchBackend> make_grep_backend();
 std::unique_ptr<SearchBackend> make_semantic_backend();
+
+// Registry of search backends by mode name. Backends register themselves
+// at static initialization; SearchTool looks up the mode here instead of
+// branching on strings (OCP: add a backend = register a factory, no edit
+// to SearchTool).
+class SearchBackendRegistry {
+public:
+    static SearchBackendRegistry& instance();
+    void register_backend(const std::string& mode,
+                          std::function<std::unique_ptr<SearchBackend>()> factory);
+    std::unique_ptr<SearchBackend> create(const std::string& mode) const;
+    std::vector<std::string> available() const;
+private:
+    std::map<std::string, std::function<std::unique_ptr<SearchBackend>()>> factories_;
+};
 
 } // namespace agent
 

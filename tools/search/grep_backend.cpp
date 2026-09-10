@@ -85,4 +85,11 @@ std::unique_ptr<SearchBackend> make_grep_backend() {
     return std::make_unique<GrepBackend>();
 }
 
+namespace {
+const bool grep_registered = [] {
+    SearchBackendRegistry::instance().register_backend("grep", make_grep_backend);
+    return true;
+}();
+} // namespace
+
 } // namespace agent
