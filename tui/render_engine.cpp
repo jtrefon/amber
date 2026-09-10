@@ -478,7 +478,7 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
             attroff(COLOR_PAIR(pair) | attrs);
         else
             attroff(COLOR_PAIR(pair));
-        x += static_cast<int>(ws.size());
+        x += display_cols(text);
     };
 
     auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
@@ -511,29 +511,48 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
     int input_start = prompt_w - scroll_off;
     if (input_start < 0) input_start = 0;
     if (input_start < w && scroll_off > prompt_w) {
-        const char* input_visible = s.c_str();
-        auto skip = static_cast<size_t>(scroll_off - prompt_w);
+        auto skip = text::col_to_byte(s, scroll_off - prompt_w);
         int input_len;
         if (skip < s.size()) {
-            input_visible += skip;
             input_len = static_cast<int>(s.size()) - static_cast<int>(skip);
         } else {
             input_len = 0;
         }
         if (input_len > 0) {
-            if (input_len > w) input_len = w;
-            attron(COLOR_PAIR(P_USER));
-            mvaddnstr(y, input_start, input_visible, input_len);
-            attroff(COLOR_PAIR(P_USER));
+            int room = w - input_start;
+            int visible_cols = 0;
+            std::size_t end = skip;
+            while (end < s.size() && visible_cols < room) {
+                std::size_t adv = text::utf8_len(s, end);
+                std::string cp = s.substr(end, adv);
+                int cw = display_cols(cp);
+                if (visible_cols + cw > room) break;
+                visible_cols += cw;
+                end += adv;
+            }
+            input_len = static_cast<int>(end - skip);
+            if (input_len > 0) {
+                attron(COLOR_PAIR(P_USER));
+                mvaddnstr(y, input_start, s.c_str() + skip, input_len);
+                attroff(COLOR_PAIR(P_USER));
+            }
         }
     } else if (input_start < w && scroll_off <= prompt_w) {
-        const char* input_visible = s.c_str();
-        int input_len = static_cast<int>(s.size());
-        if (input_len > w - input_start)
-            input_len = w - input_start;
+        int room = w - input_start;
+        int visible_cols = 0;
+        std::size_t end = 0;
+        while (end < s.size() && visible_cols < room) {
+            std::size_t adv = text::utf8_len(s, end);
+            std::string cp = s.substr(end, adv);
+            int cw = display_cols(cp);
+            if (visible_cols + cw > room) break;
+            visible_cols += cw;
+            end += adv;
+        }
+        int input_len = static_cast<int>(end);
         if (input_len > 0) {
             attron(COLOR_PAIR(P_USER));
-            mvaddnstr(y, input_start, input_visible, input_len);
+            mvaddnstr(y, input_start, s.c_str(), input_len);
             attroff(COLOR_PAIR(P_USER));
         }
     }

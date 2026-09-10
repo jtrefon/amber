@@ -940,48 +940,48 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string& a) { cmd_provider_test(a); });
     // model (get/set accessor — see completions.json get.model/set.model)
     // files
-    register_action("core.files", [this](const std::string& a) {
+    register_action("os.files", [this](const std::string& a) {
         if (!a.empty())
             tui_.append_line(P_STATUS, "usage: /files ls|tree|open|find <path>");
         cmd_files_ls("");
     });
-    register_action("core.files.ls",
+    register_action("os.files.ls",
         [this](const std::string& a) { cmd_files_ls(a); });
-    register_action("core.files.tree",
+    register_action("os.files.tree",
         [this](const std::string& a) { cmd_files_tree(a); });
-    register_action("core.files.open",
+    register_action("os.files.open",
         [this](const std::string& a) { cmd_files_open(a); });
-    register_action("core.files.find",
+    register_action("os.files.find",
         [this](const std::string& a) { cmd_files_find(a); });
     // system
-    register_action("core.system", [this](const std::string& a) {
+    register_action("os.system", [this](const std::string& a) {
         if (!a.empty())
             tui_.append_line(P_STATUS, "usage: /system exec|delete|rmdir|mkdir|mv|cp|info|ps|kill|df|uptime|uname");
         tui_.append_line(P_STATUS, "system operations: /system exec <cmd> | ps | df | uptime | uname | kill <pid> | info <path>");
     });
-    register_action("core.system.exec",
+    register_action("os.system.exec",
         [this](const std::string& a) { cmd_system_exec(a); });
-    register_action("core.system.delete",
+    register_action("os.system.delete",
         [this](const std::string& a) { cmd_system_delete(a); });
-    register_action("core.system.rmdir",
+    register_action("os.system.rmdir",
         [this](const std::string& a) { cmd_system_rmdir(a); });
-    register_action("core.system.mkdir",
+    register_action("os.system.mkdir",
         [this](const std::string& a) { cmd_system_mkdir(a); });
-    register_action("core.system.mv",
+    register_action("os.system.mv",
         [this](const std::string& a) { cmd_system_mv(a); });
-    register_action("core.system.cp",
+    register_action("os.system.cp",
         [this](const std::string& a) { cmd_system_cp(a); });
-    register_action("core.system.info",
+    register_action("os.system.info",
         [this](const std::string& a) { cmd_system_info(a); });
-    register_action("core.system.ps",
+    register_action("os.system.ps",
         [this](const std::string&) { cmd_system_ps(); });
-    register_action("core.system.kill",
+    register_action("os.system.kill",
         [this](const std::string& a) { cmd_system_kill(a); });
-    register_action("core.system.df",
+    register_action("os.system.df",
         [this](const std::string&) { cmd_system_df(); });
-    register_action("core.system.uptime",
+    register_action("os.system.uptime",
         [this](const std::string&) { cmd_system_uptime(); });
-    register_action("core.system.uname",
+    register_action("os.system.uname",
         [this](const std::string&) { cmd_system_uname(); });
     // set namespace + children
     register_action("core.config.set", [this](const std::string& a) { cmd_set(a); });

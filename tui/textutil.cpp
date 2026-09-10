@@ -195,14 +195,16 @@ std::vector<std::string> wrap(const std::string& text, int w) {
         } else {
             std::size_t p = 0;
             while (p < para.size()) {
-                // Walk forward up to `w` display columns, counting whole
-                // UTF-8 characters (each counted as one column) so we never
-                // slice through a multibyte sequence.
+                // Walk forward up to `w` display columns, counting
+                // display width via wcwidth so wide chars (CJK/emoji)
+                // take 2 columns as they should.
                 std::size_t q = p;
                 int cols = 0;
                 while (q < para.size() && cols < w) {
-                    q += utf8_len(para, q);
-                    ++cols;
+                    std::size_t adv = utf8_len(para, q);
+                    std::string cp = para.substr(q, adv);
+                    cols += display_cols(cp);
+                    q += adv;
                 }
                 if (q >= para.size()) {
                     out.push_back(para.substr(p));
