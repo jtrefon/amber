@@ -1,9 +1,10 @@
 # amber — Plugin Framework Tracker
 
-- **Status:** 🟢 PF-1 complete (2026-09-10) on `feat/plugin-framework-pf1` —
-  registries, typed events, ledger, runtime, get/set surface and the v1 adapter
-  all land and are green. One PF-1 follow-up outstanding (core prompt blocks on
-  the registry). PF-2 (provider capability + Gemini) is next.
+- **Status:** 🟢 PF-1 and PF-2 complete (2026-09-10) on
+  `feat/plugin-framework-pf1`. The framework runs; a provider plugin delivers a
+  genuinely incompatible vendor (Gemini) with no transport, agent-loop or UI
+  edits. Two follow-ups outstanding: core prompt blocks on the registry (PF-1)
+  and the built-in provider conversion (PF-4). PF-3 (UI surfaces) is next.
 - **Reference:** `docs/spec/plugins/plugin-framework-v2.md` (the contract)
 - **Author guide:** `docs/spec/plugins/developer-guide.md`
 - **Related:** `docs/spec/llm-client/dialect.md` (provider wire seam),
@@ -67,6 +68,43 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
+
+### 2026-09-10 — PF-2.1–PF-2.6: provider plugins, Gemini, race-free registry
+
+- **Landed**
+  - **PF-2.1 Provider capability** — `ProviderCapability` carries flavor +
+    dialect factory + presets; `register_provider_preset`/
+    `unregister_provider_presets_for` put plugin presets in the ordinary
+    repository merge, so a plugin provider is an ordinary provider row.
+  - **PF-2.2 Registry resolution** — the dialect table is mutex-guarded;
+    unregistering marks a flavor *unavailable* rather than forgetting it, and
+    `HttpLLMClient` refuses to construct for a disabled plugin's flavor with a
+    message naming the plugin and the fix. Unknown flavors still fall back.
+  - **PF-2.3 Provider-driven catalog** — `Provider::flavor` now reaches the
+    model catalog, which fixes `/provider test`: it previously probed every
+    provider as OpenAI. `apply_selection` takes the flavor from the provider
+    itself, so the name-keyed lookup is down to the kilocode account-token
+    quirk alone (PF-4 deletes it).
+  - **PF-2.4/2.5 Gemini dialect + plugin** — `generateContent` /
+    `streamGenerateContent?alt=sse`, `x-goog-api-key`, `contents`+`parts`,
+    `systemInstruction`, `functionDeclarations` with the schema inline,
+    `functionCall`/`functionResponse` with synthetic call ids,
+    `usageMetadata`, model listing that strips the `models/` prefix, its own
+    overflow prose. `plugins/gemini/` contributes it; the bundled list carries
+    it.
+  - **PF-2.6 `flavor` in provider files** — parsed and written; the default is
+    never written, so existing provider files keep meaning openai.
+- **Verification:** `make clean && make && make test` (exit 0), `./run_tests` →
+  **597 passed, 0 failed** (11 Gemini dialect tests + the plugin
+  register/unwind + the disabled-flavor refusal + the flavor round-trip),
+  `make check` → all invariants hold, cppcheck clean. Live probe against the
+  built binary: `/provider list` shows `gemini … flavor=gemini` served from the
+  plugin, alongside `anthropic … flavor=anthropic`.
+- **Not covered:** PF-4 converts the built-ins into plugins (the name-keyed
+  `capability_overrides()` table still exists for the account-token quirk and
+  the built-in flavors). `CapabilityKind::Provider` is consumed; nothing reads
+  a *live* Gemini response (hermetic fixtures only, as specified — no live
+  provider calls in the suite).
 
 ### 2026-09-10 — PF-1.2, PF-1.4–PF-1.7: the framework runs
 
@@ -199,8 +237,10 @@ What a plugin author can rely on today. Update with every landed task.
 | Settings contribution | ✅ | PF-1 |
 | `/get plugin`, `/set plugin on\|off` (persisted, live) | ✅ | PF-1 |
 | Core prompt blocks on the registry (dogfood) | ⏳ | PF-1 follow-up |
-| Provider contribution | ⏳ | PF-2 |
-| Provider list reflects plugin state without restart | ⏳ | PF-2 |
+| Provider contribution (dialect + presets) | ✅ | PF-2 |
+| Provider list reflects plugin state without restart | ✅ | PF-2 |
+| Config-only OpenAI-compatible provider | ✅ | shipping |
+| `flavor` in provider files | ✅ | PF-2 |
 | Status segment contribution | ⏳ | PF-3 |
 | Panel contribution + registry console | ⏳ | PF-3 |
 | Host services (ask/choose/confirm/notify) | ⏳ | PF-3 |

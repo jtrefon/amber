@@ -201,9 +201,11 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     if (sel.provider.default_context_size > 0 && !cfg.context_explicit)
         cfg.context_size = sel.provider.default_context_size;
     // Wire capabilities: the dialect the client resolves and the balance
-    // readout's key semantics. Derived on every selection, never persisted.
+    // readout's key semantics. The flavor travels with the provider (a plugin
+    // provider declares its own), so only the account-token quirk still needs
+    // a lookup. Derived on every selection, never persisted.
+    cfg.flavor = sel.provider.flavor;
     const ProviderCapabilities caps = capabilities_of(sel.provider.name);
-    cfg.flavor = caps.flavor;
     cfg.api_key_is_account_token = caps.api_key_is_account_token;
 }
 

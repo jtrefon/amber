@@ -20,7 +20,8 @@ public:
                        "kilo-auto/free", 0, /*builtin=*/true});
         out.push_back({"anthropic",
                        "https://api.anthropic.com", "", true,
-                       "claude-sonnet-4-5", 0, /*builtin=*/true});
+                       "claude-sonnet-4-5", 0, /*builtin=*/true,
+                       "anthropic"});
         // Custom is a built-in preset too: always present, configured via
         // its dedicated file (~/.config/amber/providers/custom.conf) like
         // every other provider. Empty endpoint until the file exists.

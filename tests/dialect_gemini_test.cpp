@@ -9,6 +9,10 @@
 #include "agent/tools.h"
 #include "test_util.h"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 
@@ -237,6 +241,41 @@ TEST(provider_rows_carry_their_flavor_to_the_catalog) {
     plain.name = "local";
     // Existing initialisers keep meaning "openai".
     ASSERT_EQ(plain.flavor, std::string("openai"));
+}
+
+TEST(provider_file_round_trips_the_flavor) {
+    // A user points amber at a non-OpenAI endpoint by writing flavor into the
+    // provider file; the file is the config-only path for a shipped protocol.
+    const std::string dir = "/tmp/amber_flavor_roundtrip";
+    std::filesystem::remove_all(dir);
+    setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+
+    Provider p;
+    p.name = "mygemini";
+    p.api_base = "https://generativelanguage.googleapis.com";
+    p.default_model = "gemini-2.5-flash";
+    p.flavor = "gemini";
+    ASSERT_TRUE(make_file_provider_repository()->save(p));
+
+    auto back = make_file_provider_repository()->find("mygemini");
+    ASSERT(back.has_value());
+    ASSERT_EQ(back->flavor, std::string("gemini"));
+
+    // The default is not written: a file that says nothing means openai.
+    Provider plain;
+    plain.name = "plain";
+    plain.api_base = "http://localhost:8081/v1";
+    ASSERT_TRUE(make_file_provider_repository()->save(plain));
+    std::ifstream f(dir + "/amber/providers/plain.conf");
+    std::string contents((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    ASSERT(contents.find("flavor=") == std::string::npos);
+    auto plain_back = make_file_provider_repository()->find("plain");
+    ASSERT(plain_back.has_value());
+    ASSERT_EQ(plain_back->flavor, std::string("openai"));
+
+    unsetenv("XDG_CONFIG_HOME");
+    std::filesystem::remove_all(dir);
 }
 
 TEST(gemini_error_classification) {

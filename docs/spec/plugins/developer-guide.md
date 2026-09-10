@@ -33,7 +33,7 @@ it; if they disagree, the tracker wins (and file a fix).
 | Settings contribution | ✅ Available | PF-1 |
 | v1 external plugins under the unified registry | ✅ Available | PF-1 |
 | `/get plugin`, `/set plugin on\|off` | ✅ Available | PF-1 |
-| Provider contribution | ⏳ | PF-2 |
+| Provider contribution (dialect + presets) | ✅ Available | PF-2 |
 | Status segment contribution | ⏳ | PF-3 |
 | Panel contribution + registry console | ⏳ | PF-3 |
 | Host services (`ask_secret`, `choose`, …) | ⏳ | PF-3 |
