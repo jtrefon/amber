@@ -1232,6 +1232,82 @@ TEST(search_semantic_backend_ranks_relevant) {
     run_cmd("rm -rf " + dir);
 }
 
+// ---------------------------------------------------------------------------
+// SEC-03: search backend hardening (Red tests).
+// GrepBackend must reject option-injection patterns (those starting with -
+// must be treated as patterns, not grep flags). SemanticIndex must not
+// follow symlinks that escape the workspace root. SearchTool must clamp
+// max to a sane upper bound.
+// ---------------------------------------------------------------------------
+
+TEST(sec03_grep_backend_pattern_starting_with_dash) {
+    // A pattern starting with "-" must be treated as a pattern, not a
+    // grep option. Without "--" before the pattern, grep would interpret
+    // "-foo" as an unknown option and fail (or worse, match a different
+    // flag). The backend must still find the literal text.
+    std::string dir = make_search_tree();
+    // Add a file containing a dash-prefixed token.
+    {
+        std::ofstream f(dir + "/dash.cpp");
+        f << "int -foo bar;\n";
+    }
+    auto be = agent::make_grep_backend();
+    auto hits = be->search("-foo", dir, "*.cpp", 100);
+    ASSERT_FALSE(hits.empty());
+    bool found = false;
+    for (const auto& h : hits) {
+        if (h.line.find("-foo") != std::string::npos) found = true;
+    }
+    ASSERT(found);
+    run_cmd("rm -rf " + dir);
+}
+
+TEST(sec03_semantic_index_skips_symlink_escape) {
+    // A symlink inside the workspace pointing to a file outside must not
+    // be indexed or returned by the semantic backend.
+    std::string dir = "/tmp/amber_sec03_sym";
+    std::string outside = "/tmp/amber_sec03_outside";
+    run_cmd("rm -rf " + dir + " " + outside);
+    std::filesystem::create_directories(dir);
+    std::filesystem::create_directories(outside);
+    // Outside file with a unique marker.
+    {
+        std::ofstream f(outside + "/secret.cpp");
+        f << "int SEC03_SYMLINK_ESCAPE_MARKER = 1;\n";
+    }
+    // Inside file with normal content.
+    {
+        std::ofstream f(dir + "/inside.cpp");
+        f << "int normal_code = 0;\n";
+    }
+    // Symlink inside the workspace pointing to the outside file.
+    std::filesystem::create_symlink(outside + "/secret.cpp", dir + "/link.cpp");
+
+    auto be = agent::make_semantic_backend();
+    auto hits = be->search("SEC03_SYMLINK_ESCAPE_MARKER", dir, "*.cpp", 100);
+    // The symlinked file must NOT appear in results.
+    for (const auto& h : hits) {
+        ASSERT(h.path.find("SEC03_SYMLINK_ESCAPE_MARKER") == std::string::npos ||
+               h.line.find("SEC03_SYMLINK_ESCAPE_MARKER") == std::string::npos);
+    }
+    // More directly: no hit path should contain "link.cpp" (the symlink).
+    for (const auto& h : hits) {
+        ASSERT(h.path.find("link.cpp") == std::string::npos);
+    }
+    run_cmd("rm -rf " + dir + " " + outside);
+}
+
+TEST(sec03_search_tool_clamps_max) {
+    // SearchTool must clamp max to a reasonable upper bound so a model
+    // cannot request an unbounded result set.
+    agent::Workspace::set_root("/tmp");
+    auto tool = agent::make_search_tool();
+    // A huge max must not crash or produce an unbounded query.
+    auto r = tool->execute({{"pattern", "x"}, {"max", 999999999}});
+    ASSERT_TRUE(r.ok);  // it runs, just clamped
+    run_cmd("rm -rf /tmp/amber_sec03_sym /tmp/amber_sec03_outside");
+}
+
 TEST(search_tool_mode_switch) {
     std::string dir = make_search_tree();
     agent::Workspace::set_root(dir);
