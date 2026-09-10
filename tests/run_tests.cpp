@@ -1971,13 +1971,10 @@ TEST(overflow_400_streaming_throws_non_retryable_api_error) {
     }
     ASSERT(threw);
 
-    // Characterization: the transport parses the 400 prose and mutates its
-    // internal cfg_.context_size BEFORE throwing, but HttpLLMClient captures
-    // learned_ only on the success path — so the learned window is not
-    // observable through the client today. The pure-move refactor must
-    // preserve this exactly; making the learning observable is a separate
-    // follow-up fix, not part of the dialect seam.
-    ASSERT_EQ(client.learned_context_size(), 0);
+    // The rejection taught the runtime window ("n_ctx is 2048") and the
+    // client must surface it even though the call threw: Agent::resolve_window
+    // clamps the gauge and the compression budget with it (FIX-032).
+    ASSERT_EQ(client.learned_context_size(), 2048);
     close(srv);
 }
 
@@ -2004,7 +2001,8 @@ TEST(overflow_400_buffered_throws_non_retryable_api_error) {
         ASSERT_FALSE(e.retryable);
     }
     ASSERT(threw);
-    ASSERT_EQ(client.learned_context_size(), 0);
+    // "maximum context length is 16384 tokens" — surfaced despite the throw.
+    ASSERT_EQ(client.learned_context_size(), 16384);
     close(srv);
 }
 
@@ -2043,7 +2041,8 @@ TEST(client_serves_next_turn_after_overflow_rejection) {
     agent::Message m =
         client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
     ASSERT_EQ(m.content, "still works");
-    ASSERT_EQ(client.learned_context_size(), 0);
+    // The teaching is sticky: the healthy turn neither clears nor changes it.
+    ASSERT_EQ(client.learned_context_size(), 8192);
     close(srv2);
 }
 
