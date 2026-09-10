@@ -38,7 +38,9 @@ public:
             cmd += shell_quote(glob);
             cmd += " ";
         }
-        cmd += shell_quote(query) + " " + shell_quote(root) +
+        // "--" terminates option parsing so a pattern starting with "-"
+        // (e.g. "-foo") is treated as a literal pattern, not a grep flag.
+        cmd += "-- " + shell_quote(query) + " " + shell_quote(root) +
                " 2>/dev/null | head -n " + std::to_string(max);
 
         std::string out = pipe_read(cmd);
