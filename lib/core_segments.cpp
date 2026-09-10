@@ -38,7 +38,9 @@ enum Drop {
     kMcpDrop = 8,
 };
 
-std::string dashed(const char* glyph) { return std::string(glyph); }
+std::string dashed(const char* glyph) {
+    return std::string(glyph);
+}
 
 } // namespace
 
@@ -50,22 +52,25 @@ void register_core_status_segments(StatusRegistry& registry) {
     });
 
     registry.add("", "model", kModel, kModelDrop, [](const StatusSnapshot& s) {
-        return StatusText{" [" + s.model +
-                              bar::reasoning_badge(s.reasoning_effort) + "]",
+        return StatusText{" [" + s.model + bar::reasoning_badge(s.reasoning_effort) + "]",
                           StatusTone::Good};
     });
 
     registry.add("", "mode", kMode, kModeDrop, [](const StatusSnapshot& s) {
         switch (s.mode) {
-            case AgentMode::Read:  return StatusText{" read ", StatusTone::Good};
-            case AgentMode::Write: return StatusText{" write ", StatusTone::Warn};
-            case AgentMode::Yolo:  return StatusText{" yolo ", StatusTone::Accent};
+        case AgentMode::Read:
+            return StatusText{" read ", StatusTone::Good};
+        case AgentMode::Write:
+            return StatusText{" write ", StatusTone::Warn};
+        case AgentMode::Yolo:
+            return StatusText{" yolo ", StatusTone::Accent};
         }
         return StatusText{};
     });
 
     registry.add("", "scroll", kScroll, kScrollDrop, [](const StatusSnapshot& s) {
-        if (!s.scroll_mode) return StatusText{};
+        if (!s.scroll_mode)
+            return StatusText{};
         return StatusText{" S ", StatusTone::Good};
     });
 
@@ -73,11 +78,12 @@ void register_core_status_segments(StatusRegistry& registry) {
         if (s.latency_ms < 0)
             return StatusText{"  lag " + dashed(bar::emdash()), StatusTone::Dim};
         char buf[32];
-        std::snprintf(buf, sizeof(buf), "  lag %.0fms",
-                      static_cast<double>(s.latency_ms));
+        std::snprintf(buf, sizeof(buf), "  lag %.0fms", static_cast<double>(s.latency_ms));
         StatusTone tone = StatusTone::Dim;
-        if (s.latency_ms > 5000) tone = StatusTone::Crit;
-        else if (s.latency_ms > 1000) tone = StatusTone::Warn;
+        if (s.latency_ms > 5000)
+            tone = StatusTone::Crit;
+        else if (s.latency_ms > 1000)
+            tone = StatusTone::Warn;
         return StatusText{buf, tone};
     });
 
@@ -90,40 +96,37 @@ void register_core_status_segments(StatusRegistry& registry) {
     });
 
     registry.add("", "tokens", kTokens, kTokensDrop, [](const StatusSnapshot& s) {
-        const std::string up = s.prompt_tokens >= 0 ? bar::kfmt(s.prompt_tokens)
-                                                    : bar::emdash();
+        const std::string up = s.prompt_tokens >= 0 ? bar::kfmt(s.prompt_tokens) : bar::emdash();
         const std::string down =
-            s.completion_tokens >= 0 ? bar::kfmt(s.completion_tokens)
-                                     : bar::emdash();
-        return StatusText{"  " + dashed(bar::up()) + up + " " +
-                              dashed(bar::down()) + down,
+            s.completion_tokens >= 0 ? bar::kfmt(s.completion_tokens) : bar::emdash();
+        return StatusText{"  " + dashed(bar::up()) + up + " " + dashed(bar::down()) + down,
                           StatusTone::Dim};
     });
 
-    registry.add("", "activity", kActivity, kActivityDrop,
-                 [](const StatusSnapshot& s) {
-                     if (s.running_jobs > 0) {
-                         std::string text = "  " + std::to_string(s.running_jobs) +
-                                            " job" +
-                                            (s.running_jobs > 1 ? "s" : "");
-                         if (s.job_seconds_left >= 0)
-                             text += " " + std::to_string(s.job_seconds_left) + "s";
-                         return StatusText{std::move(text), StatusTone::Warn};
-                     }
-                     if (!s.running_tool.empty())
-                         return StatusText{"  " + s.running_tool + "\u2026",
-                                           StatusTone::Warn};
-                     return StatusText{};
-                 });
+    registry.add("", "activity", kActivity, kActivityDrop, [](const StatusSnapshot& s) {
+        if (s.running_jobs > 0) {
+            std::string text =
+                "  " + std::to_string(s.running_jobs) + " job" + (s.running_jobs > 1 ? "s" : "");
+            if (s.job_seconds_left >= 0)
+                text += " " + std::to_string(s.job_seconds_left) + "s";
+            return StatusText{std::move(text), StatusTone::Warn};
+        }
+        if (!s.running_tool.empty())
+            return StatusText{"  " + s.running_tool + "\u2026", StatusTone::Warn};
+        return StatusText{};
+    });
 
     registry.add("", "mcp", kMcp, kMcpDrop, [](const StatusSnapshot& s) {
         std::string text;
         for (const auto& server : s.mcp_servers) {
-            if (!server.connected && !server.has_error) continue;
-            if (!text.empty()) text += "\u00b7";
+            if (!server.connected && !server.has_error)
+                continue;
+            if (!text.empty())
+                text += "\u00b7";
             text += (server.connected ? "" : "!") + server.name;
         }
-        if (text.empty()) return StatusText{};
+        if (text.empty())
+            return StatusText{};
         return StatusText{"  mcp: " + text, StatusTone::Dim};
     });
 }

@@ -23,8 +23,7 @@ namespace agent {
 // disables it and unregisters those tools.
 class V1PluginAdapter : public IPlugin {
 public:
-    V1PluginAdapter(PluginManager& manager, std::string plugin_id,
-                    std::string version);
+    V1PluginAdapter(PluginManager& manager, std::string plugin_id, std::string version);
 
     std::string id() const override { return id_; }
     std::string version() const override { return version_; }
@@ -37,7 +36,7 @@ private:
     PluginManager* manager_;
     std::string id_;
     std::string version_;
-    ToolRegistry* tools_ = nullptr;  // the registry enable() used
+    ToolRegistry* tools_ = nullptr; // the registry enable() used
     bool enabled_ = false;
 };
 

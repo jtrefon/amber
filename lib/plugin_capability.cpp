@@ -11,16 +11,17 @@ void PluginLedger::record(const std::string& plugin_id, Contribution c) {
 std::size_t PluginLedger::size(const std::string& plugin_id) const noexcept {
     std::size_t count = 0;
     for (const auto& entry : entries_) {
-        if (entry.first == plugin_id) ++count;
+        if (entry.first == plugin_id)
+            ++count;
     }
     return count;
 }
 
-std::vector<Contribution>
-PluginLedger::contributions(const std::string& plugin_id) const {
+std::vector<Contribution> PluginLedger::contributions(const std::string& plugin_id) const {
     std::vector<Contribution> out;
     for (const auto& entry : entries_) {
-        if (entry.first == plugin_id) out.push_back(entry.second);
+        if (entry.first == plugin_id)
+            out.push_back(entry.second);
     }
     return out;
 }
@@ -36,7 +37,8 @@ std::vector<std::string> PluginLedger::owners() const {
 
 void PluginLedger::unwind(const std::string& plugin_id) noexcept {
     for (auto it = entries_.rbegin(); it != entries_.rend(); ++it) {
-        if (it->first != plugin_id) continue;
+        if (it->first != plugin_id)
+            continue;
         if (it->second.remove) {
             // A plugin's teardown must not be able to abort the unwind: the
             // rest of its contributions still have to come out.

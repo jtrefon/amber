@@ -38,10 +38,10 @@ StatusRegistry core_registry() {
     return registry;
 }
 
-std::string text_of(const std::vector<StatusSegment>& segments,
-                    const std::string& id) {
+std::string text_of(const std::vector<StatusSegment>& segments, const std::string& id) {
     for (const auto& s : segments)
-        if (s.id == id) return s.text;
+        if (s.id == id)
+            return s.text;
     return {};
 }
 
@@ -49,31 +49,27 @@ std::string text_of(const std::vector<StatusSegment>& segments,
 
 TEST(status_registry_orders_by_priority_then_registration) {
     StatusRegistry registry;
-    registry.add("plug", "late", 300, 0, [](const StatusSnapshot&) {
-        return StatusText{"C", StatusTone::Dim};
-    });
-    registry.add("plug", "early", 100, 0, [](const StatusSnapshot&) {
-        return StatusText{"A", StatusTone::Dim};
-    });
-    registry.add("plug", "tie", 300, 0, [](const StatusSnapshot&) {
-        return StatusText{"D", StatusTone::Dim};
-    });
+    registry.add("plug", "late", 300, 0,
+                 [](const StatusSnapshot&) { return StatusText{"C", StatusTone::Dim}; });
+    registry.add("plug", "early", 100, 0,
+                 [](const StatusSnapshot&) { return StatusText{"A", StatusTone::Dim}; });
+    registry.add("plug", "tie", 300, 0,
+                 [](const StatusSnapshot&) { return StatusText{"D", StatusTone::Dim}; });
 
     auto out = registry.render(StatusSnapshot{});
     ASSERT_EQ(out.size(), 3u);
     ASSERT_EQ(out[0].text, std::string("A"));
     ASSERT_EQ(out[1].text, std::string("C"));
-    ASSERT_EQ(out[2].text, std::string("D"));  // same priority: registration order
+    ASSERT_EQ(out[2].text, std::string("D")); // same priority: registration order
 }
 
 TEST(status_registry_skips_segments_that_decline) {
     StatusRegistry registry;
     registry.add("plug", "hidden", 100, 0, [](const StatusSnapshot&) {
-        return StatusText{};  // empty text: not shown
+        return StatusText{}; // empty text: not shown
     });
-    registry.add("plug", "shown", 200, 0, [](const StatusSnapshot&) {
-        return StatusText{"here", StatusTone::Good};
-    });
+    registry.add("plug", "shown", 200, 0,
+                 [](const StatusSnapshot&) { return StatusText{"here", StatusTone::Good}; });
 
     auto out = registry.render(StatusSnapshot{});
     ASSERT_EQ(out.size(), 1u);
@@ -83,12 +79,10 @@ TEST(status_registry_skips_segments_that_decline) {
 
 TEST(status_registry_carries_drop_priority) {
     StatusRegistry registry;
-    registry.add("plug", "keep", 100, 0, [](const StatusSnapshot&) {
-        return StatusText{"K", StatusTone::Dim};
-    });
-    registry.add("plug", "droppable", 200, 9, [](const StatusSnapshot&) {
-        return StatusText{"D", StatusTone::Dim};
-    });
+    registry.add("plug", "keep", 100, 0,
+                 [](const StatusSnapshot&) { return StatusText{"K", StatusTone::Dim}; });
+    registry.add("plug", "droppable", 200, 9,
+                 [](const StatusSnapshot&) { return StatusText{"D", StatusTone::Dim}; });
 
     auto out = registry.render(StatusSnapshot{});
     ASSERT_EQ(out.size(), 2u);
@@ -115,9 +109,8 @@ TEST(status_registry_removal_takes_only_that_segment) {
 
 TEST(status_registry_reports_owners) {
     StatusRegistry registry;
-    registry.add("gemini", "balance", 800, 5, [](const StatusSnapshot&) {
-        return StatusText{"$1.00", StatusTone::Dim};
-    });
+    registry.add("gemini", "balance", 800, 5,
+                 [](const StatusSnapshot&) { return StatusText{"$1.00", StatusTone::Dim}; });
     auto items = registry.items();
     ASSERT_EQ(items.size(), 1u);
     ASSERT_EQ(items[0].owner, std::string("gemini"));
@@ -148,14 +141,16 @@ TEST(core_segments_mode_words_and_tones) {
     auto read_out = registry.render(read);
     ASSERT_EQ(text_of(read_out, "mode"), std::string(" read "));
     for (const auto& s : read_out)
-        if (s.id == "mode") ASSERT_TRUE(s.tone == StatusTone::Good);
+        if (s.id == "mode")
+            ASSERT_TRUE(s.tone == StatusTone::Good);
 
     StatusSnapshot yolo = base_snapshot();
     yolo.mode = AgentMode::Yolo;
     auto yolo_out = registry.render(yolo);
     ASSERT_EQ(text_of(yolo_out, "mode"), std::string(" yolo "));
     for (const auto& s : yolo_out)
-        if (s.id == "mode") ASSERT_TRUE(s.tone == StatusTone::Accent);
+        if (s.id == "mode")
+            ASSERT_TRUE(s.tone == StatusTone::Accent);
 }
 
 TEST(core_segments_omit_what_is_not_known) {
@@ -183,14 +178,12 @@ TEST(core_segments_show_one_job_singular_and_seconds) {
     StatusSnapshot one = base_snapshot();
     one.running_jobs = 1;
     one.job_seconds_left = 42;
-    ASSERT_EQ(text_of(registry.render(one), "activity"),
-              std::string("  1 job 42s"));
+    ASSERT_EQ(text_of(registry.render(one), "activity"), std::string("  1 job 42s"));
 
     StatusSnapshot many = base_snapshot();
     many.running_jobs = 3;
     many.job_seconds_left = -1;
-    ASSERT_EQ(text_of(registry.render(many), "activity"),
-              std::string("  3 jobs"));
+    ASSERT_EQ(text_of(registry.render(many), "activity"), std::string("  3 jobs"));
 }
 
 TEST(core_segments_prefer_a_running_tool_over_idle) {
@@ -205,10 +198,9 @@ TEST(core_segments_summarize_mcp_servers) {
     StatusSnapshot mcp = base_snapshot();
     mcp.mcp_servers = {{"github", true, false},
                        {"broken", false, true},
-                       {"silent", false, false}};  // not connected, no error: hidden
+                       {"silent", false, false}}; // not connected, no error: hidden
 
-    ASSERT_EQ(text_of(registry.render(mcp), "mcp"),
-              std::string("  mcp: github\u00b7!broken"));
+    ASSERT_EQ(text_of(registry.render(mcp), "mcp"), std::string("  mcp: github\u00b7!broken"));
 }
 
 TEST(core_segments_show_scroll_mode_only_when_on) {
@@ -218,7 +210,8 @@ TEST(core_segments_show_scroll_mode_only_when_on) {
     auto out = registry.render(scrolling);
     ASSERT_EQ(text_of(out, "scroll"), std::string(" S "));
     for (const auto& s : out)
-        if (s.id == "scroll") ASSERT_EQ(s.drop_priority, 0);  // never dropped
+        if (s.id == "scroll")
+            ASSERT_EQ(s.drop_priority, 0); // never dropped
 }
 
 TEST(core_segments_escalate_lag_tone) {
@@ -227,17 +220,20 @@ TEST(core_segments_escalate_lag_tone) {
     StatusSnapshot slow = base_snapshot();
     slow.latency_ms = 7000;
     for (const auto& s : registry.render(slow))
-        if (s.id == "lag") ASSERT_TRUE(s.tone == StatusTone::Crit);
+        if (s.id == "lag")
+            ASSERT_TRUE(s.tone == StatusTone::Crit);
 
     StatusSnapshot warm = base_snapshot();
     warm.latency_ms = 2000;
     for (const auto& s : registry.render(warm))
-        if (s.id == "lag") ASSERT_TRUE(s.tone == StatusTone::Warn);
+        if (s.id == "lag")
+            ASSERT_TRUE(s.tone == StatusTone::Warn);
 
     StatusSnapshot fast = base_snapshot();
     fast.latency_ms = 100;
     for (const auto& s : registry.render(fast))
-        if (s.id == "lag") ASSERT_TRUE(s.tone == StatusTone::Dim);
+        if (s.id == "lag")
+            ASSERT_TRUE(s.tone == StatusTone::Dim);
 }
 
 // ---------------------------------------------------------------------------
@@ -259,10 +255,13 @@ TEST(panel_registry_preserves_registration_order) {
 TEST(panel_registry_passes_the_offered_width) {
     PanelRegistry panels;
     int seen = 0;
-    panels.add("plug", {"w", "W", [&seen](int width) {
+    panels.add("plug", {"w",
+                        "W",
+                        [&seen](int width) {
                             seen = width;
                             return std::vector<std::string>{"x"};
-                        }, {}});
+                        },
+                        {}});
 
     const auto* spec = panels.find("w");
     ASSERT(spec != nullptr);
@@ -277,7 +276,7 @@ TEST(panel_registry_routes_keys_to_the_panel_first) {
     panels.add("plug", {"k", "K", [](int) { return std::vector<std::string>{}; },
                         [&consumed_keys](int key) {
                             ++consumed_keys;
-                            return key == 'x';   // consumes one key only
+                            return key == 'x'; // consumes one key only
                         }});
 
     const auto* spec = panels.find("k");
@@ -289,8 +288,10 @@ TEST(panel_registry_routes_keys_to_the_panel_first) {
 
 TEST(panel_registry_removal_takes_only_that_panel) {
     PanelRegistry panels;
-    auto keep = panels.add("plug", {"keep", "K", [](int) { return std::vector<std::string>{}; }, {}});
-    auto drop = panels.add("plug", {"drop", "D", [](int) { return std::vector<std::string>{}; }, {}});
+    auto keep =
+        panels.add("plug", {"keep", "K", [](int) { return std::vector<std::string>{}; }, {}});
+    auto drop =
+        panels.add("plug", {"drop", "D", [](int) { return std::vector<std::string>{}; }, {}});
     ASSERT_EQ(panels.size(), 2u);
 
     drop.remove();
@@ -312,9 +313,8 @@ TEST(panel_capability_installs_and_unwinds) {
     PluginServices services(tools, prompts, commands, status, panels, settings, bus);
     services.set_owner("gemini");
 
-    PanelCapability cap(PanelSpec{"gemini_models", "Gemini models",
-                                  [](int) { return std::vector<std::string>{"m1"}; },
-                                  {}});
+    PanelCapability cap(PanelSpec{
+        "gemini_models", "Gemini models", [](int) { return std::vector<std::string>{"m1"}; }, {}});
     InstallResult r = cap.install(services);
     ASSERT_TRUE(r.ok);
     ASSERT_TRUE(r.contribution.kind == CapabilityKind::Panel);
@@ -343,7 +343,8 @@ TEST(console_panel_lists_plugins_and_their_contributions) {
     ASSERT_EQ(panels[0].id, std::string("plugins"));
 
     std::string text;
-    for (const auto& line : plugin_console_lines(runtime)) text += line + "\n";
+    for (const auto& line : plugin_console_lines(runtime))
+        text += line + "\n";
     ASSERT(text.find("metrics") != std::string::npos);
     ASSERT(text.find("gemini") != std::string::npos);
     ASSERT(text.find("provider:gemini") != std::string::npos);
@@ -353,7 +354,8 @@ TEST(console_panel_lists_plugins_and_their_contributions) {
     // A disabled plugin reports itself as off, and its contributions are gone.
     ASSERT_TRUE(runtime.set_state("gemini", false));
     std::string after;
-    for (const auto& line : plugin_console_lines(runtime)) after += line + "\n";
+    for (const auto& line : plugin_console_lines(runtime))
+        after += line + "\n";
     ASSERT(after.find("provider:gemini") == std::string::npos);
     ASSERT(after.find("gemini            bundled   off") != std::string::npos ||
            after.find("off") != std::string::npos);

@@ -32,9 +32,9 @@ namespace agent {
 // type.
 struct ExtensionItem {
     CapabilityKind kind = CapabilityKind::Tool;
-    std::string owner;   // plugin id, empty for host contributions
+    std::string owner; // plugin id, empty for host contributions
     std::string name;
-    std::string detail;  // registry-specific, human-readable
+    std::string detail; // registry-specific, human-readable
 };
 
 // ---------------------------------------------------------------------------
@@ -53,8 +53,7 @@ class PromptRegistry {
 public:
     using Render = std::function<std::string()>;
 
-    Contribution add(const std::string& owner, const std::string& id, int priority,
-                     Render render);
+    Contribution add(const std::string& owner, const std::string& id, int priority, Render render);
 
     // Blocks in priority order, skipping any that render empty.
     std::vector<std::string> render_all() const;
@@ -81,12 +80,12 @@ private:
 // Semantic colour of a segment. The host owns the palette, so a segment never
 // names a terminal colour (and a plugin never learns what a colour pair is).
 enum class StatusTone : std::uint8_t {
-    Dim,     // secondary information
-    Good,    // healthy / active
-    Warn,    // needs attention
-    Crit,    // at a limit
-    Accent,  // highlighted state the user chose
-    Banner,  // leading identity tag
+    Dim,    // secondary information
+    Good,   // healthy / active
+    Warn,   // needs attention
+    Crit,   // at a limit
+    Accent, // highlighted state the user chose
+    Banner, // leading identity tag
 };
 
 struct StatusText {
@@ -105,15 +104,15 @@ struct StatusMcpServer {
 // of this snapshot: they are called during frame composition, so they must be
 // fast, allocation-light, and must not touch plugin state or do I/O.
 struct StatusSnapshot {
-    int window_index = 0;         // 1-based, as displayed
+    int window_index = 0; // 1-based, as displayed
     int window_count = 1;
     std::string model;
     std::string reasoning_effort;
     AgentMode mode = AgentMode::Read;
     bool scroll_mode = false;
-    long latency_ms = -1;         // < 0: not measured yet
-    double tps = -1.0;            // < 0: not measured yet
-    long prompt_tokens = -1;      // < 0: not reported
+    long latency_ms = -1;    // < 0: not measured yet
+    double tps = -1.0;       // < 0: not measured yet
+    long prompt_tokens = -1; // < 0: not reported
     long completion_tokens = -1;
     int running_jobs = 0;
     int job_seconds_left = -1;
@@ -126,7 +125,7 @@ struct StatusSegment {
     std::string id;
     std::string text;
     StatusTone tone = StatusTone::Dim;
-    int drop_priority = 0;  // higher drops first when the bar is too narrow
+    int drop_priority = 0; // higher drops first when the bar is too narrow
 };
 
 // The status bar is composed from these, never from a hardcoded list: amber's
@@ -136,8 +135,8 @@ class StatusRegistry {
 public:
     using Render = std::function<StatusText(const StatusSnapshot&)>;
 
-    Contribution add(const std::string& owner, const std::string& id,
-                     int priority, int drop_priority, Render render);
+    Contribution add(const std::string& owner, const std::string& id, int priority,
+                     int drop_priority, Render render);
 
     // Segments that produced text, in (priority, registration) order.
     std::vector<StatusSegment> render(const StatusSnapshot& snapshot) const;
@@ -212,21 +211,19 @@ public:
 
     struct Node {
         std::string owner;
-        std::string root;   // namespace root this plugin owns
-        std::string subtree_json;  // completions.json-shaped children
-        std::map<std::string, Handler> handlers;  // leaf path -> handler
+        std::string root;                        // namespace root this plugin owns
+        std::string subtree_json;                // completions.json-shaped children
+        std::map<std::string, Handler> handlers; // leaf path -> handler
     };
 
     Contribution add(const std::string& owner, const std::string& root,
-                     const std::string& subtree_json,
-                     std::map<std::string, Handler> handlers);
+                     const std::string& subtree_json, std::map<std::string, Handler> handlers);
 
     // Subtree for `root`, or an empty string when no plugin owns it.
     std::string subtree(const std::string& root) const;
     // Invoke the handler for `root` + `path` (slash-separated, no leading
     // root). Returns false when nothing is registered for that leaf.
-    bool dispatch(const std::string& root, const std::string& path,
-                  const std::string& arg) const;
+    bool dispatch(const std::string& root, const std::string& path, const std::string& arg) const;
 
     std::vector<ExtensionItem> items() const;
     std::size_t size() const noexcept { return nodes_.size(); }
@@ -247,14 +244,12 @@ public:
     // Values for `owner`; empty when the plugin has none.
     std::map<std::string, std::string> get(const std::string& owner) const;
     std::string get(const std::string& owner, const std::string& key) const;
-    void set(const std::string& owner, const std::string& key,
-             const std::string& value);
+    void set(const std::string& owner, const std::string& key, const std::string& value);
     bool has(const std::string& owner) const;
 
     // Declare a key a plugin offers, with its one-line description. A
     // declaration is how the console can show a setting that is still unset.
-    void declare(const std::string& owner, const std::string& key,
-                 const std::string& help);
+    void declare(const std::string& owner, const std::string& key, const std::string& help);
     void undeclare(const std::string& owner, const std::string& key);
 
     std::vector<ExtensionItem> items() const;
@@ -272,9 +267,8 @@ private:
 // capability never constructs its own registry.
 class PluginServices {
 public:
-    PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
-                   CommandRegistry& commands, StatusRegistry& status,
-                   PanelRegistry& panels, PluginSettingsStore& settings,
+    PluginServices(ToolRegistry& tools, PromptRegistry& prompts, CommandRegistry& commands,
+                   StatusRegistry& status, PanelRegistry& panels, PluginSettingsStore& settings,
                    EventBus& events) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
@@ -370,7 +364,7 @@ private:
 class ProviderCapability : public Capability {
 public:
     struct Preset {
-        std::string name;          // provider name, e.g. "gemini"
+        std::string name; // provider name, e.g. "gemini"
         std::string api_base;
         std::string default_model;
         bool requires_key = true;

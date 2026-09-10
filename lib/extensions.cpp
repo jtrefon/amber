@@ -11,8 +11,8 @@ namespace agent {
 // PromptRegistry
 // ---------------------------------------------------------------------------
 
-Contribution PromptRegistry::add(const std::string& owner, const std::string& id,
-                                 int priority, Render render) {
+Contribution PromptRegistry::add(const std::string& owner, const std::string& id, int priority,
+                                 Render render) {
     Block block;
     block.owner = owner;
     block.id = id;
@@ -22,21 +22,20 @@ Contribution PromptRegistry::add(const std::string& owner, const std::string& id
     blocks_.push_back(std::move(block));
     // Stable ordering: priority first, registration order to break ties, so
     // two plugins at the same priority never swap places between turns.
-    std::stable_sort(blocks_.begin(), blocks_.end(),
-                     [](const Block& a, const Block& b) {
-                         if (a.priority != b.priority) return a.priority < b.priority;
-                         return a.seq < b.seq;
-                     });
+    std::stable_sort(blocks_.begin(), blocks_.end(), [](const Block& a, const Block& b) {
+        if (a.priority != b.priority)
+            return a.priority < b.priority;
+        return a.seq < b.seq;
+    });
 
     Contribution c;
     c.kind = CapabilityKind::PromptBlock;
     c.name = id;
     c.remove = [this, owner, id] {
-        blocks_.erase(std::remove_if(blocks_.begin(), blocks_.end(),
-                                     [&](const Block& b) {
-                                         return b.owner == owner && b.id == id;
-                                     }),
-                      blocks_.end());
+        blocks_.erase(
+            std::remove_if(blocks_.begin(), blocks_.end(),
+                           [&](const Block& b) { return b.owner == owner && b.id == id; }),
+            blocks_.end());
     };
     return c;
 }
@@ -44,9 +43,11 @@ Contribution PromptRegistry::add(const std::string& owner, const std::string& id
 std::vector<std::string> PromptRegistry::render_all() const {
     std::vector<std::string> out;
     for (const auto& block : blocks_) {
-        if (!block.render) continue;
+        if (!block.render)
+            continue;
         std::string text = block.render();
-        if (!text.empty()) out.push_back(std::move(text));
+        if (!text.empty())
+            out.push_back(std::move(text));
     }
     return out;
 }
@@ -65,8 +66,8 @@ std::vector<ExtensionItem> PromptRegistry::items() const {
 // StatusRegistry
 // ---------------------------------------------------------------------------
 
-Contribution StatusRegistry::add(const std::string& owner, const std::string& id,
-                                 int priority, int drop_priority, Render render) {
+Contribution StatusRegistry::add(const std::string& owner, const std::string& id, int priority,
+                                 int drop_priority, Render render) {
     Entry entry;
     entry.owner = owner;
     entry.id = id;
@@ -77,34 +78,33 @@ Contribution StatusRegistry::add(const std::string& owner, const std::string& id
     entries_.push_back(std::move(entry));
     // Priority first, registration order to break ties, so two segments at the
     // same priority never swap places between frames.
-    std::stable_sort(entries_.begin(), entries_.end(),
-                     [](const Entry& a, const Entry& b) {
-                         if (a.priority != b.priority) return a.priority < b.priority;
-                         return a.seq < b.seq;
-                     });
+    std::stable_sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
+        if (a.priority != b.priority)
+            return a.priority < b.priority;
+        return a.seq < b.seq;
+    });
 
     Contribution c;
     c.kind = CapabilityKind::StatusSegment;
     c.name = id;
     c.remove = [this, owner, id] {
-        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
-                                      [&](const Entry& e) {
-                                          return e.owner == owner && e.id == id;
-                                      }),
-                       entries_.end());
+        entries_.erase(
+            std::remove_if(entries_.begin(), entries_.end(),
+                           [&](const Entry& e) { return e.owner == owner && e.id == id; }),
+            entries_.end());
     };
     return c;
 }
 
-std::vector<StatusSegment>
-StatusRegistry::render(const StatusSnapshot& snapshot) const {
+std::vector<StatusSegment> StatusRegistry::render(const StatusSnapshot& snapshot) const {
     std::vector<StatusSegment> out;
     for (const auto& entry : entries_) {
-        if (!entry.render) continue;
+        if (!entry.render)
+            continue;
         StatusText text = entry.render(snapshot);
-        if (text.text.empty()) continue;   // a segment may decline to appear
-        out.push_back({entry.id, std::move(text.text), text.tone,
-                       entry.drop_priority});
+        if (text.text.empty())
+            continue; // a segment may decline to appear
+        out.push_back({entry.id, std::move(text.text), text.tone, entry.drop_priority});
     }
     return out;
 }
@@ -135,19 +135,18 @@ Contribution PanelRegistry::add(const std::string& owner, PanelSpec spec) {
     c.kind = CapabilityKind::Panel;
     c.name = id;
     c.remove = [this, owner, id] {
-        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
-                                      [&](const Entry& e) {
-                                          return e.owner == owner &&
-                                                 e.spec.id == id;
-                                      }),
-                       entries_.end());
+        entries_.erase(
+            std::remove_if(entries_.begin(), entries_.end(),
+                           [&](const Entry& e) { return e.owner == owner && e.spec.id == id; }),
+            entries_.end());
     };
     return c;
 }
 
 const PanelSpec* PanelRegistry::find(const std::string& id) const {
     for (const auto& entry : entries_) {
-        if (entry.spec.id == id) return &entry.spec;
+        if (entry.spec.id == id)
+            return &entry.spec;
     }
     return nullptr;
 }
@@ -155,7 +154,8 @@ const PanelSpec* PanelRegistry::find(const std::string& id) const {
 std::vector<PanelSpec> PanelRegistry::all() const {
     std::vector<PanelSpec> out;
     out.reserve(entries_.size());
-    for (const auto& entry : entries_) out.push_back(entry.spec);
+    for (const auto& entry : entries_)
+        out.push_back(entry.spec);
     return out;
 }
 
@@ -163,8 +163,7 @@ std::vector<ExtensionItem> PanelRegistry::items() const {
     std::vector<ExtensionItem> out;
     out.reserve(entries_.size());
     for (const auto& entry : entries_) {
-        out.push_back({CapabilityKind::Panel, entry.owner, entry.spec.id,
-                       entry.spec.title});
+        out.push_back({CapabilityKind::Panel, entry.owner, entry.spec.id, entry.spec.title});
     }
     return out;
 }
@@ -187,18 +186,18 @@ Contribution CommandRegistry::add(const std::string& owner, const std::string& r
     c.kind = CapabilityKind::Command;
     c.name = root;
     c.remove = [this, owner, root] {
-        nodes_.erase(std::remove_if(nodes_.begin(), nodes_.end(),
-                                    [&](const Node& n) {
-                                        return n.owner == owner && n.root == root;
-                                    }),
-                     nodes_.end());
+        nodes_.erase(
+            std::remove_if(nodes_.begin(), nodes_.end(),
+                           [&](const Node& n) { return n.owner == owner && n.root == root; }),
+            nodes_.end());
     };
     return c;
 }
 
 std::string CommandRegistry::subtree(const std::string& root) const {
     for (const auto& node : nodes_) {
-        if (node.root == root) return node.subtree_json;
+        if (node.root == root)
+            return node.subtree_json;
     }
     return {};
 }
@@ -206,9 +205,11 @@ std::string CommandRegistry::subtree(const std::string& root) const {
 bool CommandRegistry::dispatch(const std::string& root, const std::string& path,
                                const std::string& arg) const {
     for (const auto& node : nodes_) {
-        if (node.root != root) continue;
+        if (node.root != root)
+            continue;
         auto it = node.handlers.find(path);
-        if (it == node.handlers.end() || !it->second) return false;
+        if (it == node.handlers.end() || !it->second)
+            return false;
         it->second(arg);
         return true;
     }
@@ -228,16 +229,15 @@ std::vector<ExtensionItem> CommandRegistry::items() const {
 // PluginSettingsStore
 // ---------------------------------------------------------------------------
 
-std::map<std::string, std::string>
-PluginSettingsStore::get(const std::string& owner) const {
+std::map<std::string, std::string> PluginSettingsStore::get(const std::string& owner) const {
     auto it = values_.find(owner);
     return it == values_.end() ? std::map<std::string, std::string>{} : it->second;
 }
 
-std::string PluginSettingsStore::get(const std::string& owner,
-                                     const std::string& key) const {
+std::string PluginSettingsStore::get(const std::string& owner, const std::string& key) const {
     auto owner_it = values_.find(owner);
-    if (owner_it == values_.end()) return {};
+    if (owner_it == values_.end())
+        return {};
     auto it = owner_it->second.find(key);
     return it == owner_it->second.end() ? std::string{} : it->second;
 }
@@ -256,14 +256,16 @@ void PluginSettingsStore::declare(const std::string& owner, const std::string& k
     declared_[owner][key] = help;
 }
 
-void PluginSettingsStore::undeclare(const std::string& owner,
-                                    const std::string& key) {
+void PluginSettingsStore::undeclare(const std::string& owner, const std::string& key) {
     auto it = declared_.find(owner);
-    if (it == declared_.end()) return;
+    if (it == declared_.end())
+        return;
     it->second.erase(key);
-    if (it->second.empty()) declared_.erase(it);
+    if (it->second.empty())
+        declared_.erase(it);
     values_[owner].erase(key);
-    if (values_[owner].empty()) values_.erase(owner);
+    if (values_[owner].empty())
+        values_.erase(owner);
 }
 
 std::vector<ExtensionItem> PluginSettingsStore::items() const {
@@ -276,8 +278,8 @@ std::vector<ExtensionItem> PluginSettingsStore::items() const {
     for (const auto& [owner, kv] : declared_) {
         for (const auto& [key, help] : kv) {
             if (get(owner, key).empty())
-                out.push_back({CapabilityKind::Setting, owner, key,
-                               help.empty() ? "(unset)" : help});
+                out.push_back(
+                    {CapabilityKind::Setting, owner, key, help.empty() ? "(unset)" : help});
         }
     }
     return out;
@@ -289,12 +291,10 @@ std::vector<ExtensionItem> PluginSettingsStore::items() const {
 
 PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
                                CommandRegistry& commands, StatusRegistry& status,
-                               PanelRegistry& panels,
-                               PluginSettingsStore& settings,
+                               PanelRegistry& panels, PluginSettingsStore& settings,
                                EventBus& events) noexcept
-    : tools_(&tools), prompts_(&prompts), commands_(&commands),
-      status_(&status), panels_(&panels), settings_(&settings),
-      events_(&events) {}
+    : tools_(&tools), prompts_(&prompts), commands_(&commands), status_(&status), panels_(&panels),
+      settings_(&settings), events_(&events) {}
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -315,9 +315,7 @@ InstallResult ToolCapability::install(PluginServices& services) {
     r.ok = true;
     r.contribution.kind = CapabilityKind::Tool;
     r.contribution.name = registered;
-    r.contribution.remove = [registry, registered] {
-        registry->remove_tool(registered);
-    };
+    r.contribution.remove = [registry, registered] { registry->remove_tool(registered); };
     return r;
 }
 
@@ -332,8 +330,7 @@ InstallResult CommandCapability::install(PluginServices& services) {
         r.error = "command capability needs a namespace root";
         return r;
     }
-    r.contribution = services.commands().add(services.owner(), root_,
-                                             subtree_json_, handlers_);
+    r.contribution = services.commands().add(services.owner(), root_, subtree_json_, handlers_);
     r.ok = true;
     return r;
 }
@@ -348,16 +345,14 @@ InstallResult PromptBlockCapability::install(PluginServices& services) {
         r.error = "prompt block '" + id_ + "' has no renderer";
         return r;
     }
-    r.contribution = services.prompts().add(services.owner(), id_, priority_,
-                                            render_);
+    r.contribution = services.prompts().add(services.owner(), id_, priority_, render_);
     r.ok = true;
     return r;
 }
 
-ProviderCapability::ProviderCapability(
-    std::string flavor,
-    std::function<std::unique_ptr<class Dialect>()> make_dialect,
-    std::vector<Preset> presets)
+ProviderCapability::ProviderCapability(std::string flavor,
+                                       std::function<std::unique_ptr<class Dialect>()> make_dialect,
+                                       std::vector<Preset> presets)
     : flavor_(std::move(flavor)), make_dialect_(std::move(make_dialect)),
       presets_(std::move(presets)) {}
 
@@ -374,7 +369,8 @@ InstallResult ProviderCapability::install(PluginServices& services) {
     // A factory means this plugin *provides* the protocol; without one it only
     // speaks a protocol someone else provides (the shared openai dialect).
     const bool provides_dialect = static_cast<bool>(make_dialect_);
-    if (provides_dialect) register_dialect(flavor_, make_dialect_, owner);
+    if (provides_dialect)
+        register_dialect(flavor_, make_dialect_, owner);
     for (const auto& preset : presets_) {
         Provider p;
         p.name = preset.name;
@@ -394,14 +390,14 @@ InstallResult ProviderCapability::install(PluginServices& services) {
         // provided (marked unavailable, so a provider file pointing at it fails
         // loudly rather than speaking another protocol) and its preset rows.
         // A presets-only provider leaves the shared dialect alone.
-        if (provides_dialect) unregister_dialect(flavor, owner);
+        if (provides_dialect)
+            unregister_dialect(flavor, owner);
         unregister_provider_presets_for(owner);
     };
     return r;
 }
 
-StatusSegmentCapability::StatusSegmentCapability(std::string id, int priority,
-                                                 int drop_priority,
+StatusSegmentCapability::StatusSegmentCapability(std::string id, int priority, int drop_priority,
                                                  StatusRegistry::Render render)
     : id_(std::move(id)), priority_(priority), drop_priority_(drop_priority),
       render_(std::move(render)) {}
@@ -412,8 +408,8 @@ InstallResult StatusSegmentCapability::install(PluginServices& services) {
         r.error = "status segment capability needs an id and a renderer";
         return r;
     }
-    r.contribution = services.status().add(services.owner(), id_, priority_,
-                                           drop_priority_, render_);
+    r.contribution =
+        services.status().add(services.owner(), id_, priority_, drop_priority_, render_);
     r.ok = true;
     return r;
 }
@@ -446,9 +442,7 @@ InstallResult SettingCapability::install(PluginServices& services) {
     r.ok = true;
     r.contribution.kind = CapabilityKind::Setting;
     r.contribution.name = key_;
-    r.contribution.remove = [store, owner, key = key_] {
-        store->undeclare(owner, key);
-    };
+    r.contribution.remove = [store, owner, key = key_] { store->undeclare(owner, key); };
     return r;
 }
 

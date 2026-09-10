@@ -15,9 +15,9 @@ std::vector<std::unique_ptr<Capability>> CustomPlugin::capabilities() {
     preset.requires_key = false;
 
     std::vector<std::unique_ptr<Capability>> caps;
-    caps.push_back(std::make_unique<ProviderCapability>(
-        "openai", std::function<std::unique_ptr<Dialect>()>{},
-        std::vector<ProviderCapability::Preset>{preset}));
+    caps.push_back(
+        std::make_unique<ProviderCapability>("openai", std::function<std::unique_ptr<Dialect>()>{},
+                                             std::vector<ProviderCapability::Preset>{preset}));
     return caps;
 }
 

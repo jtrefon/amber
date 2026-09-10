@@ -35,13 +35,12 @@ void push_text(agent_test::FakeLLMClient& fake, const std::string& text) {
     fake.script.push_back(std::move(r));
 }
 
-void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn,
-                    const json& args, const std::string& id = "call_1") {
+void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn, const json& args,
+                    const std::string& id = "call_1") {
     agent_test::FakeReply r;
-    r.tool_calls = json::array(
-        {{{"id", id},
-          {"type", "function"},
-          {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
+    r.tool_calls = json::array({{{"id", id},
+                                 {"type", "function"},
+                                 {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
     fake.script.push_back(std::move(r));
 }
 
@@ -62,17 +61,20 @@ TEST(agent_publishes_turn_and_message_events) {
     int started = 0, ended = 0, cancelled = 0, added = 0, responses = 0;
     std::vector<std::string> added_roles;
 
-    auto s1 = events.subscribe<agent::TurnStartedEvent>(
-        [&](const agent::TurnStartedEvent& e) { ++started; seen_prompt = e.prompt; });
+    auto s1 = events.subscribe<agent::TurnStartedEvent>([&](const agent::TurnStartedEvent& e) {
+        ++started;
+        seen_prompt = e.prompt;
+    });
     auto s2 = events.subscribe<agent::TurnEndedEvent>([&](const agent::TurnEndedEvent& e) {
         ++ended;
-        if (e.cancelled) ++cancelled;
+        if (e.cancelled)
+            ++cancelled;
     });
-    auto s3 = events.subscribe<agent::MessageAddedEvent>(
-        [&](const agent::MessageAddedEvent& e) {
-            ++added;
-            if (e.message) added_roles.push_back(e.message->role);
-        });
+    auto s3 = events.subscribe<agent::MessageAddedEvent>([&](const agent::MessageAddedEvent& e) {
+        ++added;
+        if (e.message)
+            added_roles.push_back(e.message->role);
+    });
     auto s4 = events.subscribe<agent::LlmResponseEvent>(
         [&](const agent::LlmResponseEvent&) { ++responses; });
 
@@ -105,10 +107,10 @@ TEST(agent_hidden_exchange_is_not_published) {
     int responses = 0, assistant_messages = 0;
     auto s1 = events.subscribe<agent::LlmResponseEvent>(
         [&](const agent::LlmResponseEvent&) { ++responses; });
-    auto s2 = events.subscribe<agent::MessageAddedEvent>(
-        [&](const agent::MessageAddedEvent& e) {
-            if (e.message && e.message->role == "assistant") ++assistant_messages;
-        });
+    auto s2 = events.subscribe<agent::MessageAddedEvent>([&](const agent::MessageAddedEvent& e) {
+        if (e.message && e.message->role == "assistant")
+            ++assistant_messages;
+    });
 
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     ag.set_events(bus);
@@ -132,8 +134,10 @@ TEST(agent_turn_start_interceptor_rewrites_the_prompt) {
 
     agent::EventBus bus;
     agent::Events events(bus);
-    auto guard = events.intercept<agent::TurnStartedEvent>(
-        [](agent::TurnStartedEvent& e) { e.prompt += " [ctx injected]"; return true; });
+    auto guard = events.intercept<agent::TurnStartedEvent>([](agent::TurnStartedEvent& e) {
+        e.prompt += " [ctx injected]";
+        return true;
+    });
 
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     ag.set_events(bus);
@@ -162,11 +166,11 @@ TEST(agent_publishes_tool_events) {
     bool saw_ok_result = false;
     auto s1 = events.subscribe<agent::ToolRequestedEvent>(
         [&](const agent::ToolRequestedEvent& e) { requested.push_back(e.name); });
-    auto s2 = events.subscribe<agent::ToolCompletedEvent>(
-        [&](const agent::ToolCompletedEvent& e) {
-            completed.push_back(e.name);
-            if (e.result && e.result->ok) saw_ok_result = true;
-        });
+    auto s2 = events.subscribe<agent::ToolCompletedEvent>([&](const agent::ToolCompletedEvent& e) {
+        completed.push_back(e.name);
+        if (e.result && e.result->ok)
+            saw_ok_result = true;
+    });
 
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     ag.set_events(bus);
@@ -191,14 +195,13 @@ TEST(agent_tool_interceptor_can_veto_a_call) {
 
     agent::EventBus bus;
     agent::Events events(bus);
-    auto guard = events.intercept<agent::ToolRequestedEvent>(
-        [](agent::ToolRequestedEvent& e) {
-            if (e.name == "read") {
-                e.cancel = true;
-                return false;
-            }
-            return true;
-        });
+    auto guard = events.intercept<agent::ToolRequestedEvent>([](agent::ToolRequestedEvent& e) {
+        if (e.name == "read") {
+            e.cancel = true;
+            return false;
+        }
+        return true;
+    });
 
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     ag.set_events(bus);
@@ -223,11 +226,11 @@ TEST(agent_tool_interceptor_can_rewrite_arguments) {
 
     agent::EventBus bus;
     agent::Events events(bus);
-    auto guard = events.intercept<agent::ToolRequestedEvent>(
-        [](agent::ToolRequestedEvent& e) {
-            if (e.name == "read") e.args["path"] = "Makefile";
-            return true;
-        });
+    auto guard = events.intercept<agent::ToolRequestedEvent>([](agent::ToolRequestedEvent& e) {
+        if (e.name == "read")
+            e.args["path"] = "Makefile";
+        return true;
+    });
 
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     ag.set_events(bus);
@@ -259,7 +262,8 @@ TEST(agent_sends_contributed_prompt_blocks) {
 
     bool saw_block = false;
     for (const auto& m : raw->requests[0])
-        if (m.role == "system" && m.content == "PLUGIN FACTS") saw_block = true;
+        if (m.role == "system" && m.content == "PLUGIN FACTS")
+            saw_block = true;
     ASSERT(saw_block);
 
     // The sealed context is untouched: the block lives on the prompt copy.
@@ -296,9 +300,11 @@ TEST(agent_prompt_blocks_are_stable_across_turns) {
     ASSERT_EQ(renders, 4);
     std::string first_prefix, second_prefix;
     for (const auto& m : raw->requests[0])
-        if (m.role == "system") first_prefix += m.content + "\n";
+        if (m.role == "system")
+            first_prefix += m.content + "\n";
     for (const auto& m : raw->requests[2])
-        if (m.role == "system") second_prefix += m.content + "\n";
+        if (m.role == "system")
+            second_prefix += m.content + "\n";
     ASSERT(first_prefix.find("STABLE BLOCK") != std::string::npos);
     ASSERT(second_prefix.find("STABLE BLOCK") != std::string::npos);
     ASSERT(first_prefix == second_prefix);

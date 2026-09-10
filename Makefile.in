@@ -277,7 +277,7 @@ complexity:
 
 format-check:
 	@echo "clang-format --dry-run (informational)..."
-	@files=$$(find $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/include/agent -name '*.cpp' -o -name '*.h' | sort); \
+	@files=$$(find $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/include/agent $(SRC_DIR)/plugins -name '*.cpp' -o -name '*.h' | sort); \
 	clang-format --dry-run --Werror $$files 2>&1 | head -n 30; \
 	echo "  clean (informational)"
 

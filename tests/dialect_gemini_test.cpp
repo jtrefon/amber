@@ -52,15 +52,13 @@ TEST(gemini_flavor_and_endpoints) {
 
     Config cfg = gemini_cfg();
     cfg.stream = false;
-    ASSERT_EQ(d->chat_url(cfg),
-              std::string("https://generativelanguage.googleapis.com/v1beta/"
-                          "models/gemini-2.5-pro:generateContent"));
+    ASSERT_EQ(d->chat_url(cfg), std::string("https://generativelanguage.googleapis.com/v1beta/"
+                                            "models/gemini-2.5-pro:generateContent"));
 
     // Streaming is a different method with SSE framing.
     cfg.stream = true;
-    ASSERT_EQ(d->chat_url(cfg),
-              std::string("https://generativelanguage.googleapis.com/v1beta/"
-                          "models/gemini-2.5-pro:streamGenerateContent?alt=sse"));
+    ASSERT_EQ(d->chat_url(cfg), std::string("https://generativelanguage.googleapis.com/v1beta/"
+                                            "models/gemini-2.5-pro:streamGenerateContent?alt=sse"));
     ASSERT_EQ(d->models_url(cfg),
               std::string("https://generativelanguage.googleapis.com/v1beta/models"));
 }
@@ -98,10 +96,10 @@ TEST(gemini_maps_tool_call_and_result) {
 
     Message assistant;
     assistant.role = "assistant";
-    assistant.tool_calls = json::array(
-        {{{"id", "call_1"},
-          {"type", "function"},
-          {"function", {{"name", "read"}, {"arguments", R"({"path":"x"})"}}}}});
+    assistant.tool_calls =
+        json::array({{{"id", "call_1"},
+                      {"type", "function"},
+                      {"function", {{"name", "read"}, {"arguments", R"({"path":"x"})"}}}}});
     Message tool;
     tool.role = "tool";
     tool.name = "read";
@@ -183,9 +181,7 @@ TEST(gemini_stream_decodes_text_and_tool_calls) {
     Message out;
     out.role = "assistant";
     std::string streamed;
-    auto decoder = d->make_decoder(out, [&](const StreamChunk& c) {
-        streamed += c.delta;
-    }, "");
+    auto decoder = d->make_decoder(out, [&](const StreamChunk& c) { streamed += c.delta; }, "");
 
     const std::string chunk1 =
         "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hel\"}]}}]}\n\n";
@@ -267,8 +263,7 @@ TEST(provider_file_round_trips_the_flavor) {
     plain.api_base = "http://localhost:8081/v1";
     ASSERT_TRUE(make_file_provider_repository()->save(plain));
     std::ifstream f(dir + "/amber/providers/plain.conf");
-    std::string contents((std::istreambuf_iterator<char>(f)),
-                         std::istreambuf_iterator<char>());
+    std::string contents((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     ASSERT(contents.find("flavor=") == std::string::npos);
     auto plain_back = make_file_provider_repository()->find("plain");
     ASSERT(plain_back.has_value());

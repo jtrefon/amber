@@ -65,8 +65,8 @@ public:
 
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
-        caps.push_back(std::make_unique<PromptBlockCapability>(
-            "block", priority_, [this] { return text_; }));
+        caps.push_back(
+            std::make_unique<PromptBlockCapability>("block", priority_, [this] { return text_; }));
         caps.push_back(std::make_unique<SettingCapability>("greeting", "what to say"));
         return caps;
     }
@@ -210,8 +210,10 @@ TEST(runtime_contributions_span_every_registry) {
     bool saw_prompt = false, saw_setting = false;
     for (const auto& item : runtime.contributions()) {
         ASSERT_EQ(item.owner, std::string("alpha"));
-        if (item.kind == CapabilityKind::PromptBlock) saw_prompt = true;
-        if (item.kind == CapabilityKind::Setting) saw_setting = true;
+        if (item.kind == CapabilityKind::PromptBlock)
+            saw_prompt = true;
+        if (item.kind == CapabilityKind::Setting)
+            saw_setting = true;
     }
     ASSERT_TRUE(saw_prompt);
     ASSERT_TRUE(saw_setting);
@@ -229,18 +231,16 @@ TEST(runtime_external_plugins_share_the_control_surface) {
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.add(std::make_shared<BlockPlugin>("metrics", "core metrics"), true);
 
-    agent::PluginManager manager;  // discovers nothing on this machine
+    agent::PluginManager manager; // discovers nothing on this machine
     runtime.add_external(manager);
 
-    ASSERT_TRUE(runtime.add(std::make_shared<BlockPlugin>("metrics", "impostor"),
-                            false) == false);
+    ASSERT_TRUE(runtime.add(std::make_shared<BlockPlugin>("metrics", "impostor"), false) == false);
     auto list = runtime.list();
     ASSERT_EQ(list.size(), 1u);
     ASSERT_EQ(list[0].tier, std::string("bundled"));
 
     // A distinct external id is accepted and reported as external.
-    ASSERT_TRUE(runtime.add(std::make_shared<BlockPlugin>("ext_sample", "x"),
-                            false));
+    ASSERT_TRUE(runtime.add(std::make_shared<BlockPlugin>("ext_sample", "x"), false));
     ASSERT_EQ(runtime.status("ext_sample").tier, std::string("external"));
 }
 
@@ -332,7 +332,8 @@ TEST(runtime_bundled_plugin_observes_a_real_turn) {
     f.cfg.system_prompt_path = "prompts/system.md";
     f.cfg.tools_prompt_path = "prompts/tools.md";
     char cwd[4096];
-    if (getcwd(cwd, sizeof cwd)) Workspace::set_root(cwd);
+    if (getcwd(cwd, sizeof cwd))
+        Workspace::set_root(cwd);
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     auto metrics = std::make_shared<plugins::MetricsPlugin>();

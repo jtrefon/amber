@@ -30,8 +30,7 @@ namespace agent {
 
 class PluginRuntime {
 public:
-    PluginRuntime(ToolRegistry& tools, const Config& config,
-                  const Workspace& workspace);
+    PluginRuntime(ToolRegistry& tools, const Config& config, const Workspace& workspace);
     ~PluginRuntime();
 
     PluginRuntime(const PluginRuntime&) = delete;
@@ -77,7 +76,7 @@ public:
     struct PluginStatus {
         std::string id;
         std::string version;
-        std::string tier;     // "bundled" or "external"
+        std::string tier; // "bundled" or "external"
         bool enabled = false;
         std::vector<ExtensionItem> contributions;
     };
@@ -120,7 +119,7 @@ private:
     PluginRegistry registry_;
     std::unique_ptr<PluginServices> services_;
     std::unique_ptr<PluginContext> context_;
-    Config config_;                 // fallback until the host attaches its own
+    Config config_; // fallback until the host attaches its own
     const Config* live_config_ = nullptr;
     const Workspace* workspace_;
 

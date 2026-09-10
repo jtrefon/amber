@@ -46,7 +46,7 @@ struct Contribution {
 
 struct InstallResult {
     bool ok = false;
-    std::string error;         // non-empty when ok == false
+    std::string error; // non-empty when ok == false
     Contribution contribution;
 };
 

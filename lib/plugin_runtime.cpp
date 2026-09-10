@@ -29,10 +29,12 @@ std::string state_path(const std::string& id) {
 // plugins ship on).
 bool read_enabled(const std::string& id, bool default_value) {
     std::ifstream f(state_path(id));
-    if (!f) return default_value;
+    if (!f)
+        return default_value;
     std::string line;
     while (std::getline(f, line)) {
-        if (line.rfind("enabled=", 0) != 0) continue;
+        if (line.rfind("enabled=", 0) != 0)
+            continue;
         const std::string value = line.substr(8);
         return value == "1" || value == "true" || value == "on";
     }
@@ -43,7 +45,8 @@ bool write_enabled(const std::string& id, bool enabled) {
     std::error_code ec;
     fs::create_directories(plugin_dir(id), ec);
     std::ofstream f(state_path(id), std::ios::trunc);
-    if (!f) return false;
+    if (!f)
+        return false;
     f << "# amber plugin state: " << id << "\n";
     f << "enabled=" << (enabled ? 1 : 0) << "\n";
     return static_cast<bool>(f);
@@ -51,8 +54,7 @@ bool write_enabled(const std::string& id, bool enabled) {
 
 } // namespace
 
-PluginRuntime::PluginRuntime(ToolRegistry& tools, const Config& config,
-                             const Workspace& workspace)
+PluginRuntime::PluginRuntime(ToolRegistry& tools, const Config& config, const Workspace& workspace)
     : tools_(&tools), config_(config), workspace_(&workspace) {
     // Amber's own segments are registry entries like any other, so the bar is
     // composed from one list whether a segment comes from the core or a plugin.
@@ -60,11 +62,9 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, const Config& config,
     // The console is registered before any plugin can contribute a panel, so
     // "open the panel view" always lands on the registry.
     register_console_panel(panels_, *this);
-    services_ = std::make_unique<PluginServices>(tools, prompts_, commands_,
-                                                 status_, panels_, settings_,
-                                                 bus_);
-    context_ = std::make_unique<PluginContext>(
-        PluginContext{bus_, tools, &config_, *workspace_});
+    services_ = std::make_unique<PluginServices>(tools, prompts_, commands_, status_, panels_,
+                                                 settings_, bus_);
+    context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());
 }
@@ -74,9 +74,11 @@ PluginRuntime::~PluginRuntime() {
 }
 
 bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
-    if (!plugin) return false;
+    if (!plugin)
+        return false;
     const std::string id = plugin->id();
-    if (plugins_.find(id) != plugins_.end()) return false;  // first registration wins
+    if (plugins_.find(id) != plugins_.end())
+        return false; // first registration wins
     Entry entry;
     entry.plugin = std::move(plugin);
     entry.bundled = bundled;
@@ -95,7 +97,8 @@ bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
 }
 
 void PluginRuntime::add_bundled() {
-    for (auto& plugin : make_bundled_plugins()) add(std::move(plugin), true);
+    for (auto& plugin : make_bundled_plugins())
+        add(std::move(plugin), true);
 }
 
 void PluginRuntime::add_external(PluginManager& manager) {
@@ -111,7 +114,8 @@ void PluginRuntime::attach_config(const Config& config) {
 
 void PluginRuntime::tick() {
     for (const auto& [id, entry] : plugins_) {
-        if (registry_.state(id) != PluginRegistry::State::Active) continue;
+        if (registry_.state(id) != PluginRegistry::State::Active)
+            continue;
         try {
             entry.plugin->tick();
         } catch (...) {
@@ -123,7 +127,8 @@ void PluginRuntime::tick() {
 
 void PluginRuntime::start() {
     for (const auto& [id, entry] : plugins_) {
-        if (registry_.state(id) == PluginRegistry::State::Active) continue;
+        if (registry_.state(id) == PluginRegistry::State::Active)
+            continue;
         if (read_enabled(id, /*default_value=*/entry.bundled)) {
             activate(id);
         }
@@ -132,7 +137,8 @@ void PluginRuntime::start() {
 
 void PluginRuntime::shutdown() {
     for (const auto& [id, entry] : plugins_) {
-        if (registry_.state(id) == PluginRegistry::State::Active) deactivate(id);
+        if (registry_.state(id) == PluginRegistry::State::Active)
+            deactivate(id);
     }
 }
 
@@ -143,11 +149,9 @@ std::vector<PluginRuntime::PluginStatus> PluginRuntime::list() const {
         status.id = id;
         status.version = entry.plugin->version();
         status.tier = entry.bundled ? "bundled" : "external";
-        status.enabled =
-            registry_.state(id) == PluginRegistry::State::Active;
+        status.enabled = registry_.state(id) == PluginRegistry::State::Active;
         for (const auto& item : ledger_.contributions(id)) {
-            status.contributions.push_back(
-                {item.kind, id, item.name, std::string{}});
+            status.contributions.push_back({item.kind, id, item.name, std::string{}});
         }
         out.push_back(std::move(status));
     }
@@ -160,22 +164,28 @@ bool PluginRuntime::has(const std::string& id) const {
 
 PluginRuntime::PluginStatus PluginRuntime::status(const std::string& id) const {
     for (auto& status : list()) {
-        if (status.id == id) return status;
+        if (status.id == id)
+            return status;
     }
     return {};
 }
 
 bool PluginRuntime::set_state(const std::string& id, bool on) {
-    if (!has(id)) return false;
-    if (!write_enabled(id, on)) return false;
+    if (!has(id))
+        return false;
+    if (!write_enabled(id, on))
+        return false;
     return on ? activate(id) : (deactivate(id), true);
 }
 
 bool PluginRuntime::activate(const std::string& id) {
     auto it = plugins_.find(id);
-    if (it == plugins_.end()) return false;
-    if (registry_.state(id) == PluginRegistry::State::Active) return true;
-    if (!registry_.activate(id)) return false;
+    if (it == plugins_.end())
+        return false;
+    if (registry_.state(id) == PluginRegistry::State::Active)
+        return true;
+    if (!registry_.activate(id))
+        return false;
     if (!install_capabilities(id, *it->second.plugin)) {
         // A plugin that cannot install its capabilities is not active: leaving
         // it half-installed would be the very state the ledger exists to
@@ -193,14 +203,17 @@ void PluginRuntime::deactivate(const std::string& id) {
 
 bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
     auto it = plugins_.find(id);
-    if (it == plugins_.end()) return false;
+    if (it == plugins_.end())
+        return false;
     services_->set_owner(id);
     // The capabilities declared at registration are the ones installed; a
     // plugin hands them over once and the runtime owns them from then on.
     for (auto& capability : it->second.declared) {
-        if (!capability) continue;
+        if (!capability)
+            continue;
         InstallResult result = capability->install(*services_);
-        if (!result.ok) return false;
+        if (!result.ok)
+            return false;
         ledger_.record(id, std::move(result.contribution));
     }
     return true;

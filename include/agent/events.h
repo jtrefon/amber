@@ -30,7 +30,7 @@ namespace agent {
 // duration of the call.
 
 struct TurnStartedEvent {
-    std::string prompt;   // interceptable: an interceptor may rewrite it
+    std::string prompt; // interceptable: an interceptor may rewrite it
 };
 
 struct TurnEndedEvent {
@@ -44,8 +44,8 @@ struct MessageAddedEvent {
 
 struct ToolRequestedEvent {
     std::string name;
-    json args;            // interceptable: an interceptor may rewrite them
-    bool cancel = false;  // set by an interceptor to block execution
+    json args;           // interceptable: an interceptor may rewrite them
+    bool cancel = false; // set by an interceptor to block execution
 };
 
 struct ToolCompletedEvent {
@@ -72,7 +72,7 @@ struct CompressionCompletedEvent {
 };
 
 struct ErrorRaisedEvent {
-    std::string kind;     // "transport", "auth", "overflow", ...
+    std::string kind; // "transport", "auth", "overflow", ...
     std::string message;
     bool retryable = false;
 };
@@ -87,8 +87,7 @@ struct PluginUnloadedEvent {
 
 // --- Payload to bus id -----------------------------------------------------
 
-template <class E>
-struct EventTraits;
+template <class E> struct EventTraits;
 
 template <> struct EventTraits<TurnStartedEvent> {
     static constexpr EventType type = EventType::AgentTurnStart;
@@ -137,8 +136,7 @@ public:
     Subscription(const Subscription&) = delete;
     Subscription& operator=(const Subscription&) = delete;
 
-    Subscription(Subscription&& other) noexcept
-        : bus_(other.bus_), id_(other.id_) {
+    Subscription(Subscription&& other) noexcept : bus_(other.bus_), id_(other.id_) {
         other.bus_ = nullptr;
     }
     Subscription& operator=(Subscription&& other) noexcept {
@@ -169,34 +167,33 @@ class Events {
 public:
     explicit Events(EventBus& bus) noexcept : bus_(bus) {}
 
-    template <class E>
-    Subscription subscribe(std::function<void(const E&)> handler) {
-        return Subscription(&bus_,
-                            bus_.subscribe(EventTraits<E>::type,
-                                           [h = std::move(handler)](const Event& ev) {
-                                               if (ev.data) h(*static_cast<const E*>(ev.data));
-                                           }));
+    template <class E> Subscription subscribe(std::function<void(const E&)> handler) {
+        return Subscription(
+            &bus_, bus_.subscribe(EventTraits<E>::type, [h = std::move(handler)](const Event& ev) {
+                if (ev.data)
+                    h(*static_cast<const E*>(ev.data));
+            }));
     }
 
     // Interceptors run before observers, newest first; returning false cancels
     // the event, so nothing downstream (and no observer) sees it.
-    template <class E>
-    Subscription intercept(std::function<bool(E&)> handler) {
-        return Subscription(&bus_,
-                            bus_.intercept(EventTraits<E>::type,
-                                           [h = std::move(handler)](Event& ev) -> bool {
-                                               if (!ev.data) return true;
-                                               bool keep = h(*static_cast<E*>(ev.data));
-                                               if (!keep) ev.cancelled = true;
-                                               return keep;
-                                           }));
+    template <class E> Subscription intercept(std::function<bool(E&)> handler) {
+        return Subscription(&bus_, bus_.intercept(EventTraits<E>::type,
+                                                  [h = std::move(handler)](Event& ev) -> bool {
+                                                      if (!ev.data)
+                                                          return true;
+                                                      bool keep = h(*static_cast<E*>(ev.data));
+                                                      if (!keep)
+                                                          ev.cancelled = true;
+                                                      return keep;
+                                                  }));
     }
 
     // Returns false when an interceptor cancelled the event. `e` may be
     // modified by interceptors, so callers should read it back afterwards.
-    template <class E>
-    bool publish(E& e) {
-        if (!bus_.has_subscribers(EventTraits<E>::type)) return true;
+    template <class E> bool publish(E& e) {
+        if (!bus_.has_subscribers(EventTraits<E>::type))
+            return true;
         Event ev{EventTraits<E>::type, &e, false};
         return bus_.fire(EventTraits<E>::type, ev);
     }

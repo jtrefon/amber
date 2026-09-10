@@ -20,8 +20,8 @@ TEST(typed_events_deliver_typed_payload) {
     EventBus bus;
     Events events(bus);
     std::string seen;
-    auto sub = events.subscribe<TurnStartedEvent>(
-        [&](const TurnStartedEvent& e) { seen = e.prompt; });
+    auto sub =
+        events.subscribe<TurnStartedEvent>([&](const TurnStartedEvent& e) { seen = e.prompt; });
 
     TurnStartedEvent ev;
     ev.prompt = "hello";
@@ -33,10 +33,8 @@ TEST(typed_events_are_type_isolated) {
     EventBus bus;
     Events events(bus);
     int turns = 0, tools = 0;
-    auto a = events.subscribe<TurnStartedEvent>(
-        [&](const TurnStartedEvent&) { ++turns; });
-    auto b = events.subscribe<ToolRequestedEvent>(
-        [&](const ToolRequestedEvent&) { ++tools; });
+    auto a = events.subscribe<TurnStartedEvent>([&](const TurnStartedEvent&) { ++turns; });
+    auto b = events.subscribe<ToolRequestedEvent>([&](const ToolRequestedEvent&) { ++tools; });
 
     TurnStartedEvent ev;
     ev.prompt = "x";
@@ -49,13 +47,12 @@ TEST(typed_event_interceptor_can_cancel) {
     EventBus bus;
     Events events(bus);
     bool observed = false;
-    auto guard = events.intercept<ToolRequestedEvent>(
-        [](ToolRequestedEvent& e) {
-            e.cancel = true;
-            return false;
-        });
-    auto obs = events.subscribe<ToolRequestedEvent>(
-        [&](const ToolRequestedEvent&) { observed = true; });
+    auto guard = events.intercept<ToolRequestedEvent>([](ToolRequestedEvent& e) {
+        e.cancel = true;
+        return false;
+    });
+    auto obs =
+        events.subscribe<ToolRequestedEvent>([&](const ToolRequestedEvent&) { observed = true; });
 
     ToolRequestedEvent ev;
     ev.name = "bash";
@@ -68,8 +65,10 @@ TEST(typed_event_interceptor_can_cancel) {
 TEST(typed_event_interceptor_can_modify_payload) {
     EventBus bus;
     Events events(bus);
-    auto guard = events.intercept<TurnStartedEvent>(
-        [](TurnStartedEvent& e) { e.prompt += " [enhanced]"; return true; });
+    auto guard = events.intercept<TurnStartedEvent>([](TurnStartedEvent& e) {
+        e.prompt += " [enhanced]";
+        return true;
+    });
 
     TurnStartedEvent ev;
     ev.prompt = "base";
@@ -82,8 +81,7 @@ TEST(typed_subscription_removes_on_destroy) {
     Events events(bus);
     int count = 0;
     {
-        auto sub = events.subscribe<TurnStartedEvent>(
-            [&](const TurnStartedEvent&) { ++count; });
+        auto sub = events.subscribe<TurnStartedEvent>([&](const TurnStartedEvent&) { ++count; });
         TurnStartedEvent ev;
         ev.prompt = "a";
         events.publish(ev);
@@ -99,8 +97,7 @@ TEST(typed_subscription_can_be_released_early) {
     EventBus bus;
     Events events(bus);
     int count = 0;
-    auto sub = events.subscribe<TurnEndedEvent>(
-        [&](const TurnEndedEvent&) { ++count; });
+    auto sub = events.subscribe<TurnEndedEvent>([&](const TurnEndedEvent&) { ++count; });
     sub.release();
     TurnEndedEvent ev;
     events.publish(ev);
@@ -124,8 +121,7 @@ TEST(event_bus_tracks_subscriber_counts) {
     size_t observer = bus.subscribe(EventType::AgentTurnEnd, [](const Event&) {});
     ASSERT_TRUE(bus.has_subscribers(EventType::AgentTurnEnd));
 
-    size_t interceptor = bus.intercept(EventType::AgentTurnEnd,
-                                       [](Event&) { return true; });
+    size_t interceptor = bus.intercept(EventType::AgentTurnEnd, [](Event&) { return true; });
     bus.unsubscribe(observer);
     ASSERT_TRUE(bus.has_subscribers(EventType::AgentTurnEnd));
     bus.unsubscribe(interceptor);
@@ -193,8 +189,7 @@ TEST(ledger_disable_removes_every_contribution) {
     greet.kind = CapabilityKind::Tool;
     greet.name = "greet";
     greet.remove = [&tools] {
-        tools.erase(std::remove(tools.begin(), tools.end(), std::string("greet")),
-                    tools.end());
+        tools.erase(std::remove(tools.begin(), tools.end(), std::string("greet")), tools.end());
     };
     ledger.record("plug", greet);
     tools.push_back("greet");
@@ -381,8 +376,8 @@ TEST(command_registry_dispatches_registered_leaf) {
     CommandRegistry commands;
     std::string seen;
     CommandRegistry::Handler handler = [&](const std::string& arg) { seen = arg; };
-    auto contribution = commands.add("plug", "hello", R"({"greet":{"help":"x"}})",
-                                     {{"greet", handler}});
+    auto contribution =
+        commands.add("plug", "hello", R"({"greet":{"help":"x"}})", {{"greet", handler}});
 
     ASSERT(commands.dispatch("hello", "greet", "world"));
     ASSERT_EQ(seen, std::string("world"));

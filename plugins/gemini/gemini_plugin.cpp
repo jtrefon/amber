@@ -7,7 +7,9 @@
 
 namespace agent::plugins {
 
-bool GeminiPlugin::initialize(const PluginContext&) { return true; }
+bool GeminiPlugin::initialize(const PluginContext&) {
+    return true;
+}
 
 void GeminiPlugin::shutdown() {
     // Contributions are removed by the runtime's ledger; nothing to release.
