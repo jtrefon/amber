@@ -21,6 +21,7 @@ command_line_test
 completions_test
 bench_test
 e2e_test
+url_test
 run_command_line_test
 run_completions_test
 run_e2e_test
