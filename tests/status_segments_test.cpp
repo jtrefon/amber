@@ -4,8 +4,12 @@
 
 #include "agent/core_segments.h"
 #include "agent/extensions.h"
+#include "agent/plugin_console.h"
+#include "agent/plugin_runtime.h"
 #include "test_util.h"
 
+#include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -236,14 +240,137 @@ TEST(core_segments_escalate_lag_tone) {
         if (s.id == "lag") ASSERT_TRUE(s.tone == StatusTone::Dim);
 }
 
+// ---------------------------------------------------------------------------
+// Panels (PF-3.2)
+// ---------------------------------------------------------------------------
+
+TEST(panel_registry_preserves_registration_order) {
+    PanelRegistry panels;
+    panels.add("plug", {"first", "First", [](int) { return std::vector<std::string>{"a"}; }, {}});
+    panels.add("plug", {"second", "Second", [](int) { return std::vector<std::string>{"b"}; }, {}});
+
+    auto all = panels.all();
+    ASSERT_EQ(all.size(), 2u);
+    ASSERT_EQ(all[0].id, std::string("first"));
+    ASSERT_EQ(all[1].id, std::string("second"));
+    ASSERT_EQ(panels.size(), 2u);
+}
+
+TEST(panel_registry_passes_the_offered_width) {
+    PanelRegistry panels;
+    int seen = 0;
+    panels.add("plug", {"w", "W", [&seen](int width) {
+                            seen = width;
+                            return std::vector<std::string>{"x"};
+                        }, {}});
+
+    const auto* spec = panels.find("w");
+    ASSERT(spec != nullptr);
+    ASSERT_EQ(spec->lines(42).size(), 1u);
+    ASSERT_EQ(seen, 42);
+    ASSERT(panels.find("missing") == nullptr);
+}
+
+TEST(panel_registry_routes_keys_to_the_panel_first) {
+    PanelRegistry panels;
+    int consumed_keys = 0;
+    panels.add("plug", {"k", "K", [](int) { return std::vector<std::string>{}; },
+                        [&consumed_keys](int key) {
+                            ++consumed_keys;
+                            return key == 'x';   // consumes one key only
+                        }});
+
+    const auto* spec = panels.find("k");
+    ASSERT(spec != nullptr);
+    ASSERT_TRUE(spec->on_key('x'));
+    ASSERT_FALSE(spec->on_key('y'));
+    ASSERT_EQ(consumed_keys, 2);
+}
+
+TEST(panel_registry_removal_takes_only_that_panel) {
+    PanelRegistry panels;
+    auto keep = panels.add("plug", {"keep", "K", [](int) { return std::vector<std::string>{}; }, {}});
+    auto drop = panels.add("plug", {"drop", "D", [](int) { return std::vector<std::string>{}; }, {}});
+    ASSERT_EQ(panels.size(), 2u);
+
+    drop.remove();
+    ASSERT_EQ(panels.size(), 1u);
+    ASSERT(panels.find("keep") != nullptr);
+    ASSERT(panels.find("drop") == nullptr);
+    keep.remove();
+    ASSERT_TRUE(panels.all().empty());
+}
+
+TEST(panel_capability_installs_and_unwinds) {
+    ToolRegistry tools;
+    PromptRegistry prompts;
+    CommandRegistry commands;
+    StatusRegistry status;
+    PanelRegistry panels;
+    PluginSettingsStore settings;
+    EventBus bus;
+    PluginServices services(tools, prompts, commands, status, panels, settings, bus);
+    services.set_owner("gemini");
+
+    PanelCapability cap(PanelSpec{"gemini_models", "Gemini models",
+                                  [](int) { return std::vector<std::string>{"m1"}; },
+                                  {}});
+    InstallResult r = cap.install(services);
+    ASSERT_TRUE(r.ok);
+    ASSERT_TRUE(r.contribution.kind == CapabilityKind::Panel);
+    ASSERT_EQ(panels.size(), 1u);
+
+    r.contribution.remove();
+    ASSERT_EQ(panels.size(), 0u);
+}
+
+TEST(console_panel_lists_plugins_and_their_contributions) {
+    const std::string dir = "/tmp/amber_plugin_test_console";
+    std::filesystem::remove_all(dir);
+    setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+
+    ToolRegistry tools;
+    Config cfg;
+    Workspace ws;
+    PluginRuntime runtime(tools, cfg, ws);
+    runtime.add_bundled();
+    runtime.start();
+
+    // The console is registered by the runtime itself, before any plugin, so
+    // "open the panels" always lands on it.
+    const auto panels = runtime.panels().all();
+    ASSERT(!panels.empty());
+    ASSERT_EQ(panels[0].id, std::string("plugins"));
+
+    std::string text;
+    for (const auto& line : plugin_console_lines(runtime)) text += line + "\n";
+    ASSERT(text.find("metrics") != std::string::npos);
+    ASSERT(text.find("gemini") != std::string::npos);
+    ASSERT(text.find("provider:gemini") != std::string::npos);
+    ASSERT(text.find("segment:kilo_balance") != std::string::npos);
+    ASSERT(text.find("/set plugin") != std::string::npos);
+
+    // A disabled plugin reports itself as off, and its contributions are gone.
+    ASSERT_TRUE(runtime.set_state("gemini", false));
+    std::string after;
+    for (const auto& line : plugin_console_lines(runtime)) after += line + "\n";
+    ASSERT(after.find("provider:gemini") == std::string::npos);
+    ASSERT(after.find("gemini            bundled   off") != std::string::npos ||
+           after.find("off") != std::string::npos);
+
+    unsetenv("XDG_CONFIG_HOME");
+    std::filesystem::remove_all(dir);
+}
+
 TEST(status_segment_capability_installs_and_unwinds) {
     ToolRegistry tools;
     PromptRegistry prompts;
     CommandRegistry commands;
     StatusRegistry status;
+    PanelRegistry panels;
     PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, settings, bus);
+    PluginServices services(tools, prompts, commands, status, panels, settings, bus);
     services.set_owner("gemini");
 
     StatusSegmentCapability cap("balance", 850, 4, [](const StatusSnapshot&) {

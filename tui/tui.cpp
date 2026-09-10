@@ -11,6 +11,7 @@
 #include "event_router.h"
 #include "feed_manager.h"
 #include "path_confine.h"
+#include "panel_view.h"
 
 #include <agent.h>
 #include <agent/mcp_tools.h>
@@ -476,6 +477,15 @@ void Tui::run() {
             continue;
         }
 
+        // Alt+0 opens the panel view (the registry console first); the host
+        // owns the key, the panels own their content.
+        if (ch == 0xB0) {
+            open_panels("");
+            render_engine_->draw();
+            draw_input(cl.text(), cl.cursor(), cl.shadow());
+            continue;
+        }
+
         // Alt+1..9 window switch (meta-encoded).
         if (ch >= 0xB1 && ch <= 0xB9) {
             switch_to(static_cast<size_t>(ch - 0xB1));
@@ -503,6 +513,12 @@ void Tui::run() {
             if (n >= '1' && n <= '9') {
                 switch_to(static_cast<size_t>(n - '1'));
                 render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                continue;
+            }
+            if (n == '0') {
+                open_panels("");
+                render_engine_->draw();
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
             if (n == 'b' || n == 'B') {
@@ -816,6 +832,15 @@ void Tui::refresh_plugin_feed() {
 void Tui::cmd_model_set(const std::string& arg) { slash_dispatcher_->cmd_model_set(arg); }
 void Tui::cmd_provider(const std::string& arg) { slash_dispatcher_->cmd_provider(arg); }
 void Tui::show_plugin(const std::string& id) { slash_dispatcher_->show_plugin(id); }
+void Tui::open_panels(const std::string& id) {
+    const std::string shown = panel_view(plugin_runtime_.panels(), id);
+    if (shown.empty()) {
+        append_line(P_STATUS, "no panels registered");
+        return;
+    }
+    // The panel view owns the screen while it is up; repaint around it.
+    redraw_after_modal();
+}
 void Tui::job_kill(const std::string& id) { slash_dispatcher_->job_kill(id); }
 void Tui::job_read(const std::string& id) { slash_dispatcher_->job_read(id); }
 void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) { slash_dispatcher_->apply_policy_rule(name, lvl); }

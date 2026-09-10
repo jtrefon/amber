@@ -75,6 +75,36 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
+### 2026-09-10 — PF-3.2: panels and the registry console
+
+- **Landed**
+  - **`PanelRegistry` + `PanelCapability`** — a panel is a title, a pure
+    `lines(width)` renderer, and an optional `on_key` that gets first refusal
+    while focused. The host owns placement, framing, scrolling, cycling and
+    closing, so a plugin never learns what a window is (D5).
+  - **The registry console** (`lib/plugin_console.cpp`) — core UI built on the
+    *same* public API a plugin uses, registered by the runtime before any
+    plugin can contribute a panel. It lists every plugin with tier, state,
+    version and contributions, plus the registered panels (D12: always
+    available, never hideable by a plugin).
+  - **One formatter for both surfaces:** `/get plugin list` and the console
+    print the same lines from `plugin_console_lines()`, so what the scrollback
+    says and what the panel shows cannot drift.
+  - **TUI:** `/panel` (new command-tree node) and **Alt+0** open the view; Tab
+    cycles panels, Up/Down/PgUp/PgDn/Home/End scroll, Esc/q closes. Alt+0 was
+    free — windows occupy Alt+1..9.
+- **Verification:** `make clean && make && make test` (exit 0), `./run_tests` →
+  **620 passed, 0 failed** (6 new: ordering, width, key routing, removal,
+  capability install/unwind, console content before/after a toggle), `make
+  check` → all invariants hold, cppcheck clean (it caught a redundant loop
+  guard, fixed). Live: Alt+0/`/panel` renders
+  `plugins: 6 registered, 6 on` with `provider:anthropic`, `provider:openai`,
+  `provider:gemini`, `provider:openai, segment:kilo_balance`, and
+  `panels: 1  plugins  core  Plugin registry`.
+- **Not covered:** host services (PF-3.3) — a plugin still cannot ask the user
+  for input except through the existing API-key path; core prompt blocks
+  (PF-1 follow-up).
+
 ### 2026-09-10 — PF-4 complete: zero hardcoded providers
 
 - **Landed**
@@ -333,7 +363,7 @@ What a plugin author can rely on today. Update with every landed task.
 | Status segment contribution | ✅ | PF-3.1 |
 | Time-driven work (`IPlugin::tick`) | ✅ | PF-3.1 |
 | Every vendor provider shipped as a plugin | ✅ | PF-4 |
-| Panel contribution + registry console | ⏳ | PF-3.2 |
+| Panel contribution + registry console | ✅ | PF-3.2 |
 | Host services (ask/choose/confirm/notify) | ⏳ | PF-3.3 |
 | Log sinks | – | Deferred (no consumer) |
 | Theme, key interception, geometry, hot reload | – | Deferred Register |

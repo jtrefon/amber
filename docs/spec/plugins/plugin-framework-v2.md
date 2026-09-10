@@ -184,7 +184,7 @@ is observable.
 | **Commands** | completions.json subtree + a handler per leaf | tree order (`help`/`man` preserved) | Merged via `SettingRegistry::merge_completions_json` (`setting_registry.h:56`); the runtime registers each leaf's action closure — closing the v1 gap where plugin leaves rendered but could not execute |
 | **Prompt blocks** | `PromptBlock{id, priority, render(snapshot) -> std::string}` | ascending priority | Core memory/skills/brief blocks migrate onto this registry (see §5) |
 | **Status segments** | `StatusSegment{id, priority, drop_priority, text, tone}` against a host-published `StatusSnapshot` | ascending priority; `drop_priority` decides overflow | Composed by `StatusRegistry`; amber's own segments register the same way (`lib/core_segments.cpp`), so a plugin's segment is indistinguishable from a core one. Rendering stays a pure read — time-driven work goes in `IPlugin::tick()` |
-| **Panels** | `PanelSpec{id, title, render, handle_key}` | registration order | Host owns placement, focus, and key routing; a focused panel receives keys before the command line |
+| **Panels** | `PanelSpec{id, title, lines(width), on_key}` | registration order | Host owns framing, scrolling, cycling and key routing; a focused panel gets first refusal on keys. The registry console (Alt+0/`/panel`) is core UI built on this API |
 | **Settings** | `Setting{key, getter, setter}` | registration order | Feeds `/get` `/set`; same `SettingRegistry::add` contract used today. Log sinks were cut from this list — no phase named a consumer, so they sit in the deferred register until one exists |
 
 **Plugin registry state is itself a command-tree surface** (`plugin` namespace

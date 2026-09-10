@@ -836,6 +836,11 @@
     "load",
     "open"
    ]
+  },
+  "panel": {
+   "action": "core.panel",
+   "help": "Open a contributed panel (registry console first).",
+   "man": "Opens the contributed-panel view. Press Alt+0 from anywhere, or '/panel' from the prompt. The first panel is the plugin registry, which lists every registered plugin with its tier, on/off state and contributions. Tab cycles between panels, Up/Down scroll, Esc closes. A plugin that contributes a panel adds it to this cycle."
   }
  }
 }

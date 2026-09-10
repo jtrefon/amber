@@ -79,6 +79,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/plugin_v1_adapter.o \
               $(BUILD_DIR)/lib/plugins_bundled.o \
               $(BUILD_DIR)/lib/core_segments.o \
+              $(BUILD_DIR)/lib/plugin_console.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
               $(BUILD_DIR)/plugins/custom/custom_plugin.o \
@@ -142,6 +143,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
               $(BUILD_DIR)/tui/menu_select.o \
               $(BUILD_DIR)/tui/session_browser_core.o \
              $(BUILD_DIR)/tui/feed_manager.o \
+             $(BUILD_DIR)/tui/panel_view.o \
              $(BUILD_DIR)/tui/window_manager.o \
              $(BUILD_DIR)/tui/event_router.o \
              $(BUILD_DIR)/tui/render_engine.o \

@@ -35,7 +35,7 @@ it; if they disagree, the tracker wins (and file a fix).
 | `/get plugin`, `/set plugin on\|off` | ✅ Available | PF-1 |
 | Provider contribution (dialect + presets) | ✅ Available | PF-2 |
 | Status segment contribution | ⏳ | PF-3 |
-| Panel contribution + registry console | ⏳ | PF-3 |
+| Panel contribution + registry console | ✅ Available | PF-3.2 |
 | Host services (`ask_secret`, `choose`, …) | ⏳ | PF-3 |
 | Log sinks | – | Deferred (no consumer) |
 | Theme, key interception, window geometry, hot reload | – | Deferred register |
@@ -204,6 +204,23 @@ decoding, model listing, usage mapping, retry classification, overflow hints —
 belongs in the **dialect** (`docs/spec/llm-client/dialect.md`), not in the
 plugin's plumbing. A provider plugin must not open its own HTTP client: the
 transport is shared.
+
+### Panel
+
+```cpp
+agent::PanelSpec spec;
+spec.id = "gemini_models";
+spec.title = "Gemini models";
+spec.lines = [this](int width) { return model_lines(width); };  // pure
+spec.on_key = [](int key) { return key == 'r'; };               // optional
+caps.push_back(std::make_unique<agent::PanelCapability>(std::move(spec)));
+```
+
+A panel is text plus optional key handling. The host frames it, scrolls it and
+offers cycling between panels (Tab); your `on_key` gets first refusal on every
+key while your panel is focused, and returning true means "I handled it".
+`lines(width)` is called on every repaint, so keep it pure and fast — no I/O,
+no blocking. The registry console at Alt+0 is the worked example.
 
 ### Settings and log sinks
 

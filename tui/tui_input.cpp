@@ -5,6 +5,7 @@
 #include "tui/confirm_panel.h"
 #include "tui/path_confine.h"
 #include "agent/model_probe.h"
+#include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
 #include "agent/skill_commands.h"
 #include "agent/skill_install.h"
@@ -1087,6 +1088,8 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string& a) { cmd_model_set(a); });
     register_action("core.config.get.mcp", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
+    register_action("core.panel",
+        [this](const std::string& a) { tui_.open_panels(a); });
     register_action("core.config.get.plugin",
         [this](const std::string& a) { cmd_runtime_plugin_get(a); });
     register_action("core.config.get.plugin.list",
@@ -1480,26 +1483,10 @@ std::string contribution_kind_name(agent::CapabilityKind kind) {
 } // namespace
 
 void SlashDispatcher::cmd_runtime_plugin_list() {
-    auto plugins = tui_.plugin_runtime_.list();
-    if (plugins.empty()) {
-        tui_.append_line(P_STATUS, "no plugins registered");
-        return;
-    }
-    for (const auto& p : plugins) {
-        std::string line = "  " + p.id + "  " + p.tier + "  " +
-                           plugin_state_word(p.enabled);
-        if (!p.version.empty()) line += "  v" + p.version;
-        if (!p.contributions.empty()) {
-            line += "  [";
-            for (size_t i = 0; i < p.contributions.size(); ++i) {
-                if (i) line += ", ";
-                line += contribution_kind_name(p.contributions[i].kind) + ":" +
-                        p.contributions[i].name;
-            }
-            line += "]";
-        }
+    // One formatter for the command and the registry console: what the user
+    // reads in the scrollback and what the panel shows cannot drift.
+    for (const auto& line : agent::plugin_console_lines(tui_.plugin_runtime_))
         tui_.append_line(P_STATUS, line);
-    }
 }
 
 void SlashDispatcher::cmd_runtime_plugin_get(const std::string& id) {

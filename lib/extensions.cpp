@@ -120,6 +120,56 @@ std::vector<ExtensionItem> StatusRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
+// PanelRegistry
+// ---------------------------------------------------------------------------
+
+Contribution PanelRegistry::add(const std::string& owner, PanelSpec spec) {
+    Entry entry;
+    entry.owner = owner;
+    entry.spec = std::move(spec);
+    entry.seq = next_seq_++;
+    const std::string id = entry.spec.id;
+    entries_.push_back(std::move(entry));
+
+    Contribution c;
+    c.kind = CapabilityKind::Panel;
+    c.name = id;
+    c.remove = [this, owner, id] {
+        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                      [&](const Entry& e) {
+                                          return e.owner == owner &&
+                                                 e.spec.id == id;
+                                      }),
+                       entries_.end());
+    };
+    return c;
+}
+
+const PanelSpec* PanelRegistry::find(const std::string& id) const {
+    for (const auto& entry : entries_) {
+        if (entry.spec.id == id) return &entry.spec;
+    }
+    return nullptr;
+}
+
+std::vector<PanelSpec> PanelRegistry::all() const {
+    std::vector<PanelSpec> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_) out.push_back(entry.spec);
+    return out;
+}
+
+std::vector<ExtensionItem> PanelRegistry::items() const {
+    std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_) {
+        out.push_back({CapabilityKind::Panel, entry.owner, entry.spec.id,
+                       entry.spec.title});
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // CommandRegistry
 // ---------------------------------------------------------------------------
 
@@ -239,10 +289,12 @@ std::vector<ExtensionItem> PluginSettingsStore::items() const {
 
 PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
                                CommandRegistry& commands, StatusRegistry& status,
+                               PanelRegistry& panels,
                                PluginSettingsStore& settings,
                                EventBus& events) noexcept
     : tools_(&tools), prompts_(&prompts), commands_(&commands),
-      status_(&status), settings_(&settings), events_(&events) {}
+      status_(&status), panels_(&panels), settings_(&settings),
+      events_(&events) {}
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -362,6 +414,19 @@ InstallResult StatusSegmentCapability::install(PluginServices& services) {
     }
     r.contribution = services.status().add(services.owner(), id_, priority_,
                                            drop_priority_, render_);
+    r.ok = true;
+    return r;
+}
+
+PanelCapability::PanelCapability(PanelSpec spec) : spec_(std::move(spec)) {}
+
+InstallResult PanelCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (spec_.id.empty() || !spec_.lines) {
+        r.error = "panel capability needs an id and a renderer";
+        return r;
+    }
+    r.contribution = services.panels().add(services.owner(), std::move(spec_));
     r.ok = true;
     return r;
 }

@@ -95,6 +95,8 @@ public:
     PromptRegistry& prompts() noexcept { return prompts_; }
     CommandRegistry& commands() noexcept { return commands_; }
     StatusRegistry& status() noexcept { return status_; }
+    PanelRegistry& panels() noexcept { return panels_; }
+    const PanelRegistry& panels() const noexcept { return panels_; }
     PluginSettingsStore& settings() noexcept { return settings_; }
     EventBus& events() noexcept { return bus_; }
 
@@ -111,6 +113,7 @@ private:
     PromptRegistry prompts_;
     CommandRegistry commands_;
     StatusRegistry status_;
+    PanelRegistry panels_;
     PluginSettingsStore settings_;
     EventBus bus_;
     PluginLedger ledger_;

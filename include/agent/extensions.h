@@ -159,6 +159,46 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Panels
+// ---------------------------------------------------------------------------
+
+// A full-screen view a plugin (or the core) contributes: a title and a list of
+// lines. The host owns placement, framing, scrolling and key routing — a panel
+// only produces text and, optionally, consumes the keys it cares about.
+struct PanelSpec {
+    std::string id;
+    std::string title;
+    // Lines to display, given the width the host can offer. Called on every
+    // repaint: pure, fast, no I/O.
+    std::function<std::vector<std::string>(int width)> lines;
+    // First refusal on every key while the panel is focused; return true when
+    // the key was consumed. Optional: with none, the host's own keys apply.
+    std::function<bool(int key)> on_key;
+};
+
+// Panels in registration order; the console is registered first so a bare
+// "open a panel" always lands somewhere useful.
+class PanelRegistry {
+public:
+    Contribution add(const std::string& owner, PanelSpec spec);
+
+    const PanelSpec* find(const std::string& id) const;
+    std::vector<PanelSpec> all() const;
+
+    std::vector<ExtensionItem> items() const;
+    std::size_t size() const noexcept { return entries_.size(); }
+
+private:
+    struct Entry {
+        std::string owner;
+        PanelSpec spec;
+        std::size_t seq = 0;
+    };
+    std::vector<Entry> entries_;
+    std::size_t next_seq_ = 0;
+};
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
@@ -234,12 +274,14 @@ class PluginServices {
 public:
     PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
                    CommandRegistry& commands, StatusRegistry& status,
-                   PluginSettingsStore& settings, EventBus& events) noexcept;
+                   PanelRegistry& panels, PluginSettingsStore& settings,
+                   EventBus& events) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
     PromptRegistry& prompts() noexcept { return *prompts_; }
     CommandRegistry& commands() noexcept { return *commands_; }
     StatusRegistry& status() noexcept { return *status_; }
+    PanelRegistry& panels() noexcept { return *panels_; }
     PluginSettingsStore& settings() noexcept { return *settings_; }
     EventBus& events() noexcept { return *events_; }
 
@@ -258,6 +300,7 @@ private:
     PromptRegistry* prompts_;
     CommandRegistry* commands_;
     StatusRegistry* status_;
+    PanelRegistry* panels_;
     PluginSettingsStore* settings_;
     EventBus* events_;
     std::string owner_;
@@ -364,6 +407,18 @@ private:
     int priority_;
     int drop_priority_;
     StatusRegistry::Render render_;
+};
+
+// Contributes a full-screen panel.
+class PanelCapability : public Capability {
+public:
+    PanelCapability(PanelSpec spec);
+    std::string name() const override { return spec_.id; }
+    CapabilityKind kind() const override { return CapabilityKind::Panel; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    PanelSpec spec_;
 };
 
 // Declares a setting key so the console can show it and the command tree can

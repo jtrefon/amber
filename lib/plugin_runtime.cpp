@@ -2,6 +2,7 @@
 
 #include "agent/core_segments.h"
 #include "agent/dialect.h"
+#include "agent/plugin_console.h"
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_v1_adapter.h"
 
@@ -56,8 +57,12 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, const Config& config,
     // Amber's own segments are registry entries like any other, so the bar is
     // composed from one list whether a segment comes from the core or a plugin.
     register_core_status_segments(status_);
+    // The console is registered before any plugin can contribute a panel, so
+    // "open the panel view" always lands on the registry.
+    register_console_panel(panels_, *this);
     services_ = std::make_unique<PluginServices>(tools, prompts_, commands_,
-                                                 status_, settings_, bus_);
+                                                 status_, panels_, settings_,
+                                                 bus_);
     context_ = std::make_unique<PluginContext>(
         PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
