@@ -245,6 +245,17 @@ The core blocks migrating onto the registry is deliberate dogfooding: if the
 registry cannot express amber's own prompt assembly, it cannot express a
 plugin's.
 
+**Status of that migration (2026-09-10):** plugin blocks render; the four core
+injections have not moved yet, and the reason is a behaviour question rather
+than framework work — the memory block is injected *before* the compression
+gate and is silently discarded when compression rebuilds the prompt copy,
+while the skill-discovery block (injected after the gate) survives. Moving the
+core blocks onto the registry forces that asymmetry to be decided, and a
+single tail render would also change the layout of every request. Both are
+measurable with the bench harness, so the migration lands with a before/after
+run rather than as a side effect of a refactor. See
+`docs/plugin-framework-tracker.md` → "Open findings".
+
 ---
 
 ### 6. Events
