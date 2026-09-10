@@ -19,7 +19,6 @@ struct Setting {
     std::string placeholder;       // e.g. "<on|off|toggle>"
 
     enum Type { Choice, Int, Float, Bool, String } type = Choice;
-    std::vector<std::string> choices;   // for Choice type
     double range_min = 0, range_max = 0; // for Int/Float
 
     std::function<std::string()> getter;     // returns current value as string

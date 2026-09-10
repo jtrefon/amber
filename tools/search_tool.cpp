@@ -7,9 +7,6 @@
 #include <sstream>
 #include <string>
 
-using agent::make_grep_backend;
-using agent::make_semantic_backend;
-
 namespace agent {
 
 // search: dispatches to a pluggable backend. Defaults to a grep wrapper; the
@@ -106,10 +103,12 @@ public:
         long max = a.value("max", 200L);
         if (max < 1) max = 1;
 
-        std::unique_ptr<SearchBackend> backend;
-        if (mode == "semantic") backend = make_semantic_backend();
-        else backend = make_grep_backend();
-
+        auto backend = SearchBackendRegistry::instance().create(mode);
+        if (!backend) {
+            r.ok = false;
+            r.error = "unknown search mode: " + mode;
+            return r;
+        }
         auto hits = backend->search(pattern, path, glob, max, excludes);
 
         std::stringstream out;
@@ -119,7 +118,7 @@ public:
             out << "[" << backend->name() << "] " << hits.size() << " hit(s):\n";
             for (const auto& h : hits) {
                 std::string rel = Workspace::relative(h.path);
-                if (mode == "semantic")
+                if (backend->name() == "semantic")
                     out << rel << ":" << h.line_no << " (score=" << h.score
                         << ") " << h.line << "\n";
                 else
