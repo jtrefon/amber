@@ -183,7 +183,7 @@ is observable.
 | **Providers** | `ProviderSpec` = flavor + dialect factory + preset rows + auth spec | registration order | Registers into the dialect table (`lib/dialect.cpp:31`) and the provider repository list; see §7 |
 | **Commands** | completions.json subtree + a handler per leaf | tree order (`help`/`man` preserved) | Merged via `SettingRegistry::merge_completions_json` (`setting_registry.h:56`); the runtime registers each leaf's action closure — closing the v1 gap where plugin leaves rendered but could not execute |
 | **Prompt blocks** | `PromptBlock{id, priority, render(snapshot) -> std::string}` | ascending priority | Core memory/skills/brief blocks migrate onto this registry (see §5) |
-| **Status segments** | `StatusSegment{id, priority, drop_priority, text(snapshot)}` | ascending priority; `drop_priority` decides overflow | Replaces the hardcoded `bar_segments()` list (`tui/render_engine.cpp:160-243`) |
+| **Status segments** | `StatusSegment{id, priority, drop_priority, text, tone}` against a host-published `StatusSnapshot` | ascending priority; `drop_priority` decides overflow | Composed by `StatusRegistry`; amber's own segments register the same way (`lib/core_segments.cpp`), so a plugin's segment is indistinguishable from a core one. Rendering stays a pure read — time-driven work goes in `IPlugin::tick()` |
 | **Panels** | `PanelSpec{id, title, render, handle_key}` | registration order | Host owns placement, focus, and key routing; a focused panel receives keys before the command line |
 | **Settings** | `Setting{key, getter, setter}` | registration order | Feeds `/get` `/set`; same `SettingRegistry::add` contract used today. Log sinks were cut from this list — no phase named a consumer, so they sit in the deferred register until one exists |
 
@@ -344,13 +344,17 @@ mechanism for every provider.
 dimension of the port. It proves the framework end to end: dialect + presets +
 commands + settings + key entry + model listing + a status readout.
 
-**Then the built-ins convert.** `kilocode` (including the balance readout, which
-moves out of `lib/model_probe.cpp` into the plugin), `openrouter`, and
-`anthropic` become plugins; the name-keyed `capability_overrides()` table
-(`lib/providers_service.cpp:12-33`) is deleted, and `flavor` becomes a field of
-the provider definition, round-tripped through `~/.config/amber/providers/*.conf`.
-This is how the last provider-name branch leaves the core: by moving the feature
-that needed it into a plugin.
+**The conversion is done.** `custom`, `openrouter`, `kilocode` (including the
+balance readout, which moved out of `lib/model_probe.cpp` and the TUI into the
+plugin) and `anthropic` are plugins; `capability_overrides()`,
+`ProviderCapabilities` and the static preset repository are deleted, and
+`flavor` is a field of the provider definition, round-tripped through
+`~/.config/amber/providers/*.conf`. The core registers no provider at all —
+with no plugins loaded, `/provider list` is empty — and `lib/dialect.cpp`
+registers only the transport's own `openai` protocol, so a disabled provider
+plugin takes its protocol out of the table with it. The file layer stays: a
+user's own `~/.config/amber/providers/<name>.conf` is data about a provider,
+independent of the preset that names it.
 
 **Flavor resolution is state-dependent, and the fallback must not lie.** A
 flavor that no dialect implements (a typo in a provider file) falls back to

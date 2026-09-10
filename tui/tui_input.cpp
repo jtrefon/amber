@@ -1368,36 +1368,35 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
     }
     auto sel = tui_.providers_->select(a);
     if (!sel.ok()) {
-        // First-run flow for the custom provider: seed its dedicated file
-        // from the current connection, then confirm via the same provider
-        // form used everywhere else. Esc leaves the seeded file behind for
-        // external editing — never a dead end.
-        if (a == "custom" &&
-            sel.error.find("no endpoint") != std::string::npos) {
-            agent::seed_custom_provider(tui_.cfg_);
+        // First-run flow for a provider that has no endpoint yet (custom, or
+        // any user-added provider): seed its dedicated file from the current
+        // connection, then confirm via the same provider form used everywhere
+        // else. Esc leaves the seeded file behind for external editing — never
+        // a dead end. Which providers exist is the plugins' business; this
+        // flow only reacts to the state the domain reported.
+        if (sel.error.find("no endpoint") != std::string::npos) {
+            agent::seed_provider(a, tui_.cfg_);
             agent::Config prov_cfg;
-            prov_cfg.provider_name = "custom";
+            prov_cfg.provider_name = a;
             prov_cfg.api_base = tui_.cfg_.api_base;
             prov_cfg.api_key = tui_.cfg_.api_key;
             prov_cfg.model = tui_.cfg_.model;
             prov_cfg.model_explicit = tui_.cfg_.model_explicit;
             prov_cfg.context_size = tui_.cfg_.context_size;
             prov_cfg.context_explicit = tui_.cfg_.context_explicit;
-            if (!edit_provider_form(prov_cfg,
-                                    "Configure custom provider")) {
+            if (!edit_provider_form(prov_cfg, "Configure provider " + a)) {
                 refresh_provider_feed();
                 tui_.append_line(P_STATUS,
-                            "custom provider file created at " +
-                                agent::global_config_dir() +
-                                "/providers/custom.conf \u2014 edit it or "
-                                "re-run /set provider custom");
+                            "provider file created at " +
+                                agent::global_config_dir() + "/providers/" + a +
+                                ".conf \u2014 edit it or re-run /set provider " + a);
                 return;
             }
             tui_.providers_->save(agent::Provider{
                 prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
                 !prov_cfg.api_key.empty(), prov_cfg.model,
                 prov_cfg.context_size, false});
-            sel = tui_.providers_->select("custom");
+            sel = tui_.providers_->select(a);
             if (!sel.ok()) {
                 tui_.append_line(P_STATUS, "error: " + sel.error);
                 return;
@@ -2111,17 +2110,11 @@ void Tui::settings_screen() {
             }
             bool active = (id == cfg_.provider_name);
             std::string prefix = active ? "> " : "  ";
-            std::string key_hint = cfg_.api_key.empty() ? "no-key" : "key-set";
-            std::string line = prefix;
-            line += id;
-            line += "  (";
-            if (id == "openrouter" || id == "kilocode" || id == "custom") {
-                line += key_hint;
-            } else {
-                line += cfg_.api_key.empty() && active ? "no-key" : "key-set";
-            }
-            line += ")";
-            rich_display.push_back(line);
+            // Only the active provider's key tells us anything about the
+            // others, so the hint is reported for it alone.
+            const std::string key_hint =
+                (active && cfg_.api_key.empty()) ? "no-key" : "key-set";
+            rich_display.push_back(prefix + id + "  (" + key_hint + ")");
         }
         rich_display.back() = "  + Add new provider...";
 

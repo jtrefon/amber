@@ -1,5 +1,4 @@
 #include "agent/dialect.h"
-#include "agent/dialect_anthropic.h"
 #include "agent/dialect_openai.h"
 
 #include <map>
@@ -27,9 +26,12 @@ std::mutex& dialect_mutex() {
 }
 
 std::map<std::string, DialectEntry>& dialect_table() {
+    // Only the transport's own protocol is built in. Every vendor protocol is
+    // registered by the provider plugin that owns it (anthropic by the
+    // anthropic plugin, gemini by the gemini plugin, ...), so switching a
+    // provider off takes its protocol out of the table with it.
     static std::map<std::string, DialectEntry> table = {
         {"openai", {[]() { return make_openai_dialect(); }, ""}},
-        {"anthropic", {[]() { return make_anthropic_dialect(); }, ""}},
     };
     return table;
 }

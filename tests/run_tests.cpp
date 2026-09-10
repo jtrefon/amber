@@ -243,8 +243,8 @@ namespace {
 // their own config must not change what these tests observe.
 class PluginTestEnv {
 public:
-    PluginTestEnv() {
-        const std::string dir = "/tmp/amber_plugin_test_env";
+    explicit PluginTestEnv(const std::string& name = "env")
+        : dir("/tmp/amber_plugin_test_" + name) {
         std::filesystem::remove_all(dir);
         setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
         runtime.add_bundled();
@@ -252,11 +252,12 @@ public:
     }
     ~PluginTestEnv() {
         unsetenv("XDG_CONFIG_HOME");
-        std::filesystem::remove_all("/tmp/amber_plugin_test_env");
+        std::filesystem::remove_all(dir);
     }
     PluginTestEnv(const PluginTestEnv&) = delete;
     PluginTestEnv& operator=(const PluginTestEnv&) = delete;
 
+    std::string dir;
     agent::Config cfg;
     agent::ToolRegistry tools;
     agent::Workspace ws;
@@ -867,21 +868,18 @@ TEST(provider_service_available_merges_and_dedups) {
             ASSERT_EQ(p.api_base, "https://two.test/v1");
 }
 
-TEST(provider_custom_is_builtin_preset) {
-    // Custom follows the same lifecycle as every other provider: always
-    // present (built-in preset), selectable, and loud+actionable when
-    // unconfigured — never a silent fallback, never missing.
-    // Hermetic: a seeded custom.conf in the real config dir would shadow
-    // the built-in preset (file providers are not builtin), so the preset
-    // path is tested against a clean XDG_CONFIG_HOME.
-    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_preset", 1);
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_preset");
-    auto svc = agent::make_default_provider_service(agent::Config{});
+TEST(provider_custom_is_a_plugin_preset) {
+    // Custom follows the same lifecycle as every other provider: contributed
+    // by its plugin, selectable, and loud+actionable when unconfigured — never
+    // a silent fallback, never missing.
+    PluginTestEnv env("custom_preset");
+    auto svc = agent::make_default_provider_service(env.cfg);
     bool found = false;
     for (const auto& p : svc->available())
         if (p.name == "custom") {
             found = true;
             ASSERT(p.builtin);
+            ASSERT_TRUE(p.api_base.empty());   // the file supplies it
         }
     ASSERT(found);
     auto sel = svc->select("custom");
@@ -890,17 +888,15 @@ TEST(provider_custom_is_builtin_preset) {
 }
 
 TEST(provider_custom_file_override_wins) {
-    // The dedicated file (later repo) overrides the built-in preset, like
-    // deepseek.conf does for its preset class.
-    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_ovr", 1);
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_ovr");
+    // The dedicated file (later repo) overrides the plugin's preset.
+    PluginTestEnv env("custom_override");
     agent::Config conn;
     conn.api_base = "https://custom.test/v1";
     conn.api_key = "sk-custom";
     conn.model = "custom-model";
-    ASSERT(agent::seed_custom_provider(conn));
+    ASSERT(agent::seed_provider("custom", conn));
 
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto svc = agent::make_default_provider_service(env.cfg);
     auto sel = svc->select("custom");
     ASSERT(sel.ok());
     ASSERT_EQ(sel.provider.api_base, "https://custom.test/v1");
@@ -910,22 +906,19 @@ TEST(provider_custom_file_override_wins) {
     // Removing the file restores the unconfigured preset.
     std::filesystem::remove(agent::global_config_dir() +
                             "/providers/custom.conf");
-    auto svc2 = agent::make_default_provider_service(agent::Config{});
+    auto svc2 = agent::make_default_provider_service(env.cfg);
     auto sel2 = svc2->select("custom");
     ASSERT_FALSE(sel2.ok());
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_ovr");
-    unsetenv("XDG_CONFIG_HOME");
 }
 
-TEST(provider_custom_seed_writes_all_keys) {
-    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_seed", 1);
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_seed");
+TEST(provider_seed_writes_all_keys) {
+    PluginTestEnv env("custom_seed");
     agent::Config conn;
     conn.api_base = "https://seed.test/v1";
     conn.api_key = "sk-seed";
     conn.model = "seed-model";
     conn.context_size = 12345;
-    ASSERT(agent::seed_custom_provider(conn));
+    ASSERT(agent::seed_provider("custom", conn));
     const std::string path =
         agent::global_config_dir() + "/providers/custom.conf";
     std::ifstream f(path);
@@ -937,12 +930,54 @@ TEST(provider_custom_seed_writes_all_keys) {
     ASSERT(content.find("api_key=sk-seed") != std::string::npos);
     ASSERT(content.find("default_model=seed-model") != std::string::npos);
     ASSERT(content.find("default_context_size=12345") != std::string::npos);
+
     // An empty connection still writes a complete template.
     agent::Config empty;
     empty.api_base.clear();
-    ASSERT(agent::seed_custom_provider(empty));
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_seed");
+    ASSERT(agent::seed_provider("custom", empty));
+
+    // The helper is name-agnostic: any provider the user configures writes its
+    // own file, and an empty name is refused rather than writing "*.conf".
+    ASSERT_TRUE(agent::seed_provider("my-endpoint", conn));
+    ASSERT_TRUE(std::filesystem::exists(
+        agent::global_config_dir() + "/providers/my-endpoint.conf"));
+    ASSERT_FALSE(agent::seed_provider("", conn));
+}
+
+// The architecture claim, made testable: the core declares no providers of its
+// own. With no plugins registered, only what the user wrote is offered.
+TEST(core_declares_no_providers_without_plugins) {
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_no_plugins", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_no_plugins");
+
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    ASSERT_TRUE(svc->available().empty());
+    ASSERT_FALSE(svc->select("custom").ok());
+    ASSERT_FALSE(svc->select("openrouter").ok());
+    ASSERT_FALSE(svc->select("anthropic").ok());
+
+    std::filesystem::remove_all("/tmp/amber_xdg_no_plugins");
     unsetenv("XDG_CONFIG_HOME");
+}
+
+// ...and a disabled provider plugin removes exactly its own provider.
+TEST(disabling_a_provider_plugin_removes_only_that_provider) {
+    PluginTestEnv env("provider_disable");
+    ASSERT_TRUE(env.runtime.set_state("custom", false));
+    auto svc = agent::make_default_provider_service(env.cfg);
+    ASSERT_FALSE(svc->select("custom").ok());
+    ASSERT_TRUE(svc->select("openrouter").ok());
+    ASSERT_TRUE(svc->select("gemini").ok());
+
+    // Re-enabling brings the provider back. It is unconfigured again, so
+    // selection reports the missing endpoint rather than "unknown provider" —
+    // the preset is present, which is the point.
+    ASSERT_TRUE(env.runtime.set_state("custom", true));
+    auto svc2 = agent::make_default_provider_service(env.cfg);
+    auto sel2 = svc2->select("custom");
+    ASSERT_FALSE(sel2.ok());
+    ASSERT(sel2.error.find("unknown provider") == std::string::npos);
+    ASSERT(sel2.error.find("no endpoint") != std::string::npos);
 }
 
 TEST(file_provider_repository_roundtrip) {
@@ -5545,12 +5580,19 @@ TEST(provider_custom_unconfigured_is_error) {
     unsetenv("AMBER_API_BASE");
     unsetenv("AMBER_API_KEY");
     unsetenv("AMBER_MODEL");
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    agent::Config cfg;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(tools, cfg, ws);
+    runtime.add_bundled();
+    runtime.start();
+    auto svc = agent::make_default_provider_service(cfg);
     auto sel = svc->select("custom");
     unsetenv("XDG_CONFIG_HOME");
     ASSERT_FALSE(sel.ok());
     // Loud, actionable failure — never a silent fallback to the DTO
-    // default endpoint, and never "unknown": custom is a known preset.
+    // default endpoint, and never "unknown": the plugin contributes the
+    // preset, so custom is a known provider.
     ASSERT(sel.error.find("no endpoint") != std::string::npos);
 }
 

@@ -1,11 +1,16 @@
 # amber — Plugin Framework Tracker
 
 - **Status:** 🟢 PF-1, PF-2, PF-4 and PF-3.1 complete (2026-09-10) on
-  `feat/plugin-framework-pf1`. The framework runs end to end: every vendor
-  provider (openrouter, kilocode, anthropic, gemini) is a plugin, the status
-  bar is composed from a registry, and switching a provider plugin off removes
-  it live. Outstanding: core prompt blocks on the registry (PF-1 follow-up),
-  host services (PF-3.3) and panels/console (PF-3.2).
+  `feat/plugin-framework-pf1`. The framework runs end to end: **every** provider
+  — custom, openrouter, kilocode, anthropic, gemini — is a plugin, the core
+  declares none, the status bar is composed from a registry, and switching a
+  provider plugin off removes it live. Outstanding: core prompt blocks on the
+  registry (PF-1 follow-up), host services (PF-3.3) and panels/console (PF-3.2).
+- **Direction (stated 2026-09-10):** the long-term target is a microkernel —
+  amber as orchestrator + plugin registry, with *everything else* (not just
+  providers) arriving as a plugin. The phases below are the path there, and no
+  phase may introduce core domain state that a later extraction would have to
+  unpick.
 - **Reference:** `docs/spec/plugins/plugin-framework-v2.md` (the contract)
 - **Author guide:** `docs/spec/plugins/developer-guide.md`
 - **Related:** `docs/spec/llm-client/dialect.md` (provider wire seam),
@@ -69,6 +74,42 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
+
+### 2026-09-10 — PF-4 complete: zero hardcoded providers
+
+- **Landed**
+  - **`custom` is a plugin** (`plugins/custom/`). The core no longer declares
+    any provider: `lib/providers_repo_static.cpp` and
+    `make_static_provider_repository()` are **deleted**, and
+    `make_default_provider_service` composes only plugin presets + the user's
+    files. With no plugins registered the core offers **0** providers — proven
+    by test and by probe.
+  - **Vendor dialect registration left the core.** `lib/dialect.cpp` registers
+    only `openai` (the transport's own protocol); anthropic's dialect is
+    registered solely by the anthropic plugin, as gemini's is by the gemini
+    plugin. A disabled plugin takes its protocol with it.
+  - **`seed_custom_provider` → `seed_provider(name, connection)`** — the core
+    knows the `~/.config/amber/providers/<name>.conf` convention, not which
+    providers exist. An empty name is refused rather than writing `*.conf`.
+  - **The TUI's custom first-run flow is generic**: any provider reporting "no
+    endpoint configured" offers the form, instead of the code naming one
+    provider. A stale special-case in the provider list (three hardcoded ids
+    choosing between two identical branches) went with it.
+  - **Build:** five near-identical per-plugin rules collapsed into one pattern
+    rule; a new plugin directory now needs only its object entry.
+- **Verification:** `make clean && make && make test` (exit 0), `./run_tests` →
+  **614 passed, 0 failed**, `make check` → all invariants hold, cppcheck clean.
+  Probe against the built library: a fresh install lists custom + the four
+  vendors; `plugins/custom/plugin.conf` `enabled=0` removes exactly `custom`
+  while the rest keep working; `enabled=1` restores it; and a user's own
+  `custom.conf` still supplies the endpoint with the plugin off (the file layer
+  is user data, deliberately independent of the preset).
+- **Deliberate exception (recorded, not hidden):** `Config::provider_name`
+  still defaults to `"custom"`. That is a *default selection*, not a provider
+  definition — the core declares no provider, it names which one a fresh config
+  points at, and the two host paths that persist an API key need a name for the
+  file. When provider selection itself becomes a plugin concern in the
+  microkernel work, this default goes with it.
 
 ### 2026-09-10 — PF-3.1 + PF-4: the status bar registry and the provider conversion
 

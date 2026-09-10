@@ -81,19 +81,25 @@ settings, and log sinks, and observe the agent loop through typed events.
   ship with amber; the external tier (`tools/plugins/`, process + JSON-RPC v1)
   remains tools-only. Runtime loading (`dlopen`) is deferred but the registries
   and state layout (`~/.config/amber/plugins/<id>/plugin.conf`) are shaped for it.
-- **Provider plugins are the flagship consumer**: `ProviderSpec` = flavor +
-  dialect factory + presets + auth spec. Wire behavior lives in the `Dialect`
-  (`docs/spec/llm-client/dialect.md`); a provider plugin must not open its own
-  HTTP client. Gemini is the first new-vendor proof; the built-ins
-  (kilocode/openrouter/anthropic) convert after, deleting the name-keyed
-  `capability_overrides()` table in `lib/providers_service.cpp`.
-- **Status (2026-09-10, PF-1):** the framework runs. Typed events fire at the
-  agent and tool sites, capabilities install into typed registries through the
-  ledger, `/get plugin` and `/set plugin <id> on|off` control state persisted in
-  `~/.config/amber/plugins/<id>/plugin.conf`, and the bundled metrics plugin
-  observes real turns. Providers are still PF-2 — `CapabilityKind::Provider` has
-  no consumer yet. The runtime lives in `lib/plugin_runtime.cpp`; the bundled
-  set in `lib/plugins_bundled.cpp`.
+- **Provider plugins are the flagship consumer, and the conversion is done.**
+  Every provider amber ships (`plugins/custom|openrouter|kilocode|anthropic|gemini`)
+  is a plugin, and the core declares **none** — with no plugins registered,
+  `/provider list` is empty. A provider capability is flavor + optional dialect
+  factory + presets; wire behavior lives in the `Dialect`
+  (`docs/spec/llm-client/dialect.md`), a provider plugin must not open its own
+  HTTP client, and `lib/dialect.cpp` registers only the transport's own `openai`
+  protocol so a disabled provider plugin takes its protocol with it. The one
+  provider name left in core is `Config::provider_name`'s default — a default
+  *selection*, not a definition.
+- **Status (2026-09-10, PF-1/2/4):** the framework runs. Typed events fire at
+  the agent and tool sites, capabilities install into typed registries through
+  the ledger, `/get plugin` and `/set plugin <id> on|off` control state
+  persisted in `~/.config/amber/plugins/<id>/plugin.conf`, the status bar is
+  composed from a registry, and the bundled metrics plugin observes real turns.
+  The runtime lives in `lib/plugin_runtime.cpp`; the bundled set in
+  `lib/plugins_bundled.cpp`. The target is a microkernel — amber as orchestrator
+  plus plugin registry, everything else arriving as a plugin — so no change may
+  add core domain state that a later extraction would have to unpick.
 - Spec: `docs/spec/plugins/plugin-framework-v2.md` (contract, decisions,
   scenarios).
 - Tracker: `docs/plugin-framework-tracker.md` (phases PF-1..PF-5, decision log,
@@ -460,10 +466,10 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 5813 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 5855 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 287 | Resolved — `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 119 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 2412 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2405 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

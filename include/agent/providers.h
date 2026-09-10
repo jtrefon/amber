@@ -122,22 +122,23 @@ void apply_selection(Config& cfg, const ProviderSelection& sel);
 // service; the individual factories exist for custom wiring and tests.
 // ---------------------------------------------------------------------------
 
-// Well-known presets (openrouter, kilocode) as code constants.
-std::unique_ptr<ProviderRepository> make_static_provider_repository();
-
-// Presets contributed by plugins, merged into the provider list alongside the
-// built-ins. A plugin provider is therefore an ordinary provider row: it shows
-// up in `/provider list`, the command feed, and selection with no special case.
+// Presets contributed by plugins. Every provider amber ships arrives this way,
+// so a plugin provider is an ordinary provider row: it shows up in
+// `/provider list`, the command feed, and selection with no special case, and
+// the core contains no provider definitions at all.
 void register_provider_preset(const Provider& preset, const std::string& owner);
 void unregister_provider_presets_for(const std::string& owner);
 std::vector<Provider> plugin_provider_presets();
 // ~/.config/amber/providers/*.conf persistence (user-added providers).
 std::unique_ptr<ProviderRepository> make_file_provider_repository();
-// Write (or update) ~/.config/amber/providers/custom.conf from the given
-// connection so the custom provider follows the file lifecycle of every
-// other provider. An empty connection still writes a complete template.
-// Returns true when written.
-bool seed_custom_provider(const Config& connection);
+// Write (or update) ~/.config/amber/providers/<name>.conf from the given
+// connection, so a provider the user is configuring follows the file lifecycle
+// of every other provider. An empty connection still writes a complete
+// template. Returns true when written.
+//
+// The name is the caller's: the core knows the file convention, not which
+// providers exist.
+bool seed_provider(const std::string& name, const Config& connection);
 // OpenAI-compatible /v1/models probe.
 std::unique_ptr<ModelCatalog> make_http_model_catalog();
 

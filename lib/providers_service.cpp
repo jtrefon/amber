@@ -177,9 +177,10 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     cfg.flavor = sel.provider.flavor;
 }
 
-bool seed_custom_provider(const Config& connection) {
+bool seed_provider(const std::string& name, const Config& connection) {
+    if (name.empty()) return false;
     Provider p;
-    p.name = "custom";
+    p.name = name;
     p.api_base = connection.api_base;
     p.api_key = connection.api_key;
     p.default_model = connection.model;
@@ -190,9 +191,8 @@ bool seed_custom_provider(const Config& connection) {
 std::unique_ptr<ProviderService> make_default_provider_service(
     const Config&) {
     std::vector<std::unique_ptr<ProviderRepository>> repos;
-    repos.push_back(make_static_provider_repository());
-    // Plugin presets sit between the built-ins and the user's files: a user
-    // file with the same name still wins (later repositories override).
+    // Every provider definition comes from a plugin; the file layer holds what
+    // the user wrote and overrides a same-named preset (later repos win).
     repos.push_back(std::make_unique<PluginProviderRepository>());
     repos.push_back(make_file_provider_repository());
     return std::make_unique<ProviderService>(

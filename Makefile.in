@@ -81,6 +81,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/core_segments.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
+              $(BUILD_DIR)/plugins/custom/custom_plugin.o \
               $(BUILD_DIR)/plugins/gemini/gemini_plugin.o \
               $(BUILD_DIR)/plugins/kilocode/kilocode_plugin.o \
               $(BUILD_DIR)/plugins/openrouter/openrouter_plugin.o \
@@ -100,7 +101,6 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/lib/subagent.o \
              $(BUILD_DIR)/lib/providers_service.o \
              $(BUILD_DIR)/lib/providers_repo_files.o \
-             $(BUILD_DIR)/lib/providers_repo_static.o \
              $(BUILD_DIR)/lib/providers_catalog_http.o \
              $(BUILD_DIR)/tools/process_tool.o \
              $(BUILD_DIR)/tools/skill_tools.o \
@@ -389,25 +389,11 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 	@mkdir -p $(BUILD_DIR)/tools/search
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/plugins/gemini/%.o: $(SRC_DIR)/plugins/gemini/%.cpp
-	@mkdir -p $(BUILD_DIR)/plugins/gemini
+# One rule for every bundled plugin directory: adding a plugin means adding
+# its object to the list above and a directory under plugins/, nothing else.
+$(BUILD_DIR)/plugins/%/%.o: $(SRC_DIR)/plugins/%/%.cpp
+	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/plugins/kilocode/%.o: $(SRC_DIR)/plugins/kilocode/%.cpp
-	@mkdir -p $(BUILD_DIR)/plugins/kilocode
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) $(CURL_CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/plugins/openrouter/%.o: $(SRC_DIR)/plugins/openrouter/%.cpp
-	@mkdir -p $(BUILD_DIR)/plugins/openrouter
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) -c $< -o $@
-
-$(BUILD_DIR)/plugins/anthropic/%.o: $(SRC_DIR)/plugins/anthropic/%.cpp
-	@mkdir -p $(BUILD_DIR)/plugins/anthropic
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) -c $< -o $@
-
-$(BUILD_DIR)/plugins/metrics/%.o: $(SRC_DIR)/plugins/metrics/%.cpp
-	@mkdir -p $(BUILD_DIR)/plugins/metrics
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 	@mkdir -p $(BUILD_DIR)/tests
@@ -490,7 +476,7 @@ clean:
 	rm -f $(BUILD_DIR)/third_party/md4c/*.o $(BUILD_DIR)/third_party/md4c/*.d
 	rm -f $(SYSINFO_PLUGIN) $(SYSINFO_PLUGIN).d $(CDP_PLUGIN)
 	rm -f $(BUILD_DIR)/tools/plugins/cdp/*.o $(BUILD_DIR)/tools/plugins/cdp/*.d
-	rm -f $(BUILD_DIR)/plugins/metrics/*.o $(BUILD_DIR)/plugins/metrics/*.d
+	rm -f $(BUILD_DIR)/plugins/*/*.o $(BUILD_DIR)/plugins/*/*.d
 	rm -f $(BUILD_DIR)/ws_test.d
 	rm -f $(BUILD_DIR)/url_test $(BUILD_DIR)/url_test.d
 	rm -f $(CORE_LIB) $(TOOLS_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)

@@ -286,21 +286,37 @@ ctx_->ui().post_to_ui([this] { snapshot_ = build_snapshot(); });
 
 ## 5. Adding a provider (the flagship path) ⏳ target
 
+**Every provider amber ships is a plugin** — there is no core provider list to
+add to. `plugins/` holds the five shipped ones, each small enough to read in one
+sitting and each a template for the next:
+
+| Plugin | What it shows |
+|---|---|
+| `plugins/custom/` | Presets only, no endpoint: the user's own endpoint, configured by file |
+| `plugins/openrouter/` | Minimal vendor on a shared protocol (presets only, no dialect) |
+| `plugins/kilocode/` | Shared protocol + a provider-specific feature (balance readout as a status segment) |
+| `plugins/anthropic/` | A vendor protocol the plugin itself provides |
+| `plugins/gemini/` | A vendor protocol with a different streaming model, usage shape and model listing |
+
+Steps:
+
 1. **Config-only first.** If the endpoint speaks the OpenAI wire protocol
-   (`/chat/completions`, bearer auth, OpenAI SSE), it is **already supported** —
-   add a provider definition, no code at all.
-2. **A new wire protocol** is a plugin: write the dialect
-   (`chat_url`, `models_url`, `auth_headers`, `build_chat_body`,
+   (`/chat/completions`, bearer auth, OpenAI SSE), a *user* needs no code at all
+   — a provider file is enough. A plugin is for what amber should ship.
+2. **New plugin directory** (`plugins/<id>/`, plus its object in `Makefile.in`
+   — the compile rule is generic).
+3. **Decide the dialect question:** does the endpoint speak the shared `openai`
+   protocol (pass no dialect factory: presets only) or its own (write the
+   dialect: `chat_url`, `models_url`, `auth_headers`, `build_chat_body`,
    `parse_completion`, `make_decoder`, `parse_models_response`, `parse_usage`,
-   `is_retryable`, `context_overflow_hint`), then a `ProviderSpec` that registers
-   it with presets and auth.
-3. **Test it hermetically** — body/parse/stream fixtures like
-   `tests/dialect_anthropic_test.cpp`. No live network in `make test`.
-4. **Prove the seam held:** your diff must not touch `lib/http_transport.cpp`,
+   `is_retryable`, `context_overflow_hint`)?
+4. **Declare the capability** and add it to `make_bundled_plugins()`.
+5. **Test it hermetically** — body/parse/stream fixtures like
+   `tests/dialect_gemini_test.cpp`, plus a registration test. No live network in
+   `make test`.
+6. **Prove the seam held:** your diff must not touch `lib/http_transport.cpp`,
    the agent loop, or the TUI. If it does, the framework — not your plugin — is
    missing an extension point; say so in the PR instead of working around it.
-
-The Gemini plugin (PF-2) is the worked reference implementation.
 
 ---
 
