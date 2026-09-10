@@ -22,6 +22,7 @@
 
 #include <future>
 #include <queue>
+#include <clocale>
 
 // ---------------------------------------------------------------------------
 // SEC-04: TUI path confinement (Red tests). All TUI slash commands and
@@ -1128,4 +1129,37 @@ TEST(deny_all_pending_approvals_resolves_all) {
     for (auto& f : futures) {
         ASSERT(f.get() == agent::Approval::Deny);
     }
+}
+
+// ---------------------------------------------------------------------------
+// TUI-01: UTF-8 wrap must count display columns, not character count.
+// A wide CJK character takes 2 columns; wrapping at width N must not
+// produce lines wider than N display columns.
+// ---------------------------------------------------------------------------
+TEST(tui01_wrap_counts_display_cols_for_wide_chars) {
+    // Set UTF-8 locale so wcwidth returns 2 for CJK characters.
+    setlocale(LC_ALL, "en_US.UTF-8");
+    // Each CJK char is 2 display columns. Wrap at 4 columns should
+    // fit 2 CJK chars per line (4 cols), not 4 (which would be 8 cols).
+    std::string cjk = "\u4e2d\u6587\u6d4b\u8bd5";  // 中文测试
+    auto lines = tui::text::wrap(cjk, 4);
+    ASSERT_FALSE(lines.empty());
+    for (const auto& l : lines)
+        ASSERT(tui::text::display_cols(l) <= 4);
+    setlocale(LC_ALL, "C");
+}
+
+// ---------------------------------------------------------------------------
+// TUI-02: col_to_byte must round-trip with display_cols for wide chars.
+// ---------------------------------------------------------------------------
+TEST(tui01_col_to_byte_wide_char_boundary) {
+    setlocale(LC_ALL, "en_US.UTF-8");
+    std::string s = "ab\u4e2d\u6587";  // ab中文
+    // display_cols: a=1, b=1, 中=2, 文=2 → total 6
+    ASSERT_EQ(tui::text::display_cols(s), 6);
+    // col 2 is the start of 中 (byte offset 2)
+    ASSERT_EQ(tui::text::col_to_byte(s, 2), (size_t)2);
+    // col 4 is the start of 文 (byte offset 5: 2 ASCII + 3 for 中)
+    ASSERT_EQ(tui::text::col_to_byte(s, 4), (size_t)5);
+    setlocale(LC_ALL, "C");
 }
