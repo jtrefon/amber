@@ -17,14 +17,6 @@ class Dialect;
 ServerInfo probe_server(const Config& cfg);
 ServerInfo probe_server(const Config& cfg, const Dialect& dialect);
 
-// One model entry with its context window info (0 when the server did not
-// report it). Used by the TUI /set model drawer to show "id (ctx N)" inline.
-struct ModelInfo {
-    std::string id;
-    int context = 0;        // n_ctx (loaded context window)
-    int context_train = 0;  // n_ctx_train (native max)
-};
-
 // Fetch all model entries with context info from the configured server.
 // Returns empty on error (including a protocol without a listing endpoint).
 std::vector<ModelInfo> list_model_info(const Config& cfg);
