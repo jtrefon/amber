@@ -1451,62 +1451,101 @@ TEST(statusbar_gauge_bar_glyphs) {
 // ---------------------------------------------------------------------------
 
 namespace {
-// Serve one canned SSE response (a streamed tool call in two fragments), then
-// close. Lets us exercise LLMClient::chat_stream including fragment merging
-// without any external dependency.
-int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_override = "") {
+// Listen on loopback:port. Returns the listening fd, or -1 on failure.
+int bind_listener(int port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
-    int opt = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(static_cast<uint16_t>(port));
-    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) { close(fd); return -1; }
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
     listen(fd, 1);
+    return fd;
+}
+
+// Read one full HTTP request (headers + Content-Length body) from a client.
+std::string drain_request(int c) {
+    char buf[4096];
+    std::string req;
+    while (true) {
+        int n = recv(c, buf, sizeof(buf) - 1, 0);
+        if (n <= 0) break;
+        req.append(buf, n);
+        if (req.find("\r\n\r\n") == std::string::npos) continue;
+        const size_t cl = req.find("Content-Length:");
+        if (cl == std::string::npos) break;
+        const size_t hl = req.find("\r\n\r\n");
+        long len = std::atol(req.c_str() + cl + 15);
+        while ((long)req.size() < (long)hl + 4 + len) {
+            int m = recv(c, buf, sizeof(buf) - 1, 0);
+            if (m <= 0) break;
+            req.append(buf, m);
+        }
+        break;
+    }
+    return req;
+}
+
+// Serve one canned HTTP response (any status/content-type/payload), then
+// close. Lets the wire-layer pins exercise buffered chat, HTTP-error and
+// streaming paths without any external dependency.
+int spawn_mock_http(int port, std::string& body_out, const std::string& status,
+                    const std::string& content_type,
+                    const std::string& payload) {
+    int fd = bind_listener(port);
+    if (fd < 0) return -1;
     body_out.clear();
-    std::thread t([fd, sse_override, &body_out]() {
+    std::thread t([fd, status, content_type, payload, &body_out]() {
         int c = accept(fd, nullptr, nullptr);
         if (c < 0) return;
-        // read the request (headers + body) until we have it
-        char buf[4096];
-        std::string req;
-        while (true) {
-            int n = recv(c, buf, sizeof(buf) - 1, 0);
-            if (n <= 0) break;
-            req.append(buf, n);
-            if (req.find("\r\n\r\n") != std::string::npos) break;
-        }
-        // Drain the request body (Content-Length) so body_out is complete.
-        {
-            size_t hl = req.find("\r\n\r\n");
-            if (hl != std::string::npos) {
-                const size_t cl = req.find("Content-Length:");
-                if (cl != std::string::npos) {
-                    long len = std::atol(req.c_str() + cl + 15);
-                    while ((long)req.size() < (long)hl + 4 + len) {
-                        int n = recv(c, buf, sizeof(buf) - 1, 0);
-                        if (n <= 0) break;
-                        req.append(buf, n);
-                    }
-                }
-            }
-        }
-        body_out = req;
-        std::string sse = !sse_override.empty() ? sse_override :
-            std::string(
-            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
-            "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
-            "\"arguments\":\"\"}}]}}]}\n\n"
-            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
-            "\"function\":{\"arguments\":\"{\\\"pattern\\\":\\\"foo\\\",\\\"path\\\":\\\".\\\"}\"}}]}}]}\n\n"
-            "data: [DONE]\n\n");
-        std::string http =
-            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
-            "Content-Length: " + std::to_string(sse.size()) + "\r\n\r\n" + sse;
+        body_out = drain_request(c);
+        std::string http = status + "\r\nContent-Type: " + content_type +
+                           "\r\nContent-Length: " +
+                           std::to_string(payload.size()) + "\r\n\r\n" + payload;
         send(c, http.c_str(), http.size(), 0);
         // give client time to read
         usleep(200000);
+        close(c);
+    });
+    t.detach();
+    return fd;
+}
+
+// Serve one canned SSE response (a streamed tool call in two fragments by
+// default), then close. Lets us exercise LLMClient::chat_stream including
+// fragment merging without any external dependency.
+int spawn_mock_sse(int port, std::string& body_out,
+                   const std::string& sse_override = "") {
+    std::string sse = !sse_override.empty()
+        ? sse_override
+        : std::string(
+              "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
+              "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
+              "\"arguments\":\"\"}}]}}]}\n\n"
+              "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+              "\"function\":{\"arguments\":\"{\\\"pattern\\\":\\\"foo\\\",\\\"path\\\":\\\".\\\"}\"}}]}}]}\n\n"
+              "data: [DONE]\n\n");
+    return spawn_mock_http(port, body_out, "HTTP/1.1 200 OK",
+                           "text/event-stream", sse);
+}
+
+// Accept one request, drain it, then hold the connection open WITHOUT
+// responding. An in-flight LLM call against this server blocks until the
+// caller's cancel token aborts it (curl's progress callback polls the token).
+int spawn_stall_server(int port) {
+    int fd = bind_listener(port);
+    if (fd < 0) return -1;
+    std::thread t([fd]() {
+        int c = accept(fd, nullptr, nullptr);
+        if (c < 0) return;
+        drain_request(c);
+        sleep(30);  // hold open; the test cancels well before this expires
         close(c);
     });
     t.detach();
@@ -1741,6 +1780,248 @@ TEST(llm_streaming_captures_usage_stats) {
     ASSERT_EQ(stats.prompt_tokens, 4096L);
     ASSERT_EQ(stats.completion_tokens, 128L);
     ASSERT_TRUE(stats.latency_ms >= 0);
+    close(srv);
+}
+
+// ---------------------------------------------------------------------------
+// Wire-layer characterization pins (FIX-027): lock the current OBSERVABLE
+// behavior of the HTTP/SSE layer before the dialect refactor (FIX-028) moves
+// it. Each test documents today's contract; the pure-move refactor must keep
+// every assertion true with only mechanical call-site renames.
+// ---------------------------------------------------------------------------
+
+TEST(apply_auth_emits_bearer_only_with_key) {
+    agent::Config cfg;  // no api_key
+    agent::HeaderList headers;
+    agent::apply_auth(headers, cfg);
+    ASSERT(headers.list == nullptr);
+
+    cfg.api_key = "sk-test-123";
+    agent::HeaderList keyed;
+    agent::apply_auth(keyed, cfg);
+    ASSERT(keyed.list != nullptr);
+    ASSERT_EQ(std::string(keyed.list->data),
+              "Authorization: Bearer sk-test-123");
+    ASSERT(keyed.list->next == nullptr);  // never more than the one auth header
+}
+
+TEST(config_models_url_derivation) {
+    agent::Config c;
+    ASSERT_EQ(c.models_url(), "http://localhost:8000/v1/models");
+    c.api_base = "https://api.example.com/v1";
+    ASSERT_EQ(c.models_url(), "https://api.example.com/v1/models");
+}
+
+TEST(buffered_chat_fills_stats_from_usage) {
+    // The buffered path's telemetry contract: usage.prompt_tokens /
+    // completion_tokens must land in Stats (mirrors the streamed path).
+    std::string req;
+    const std::string body =
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hello "
+        "there\"}}],\"usage\":{\"prompt_tokens\":50,\"completion_tokens\":3,"
+        "\"total_tokens\":53}}";
+    int srv = spawn_mock_http(8931, req, "HTTP/1.1 200 OK",
+                              "application/json", body);
+    ASSERT(srv >= 0);
+    usleep(100000);  // let the listener bind
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8931/v1";
+    agent::HttpLLMClient client(cfg);
+    agent::Stats stats;
+    agent::Message m = client.chat({}, {}, &stats);
+
+    ASSERT_EQ(m.role, "assistant");
+    ASSERT_EQ(m.content, "hello there");
+    ASSERT_TRUE(stats.valid);
+    ASSERT_EQ(stats.prompt_tokens, 50L);
+    ASSERT_EQ(stats.completion_tokens, 3L);
+    ASSERT(stats.latency_ms >= 0);
+    close(srv);
+}
+
+TEST(buffered_chat_malformed_body_degrades_to_recovery_message) {
+    // A 200 whose body is not a chat-completions JSON (here: an SSE-shaped
+    // stream served to the BUFFERED path) must degrade into an assistant
+    // message carrying the raw body — which the agent loop feeds back to the
+    // model for self-recovery — never an exception.
+    std::string dummy;
+    int srv = spawn_mock_sse(8932, dummy);  // default SSE tool-call stream
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8932/v1";
+    agent::HttpLLMClient client(cfg);
+    agent::Message m = client.chat({}, {}, nullptr);
+
+    ASSERT_EQ(m.role, "assistant");
+    const std::string prefix =
+        "[error: malformed LLM response, raw body follows]";
+    ASSERT_EQ(m.content.compare(0, prefix.size(), prefix), 0);
+    ASSERT(m.content.find("data:") != std::string::npos);  // raw body kept
+    close(srv);
+}
+
+TEST(overflow_400_streaming_throws_non_retryable_api_error) {
+    // llama.cpp-style plain-text overflow rejection on the streaming path.
+    // The client must throw a typed, non-retryable ApiError (never a fake
+    // assistant reply, never a retry loop).
+    std::string req;
+    int srv = spawn_mock_http(8933, req, "HTTP/1.1 400 Bad Request",
+                              "text/plain", "n_ctx is 2048");
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8933/v1";
+    agent::HttpLLMClient client(cfg);
+    bool threw = false;
+    try {
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    } catch (const agent::ApiError& e) {
+        threw = true;
+        ASSERT_EQ(e.status, 400L);
+        ASSERT_FALSE(e.retryable);
+        ASSERT_EQ(std::string(e.what()).find("HTTP 400 from LLM server"), 0u);
+    }
+    ASSERT(threw);
+
+    // Characterization: the transport parses the 400 prose and mutates its
+    // internal cfg_.context_size BEFORE throwing, but HttpLLMClient captures
+    // learned_ only on the success path — so the learned window is not
+    // observable through the client today. The pure-move refactor must
+    // preserve this exactly; making the learning observable is a separate
+    // follow-up fix, not part of the dialect seam.
+    ASSERT_EQ(client.learned_context_size(), 0);
+    close(srv);
+}
+
+TEST(overflow_400_buffered_throws_non_retryable_api_error) {
+    // OpenAI-style JSON-wrapped overflow rejection on the buffered path.
+    std::string req;
+    const std::string body =
+        "{\"error\":{\"message\":\"This model's maximum context length is "
+        "16384 tokens. However, you requested 20000 tokens.\"}}";
+    int srv = spawn_mock_http(8934, req, "HTTP/1.1 400 Bad Request",
+                              "application/json", body);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8934/v1";
+    agent::HttpLLMClient client(cfg);
+    bool threw = false;
+    try {
+        client.chat({}, {}, nullptr);
+    } catch (const agent::ApiError& e) {
+        threw = true;
+        ASSERT_EQ(e.status, 400L);
+        ASSERT_FALSE(e.retryable);
+    }
+    ASSERT(threw);
+    ASSERT_EQ(client.learned_context_size(), 0);
+    close(srv);
+}
+
+TEST(client_serves_next_turn_after_overflow_rejection) {
+    // The 400 path mutates the client's internal Config (context_size learned,
+    // context_explicit set). A later healthy request on the SAME client must
+    // be unaffected — the rejection must not poison subsequent turns.
+    std::string req;
+    int srv400 = spawn_mock_http(8935, req, "HTTP/1.1 400 Bad Request",
+                                 "text/plain",
+                                 "maximum context length is 8192 tokens");
+    ASSERT(srv400 >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8935/v1";
+    cfg.stream = true;
+    agent::HttpLLMClient client(cfg);
+    try {
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+        ASSERT(false);  // the 400 must have thrown
+    } catch (const agent::ApiError&) {
+    }
+    close(srv400);
+
+    // Rebind the same port (SO_REUSEADDR) with a healthy SSE responder and
+    // drive the SAME client instance again.
+    const std::string sse =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"still works\"}}]}\n\n"
+        "data: [DONE]\n\n";
+    std::string dummy;
+    int srv2 = spawn_mock_sse(8935, dummy, sse);
+    ASSERT(srv2 >= 0);
+    usleep(100000);
+
+    agent::Message m =
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT_EQ(m.content, "still works");
+    ASSERT_EQ(client.learned_context_size(), 0);
+    close(srv2);
+}
+
+TEST(llm_cancel_pre_requested_aborts_with_cancelled_error) {
+    // A token already requested before the call must abort fast (the /stop
+    // "do not start another turn" path), typed CancelledError — never
+    // classified as a retryable failure or degraded into a fake reply.
+    std::string dummy;
+    int srv = spawn_stall_server(8936);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8936/v1";
+    cfg.cancel_token.request();
+    agent::HttpLLMClient client(cfg);
+    bool cancelled = false;
+    try {
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    } catch (const agent::CancelledError&) {
+        cancelled = true;
+    }
+    ASSERT(cancelled);
+    close(srv);
+}
+
+TEST(llm_cancel_mid_stream_aborts_with_cancelled_error) {
+    // Esc // /stop during a stalled generation: the in-flight transfer must
+    // abort (curl's progress callback polls the shared token) with
+    // CancelledError, distinct from ApiError and std::runtime_error.
+    std::string dummy;
+    int srv = spawn_stall_server(8937);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8937/v1";
+    agent::HttpLLMClient client(cfg);
+    std::exception_ptr err;
+    std::thread caller([&]() {
+        try {
+            client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+        } catch (...) {
+            err = std::current_exception();
+        }
+    });
+    usleep(300000);               // let the request go in-flight
+    cfg.cancel_token.request();   // copies share the flag with the client
+    caller.join();
+
+    ASSERT(err != nullptr);
+    std::string kind = "none";
+    try {
+        std::rethrow_exception(err);
+    } catch (const agent::CancelledError&) {
+        kind = "cancelled";
+    } catch (const agent::ApiError&) {
+        kind = "api_error";
+    } catch (const std::exception&) {
+        kind = "other";
+    }
+    ASSERT_EQ(kind, "cancelled");
     close(srv);
 }
 
