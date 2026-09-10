@@ -1,9 +1,8 @@
 
 #include "http_transport.h"
-#include "agent/agent_helpers.h"
 #include "agent/debug_log.h"
+#include "agent/dialect.h"
 #include "agent/process.h"
-#include "agent/request_builder.h"
 
 #include <curl/curl.h>
 
@@ -16,7 +15,6 @@ size_t write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
 }
 } // namespace
 #include <stdexcept>
-#include <sstream>
 #include <nlohmann/json.hpp>
 
 namespace agent {
@@ -34,14 +32,9 @@ int cancel_check_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_
 }
 
 // libcurl write callback shim: variadic_setopt cannot convert a lambda to a
-// function pointer, so we need a named function. Forwards to StreamParser.
+// function pointer, so we need a named function. Forwards to the StreamDecoder.
 size_t stream_write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
-    return static_cast<StreamParser*>(user)->on_write(ptr, size, nmemb);
-}
-
-long read_usage_token(const json& usage, const char* key) {
-    auto it = usage.find(key);
-    return (it != usage.end() && it->is_number()) ? it->get<long>() : -1;
+    return static_cast<StreamDecoder*>(user)->on_write(ptr, size, nmemb);
 }
 
 void apply_tps(Stats& stats, double ttfb, double total) {
@@ -50,162 +43,11 @@ void apply_tps(Stats& stats, double ttfb, double total) {
         stats.tps = stats.completion_tokens / gen;
 }
 
-// Try to extract context_size from an HTTP 400 error body.
-// Returns > 0 if a pattern like "maximum context length is NNNN" is found,
-// or 0 if no known pattern matches.
-int parse_context_size_from_error(const std::string& body) {
-    // Common error patterns across providers:
-    // "maximum context length is 8192 tokens"
-    // "max context length: 4096"
-    // "n_ctx is 2048"
-    // "context length exceeds 16384"
-    // "model's maximum context length is 128K"
-    // "Request exceeds maximum context length (4096 tokens)"
-    const char* patterns[] = {
-        "maximum context length is ",
-        "max context length: ",
-        "max context length is ",
-        "n_ctx is ",
-        "n_ctx = ",
-        "context length exceeds ",
-        "maximum context length (",
-        "context length of ",
-    };
-    for (const char* pat : patterns) {
-        auto pos = body.find(pat);
-        if (pos == std::string::npos) continue;
-        pos += strlen(pat);
-        // Skip past any non-digit prefix (e.g. open paren)
-        while (pos < body.size() && !std::isdigit(static_cast<unsigned char>(body[pos])))
-            ++pos;
-        if (pos >= body.size()) continue;
-        long val = std::atol(body.c_str() + pos);
-        if (val > 0 && val < 10000000) // sanity: 1M tokens is generous max
-            return static_cast<int>(val);
-    }
-    return 0;
-}
-
-} // namespace
-
-HeaderList::~HeaderList() {
-    if (list) curl_slist_free_all(list);
-}
-
-void apply_auth(HeaderList& h, const Config& cfg) {
-    if (!cfg.api_key.empty())
-        h.add("Authorization: Bearer " + cfg.api_key);
-}
-
-// Extract a string field defensively: returns d if missing, null, or not a
-// string (so a malformed model response never throws and aborts the turn).
-std::string str_or_raw(const json& j, const char* key, const std::string& d) {
-    auto it = j.find(key);
-    if (it == j.end() || it->is_null()) return d;
-    if (it->is_string()) return it->get<std::string>();
-    // Non-string content: keep it as JSON text rather than throwing, so the
-    // pipeline can feed it back to the model instead of crashing.
-    return it->dump();
-}
-
-// Parse a buffered /chat/completions JSON body into a Message. Degrades
-// gracefully on malformed/error responses: a parse failure or missing choices
-// yields an assistant message carrying the raw body as text, which the agent
-// loop feeds back to the model so it can recover instead of aborting the turn.
-Message message_from_completion(const std::string& response) {
-    json resp = json::parse(response, nullptr, false);
-    Message out;
-    out.role = "assistant";
-    if (resp.is_discarded() || !resp.contains("choices") ||
-        !resp["choices"].is_array() || resp["choices"].empty()) {
-        out.content =
-            "[error: malformed LLM response, raw body follows]\n" + response;
-        return out;
-    }
-    const json& msg = resp["choices"][0].value("message", json::object());
-    out.content = strip_think(str_or_raw(msg, "content", ""));
-    for (const char* key : {"reasoning_content", "reasoning"})
-        out.reasoning += str_or_raw(msg, key, "");
-    if (msg.contains("tool_calls") && !msg["tool_calls"].is_null()) {
-        out.tool_calls = msg["tool_calls"];
-        // Discard tool calls with non-JSON arguments — they poison history.
-        bool valid = true;
-        for (const auto& tc : out.tool_calls) {
-            auto fn = tc.value("function", json::object());
-            std::string raw = fn.value("arguments", "");
-            if (!raw.empty()) {
-                auto parsed = json::parse(raw, nullptr, false);
-                if (parsed.is_discarded()) { valid = false; break; }
-            }
-        }
-        if (valid) {
-            // Drop name-less placeholders and default `type`, same as the
-            // SSE path, so junk never enters the context stack.
-            out.tool_calls = sanitize_tool_calls(out.tool_calls);
-            if (out.tool_calls.empty())
-                out.tool_calls = json::value_t::null;
-        } else {
-            out.tool_calls = json::value_t::null;
-        }
-    }
-    return out;
-}
-
-// True when a non-2xx response is a transient upstream failure rather than a
-// request rejection. Gateways (kilocode's OpenAI-compatible router among
-// them) surface an overloaded/crashed upstream as HTTP 400 whose body is an
-// empty SSE stream (at most comments / a bare [DONE]) — retrying that shape
-// rides through the blip, while a genuine schema-rejection 400 (JSON error
-// body) stays non-retryable.
-bool is_retryable_http_error(long http_code, const std::string& body) {
-    if (http_code == 429 || http_code >= 500) return true;
-    if (http_code != 400) return false;
-    // 400 with a JSON error body is a real rejection (bad schema, bad model,
-    // bad auth) — never retry. An empty SSE stream means the upstream died
-    // before producing anything; that is transient.
-    json parsed = json::parse(body, nullptr, false);
-    if (!parsed.is_discarded()) return false;
-    // Allow SSE comments (`: KILO PROCESSING`) and a bare [DONE]; anything
-    // else (a JSON error, a data payload) is a real response.
-    std::stringstream ss(body);
-    std::string line;
-    while (std::getline(ss, line)) {
-        if (line.empty() || line[0] == ':') continue;
-        if (line == "data: [DONE]" || line == "[DONE]") continue;
-        if (line.rfind("data:", 0) == 0) {
-            // An empty `data:` line is ignorable; any payload is a real
-            // response (the upstream said something before dying).
-            std::string payload = line.substr(5);
-            size_t p = payload.find_first_not_of(" \t\r");
-            if (p == std::string::npos) continue;
-            return false;
-        }
-        return false;   // unrecognized content: genuine response body
-    }
-    return true;
-}
-
-// Fill `stats` from a buffered response body and its transfer timings.
-void fill_buffered_stats(Stats& stats, const std::string& response, double ttfb,
-                         double total) {
-    stats.valid = true;
-    stats.latency_ms = ttfb * 1000.0;
-    json resp = json::parse(response, nullptr, false);
-    if (resp.contains("usage") && resp["usage"].is_object()) {
-        const json& u = resp["usage"];
-        stats.prompt_tokens = read_usage_token(u, "prompt_tokens");
-        stats.completion_tokens = read_usage_token(u, "completion_tokens");
-    }
-    apply_tps(stats, ttfb, total);
-}
-
-namespace {
-
-// Shared curl request execution: sets up headers, URL, POST body, write
-// callback, timeout, and cancel wiring, then performs the request and
-// collects timing + status. Throws on transport or HTTP error.
-void curl_exec(const Config& cfg, const std::string& payload,
-               bool accept_sse, long timeout_s,
+// Shared curl request execution: sets up the dialect's URL and auth headers,
+// the POST body, write callback, timeout, and cancel wiring, then performs the
+// request and collects timing + status. Throws on transport error.
+void curl_exec(const Config& cfg, const Dialect& dialect,
+               const std::string& payload, bool accept_sse, long timeout_s,
                curl_write_callback write_fn, void* write_data,
                long& http_code, double& ttfb, double& total,
                const char* debug_tag) {
@@ -214,9 +56,10 @@ void curl_exec(const Config& cfg, const std::string& payload,
     HeaderList headers;
     headers.add("Content-Type: application/json");
     if (accept_sse) headers.add("Accept: text/event-stream");
-    apply_auth(headers, cfg);
+    for (const auto& h : dialect.auth_headers(cfg)) headers.add(h);
 
-    curl_easy_setopt(c.get(), CURLOPT_URL, cfg.api_url().c_str());
+    const std::string url = dialect.chat_url(cfg);
+    curl_easy_setopt(c.get(), CURLOPT_URL, url.c_str());
     curl_easy_setopt(c.get(), CURLOPT_HTTPHEADER, headers.list);
     curl_easy_setopt(c.get(), CURLOPT_POSTFIELDS, payload.c_str());
     curl_easy_setopt(c.get(), CURLOPT_WRITEFUNCTION, write_fn);
@@ -250,6 +93,10 @@ void curl_exec(const Config& cfg, const std::string& payload,
 
 } // namespace
 
+HeaderList::~HeaderList() {
+    if (list) curl_slist_free_all(list);
+}
+
 std::string describe_http_error(long http_code, const std::string& body) {
     std::string msg = "HTTP " + std::to_string(http_code) +
                       " from LLM server: " + body.substr(0, 200);
@@ -264,16 +111,17 @@ std::string describe_http_error(long http_code, const std::string& body) {
     return msg;
 }
 
-// POST `payload` to the chat endpoint and return the raw response body, setting
-// up auth/JSON headers and throwing on any transport error. `accept_sse` adds
-// the text/event-stream Accept header for streaming requests. When non-null,
-// `ttfb`/`total` receive transfer timings in seconds.
-std::string post_completion(Config& cfg, const std::string& payload,
-                            bool accept_sse, double* ttfb, double* total) {
+// POST `payload` to the dialect's chat endpoint and return the raw response
+// body, setting up auth/JSON headers and throwing on any transport error.
+// `accept_sse` adds the text/event-stream Accept header for streaming
+// requests. When non-null, `ttfb`/`total` receive transfer timings in seconds.
+std::string post_completion(Config& cfg, const Dialect& dialect,
+                            const std::string& payload, bool accept_sse,
+                            double* ttfb, double* total) {
     std::string response;
     long http_code = 0;
     double t0 = 0, t1 = 0;
-    curl_exec(cfg, payload, accept_sse, 300L,
+    curl_exec(cfg, dialect, payload, accept_sse, 300L,
               write_cb, &response,
               http_code, t0, t1, "error");
     if (ttfb) *ttfb = t0;
@@ -285,48 +133,64 @@ std::string post_completion(Config& cfg, const std::string& payload,
         // server's actual --ctx-size). The host pulls the learned value via
         // LLMClient::learned_context_size().
         if (http_code == 400) {
-            int learned = parse_context_size_from_error(response);
+            int learned = dialect.context_overflow_hint(response);
             if (learned > 0) {
                 cfg.context_size = learned;
                 cfg.context_explicit = true;
             }
         }
-        bool retryable = is_retryable_http_error(http_code, response);
+        bool retryable = dialect.is_retryable(http_code, response);
         throw ApiError(http_code, retryable, describe_http_error(http_code, response));
     }
     return response;
 }
 
-// Run a streaming completion: POST `payload`, feed SSE bytes to `parser`, and
-// finalize. Fills `stats` (timings + token counts). Throws on transport error.
-void stream_completion(Config& cfg, const std::string& payload,
-                       StreamParser& parser, Stats* stats, long& status_out) {
+// Run a streaming completion: POST `payload`, feed response bytes to
+// `decoder`, and finalize. Fills `stats` (timings + token counts). Throws on
+// transport error.
+void stream_completion(Config& cfg, const Dialect& dialect,
+                       const std::string& payload, StreamDecoder& decoder,
+                       Stats* stats, long& status_out) {
     double ttfb = 0, total = 0;
-    curl_exec(cfg, payload, true, 300L,
-              stream_write_cb, &parser,
+    curl_exec(cfg, dialect, payload, true, 300L,
+              stream_write_cb, &decoder,
               status_out, ttfb, total, "error-stream");
     if (status_out < 200 || status_out >= 300) {
         // Same overflow learning as the buffered path: the rejection teaches
         // the runtime window regardless of any configured value.
         if (status_out == 400) {
-            int learned = parse_context_size_from_error(parser.raw_body_);
+            int learned = dialect.context_overflow_hint(decoder.raw_body());
             if (learned > 0) {
                 cfg.context_size = learned;
                 cfg.context_explicit = true;
             }
         }
-        bool retryable = is_retryable_http_error(status_out, parser.raw_body_);
+        bool retryable = dialect.is_retryable(status_out, decoder.raw_body());
         throw ApiError(status_out, retryable,
-                       describe_http_error(status_out, parser.raw_body_));
+                       describe_http_error(status_out, decoder.raw_body()));
     }
-    parser.finalize();
+    decoder.finalize();
     if (stats) {
         stats->valid = true;
         stats->latency_ms = ttfb * 1000.0;
-        stats->prompt_tokens = parser.prompt_tokens();
-        stats->completion_tokens = parser.completion_tokens();
+        stats->prompt_tokens = decoder.prompt_tokens();
+        stats->completion_tokens = decoder.completion_tokens();
         apply_tps(*stats, ttfb, total);
     }
+}
+
+// Fill `stats` from a buffered response body and its transfer timings
+// (seconds), mapping the dialect's token usage. Mirrors the telemetry that
+// stream_completion() produces for the streamed path.
+void fill_buffered_stats(Stats& stats, const Dialect& dialect,
+                         const std::string& response, double ttfb,
+                         double total) {
+    stats.valid = true;
+    stats.latency_ms = ttfb * 1000.0;
+    const TokenUsage usage = dialect.parse_usage(response);
+    stats.prompt_tokens = usage.prompt;
+    stats.completion_tokens = usage.completion;
+    apply_tps(stats, ttfb, total);
 }
 
 } // namespace agent

@@ -1,9 +1,9 @@
 
 #include "agent/llm.h"
 #include "agent/debug_log.h"
+#include "agent/dialect.h"
 #include "http_transport.h"
 #include "agent/model_probe.h"
-#include "agent/request_builder.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -11,35 +11,63 @@
 
 namespace agent {
 
-HttpLLMClient::HttpLLMClient(Config cfg) : cfg_(std::move(cfg)) {
+namespace {
+
+// The transport teaches the runtime context window by mutating the Config it
+// was handed on a 400 overflow rejection — and then throws. Capturing the
+// change as the scope exits covers BOTH paths; capturing it after the call
+// alone was unreachable, because the only code that mutates the window always
+// throws. Without this the host's clamp (Agent::resolve_window) never fires.
+class LearnedWindowCapture {
+public:
+    LearnedWindowCapture(const Config& cfg, int& learned)
+        : cfg_(cfg), before_(cfg.context_size), learned_(learned) {}
+    ~LearnedWindowCapture() {
+        if (cfg_.context_size != before_) learned_ = cfg_.context_size;
+    }
+    LearnedWindowCapture(const LearnedWindowCapture&) = delete;
+    LearnedWindowCapture& operator=(const LearnedWindowCapture&) = delete;
+    LearnedWindowCapture(LearnedWindowCapture&&) = delete;
+    LearnedWindowCapture& operator=(LearnedWindowCapture&&) = delete;
+
+private:
+    const Config& cfg_;
+    const int before_;
+    int& learned_;
+};
+
+} // namespace
+
+HttpLLMClient::HttpLLMClient(Config cfg)
+    : HttpLLMClient(std::move(cfg), nullptr) {}
+
+HttpLLMClient::HttpLLMClient(Config cfg, std::unique_ptr<Dialect> dialect)
+    : cfg_(std::move(cfg)),
+      dialect_(dialect ? std::move(dialect) : make_dialect(cfg_.flavor)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 
-ServerInfo LLMClient::parse_models(const std::string& body,
-                                   const std::string& preferred_model) {
-    return agent::parse_models(body, preferred_model);
-}
+HttpLLMClient::~HttpLLMClient() = default;
 
 ServerInfo HttpLLMClient::probe_server() const {
-    return agent::probe_server(cfg_);
+    return agent::probe_server(cfg_, *dialect_);
 }
 
 Message HttpLLMClient::chat(const std::vector<Message>& messages,
                         const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats) {
-    json body = build_chat_body(cfg_, messages, tools, false);
+    json body = dialect_->build_chat_body(cfg_, messages, tools, false);
     // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
     // nlohmann throws type_error.316 on dump() unless we replace bad bytes.
     std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
     debug_log(cfg_.debug_log, "request", payload);
 
     double ttfb = 0, total = 0;
-    const int ctx_before = cfg_.context_size;
-    std::string response = post_completion(cfg_, payload, false, &ttfb, &total);
-    if (cfg_.context_size != ctx_before) learned_ = cfg_.context_size;
+    LearnedWindowCapture learned_window(cfg_, learned_);
+    std::string response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total);
     debug_log(cfg_.debug_log, "response", response);
 
-    Message out = message_from_completion(response);
-    if (stats) fill_buffered_stats(*stats, response, ttfb, total);
+    Message out = dialect_->parse_completion(response);
+    if (stats) fill_buffered_stats(*stats, *dialect_, response, ttfb, total);
     return out;
 }
 
@@ -47,18 +75,17 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
                                const std::vector<std::shared_ptr<Tool>>& tools,
                                const std::function<void(const StreamChunk&)>& on_chunk,
                                Stats* stats) {
-    json body = build_chat_body(cfg_, messages, tools, true);
+    json body = dialect_->build_chat_body(cfg_, messages, tools, true);
     std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
     debug_log(cfg_.debug_log, "request-stream", payload);
 
     Message out;
     out.role = "assistant";
-    StreamParser parser(out, on_chunk, cfg_.debug_log);
+    auto decoder = dialect_->make_decoder(out, on_chunk, cfg_.debug_log);
 
     long status = 0;
-    const int ctx_before = cfg_.context_size;
-    stream_completion(cfg_, payload, parser, stats, status);
-    if (cfg_.context_size != ctx_before) learned_ = cfg_.context_size;
+    LearnedWindowCapture learned_window(cfg_, learned_);
+    stream_completion(cfg_, *dialect_, payload, *decoder, stats, status);
     debug_log(cfg_.debug_log, "response-stream",
               "http=" + std::to_string(status) +
                   " content=" + out.content +

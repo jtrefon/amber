@@ -5,10 +5,13 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
 #include "agent/config.h"
 #include "agent/tool.h"
 
 namespace agent {
+
+class Dialect;
 
 // A single message in the conversation. role is one of:
 //   "system", "user", "assistant", "tool"
@@ -93,15 +96,6 @@ public:
         const std::function<void(const StreamChunk&)>& on_chunk,
         Stats* stats = nullptr) = 0;
 
-    // Parse a /v1/models JSON body into ServerInfo. Exposed (and static) so the
-    // extraction logic can be unit-tested without a live server. When
-    // `preferred_model` is non-empty the matching entry wins (a router may
-    // list models without context metadata ahead of the active one); otherwise
-    // the first entry that reports a positive context is used, falling back
-    // to the first entry.
-    static ServerInfo parse_models(const std::string& body,
-                                   const std::string& preferred_model = "");
-
     // Context window the server taught us via a 400 overflow rejection
     // (parse_context_size_from_error), or 0 when none was learned yet.
     // The learned limit is the runtime truth: it clamps any configured or
@@ -109,11 +103,19 @@ public:
     virtual int learned_context_size() const { return 0; }
 };
 
-// Real libcurl implementation over an OpenAI-compatible /chat/completions
-// endpoint. Supports both buffered (chat) and streamed (chat_stream) modes.
+// Real libcurl implementation. The wire protocol (URLs, auth, request body,
+// response parsing, streaming, model listing, error classification) is the
+// injected Dialect's; this class owns the transport and the assembled
+// conversation view. Supports both buffered (chat) and streamed (chat_stream)
+// modes.
 class HttpLLMClient : public LLMClient {
 public:
     explicit HttpLLMClient(Config cfg);
+    // `dialect` drives the wire protocol; the one-argument form resolves
+    // make_dialect(cfg.flavor). Pass one explicitly in tests or for future
+    // plugin providers.
+    HttpLLMClient(Config cfg, std::unique_ptr<Dialect> dialect);
+    ~HttpLLMClient() override;
 
     ServerInfo probe_server() const override;
     Message chat(const std::vector<Message>& messages,
@@ -127,6 +129,7 @@ public:
 
 private:
     Config cfg_;
+    std::unique_ptr<Dialect> dialect_;
     int learned_ = 0;  // window taught by a 400 overflow rejection
 };
 

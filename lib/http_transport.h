@@ -3,8 +3,9 @@
 #define AGENT_HTTP_TRANSPORT_H
 
 #include "agent/config.h"
+#include "agent/dialect.h"
 #include "agent/llm.h"
-#include "agent/sse_parser.h"
+#include "agent/stream_decoder.h"
 #include <curl/curl.h>
 #include <memory>
 #include <string>
@@ -41,25 +42,22 @@ struct HeaderList {
     }
 };
 
-void apply_auth(HeaderList& h, const Config& cfg);
+// POST `payload` to the dialect's chat endpoint; return the raw response body
+// (or throw on transport error). `accept_sse` adds the text/event-stream
+// Accept header. `ttfb`/`total` receive transfer timings in seconds when
+// non-null.
+std::string post_completion(Config& cfg, const Dialect& dialect,
+                            const std::string& payload, bool accept_sse,
+                            double* ttfb, double* total);
 
-// POST `payload` to the chat endpoint; return the raw response body (or throw on
-// transport error). `accept_sse` adds the text/event-stream Accept header.
-// `ttfb`/`total` receive transfer timings in seconds when non-null.
-std::string post_completion(Config& cfg, const std::string& payload,
-                            bool accept_sse, double* ttfb, double* total);
-
-// Run a streaming completion: POST `payload`, feed SSE bytes to `parser`, and
-// finalize. Fills `stats` (timings + token counts). Throws on transport error.
-// `cfg` is non-const so a 400 overflow rejection can teach the runtime
-// context window (the host pulls it via LLMClient::learned_context_size()).
-void stream_completion(Config& cfg, const std::string& payload,
-                       StreamParser& parser, Stats* stats, long& status_out);
-
-// Parse a buffered /chat/completions JSON body into a Message. Degrades
-// gracefully on malformed/error responses: the message carries the raw body as
-// text so the agent loop can feed it back to the model (never throws).
-Message message_from_completion(const std::string& response);
+// Run a streaming completion: POST `payload`, feed response bytes to
+// `decoder`, and finalize. Fills `stats` (timings + token counts). Throws on
+// transport error. `cfg` is non-const so a 400 overflow rejection can teach
+// the runtime context window (the host pulls it via
+// LLMClient::learned_context_size()).
+void stream_completion(Config& cfg, const Dialect& dialect,
+                       const std::string& payload, StreamDecoder& decoder,
+                       Stats* stats, long& status_out);
 
 // Build the human-readable HTTP error message. When the body carries a known
 // server-side failure mode, an actionable hint is appended (e.g. llama.cpp
@@ -67,17 +65,11 @@ Message message_from_completion(const std::string& response);
 // not a request problem).
 std::string describe_http_error(long http_code, const std::string& body);
 
-// True when a non-2xx response is a transient upstream failure rather than a
-// request rejection. Gateways (kilocode's OpenAI-compatible router among
-// them) surface an overloaded/crashed upstream as HTTP 400 whose body is an
-// empty SSE stream (at most comments / a bare [DONE]) — retrying that shape
-// rides through the blip, while a genuine schema-rejection 400 (JSON error
-// body) stays non-retryable.
-bool is_retryable_http_error(long http_code, const std::string& body);
-
-// Fill `stats` from a buffered response body and its transfer timings (seconds).
-// Mirrors the telemetry that stream_completion() produces for the streamed path.
-void fill_buffered_stats(Stats& stats, const std::string& response, double ttfb,
+// Fill `stats` from a buffered response body and its transfer timings
+// (seconds), mapping the dialect's token usage. Mirrors the telemetry that
+// stream_completion() produces for the streamed path.
+void fill_buffered_stats(Stats& stats, const Dialect& dialect,
+                         const std::string& response, double ttfb,
                          double total);
 
 } // namespace agent

@@ -409,6 +409,14 @@ struct ProviderImpl {
 };
 ```
 
+**Implementation note (FIX-028..030):** the in-process extension point for
+providers now exists as the dialect registry — `register_dialect(flavor,
+factory)` in `lib/dialect.cpp`, consumed by `make_dialect(cfg.flavor)` and
+specified in `docs/spec/llm-client/dialect.md`. A plugin `Provider` capability
+registers a dialect factory into that table; no new `ProviderRegistry` type is
+needed for the in-process tier. External (separate-process) providers remain
+Phase 5+.
+
 #### Completion Capability
 
 ```cpp

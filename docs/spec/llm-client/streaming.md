@@ -2,13 +2,16 @@
 
 ### Purpose
 Stream LLM responses token-by-token over SSE (Server-Sent Events) so the TUI
-can display text incrementally. The stream parser must handle three vendor-
-specific behaviours: dedicated `reasoning_content` fields, inline `<think>` tags,
-and fragmented tool-call arguments that arrive over multiple SSE events.
+can display text incrementally. The shared framing (line splitting, raw-byte
+capture, terminal chunk) lives in the `StreamDecoder` base; each dialect owns
+its event state machine — the OpenAI-compatible one handles three vendor
+behaviours (dedicated `reasoning_content` fields, inline `<think>` tags, and
+fragmented tool-call arguments), while the anthropic dialect decodes named
+events (`content_block_delta`, …).
 
 ### Ownership
-- **Source files**: `lib/llm.cpp` (`chat_stream()`), `lib/sse_parser.cpp` (`StreamParser`, `dispatch_event_impl`, `segment_think_impl`, `accumulate_arguments`, `finalize_impl`), `include/agent/sse_parser.h`, `include/agent/llm.h` (`StreamChunk`, `Message`) — the `*_impl` helpers are file-local (anonymous namespace); `StreamParser` exposes only `on_write`/`finalize` plus stat accessors.
-- **Test files**: `tests/run_tests.cpp` — 4 SSE parser tests (lines 843–1003)
+- **Source files**: `lib/llm.cpp` (`chat_stream()`), `lib/stream_decoder.cpp` + `include/agent/stream_decoder.h` (framing base: `on_write`, `finalize`, `emit`), `lib/dialect_openai.cpp` (`OpenAIStreamDecoder`, `accumulate_arguments`, `drop_empty_tool_slots`), `lib/dialect_anthropic.cpp` (`AnthropicStreamDecoder`), `include/agent/llm.h` (`StreamChunk`, `Message`) — decoder internals are file-local; the base exposes only `on_write`/`finalize` plus stat accessors.
+- **Test files**: `tests/run_tests.cpp` — SSE pins (`llm_streaming_*`, `sse_*`); `tests/dialect_anthropic_test.cpp` — event-stream translation
 
 ---
 
@@ -19,7 +22,7 @@ and fragmented tool-call arguments that arrive over multiple SSE events.
 | **Input** | `Message` history + tool schemas + per-chunk callback `std::function<void(StreamChunk)>` |
 | **Output** | Accumulated `Message` with `content`, `reasoning`, `tool_calls`. Hooks fire per-chunk: `on_token`, `on_reasoning`, `on_state`. |
 | **Error states** | Connection drop → exception caught by `safe_chat_once()`. HTTP 4xx/5xx → throw with body excerpt. Malformed SSE → silently dropped. |
-| **Invariants** | See below. |
+| **Invariants** | See below (the OpenAI dialect's behaviour; see `llm-client/dialect.md` for the protocol-level contract). |
 | **Thread safety** | SSE write callback fires on libcurl thread. `on_chunk` callback is user-provided; the caller (`chat_once`) must handle thread safety. |
 
 ### Invariants
@@ -153,15 +156,15 @@ and fragmented tool-call arguments that arrive over multiple SSE events.
 
 ### Cross-references
 
-- **Depends on**: `llm-client/http-transport.md` (curl transport), `agent-loop/core-loop.md` (hook wiring)
+- **Depends on**: `llm-client/dialect.md` (decoder creation + protocol contract), `llm-client/http-transport.md` (curl transport), `agent-loop/core-loop.md` (hook wiring)
 - **Depended on by**: `display/markdown-parser.md` (stream preview rendering), `tui/event-loop.md` (token hook → live render)
-- **Test coverage**: `tests/run_tests.cpp`: `llm_streaming_tool_call_object_arguments_preserved`, `llm_streaming_merges_tool_call_fragments`, `llm_streaming_inline_think_segmentation`, `llm_streaming_reasoning_content_field`, `llm_streaming_captures_usage_stats`
+- **Test coverage**: `tests/run_tests.cpp`: `llm_streaming_tool_call_object_arguments_preserved`, `llm_streaming_merges_tool_call_fragments`, `llm_streaming_inline_think_segmentation`, `llm_streaming_reasoning_content_field`, `llm_streaming_captures_usage_stats`, `llm_streaming_parser_accepts_auto_lambda_sink`, `sse_tool_call_index_capped`, `sse_raw_body_bounded`, `sse_one_based_tool_call_index_compacted`, `sse_id_only_tool_call_dropped`, `llm_cancel_pre_requested_aborts_with_cancelled_error`, `llm_cancel_mid_stream_aborts_with_cancelled_error`; `tests/dialect_anthropic_test.cpp`: `anthropic_stream_decodes_named_events`, `anthropic_stream_drops_nameless_tool_blocks`
 
 ### Known gaps
 
 1. **No test for `accumulate_arguments` with all fragment-type combinations** — Only object-first-then-string is tested. String-first-then-object and object-to-object merge are untested.
 2. **No test for connection drop mid-stream** — No mock sends partial SSE then closes.
-3. **No test for cancel during streaming** — No concurrent cancel_token.request() while stream is active.
+3. ~~No test for cancel during streaming~~ — closed by `llm_cancel_mid_stream_aborts_with_cancelled_error` (stalled server + mid-flight token request → `CancelledError`).
 4. **No test for malformed SSE events** — No garbage `data:` lines in test inputs.
-5. **No test for double-finalize** — No scenario that sends `[DONE]` AND calls `parser.finalize()`.
-6. **`raw_body_` grows unbounded** — All SSE bytes appended to `raw_body_` for diagnostics, but only 400-byte snippet is used. Wasted memory on long streams.
+5. **No test for double-finalize** — No scenario that sends `[DONE]` AND calls `finalize()`.
+6. ~~`raw_body_` grows unbounded~~ — closed: the base caps diagnostics at `kMaxRawBodyBytes` (64 KiB), pinned by `sse_raw_body_bounded`.
