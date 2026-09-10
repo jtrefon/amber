@@ -362,6 +362,10 @@ public:
     std::string description() const noexcept override { return description_; }
     json parameters_schema() const override { return schema_; }
 
+    // External-process code execution (e.g. cdp eval runs model-supplied
+    // JavaScript in a browser). Always prompt.
+    bool requires_approval(const json&) const noexcept override { return true; }
+
     ToolResult execute(const json& args) const override {
         return mgr_->call_tool(*mgr_->find(id_), name_, args);
     }

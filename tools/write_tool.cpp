@@ -48,6 +48,16 @@ public:
         };
     }
 
+    // Create/overwrite (any edit with old=="") is a state change the user
+    // should see; in-place patches of existing files are the common agent
+    // workflow and run free in WRITE mode.
+    bool requires_approval(const json& a) const noexcept override {
+        if (!a.contains("edits") || !a["edits"].is_array()) return true;
+        for (const auto& e : a["edits"])
+            if (e.value("old", "") == "") return true;
+        return false;
+    }
+
     ToolResult execute(const json& a) const override {
         ToolResult r;
         if (!a.contains("path") || !a["path"].is_string()) {
