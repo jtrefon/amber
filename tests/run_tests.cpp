@@ -21,6 +21,8 @@
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
+#include "agent/subagent.h"
+#include "agent/plugin.h"
 #include "tests/test_util.h"
 
 #include <array>
@@ -2499,6 +2501,71 @@ TEST(sec01_input_redirect_outside) {
                                  "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::ReadOnly);
     agent::Workspace::set_root(".");
+}
+
+// ---------------------------------------------------------------------------
+// SEC-02: approval-gate coverage for side-effecting tools (Red tests).
+// WriteTool (create/overwrite), TaskTool (sub-agent privilege escalation),
+// and PluginTool (external-process code execution) must opt into the
+// approval gate via requires_approval.
+// ---------------------------------------------------------------------------
+
+TEST(sec02_write_tool_create_requires_approval) {
+    auto tool = agent::make_write_tool();
+    // Create/overwrite (old == "") must require approval.
+    json create = {{"path", "x"}, {"edits", json::array({{{"old", ""}, {"new", "y"}}})}};
+    ASSERT_TRUE(tool->requires_approval(create));
+}
+
+TEST(sec02_write_tool_patch_no_approval) {
+    auto tool = agent::make_write_tool();
+    // In-place patch (old != "") does not require approval — the common
+    // agent workflow of editing existing files should not be gated.
+    json patch = {{"path", "x"}, {"edits", json::array({{{"old", "a"}, {"new", "b"}}})}};
+    ASSERT_FALSE(tool->requires_approval(patch));
+}
+
+TEST(sec02_task_tool_requires_approval) {
+    agent::SubAgentExecutor executor;
+    agent::ToolRegistry reg;
+    auto tool = agent::make_task_tool(executor, reg);
+    // TaskTool spawns a sub-agent with full tool access — always prompt.
+    ASSERT_TRUE(tool->requires_approval({{"prompt", "anything"}}));
+    ASSERT_TRUE(tool->requires_approval({}));
+}
+
+TEST(sec02_plugin_tool_requires_approval) {
+    // Stage the fake plugin and enable it to get a PluginTool into the
+    // registry, then verify it requires approval.
+    std::string base = "/tmp/amber_sec02_plugin";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    // EnvGuard equivalent
+    const char* old_xdg = std::getenv("XDG_CONFIG_HOME");
+    std::string saved_xdg = old_xdg ? old_xdg : "";
+    bool was_set = old_xdg != nullptr;
+    setenv("XDG_CONFIG_HOME", (base + "/xdg").c_str(), 1);
+
+    std::string dir = base + "/plugins/fake";
+    std::filesystem::create_directories(dir);
+    std::filesystem::copy_file("tests/plugins/fake_manifest.json", dir + "/manifest.json",
+                               std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file("tests/plugins/fake_plugin.py", dir + "/fake_plugin.py",
+                               std::filesystem::copy_options::overwrite_existing);
+    chmod((dir + "/fake_plugin.py").c_str(), 0755);
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    ASSERT(mgr.enable("fake", reg));
+    auto echo = reg.find("plugin_fake_echo");
+    ASSERT(echo != nullptr);
+    // PluginTool runs external-process code — always prompt.
+    ASSERT_TRUE(echo->requires_approval({{"text", "hello"}}));
+    ASSERT_TRUE(echo->requires_approval({}));
+
+    if (was_set) setenv("XDG_CONFIG_HOME", saved_xdg.c_str(), 1);
+    else unsetenv("XDG_CONFIG_HOME");
 }
 
 // ---------------------------------------------------------------------------
