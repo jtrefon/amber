@@ -1,11 +1,13 @@
 # amber — Plugin Framework Tracker
 
-- **Status:** 🟢 PF-1, PF-2, PF-4 and PF-3.1 complete (2026-09-10) on
-  `feat/plugin-framework-pf1`. The framework runs end to end: **every** provider
-  — custom, openrouter, kilocode, anthropic, gemini — is a plugin, the core
-  declares none, the status bar is composed from a registry, and switching a
-  provider plugin off removes it live. Outstanding: core prompt blocks on the
-  registry (PF-1 follow-up), host services (PF-3.3) and panels/console (PF-3.2).
+- **Status:** 🟢 PF-1, PF-2, PF-3.1, PF-3.2 and PF-4 complete (2026-09-10) on
+  `feat/plugin-framework-pf1`; 620 tests green. The framework runs end to end:
+  **every** provider — custom, openrouter, kilocode, anthropic, gemini — is a
+  plugin, the core declares none, the status bar and the panel view are
+  composed from registries, and switching a provider plugin off removes it
+  live. Two items are open **by decision, not by omission** — see "Open
+  findings" below: the core prompt-block migration (blocked on a behaviour
+  question with a bench harness waiting) and host services (no consumer yet).
 - **Direction (stated 2026-09-10):** the long-term target is a microkernel —
   amber as orchestrator + plugin registry, with *everything else* (not just
   providers) arriving as a plugin. The phases below are the path there, and no
@@ -74,6 +76,51 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
+
+### 2026-09-10 — Open findings (need a decision, not more code)
+
+Two items are deliberately not implemented. Both are recorded here with the
+reason and the trigger that reopens them, so they cannot be mistaken for
+oversights.
+
+**(1) Core prompt blocks on the registry — blocked on a behaviour decision.**
+The framework half is done: plugin blocks render (`PromptRegistry`), each as
+its own system message at the tail of the prompt copy, with the sealed
+`Context` untouched. Migrating amber's *own* four injections
+(`lib/agent.cpp`:190-204 memories, :315-337 skill discovery, :338-346
+activated bodies, :349-363 brief) is what remains, and reading them closely
+surfaces a behavioural question that is not ours to decide unilaterally:
+
+- The memory block is injected **before** the compression gate
+  (`agent.cpp:267-284` vs `:287-313`), and a successful compression
+  **reassigns** `prompt_copy` from the rebuilt context (`:309-310`). So on a
+  compressing turn the retrieved memories are silently discarded, while the
+  skill-discovery block — injected after the gate — survives.
+- That asymmetry looks unintended, but "fixing" it changes what the model
+  sees on every compressing turn, and moving the blocks to a single tail
+  render also changes the layout of *every* request (memory would sit after
+  the conversation instead of directly after the system prompt).
+- Both are measurable, not arguable: the bench harness exists for exactly
+  this. The migration should land with a before/after run, and with the
+  layout choice made explicitly rather than as a side effect of a refactor.
+
+**Trigger:** a decision on (a) whether the pre-compression memory block is a
+bug, and (b) whether the tail layout is acceptable. Then it is a small change
+plus a bench comparison.
+
+**(2) Host services (`ask`/`choose`/`confirm`/`notify`/`post_to_ui`) — no
+consumer yet.** The one real need identified ("provider token input") is
+already served: `/set provider` prompts for a missing key and the 401
+recovery path prompts again, both through the existing `AgentHooks` +
+promise/queue machinery. Building the full service surface now would be a
+plugin-facing API with nothing calling it — the same failure mode as the log
+sinks we cut, and the reason the old `void*` capability struct existed.
+
+**Trigger:** a plugin that needs to ask the user something the core flows do
+not already cover (a provider plugin's own setup wizard, an interactive
+model picker). The implementation shape is already specified in the spec §8
+and reuses the existing modal + promise pattern, so nothing is lost by
+waiting for the caller.
 
 ### 2026-09-10 — PF-3.2: panels and the registry console
 
@@ -336,6 +383,7 @@ Binding. Superseding a decision requires editing the spec in the same change.
 | **D19** | **Declarations are separated from activation:** the runtime reads a plugin's declared capabilities at *registration* and installs them at activation. | Installing-only knowledge — a plugin that ships switched off would leave no trace, so a provider file pointing at its flavor would silently fall back to another wire protocol instead of reporting the disabled plugin. This is also what the console will use to answer "what would this plugin add?". |
 | **D20** | **A provider capability may contribute presets with no dialect factory** (presets-only), and a presets-only provider never takes a shared protocol down with it. | Requiring a factory — an OpenAI-compatible gateway (kilocode, openrouter) would have to claim ownership of the shared `openai` dialect, so switching that one provider off would break OpenAI-compatible use everywhere. |
 | **D21** | **Plugins read the host's LIVE config** (`PluginRuntime::attach_config`), never a startup copy. | A snapshot taken at construction — a plugin resolving an API key or the active provider would act on stale state after the user changes either. |
+| **D22** | **No plugin-facing surface without a caller.** Host services and log sinks are specified but unbuilt until something calls them. | Building them now — a plugin API nothing uses is exactly the state this rebuild started from (`capabilities()` read only by tests, a bus nobody fired), and it makes the surface's real shape unknowable while it is still unproven. The spec keeps the design; the tracker keeps the trigger. |
 
 ---
 
