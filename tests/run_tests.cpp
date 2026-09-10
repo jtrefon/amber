@@ -922,12 +922,25 @@ TEST(registry_repeated_registration_dedups) {
     ASSERT_EQ(names.size(), first);      // schema names unique
 }
 
-TEST(registry_schema_shape) {
+// The OpenAI tools[] payload is the dialect's responsibility, built from the
+// registry's tool metadata — the registry itself stays protocol-agnostic (see
+// docs/spec/llm-client/dialect.md).
+TEST(dialect_openai_builds_tool_payload) {
     agent::ToolRegistry r;
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
-    agent::json s = r.schema();
+
+    agent::Config cfg;
+    std::vector<agent::Message> msgs;
+    agent::Message user;
+    user.role = "user";
+    user.content = "hi";
+    msgs.push_back(user);
+
+    agent::json body = agent::make_dialect("openai")->build_chat_body(
+        cfg, msgs, r.snapshot_tools(), false);
+    const agent::json& s = body["tools"];
     ASSERT(s.is_array());
     ASSERT_EQ(s.size(), 7u);
     for (const auto& t : s) {
@@ -937,6 +950,7 @@ TEST(registry_schema_shape) {
         ASSERT(t["function"].contains("description"));
         ASSERT(t["function"]["parameters"].contains("properties"));
     }
+    ASSERT_EQ(body["tool_choice"], "auto");
 }
 
 // ---------------------------------------------------------------------------
@@ -5307,9 +5321,9 @@ private:
 };
 } // namespace
 
-// Concurrent register/find/schema from dispatch workers and the host thread.
-// Unsynchronized vector mutation is UB; the count assertion is the regression
-// guard (TSan is the authoritative detector, not run in CI).
+// Concurrent register/find/snapshot_tools from dispatch workers and the host
+// thread. Unsynchronized vector mutation is UB; the count assertion is the
+// regression guard (TSan is the authoritative detector, not run in CI).
 TEST(registry_concurrent_register_find) {
     agent::ToolRegistry reg;
     constexpr int kThreads = 8;
@@ -5322,7 +5336,7 @@ TEST(registry_concurrent_register_find) {
                 reg.register_tool(std::make_unique<ProbeTool>(
                     "probe_" + std::to_string(t) + "_" + std::to_string(i)));
                 (void)reg.find("probe_0_0");
-                (void)reg.schema();
+                (void)reg.snapshot_tools();
             }
         });
     for (auto& th : threads) th.join();

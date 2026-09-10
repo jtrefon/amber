@@ -120,6 +120,33 @@ void drop_empty_tool_slots(json& calls) {
     calls = std::move(dense);
 }
 
+// Normalize an assistant message's tool_calls for the wire: drop entries that
+// never received a function name (e.g. "{}" placeholder slots persisted by
+// older parsers on sparse-index streams — a strict gateway rejects them with
+// a type-discriminator 400) and default a missing/empty `type` to "function".
+// The caller's history is untouched.
+json sanitize_tool_calls(const json& calls) {
+    if (calls.is_null() || !calls.is_array()) return json::array();
+    json out = json::array();
+    for (const auto& tc : calls) {
+        if (!tc.is_object()) continue;
+        const json& fn = tc.value("function", json::object());
+        if (!fn.is_object()) continue;
+        auto it = fn.find("name");
+        if (it == fn.end() || !it->is_string() ||
+            it->get<std::string>().empty())
+            continue;
+        json kept = tc;
+        // Some paths (text-extracted calls, restored sessions) omit `type`;
+        // the OpenAI contract requires the discriminator.
+        if (!kept.contains("type") || !kept["type"].is_string() ||
+            kept["type"].get<std::string>().empty())
+            kept["type"] = "function";
+        out.push_back(std::move(kept));
+    }
+    return out;
+}
+
 // Extract a string field defensively: returns d if missing, null, or not a
 // string (so a malformed model response never throws and aborts the turn).
 std::string str_or_raw(const json& j, const char* key, const std::string& d) {
@@ -647,32 +674,6 @@ private:
 
 void sanitize_tool_schema(json& schema) {
     sanitize_node(schema);
-}
-
-json sanitize_tool_calls(const json& calls) {
-    if (calls.is_null() || !calls.is_array()) return json::array();
-    json out = json::array();
-    for (const auto& tc : calls) {
-        if (!tc.is_object()) continue;
-        // A call without a function name is an unfilled placeholder (e.g. a
-        // "{}" slot left by a sparse-index stream on an older build). Sending
-        // it makes strict gateways reject the whole request with a
-        // type-discriminator 400 — drop it instead.
-        const json& fn = tc.value("function", json::object());
-        if (!fn.is_object()) continue;
-        auto it = fn.find("name");
-        if (it == fn.end() || !it->is_string() ||
-            it->get<std::string>().empty())
-            continue;
-        json kept = tc;
-        // Some paths (text-extracted calls, restored sessions) omit `type`;
-        // the OpenAI contract requires the discriminator.
-        if (!kept.contains("type") || !kept["type"].is_string() ||
-            kept["type"].get<std::string>().empty())
-            kept["type"] = "function";
-        out.push_back(std::move(kept));
-    }
-    return out;
 }
 
 std::unique_ptr<Dialect> make_openai_dialect() {
