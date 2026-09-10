@@ -48,9 +48,11 @@
 
 - `LLMClient` becomes a pure-virtual port (`probe_server`, `chat`,
   `chat_stream`). The current class is renamed `HttpLLMClient`; its `Config`
-  member and the split TUs (`request_builder`, `sse_parser`, `http_transport`,
-  `model_probe`, `debug_log`) are untouched. `parse_models` /
-  `merge_server_info` / `apply_server_autodetect` become free functions.
+  member and the split TUs (`dialect_openai`, `stream_decoder`,
+  `http_transport`, `model_probe`, `debug_log`) are untouched. `merge_server_info`
+  / `apply_server_autodetect` become free functions. (`parse_models` later
+  became `Dialect::parse_models_response` in FIX-028; the TUs were renamed when
+  the dialect port landed.)
 - `Agent` holds `std::unique_ptr<LLMClient>`; the ctor takes an optional
   client (default = real one from `cfg_`). Host call sites unchanged.
 - **Behavior-identical refactor**: the full existing suite must be green

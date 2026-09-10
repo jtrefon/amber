@@ -1,11 +1,11 @@
 # Provider Dialect Architecture Proposal — 2026-09-09
 
-- **Status:** FIX-027, FIX-028, FIX-029, FIX-030, FIX-032 implemented (branch `refactor/provider-dialect-seam`); FIX-031 specs drafted — awaiting sign-off
-- **Branch:** `test/pin-wire-layer` (FIX-027, landed); `refactor/provider-dialect-seam` (FIX-028, proposed); per-FIX PR branches inside
+- **Status:** All implemented (FIX-027..032) — PR [#99](https://github.com/jtrefon/amber/pull/99), squash-merged to `main` as `e7ecfa4`; all CI checks green
+- **Branch:** `refactor/provider-dialect-seam` (merged); follow-up hygiene in `chore/no-debt-cleanup`
 - **Author:** Session analysis 2026-09-09 (3 parallel explorers + manual file verification)
 - **Target:** A provider layer that grows by *registration*, not by branching — any OpenAI-compatible endpoint stays config-only; genuinely different wire protocols (Anthropic, Gemini, …) become one dialect adapter each, touching zero shared code. Refactor is regression-protected by **characterization pins on the moving surface**, not by blocking on whole-app coverage.
 - **Constraints:** No `llama-turboq:8081` service changes; no live-API calls in the hermetic suite; plugin v2 `Capability` stays `void*` until a consumer exists (consistent with prior YAGNI sign-off); every phase Red → Green per `AGENTS.md` fix workflow (FIX-027 characterization is green-by-construction — see §3.4).
-- **References:** `AGENTS.md` (Engineering principles, fix workflow, context stack), `docs/fix-tracker.md` (FIX-027..031 follow FIX-026 render-engine), `docs/issues.md`, `docs/fix-proposal/clean-architecture-2026-08-27.md` (prior style + decisions), `docs/spec/plugins/plugin-framework-v2.md` (Phase 5 Provider capability), `docs/spec/llm-client/{http-transport,model-probe,streaming}.md`, `include/agent/{llm,providers,config,request_builder,sse_parser,model_probe}.h`
+- **References:** `AGENTS.md` (Engineering principles, fix workflow, context stack), `docs/fix-tracker.md` (FIX-027..032 follow FIX-026 render-engine), `docs/issues.md`, `docs/fix-proposal/clean-architecture-2026-08-27.md` (prior style + decisions), `docs/spec/plugins/plugin-framework-v2.md` (Phase 5 Provider capability), `docs/spec/llm-client/{dialect,http-transport,model-probe,streaming}.md`, `include/agent/{llm,providers,config,dialect,stream_decoder,model_probe}.h`
 
 ---
 
@@ -407,6 +407,8 @@ Gate: full suite **446/446**; cli + bench build; `make check` holds; cppcheck ad
 Gate: the three pins green; full suite **446/446**; cli + bench build; `make check` holds.
 
 ### FIX-031 — Docs & plugin alignment
+
+**Implemented** on `refactor/provider-dialect-seam` (2026-09-09, same branch): `dialect.md` written; `http-transport` / `streaming` / `model-probe` / `INDEX` / `plugin-framework-v2` re-aligned with the code.
 
 - New `docs/spec/llm-client/dialect.md` following `docs/spec/TEMPLATE.md` (Purpose/Ownership/Contract/Scenarios `SC-##`/Cross-references), the spec's "if code and spec disagree, the code is wrong" rule applying to the dialect port.
 - Rewrite `http-transport.md`, `model-probe.md`, `streaming.md` to describe the openai dialect as *one implementation* of the port (they already document the default behavior precisely — mostly terminology + ownership lines).

@@ -231,7 +231,7 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | `Tool::is_read_only()` | Should be `noexcept` |
 | `Tool::requires_approval()` | Should be `noexcept` |
 | `SearchBackend::name()` | Should be `noexcept` |
-| `Config::api_url()` | Should be `noexcept` |
+| ~~`Config::api_url()`~~ | Retired — URL building moved to `Dialect` (FIX-028) |
 | Various getters | ~20 methods that never throw |
 
 **Scope:** ~20 trivial sites. Fix opportunistically alongside other refactors.

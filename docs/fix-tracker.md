@@ -665,8 +665,8 @@ Add `noexcept` to:
 - `Tool::is_read_only()` — default returns false, never throws
 - `Tool::summarize()` — never throws
 - `SearchBackend::name()` — pure virtual, never throws
-- `Config::api_url()` — simple string concatenation
-- `Config::models_url()` — simple string concatenation
+- ~~`Config::api_url()` / `Config::models_url()`~~ — retired with the dialect
+  port (FIX-028); URL building now lives in `Dialect::chat_url` / `models_url`
 - All `make_*_tool()` factory functions
 - `ToolRegistry::empty()` — trivial
 - `Stats` struct: all fields are arithmetic types
@@ -1341,3 +1341,22 @@ FIX-016 (pipeline done 7a0e69d)
 | **Verification** | `ls tests/*.cpp` >10 files, `make test -j` no port collision, `duplicates` clean |
 
 Total 9 PRs, ~31h, each `make clean && make && make test && make lint && make analyze` zero warnings on `g++/clang++` per `ci.yml:84`.
+
+---
+
+## Provider Dialect 2026-09-09 — Proposal `docs/fix-proposal/provider-dialect-architecture-2026-09-09.md`
+
+PR [#99](https://github.com/jtrefon/amber/pull/99) — squash-merged to `main` as `e7ecfa4` (11 commits reviewed, one per FIX, all CI checks green). Growth claim: adding a provider is one dialect file + one registry row; `FIX-030` demonstrates it (Anthropic landed touching no transport/agent/UI code).
+
+| FIX | Subject | State |
+|-----|---------|-------|
+| `FIX-027` | Wire-layer characterization pins (9 tests + mock helpers) — written before any production line moved | ✅ in `e7ecfa4` |
+| — | Architecture proposal (decisions D1–D10, regression strategy, phases) | ✅ in `e7ecfa4` |
+| `FIX-028` | `Dialect` port: OpenAI wire format moved verbatim; `StreamDecoder` extraction; `request_builder.*`/`sse_parser.*` deleted | ✅ in `e7ecfa4` |
+| `FIX-029` | Capabilities reach the wire (`flavor`, `api_key_is_account_token`); last `provider_name ==` branch in core removed | ✅ in `e7ecfa4` |
+| `FIX-030` | Anthropic Messages API dialect — the growth proof (one file + registry/preset/capability rows) | ✅ in `e7ecfa4` |
+| `FIX-032` | Learned context window surfaces from `learned_context_size()` on the throwing 400 path (red test → fix) | ✅ in `e7ecfa4` |
+| `FIX-031` | `docs/spec/llm-client/dialect.md` + llm-client spec re-alignment | ✅ in `e7ecfa4` |
+| — | Follow-up: `ModelInfo` homed in `llm.h`; `sanitize_tool_calls` encapsulated; stale doc references retired; `url_test` untracked | ✅ `chore/no-debt-cleanup` |
+
+Follow-ups NOT in the merged PR: Bedrock/Vertex request signing (new increment on the same seam), streaming test gaps documented in `streaming.md` (connection drop, malformed SSE, double-finalize), Anthropic `thinking`/`reasoning_effort` have no Messages API equivalent (documented in the dialect).

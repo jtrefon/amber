@@ -349,7 +349,7 @@ behavior change: prove it with a before/after benchmark run (see
 - **`noexcept`** — mark pure accessors, trivial getters, and functions that
   never throw as `noexcept`. Only omit `noexcept` when the function legitimately
   throws. Every `Tool::name()`, `is_read_only()`, `requires_approval()`,
-  `SearchBackend::name()`, `Config::api_url()` should be `noexcept`.
+  `SearchBackend::name()`, `StreamDecoder::prompt_tokens()` should be `noexcept`.
 - **Const-correctness** — mark member functions and parameters `const` wherever
   possible. Use `const&` for read-only parameters of non-trivial types.
 
@@ -379,8 +379,9 @@ behavior change: prove it with a before/after benchmark run (see
   specifies the desired behaviour, implement until green, then refactor.
 - **Coverage threshold**: new code paths must have ≥80% line coverage. The CI
   gate (`make test`) must pass before merge.
-- **Hermetic tests**: mock the LLM by testing `LLMClient::parse_models` /
-  `merge_server_info` directly; do not hit a live server in the unit suite.
+- **Hermetic tests**: mock the LLM by testing the pure seams
+  (`Dialect::parse_models_response` / `parse_completion` / `context_overflow_hint`,
+  `merge_server_info`) directly; do not hit a live server in the unit suite.
 - **Test granularity**: prefer many small `TEST(name)` blocks over a single
   large test function. Each test exercises one behaviour.
 - **Test location**: behaviour changes go in `tests/run_tests.cpp`. New test
@@ -391,6 +392,11 @@ behavior change: prove it with a before/after benchmark run (see
 
 - **Strategy** — `SearchBackend` (`grep` vs `semantic`), selected at runtime by
   the `search` tool's `mode` arg without changing the schema.
+- **Strategy + Registry (provider wire protocols)** — `Dialect` implementations
+  (`openai`, `anthropic`, …) are selected once per client from `Config::flavor`
+  through the `make_dialect` registry; the transport, agent loop, and UIs never
+  branch on the protocol. Adding a provider protocol is one dialect file + one
+  registry row (`docs/spec/llm-client/dialect.md`).
 - **Factory** — `make_*_tool()` / `make_*_backend()` free functions return
   `unique_ptr<>` so the registry owns distinct instances; `register_default_tools`
   wires the standard set for every host.
@@ -410,9 +416,9 @@ behavior change: prove it with a before/after benchmark run (see
   live `context_` untouched when the pipeline fails (spec invariant 7); the
   rebuild via `clear()` + `push()` only happens on success, capturing and
   rolling back state atomically.
-- **Adapter** — `LLMClient` adapts libcurl + the OpenAI JSON contract behind a
-  small C++ interface; `Workspace` adapts filesystem confinement behind a simple
-  `confine()` port.
+- **Adapter** — `LLMClient` adapts libcurl + the configured `Dialect` behind a
+  small C++ interface; each `Dialect` adapts one provider wire protocol;
+  `Workspace` adapts filesystem confinement behind a simple `confine()` port.
 - **Facade** — `Agent` orchestrates client + registry + hooks + log into one
   `run()` use-case.
 - **Pub/Sub** — `EventBus` (plugin v2) provides typed event subscription with
@@ -439,9 +445,11 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tui/tui_input.cpp` | 2368 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
-- `lib/llm.cpp` (511 → 84): split into `request_builder`, `stream_decoder`
-  (formerly `sse_parser`) + `dialect_openai`, `http_transport`, `model_probe`,
-  `debug_log` (+ `llm.cpp` keeps the class).
+- `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),
+  `dialect_openai` (the OpenAI wire format), `http_transport`, `model_probe`,
+  `debug_log` (+ `llm.cpp` keeps the class). Provider wire protocols now live in
+  `lib/dialect_*.cpp` behind the `Dialect` port — see
+  `docs/spec/llm-client/dialect.md`.
 - `lib/agent.cpp` (473 → 200, now 773): `run` decomposed into `confirm_turn`,
   `dispatch_tool_calls`, `agent_helpers`, `tool_recovery`; `compress_now` now
   delegates to `CompressionPipeline::compress()` via `compression_->compress()`.
