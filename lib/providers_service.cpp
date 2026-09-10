@@ -13,11 +13,21 @@ const std::vector<std::pair<std::string, ProviderCapabilities>>&
 capability_overrides() {
     static const std::vector<std::pair<std::string, ProviderCapabilities>>
         table = {
-            // OpenRouter passes reasoning_effort through to upstreams.
-            {"openrouter", {true, true, "openai"}},
-            {"kilocode", {true, true, "openai"}},
+            // OpenRouter and kilocode speak the OpenAI wire protocol; the
+            // kilocode gateway key doubles as the account token (balance
+            // readout).
+            {"openrouter", {"openai", false}},
+            {"kilocode", {"openai", true}},
         };
     return table;
+}
+
+// Single source of capability data: the service and apply_selection both go
+// through here, so a provider's behavior can never drift between them.
+ProviderCapabilities capabilities_of(const std::string& name) {
+    for (const auto& [n, caps] : capability_overrides())
+        if (n == name) return caps;
+    return ProviderCapabilities{};
 }
 
 } // namespace
@@ -98,13 +108,6 @@ bool ProviderService::remember_model(const std::string& provider,
     return save(updated);
 }
 
-ProviderCapabilities ProviderService::capabilities(
-    const std::string& name) const {
-    for (const auto& [n, caps] : capability_overrides())
-        if (n == name) return caps;
-    return ProviderCapabilities{};
-}
-
 bool ProviderService::validate(const std::string& name) {
     const auto p = find(name);
     if (!p || p->api_base.empty()) return false;
@@ -124,6 +127,11 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     }
     if (sel.provider.default_context_size > 0 && !cfg.context_explicit)
         cfg.context_size = sel.provider.default_context_size;
+    // Wire capabilities: the dialect the client resolves and the balance
+    // readout's key semantics. Derived on every selection, never persisted.
+    const ProviderCapabilities caps = capabilities_of(sel.provider.name);
+    cfg.flavor = caps.flavor;
+    cfg.api_key_is_account_token = caps.api_key_is_account_token;
 }
 
 bool seed_custom_provider(const Config& connection) {

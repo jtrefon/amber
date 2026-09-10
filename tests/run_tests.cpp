@@ -294,15 +294,20 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
 }
 
 // The balance readout resolves its token from the explicit override, else the
-// active kilocode provider's api_key (where the TUI key prompt stores it) —
-// so a token entered via the prompt powers the readout with no extra config.
+// active provider's api_key when that provider's key IS the account token
+// (capability flag; the TUI key prompt stores it there) — so a token entered
+// via the prompt powers the readout with no extra config. The decision is
+// capability data, never a provider-name comparison.
 TEST(resolve_kilo_balance_token_falls_back_to_kilocode_api_key) {
     agent::Config c;
     c.provider_name = "openrouter";
     c.api_key = "sk-openrouter";
     ASSERT_TRUE(agent::resolve_kilo_balance_token(c).empty());
 
+    // Any provider flagged as account-token-backed resolves its api_key —
+    // the name is irrelevant.
     c.provider_name = "kilocode";
+    c.api_key_is_account_token = true;
     c.api_key = "kilo-jwt";
     ASSERT_EQ(agent::resolve_kilo_balance_token(c), "kilo-jwt");
 
@@ -313,7 +318,60 @@ TEST(resolve_kilo_balance_token_falls_back_to_kilocode_api_key) {
     // Anonymous kilocode (no key at all) resolves to nothing.
     agent::Config anon;
     anon.provider_name = "kilocode";
+    anon.api_key_is_account_token = true;
     ASSERT_TRUE(agent::resolve_kilo_balance_token(anon).empty());
+
+    // A kilocode-named config WITHOUT the capability flag yields nothing: the
+    // name alone must not decide (the flag is the single source of truth).
+    agent::Config named_only;
+    named_only.provider_name = "kilocode";
+    named_only.api_key = "kilo-jwt";
+    ASSERT_TRUE(agent::resolve_kilo_balance_token(named_only).empty());
+}
+
+// A provider's wire capabilities must reach the transport Config on
+// selection: the client resolves the dialect from cfg.flavor and the balance
+// readout from cfg.api_key_is_account_token — no provider-name branching
+// anywhere downstream.
+TEST(apply_selection_copies_flavor_and_account_token_flag) {
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_caps", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_caps");
+
+    auto svc = agent::make_default_provider_service(agent::Config{});
+
+    auto kilo = svc->select("kilocode");
+    ASSERT(kilo.ok());
+    agent::Config kilo_cfg;
+    agent::apply_selection(kilo_cfg, kilo);
+    ASSERT_EQ(kilo_cfg.flavor, "openai");
+    ASSERT_TRUE(kilo_cfg.api_key_is_account_token);
+
+    auto router = svc->select("openrouter");
+    ASSERT(router.ok());
+    agent::Config router_cfg;
+    agent::apply_selection(router_cfg, router);
+    ASSERT_EQ(router_cfg.flavor, "openai");
+    ASSERT_FALSE(router_cfg.api_key_is_account_token);
+
+    std::filesystem::remove_all("/tmp/amber_xdg_caps");
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+// The derived capability fields are never persisted: they are recomputed from
+// the provider on every boot (like api_base), so a stale flavor can never
+// survive in a config file.
+TEST(flavor_and_capability_flag_not_persisted) {
+    std::string path = "/tmp/amber_flavor_persist.conf";
+    agent::Config c;
+    c.flavor = "openai";
+    c.api_key_is_account_token = true;
+    ASSERT_TRUE(c.save_global(path));
+
+    agent::Config back;
+    back.load(path);
+    ASSERT_EQ(back.flavor, "openai");              // default, not stored
+    ASSERT_FALSE(back.api_key_is_account_token);   // default, not stored
+    std::remove(path.c_str());
 }
 
  TEST(provider_service_missing_key_is_warning) {

@@ -141,10 +141,11 @@ double fetch_kilo_balance(const std::string& token) {
 
 std::string resolve_kilo_balance_token(const Config& cfg) {
     if (!cfg.kilo_balance_token.empty()) return cfg.kilo_balance_token;
-    // kilocode's gateway key is the account token (its models only work with
-    // a valid token, and the TUI key prompt stores it as api_key), so the
-    // api_key powers the balance readout without extra configuration.
-    if (cfg.provider_name == "kilocode") return cfg.api_key;
+    // Providers whose api_key IS the account token (kilocode's gateway key —
+    // its models only work with a valid one, and the TUI key prompt stores it
+    // as api_key) power the balance readout without extra configuration. The
+    // decision is the provider's declared capability, never its name.
+    if (cfg.api_key_is_account_token) return cfg.api_key;
     return "";
 }
 

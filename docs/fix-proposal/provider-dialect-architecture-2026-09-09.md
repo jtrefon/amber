@@ -354,15 +354,18 @@ Gate: full core suite **432/432** on the final state; `cli` and `bench` binaries
 
 ### FIX-029 — Capabilities reach the wire
 
-**Red tests:**
+**Implemented** on `refactor/provider-dialect-seam` (2026-09-09, same branch as FIX-028).
 
-- `apply_selection_copies_flavor_and_account_token_flag` — selecting `kilocode` yields `cfg.flavor=="openai"`, `cfg.api_key_is_account_token==true`; selecting a plain provider yields defaults.
-- `resolve_balance_token_uses_capability_not_name` — a Config with the flag set returns `api_key` even when `provider_name` is anything; a kilocode Config without the flag (hypothetical) returns empty.
-- `flavor_not_persisted_by_save_global` — round-trip a Config through `save_global`/`load`; `flavor`/`api_key_is_account_token` come back as defaults (they are derived-on-boot, never stored).
+**Red first:** `apply_selection_copies_flavor_and_account_token_flag`, `flavor_and_capability_flag_not_persisted`, and the extended `resolve_kilo_balance_token_falls_back_to_kilocode_api_key` (name-only config now yields nothing; a flagged config yields the key) were written and confirmed failing to compile before the implementation landed.
 
-**Green:** add the two `Config` fields; `apply_selection` copies capability data via a shared `capabilities_of(name)` helper (service method + free function must not drift — the service delegates); shrink `ProviderCapabilities`; delete the override table's now-meaningless entries' bools; rework `resolve_kilo_balance_token` → `resolve_balance_token` (rename call sites in TUI status code) with no `provider_name` compare.
+**Green:** `Config` gains `api_key_is_account_token` (`flavor` arrived with FIX-028); `ProviderCapabilities` shrinks to `{flavor, api_key_is_account_token}` — the simulated-behavior bools (`bearer_auth`, `supports_reasoning_effort`) are **deleted**, not kept; the override table declares `kilocode` as account-token-backed and both built-ins as `openai`; a single file-local `capabilities_of(name)` helper is the one source both `apply_selection` and any future consumer consult; `apply_selection` copies both fields (derived on every selection, never persisted); `resolve_kilo_balance_token` decides on the capability flag instead of `provider_name == "kilocode"`.
 
-Gate: `grep -rn 'provider_name ==' lib/ include/` → 0; `bearer_auth`/`supports_reasoning_effort` → 0 mentions outside this proposal.
+**Deviations from the plan:**
+
+1. **`ProviderService::capabilities()` deleted instead of delegating.** The free helper is the single source; the public accessor had zero callers, so keeping it would have been dead API (`AGENTS.md`: no dead code). If a future caller needs capabilities by name, it re-consults the same helper.
+2. **`resolve_kilo_balance_token` keeps its name.** The readout IS kilo.ai-specific (`fetch_kilo_balance` hardcodes the kilo endpoint); only the provider-name branch was the violation. Renaming would have churned the TUI for cosmetics, so the name stays and the branch is gone.
+
+Gate: `grep -rn 'provider_name ==' lib/ include/` → 0 (the three remaining `provider_name ==` in `tui/tui_input.cpp` compare the *active* provider for display/identity, not behavior); `bearer_auth`/`supports_reasoning_effort` → 0 mentions; full suite **434/434**; cli + bench build; `make check` holds.
 
 ### FIX-030 — Anthropic proof dialect (hermetic)
 

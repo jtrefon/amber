@@ -23,6 +23,10 @@ struct Config {
     // (make_dialect). Set from the provider's capabilities on selection;
     // "openai" covers every OpenAI-compatible endpoint.
     std::string flavor = "openai";
+    // True when the provider's api_key doubles as its account token (the
+    // kilo.ai balance readout uses it without extra configuration). Derived
+    // from the provider's capabilities on selection — never persisted.
+    bool api_key_is_account_token = false;
     std::string api_base = "http://localhost:8000/v1";
     std::string api_key;                 // required for managed providers
     std::string model = "gpt-4o-mini";
