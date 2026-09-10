@@ -14,6 +14,7 @@
 #include "agent/registry.h"
 #include "agent/llm.h"
 #include "agent/events.h"
+#include "agent/extensions.h"
 #include "agent/conversation_log.h"
 #include "agent/compressor.h"
 #include "agent/context.h"
@@ -199,6 +200,12 @@ public:
     // probe) are never published.
     void set_events(EventBus& bus) noexcept { event_bus_ = &bus; }
 
+    // Attach the contribution registries. Optional, like the bus: with none
+    // attached the agent builds its prompt from the core blocks alone.
+    void set_prompt_registry(PromptRegistry& prompts) noexcept {
+        prompt_registry_ = &prompts;
+    }
+
     // The session's experience store (nullptr when experience is disabled).
     // Read-only use by the UI; mutation goes through learn_forget/learn_pin
     // so persistence stays in the core.
@@ -332,6 +339,7 @@ private:
     ExperienceConfig experience_cfg_;
     PolicyStore policy_;
     EventBus* event_bus_ = nullptr;
+    PromptRegistry* prompt_registry_ = nullptr;
     size_t turn_counter_ = 0;
     CompressionResult last_compression_;
 };

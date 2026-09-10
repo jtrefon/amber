@@ -15,6 +15,7 @@
 #include "agent/config.h"
 #include "agent/event_bus.h"
 #include "agent/extensions.h"
+#include "agent/plugin.h"
 #include "agent/plugin_capability.h"
 #include "agent/plugin_registry.h"
 #include "agent/registry.h"
@@ -40,11 +41,17 @@ public:
 
     // Register a compiled-in plugin. Registration never activates: state comes
     // from the persisted file, so a restart reproduces the same harness.
-    void add(std::shared_ptr<IPlugin> plugin, bool bundled = true);
+    // Returns false when the id is already taken (first registration wins).
+    bool add(std::shared_ptr<IPlugin> plugin, bool bundled = true);
 
     // Register every plugin that ships with amber. Bundled plugins are defined
     // in one place so the shipped set is enumerable at a glance.
     void add_bundled();
+
+    // Register the discovered external (v1) plugins under the same surface, so
+    // one command tree controls both tiers. A discovered plugin whose id
+    // collides with a bundled one is skipped, never silently overwritten.
+    void add_external(PluginManager& manager);
 
     // --- Lifecycle ---------------------------------------------------------
 

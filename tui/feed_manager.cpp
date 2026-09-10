@@ -128,7 +128,7 @@ void FeedManager::refresh_plugin_feed() {
 
         nlohmann::json& detail = subtree["get"]["children"]["plugin"]["children"][id];
         detail["action"] = "core.config.get.plugin." + id;
-        detail["help"] = state + " — " + p.tier + " v" + p.version;
+        detail["help"] = state + ", " + p.tier + " v" + p.version;
         tui_.register_action(detail["action"].get<std::string>(),
                              [this, id](const std::string&) { tui_.show_plugin(id); });
     }

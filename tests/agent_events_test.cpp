@@ -240,6 +240,70 @@ TEST(agent_tool_interceptor_can_rewrite_arguments) {
     ASSERT(saw_redirect);
 }
 
+TEST(agent_sends_contributed_prompt_blocks) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = event_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "ok");
+    push_text(*fake, "done");
+
+    agent::PromptRegistry prompts;
+    prompts.add("plug", "facts", 400, [] { return std::string("PLUGIN FACTS"); });
+    prompts.add("plug", "silent", 500, [] { return std::string(); });
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.set_prompt_registry(prompts);
+    ag.run("hello");
+
+    bool saw_block = false;
+    for (const auto& m : raw->requests[0])
+        if (m.role == "system" && m.content == "PLUGIN FACTS") saw_block = true;
+    ASSERT(saw_block);
+
+    // The sealed context is untouched: the block lives on the prompt copy.
+    for (const auto& m : ag.context().get_all())
+        ASSERT(m.content.find("PLUGIN FACTS") == std::string::npos);
+}
+
+TEST(agent_prompt_blocks_are_stable_across_turns) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = event_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "one");
+    push_text(*fake, "done");
+    push_text(*fake, "two");
+    push_text(*fake, "done");
+
+    agent::PromptRegistry prompts;
+    int renders = 0;
+    prompts.add("plug", "block", 400, [&renders] {
+        ++renders;
+        return std::string("STABLE BLOCK");
+    });
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.set_prompt_registry(prompts);
+    ag.run("first");
+    ag.run("second");
+
+    // Rendered once per model round trip (the confirmation probe builds a
+    // prompt too) - what matters is that the same inputs render identically,
+    // so the server's prefix cache survives the turn.
+    ASSERT_EQ(renders, 4);
+    std::string first_prefix, second_prefix;
+    for (const auto& m : raw->requests[0])
+        if (m.role == "system") first_prefix += m.content + "\n";
+    for (const auto& m : raw->requests[2])
+        if (m.role == "system") second_prefix += m.content + "\n";
+    ASSERT(first_prefix.find("STABLE BLOCK") != std::string::npos);
+    ASSERT(second_prefix.find("STABLE BLOCK") != std::string::npos);
+    ASSERT(first_prefix == second_prefix);
+}
+
 TEST(agent_without_bus_runs_unchanged) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = event_cfg();

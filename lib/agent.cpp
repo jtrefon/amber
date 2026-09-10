@@ -362,6 +362,19 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
         }
     }
 
+    // Contributed prompt blocks come last: they sit at the tail of the stable
+    // prefix, so a block that changes cannot invalidate the cache for anything
+    // before it. Each block is its own system message - the sealed Context is
+    // never touched, this is the prompt copy.
+    if (prompt_registry_) {
+        for (auto& block : prompt_registry_->render_all()) {
+            Message block_msg;
+            block_msg.role = "system";
+            block_msg.content = std::move(block);
+            prompt_copy.push_back(std::move(block_msg));
+        }
+    }
+
     const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
         reply = client_->chat_stream(prompt_copy, tools,

@@ -36,7 +36,10 @@ Window& WindowManager::new_window(const std::string& title) {
     w->agent->policy().init(agent::Workspace::local_dir() + "/policy.json");
     // Attach the harness bus so plugins observe this window's turns. Without a
     // runtime (tests, headless hosts) the agent simply publishes nothing.
-    if (plugin_runtime_) w->agent->set_events(plugin_runtime_->events());
+    if (plugin_runtime_) {
+        w->agent->set_events(plugin_runtime_->events());
+        w->agent->set_prompt_registry(plugin_runtime_->prompts());
+    }
     windows_.push_back(std::move(w));
     active_ = windows_.size() - 1;
     return *windows_.back();

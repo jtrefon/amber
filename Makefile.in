@@ -75,6 +75,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/plugin_capability.o \
               $(BUILD_DIR)/lib/extensions.o \
               $(BUILD_DIR)/lib/plugin_runtime.o \
+              $(BUILD_DIR)/lib/plugin_v1_adapter.o \
               $(BUILD_DIR)/lib/plugins_bundled.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \

@@ -1,6 +1,7 @@
 #include "agent/plugin_runtime.h"
 
 #include "agent/plugins_bundled.h"
+#include "agent/plugin_v1_adapter.h"
 
 #include <filesystem>
 #include <fstream>
@@ -61,15 +62,22 @@ PluginRuntime::~PluginRuntime() {
     shutdown();
 }
 
-void PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
-    if (!plugin) return;
+bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
+    if (!plugin) return false;
     const std::string id = plugin->id();
+    if (plugins_.find(id) != plugins_.end()) return false;  // first registration wins
     plugins_[id] = Entry{std::move(plugin), bundled};
     registry_.register_plugin(plugins_[id].plugin);
+    return true;
 }
 
 void PluginRuntime::add_bundled() {
     for (auto& plugin : make_bundled_plugins()) add(std::move(plugin), true);
+}
+
+void PluginRuntime::add_external(PluginManager& manager) {
+    for (auto& plugin : make_v1_plugin_adapters(manager))
+        add(std::move(plugin), /*bundled=*/false);
 }
 
 void PluginRuntime::start() {

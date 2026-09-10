@@ -163,6 +163,7 @@ int main(int argc, char** argv) {
     agent::Workspace workspace;
     agent::PluginRuntime plugin_runtime(registry, cfg, workspace);
     plugin_runtime.add_bundled();
+    plugin_runtime.add_external(plugins);
     plugin_runtime.start();
 
     tui::Tui tui(cfg, registry, jobs, subagents, plugins, plugin_runtime);

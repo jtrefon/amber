@@ -220,6 +220,41 @@ TEST(runtime_contributions_span_every_registry) {
     ASSERT_EQ(list[0].contributions.size(), 2u);
 }
 
+// The v1 adapter puts external plugins under the same surface. A discovered
+// plugin whose id collides with a bundled one must not overwrite it.
+TEST(runtime_external_plugins_share_the_control_surface) {
+    ScratchConfig scratch("external");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<BlockPlugin>("metrics", "core metrics"), true);
+
+    agent::PluginManager manager;  // discovers nothing on this machine
+    runtime.add_external(manager);
+
+    ASSERT_TRUE(runtime.add(std::make_shared<BlockPlugin>("metrics", "impostor"),
+                            false) == false);
+    auto list = runtime.list();
+    ASSERT_EQ(list.size(), 1u);
+    ASSERT_EQ(list[0].tier, std::string("bundled"));
+
+    // A distinct external id is accepted and reported as external.
+    ASSERT_TRUE(runtime.add(std::make_shared<BlockPlugin>("ext_sample", "x"),
+                            false));
+    ASSERT_EQ(runtime.status("ext_sample").tier, std::string("external"));
+}
+
+TEST(runtime_external_plugin_is_off_by_default) {
+    ScratchConfig scratch("external_off");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<BlockPlugin>("ext_sample", "x"), false);
+    runtime.start();
+    // External plugins are opt-in: a discovered plugin does not run until the
+    // user enables it.
+    ASSERT_FALSE(runtime.status("ext_sample").enabled);
+    ASSERT_EQ(runtime.prompts().size(), 0u);
+}
+
 TEST(runtime_bundled_set_registers_the_metrics_plugin) {
     ScratchConfig scratch("bundled");
     Fixture f;
