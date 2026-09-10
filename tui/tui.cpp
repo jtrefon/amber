@@ -10,6 +10,7 @@
 #include "signal_guard.h"
 #include "event_router.h"
 #include "feed_manager.h"
+#include "path_confine.h"
 
 #include <agent.h>
 #include <agent/mcp_tools.h>
@@ -185,19 +186,23 @@ std::string Tui::expand_at_references(const std::string& raw) const {
         std::string ref = raw.substr(at + 1, end - at - 1);
         if (!ref.empty()) {
             namespace fs = std::filesystem;
-            std::string root = agent::Workspace::root();
-            fs::path ref_path = fs::path(root) / ref;
-            std::error_code ec;
-            if (fs::is_regular_file(ref_path, ec)) {
-                std::ifstream f(ref_path);
-                std::string content((std::istreambuf_iterator<char>(f)),
-                                     std::istreambuf_iterator<char>());
-                if (content.size() > 4096) content.resize(4096);
-                out += "\n[file: " + ref + "]\n";
-                out += content;
-                out += "\n[/file]\n";
-            } else {
+            std::string resolved, err;
+            if (!tui::confine_path(ref, resolved, err)) {
                 out += ref;
+            } else {
+                fs::path ref_path(resolved);
+                std::error_code ec;
+                if (fs::is_regular_file(ref_path, ec)) {
+                    std::ifstream f(ref_path);
+                    std::string content((std::istreambuf_iterator<char>(f)),
+                                         std::istreambuf_iterator<char>());
+                    if (content.size() > 4096) content.resize(4096);
+                    out += "\n[file: " + ref + "]\n";
+                    out += content;
+                    out += "\n[/file]\n";
+                } else {
+                    out += ref;
+                }
             }
         }
         i = end;
