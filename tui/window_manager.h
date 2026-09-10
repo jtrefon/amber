@@ -8,6 +8,7 @@
 namespace agent {
 struct Config;
 class ToolRegistry;
+class PluginRuntime;
 } // namespace agent
 
 namespace tui {
@@ -15,7 +16,8 @@ struct Window;
 
 class WindowManager {
 public:
-    WindowManager(agent::Config& cfg, agent::ToolRegistry& reg);
+    WindowManager(agent::Config& cfg, agent::ToolRegistry& reg,
+                  agent::PluginRuntime* plugin_runtime = nullptr);
     Window& new_window(const std::string& title);
     Window& open_welcome_window();
     Window& ensure_chat_window();
@@ -33,6 +35,7 @@ public:
 private:
     agent::Config& cfg_;
     agent::ToolRegistry& reg_;
+    agent::PluginRuntime* plugin_runtime_ = nullptr;
     std::vector<std::unique_ptr<Window>> windows_;
     size_t active_ = 0;
     size_t next_id_ = 0;

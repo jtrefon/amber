@@ -2,6 +2,7 @@
 #include <agent.h>
 
 #include "agent/workspace.h"
+#include "agent/plugin_runtime.h"
 #include "agent/bootstrap.h"
 #include "agent/data_path.h"
 
@@ -155,9 +156,16 @@ int main(int argc, char** argv) {
 
     agent::PluginManager plugins;
     plugins.discover();
-    agent::PluginRegistry plugin_reg;
 
-    tui::Tui tui(cfg, registry, jobs, subagents, plugins, plugin_reg);
+    // The v2 runtime: bundled plugins register here, their state comes from
+    // ~/.config/amber/plugins/<id>/plugin.conf, and activation installs what
+    // each declares into the shared registries.
+    agent::Workspace workspace;
+    agent::PluginRuntime plugin_runtime(registry, cfg, workspace);
+    plugin_runtime.add_bundled();
+    plugin_runtime.start();
+
+    tui::Tui tui(cfg, registry, jobs, subagents, plugins, plugin_runtime);
     tui.run();
     return 0;
 }

@@ -5,6 +5,7 @@
 #include "tui/confirm_panel.h"
 #include "tui/path_confine.h"
 #include "agent/model_probe.h"
+#include "agent/plugin_runtime.h"
 #include "agent/skill_commands.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_commands.h"
@@ -1086,6 +1087,12 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string& a) { cmd_model_set(a); });
     register_action("core.config.get.mcp", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
+    register_action("core.config.get.plugin",
+        [this](const std::string& a) { cmd_runtime_plugin_get(a); });
+    register_action("core.config.get.plugin.list",
+        [this](const std::string&) { cmd_runtime_plugin_list(); });
+    register_action("core.config.set.plugin",
+        [this](const std::string&) { cmd_runtime_plugin_list(); });
     register_action("core.config.get.provider",
         [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.provider.list",
@@ -1449,6 +1456,77 @@ void SlashDispatcher::cmd_provider_list() {
                            (p.api_base.empty() ? "unconfigured" : p.api_base) +
                            ")";
         tui_.append_line(P_STATUS, line);
+    }
+}
+
+// --- plugin runtime surface (/get plugin, /set plugin) --------------------
+// One line per plugin, fixed column order (id, tier, state, contributions) so
+// the output is both readable and stable enough to assert on.
+
+namespace {
+
+std::string plugin_state_word(bool enabled) { return enabled ? "on" : "off"; }
+
+std::string contribution_kind_name(agent::CapabilityKind kind) {
+    switch (kind) {
+    case agent::CapabilityKind::Tool: return "tool";
+    case agent::CapabilityKind::Command: return "command";
+    case agent::CapabilityKind::PromptBlock: return "prompt";
+    case agent::CapabilityKind::Setting: return "setting";
+    case agent::CapabilityKind::Provider: return "provider";
+    }
+    return "?";
+}
+
+} // namespace
+
+void SlashDispatcher::cmd_runtime_plugin_list() {
+    auto plugins = tui_.plugin_runtime_.list();
+    if (plugins.empty()) {
+        tui_.append_line(P_STATUS, "no plugins registered");
+        return;
+    }
+    for (const auto& p : plugins) {
+        std::string line = "  " + p.id + "  " + p.tier + "  " +
+                           plugin_state_word(p.enabled);
+        if (!p.version.empty()) line += "  v" + p.version;
+        if (!p.contributions.empty()) {
+            line += "  [";
+            for (size_t i = 0; i < p.contributions.size(); ++i) {
+                if (i) line += ", ";
+                line += contribution_kind_name(p.contributions[i].kind) + ":" +
+                        p.contributions[i].name;
+            }
+            line += "]";
+        }
+        tui_.append_line(P_STATUS, line);
+    }
+}
+
+void SlashDispatcher::cmd_runtime_plugin_get(const std::string& id) {
+    if (id.empty() || id == "list") {
+        cmd_runtime_plugin_list();
+        return;
+    }
+    tui_.show_plugin(id);
+}
+
+void SlashDispatcher::show_plugin(const std::string& id) {
+    if (!tui_.plugin_runtime_.has(id)) {
+        tui_.append_line(P_STATUS, "unknown plugin: " + id);
+        return;
+    }
+    const auto status = tui_.plugin_runtime_.status(id);
+    tui_.append_line(P_STATUS, "plugin " + status.id + ": " +
+                                  plugin_state_word(status.enabled) +
+                                  " (" + status.tier + " v" + status.version +
+                                  ")");
+    if (status.contributions.empty()) {
+        tui_.append_line(P_STATUS, "  contributes nothing");
+    }
+    for (const auto& item : status.contributions) {
+        tui_.append_line(P_STATUS, "  " + contribution_kind_name(item.kind) +
+                                       ": " + item.name);
     }
 }
 

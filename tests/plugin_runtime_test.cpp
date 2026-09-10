@@ -3,15 +3,20 @@
 // config root is redirected to a scratch directory, so nothing touches the
 // developer's real ~/.config.
 
+#include "agent.h"
 #include "agent/extensions.h"
 #include "agent/plugin_runtime.h"
 #include "agent/plugins_bundled.h"
+#include "agent/tools.h"
+#include "fake_llm.h"
+#include "plugins/metrics/metrics_plugin.h"
 #include "test_util.h"
 
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <unistd.h>
 
 using namespace agent;
 
@@ -222,6 +227,46 @@ TEST(runtime_bundled_set_registers_the_metrics_plugin) {
     runtime.add_bundled();
     ASSERT_TRUE(runtime.has("metrics"));
     ASSERT_FALSE(make_bundled_plugins().empty());
+}
+
+// The end-to-end proof the framework exists for: a real agent turn, with the
+// bus attached by the runtime, observed by the bundled plugin - and silence
+// once the plugin is switched off.
+TEST(runtime_bundled_plugin_observes_a_real_turn) {
+    ScratchConfig scratch("dogfood");
+    Fixture f;
+    f.cfg.stream = false;
+    f.cfg.system_prompt_path = "prompts/system.md";
+    f.cfg.tools_prompt_path = "prompts/tools.md";
+    char cwd[4096];
+    if (getcwd(cwd, sizeof cwd)) Workspace::set_root(cwd);
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    auto metrics = std::make_shared<plugins::MetricsPlugin>();
+    runtime.add(metrics);
+    runtime.start();
+    ASSERT_TRUE(runtime.status("metrics").enabled);
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply reply;
+    reply.content = "hello";
+    fake->script.push_back(reply);
+    agent_test::FakeReply done;
+    done.content = "done";
+    fake->script.push_back(done);
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(f.cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.set_events(runtime.events());
+    ag.run("say hello");
+
+    ASSERT_EQ(metrics->stats().turns, 1);
+
+    // Switched off: the plugin sees nothing more, and it has no contributions
+    // left in the harness.
+    ASSERT_TRUE(runtime.set_state("metrics", false));
+    ASSERT_TRUE(runtime.contributions().empty());
+    ASSERT_FALSE(runtime.status("metrics").enabled);
 }
 
 TEST(runtime_shutdown_deactivates_everything) {

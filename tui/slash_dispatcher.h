@@ -48,6 +48,9 @@ public:
     void cmd_set_reasoning_effort(const std::string& val);
     void cmd_get_reasoning();
     void cmd_provider_list();
+    void cmd_runtime_plugin_list();
+    void cmd_runtime_plugin_get(const std::string& id);
+    void show_plugin(const std::string& id);
     void cmd_provider_delete(const std::string& name);
     void cmd_provider_test(const std::string& name);
     void cmd_session_load(const std::string& id);

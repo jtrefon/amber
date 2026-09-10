@@ -59,11 +59,11 @@ static void signal_handler(int sig) {
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
           agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
-          agent::PluginRegistry& plugin_reg)
+          agent::PluginRuntime& plugin_runtime)
     : cfg_(std::move(cfg)),
       providers_(agent::make_default_provider_service(cfg_)),
       reg_(reg), jobs_(jobs), subagents_(subagents),
-      plugins_(plugins), plugin_reg_(plugin_reg),
+      plugins_(plugins), plugin_runtime_(plugin_runtime),
       mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token) {
     std::setlocale(LC_ALL, "");
     g_terminal_guard.capture();
@@ -94,11 +94,8 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    plugin_ctx_ = std::make_unique<agent::PluginContext>(
-        agent::PluginContext{plugin_reg_.event_bus(), reg_, cfg_, workspace_});
-    plugin_reg_.set_context(plugin_ctx_.get());
     feed_manager_ = std::make_unique<FeedManager>(*this);
-    window_manager_ = std::make_unique<WindowManager>(cfg_, reg_);
+    window_manager_ = std::make_unique<WindowManager>(cfg_, reg_, &plugin_runtime_);
     router_ = std::make_unique<EventRouter>(*this);
     render_engine_ = std::make_unique<RenderEngine>(*this);
     session_controller_ = std::make_unique<SessionController>(*this);
@@ -358,6 +355,7 @@ void Tui::run() {
     refresh_policy_feed();
     refresh_job_feed();
     refresh_provider_feed();
+    refresh_plugin_feed();
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
     CommandLine cl;
@@ -806,8 +804,12 @@ void Tui::refresh_model_list() { slash_dispatcher_->refresh_model_list(); }
 void Tui::refresh_policy_feed() { slash_dispatcher_->refresh_policy_feed(); }
 void Tui::refresh_provider_feed() { slash_dispatcher_->refresh_provider_feed(); }
 void Tui::refresh_job_feed() { slash_dispatcher_->refresh_job_feed(); }
+void Tui::refresh_plugin_feed() {
+    if (feed_manager_) feed_manager_->refresh_plugin_feed();
+}
 void Tui::cmd_model_set(const std::string& arg) { slash_dispatcher_->cmd_model_set(arg); }
 void Tui::cmd_provider(const std::string& arg) { slash_dispatcher_->cmd_provider(arg); }
+void Tui::show_plugin(const std::string& id) { slash_dispatcher_->show_plugin(id); }
 void Tui::job_kill(const std::string& id) { slash_dispatcher_->job_kill(id); }
 void Tui::job_read(const std::string& id) { slash_dispatcher_->job_read(id); }
 void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) { slash_dispatcher_->apply_policy_rule(name, lvl); }

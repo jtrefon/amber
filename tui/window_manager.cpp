@@ -3,6 +3,7 @@
 
 #include <agent.h>
 #include <agent/compressor.h>
+#include <agent/plugin_runtime.h>
 #include <agent/experience.h>
 #include <agent/workspace.h>
 
@@ -10,8 +11,9 @@
 
 namespace tui {
 
-WindowManager::WindowManager(agent::Config& cfg, agent::ToolRegistry& reg)
-    : cfg_(cfg), reg_(reg) {}
+WindowManager::WindowManager(agent::Config& cfg, agent::ToolRegistry& reg,
+                             agent::PluginRuntime* plugin_runtime)
+    : cfg_(cfg), reg_(reg), plugin_runtime_(plugin_runtime) {}
 
 Window& WindowManager::new_window(const std::string& title) {
     auto w = std::make_unique<Window>();
@@ -32,6 +34,9 @@ Window& WindowManager::new_window(const std::string& title) {
                    std::move(retriever), {}, {}, true);
     w->agent = std::make_unique<agent::Agent>(std::move(a));
     w->agent->policy().init(agent::Workspace::local_dir() + "/policy.json");
+    // Attach the harness bus so plugins observe this window's turns. Without a
+    // runtime (tests, headless hosts) the agent simply publishes nothing.
+    if (plugin_runtime_) w->agent->set_events(plugin_runtime_->events());
     windows_.push_back(std::move(w));
     active_ = windows_.size() - 1;
     return *windows_.back();

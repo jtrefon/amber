@@ -57,7 +57,7 @@ class Tui {
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
-        agent::PluginRegistry& plugin_reg);
+        agent::PluginRuntime& plugin_runtime);
     ~Tui();
 
     Tui(const Tui&) = delete;
@@ -148,8 +148,10 @@ private:
     void refresh_policy_feed();
     void refresh_provider_feed();
     void refresh_job_feed();
+    void refresh_plugin_feed();
     void cmd_model_set(const std::string& arg);
     void cmd_provider(const std::string& arg);
+    void show_plugin(const std::string& id);
     void job_kill(const std::string& id);
     void job_read(const std::string& id);
     void apply_policy_rule(const std::string& name, const std::string& lvl);
@@ -162,10 +164,8 @@ private:
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;
     agent::SubAgentExecutor& subagents_;       // host-owned; shared with process_* tools
-    agent::PluginManager& plugins_; // host-owned; plugin lifecycle + tools
-    agent::PluginRegistry& plugin_reg_;  // v2 plugin registry
-    agent::Workspace workspace_; // workspace instance for PluginContext
-    std::unique_ptr<agent::PluginContext> plugin_ctx_; // owned context for v2 plugins
+    agent::PluginManager& plugins_; // host-owned; v1 external plugin lifecycle
+    agent::PluginRuntime& plugin_runtime_; // v2 runtime (registries + ledger)
     std::unique_ptr<FeedManager> feed_manager_; // feed leaves for completions
     agent::ServerManager mcp_servers_;  // session-scoped MCP manager
     std::string input_fill_;            // /prompt result applied to the input line
