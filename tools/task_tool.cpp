@@ -38,6 +38,10 @@ public:
             {"required", {"prompt"}}};
     }
 
+    // Sub-agent inherits the parent's full tool registry — a model denied
+    // bash could spawn a task whose worker runs bash ungated. Always prompt.
+    bool requires_approval(const json&) const noexcept override { return true; }
+
     ToolResult execute(const agent::json& args) const override {
         if (!args.contains("prompt") || !args["prompt"].is_string())
             return ToolResult{false, "", "task: missing prompt",

@@ -123,6 +123,10 @@ void walk(const std::string& dir, const std::string& glob,
     for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
          it != end && !ec; it.increment(ec)) {
         const fs::path& p = it->path();
+        // Skip symlinks: a symlink inside the workspace can point outside,
+        // leaking out-of-workspace file contents into the index. Use
+        // symlink_status (no-follow) to detect them before is_regular_file.
+        if (fs::is_symlink(fs::symlink_status(p, ec))) continue;
         if (!fs::is_regular_file(p, ec)) continue;
         // Honor exclude dirs by their top-level name anywhere in the path.
         bool excluded = false;

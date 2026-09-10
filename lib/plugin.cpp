@@ -66,6 +66,42 @@ bool is_executable(const std::string& p) {
     return is_regular_file(p) && access(p.c_str(), X_OK) == 0;
 }
 
+// Validate that the manifest "main" path stays inside the plugin directory.
+// Rejects absolute paths, parent traversal (..), and symlinks pointing
+// outside the plugin dir. A malicious manifest with main="../../bin/sh"
+// or a symlinked entry point must not execute arbitrary code.
+bool is_safe_main_path(const std::string& dir, const std::string& main,
+                       std::string& err) {
+    namespace fs = std::filesystem;
+    if (!main.empty() && main[0] == '/') {
+        err = "main must be a relative path, got absolute: " + main;
+        return false;
+    }
+    fs::path resolved = fs::path(dir) / main;
+    std::error_code ec;
+    fs::path canonical_dir = fs::canonical(dir, ec);
+    if (ec) { err = "cannot resolve plugin dir: " + ec.message(); return false; }
+    fs::path canonical_main = fs::canonical(resolved, ec);
+    if (ec) { err = "cannot resolve main: " + ec.message(); return false; }
+    // The canonical main path must be inside the canonical plugin dir.
+    std::string dir_str = canonical_dir.string();
+    std::string main_str = canonical_main.string();
+    if (dir_str.back() == '/') dir_str.pop_back();
+    if (main_str.find(dir_str) != 0 ||
+        (main_str.size() > dir_str.size() && main_str[dir_str.size()] != '/') ||
+        main_str == dir_str) {
+        err = "main escapes plugin directory: " + main;
+        return false;
+    }
+    // Reject symlinks: the entry point must be a real file inside the dir,
+    // not a symlink to an outside executable.
+    if (fs::is_symlink(fs::symlink_status(resolved, ec))) {
+        err = "main must not be a symlink: " + main;
+        return false;
+    }
+    return true;
+}
+
 std::vector<std::string> list_subdirs(const std::string& dir) {
     std::vector<std::string> out;
     DIR* d = opendir(dir.c_str());
@@ -144,6 +180,9 @@ bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out,
         err = "main executable '" + out.main + "' missing or not executable";
         return false;
     }
+    // Reject main paths that escape the plugin directory: absolute paths,
+    // parent traversal, and symlinks pointing outside the plugin dir.
+    if (!is_safe_main_path(dir, out.main, err)) return false;
     return true;
 }
 
@@ -362,6 +401,10 @@ public:
     std::string description() const noexcept override { return description_; }
     json parameters_schema() const override { return schema_; }
 
+    // External-process code execution (e.g. cdp eval runs model-supplied
+    // JavaScript in a browser). Always prompt.
+    bool requires_approval(const json&) const noexcept override { return true; }
+
     ToolResult execute(const json& args) const override {
         return mgr_->call_tool(*mgr_->find(id_), name_, args);
     }
@@ -544,8 +587,7 @@ std::string PluginManager::install(const std::string& source) {
     std::filesystem::create_directories(dest, ec2);
     std::error_code ec3;
     std::filesystem::copy(dir, dest,
-                          std::filesystem::copy_options::recursive |
-                              std::filesystem::copy_options::copy_symlinks,
+                          std::filesystem::copy_options::recursive,
                           ec3);
     if (ec3) return "cannot stage plugin: " + ec3.message();
     std::filesystem::remove_all(tmp, ec);
