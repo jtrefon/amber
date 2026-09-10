@@ -26,14 +26,9 @@ public:
 
     void shutdown() override { shutdown_ = true; }
 
-    std::vector<Capability> capabilities() const override {
-        return capabilities_;
-    }
-
     bool initialized_ = false;
     bool shutdown_ = false;
     bool should_succeed_ = true;
-    std::vector<Capability> capabilities_;
 
 private:
     std::string id_;
@@ -47,7 +42,6 @@ public:
     std::string name() const override { return "Failing"; }
     bool initialize(const PluginContext&) override { return false; }
     void shutdown() override {}
-    std::vector<Capability> capabilities() const override { return {}; }
 };
 
 } // namespace
@@ -83,29 +77,6 @@ TEST(plugin_v2_initialize_failure) {
 TEST(plugin_v2_capabilities_empty_by_default) {
     StubPlugin p("empty", "1.0.0");
     ASSERT_TRUE(p.capabilities().empty());
-}
-
-TEST(plugin_v2_capability_tool_type) {
-    StubPlugin p("withtool", "1.0.0");
-    Capability cap;
-    cap.type = Capability::Type::Tool;
-    cap.name = "my_tool";
-    cap.impl = nullptr;
-    p.capabilities_.push_back(cap);
-
-    auto caps = p.capabilities();
-    ASSERT_EQ(caps.size(), 1u);
-    ASSERT_EQ(static_cast<int>(caps[0].type), static_cast<int>(Capability::Type::Tool));
-    ASSERT_EQ(caps[0].name, "my_tool");
-}
-
-TEST(plugin_v2_capability_multiple_types) {
-    StubPlugin p("multi", "1.0.0");
-    p.capabilities_.push_back({Capability::Type::Tool, "t1", "desc", nullptr});
-    p.capabilities_.push_back({Capability::Type::Hook, "h1", "desc", nullptr});
-    p.capabilities_.push_back({Capability::Type::Completion, "c1", "desc", nullptr});
-
-    ASSERT_EQ(p.capabilities().size(), 3u);
 }
 
 TEST(plugin_registry_create_empty) {

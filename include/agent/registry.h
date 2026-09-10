@@ -39,6 +39,11 @@ public:
     // Returns the number removed.
     size_t unregister_tools_with_prefix(const std::string& prefix);
 
+    // Remove exactly one tool by name. Returns true when it existed. Used by
+    // the plugin ledger to unwind a contributed tool without touching
+    // host-registered ones.
+    bool remove_tool(const std::string& name);
+
 private:
     mutable std::mutex mtx_;
     std::vector<std::shared_ptr<Tool>> tools_;

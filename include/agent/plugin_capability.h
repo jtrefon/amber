@@ -20,13 +20,11 @@
 
 namespace agent {
 
-// The surface a capability installs into. Extension registries attach here as
-// they land (PF-1.4); a capability that only reports what it contributes does
-// not touch it.
-class PluginServices {
-public:
-    virtual ~PluginServices() = default;
-};
+// The surface a capability installs into: the harness-owned registries plus
+// the event bus. Defined in `agent/extensions.h`; capabilities that install
+// something include that header, and the declaration here is enough for the
+// protocol itself.
+class PluginServices;
 
 enum class CapabilityKind : std::uint8_t {
     Tool,

@@ -2,6 +2,7 @@
 // (spec §3). Hermetic — no host, no network.
 
 #include "agent/events.h"
+#include "agent/extensions.h"
 #include "agent/plugin_capability.h"
 #include "test_util.h"
 
@@ -289,18 +290,160 @@ TEST(capability_reports_kind_and_name) {
     ASSERT_TRUE(cap.kind() == CapabilityKind::Tool);
 }
 
+namespace {
+
+// A tool with no behaviour: enough to prove registry ownership and removal.
+class SilentTool : public Tool {
+public:
+    explicit SilentTool(std::string name) : name_(std::move(name)) {}
+    std::string name() const noexcept override { return name_; }
+    std::string description() const noexcept override { return "test tool"; }
+    json parameters_schema() const override { return json::object(); }
+    ToolResult execute(const json&) const override { return {true, "", "", json{}}; }
+
+private:
+    std::string name_;
+};
+
+// The smallest harness a capability can install into.
+struct TestHarness {
+    ToolRegistry tools;
+    PromptRegistry prompts;
+    CommandRegistry commands;
+    PluginSettingsStore settings;
+    EventBus bus;
+    PluginServices services{tools, prompts, commands, settings, bus};
+};
+
+} // namespace
+
 TEST(capability_install_reports_the_contribution) {
     StubCapability cap;
-    PluginServices services;
-    InstallResult r = cap.install(services);
+    TestHarness h;
+    InstallResult r = cap.install(h.services);
     ASSERT_TRUE(r.ok);
     ASSERT_EQ(r.contribution.name, std::string("greet"));
 }
 
 TEST(capability_install_can_fail_with_a_reason) {
     FailingCapability cap;
-    PluginServices services;
-    InstallResult r = cap.install(services);
+    TestHarness h;
+    InstallResult r = cap.install(h.services);
     ASSERT_FALSE(r.ok);
     ASSERT_FALSE(r.error.empty());
+}
+
+// ---------------------------------------------------------------------------
+// PF-1.4 — contribution registries
+// ---------------------------------------------------------------------------
+
+TEST(prompt_registry_orders_by_priority_then_registration) {
+    PromptRegistry prompts;
+    auto a = prompts.add("plug", "late", 300, [] { return std::string("C"); });
+    auto b = prompts.add("plug", "early", 100, [] { return std::string("A"); });
+    auto c = prompts.add("plug", "mid", 200, [] { return std::string("B"); });
+
+    auto rendered = prompts.render_all();
+    ASSERT_EQ(rendered.size(), 3u);
+    ASSERT_EQ(rendered[0], std::string("A"));
+    ASSERT_EQ(rendered[1], std::string("B"));
+    ASSERT_EQ(rendered[2], std::string("C"));
+}
+
+TEST(prompt_registry_skips_empty_blocks) {
+    PromptRegistry prompts;
+    prompts.add("plug", "silent", 100, [] { return std::string(); });
+    prompts.add("plug", "loud", 200, [] { return std::string("here"); });
+    auto rendered = prompts.render_all();
+    ASSERT_EQ(rendered.size(), 1u);
+    ASSERT_EQ(rendered[0], std::string("here"));
+}
+
+TEST(prompt_registry_removal_takes_only_that_block) {
+    PromptRegistry prompts;
+    auto keep = prompts.add("plug", "keep", 100, [] { return std::string("keep"); });
+    auto drop = prompts.add("plug", "drop", 200, [] { return std::string("drop"); });
+    ASSERT_EQ(prompts.size(), 2u);
+
+    drop.remove();
+    ASSERT_EQ(prompts.size(), 1u);
+    auto rendered = prompts.render_all();
+    ASSERT_EQ(rendered.size(), 1u);
+    ASSERT_EQ(rendered[0], std::string("keep"));
+
+    keep.remove();
+    ASSERT_EQ(prompts.size(), 0u);
+}
+
+TEST(command_registry_dispatches_registered_leaf) {
+    CommandRegistry commands;
+    std::string seen;
+    CommandRegistry::Handler handler = [&](const std::string& arg) { seen = arg; };
+    auto contribution = commands.add("plug", "hello", R"({"greet":{"help":"x"}})",
+                                     {{"greet", handler}});
+
+    ASSERT(commands.dispatch("hello", "greet", "world"));
+    ASSERT_EQ(seen, std::string("world"));
+    // Unknown paths and unknown roots are reported, never silently ignored.
+    ASSERT_FALSE(commands.dispatch("hello", "nope", ""));
+    ASSERT_FALSE(commands.dispatch("other", "greet", ""));
+
+    contribution.remove();
+    ASSERT_FALSE(commands.dispatch("hello", "greet", ""));
+    ASSERT_EQ(commands.size(), 0u);
+}
+
+TEST(settings_store_round_trips_per_owner) {
+    PluginSettingsStore settings;
+    settings.set("alpha", "level", "3");
+    settings.set("beta", "level", "9");
+
+    ASSERT_EQ(settings.get("alpha", "level"), std::string("3"));
+    ASSERT_EQ(settings.get("beta", "level"), std::string("9"));
+    ASSERT_EQ(settings.get("alpha", "missing"), std::string(""));
+    ASSERT_EQ(settings.get("nobody", "level"), std::string(""));
+    ASSERT_TRUE(settings.has("alpha"));
+    ASSERT_FALSE(settings.has("nobody"));
+}
+
+TEST(settings_store_can_declare_unset_keys) {
+    PluginSettingsStore settings;
+    settings.declare("alpha", "endpoint", "where to connect");
+    auto items = settings.items();
+    ASSERT_EQ(items.size(), 1u);
+    ASSERT_EQ(items[0].owner, std::string("alpha"));
+    ASSERT_EQ(items[0].name, std::string("endpoint"));
+    ASSERT_EQ(items[0].detail, std::string("where to connect"));
+
+    settings.undeclare("alpha", "endpoint");
+    ASSERT_TRUE(settings.items().empty());
+}
+
+TEST(tool_capability_registers_and_removes_exactly_its_tool) {
+    TestHarness h;
+    h.tools.register_tool(std::make_unique<SilentTool>("host.tool"));
+
+    ToolCapability cap("greet", std::make_unique<SilentTool>("plugin.greet"));
+    h.services.set_owner("plug");
+    InstallResult r = cap.install(h.services);
+    ASSERT_TRUE(r.ok);
+    ASSERT((bool)h.tools.find("plugin.greet"));
+    ASSERT((bool)h.tools.find("host.tool"));
+
+    r.contribution.remove();
+    ASSERT_FALSE((bool)h.tools.find("plugin.greet"));
+    ASSERT((bool)h.tools.find("host.tool"));
+}
+
+TEST(command_capability_tags_its_owner) {
+    TestHarness h;
+    h.services.set_owner("plug");
+    CommandCapability cap("hello", "{}", {});
+    InstallResult r = cap.install(h.services);
+    ASSERT_TRUE(r.ok);
+
+    auto items = h.commands.items();
+    ASSERT_EQ(items.size(), 1u);
+    ASSERT_EQ(items[0].owner, std::string("plug"));
+    ASSERT(r.contribution.remove != nullptr);
 }

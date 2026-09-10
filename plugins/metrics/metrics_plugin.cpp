@@ -27,10 +27,6 @@ void MetricsPlugin::shutdown() {
     stats_ = Stats{};
 }
 
-std::vector<Capability> MetricsPlugin::capabilities() const {
-    return {};
-}
-
 void MetricsPlugin::on_turn_start(const Event&) {
     ++stats_.turns;
     turn_start_ = std::chrono::steady_clock::now();

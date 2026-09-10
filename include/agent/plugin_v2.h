@@ -4,6 +4,7 @@
 
 #include "agent/config.h"
 #include "agent/event_bus.h"
+#include "agent/plugin_capability.h"
 #include "agent/registry.h"
 #include "agent/workspace.h"
 
@@ -13,24 +14,6 @@
 #include <vector>
 
 namespace agent {
-
-struct Capability {
-    enum class Type : std::uint8_t {
-        Tool,
-        Provider,
-        Completion,
-        Hook,
-        Theme,
-        PromptSource,
-        Memory,
-        Search,
-    };
-
-    Type type;
-    std::string name;
-    std::string description;
-    void* impl = nullptr;
-};
 
 struct PluginContext {
     EventBus& event_bus;
@@ -50,7 +33,12 @@ public:
     virtual bool initialize(const PluginContext& ctx) = 0;
     virtual void shutdown() = 0;
 
-    virtual std::vector<Capability> capabilities() const = 0;
+    // What this plugin contributes. Called once, at activation: the runtime
+    // installs each capability and records the returned handle in its ledger,
+    // so the plugin hands over ownership and never registers anything itself.
+    // The default is a plugin that contributes nothing yet still participates
+    // in the lifecycle (the metrics observer is one).
+    virtual std::vector<std::unique_ptr<Capability>> capabilities() { return {}; }
 };
 
 } // namespace agent

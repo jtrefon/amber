@@ -17,8 +17,6 @@ public:
     bool initialize(const PluginContext& ctx) override;
     void shutdown() override;
 
-    std::vector<Capability> capabilities() const override;
-
     struct Stats {
         int turns = 0;
         int tool_calls = 0;

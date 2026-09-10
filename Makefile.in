@@ -73,6 +73,9 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/plugin.o \
               $(BUILD_DIR)/lib/event_bus.o \
               $(BUILD_DIR)/lib/plugin_capability.o \
+              $(BUILD_DIR)/lib/extensions.o \
+              $(BUILD_DIR)/lib/plugin_runtime.o \
+              $(BUILD_DIR)/lib/plugins_bundled.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
               $(BUILD_DIR)/lib/archive_util.o \
@@ -161,6 +164,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/event_bus_test.o \
                $(BUILD_DIR)/tests/plugin_v2_test.o \
                $(BUILD_DIR)/tests/plugin_framework_test.o \
+               $(BUILD_DIR)/tests/plugin_runtime_test.o \
                $(BUILD_DIR)/tests/metrics_plugin_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
