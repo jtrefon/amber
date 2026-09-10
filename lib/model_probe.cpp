@@ -1,9 +1,9 @@
 
 #include "agent/model_probe.h"
 #include "agent/debug_log.h"
+#include "agent/dialect.h"
 
 #include <curl/curl.h>
-#include <set>
 #include <nlohmann/json.hpp>
 
 namespace agent {
@@ -16,57 +16,21 @@ size_t probe_write_cb(void* ptr, size_t size, size_t nmemb, void* user) {
     return size * nmemb;
 }
 
-auto read_int = [](const json& o, const char* k) -> int {
-    auto it = o.find(k);
-    return (it != o.end() && it->is_number_integer()) ? it->get<int>() : 0;
-};
+// GET the dialect's model-listing endpoint into `response`. Returns a non-OK
+// CURLcode on transport failure or when the protocol has no listing endpoint.
+CURLcode fetch_models(const Config& cfg, const Dialect& dialect,
+                      std::string& response) {
+    const std::string url = dialect.models_url(cfg);
+    if (url.empty()) return CURLE_URL_MALFORMAT;
 
-// Parse a single model entry into a ModelInfo. The id may come from any of
-// the shapes servers use ("id", "model", "name").
-ModelInfo parse_entry(const json& e) {
-    ModelInfo m;
-    if (e.contains("id") && e["id"].is_string())
-        m.id = e["id"].get<std::string>();
-    else if (e.contains("model") && e["model"].is_string())
-        m.id = e["model"].get<std::string>();
-    else if (e.contains("name") && e["name"].is_string())
-        m.id = e["name"].get<std::string>();
-    // Context window: llama.cpp reports it under meta.n_ctx; OpenAI-compatible
-    // gateways (kilocode, OpenRouter, ...) advertise context_length at the top
-    // level with meta absent. Prefer the llama.cpp shape when both exist.
-    if (e.contains("meta") && e["meta"].is_object()) {
-        const json& meta = e["meta"];
-        m.context = read_int(meta, "n_ctx");
-        m.context_train = read_int(meta, "n_ctx_train");
-    }
-    if (m.context == 0) m.context = read_int(e, "n_ctx");
-    if (m.context == 0) m.context = read_int(e, "context_length");
-    if (m.context_train == 0) m.context_train = read_int(e, "n_ctx_train");
-    if (m.context_train == 0) m.context_train = read_int(e, "context_length");
-    return m;
-}
-
-// The model array from a /v1/models body ("data" or "models" key).
-const json* model_array(const json& j) {
-    if (j.contains("data") && j["data"].is_array())
-        return &j["data"];
-    if (j.contains("models") && j["models"].is_array())
-        return &j["models"];
-    return nullptr;
-}
-
-// GET the /v1/models body into `response`. Returns CURLE_OK on success.
-CURLcode fetch_models(const Config& cfg, std::string& response) {
     CURL* c = curl_easy_init();
     if (!c) return CURLE_FAILED_INIT;
 
     struct curl_slist* headers = nullptr;
-    if (!cfg.api_key.empty()) {
-        std::string auth = "Authorization: Bearer " + cfg.api_key;
-        headers = curl_slist_append(headers, auth.c_str());
-    }
+    for (const auto& h : dialect.auth_headers(cfg))
+        headers = curl_slist_append(headers, h.c_str());
 
-    curl_easy_setopt(c, CURLOPT_URL, cfg.models_url().c_str());
+    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
     if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
@@ -82,52 +46,9 @@ CURLcode fetch_models(const Config& cfg, std::string& response) {
 
 } // namespace
 
-ServerInfo parse_models(const std::string& body,
-                        const std::string& preferred_model) {
-    ServerInfo info;
-    json j = json::parse(body, nullptr, false);
-    if (j.is_discarded()) return info;
-
-    const json* arr = model_array(j);
-    if (!arr || arr->empty()) return info;
-
-    // The active model's entry wins (a router may list models without
-    // context metadata ahead of the one in use); otherwise the first entry
-    // that reports a positive window; otherwise the first entry.
-    const json* chosen = nullptr;
-    if (!preferred_model.empty()) {
-        for (const auto& e : *arr) {
-            if (!e.is_object()) continue;
-            for (const char* k : {"id", "model", "name"}) {
-                if (e.contains(k) && e[k].is_string() &&
-                    e[k].get<std::string>() == preferred_model) {
-                    chosen = &e;
-                    break;
-                }
-            }
-            if (chosen) break;
-        }
-    }
-    if (!chosen) {
-        for (const auto& e : *arr)
-            if (e.is_object() && parse_entry(e).context > 0) {
-                chosen = &e;
-                break;
-            }
-    }
-    if (!chosen) chosen = &(*arr)[0];
-
-    ModelInfo m = parse_entry(*chosen);
-    info.model = m.id;
-    info.context_size = m.context;
-    info.context_train = m.context_train;
-    info.ok = !info.model.empty() || info.context_size > 0;
-    return info;
-}
-
-ServerInfo probe_server(const Config& cfg) {
+ServerInfo probe_server(const Config& cfg, const Dialect& dialect) {
     std::string response;
-    if (fetch_models(cfg, response) != CURLE_OK) {
+    if (fetch_models(cfg, dialect, response) != CURLE_OK) {
         debug_log(cfg.debug_log, "probe-error", "fetch failed");
         return {};
     }
@@ -136,7 +57,13 @@ ServerInfo probe_server(const Config& cfg) {
     // router (kilocode et al.) lists models in its own order, and the first
     // entry with a context window is not necessarily the one in use — adopting
     // it sizes the gauge and the compression budget to the wrong model.
-    return parse_models(response, cfg.model_explicit ? cfg.model : "");
+    return dialect.parse_models_response(
+        response, cfg.model_explicit ? cfg.model : "");
+}
+
+ServerInfo probe_server(const Config& cfg) {
+    auto dialect = make_dialect(cfg.flavor);
+    return probe_server(cfg, *dialect);
 }
 
 void merge_server_info(Config& cfg, const ServerInfo& info) {
@@ -159,37 +86,16 @@ ServerInfo apply_server_autodetect(Config& cfg) {
     return info;
 }
 
-std::vector<ModelInfo> parse_model_list_info(const std::string& body) {
-    std::vector<ModelInfo> out;
-    json j = json::parse(body, nullptr, false);
-    if (j.is_discarded()) return out;
-
-    const json* arr = model_array(j);
-    if (!arr) return out;
-
-    // Servers sometimes list the same model multiple times (aliases, quant
-    // variants with the same id); the UI and model-set validation expect a
-    // unique list.
-    std::set<std::string> seen;
-    for (const auto& e : *arr) {
-        ModelInfo m = parse_entry(e);
-        if (!m.id.empty() && seen.insert(m.id).second)
-            out.push_back(std::move(m));
-    }
-    return out;
-}
-
-std::vector<std::string> parse_model_list(const std::string& body) {
-    std::vector<std::string> out;
-    for (const auto& m : parse_model_list_info(body))
-        out.push_back(m.id);
-    return out;
+std::vector<ModelInfo> list_model_info(const Config& cfg,
+                                       const Dialect& dialect) {
+    std::string response;
+    if (fetch_models(cfg, dialect, response) != CURLE_OK) return {};
+    return dialect.parse_model_list_response(response);
 }
 
 std::vector<ModelInfo> list_model_info(const Config& cfg) {
-    std::string response;
-    if (fetch_models(cfg, response) != CURLE_OK) return {};
-    return parse_model_list_info(response);
+    auto dialect = make_dialect(cfg.flavor);
+    return list_model_info(cfg, *dialect);
 }
 
 std::vector<std::string> list_models(const Config& cfg) {

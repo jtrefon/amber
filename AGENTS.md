@@ -433,14 +433,15 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 5374 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 5684 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 287 | Resolved — `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 119 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
 | `tui/tui_input.cpp` | 2368 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
-- `lib/llm.cpp` (511 → 84): split into `request_builder`, `sse_parser`,
-  `http_transport`, `model_probe`, `debug_log` (+ `llm.cpp` keeps the class).
+- `lib/llm.cpp` (511 → 84): split into `request_builder`, `stream_decoder`
+  (formerly `sse_parser`) + `dialect_openai`, `http_transport`, `model_probe`,
+  `debug_log` (+ `llm.cpp` keeps the class).
 - `lib/agent.cpp` (473 → 200, now 773): `run` decomposed into `confirm_turn`,
   `dispatch_tool_calls`, `agent_helpers`, `tool_recovery`; `compress_now` now
   delegates to `CompressionPipeline::compress()` via `compression_->compress()`.

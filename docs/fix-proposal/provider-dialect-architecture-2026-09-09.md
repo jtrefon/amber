@@ -1,6 +1,6 @@
 # Provider Dialect Architecture Proposal — 2026-09-09
 
-- **Status:** FIX-027 implemented on `test/pin-wire-layer` (2026-09-09, awaiting PR); FIX-028..031 drafted — awaiting sign-off
+- **Status:** FIX-027 + FIX-028 implemented (branches `test/pin-wire-layer`, `refactor/provider-dialect-seam`); FIX-029..032 drafted — awaiting sign-off
 - **Branch:** `test/pin-wire-layer` (FIX-027, landed); `refactor/provider-dialect-seam` (FIX-028, proposed); per-FIX PR branches inside
 - **Author:** Session analysis 2026-09-09 (3 parallel explorers + manual file verification)
 - **Target:** A provider layer that grows by *registration*, not by branching — any OpenAI-compatible endpoint stays config-only; genuinely different wire protocols (Anthropic, Gemini, …) become one dialect adapter each, touching zero shared code. Refactor is regression-protected by **characterization pins on the moving surface**, not by blocking on whole-app coverage.
@@ -330,22 +330,27 @@ Gate: pin suite green on current code (verified: full core suite 431/431 on `tes
 
 ### FIX-028 — Dialect seam (pure move first)
 
-**Red tests** (new `tests/dialect_test.cpp`, registered in `UNITTEST_OBJ` at `Makefile.in:144`):
+**Implemented** on `refactor/provider-dialect-seam` (2026-09-09, stacked on FIX-027). What landed:
 
-- `dialect_registry_unknown_flavor_falls_back_to_openai` — `make_dialect("nonsense")` returns a dialect whose `flavor()` is `"openai"`.
-- `dialect_registry_registers_and_resolves_custom` — `register_dialect("testflav", …)` then `make_dialect("testflav")` returns it.
-- `openai_dialect_streams_identical_to_pinned_parser` — the FIX-027 SSE pins, relocated to drive `make_dialect("openai")->make_decoder(...)`.
-- `http_client_resolves_dialect_from_config_flavor` — a `Config{flavor="testflav"}` with a registered fake dialect makes `HttpLLMClient` use the fake (mock-SSE e2e).
+**New files** — `include/agent/dialect.h` (the port + `TokenUsage` + registry), `include/agent/dialect_openai.h` (openai dialect factory + the `sanitize_*` wire helpers), `lib/dialect.cpp` (flavor→factory table, unknown flavor falls back to `openai`), `lib/dialect_openai.cpp` (all moved OpenAI behavior: URLs, auth, body builder, buffered parse, usage, model-list parse, error classification/sniffing, `OpenAIStreamDecoder`), plus `include/agent/stream_decoder.h` + `lib/stream_decoder.cpp` (framing base).
 
-**Green** — sequence of pure moves:
+**Moved verbatim into the dialect** — `build_chat_body` plus the system-merge/tool schema logic (`request_builder.cpp`), `message_from_completion`, `is_retryable_http_error`, `parse_context_size_from_error`, `read_usage_token` (`http_transport.cpp`), `parse_entry`/`model_array`/`parse_models`/`parse_model_list_info` (`model_probe.cpp`), and the `StreamParser` event state machine (`sse_parser.cpp`).
 
-1. Extract `StreamDecoder` interface from `StreamParser` (`sse_parser.h:35-63`): base owns `on_write` framing (line splitting, `\r` strip, raw capture, `debug_path_`), the OpenAI event state machine (`dispatch_event_impl`, `accumulate_arguments`, `<think>` segmentation, sparse-index guards) becomes `OpenAIStreamDecoder` in `lib/dialect_openai.cpp`. Behavior identical; FIX-027 pins relocate in the same commit (D8: assertion lines unchanged).
-2. Move `build_chat_body`/`sanitize_tool_schema`/`sanitize_tool_calls` consumers: `lib/llm.cpp:29,50` call the dialect; `message_from_completion`'s internal sanitize moves with the parse. Any core (non-wire) sanitize consumer (session restore/history hygiene, if found by grep during implementation) keeps a core copy — decide per consumer, never duplicate silently.
-3. Move error classification + context learning into the dialect; `post_completion`/`stream_completion` keep the `cfg.context_size` learning side effect (that is transport state mutation, unchanged).
-4. Move URL derivation out of `Config` into `chat_url/models_url`; update every `api_url()`/`models_url()` caller (transport, probe, tests).
-5. Registry + `make_dialect` + `HttpLLMClient(Config, unique_ptr<Dialect>)` default `nullptr → make_dialect(cfg.flavor)`.
+**Deleted** — `include/agent/sse_parser.h`, `lib/sse_parser.cpp`, `include/agent/request_builder.h`, `lib/request_builder.cpp`.
 
-Gate: `make clean && make && make test && make lint && make analyze` green on g++ and clang++; `grep -rn 'api_url()' lib/ include/` → 0 outside dialect files; mutation spot-check (D9): temporarily drop one `context_overflow_hint` pattern → G1 fails → revert.
+**Rewired** — `HttpLLMClient(Config)` / `HttpLLMClient(Config, unique_ptr<Dialect>)`: the client resolves `make_dialect(cfg.flavor)` and drives URL/auth/body/parse/decoder/usage through it; `http_transport` is curl mechanics only (`curl_exec` takes the dialect for URL + auth, `post/stream_completion` use `context_overflow_hint`/`is_retryable`, `fill_buffered_stats` uses `parse_usage`); `model_probe` fetches with the dialect's endpoint/auth and parses with `parse_models_response`/`parse_model_list_response`, keeping the kilo.ai balance features and the config-based public API (`probe_server(cfg)`, `list_model_info(cfg)`, `list_models(cfg)`) unchanged for TUI/agent consumers; `Config` gains `flavor` and loses `api_url()`/`models_url()`.
+
+**Deviations from the plan (documented per D8/D9 discipline):**
+
+1. **`auth_headers()` instead of `apply_auth(HeaderList&, …)`.** The port must not carry curl types, so a dialect returns `std::vector<std::string>` and the transport adapts. The FIX-027 `apply_auth_emits_bearer_only_with_key` pin was updated to drive the port: **the asserted values are identical** (no key → no header; key → exactly one `Authorization: Bearer …`), only the call expression changed. Same for the two URL pins (`chat_url`/`models_url` replace `Config::api_url()/models_url()`), which assert the same strings.
+2. **`parse_usage` added to the port.** Buffered stats must not be OpenAI-keyed (`usage.prompt_tokens` vs Anthropic's `usage.input_tokens`); without it FIX-030 would have to modify the transport.
+3. **`make_decoder` through the port, not a free factory.** The decoder is wire behavior; tests and `bench/probe.cpp` construct it via `make_dialect("openai")->make_decoder(...)`.
+4. **New pin added:** `dialect_context_overflow_hint_patterns` — the per-pattern assertions promised in the FIX-027 note, now that the sniffer is a public virtual (8 pattern families + JSON-wrapped + no-match + sanity cap).
+5. **Test names `request_builder_*` kept.** They name the behavior (request body assembly), not the deleted file; renaming would churn the pins for cosmetics.
+
+**Mutation spot-checks performed (D9):** (a) renamed one `context_overflow_hint` pattern → `dialect_context_overflow_hint_patterns` FAILED; (b) perturbed the system-merge in `append_messages` → `request_builder_merges_consecutive_system_messages` FAILED. Both reverted. The net bites.
+
+Gate: full core suite **432/432** on the final state; `cli` and `bench` binaries build; `make check` invariants hold; `make format-check` clean for touched files; `grep -rn 'api_url()\|models_url()' lib/ include/ tui/ src/` → 0; `grep -rn 'request_builder\|sse_parser' lib/ include/` → 0 (only historical test names remain).
 
 ### FIX-029 — Capabilities reach the wire
 

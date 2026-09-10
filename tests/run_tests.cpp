@@ -4,8 +4,9 @@
 #include "agent.h"
 #include "agent/tools.h"
 #include "agent/search_backend.h"
-#include "agent/sse_parser.h"
-#include "agent/request_builder.h"
+#include "agent/dialect.h"
+#include "agent/dialect_openai.h"
+#include "agent/stream_decoder.h"
 #include "agent/compressor.h"
 #include "agent/dispatch.h"
 #include "agent/experience.h"
@@ -50,7 +51,7 @@ TEST(config_defaults) {
     ASSERT_EQ(c.model, "gpt-4o-mini");
     ASSERT_EQ(c.max_tool_iterations, 100);
     ASSERT_TRUE(c.stream);
-    ASSERT_EQ(c.api_url(), "http://localhost:8000/v1/chat/completions");
+    ASSERT_EQ(agent::make_dialect(c.flavor)->chat_url(c), "http://localhost:8000/v1/chat/completions");
 }
 
 TEST(config_validate_accepts_defaults) {
@@ -414,7 +415,7 @@ TEST(request_body_survives_invalid_utf8) {
     msgs.push_back(tool);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     std::string payload;
     bool threw = false;
     try {
@@ -440,7 +441,7 @@ TEST(request_builder_merges_consecutive_system_messages) {
     agent::Message u; u.role = "user"; u.content = "hi"; msgs.push_back(u);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     const auto& wire = body["messages"];
     ASSERT_EQ(wire.size(), 2u);
     ASSERT_EQ(wire[0]["role"], "system");
@@ -450,7 +451,7 @@ TEST(request_builder_merges_consecutive_system_messages) {
     // A single system message is passed through untouched.
     std::vector<agent::Message> single;
     single.push_back(s1);
-    json body2 = build_chat_body(c, single, no_tools, false);
+    json body2 = agent::make_dialect("openai")->build_chat_body(c, single, no_tools, false);
     ASSERT_EQ(body2["messages"].size(), 1u);
     ASSERT_EQ(body2["messages"][0]["content"], "main prompt");
 }
@@ -473,7 +474,7 @@ TEST(request_builder_hoists_midstream_system_into_leading_block) {
     msgs.push_back(arch);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     const auto& wire = body["messages"];
     // Exactly one system message, at the front, carrying BOTH system contents.
     size_t system_count = 0;
@@ -506,7 +507,7 @@ TEST(request_builder_assistant_message_always_has_content) {
     msgs.push_back(t);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     ASSERT(body.contains("messages"));
     for (auto& m : body["messages"]) {
         // every message must carry a content field (regression: empty
@@ -538,7 +539,7 @@ TEST(request_builder_sanitizes_placeholder_tool_calls) {
     msgs.push_back(a);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     const auto& wire = body["messages"][1]["tool_calls"];
     ASSERT_EQ(wire.size(), 2u);
     ASSERT_EQ(wire[0]["function"]["name"], "bash");
@@ -564,7 +565,7 @@ TEST(request_builder_all_placeholder_tool_calls_degrades) {
     msgs.push_back(a);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
-    json body = build_chat_body(c, msgs, no_tools, false);
+    json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
     const auto& m = body["messages"][0];
     ASSERT_FALSE(m.contains("tool_calls"));
     ASSERT_EQ(m["content"], "I tried but nothing ran.");
@@ -578,7 +579,7 @@ TEST(message_from_completion_sanitizes_tool_calls) {
         R"({},)"
         R"({"function":{"name":"read","arguments":"{\"path\":\"a.txt\"}"},"id":"c1"})"
         R"(]}}]})";
-    agent::Message m = agent::message_from_completion(body);
+    agent::Message m = agent::make_dialect("openai")->parse_completion(body);
     ASSERT(m.tool_calls.is_array());
     ASSERT_EQ(m.tool_calls.size(), 1u);
     ASSERT_EQ(m.tool_calls[0]["function"]["name"], "read");
@@ -1184,7 +1185,7 @@ TEST(probe_parse_llamacpp_models) {
     std::string body = R"({"object":"list","data":[{"id":"Qwopus3.6-27B.gguf",)"
         R"("object":"model","owned_by":"llamacpp","meta":{"n_vocab":248320,)"
         R"("n_ctx":262144,"n_ctx_train":262144,"n_embd":5120}}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "Qwopus3.6-27B.gguf");
     ASSERT_EQ(info.context_size, 262144);
@@ -1195,16 +1196,16 @@ TEST(probe_parse_models_array_fallback) {
     // Ollama-ish {"models":[{"name":..,"n_ctx":..}]} fallback shape.
     std::string body =
         R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "llama-3.2-3b");
     ASSERT_EQ(info.context_size, 8192);
 }
 
 TEST(probe_parse_models_malformed_is_not_ok) {
-    ASSERT_FALSE(agent::LLMClient::parse_models("not json").ok);
-    ASSERT_FALSE(agent::LLMClient::parse_models("{}").ok);
-    ASSERT_FALSE(agent::LLMClient::parse_models(R"({"data":[]})").ok);
+    ASSERT_FALSE(agent::make_dialect("openai")->parse_models_response("not json").ok);
+    ASSERT_FALSE(agent::make_dialect("openai")->parse_models_response("{}").ok);
+    ASSERT_FALSE(agent::make_dialect("openai")->parse_models_response(R"({"data":[]})").ok);
 }
 
 // OpenAI-compatible gateways (kilocode, OpenRouter, ...) advertise the window
@@ -1217,7 +1218,7 @@ TEST(probe_parse_kilocode_context_length) {
         R"("owned_by":"kilo","context_length":256000,"meta":null},)"
         R"({"id":"kilo-auto/frontier","object":"model",)"
         R"("owned_by":"kilo","context_length":1000000,"meta":null}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "kilo-auto/free");
     ASSERT_EQ(info.context_size, 256000);
@@ -1229,7 +1230,7 @@ TEST(probe_parse_kilocode_context_length) {
 TEST(probe_prefers_n_ctx_over_context_length) {
     std::string body = R"({"data":[{"id":"hybrid","object":"model",)"
         R"("meta":{"n_ctx":32768,"n_ctx_train":32768},"context_length":131072}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.context_size, 32768);
 }
@@ -1242,7 +1243,7 @@ TEST(probe_prefers_the_active_model) {
         R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
         R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
     agent::ServerInfo info =
-        agent::LLMClient::parse_models(body, "Qwopus3.6-27B-Fusion");
+        agent::make_dialect("openai")->parse_models_response(body, "Qwopus3.6-27B-Fusion");
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "Qwopus3.6-27B-Fusion");
     ASSERT_EQ(info.context_size, 262144);
@@ -1253,7 +1254,7 @@ TEST(probe_active_model_without_meta_is_unknown) {
         R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
         R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
     agent::ServerInfo info =
-        agent::LLMClient::parse_models(body, "Devstral-Small-2-24B");
+        agent::make_dialect("openai")->parse_models_response(body, "Devstral-Small-2-24B");
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "Devstral-Small-2-24B");
     ASSERT_EQ(info.context_size, 0);  // honest: no metadata, no fabrication
@@ -1263,7 +1264,7 @@ TEST(probe_falls_back_to_first_model_with_context) {
     std::string body = R"({"data":[{"id":"Devstral-Small-2-24B","object":"model",)"
         R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
         R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
-    agent::ServerInfo info = agent::LLMClient::parse_models(body);
+    agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.context_size, 262144);
 }
@@ -1274,7 +1275,7 @@ TEST(probe_parse_model_list_with_ctx) {
     std::string body =
         R"({"data":[{"id":"alpha","meta":{"n_ctx":8192,"n_ctx_train":32768}},)"
         R"({"id":"beta"}]})";
-    auto models = agent::parse_model_list_info(body);
+    auto models = agent::make_dialect("openai")->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "alpha");
     ASSERT_EQ(models[0].context, 8192);
@@ -1285,9 +1286,9 @@ TEST(probe_parse_model_list_with_ctx) {
 }
 
 TEST(probe_parse_model_list_malformed) {
-    ASSERT(agent::parse_model_list_info("not json").empty());
-    ASSERT(agent::parse_model_list_info("{}").empty());
-    ASSERT(agent::parse_model_list_info(R"({"data":[]})").empty());
+    ASSERT(agent::make_dialect("openai")->parse_model_list_response("not json").empty());
+    ASSERT(agent::make_dialect("openai")->parse_model_list_response("{}").empty());
+    ASSERT(agent::make_dialect("openai")->parse_model_list_response(R"({"data":[]})").empty());
 }
 
 TEST(probe_parse_model_list_ollama_shape) {
@@ -1295,7 +1296,7 @@ TEST(probe_parse_model_list_ollama_shape) {
     std::string body =
         R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192},)"
         R"({"name":"qwen-7b"}]})";
-    auto models = agent::parse_model_list_info(body);
+    auto models = agent::make_dialect("openai")->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "llama-3.2-3b");
     ASSERT_EQ(models[0].context, 8192);
@@ -1326,27 +1327,27 @@ TEST(http_error_describes_parser_generation_failure) {
 // retried 429/5xx, so one upstream hiccup aborted the whole turn.
 TEST(http_error_empty_stream_400_is_retryable) {
     // The exact kilocode shape from a live failure.
-    ASSERT_TRUE(agent::is_retryable_http_error(400, "data: \n[DONE]\n\n"));
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(400, "data: \n[DONE]\n\n"));
     // Keep-alive comments plus a bare [DONE] are also empty.
-    ASSERT_TRUE(agent::is_retryable_http_error(
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(
         400, ": KILO PROCESSING\n: KILO PROCESSING\ndata: [DONE]\n\n"));
     // Plain empty body.
-    ASSERT_TRUE(agent::is_retryable_http_error(400, ""));
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(400, ""));
     // 429 and 5xx stay retryable regardless of body.
-    ASSERT_TRUE(agent::is_retryable_http_error(429, R"({"error":"rate"})"));
-    ASSERT_TRUE(agent::is_retryable_http_error(502, "error code: 1101"));
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(429, R"({"error":"rate"})"));
+    ASSERT_TRUE(agent::make_dialect("openai")->is_retryable(502, "error code: 1101"));
 }
 
 TEST(http_error_json_400_is_not_retryable) {
     // Genuine request rejections (schema/model/auth) carry a JSON error body.
-    ASSERT_FALSE(agent::is_retryable_http_error(
+    ASSERT_FALSE(agent::make_dialect("openai")->is_retryable(
         400, R"({"error":{"message":"Bad request","type":"invalid_request_error"}})"));
     // A data payload in the stream means the upstream responded — real body.
-    ASSERT_FALSE(agent::is_retryable_http_error(
+    ASSERT_FALSE(agent::make_dialect("openai")->is_retryable(
         400, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"));
     // Non-400, non-retryable stays put.
-    ASSERT_FALSE(agent::is_retryable_http_error(401, R"({"error":"auth"})"));
-    ASSERT_FALSE(agent::is_retryable_http_error(403, R"({"error":"forbidden"})"));
+    ASSERT_FALSE(agent::make_dialect("openai")->is_retryable(401, R"({"error":"auth"})"));
+    ASSERT_FALSE(agent::make_dialect("openai")->is_retryable(403, R"({"error":"forbidden"})"));
 }
 
 // The auto-detect merge policy: probe results fill only fields the user left on
@@ -1609,7 +1610,7 @@ TEST(probe_autodetect_first_with_context_when_auto) {
     // at the tool as `{}` and errors ("missing 'pattern'").
     agent::Message m;
     auto sink = [](const agent::StreamChunk&) {};
-    agent::StreamParser p(m, sink, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, sink, "");
 
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
@@ -1631,9 +1632,9 @@ TEST(probe_autodetect_first_with_context_when_auto) {
     agent::json call2 = {{"index", 0}, {"function", fn2}};
     std::string s2 = ev(agent::json::array({call2}));
 
-    p.on_write(s1.c_str(), s1.size(), 1);
-    p.on_write(s2.c_str(), s2.size(), 1);
-    p.finalize();
+    p->on_write(s1.c_str(), s1.size(), 1);
+    p->on_write(s2.c_str(), s2.size(), 1);
+    p->finalize();
 
     ASSERT(m.tool_calls.is_array());
     ASSERT_EQ(m.tool_calls.size(), 1u);
@@ -1647,7 +1648,7 @@ TEST(probe_autodetect_first_with_context_when_auto) {
     ASSERT_EQ(parsed["pattern"], "ncurses");
 }
 
-// StreamParser must survive being constructed with a plain `auto` lambda
+// The stream decoder must survive being constructed with a plain `auto` lambda
 // sink. The constructor binds its ChunkSink member to the caller's sink
 // object; an `auto` lambda converts to a temporary std::function, so the
 // member must store a COPY, never a reference — otherwise the first content
@@ -1657,13 +1658,13 @@ TEST(probe_autodetect_first_with_context_when_auto) {
 TEST(llm_streaming_parser_accepts_auto_lambda_sink) {
     agent::Message m;
     auto sink = [](const agent::StreamChunk&) {};
-    agent::StreamParser p(m, sink, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, sink, "");
     const char* sse =
         "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
         "data: [DONE]\n\n";
     const std::string body(sse);
-    p.on_write(body.c_str(), body.size(), 1);
-    p.finalize();
+    p->on_write(body.c_str(), body.size(), 1);
+    p->finalize();
     ASSERT_EQ(m.content, "hello");
 }
 
@@ -1793,12 +1794,14 @@ TEST(llm_streaming_captures_usage_stats) {
 TEST(apply_auth_emits_bearer_only_with_key) {
     agent::Config cfg;  // no api_key
     agent::HeaderList headers;
-    agent::apply_auth(headers, cfg);
+    for (const auto& h : agent::make_dialect("openai")->auth_headers(cfg))
+        headers.add(h);
     ASSERT(headers.list == nullptr);
 
     cfg.api_key = "sk-test-123";
     agent::HeaderList keyed;
-    agent::apply_auth(keyed, cfg);
+    for (const auto& h : agent::make_dialect("openai")->auth_headers(cfg))
+        keyed.add(h);
     ASSERT(keyed.list != nullptr);
     ASSERT_EQ(std::string(keyed.list->data),
               "Authorization: Bearer sk-test-123");
@@ -1807,9 +1810,32 @@ TEST(apply_auth_emits_bearer_only_with_key) {
 
 TEST(config_models_url_derivation) {
     agent::Config c;
-    ASSERT_EQ(c.models_url(), "http://localhost:8000/v1/models");
+    auto d = agent::make_dialect("openai");
+    ASSERT_EQ(d->models_url(c), "http://localhost:8000/v1/models");
     c.api_base = "https://api.example.com/v1";
-    ASSERT_EQ(c.models_url(), "https://api.example.com/v1/models");
+    ASSERT_EQ(d->models_url(c), "https://api.example.com/v1/models");
+}
+
+// The 400-overflow prose sniffer is the runtime truth for the context window:
+// each pattern family must keep working across the dialect move.
+TEST(dialect_context_overflow_hint_patterns) {
+    auto d = agent::make_dialect("openai");
+    ASSERT_EQ(d->context_overflow_hint("maximum context length is 8192 tokens"), 8192);
+    ASSERT_EQ(d->context_overflow_hint("max context length: 4096"), 4096);
+    ASSERT_EQ(d->context_overflow_hint("max context length is 2048"), 2048);
+    ASSERT_EQ(d->context_overflow_hint("n_ctx is 2048"), 2048);
+    ASSERT_EQ(d->context_overflow_hint("n_ctx = 1024"), 1024);
+    ASSERT_EQ(d->context_overflow_hint("context length exceeds 16384"), 16384);
+    ASSERT_EQ(d->context_overflow_hint("Request exceeds maximum context length (4096 tokens)"), 4096);
+    ASSERT_EQ(d->context_overflow_hint("context length of 32768"), 32768);
+    // OpenAI wraps the prose in an error object; the sniffer scans the body.
+    ASSERT_EQ(d->context_overflow_hint(
+                  R"({"error":{"message":"This model's maximum context length is 16384 tokens."}})"),
+              16384);
+    // No known pattern, or an implausible value, yields 0 (never a guess).
+    ASSERT_EQ(d->context_overflow_hint(R"({"error":"bad request"})"), 0);
+    ASSERT_EQ(d->context_overflow_hint(""), 0);
+    ASSERT_EQ(d->context_overflow_hint("maximum context length is 999999999 tokens"), 0);
 }
 
 TEST(buffered_chat_fills_stats_from_usage) {
@@ -1967,7 +1993,6 @@ TEST(llm_cancel_pre_requested_aborts_with_cancelled_error) {
     // A token already requested before the call must abort fast (the /stop
     // "do not start another turn" path), typed CancelledError — never
     // classified as a retryable failure or degraded into a fake reply.
-    std::string dummy;
     int srv = spawn_stall_server(8936);
     ASSERT(srv >= 0);
     usleep(100000);
@@ -1990,7 +2015,6 @@ TEST(llm_cancel_mid_stream_aborts_with_cancelled_error) {
     // Esc // /stop during a stalled generation: the in-flight transfer must
     // abort (curl's progress callback polls the shared token) with
     // CancelledError, distinct from ApiError and std::runtime_error.
-    std::string dummy;
     int srv = spawn_stall_server(8937);
     ASSERT(srv >= 0);
     usleep(100000);
@@ -4614,7 +4638,9 @@ TEST(parse_model_list_dedupes_ids) {
         {"id": "qwopus-27b"},
         {"id": "qwopus-27b"},
         {"id": "gemma4-12b-q4"}]})";
-    auto models = agent::parse_model_list(body);
+    std::vector<std::string> models;
+    for (const auto& m : agent::make_dialect("openai")->parse_model_list_response(body))
+        models.push_back(m.id);
     ASSERT_EQ(models.size(), 3u);
     bool saw_qwopus = false, saw_qwen = false;
     for (const auto& m : models) {
@@ -5311,7 +5337,8 @@ TEST(job_eof_daemon_is_terminated) {
 // index; the parser must cap it, never allocate a billion empty slots.
 TEST(sse_tool_call_index_capped) {
     agent::Message m;
-    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(
+        m, [](const agent::StreamChunk&) {}, "");
     agent::json delta = {{"tool_calls", agent::json::array({
         {{"index", 100000}, {"id", "bomb"}, {"type", "function"},
          {"function", {{"name", "search"}, {"arguments", "{}"}}}}
@@ -5321,17 +5348,18 @@ TEST(sse_tool_call_index_capped) {
         "data: " +
         agent::json{{"choices", agent::json::array({choice})}}.dump() +
         "\n\n";
-    p.on_write(data.data(), 1, data.size());
+    p->on_write(data.data(), 1, data.size());
     ASSERT(m.tool_calls.size() <= agent::kMaxToolCallsPerMessage);
 }
 
 // The raw stream accumulation is diagnostics-only; it must be bounded.
 TEST(sse_raw_body_bounded) {
     agent::Message m;
-    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(
+        m, [](const agent::StreamChunk&) {}, "");
     std::string junk(std::size_t(1024) * 1024, 'x');
-    p.on_write(junk.data(), 1, junk.size());
-    ASSERT(p.raw_body().size() <= agent::kMaxRawBodyBytes);
+    p->on_write(junk.data(), 1, junk.size());
+    ASSERT(p->raw_body().size() <= agent::kMaxRawBodyBytes);
 }
 
 // Some gateways (kilocode routing to MiniMax et al.) stream tool-call deltas
@@ -5342,7 +5370,8 @@ TEST(sse_raw_body_bounded) {
 // kilocode kilo-auto/free failures.
 TEST(sse_one_based_tool_call_index_compacted) {
     agent::Message m;
-    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(
+        m, [](const agent::StreamChunk&) {}, "");
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
         agent::json choice = {{"delta", delta}};
@@ -5356,8 +5385,8 @@ TEST(sse_one_based_tool_call_index_compacted) {
                         {"function", {{"name", "read"},
                                       {"arguments", "{}"}}}};
     std::string sse = ev(agent::json::array({frag}));
-    p.on_write(sse.c_str(), sse.size(), 1);
-    p.finalize();
+    p->on_write(sse.c_str(), sse.size(), 1);
+    p->finalize();
 
     ASSERT(m.tool_calls.is_array());
     // The sparse placeholder at index 0 must be compacted away; only the
@@ -5378,7 +5407,8 @@ TEST(sse_one_based_tool_call_index_compacted) {
 // id-only slot is dropped at finalize like any other incomplete call.
 TEST(sse_id_only_tool_call_dropped) {
     agent::Message m;
-    agent::StreamParser p(m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(
+        m, [](const agent::StreamChunk&) {}, "");
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
         agent::json choice = {{"delta", delta}};
@@ -5392,8 +5422,8 @@ TEST(sse_id_only_tool_call_dropped) {
                         {"type", "function"},
                         {"function", {{"arguments", "{}"}}}};
     std::string sse = ev(agent::json::array({frag}));
-    p.on_write(sse.c_str(), sse.size(), 1);
-    p.finalize();
+    p->on_write(sse.c_str(), sse.size(), 1);
+    p->finalize();
 
     ASSERT(m.tool_calls.is_null() || m.tool_calls.empty());
 }

@@ -19,6 +19,10 @@ enum class AgentMode : std::uint8_t { Read, Write, Yolo };
 // The library layer is intentionally free of any UI concerns.
 struct Config {
     std::string provider_name = "custom";
+    // Wire-protocol selector: resolves to a Dialect implementation
+    // (make_dialect). Set from the provider's capabilities on selection;
+    // "openai" covers every OpenAI-compatible endpoint.
+    std::string flavor = "openai";
     std::string api_base = "http://localhost:8000/v1";
     std::string api_key;                 // required for managed providers
     std::string model = "gpt-4o-mini";
@@ -176,9 +180,6 @@ struct Config {
     // problems; an empty vector means the config is usable. UIs decide how to
     // surface these (abort with a message, warn, etc.). Kept UI-free here.
     std::vector<std::string> validate() const;
-
-    std::string api_url() const noexcept { return api_base + "/chat/completions"; }
-    std::string models_url() const noexcept { return api_base + "/models"; }
 };
 
 // Path to the global config file (~/.config/amber/config). Used by the CLI

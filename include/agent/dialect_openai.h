@@ -1,19 +1,16 @@
 
-#ifndef AGENT_REQUEST_BUILDER_H
-#define AGENT_REQUEST_BUILDER_H
+#ifndef AGENT_DIALECT_OPENAI_H
+#define AGENT_DIALECT_OPENAI_H
 
-#include "agent/config.h"
-#include "agent/llm.h"
-#include <nlohmann/json.hpp>
-#include <vector>
+// The OpenAI-compatible dialect (/chat/completions + /models). Also the
+// fallback for unknown flavors. Exposes the wire-hygiene helpers that the
+// transport and tests pin directly.
+
+#include "agent/dialect.h"
 
 namespace agent {
 
-// Builds the OpenAI-compatible /chat/completions JSON request body from a
-// Config, the message history, and the tool set. Kept separate from the
-// transport so the wire format is unit-testable without libcurl.
-json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
-                     const std::vector<std::shared_ptr<Tool>>& tools, bool stream);
+std::unique_ptr<Dialect> make_openai_dialect();
 
 // Repair a tool parameters_schema in place so the server's grammar builder
 // never sees null types or arrays without items (llama.cpp 400s with "type
@@ -29,4 +26,4 @@ json sanitize_tool_calls(const json& calls);
 
 } // namespace agent
 
-#endif // AGENT_REQUEST_BUILDER_H
+#endif // AGENT_DIALECT_OPENAI_H
