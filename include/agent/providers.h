@@ -32,6 +32,11 @@ struct Provider {
     std::string default_model; // last-used model for this provider
     int default_context_size = 0;
     bool builtin = false;      // code preset vs user-added file
+    // Wire dialect this provider speaks. Declared here rather than looked up
+    // by name, so a provider carries its own protocol and a plugin-provided
+    // provider needs no core table entry (last so existing initialisers keep
+    // meaning "openai").
+    std::string flavor = "openai";
 };
 
 // Per-provider differences from the OpenAI-compatible baseline. This is
@@ -123,6 +128,13 @@ void apply_selection(Config& cfg, const ProviderSelection& sel);
 
 // Well-known presets (openrouter, kilocode) as code constants.
 std::unique_ptr<ProviderRepository> make_static_provider_repository();
+
+// Presets contributed by plugins, merged into the provider list alongside the
+// built-ins. A plugin provider is therefore an ordinary provider row: it shows
+// up in `/provider list`, the command feed, and selection with no special case.
+void register_provider_preset(const Provider& preset, const std::string& owner);
+void unregister_provider_presets_for(const std::string& owner);
+std::vector<Provider> plugin_provider_presets();
 // ~/.config/amber/providers/*.conf persistence (user-added providers).
 std::unique_ptr<ProviderRepository> make_file_provider_repository();
 // Write (or update) ~/.config/amber/providers/custom.conf from the given

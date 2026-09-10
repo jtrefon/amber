@@ -2,12 +2,25 @@
 #include "agent/providers.h"
 
 #include <algorithm>
+#include <mutex>
 
 #include "agent/config.h"
 
 namespace agent {
 
 namespace {
+
+// Plugin-contributed presets. Guarded because a provider plugin can be toggled
+// while the provider list is being read (spec invariant 12).
+std::mutex& preset_mutex() {
+    static std::mutex mtx;
+    return mtx;
+}
+
+std::vector<std::pair<Provider, std::string>>& preset_table() {
+    static std::vector<std::pair<Provider, std::string>> table;  // preset, owner
+    return table;
+}
 
 const std::vector<std::pair<std::string, ProviderCapabilities>>&
 capability_overrides() {
@@ -25,13 +38,70 @@ capability_overrides() {
     return table;
 }
 
+} // namespace
+
+// Presets contributed by plugins (defined here so the service and the
+// repository below share one table).
+void register_provider_preset(const Provider& preset, const std::string& owner) {
+    std::scoped_lock lock(preset_mutex());
+    for (auto& entry : preset_table()) {
+        if (entry.first.name == preset.name) {
+            entry = {preset, owner};
+            return;
+        }
+    }
+    preset_table().push_back({preset, owner});
+}
+
+void unregister_provider_presets_for(const std::string& owner) {
+    if (owner.empty()) return;
+    std::scoped_lock lock(preset_mutex());
+    auto& table = preset_table();
+    table.erase(std::remove_if(table.begin(), table.end(),
+                               [&](const std::pair<Provider, std::string>& e) {
+                                   return e.second == owner;
+                               }),
+                table.end());
+}
+
+std::vector<Provider> plugin_provider_presets() {
+    std::scoped_lock lock(preset_mutex());
+    std::vector<Provider> out;
+    for (const auto& entry : preset_table()) out.push_back(entry.first);
+    return out;
+}
+
+namespace {
+
 // Single source of capability data: the service and apply_selection both go
 // through here, so a provider's behavior can never drift between them.
 ProviderCapabilities capabilities_of(const std::string& name) {
+    // A plugin-provided preset carries its own flavor; the name-keyed table
+    // below is only for the built-ins.
+    for (const auto& preset : plugin_provider_presets())
+        if (preset.name == name)
+            return ProviderCapabilities{preset.flavor, false};
     for (const auto& [n, caps] : capability_overrides())
         if (n == name) return caps;
     return ProviderCapabilities{};
 }
+
+// Adapter: plugin-contributed presets as a repository, so they merge into the
+// provider list exactly like the built-in and file layers.
+class PluginProviderRepository : public ProviderRepository {
+public:
+    std::vector<Provider> all() const override { return plugin_provider_presets(); }
+
+    std::optional<Provider> find(const std::string& name) const override {
+        for (const auto& p : plugin_provider_presets())
+            if (p.name == name) return p;
+        return std::nullopt;
+    }
+
+    // Read-only layer: plugin presets come from the plugin, not from here.
+    bool save(const Provider&) override { return false; }
+    bool remove(const std::string&) override { return false; }
+};
 
 } // namespace
 
@@ -151,6 +221,9 @@ std::unique_ptr<ProviderService> make_default_provider_service(
     const Config&) {
     std::vector<std::unique_ptr<ProviderRepository>> repos;
     repos.push_back(make_static_provider_repository());
+    // Plugin presets sit between the built-ins and the user's files: a user
+    // file with the same name still wins (later repositories override).
+    repos.push_back(std::make_unique<PluginProviderRepository>());
     repos.push_back(make_file_provider_repository());
     return std::make_unique<ProviderService>(
         std::move(repos), make_http_model_catalog());

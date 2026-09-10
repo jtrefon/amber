@@ -4,6 +4,7 @@
 // developer's real ~/.config.
 
 #include "agent.h"
+#include "agent/dialect.h"
 #include "agent/extensions.h"
 #include "agent/plugin_runtime.h"
 #include "agent/plugins_bundled.h"
@@ -253,6 +254,62 @@ TEST(runtime_external_plugin_is_off_by_default) {
     // user enables it.
     ASSERT_FALSE(runtime.status("ext_sample").enabled);
     ASSERT_EQ(runtime.prompts().size(), 0u);
+}
+
+// A provider plugin registers a wire protocol and its presets. Enabling makes
+// the provider real; disabling must take both back and refuse loudly, never
+// silently fall back to another protocol (PLG-12, PLG-13).
+TEST(runtime_provider_plugin_registers_and_unwinds) {
+    ScratchConfig scratch("provider");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE(runtime.status("gemini").enabled);
+    ASSERT_EQ(make_dialect("gemini")->flavor(), std::string("gemini"));
+    ASSERT_TRUE(flavor_unavailable_reason("gemini").empty());
+
+    bool listed = false;
+    for (const auto& p : plugin_provider_presets())
+        if (p.name == "gemini") {
+            listed = true;
+            ASSERT_EQ(p.flavor, std::string("gemini"));
+            ASSERT_EQ(p.default_model, std::string("gemini-2.5-pro"));
+        }
+    ASSERT(listed);
+
+    // Disabling: the dialect and presets go, and the flavor refuses.
+    ASSERT_TRUE(runtime.set_state("gemini", false));
+    ASSERT_TRUE(plugin_provider_presets().empty());
+    const std::string reason = flavor_unavailable_reason("gemini");
+    ASSERT_FALSE(reason.empty());
+    ASSERT(reason.find("gemini") != std::string::npos);
+    ASSERT(reason.find("/set plugin gemini on") != std::string::npos);
+
+    // The client refuses to silently speak another protocol...
+    bool threw = false;
+    try {
+        Config cfg = f.cfg;
+        cfg.flavor = "gemini";
+        HttpLLMClient client(cfg);
+    } catch (const std::exception& e) {
+        threw = true;
+        ASSERT(std::string(e.what()).find("disabled") != std::string::npos);
+    }
+    ASSERT(threw);
+
+    // ...while a flavor nobody ever provided still falls back (a typo in a
+    // provider file must not break the session).
+    Config typo = f.cfg;
+    typo.flavor = "no-such-flavor";
+    HttpLLMClient fallback(typo);
+    ASSERT_TRUE(flavor_unavailable_reason("no-such-flavor").empty());
+
+    // Re-enabling restores both halves.
+    ASSERT_TRUE(runtime.set_state("gemini", true));
+    ASSERT_TRUE(flavor_unavailable_reason("gemini").empty());
+    ASSERT_EQ(make_dialect("gemini")->flavor(), std::string("gemini"));
 }
 
 TEST(runtime_bundled_set_registers_the_metrics_plugin) {

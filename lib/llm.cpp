@@ -44,6 +44,14 @@ HttpLLMClient::HttpLLMClient(Config cfg)
 HttpLLMClient::HttpLLMClient(Config cfg, std::unique_ptr<Dialect> dialect)
     : cfg_(std::move(cfg)),
       dialect_(dialect ? std::move(dialect) : make_dialect(cfg_.flavor)) {
+    // A flavor whose provider plugin is switched off must fail here, loudly.
+    // The silent fallback to openai is right for a typo in a provider file and
+    // wrong for this: the endpoint is configured, the key is configured, and
+    // the request would quietly speak the wrong protocol.
+    if (!dialect) {
+        const std::string reason = flavor_unavailable_reason(cfg_.flavor);
+        if (!reason.empty()) throw std::runtime_error(reason);
+    }
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 

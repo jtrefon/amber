@@ -82,12 +82,30 @@ public:
 
 // Resolve a dialect by flavor. Unknown flavors fall back to "openai" (user
 // provider files always default to it), so a typo never breaks a session.
+//
+// The fallback is for flavors nobody ever provided. A flavor whose provider
+// plugin is *disabled* is a different case: see `flavor_unavailable_reason` -
+// silently speaking the wrong protocol to a configured endpoint is worse than
+// refusing.
 std::unique_ptr<Dialect> make_dialect(const std::string& flavor);
 
-// Register a dialect factory (built-ins register here; future plugin
-// providers register into the same table).
+// Register a dialect factory (built-ins register here; provider plugins
+// register into the same table). `owner` is the plugin id for plugin-provided
+// dialects, empty for built-ins; it is what `disable` uses to take exactly the
+// right flavors back.
 void register_dialect(const std::string& flavor,
-                      std::function<std::unique_ptr<Dialect>()> factory);
+                      std::function<std::unique_ptr<Dialect>()> factory,
+                      const std::string& owner = "");
+
+// Remove the dialects a plugin registered. Their flavors are remembered as
+// unavailable rather than forgotten, so a provider file that still points at
+// one fails loudly instead of falling back to another protocol.
+void unregister_dialects_for(const std::string& owner);
+
+// Non-empty when `flavor` is known but its provider is not currently active
+// (the message names the plugin and the command that re-enables it). Empty for
+// flavors that are registered now, or that nobody has ever provided.
+std::string flavor_unavailable_reason(const std::string& flavor);
 
 } // namespace agent
 

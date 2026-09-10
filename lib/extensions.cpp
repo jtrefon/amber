@@ -1,5 +1,7 @@
 #include "agent/extensions.h"
 
+#include "agent/dialect.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -239,6 +241,48 @@ InstallResult PromptBlockCapability::install(PluginServices& services) {
     r.contribution = services.prompts().add(services.owner(), id_, priority_,
                                             render_);
     r.ok = true;
+    return r;
+}
+
+ProviderCapability::ProviderCapability(
+    std::string flavor,
+    std::function<std::unique_ptr<class Dialect>()> make_dialect,
+    std::vector<Preset> presets)
+    : flavor_(std::move(flavor)), make_dialect_(std::move(make_dialect)),
+      presets_(std::move(presets)) {}
+
+// Out-of-line so the header needs only a forward declaration of Dialect.
+ProviderCapability::~ProviderCapability() = default;
+
+InstallResult ProviderCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (flavor_.empty() || !make_dialect_) {
+        r.error = "provider capability needs a flavor and a dialect factory";
+        return r;
+    }
+    const std::string owner = services.owner();
+    register_dialect(flavor_, make_dialect_, owner);
+    for (const auto& preset : presets_) {
+        Provider p;
+        p.name = preset.name;
+        p.api_base = preset.api_base;
+        p.default_model = preset.default_model;
+        p.requires_key = preset.requires_key;
+        p.builtin = true;
+        p.flavor = flavor_;
+        register_provider_preset(p, owner);
+    }
+
+    r.ok = true;
+    r.contribution.kind = CapabilityKind::Provider;
+    r.contribution.name = flavor_;
+    r.contribution.remove = [owner, flavor = flavor_] {
+        // Take back exactly this plugin's contribution: its dialect (marked
+        // unavailable, so a provider file pointing at it fails loudly) and its
+        // preset rows.
+        unregister_dialects_for(owner);
+        unregister_provider_presets_for(owner);
+    };
     return r;
 }
 

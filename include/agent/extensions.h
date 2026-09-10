@@ -11,6 +11,7 @@
 
 #include "agent/event_bus.h"
 #include "agent/plugin_capability.h"
+#include "agent/providers.h"
 #include "agent/registry.h"
 #include "agent/tool.h"
 
@@ -217,6 +218,37 @@ private:
     std::string id_;
     int priority_;
     PromptRegistry::Render render_;
+};
+
+// Contributes a provider wire protocol and the presets that use it (spec §7).
+//
+// The dialect factory registers into the same table the built-ins use; the
+// presets become provider rows through the ordinary repository merge, so a
+// plugin provider appears in `/provider list` and the command feed with no new
+// concept. Wire behaviour lives entirely in the dialect - this capability only
+// carries data and the factory.
+class ProviderCapability : public Capability {
+public:
+    struct Preset {
+        std::string name;          // provider name, e.g. "gemini"
+        std::string api_base;
+        std::string default_model;
+        bool requires_key = true;
+    };
+
+    ProviderCapability(std::string flavor,
+                       std::function<std::unique_ptr<class Dialect>()> make_dialect,
+                       std::vector<Preset> presets = {});
+    ~ProviderCapability() override;
+
+    std::string name() const override { return flavor_; }
+    CapabilityKind kind() const override { return CapabilityKind::Provider; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    std::string flavor_;
+    std::function<std::unique_ptr<class Dialect>()> make_dialect_;
+    std::vector<Preset> presets_;
 };
 
 // Declares a setting key so the console can show it and the command tree can
