@@ -11,12 +11,14 @@
 
 namespace agent {
 
-// Owns the set of available tools and renders their OpenAI-compatible schema.
+// Owns the set of available tools and their metadata. The wire payload the
+// model receives (tools[] in a provider's shape) is built by the resolved
+// Dialect from these tools — see `docs/spec/llm-client/dialect.md`.
 // Tools are registered by the host (library or UI) and looked up by name when
 // the model requests an invocation.
 //
-// Thread safety: register/find/schema/unregister are mutex-guarded. Tool
-// dispatch runs on worker threads while the host may register tools (MCP
+// Thread safety: register/find/snapshot_tools/unregister are mutex-guarded.
+// Tool dispatch runs on worker threads while the host may register tools (MCP
 // connects, plugin enables, skill refresh) and parallel sub-agents construct
 // their own agents — unsynchronized vector mutation would be a data race.
 // snapshot_tools() returns an independent snapshot of the owned tools, safe
@@ -29,9 +31,6 @@ public:
     // unregister/replacement (dispatch holds the lease through execute()).
     std::shared_ptr<Tool> find(const std::string& name) const;
     bool empty() const;
-
-    // Build the tools[] payload for the chat/completions request.
-    json schema() const;
 
     // Snapshot of the owned tools, consistent under the registry lock.
     std::vector<std::shared_ptr<Tool>> snapshot_tools() const;

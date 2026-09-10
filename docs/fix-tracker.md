@@ -1357,6 +1357,6 @@ PR [#99](https://github.com/jtrefon/amber/pull/99) — squash-merged to `main` a
 | `FIX-030` | Anthropic Messages API dialect — the growth proof (one file + registry/preset/capability rows) | ✅ in `e7ecfa4` |
 | `FIX-032` | Learned context window surfaces from `learned_context_size()` on the throwing 400 path (red test → fix) | ✅ in `e7ecfa4` |
 | `FIX-031` | `docs/spec/llm-client/dialect.md` + llm-client spec re-alignment | ✅ in `e7ecfa4` |
-| — | Follow-up: `ModelInfo` homed in `llm.h`; `sanitize_tool_calls` encapsulated; stale doc references retired; `url_test` untracked | ✅ `chore/no-debt-cleanup` |
+| — | Follow-up: `ModelInfo` homed in `llm.h`; `sanitize_tool_calls` encapsulated; `ToolRegistry` wire shim removed; stale doc references retired; `url_test` untracked | ✅ `chore/no-debt-cleanup` |
 
 Follow-ups NOT in the merged PR: Bedrock/Vertex request signing (new increment on the same seam), streaming test gaps documented in `streaming.md` (connection drop, malformed SSE, double-finalize), Anthropic `thinking`/`reasoning_effort` have no Messages API equivalent (documented in the dialect).
