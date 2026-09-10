@@ -46,22 +46,6 @@ size_t ToolRegistry::unregister_tools_with_prefix(const std::string& prefix) {
     return removed;
 }
 
-json ToolRegistry::schema() const {
-    std::scoped_lock lk(mtx_);
-    json arr = json::array();
-    for (const auto& t : tools_) {
-        arr.push_back({
-            {"type", "function"},
-            {"function", {
-                {"name", t->name()},
-                {"description", t->description()},
-                {"parameters", t->parameters_schema()}
-            }}
-        });
-    }
-    return arr;
-}
-
 std::vector<std::shared_ptr<Tool>> ToolRegistry::snapshot_tools() const {
     std::scoped_lock lk(mtx_);
     return tools_;

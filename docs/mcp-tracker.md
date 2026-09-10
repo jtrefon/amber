@@ -131,10 +131,10 @@ SIGTERM→SIGKILL shutdown.
 |---|---|
 | **ID** | `MC-IMP-003` |
 | **Severity** | 🟠 High |
-| **Depends on** | MC-IMP-001 (wire), existing `libcurl`/`sse_parser` |
+| **Depends on** | MC-IMP-001 (wire), existing `libcurl` |
 | **Blocks** | MC-IMP-004 (client session) |
 | **Estimated effort** | 5-7 hours |
-| **Files touched** | `lib/mcp_transport_http.cpp` (new), `lib/sse_parser.cpp` (reuse), `tests/mcp_transport_test.cpp`, `tests/fixtures/mcp_http.cpp` (new C++ fixture) |
+| **Files touched** | `lib/mcp_transport_http.cpp` (new), `tests/mcp_transport_test.cpp`, `tests/fixtures/mcp_http.cpp` (new C++ fixture) |
 | **Spec refs** | `mcp/mcp-transport.md` [MT-04]–[MT-06] |
 
 ### Problem
@@ -149,9 +149,11 @@ per-message POST, SSE responses, session-id and protocol-version headers, and
   - `send()` POSTs the message with `Accept: application/json,
     text/event-stream`, `MCP-Protocol-Version`, `Mcp-Session-Id` (when known),
     `Authorization: Bearer` (when configured).
-  - `application/json` reply → parse directly. `text/event-stream` → drain SSE
-    via `sse_parser` until the response for our id arrives; interleaved server
-    requests/notifications are queued to the client.
+  - `application/json` reply → parse directly. `text/event-stream` → scan the
+    response's `data:` lines until the response for our id arrives; interleaved
+    server requests/notifications are queued to the client. (MCP framing is
+    JSON-RPC-specific and scans lines inline — it does not share the chat
+    SSE decoder.)
   - Session id captured from the `Mcp-Session-Id` header on the initialize
     response; `delete_session()` sends `DELETE`.
   - HTTP 404 on `Mcp-Session-Id` → re-initialize once and retry the request

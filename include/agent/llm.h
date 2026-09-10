@@ -41,6 +41,14 @@ struct ServerInfo {
     int context_train = 0;      // n_ctx_train (model's native max), 0 if unknown
 };
 
+// One entry of a provider's model listing, as parsed by a Dialect. `context`
+// is 0 when the protocol does not report a window (e.g. Anthropic's listing).
+struct ModelInfo {
+    std::string id;
+    int context = 0;        // n_ctx (loaded context window)
+    int context_train = 0;  // n_ctx_train (native max)
+};
+
 // Per-request telemetry, surfaced to UIs for the status bar. Filled in after a
 // chat/chat_stream call completes. Fields are -1/0 when unknown.
 struct Stats {

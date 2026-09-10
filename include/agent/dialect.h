@@ -16,7 +16,6 @@
 
 #include "agent/config.h"
 #include "agent/llm.h"
-#include "agent/model_probe.h"
 #include "agent/stream_decoder.h"
 
 #include <functional>
