@@ -1597,9 +1597,7 @@ void SlashDispatcher::cmd_system_exec(const std::string& rest) {
     // expects the output inline). Poll until the job exits.
     for (int i = 0; i < 600; ++i) {
         auto job = tui_.jobs_.get(id);
-        if (!job) break;
-        if (job->state() != agent::JobState::Starting &&
-            job->state() != agent::JobState::Running) break;
+        if (!job || job->is_done()) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     std::string out = tui_.jobs_.output(id);
