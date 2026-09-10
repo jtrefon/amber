@@ -1285,12 +1285,8 @@ TEST(sec03_semantic_index_skips_symlink_escape) {
 
     auto be = agent::make_semantic_backend();
     auto hits = be->search("SEC03_SYMLINK_ESCAPE_MARKER", dir, "*.cpp", 100);
-    // The symlinked file must NOT appear in results.
-    for (const auto& h : hits) {
-        ASSERT(h.path.find("SEC03_SYMLINK_ESCAPE_MARKER") == std::string::npos ||
-               h.line.find("SEC03_SYMLINK_ESCAPE_MARKER") == std::string::npos);
-    }
-    // More directly: no hit path should contain "link.cpp" (the symlink).
+    // The symlinked file must NOT appear in results: no hit path should
+    // contain "link.cpp" (the symlink).
     for (const auto& h : hits) {
         ASSERT(h.path.find("link.cpp") == std::string::npos);
     }
