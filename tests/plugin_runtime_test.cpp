@@ -885,7 +885,8 @@ TEST(commandcode_credits_parser_parses_windows_and_credits) {
     ASSERT(snap->credits_balance.has_value());
     ASSERT_EQ(*snap->credits_balance, 11.0);
     ASSERT_EQ(snap->windows[1].label, std::string("5h"));
-    ASSERT(snap->windows[1].percent_used > 16.0 && snap->windows[1].percent_used < 17.0);
+    ASSERT(snap->windows[1].percent_used > 16.0);
+    ASSERT(snap->windows[1].percent_used < 17.0);
     ASSERT_EQ(snap->windows[1].remaining, 2.5);
     ASSERT_EQ(snap->windows[2].label, std::string("7d"));
     ASSERT_EQ(snap->windows[2].percent_used, 20.0);
@@ -1050,6 +1051,7 @@ TEST(bundled_plugins_include_new_providers) {
     runtime.add_bundled();
     auto list = runtime.list();
     std::vector<std::string> ids;
+    ids.reserve(list.size());
     for (const auto& p : list) ids.push_back(p.id);
     auto has = [&](const std::string& id) {
         return std::find(ids.begin(), ids.end(), id) != ids.end();
