@@ -1744,6 +1744,61 @@ TEST(agent_injects_in_memory_blocks_without_compression) {
     ASSERT(request_contains(*raw, "the build system is make"));
 }
 
+TEST(agent_orders_injected_blocks_as_documented) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "the build system is make");
+    push_text(*fake, "done");
+
+    agent::PromptRegistry prompts;
+    prompts.add("plug", "tail", 400, [] { return std::string("PLUGIN TAIL"); });
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
+                    std::move(retriever), std::move(fake));
+    ag.set_prompt_registry(prompts);
+    agent::SessionBrief fresh;
+    fresh.intent = "wire the prompt blocks";
+    ag.session_brief_store()->merge(fresh);
+
+    ag.run("how do I build this?");
+
+    ASSERT(!raw->requests.empty());
+    const auto& req = raw->requests.front();
+
+    // Head: the base prompt, then the injected blocks that read as
+    // instructions, in priority order — memory (100) before discovery (200).
+    ASSERT(!req.empty());
+    ASSERT_EQ(req.front().role, std::string("system"));
+    ASSERT(req[1].content.find("the build system is make") != std::string::npos);
+
+    // Tail: after the conversation, so a change costs the KV cache only from
+    // there on. Order is activated bodies (900), brief (950), plugins (1000).
+    ASSERT_EQ(req.back().content, std::string("PLUGIN TAIL"));
+    bool brief_seen = false;
+    bool brief_before_plugin = false;
+    for (const auto& m : req) {
+        if (m.content.find("session-brief") != std::string::npos) {
+            brief_seen = true;
+            brief_before_plugin = true;
+        } else if (m.content == "PLUGIN TAIL") {
+            break;
+        }
+    }
+    ASSERT(brief_seen);
+    ASSERT(brief_before_plugin);
+
+    // The tail block really is after the conversation, not mixed into it.
+    ASSERT(req[req.size() - 2].content.find("session-brief") != std::string::npos);
+}
+
 TEST(agent_places_injected_blocks_after_the_system_prompt) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();

@@ -246,16 +246,21 @@ The core blocks migrating onto the registry is deliberate dogfooding: if the
 registry cannot express amber's own prompt assembly, it cannot express a
 plugin's.
 
-**Status of that migration (2026-09-10):** plugin blocks render; the four core
-injections have not moved yet, and the reason is a behaviour question rather
-than framework work — the memory block is injected *before* the compression
-gate and is silently discarded when compression rebuilds the prompt copy,
-while the skill-discovery block (injected after the gate) survives. Moving the
-core blocks onto the registry forces that asymmetry to be decided, and a
-single tail render would also change the layout of every request. Both are
-measurable with the bench harness, so the migration lands with a before/after
-run rather than as a side effect of a refactor. See
-`docs/plugin-framework-tracker.md` → "Open findings".
+**Status of that migration (2026-09-11): resolved — and the answer was not the
+one the design assumed.** Reading the history showed the pre-compression memory
+block was a **regression**, not a layout preference: before the immutable-Context
+rewrite, compression ran on a list that already contained the injection, and the
+rewrite's `prompt_copy.assign(...)` started discarding it. The fix is one
+assembly point *after* the gate (`Agent::inject_prompt_blocks`), with the
+head/tail placement preserved so ordinary turns are byte-identical.
+
+The core blocks were **deliberately not moved into `PromptRegistry`**: the
+registry is runtime-owned and shared across windows, while the retriever, skill
+catalog and brief store are per-agent, so a core block registered there would put
+one window's state into another window's prompt. The registry is for app-wide
+contributions; core blocks are assembled by the agent that owns their state, and
+both are merged in one ordered pass (`prompt_priority`). Full contract:
+`docs/spec/agent-loop/prompt-assembly.md`.
 
 ---
 
