@@ -50,15 +50,15 @@ std::vector<std::string> split_args(const std::string& line) {
 // Allows kebab-case identifiers: [a-zA-Z0-9._-] but no leading dot or slash.
 bool valid_server_name(const std::string& name) {
     if (name.empty() || name[0] == '.') return false;
+    if (name.find("..") != std::string::npos) return false;
     for (char c : name) {
         if (c == '/' || c == '\\' || c == '\0') return false;
-        if (c != '-' && c != '_' && c != '.' &&
-            !(c >= 'a' && c <= 'z') &&
-            !(c >= 'A' && c <= 'Z') &&
-            !(c >= '0' && c <= '9'))
-            return false;
+        bool is_alnum = (c >= 'a' && c <= 'z') ||
+                        (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9');
+        bool is_allowed = c == '-' || c == '_' || c == '.';
+        if (!is_alnum && !is_allowed) return false;
     }
-    if (name.find("..") != std::string::npos) return false;
     return true;
 }
 
