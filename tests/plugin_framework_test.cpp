@@ -426,6 +426,37 @@ TEST(tool_capability_factory_may_decline) {
     ASSERT_EQ(h.tools.snapshot_tools().size(), 0u);
 }
 
+// Names may collide. Two plugins can contribute a tool under the same name, and
+// the later registration wins — a plugin overriding a host tool is a feature,
+// not an accident. What must never happen is one plugin's unwinding reaching
+// across owners and taking another plugin's tool with it: the ledger's contract
+// is "removes exactly what this plugin added".
+TEST(tool_capability_unwind_cannot_remove_another_plugins_tool) {
+    TestHarness h;
+
+    ToolCapability alpha("shared", std::make_unique<SilentTool>("shared.tool"));
+    h.services.set_owner("alpha");
+    InstallResult a = alpha.install(h.services);
+    ASSERT_TRUE(a.ok);
+
+    ToolCapability beta("shared", std::make_unique<SilentTool>("shared.tool"));
+    h.services.set_owner("beta");
+    InstallResult b = beta.install(h.services);
+    ASSERT_TRUE(b.ok);
+
+    // beta's instance replaced alpha's under the same name: the registered tool
+    // belongs to beta now, and alpha's contribution is already superseded.
+    ASSERT_TRUE((bool)h.tools.find("shared.tool"));
+
+    // Unwinding alpha must not remove beta's tool.
+    a.contribution.remove();
+    ASSERT_TRUE((bool)h.tools.find("shared.tool"));
+
+    // Unwinding beta removes its own.
+    b.contribution.remove();
+    ASSERT_FALSE((bool)h.tools.find("shared.tool"));
+}
+
 // Several tools from one capability go away together: the ledger records a
 // single contribution, so its removal must undo all of them. (The process
 // tools are the reason this exists.)

@@ -157,6 +157,50 @@ private:
     std::shared_ptr<std::atomic<bool>> done_;
 };
 
+// A tool with no behaviour: enough to prove registry ownership across a
+// plugin's activate/deactivate cycle.
+class StubTool : public Tool {
+public:
+    explicit StubTool(std::string name) : name_(std::move(name)) {}
+    std::string name() const noexcept override { return name_; }
+    std::string description() const noexcept override { return "stub"; }
+    json parameters_schema() const override { return json::object(); }
+    ToolResult execute(const json&) const override { return {true, "", "", json{}}; }
+
+private:
+    std::string name_;
+};
+
+// Contributes one tool under a chosen name, so two plugins can collide on it.
+class NamedToolPlugin : public IPlugin {
+public:
+    NamedToolPlugin(std::string id, std::string tool_name)
+        : id_(std::move(id)), tool_name_(std::move(tool_name)) {}
+
+    std::string id() const override { return id_; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Named tool probe"; }
+
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        const std::string tool_name = tool_name_;
+        caps.push_back(std::make_unique<ToolCapability>(
+            tool_name, [tool_name](PluginServices&) -> std::vector<std::unique_ptr<Tool>> {
+                std::vector<std::unique_ptr<Tool>> tools;
+                tools.push_back(std::make_unique<StubTool>(tool_name));
+                return tools;
+            }));
+        return caps;
+    }
+
+private:
+    std::string id_;
+    std::string tool_name_;
+};
+
 struct Fixture {
     ToolRegistry tools;
     Config cfg;
@@ -901,6 +945,30 @@ TEST(runtime_bundled_plugin_observes_a_real_turn) {
     ASSERT_TRUE(runtime.set_state("metrics", false));
     ASSERT_TRUE(runtime.contributions().empty());
     ASSERT_FALSE(runtime.status("metrics").enabled);
+}
+
+// Disabling one plugin must leave another plugin's identically-named tool
+// alone. This is the ledger's headline promise seen through the runtime:
+// unwinding a plugin restores the registries to their pre-activation state and
+// never touches a neighbour's contribution.
+TEST(runtime_disable_cannot_remove_another_plugins_tool) {
+    ScratchConfig scratch("tool_owner");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<NamedToolPlugin>("alpha", "probe"));
+    runtime.add(std::make_shared<NamedToolPlugin>("beta", "probe"));
+    runtime.start();
+
+    ASSERT_TRUE((bool)f.tools.find("probe"));
+
+    // beta registered last, so the live "probe" is beta's. Disabling alpha must
+    // not take it away — alpha's own instance was superseded on registration.
+    ASSERT_TRUE(runtime.set_state("alpha", false));
+    ASSERT_TRUE((bool)f.tools.find("probe"));
+
+    // Disabling beta removes its own.
+    ASSERT_TRUE(runtime.set_state("beta", false));
+    ASSERT_FALSE((bool)f.tools.find("probe"));
 }
 
 TEST(runtime_shutdown_deactivates_everything) {
