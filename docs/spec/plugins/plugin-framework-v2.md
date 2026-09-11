@@ -373,7 +373,18 @@ done per plugin (kilocode did exactly that: its own poll loop, atomic cache and
 status segment). It is not, because the part that varies is a single HTTP call
 and everything else — when to refresh, how to cache, how to render, how to drop
 under pressure — should be identical for every provider. A plugin supplies the
-fetch; a provider without one simply reports `-`. The readout refreshes when a
+fetch; a provider without one simply reports `-`.
+
+Two providers declare wallets today, and they show why the fetch is the right
+seam: kilocode reads an account balance (`api.kilo.ai/api/profile/balance`,
+authenticated with the gateway key), while OpenRouter reports a *per-key* spend
+cap (`GET /v1/key` → `limit_remaining`, visible to an ordinary inference key).
+A third kind of provider — one with no account API to ask, which is every
+OpenAI-compatible endpoint including the user's own — declares nothing and
+renders `-` rather than a fabricated number. Account-wide OpenRouter credits
+need a management key, so they are deliberately out of scope; when that need
+arrives it becomes the first consumer of host services (§8), not a wallet
+special case. The readout refreshes when a
 turn ends (a balance moves because we spent something), on a provider switch,
 and once at startup, with a floor so a fast tool loop cannot hammer the
 endpoint; the fetch runs off the UI thread. `/get provider wallet` reports the

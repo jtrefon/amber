@@ -12,6 +12,7 @@
 #include "fake_llm.h"
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
+#include "plugins/openrouter/openrouter_plugin.h"
 #include "test_util.h"
 
 #include <cstdlib>
@@ -494,6 +495,57 @@ TEST(kilocode_balance_url_is_the_api_not_the_gateway) {
     const std::string url = plugins::kilocode_balance_url();
     ASSERT_EQ(url, std::string("https://api.kilo.ai/api/profile/balance"));
     ASSERT(url.find("/gateway") == std::string::npos);
+}
+
+// OpenRouter reports a per-key spend cap rather than an account balance. The
+// shape is pinned here because it is what a stored inference key can see.
+TEST(openrouter_wallet_parses_the_key_allowance) {
+    ASSERT_EQ(plugins::openrouter_key_url("https://openrouter.ai/api/v1"),
+              std::string("https://openrouter.ai/api/v1/key"));
+    // The default base is used when the provider has none configured.
+    ASSERT_EQ(plugins::openrouter_key_url(""), std::string("https://openrouter.ai/api/v1/key"));
+
+    // The direct field.
+    const auto direct = plugins::parse_openrouter_key(
+        R"({"data":{"limit":20,"usage":7.5,"limit_remaining":12.5}})");
+    ASSERT(direct.has_value());
+    ASSERT_EQ(*direct, 12.5);
+
+    // Only the cap and the spend: the remainder is arithmetic.
+    const auto derived = plugins::parse_openrouter_key(R"({"data":{"limit":20,"usage":7.5}})");
+    ASSERT(derived.has_value());
+    ASSERT_EQ(*derived, 12.5);
+
+    // An uncapped key has no "remaining": nothing honest to show.
+    ASSERT_FALSE(plugins::parse_openrouter_key(
+                     R"({"data":{"limit":null,"usage":7.5,"limit_remaining":null}})")
+                     .has_value());
+
+    // Garbage is not a number.
+    ASSERT_FALSE(plugins::parse_openrouter_key("not json").has_value());
+    ASSERT_FALSE(plugins::parse_openrouter_key(R"({"data":[]})").has_value());
+}
+
+// Both wallets are contributions like any other: they appear in the registry
+// and disappear with their plugin.
+TEST(runtime_exposes_the_builtin_wallets) {
+    ScratchConfig scratch("wallets");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE(runtime.wallets().find("kilocode") != nullptr);
+    ASSERT_TRUE(runtime.wallets().find("openrouter") != nullptr);
+    // Providers with no account API to ask declare none.
+    ASSERT_TRUE(runtime.wallets().find("gemini") == nullptr);
+    ASSERT_TRUE(runtime.wallets().find("anthropic") == nullptr);
+    ASSERT_TRUE(runtime.wallets().find("custom") == nullptr);
+
+    // Disabling the provider plugin takes its wallet with it.
+    ASSERT_TRUE(runtime.set_state("openrouter", false));
+    ASSERT_TRUE(runtime.wallets().find("openrouter") == nullptr);
+    ASSERT_TRUE(runtime.wallets().find("kilocode") != nullptr);
 }
 
 TEST(runtime_find_returns_null_for_unknown_plugins) {

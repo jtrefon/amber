@@ -111,9 +111,22 @@ cover.
   segment `-`; a wallet-less provider (anthropic) also renders `-`; both at
   drop priority 9. Live TUI: `/get provider wallet` and
   `/set provider wallet off` both work.
-- **Not covered:** openrouter's per-key limit (next), the provider's own
-  `custom` wallet URL, and the account-wide OpenRouter credits (which would be
-  the first consumer of host services — deferred, D22).
+- **W2 — OpenRouter wallet.** `plugins/openrouter/` now declares one: it reads
+  the *per-key* spend cap (`GET /v1/key` → `limit_remaining`), which is what a
+  stored inference key can see, falling back to `limit - usage` when a gateway
+  reports only those two, and reporting nothing when the key is uncapped. The
+  wheel was not re-invented: a shared `http_get_with_bearer` (`lib/http_get.cpp`)
+  now serves both wallets, so neither plugin hand-rolls libcurl. It is
+  deliberately *not* the chat transport — that owns streaming, retries and a
+  dialect.
+- **Deliberately not built (recorded):** a `wallet_url` knob for the `custom`
+  provider. The reasoning is the same one that cut log sinks (D22): no known
+  endpoint serves one — OpenAI's public API has no balance endpoint at all — so
+  the knob would be a config surface with no consumer. `custom` renders `-`,
+  which is the honest answer, and a knob can be added the day someone names an
+  endpoint that needs it.
+- **Not covered:** account-wide OpenRouter credits (management key → host
+  services, deferred, D22).
 
 ### 2026-09-10 — Fix: the kilo wallet readout (TWO regressions from PF-4)
 

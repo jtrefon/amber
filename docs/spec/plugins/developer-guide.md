@@ -347,7 +347,7 @@ sitting and each a template for the next:
 | Plugin | What it shows |
 |---|---|
 | `plugins/custom/` | Presets only, no endpoint: the user's own endpoint, configured by file |
-| `plugins/openrouter/` | Minimal vendor on a shared protocol (presets only, no dialect) |
+| `plugins/openrouter/` | Minimal vendor on a shared protocol (presets only, no dialect) + a per-key wallet |
 | `plugins/kilocode/` | Shared protocol + a provider-specific feature (a wallet: one fetch, no poll loop) |
 | `plugins/anthropic/` | A vendor protocol the plugin itself provides |
 | `plugins/gemini/` | A vendor protocol with a different streaming model, usage shape and model listing |

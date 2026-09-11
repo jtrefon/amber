@@ -4,13 +4,28 @@
 // The OpenRouter provider plugin: an OpenAI-compatible router, so it
 // contributes presets and speaks the shared openai dialect — no wire protocol
 // of its own, and nothing provider-specific in the core.
+//
+// It also declares a wallet. OpenRouter reports a *per-key* spend cap
+// (`GET /v1/key` → `limit_remaining`), which is what a normal inference key
+// can see; account-wide credits need a management key and are deliberately out
+// of scope.
 
 #include "agent/plugin_v2.h"
 
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace agent::plugins {
+
+// The key-details endpoint on the configured base.
+std::string openrouter_key_url(const std::string& api_base);
+
+// Parse `GET /v1/key`: the remaining allowance for this key. Returns nullopt
+// when the key is uncapped (the API reports no limit) or the body is not the
+// expected shape — an uncapped key has no "remaining" to show, and inventing
+// one would be worse than showing nothing.
+std::optional<double> parse_openrouter_key(const std::string& body);
 
 class OpenRouterPlugin : public IPlugin {
 public:
