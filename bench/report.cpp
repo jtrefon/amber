@@ -536,16 +536,14 @@ std::string render_markdown_comparison(
            "steps | wall (s) |\n";
     out << "|---|---|---|---|---|---|---|---|---|\n";
     for (const auto& run : runs) {
-        int tools = 0, fail = 0, denied = 0, red = 0, retr = 0, steps = 0;
+        int tools = 0, fail = 0, red = 0, steps = 0;
         long wall = 0;
         double ag_sum = 0.0;
         int ag_n = 0;
         for (const auto& r : run.second) {
             tools += r.kpi.tool_calls;
             fail += r.kpi.tool_failures;
-            denied += r.kpi.tool_denied;
             red += r.kpi.redundant;
-            retr += r.kpi.retries;
             steps += r.kpi.steps;
             wall += r.kpi.wall_ms;
             if (r.agentic.has_plan) {

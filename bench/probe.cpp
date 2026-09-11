@@ -484,7 +484,7 @@ bool loop_probe_done_flag(ProbeResult& r) {
         r.detail = "hard_stop despite a done signal";
         return false;
     }
-    if (!rep.kpi.recoveries == 0) {
+    if (rep.kpi.recoveries != 0) {
         r.detail = "unexpected recovery/steer on a clean done";
         return false;
     }
@@ -527,7 +527,7 @@ bool loop_probe_continue_flag(ProbeResult& r) {
                    std::to_string(rep.kpi.tool_calls);
         return false;
     }
-    if (rep.kpi.hard_stop || !rep.kpi.recoveries == 0) {
+    if (rep.kpi.hard_stop || rep.kpi.recoveries != 0) {
         r.detail = "loop wrongly terminated early";
         return false;
     }
@@ -669,7 +669,7 @@ bool loop_probe_no_false_positive(ProbeResult& r) {
     ScenarioReport rep;
     std::string err;
     if (!run_loop_scenario(s, rep, err, r)) return false;
-    if (!rep.kpi.recoveries == 0 || rep.kpi.hard_stop) {
+    if (rep.kpi.recoveries != 0 || rep.kpi.hard_stop) {
         r.detail = "distinct calls wrongly flagged as a loop";
         return false;
     }

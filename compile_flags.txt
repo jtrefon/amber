@@ -4,5 +4,3 @@
 -I.
 -std=c++17
 -Wall
-# Note: real flags from Makefile LINT_CXXFLAGS (CPPFLAGS + CURL_CFLAGS + NCURSES_CFLAGS);
-# this file is minimal for clangd fallback. Regenerate via: ./configure && cat Makefile | grep CPPFLAGS

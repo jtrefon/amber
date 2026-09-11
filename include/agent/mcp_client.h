@@ -118,7 +118,6 @@ private:
     std::unique_ptr<McpTransport> transport_;
     std::string transport_error_;
     const CancellationToken* cancel_token_ = nullptr;
-    int request_timeout_ms_ = 60000;
     int id_counter_ = 1;
     bool connected_ = false;
     std::string error_;
