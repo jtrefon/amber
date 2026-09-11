@@ -23,15 +23,14 @@ void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todo
     HostServices host{&jobs, &todos, &subagents, &cancel_token};
 
     // Tool capabilities reach only services.tools() and services.config/host, so
-    // the registries they do not use are empty placeholders.
+    // the registries the core tool set does not use are empty placeholders.
     EventBus events;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
-    PluginSettingsStore settings;
-    PluginServices services(reg, prompts, commands, status, panels, wallets, settings, events);
+    AllowanceRegistry allowances;
+    PluginServices services(reg, prompts, status, panels, wallets, allowances, events);
     services.config = &cfg;
     services.host = &host;
 

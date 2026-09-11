@@ -336,6 +336,71 @@ a question into a defect.
   `stream` parameter. `-Wall` is not a CI gate, so they survived review; they
   are fixed and named in the commit rather than left as known noise.
 
+### 2026-09-11 — Hardening the plugin surface: core UI dogfood, two dead kinds pruned
+
+Three findings from reviewing the tools-as-plugins work, closed together.
+
+**1. Disabling a plugin said nothing.** `/set plugin <id> off` silently persisted
+and unwound; the user had to run `/get plugin <id>` afterwards to learn what
+disappeared. `SlashDispatcher::set_plugin` now reports the change in one place
+(both the command tree and the registry land there): `plugin core_tools off
+(removed 9 tool)`. Grouped by capability kind, because "9 tool" and "1 segment"
+mean different things.
+
+- *Investigated and rejected:* a warning for "no tools left, the agent cannot
+  act". The premise turned out to be **false** — `Agent` always registers the
+  three skill tools (`read_skill`, `list_skills`, `write_skill`,
+  `register_skills=true` by default and no host overrides it), so the registry
+  cannot reach zero in production and the warning would have been unreachable
+  code. The two new tests pin both halves: a genuinely empty registry still
+  completes a turn (`register_skills=false`), and the default keeps exactly 3
+  tools with no plugin contributions.
+
+**2. The capability path was unexercised in production.** Five of eight kinds
+had zero production contributors (Command, PromptBlock, StatusSegment, Panel,
+Setting), and core *bypassed its own mechanism*: `register_core_status_segments`
+and `register_console_panel` wrote the registries directly. Dogfooded:
+
+- `lib/core_segments.cpp` now returns `core_status_capabilities()` instead of
+  writing a registry; the wallet readout and the console panel are declared as
+  capabilities in `PluginRuntime::install_core_ui()`, installed under a reserved
+  `core` owner that `/set plugin` cannot touch (it is not a registered plugin).
+- Result, verified by grep: `StatusRegistry::add` and `PanelRegistry::add` are
+  each called from **exactly one place** — the capability's own `install`. Core
+  and plugin contributions now cannot drift, and an install that is broken
+  fails loudly at startup instead of hiding behind "no plugin uses it yet".
+- Not ledgered on purpose: the ledger is per plugin and exists to unwind, while
+  core UI lives exactly as long as the runtime.
+- New test `runtime_core_ui_installs_through_the_capability_path` asserts the
+  entries carry owner `core` — which only `PluginServices` can set, so it is
+  evidence of the path, not of the outcome.
+
+**3. Two capability kinds were dead in both directions** — no producer and no
+consumer anywhere in production, only their own wrapper plus one test each:
+`CommandCapability` + `CommandRegistry`, and `SettingCapability` +
+`PluginSettingsStore`. Deleted, along with their `CapabilityKind` values, the
+console's kind names, the runtime members/accessors, the placeholder registries
+in `register_default_tools`, and their tests. `PluginServices` shrank from 8
+constructor arguments to 6.
+
+- **Deviation from the plan, stated plainly:** the proposal was to prune
+  PromptBlock too. On inspection it is a different case — `PromptRegistry` has a
+  live **consumer** (the agent renders its blocks; both hosts wire it in), so it
+  is an *unused extension point*, not dead code, unlike Command/Setting which
+  had nothing on either side. Kept, and marked "(no caller yet)" in the
+  availability table. Removing it is a small follow-up if we want strict D22.
+
+- **Verification:** `./run_tests` → **694 passed, 0 failed**; `make check`
+  clean (AGENTS.md audit refreshed for `tui/tui_input.cpp`); `make all` with no
+  warnings, including the `panel_view.cpp` one below.
+
+**4. A compiler warning, fixed at the cause.** `tui/panel_view.cpp` produced five
+`-Wdangling-pointer` warnings from unnamed temporaries in the footer
+constructor, rebuilt on every keypress inside the panel loop. Hoisting the
+ternary was not enough (the temporary moved); building the vector with
+`push_back` removed it and silenced the warning with **no suppression**. The
+footer is now built once instead of per keystroke.
+
 ### 2026-09-10 — Open findings (need a decision, not more code)
 
 One item is deliberately not implemented, recorded here with the reason and the
@@ -677,14 +742,14 @@ What a plugin author can rely on today. Update with every landed task.
 | Core tool set as a plugin (`plugins/core_tools`, 9 tools) | ✅ | PF-4.4 |
 | Harness services injected into capability factories | ✅ | PF-4.4 |
 | Declining capability leaves its plugin active | ✅ | PF-4.4 |
-| Command contribution (executable) | ✅ | PF-1 |
+| Command contribution (executable) | – | Removed 2026-09-11 (no producer, no consumer) |
 | Event subscription (typed) | ✅ | PF-1 |
 | Enable/disable with clean unwinding | ✅ | PF-1 |
 | v1 external plugins under the unified registry | ✅ | PF-1 |
-| Prompt block contribution | ✅ | PF-1 |
-| Settings contribution | ✅ | PF-1 |
+| Prompt block contribution | ✅ | PF-1 (no caller yet) |
+| Plugin settings store + contribution | – | Removed 2026-09-11 (no producer, no consumer) |
 | `/get plugin`, `/set plugin on\|off` (persisted, live) | ✅ | PF-1 |
-| Core prompt blocks: single assembly after the gate (dogfood) | ✅ | 2026-09-11 |
+| Core UI on the capability path (dogfood) | ✅ | 2026-09-11 |
 | Provider contribution (dialect + presets) | ✅ | PF-2 |
 | Provider presets only (shared protocol) | ✅ | PF-4 |
 | Provider list reflects plugin state without restart | ✅ | PF-4 |

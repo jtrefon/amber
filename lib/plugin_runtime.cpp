@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 
@@ -17,6 +18,12 @@ namespace agent {
 namespace {
 
 namespace fs = std::filesystem;
+
+// Core contributions are recorded under this reserved owner. "core" is not a
+// registered plugin, so `/set plugin core off` cannot unwind the harness's own
+// UI; the owner exists so core goes through the same declare-and-install path a
+// plugin does — the path a broken install would otherwise hide in.
+constexpr const char* kCoreOwner = "core";
 
 // Plugin state lives beside a user-installed plugin's manifest, under the same
 // config tree the provider files already use.
@@ -59,14 +66,8 @@ bool write_enabled(const std::string& id, bool enabled) {
 
 PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace)
     : config_(std::move(config)), workspace_(&workspace) {
-    // Amber's own segments are registry entries like any other, so the bar is
-    // composed from one list whether a segment comes from the core or a plugin.
-    register_core_status_segments(status_);
-    // The console is registered before any plugin can contribute a panel, so
-    // "open the panel view" always lands on the registry.
-    register_console_panel(panels_, *this);
-    services_ = std::make_unique<PluginServices>(tools, prompts_, commands_, status_, panels_,
-                                                 wallets_, allowances_, settings_, bus_);
+    services_ = std::make_unique<PluginServices>(tools, prompts_, status_, panels_, wallets_,
+                                                 allowances_, bus_);
     context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());
@@ -79,10 +80,9 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace
     allowance_turn_sub_ = Events(bus_).subscribe<TurnEndedEvent>(
         [this](const TurnEndedEvent&) { request_allowance_refresh(); });
 
-    // The readout is core, so every provider renders through one path: a plugin
-    // supplies a fetch, never a poll loop, a cache and a segment.
-    register_wallet_segment();
-    register_allowance_segment();
+    // Every readout is core, so every provider renders through one path: a
+    // plugin supplies a fetch, never a poll loop, a cache and a segment.
+    install_core_ui();
 }
 
 PluginRuntime::~PluginRuntime() {
@@ -279,42 +279,6 @@ void PluginRuntime::perform_wallet_refresh() {
     run_wallet_fetch(state, ticket, *fetch, cfg);
 }
 
-void PluginRuntime::register_wallet_segment() {
-    // Highest drop priority: the wallet is the first thing to give up its
-    // columns when the terminal is narrow, because it is the least load-bearing
-    // fact on the bar.
-    status_.add("", "wallet", /*priority=*/800, /*drop_priority=*/9,
-                [this](const StatusSnapshot&) -> StatusText {
-                    if (!wallet_enabled())
-                        return StatusText{};
-                    const WalletView view = wallet();
-                    // "-" is the honest answer both for a provider that has no
-                    // wallet and for one whose last fetch failed; `/get
-                    // provider wallet` distinguishes the two.
-                    if (!view.supported || view.failed || !view.ready)
-                        return StatusText{"  -", StatusTone::Dim};
-                    char buf[32];
-                    std::snprintf(buf, sizeof(buf), "  $%.2f", view.amount);
-                    return StatusText{buf, StatusTone::Dim};
-                });
-}
-
-void PluginRuntime::maybe_refresh_wallet() {
-    if (!wallet_dirty_.exchange(false))
-        return;
-    if (wallet_state_->inflight.load()) {
-        wallet_dirty_.store(true); // try again once the fetch lands
-        return;
-    }
-    if (steady_now_ms() - wallet_state_->last_ms.load() < kWalletRefreshFloorMs) {
-        wallet_dirty_.store(true);
-        return;
-    }
-    schedule_wallet_fetch();
-}
-
-// --- Allowance ------------------------------------------------------------
-
 namespace {
 
 constexpr long long kAllowanceRefreshFloorMs = 10LL * 1000;
@@ -323,9 +287,12 @@ constexpr long long kAllowanceRefreshFloorMs = 10LL * 1000;
 // by shortest duration (5h beats 7d beats monthly). Returns nullptr when no
 // window has a known percent.
 int window_duration_rank(const std::string& label) {
-    if (label == "5h" || label == "rolling") return 0;
-    if (label == "7d" || label == "weekly") return 1;
-    if (label == "24h" || label == "daily") return 2;
+    if (label == "5h" || label == "rolling")
+        return 0;
+    if (label == "7d" || label == "weekly")
+        return 1;
+    if (label == "24h" || label == "daily")
+        return 2;
     return 3; // monthly and everything else is longest
 }
 
@@ -343,6 +310,85 @@ const AllowanceWindow* closest_window(const std::vector<AllowanceWindow>& ws) {
 }
 
 } // namespace
+
+void PluginRuntime::install_core_ui() {
+    std::vector<std::unique_ptr<Capability>> declared = core_status_capabilities();
+
+    // The wallet readout is core, so every provider renders through one path: a
+    // plugin supplies a fetch, never a poll loop, a cache and a segment. Highest
+    // drop priority, because a balance is the least load-bearing fact on the bar.
+    declared.push_back(std::make_unique<StatusSegmentCapability>(
+        "wallet", /*priority=*/800, /*drop_priority=*/9,
+        [this](const StatusSnapshot&) -> StatusText {
+            if (!wallet_enabled())
+                return StatusText{};
+            const WalletView view = wallet();
+            // "-" is the honest answer both for a provider that has no wallet
+            // and for one whose last fetch failed; `/get provider wallet`
+            // distinguishes the two.
+            if (!view.supported || view.failed || !view.ready)
+                return StatusText{"  -", StatusTone::Dim};
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "  $%.2f", view.amount);
+            return StatusText{buf, StatusTone::Dim};
+        }));
+
+    // The allowance readout is core for the same reason, one step lower: a
+    // provider supplies a fetch and the runtime owns polling, caching and the
+    // segment.
+    declared.push_back(std::make_unique<StatusSegmentCapability>(
+        "allowance", /*priority=*/790, /*drop_priority=*/8,
+        [this](const StatusSnapshot&) -> StatusText {
+            if (!allowance_enabled())
+                return StatusText{};
+            const AllowanceView view = allowance();
+            if (!view.supported || view.failed || !view.ready)
+                return StatusText{"  -", StatusTone::Dim};
+            const AllowanceWindow* w = closest_window(view.snapshot.windows);
+            if (!w)
+                return StatusText{"  -", StatusTone::Dim};
+            char buf[48];
+            std::snprintf(buf, sizeof(buf), "  %d%%·%s", static_cast<int>(w->percent_used),
+                          w->label.c_str());
+            const StatusTone tone = w->percent_used >= 70.0 ? StatusTone::Warn : StatusTone::Dim;
+            return StatusText{buf, tone};
+        }));
+
+    // Installed before any plugin can contribute a panel, so "open the panel
+    // view" always lands on the registry.
+    declared.push_back(std::make_unique<PanelCapability>(console_panel_spec(*this)));
+
+    services_->set_owner(kCoreOwner);
+    for (auto& capability : declared) {
+        InstallResult result = capability->install(*services_);
+        if (result.declined)
+            continue;
+        // Core UI failing to install is a harness defect, not a plugin's: fail
+        // at startup rather than run with a silently missing status bar.
+        if (!result.ok)
+            throw std::runtime_error("core UI capability failed to install: " + result.error);
+        // Deliberately not recorded in the ledger: that ledger is per plugin and
+        // exists to unwind a plugin's contributions. Core UI lives exactly as
+        // long as this runtime does, and "core" is not a registered plugin, so
+        // there is nothing to unwind and nothing that could disable it.
+    }
+}
+
+void PluginRuntime::maybe_refresh_wallet() {
+    if (!wallet_dirty_.exchange(false))
+        return;
+    if (wallet_state_->inflight.load()) {
+        wallet_dirty_.store(true); // try again once the fetch lands
+        return;
+    }
+    if (steady_now_ms() - wallet_state_->last_ms.load() < kWalletRefreshFloorMs) {
+        wallet_dirty_.store(true);
+        return;
+    }
+    schedule_wallet_fetch();
+}
+
+// --- Allowance ------------------------------------------------------------
 
 bool PluginRuntime::allowance_enabled() const {
     return active_config().allowance_enabled;
@@ -362,7 +408,7 @@ PluginRuntime::AllowanceView PluginRuntime::allowance() const {
     view.failed = answered && state.failed.load();
     view.ready = answered && state.has_value.load();
     if (view.ready) {
-        std::lock_guard<std::mutex> lock(state.mutex);
+        std::scoped_lock lock(state.mutex);
         view.snapshot = state.snapshot;
     }
     return view;
@@ -373,8 +419,7 @@ void PluginRuntime::request_allowance_refresh() noexcept {
 }
 
 void PluginRuntime::run_allowance_fetch(const std::shared_ptr<AllowanceState>& state,
-                                        long long ticket,
-                                        const AllowanceRegistry::Fetch& fetch,
+                                        long long ticket, const AllowanceRegistry::Fetch& fetch,
                                         const Config& cfg) {
     std::optional<AllowanceSnapshot> value;
     try {
@@ -383,7 +428,7 @@ void PluginRuntime::run_allowance_fetch(const std::shared_ptr<AllowanceState>& s
         value = std::nullopt;
     }
     {
-        std::lock_guard<std::mutex> lock(state->mutex);
+        std::scoped_lock lock(state->mutex);
         if (value)
             state->snapshot = *value;
         else
@@ -441,26 +486,6 @@ void PluginRuntime::perform_allowance_refresh() {
     }
     state->inflight.store(true);
     run_allowance_fetch(state, ticket, *fetch, cfg);
-}
-
-void PluginRuntime::register_allowance_segment() {
-    status_.add("", "allowance", /*priority=*/790, /*drop_priority=*/8,
-                [this](const StatusSnapshot&) -> StatusText {
-                    if (!allowance_enabled())
-                        return StatusText{};
-                    const AllowanceView view = allowance();
-                    if (!view.supported || view.failed || !view.ready)
-                        return StatusText{"  -", StatusTone::Dim};
-                    const AllowanceWindow* w = closest_window(view.snapshot.windows);
-                    if (!w)
-                        return StatusText{"  -", StatusTone::Dim};
-                    char buf[48];
-                    std::snprintf(buf, sizeof(buf), "  %d%%·%s",
-                                  static_cast<int>(w->percent_used), w->label.c_str());
-                    const StatusTone tone = w->percent_used >= 70.0 ? StatusTone::Warn
-                                                                     : StatusTone::Dim;
-                    return StatusText{buf, tone};
-                });
 }
 
 void PluginRuntime::maybe_refresh_allowance() {

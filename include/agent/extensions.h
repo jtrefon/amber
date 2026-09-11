@@ -289,68 +289,6 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
-// A slash-command subtree plus one handler per leaf. The host merges the
-// subtree into its command tree and registers the handlers, so a contributed
-// leaf always executes - the failure mode of the v1 tier, where subtrees
-// rendered in the drawer but had no handler behind them.
-class CommandRegistry {
-public:
-    using Handler = std::function<void(const std::string& arg)>;
-
-    struct Node {
-        std::string owner;
-        std::string root;                        // namespace root this plugin owns
-        std::string subtree_json;                // completions.json-shaped children
-        std::map<std::string, Handler> handlers; // leaf path -> handler
-    };
-
-    Contribution add(const std::string& owner, const std::string& root,
-                     const std::string& subtree_json, std::map<std::string, Handler> handlers);
-
-    // Subtree for `root`, or an empty string when no plugin owns it.
-    std::string subtree(const std::string& root) const;
-    // Invoke the handler for `root` + `path` (slash-separated, no leading
-    // root). Returns false when nothing is registered for that leaf.
-    bool dispatch(const std::string& root, const std::string& path, const std::string& arg) const;
-
-    std::vector<ExtensionItem> items() const;
-    std::size_t size() const noexcept { return nodes_.size(); }
-
-private:
-    std::vector<Node> nodes_;
-};
-
-// ---------------------------------------------------------------------------
-// Per-plugin settings
-// ---------------------------------------------------------------------------
-
-// Plugin-owned key/value state. The runtime reads and writes the backing file;
-// plugins only ever see the map. Kept separate from the harness config so a
-// disabled plugin's settings cannot leak into global configuration.
-class PluginSettingsStore {
-public:
-    // Values for `owner`; empty when the plugin has none.
-    std::map<std::string, std::string> get(const std::string& owner) const;
-    std::string get(const std::string& owner, const std::string& key) const;
-    void set(const std::string& owner, const std::string& key, const std::string& value);
-    bool has(const std::string& owner) const;
-
-    // Declare a key a plugin offers, with its one-line description. A
-    // declaration is how the console can show a setting that is still unset.
-    void declare(const std::string& owner, const std::string& key, const std::string& help);
-    void undeclare(const std::string& owner, const std::string& key);
-
-    std::vector<ExtensionItem> items() const;
-
-private:
-    std::map<std::string, std::map<std::string, std::string>> values_;
-    std::map<std::string, std::map<std::string, std::string>> declared_;
-};
-
-// ---------------------------------------------------------------------------
 // The services a capability installs into
 // ---------------------------------------------------------------------------
 
@@ -358,19 +296,16 @@ private:
 // capability never constructs its own registry.
 class PluginServices {
 public:
-    PluginServices(ToolRegistry& tools, PromptRegistry& prompts, CommandRegistry& commands,
-                   StatusRegistry& status, PanelRegistry& panels, WalletRegistry& wallets,
-                   AllowanceRegistry& allowances, PluginSettingsStore& settings,
+    PluginServices(ToolRegistry& tools, PromptRegistry& prompts, StatusRegistry& status,
+                   PanelRegistry& panels, WalletRegistry& wallets, AllowanceRegistry& allowances,
                    EventBus& events) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
     PromptRegistry& prompts() noexcept { return *prompts_; }
-    CommandRegistry& commands() noexcept { return *commands_; }
     StatusRegistry& status() noexcept { return *status_; }
     PanelRegistry& panels() noexcept { return *panels_; }
     WalletRegistry& wallets() noexcept { return *wallets_; }
     AllowanceRegistry& allowances() noexcept { return *allowances_; }
-    PluginSettingsStore& settings() noexcept { return *settings_; }
     EventBus& events() noexcept { return *events_; }
 
     // The plugin whose capabilities are being installed right now. The runtime
@@ -391,12 +326,10 @@ public:
 private:
     ToolRegistry* tools_;
     PromptRegistry* prompts_;
-    CommandRegistry* commands_;
     StatusRegistry* status_;
     PanelRegistry* panels_;
     WalletRegistry* wallets_;
     AllowanceRegistry* allowances_;
-    PluginSettingsStore* settings_;
     EventBus* events_;
     std::string owner_;
 };
@@ -431,23 +364,6 @@ private:
     std::string name_;
     std::unique_ptr<Tool> tool_; // exactly one of these is set
     Factory factory_;
-};
-
-// Installs a command subtree and its leaf handlers.
-class CommandCapability : public Capability {
-public:
-    using Handler = CommandRegistry::Handler;
-
-    CommandCapability(std::string root, std::string subtree_json,
-                      std::map<std::string, Handler> handlers);
-    std::string name() const override { return root_; }
-    CapabilityKind kind() const override { return CapabilityKind::Command; }
-    InstallResult install(PluginServices& services) override;
-
-private:
-    std::string root_;
-    std::string subtree_json_;
-    std::map<std::string, Handler> handlers_;
 };
 
 // Installs one ordered prompt block.
@@ -555,20 +471,6 @@ public:
 
 private:
     PanelSpec spec_;
-};
-
-// Declares a setting key so the console can show it and the command tree can
-// offer it; values live in the per-plugin store.
-class SettingCapability : public Capability {
-public:
-    SettingCapability(std::string key, std::string help);
-    std::string name() const override { return key_; }
-    CapabilityKind kind() const override { return CapabilityKind::Setting; }
-    InstallResult install(PluginServices& services) override;
-
-private:
-    std::string key_;
-    std::string help_;
 };
 
 } // namespace agent

@@ -28,11 +28,9 @@ class PluginServices;
 
 enum class CapabilityKind : std::uint8_t {
     Tool,
-    Command,
     PromptBlock,
     StatusSegment,
     Panel,
-    Setting,
     Provider,
     Wallet,
     Allowance,

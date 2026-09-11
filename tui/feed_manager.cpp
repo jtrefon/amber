@@ -112,7 +112,7 @@ void FeedManager::refresh_plugin_feed() {
         on["help"] = p.enabled ? "already on" : "enable this plugin";
         tui_.register_action(on["action"].get<std::string>(),
                              [this, id](const std::string&) {
-                                 tui_.plugin_runtime_.set_state(id, true);
+                                 tui_.set_plugin(id, true);
                                  tui_.refresh_plugin_feed();
                              });
 
@@ -122,7 +122,7 @@ void FeedManager::refresh_plugin_feed() {
         off["help"] = p.enabled ? "disable this plugin" : "already off";
         tui_.register_action(off["action"].get<std::string>(),
                              [this, id](const std::string&) {
-                                 tui_.plugin_runtime_.set_state(id, false);
+                                 tui_.set_plugin(id, false);
                                  tui_.refresh_plugin_feed();
                              });
 

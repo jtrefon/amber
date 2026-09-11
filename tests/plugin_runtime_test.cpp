@@ -77,7 +77,9 @@ public:
         std::vector<std::unique_ptr<Capability>> caps;
         caps.push_back(
             std::make_unique<PromptBlockCapability>("block", priority_, [this] { return text_; }));
-        caps.push_back(std::make_unique<SettingCapability>("greeting", "what to say"));
+        caps.push_back(std::make_unique<StatusSegmentCapability>(
+            "block_seg", priority_, /*drop_priority=*/0,
+            [this](const StatusSnapshot&) { return StatusText{text_, StatusTone::Dim}; }));
         return caps;
     }
 
@@ -320,13 +322,11 @@ TEST(runtime_disable_unwinds_every_contribution) {
     runtime.start();
 
     ASSERT_EQ(runtime.prompts().size(), 1u);
-    ASSERT_FALSE(runtime.settings().items().empty());
 
     ASSERT_TRUE(runtime.set_state("alpha", false));
 
     ASSERT_FALSE(runtime.status("alpha").enabled);
     ASSERT_EQ(runtime.prompts().size(), 0u);
-    ASSERT_TRUE(runtime.settings().items().empty());
     ASSERT_EQ(plugin->shutdowns_, 1);
     ASSERT_TRUE(runtime.contributions().empty());
 }
@@ -392,6 +392,39 @@ TEST(runtime_failed_initialize_leaves_nothing_installed) {
     ASSERT_TRUE(runtime.contributions().empty());
 }
 
+TEST(runtime_core_ui_installs_through_the_capability_path) {
+    ScratchConfig scratch("coreui");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+
+    // The owner comes only from PluginServices, so "core" on these entries is
+    // evidence they were installed by a StatusSegmentCapability rather than
+    // written into the registry by hand. That is the point: the path core UI
+    // ships on is the path a plugin's contributions take, so a broken install
+    // (the class of bug that once shipped an agent with no tools) cannot hide
+    // behind "no plugin uses that capability yet".
+    bool saw_core_segment = false;
+    for (const auto& item : runtime.status().items()) {
+        if (item.owner != std::string("core"))
+            continue;
+        saw_core_segment = true;
+    }
+    ASSERT_TRUE(saw_core_segment);
+
+    // The wallet readout and the console are core contributions too.
+    const auto segments = runtime.status().render(StatusSnapshot{});
+    bool saw_wallet = false;
+    for (const auto& segment : segments)
+        if (segment.id == std::string("wallet"))
+            saw_wallet = true;
+    ASSERT_TRUE(saw_wallet);
+
+    const auto panels = runtime.panels().items();
+    ASSERT(!panels.empty());
+    ASSERT_EQ(panels[0].owner, std::string("core"));
+    ASSERT_EQ(panels[0].name, std::string("plugins"));
+}
+
 TEST(runtime_contributions_span_every_registry) {
     ScratchConfig scratch("contrib");
     Fixture f;
@@ -399,16 +432,16 @@ TEST(runtime_contributions_span_every_registry) {
     runtime.add(std::make_shared<BlockPlugin>("alpha", "text"));
     runtime.start();
 
-    bool saw_prompt = false, saw_setting = false;
+    bool saw_prompt = false, saw_segment = false;
     for (const auto& item : runtime.contributions()) {
         ASSERT_EQ(item.owner, std::string("alpha"));
         if (item.kind == CapabilityKind::PromptBlock)
             saw_prompt = true;
-        if (item.kind == CapabilityKind::Setting)
-            saw_setting = true;
+        if (item.kind == CapabilityKind::StatusSegment)
+            saw_segment = true;
     }
     ASSERT_TRUE(saw_prompt);
-    ASSERT_TRUE(saw_setting);
+    ASSERT_TRUE(saw_segment);
 
     auto list = runtime.list();
     ASSERT_EQ(list.size(), 1u);
@@ -540,14 +573,12 @@ TEST(runtime_wallet_reads_the_config_attached_after_start) {
 TEST(wallet_registry_installs_and_unwinds) {
     ToolRegistry tools;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
-    PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets, allowances, settings, bus);
+    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
     services.set_owner("acme");
 
     WalletCapability cap([](const Config&) -> std::optional<double> { return 7.0; });
@@ -904,9 +935,7 @@ public:
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
         caps.push_back(std::make_unique<AllowanceCapability>(
-            [](const Config&) -> std::optional<AllowanceSnapshot> {
-                return fixed_snapshot;
-            }));
+            [](const Config&) -> std::optional<AllowanceSnapshot> { return fixed_snapshot; }));
         return caps;
     }
 };
@@ -916,15 +945,12 @@ AllowanceSnapshot AllowanceProbePlugin::fixed_snapshot;
 TEST(allowance_registry_installs_and_unwinds) {
     ToolRegistry tools;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
-    PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets,
-                            allowances, settings, bus);
+    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
     services.set_owner("acme");
 
     AllowanceCapability cap([](const Config&) -> std::optional<AllowanceSnapshot> {
@@ -1065,9 +1091,15 @@ TEST(allowance_segment_shows_closest_window) {
     AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
     AllowanceProbePlugin::fixed_snapshot.plan = "Go";
     AllowanceProbePlugin::fixed_snapshot.unit = "percent";
-    AllowanceWindow w5h;  w5h.label = "5h";  w5h.percent_used = 80.0;
-    AllowanceWindow w7d;  w7d.label = "7d";  w7d.percent_used = 30.0;
-    AllowanceWindow wM;   wM.label = "monthly"; wM.percent_used = 20.0;
+    AllowanceWindow w5h;
+    w5h.label = "5h";
+    w5h.percent_used = 80.0;
+    AllowanceWindow w7d;
+    w7d.label = "7d";
+    w7d.percent_used = 30.0;
+    AllowanceWindow wM;
+    wM.label = "monthly";
+    wM.percent_used = 20.0;
     AllowanceProbePlugin::fixed_snapshot.windows = {w5h, w7d, wM};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -1081,7 +1113,8 @@ TEST(allowance_segment_shows_closest_window) {
 
     const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance") return s;
+            if (s.id == "allowance")
+                return s;
         return std::nullopt;
     };
     auto seg = find_allowance();
@@ -1095,8 +1128,12 @@ TEST(allowance_segment_breaks_ties_by_shortest_label) {
     ScratchConfig scratch("allowance_tie");
     Fixture f;
     AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
-    AllowanceWindow w5h;  w5h.label = "5h";  w5h.percent_used = 50.0;
-    AllowanceWindow w7d;  w7d.label = "7d";  w7d.percent_used = 50.0;
+    AllowanceWindow w5h;
+    w5h.label = "5h";
+    w5h.percent_used = 50.0;
+    AllowanceWindow w7d;
+    w7d.label = "7d";
+    w7d.percent_used = 50.0;
     AllowanceProbePlugin::fixed_snapshot.windows = {w7d, w5h};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -1110,7 +1147,8 @@ TEST(allowance_segment_breaks_ties_by_shortest_label) {
 
     const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance") return s;
+            if (s.id == "allowance")
+                return s;
         return std::nullopt;
     };
     auto seg = find_allowance();
@@ -1122,7 +1160,9 @@ TEST(allowance_segment_hides_when_disabled) {
     ScratchConfig scratch("allowance_hide");
     Fixture f;
     AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
-    AllowanceWindow w;  w.label = "5h";  w.percent_used = 50.0;
+    AllowanceWindow w;
+    w.label = "5h";
+    w.percent_used = 50.0;
     AllowanceProbePlugin::fixed_snapshot.windows = {w};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -1137,7 +1177,8 @@ TEST(allowance_segment_hides_when_disabled) {
 
     const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance") return s;
+            if (s.id == "allowance")
+                return s;
         return std::nullopt;
     };
     ASSERT_FALSE(find_allowance().has_value());
@@ -1154,7 +1195,8 @@ TEST(allowance_segment_shows_dash_for_unsupported_provider) {
 
     const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance") return s;
+            if (s.id == "allowance")
+                return s;
         return std::nullopt;
     };
     auto seg = find_allowance();
@@ -1170,7 +1212,8 @@ TEST(bundled_plugins_include_new_providers) {
     auto list = runtime.list();
     std::vector<std::string> ids;
     ids.reserve(list.size());
-    for (const auto& p : list) ids.push_back(p.id);
+    for (const auto& p : list)
+        ids.push_back(p.id);
     auto has = [&](const std::string& id) {
         return std::find(ids.begin(), ids.end(), id) != ids.end();
     };

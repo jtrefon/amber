@@ -1,9 +1,11 @@
 #include "agent/core_segments.h"
 
+#include "agent/extensions.h"
 #include "agent/statusbar.h"
 
 #include <cstdio>
 #include <string>
+#include <utility>
 
 namespace agent {
 
@@ -42,21 +44,29 @@ std::string dashed(const char* glyph) {
     return {glyph};
 }
 
+std::unique_ptr<Capability> segment(const char* id, int priority, int drop_priority,
+                                    StatusRegistry::Render render) {
+    return std::make_unique<StatusSegmentCapability>(id, priority, drop_priority,
+                                                     std::move(render));
+}
+
 } // namespace
 
-void register_core_status_segments(StatusRegistry& registry) {
-    registry.add("", "window", kWindow, kWindowDrop, [](const StatusSnapshot& s) {
+std::vector<std::unique_ptr<Capability>> core_status_capabilities() {
+    std::vector<std::unique_ptr<Capability>> caps;
+
+    caps.push_back(segment("window", kWindow, kWindowDrop, [](const StatusSnapshot& s) {
         return StatusText{"[" + std::to_string(s.window_index) + "/" +
                               std::to_string(s.window_count) + "]",
                           StatusTone::Banner};
-    });
+    }));
 
-    registry.add("", "model", kModel, kModelDrop, [](const StatusSnapshot& s) {
+    caps.push_back(segment("model", kModel, kModelDrop, [](const StatusSnapshot& s) {
         return StatusText{" [" + s.model + bar::reasoning_badge(s.reasoning_effort) + "]",
                           StatusTone::Good};
-    });
+    }));
 
-    registry.add("", "mode", kMode, kModeDrop, [](const StatusSnapshot& s) {
+    caps.push_back(segment("mode", kMode, kModeDrop, [](const StatusSnapshot& s) {
         switch (s.mode) {
         case AgentMode::Read:
             return StatusText{" read ", StatusTone::Good};
@@ -66,15 +76,15 @@ void register_core_status_segments(StatusRegistry& registry) {
             return StatusText{" yolo ", StatusTone::Accent};
         }
         return StatusText{};
-    });
+    }));
 
-    registry.add("", "scroll", kScroll, kScrollDrop, [](const StatusSnapshot& s) {
+    caps.push_back(segment("scroll", kScroll, kScrollDrop, [](const StatusSnapshot& s) {
         if (!s.scroll_mode)
             return StatusText{};
         return StatusText{" S ", StatusTone::Good};
-    });
+    }));
 
-    registry.add("", "lag", kLag, kLagDrop, [](const StatusSnapshot& s) {
+    caps.push_back(segment("lag", kLag, kLagDrop, [](const StatusSnapshot& s) {
         if (s.latency_ms < 0)
             return StatusText{"  lag " + dashed(bar::emdash()), StatusTone::Dim};
         char buf[32];
@@ -85,25 +95,25 @@ void register_core_status_segments(StatusRegistry& registry) {
         else if (s.latency_ms > 1000)
             tone = StatusTone::Warn;
         return StatusText{buf, tone};
-    });
+    }));
 
-    registry.add("", "tps", kTps, kTpsDrop, [](const StatusSnapshot& s) {
+    caps.push_back(segment("tps", kTps, kTpsDrop, [](const StatusSnapshot& s) {
         if (s.tps <= 0.0)
             return StatusText{"  " + dashed(bar::emdash()) + " t/s", StatusTone::Dim};
         char buf[32];
         std::snprintf(buf, sizeof(buf), "  %.0f t/s", s.tps);
         return StatusText{buf, StatusTone::Dim};
-    });
+    }));
 
-    registry.add("", "tokens", kTokens, kTokensDrop, [](const StatusSnapshot& s) {
+    caps.push_back(segment("tokens", kTokens, kTokensDrop, [](const StatusSnapshot& s) {
         const std::string up = s.prompt_tokens >= 0 ? bar::kfmt(s.prompt_tokens) : bar::emdash();
         const std::string down =
             s.completion_tokens >= 0 ? bar::kfmt(s.completion_tokens) : bar::emdash();
         return StatusText{"  " + dashed(bar::up()) + up + " " + dashed(bar::down()) + down,
                           StatusTone::Dim};
-    });
+    }));
 
-    registry.add("", "activity", kActivity, kActivityDrop, [](const StatusSnapshot& s) {
+    caps.push_back(segment("activity", kActivity, kActivityDrop, [](const StatusSnapshot& s) {
         if (s.running_jobs > 0) {
             std::string text =
                 "  " + std::to_string(s.running_jobs) + " job" + (s.running_jobs > 1 ? "s" : "");
@@ -114,9 +124,9 @@ void register_core_status_segments(StatusRegistry& registry) {
         if (!s.running_tool.empty())
             return StatusText{"  " + s.running_tool + "\u2026", StatusTone::Warn};
         return StatusText{};
-    });
+    }));
 
-    registry.add("", "mcp", kMcp, kMcpDrop, [](const StatusSnapshot& s) {
+    caps.push_back(segment("mcp", kMcp, kMcpDrop, [](const StatusSnapshot& s) {
         std::string text;
         for (const auto& server : s.mcp_servers) {
             if (!server.connected && !server.has_error)
@@ -128,7 +138,9 @@ void register_core_status_segments(StatusRegistry& registry) {
         if (text.empty())
             return StatusText{};
         return StatusText{"  mcp: " + text, StatusTone::Dim};
-    });
+    }));
+
+    return caps;
 }
 
 } // namespace agent

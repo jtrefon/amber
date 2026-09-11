@@ -153,7 +153,7 @@ TEST(ledger_unwinds_in_reverse_order) {
     PluginLedger ledger;
     std::vector<std::string> removed;
     ledger.record("plug", make_contribution(CapabilityKind::Tool, "a", removed));
-    ledger.record("plug", make_contribution(CapabilityKind::Command, "b", removed));
+    ledger.record("plug", make_contribution(CapabilityKind::Panel, "b", removed));
     ledger.record("plug", make_contribution(CapabilityKind::PromptBlock, "c", removed));
 
     ASSERT_EQ(ledger.size("plug"), 3u);
@@ -210,7 +210,7 @@ TEST(ledger_unwind_unknown_plugin_is_noop) {
 TEST(ledger_ignores_empty_removal_handles) {
     PluginLedger ledger;
     Contribution hollow;
-    hollow.kind = CapabilityKind::Setting;
+    hollow.kind = CapabilityKind::Wallet;
     hollow.name = "no-op";
     ledger.record("plug", hollow);
     ledger.unwind("plug");
@@ -221,7 +221,7 @@ TEST(ledger_reports_owners_and_contributions) {
     PluginLedger ledger;
     std::vector<std::string> removals;
     ledger.record("alpha", make_contribution(CapabilityKind::Tool, "a", removals));
-    ledger.record("beta", make_contribution(CapabilityKind::Command, "b", removals));
+    ledger.record("beta", make_contribution(CapabilityKind::Panel, "b", removals));
 
     std::vector<std::string> owners = ledger.owners();
     std::sort(owners.begin(), owners.end());
@@ -268,7 +268,7 @@ public:
 class FailingCapability : public Capability {
 public:
     std::string name() const override { return "broken"; }
-    CapabilityKind kind() const override { return CapabilityKind::Command; }
+    CapabilityKind kind() const override { return CapabilityKind::Panel; }
     InstallResult install(PluginServices&) override {
         InstallResult r;
         r.ok = false;
@@ -304,14 +304,12 @@ private:
 struct TestHarness {
     ToolRegistry tools;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
-    PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services{tools, prompts, commands, status, panels, wallets, allowances, settings, bus};
+    PluginServices services{tools, prompts, status, panels, wallets, allowances, bus};
 };
 
 } // namespace
@@ -372,50 +370,6 @@ TEST(prompt_registry_removal_takes_only_that_block) {
 
     keep.remove();
     ASSERT_EQ(prompts.size(), 0u);
-}
-
-TEST(command_registry_dispatches_registered_leaf) {
-    CommandRegistry commands;
-    std::string seen;
-    CommandRegistry::Handler handler = [&](const std::string& arg) { seen = arg; };
-    auto contribution =
-        commands.add("plug", "hello", R"({"greet":{"help":"x"}})", {{"greet", handler}});
-
-    ASSERT(commands.dispatch("hello", "greet", "world"));
-    ASSERT_EQ(seen, std::string("world"));
-    // Unknown paths and unknown roots are reported, never silently ignored.
-    ASSERT_FALSE(commands.dispatch("hello", "nope", ""));
-    ASSERT_FALSE(commands.dispatch("other", "greet", ""));
-
-    contribution.remove();
-    ASSERT_FALSE(commands.dispatch("hello", "greet", ""));
-    ASSERT_EQ(commands.size(), 0u);
-}
-
-TEST(settings_store_round_trips_per_owner) {
-    PluginSettingsStore settings;
-    settings.set("alpha", "level", "3");
-    settings.set("beta", "level", "9");
-
-    ASSERT_EQ(settings.get("alpha", "level"), std::string("3"));
-    ASSERT_EQ(settings.get("beta", "level"), std::string("9"));
-    ASSERT_EQ(settings.get("alpha", "missing"), std::string(""));
-    ASSERT_EQ(settings.get("nobody", "level"), std::string(""));
-    ASSERT_TRUE(settings.has("alpha"));
-    ASSERT_FALSE(settings.has("nobody"));
-}
-
-TEST(settings_store_can_declare_unset_keys) {
-    PluginSettingsStore settings;
-    settings.declare("alpha", "endpoint", "where to connect");
-    auto items = settings.items();
-    ASSERT_EQ(items.size(), 1u);
-    ASSERT_EQ(items[0].owner, std::string("alpha"));
-    ASSERT_EQ(items[0].name, std::string("endpoint"));
-    ASSERT_EQ(items[0].detail, std::string("where to connect"));
-
-    settings.undeclare("alpha", "endpoint");
-    ASSERT_TRUE(settings.items().empty());
 }
 
 TEST(tool_capability_registers_and_removes_exactly_its_tool) {
@@ -496,17 +450,4 @@ TEST(tool_capability_installs_and_removes_a_group) {
     ASSERT_FALSE((bool)h.tools.find("process_start"));
     ASSERT_FALSE((bool)h.tools.find("process_read"));
     ASSERT_FALSE((bool)h.tools.find("process_stop"));
-}
-
-TEST(command_capability_tags_its_owner) {
-    TestHarness h;
-    h.services.set_owner("plug");
-    CommandCapability cap("hello", "{}", {});
-    InstallResult r = cap.install(h.services);
-    ASSERT_TRUE(r.ok);
-
-    auto items = h.commands.items();
-    ASSERT_EQ(items.size(), 1u);
-    ASSERT_EQ(items[0].owner, std::string("plug"));
-    ASSERT(r.contribution.remove != nullptr);
 }

@@ -28,17 +28,16 @@ it; if they disagree, the tracker wins (and file a fix).
 | External tool plugin (subprocess, JSON-RPC) | ✅ Available | v1 |
 | Tool contribution (incl. the core tool set) | ✅ Available | PF-4.4 |
 | Harness services in capability factories (`HostServices`) | ✅ Available | PF-4.4 |
-| Command contribution, executable | ✅ Available | PF-1 |
 | Typed event subscription | ✅ Available | PF-1 |
-| Prompt block contribution | ✅ Available | PF-1 |
-| Settings contribution | ✅ Available | PF-1 |
+| Prompt block contribution | ✅ Available | PF-1 (no caller yet) |
 | v1 external plugins under the unified registry | ✅ Available | PF-1 |
 | `/get plugin`, `/set plugin on\|off` | ✅ Available | PF-1 |
 | Provider contribution (dialect + presets) | ✅ Available | PF-2 |
-| Status segment contribution | ⏳ | PF-3 |
+| Status segment contribution | ✅ Available | PF-3 |
 | Panel contribution + registry console | ✅ Available | PF-3.2 |
 | Host services (`ask_secret`, `choose`, …) | ⏳ | PF-3 |
 | Log sinks | – | Deferred (no consumer) |
+| Command contribution, plugin settings | – | Removed (no producer, no consumer — see tracker) |
 | Theme, key interception, window geometry, hot reload | – | Deferred register |
 
 Sections marked **⏳ target** describe the agreed contract. Do not build against
@@ -465,10 +464,12 @@ Manage with `/plugin list|status|enable|disable|install|uninstall`. Tools appear
 to the agent as `plugin_<id>_<name>`; the agent prompt advertises them when the
 plugin is enabled.
 
-**Known limitation:** command subtrees contributed by external plugins currently
-render in the completion drawer but cannot execute — no handler is registered for
-`plugin.*` actions. Until PF-1 lands command contribution, treat external
-plugin commands as documented-but-inert and rely on tools.
+**Known limitation:** command subtrees contributed by external plugins render in
+the completion drawer but cannot execute — no handler is registered for
+`plugin.*` actions. A command-contribution capability existed and was removed
+(2026-09-11): nothing had ever produced one and nothing consumed it. Treat
+external plugin commands as documented-but-inert and expose behaviour through
+tools; re-add a capability when a plugin actually needs one.
 
 ---
 

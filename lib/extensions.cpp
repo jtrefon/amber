@@ -196,8 +196,8 @@ std::vector<ExtensionItem> AllowanceRegistry::items() const {
     std::vector<ExtensionItem> out;
     out.reserve(entries_.size());
     for (const auto& entry : entries_) {
-        out.push_back({CapabilityKind::Allowance, entry.first, "allowance",
-                       "subscription/quota windows"});
+        out.push_back(
+            {CapabilityKind::Allowance, entry.first, "allowance", "subscription/quota windows"});
     }
     return out;
 }
@@ -252,134 +252,14 @@ std::vector<ExtensionItem> PanelRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
-// CommandRegistry
-// ---------------------------------------------------------------------------
-
-Contribution CommandRegistry::add(const std::string& owner, const std::string& root,
-                                  const std::string& subtree_json,
-                                  std::map<std::string, Handler> handlers) {
-    Node node;
-    node.owner = owner;
-    node.root = root;
-    node.subtree_json = subtree_json;
-    node.handlers = std::move(handlers);
-    nodes_.push_back(std::move(node));
-
-    Contribution c;
-    c.kind = CapabilityKind::Command;
-    c.name = root;
-    c.remove = [this, owner, root] {
-        nodes_.erase(
-            std::remove_if(nodes_.begin(), nodes_.end(),
-                           [&](const Node& n) { return n.owner == owner && n.root == root; }),
-            nodes_.end());
-    };
-    return c;
-}
-
-std::string CommandRegistry::subtree(const std::string& root) const {
-    for (const auto& node : nodes_) {
-        if (node.root == root)
-            return node.subtree_json;
-    }
-    return {};
-}
-
-bool CommandRegistry::dispatch(const std::string& root, const std::string& path,
-                               const std::string& arg) const {
-    for (const auto& node : nodes_) {
-        if (node.root != root)
-            continue;
-        auto it = node.handlers.find(path);
-        if (it == node.handlers.end() || !it->second)
-            return false;
-        it->second(arg);
-        return true;
-    }
-    return false;
-}
-
-std::vector<ExtensionItem> CommandRegistry::items() const {
-    std::vector<ExtensionItem> out;
-    out.reserve(nodes_.size());
-    for (const auto& node : nodes_) {
-        out.push_back({CapabilityKind::Command, node.owner, node.root,
-                       std::to_string(node.handlers.size()) + " command(s)"});
-    }
-    return out;
-}
-
-// ---------------------------------------------------------------------------
-// PluginSettingsStore
-// ---------------------------------------------------------------------------
-
-std::map<std::string, std::string> PluginSettingsStore::get(const std::string& owner) const {
-    auto it = values_.find(owner);
-    return it == values_.end() ? std::map<std::string, std::string>{} : it->second;
-}
-
-std::string PluginSettingsStore::get(const std::string& owner, const std::string& key) const {
-    auto owner_it = values_.find(owner);
-    if (owner_it == values_.end())
-        return {};
-    auto it = owner_it->second.find(key);
-    return it == owner_it->second.end() ? std::string{} : it->second;
-}
-
-void PluginSettingsStore::set(const std::string& owner, const std::string& key,
-                              const std::string& value) {
-    values_[owner][key] = value;
-}
-
-bool PluginSettingsStore::has(const std::string& owner) const {
-    return values_.find(owner) != values_.end();
-}
-
-void PluginSettingsStore::declare(const std::string& owner, const std::string& key,
-                                  const std::string& help) {
-    declared_[owner][key] = help;
-}
-
-void PluginSettingsStore::undeclare(const std::string& owner, const std::string& key) {
-    auto it = declared_.find(owner);
-    if (it == declared_.end())
-        return;
-    it->second.erase(key);
-    if (it->second.empty())
-        declared_.erase(it);
-    values_[owner].erase(key);
-    if (values_[owner].empty())
-        values_.erase(owner);
-}
-
-std::vector<ExtensionItem> PluginSettingsStore::items() const {
-    std::vector<ExtensionItem> out;
-    for (const auto& [owner, kv] : values_) {
-        for (const auto& [key, value] : kv) {
-            out.push_back({CapabilityKind::Setting, owner, key, value});
-        }
-    }
-    for (const auto& [owner, kv] : declared_) {
-        for (const auto& [key, help] : kv) {
-            if (get(owner, key).empty())
-                out.push_back(
-                    {CapabilityKind::Setting, owner, key, help.empty() ? "(unset)" : help});
-        }
-    }
-    return out;
-}
-
-// ---------------------------------------------------------------------------
 // PluginServices
 // ---------------------------------------------------------------------------
 
-PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
-                               CommandRegistry& commands, StatusRegistry& status,
+PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts, StatusRegistry& status,
                                PanelRegistry& panels, WalletRegistry& wallets,
-                               AllowanceRegistry& allowances, PluginSettingsStore& settings,
-                               EventBus& events) noexcept
-    : tools_(&tools), prompts_(&prompts), commands_(&commands), status_(&status), panels_(&panels),
-      wallets_(&wallets), allowances_(&allowances), settings_(&settings), events_(&events) {}
+                               AllowanceRegistry& allowances, EventBus& events) noexcept
+    : tools_(&tools), prompts_(&prompts), status_(&status), panels_(&panels), wallets_(&wallets),
+      allowances_(&allowances), events_(&events) {}
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -431,22 +311,6 @@ InstallResult ToolCapability::install(PluginServices& services) {
         for (const auto& name : registered)
             registry->remove_tool(name);
     };
-    return r;
-}
-
-CommandCapability::CommandCapability(std::string root, std::string subtree_json,
-                                     std::map<std::string, Handler> handlers)
-    : root_(std::move(root)), subtree_json_(std::move(subtree_json)),
-      handlers_(std::move(handlers)) {}
-
-InstallResult CommandCapability::install(PluginServices& services) {
-    InstallResult r;
-    if (root_.empty()) {
-        r.error = "command capability needs a namespace root";
-        return r;
-    }
-    r.contribution = services.commands().add(services.owner(), root_, subtree_json_, handlers_);
-    r.ok = true;
     return r;
 }
 
@@ -568,25 +432,6 @@ InstallResult PanelCapability::install(PluginServices& services) {
     }
     r.contribution = services.panels().add(services.owner(), std::move(spec_));
     r.ok = true;
-    return r;
-}
-
-SettingCapability::SettingCapability(std::string key, std::string help)
-    : key_(std::move(key)), help_(std::move(help)) {}
-
-InstallResult SettingCapability::install(PluginServices& services) {
-    InstallResult r;
-    if (key_.empty()) {
-        r.error = "setting capability needs a key";
-        return r;
-    }
-    const std::string owner = services.owner();
-    PluginSettingsStore* store = &services.settings();
-    store->declare(owner, key_, help_);
-    r.ok = true;
-    r.contribution.kind = CapabilityKind::Setting;
-    r.contribution.name = key_;
-    r.contribution.remove = [store, owner, key = key_] { store->undeclare(owner, key); };
     return r;
 }
 
