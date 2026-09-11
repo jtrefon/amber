@@ -51,15 +51,14 @@ std::vector<std::string> split_args(const std::string& line) {
 bool valid_server_name(const std::string& name) {
     if (name.empty() || name[0] == '.') return false;
     if (name.find("..") != std::string::npos) return false;
-    for (char c : name) {
+    auto allowed = [](char c) {
         if (c == '/' || c == '\\' || c == '\0') return false;
         bool is_alnum = (c >= 'a' && c <= 'z') ||
                         (c >= 'A' && c <= 'Z') ||
                         (c >= '0' && c <= '9');
-        bool is_allowed = c == '-' || c == '_' || c == '.';
-        if (!is_alnum && !is_allowed) return false;
-    }
-    return true;
+        return is_alnum || c == '-' || c == '_' || c == '.';
+    };
+    return std::all_of(name.begin(), name.end(), allowed);
 }
 
 // Apply one KEY=VALUE line to the config under construction.
