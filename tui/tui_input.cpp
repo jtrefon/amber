@@ -1890,7 +1890,7 @@ void SlashDispatcher::cmd_window_rename(const std::string& name) {
 void SlashDispatcher::cmd_window_set(const std::string& arg) {
     if (arg.empty()) { tui_.append_line(P_STATUS, "usage: /window set <number>"); return; }
     try {
-        size_t n = static_cast<size_t>(std::stoul(arg));
+        auto n = static_cast<size_t>(std::stoul(arg));
         auto r = tui_.window_ops_->set_window(n);
         if (r.ok) tui_.append_line(P_STATUS, "switched to window " + std::to_string(n));
         else tui_.append_line(P_STATUS, r.msg);
