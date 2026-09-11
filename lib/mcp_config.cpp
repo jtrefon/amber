@@ -46,6 +46,21 @@ std::vector<std::string> split_args(const std::string& line) {
     return out;
 }
 
+// Reject names that could traverse the filesystem when used in a path.
+// Allows kebab-case identifiers: [a-zA-Z0-9._-] but no leading dot or slash.
+bool valid_server_name(const std::string& name) {
+    if (name.empty() || name[0] == '.') return false;
+    if (name.find("..") != std::string::npos) return false;
+    auto allowed = [](char c) {
+        if (c == '/' || c == '\\' || c == '\0') return false;
+        bool is_alnum = (c >= 'a' && c <= 'z') ||
+                        (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9');
+        return is_alnum || c == '-' || c == '_' || c == '.';
+    };
+    return std::all_of(name.begin(), name.end(), allowed);
+}
+
 // Apply one KEY=VALUE line to the config under construction.
 void apply_field(McpServerConfig& cfg, const std::string& key,
                  const std::string& val) {
@@ -70,12 +85,25 @@ void apply_field(McpServerConfig& cfg, const std::string& key,
 
 void validate(McpServerConfig& cfg) {
     cfg.error.clear();
-    if (cfg.type != "stdio" && cfg.type != "http") {
+    if (!valid_server_name(cfg.name)) {
+        cfg.error = "invalid server name '" + cfg.name + "'";
+    } else if (cfg.type != "stdio" && cfg.type != "http") {
         cfg.error = "invalid type '" + cfg.type + "' (stdio|http)";
     } else if (cfg.type == "stdio" && cfg.command.empty()) {
         cfg.error = "stdio server requires 'command'";
     } else if (cfg.type == "http" && cfg.url.empty()) {
         cfg.error = "http server requires 'url'";
+    }
+    // Confine cwd to the workspace for stdio servers.
+    if (cfg.error.empty() && cfg.type == "stdio" && !cfg.cwd.empty()) {
+        std::string resolved;
+        std::string err;
+        if (!Workspace::confine(cfg.cwd, resolved, err)) {
+            cfg.error = "cwd '" + cfg.cwd + "' is outside the workspace: " + err;
+            cfg.cwd.clear();
+        } else {
+            cfg.cwd = resolved;
+        }
     }
     if (cfg.timeout_s <= 0) cfg.timeout_s = 60;
 }
@@ -123,6 +151,9 @@ void load_dir(const std::string& dir, bool overlay,
     for (const auto& entry : fs::directory_iterator(dir, ec)) {
         std::error_code e2;
         if (!entry.is_regular_file(e2)) continue;
+        // Reject symlinks: a symlinked config could read from outside the
+        // config directory.
+        if (entry.is_symlink(e2)) continue;
         if (entry.path().extension() != ".conf") continue;
         std::string name = entry.path().stem().string();
         if (name.empty()) continue;
@@ -159,6 +190,7 @@ std::map<std::string, McpServerConfig> load_mcp_servers() {
 }
 
 bool save_mcp_server(const McpServerConfig& cfg) {
+    if (!valid_server_name(cfg.name)) return false;
     std::error_code ec;
     fs::path dir = mcp_dir(true);
     fs::create_directories(dir, ec);
@@ -189,6 +221,7 @@ bool save_mcp_server(const McpServerConfig& cfg) {
 }
 
 bool delete_mcp_server(const std::string& name) {
+    if (!valid_server_name(name)) return false;
     std::error_code ec;
     return fs::remove(fs::path(mcp_dir(true)) / (name + ".conf"), ec);
 }

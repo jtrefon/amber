@@ -97,14 +97,14 @@ TEST(mcp_config_field_parsing) {
     McpEnv env("fields");
     write_file(env.project_mcp + "/srv.conf",
                "type=stdio\ncommand=/usr/bin/srv\n"
-               "args=--port 8080 --verbose\ncwd=/tmp\n"
+               "args=--port 8080 --verbose\ncwd=.\n"
                "enabled=0\nauto_connect=1\ntrusted=1\ntimeout_s=42\n");
 
     auto servers = agent::load_mcp_servers();
     ASSERT_EQ(servers["srv"].args.size(), 3u);
     ASSERT_EQ(servers["srv"].args[0], "--port");
     ASSERT_EQ(servers["srv"].args[2], "--verbose");
-    ASSERT_EQ(servers["srv"].cwd, "/tmp");
+    ASSERT_EQ(servers["srv"].cwd, env.ws + "/");
     ASSERT_FALSE(servers["srv"].enabled);
     ASSERT_TRUE(servers["srv"].auto_connect);
     ASSERT_TRUE(servers["srv"].trusted);
@@ -146,12 +146,14 @@ TEST(mcp_config_save_delete_roundtrip) {
 // connect_all respects enabled + auto_connect; a real stdio server connects.
 TEST(mcp_manager_connect_all) {
     McpEnv env("conn");
+    // Use absolute command path since cwd is now confined to the workspace.
+    std::string echo = env.cwd + "/tests/fixtures/mcp_echo";
     write_file(env.project_mcp + "/echo.conf",
-               "type=stdio\ncommand=tests/fixtures/mcp_echo\n"
-               "cwd=" + env.cwd + "\nauto_connect=1\n");
+               "type=stdio\ncommand=" + echo + "\n"
+               "cwd=.\nauto_connect=1\n");
     write_file(env.project_mcp + "/off.conf",
-               "type=stdio\ncommand=tests/fixtures/mcp_echo\n"
-               "cwd=" + env.cwd + "\nenabled=0\n");
+               "type=stdio\ncommand=" + echo + "\n"
+               "cwd=.\nenabled=0\n");
 
     agent::ServerManager mgr(agent::load_mcp_servers());
     mgr.connect_all();
@@ -174,7 +176,7 @@ TEST(mcp_manager_connect_disabled_refused) {
     McpEnv env("dis");
     write_file(env.project_mcp + "/off.conf",
                "type=stdio\ncommand=tests/fixtures/mcp_echo\n"
-               "cwd=" + env.cwd + "\nenabled=0\n");
+               "cwd=.\nenabled=0\n");
 
     agent::ServerManager mgr(agent::load_mcp_servers());
     std::string err = mgr.connect("off");
@@ -296,8 +298,8 @@ struct EchoManager {
                    agent::McpServerConfig cfg;
                    cfg.name = "echo";
                    cfg.type = "stdio";
-                   cfg.command = "tests/fixtures/mcp_echo";
-                   cfg.cwd = cwd;
+                   cfg.command = cwd + "/tests/fixtures/mcp_echo";
+                   cfg.cwd = ".";
                    return cfg;
                }()}}) {}
 };
@@ -369,4 +371,77 @@ TEST(mcp_prompts_file_loaded) {
     ASSERT_FALSE(p.empty());
     ASSERT(p.find("mcp_") != std::string::npos);
     ASSERT(p.find("the user invokes") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// MCP path safety (Red tests). MCP server configs must not escape the
+// workspace or the MCP config directory via unsanitized names, unconfined
+// cwd, or symlinked config files.
+// ---------------------------------------------------------------------------
+
+// [MCP-SEC-01] cwd outside the workspace must be rejected at load time.
+TEST(mcp_sec_cwd_outside_workspace_rejected) {
+    McpEnv env("cwd_sec");
+    write_file(env.project_mcp + "/evil.conf",
+               "type=stdio\ncommand=/usr/bin/echo\n"
+               "cwd=/etc\nauto_connect=0\n");
+
+    auto servers = agent::load_mcp_servers();
+    ASSERT(servers.count("evil") == 1u);
+    ASSERT_FALSE(servers["evil"].error.empty());
+    ASSERT(servers["evil"].error.find("cwd") != std::string::npos);
+}
+
+// [MCP-SEC-02] server name with path traversal must be rejected on save.
+TEST(mcp_sec_name_traversal_rejected_on_save) {
+    McpEnv env("name_sec");
+    // Pre-create the target dir so the file would be written if not sanitized.
+    // mcp_dir = <workspace>/.amber/mcp, so ../../etc resolves to <workspace>/etc.
+    run_cmd("mkdir -p " + env.ws + "/etc");
+    agent::McpServerConfig cfg;
+    cfg.name = "../../etc/evil";
+    cfg.type = "http";
+    cfg.url = "https://evil/mcp";
+    ASSERT_FALSE(agent::save_mcp_server(cfg));
+
+    // The file must not exist outside the MCP config dir.
+    struct stat st;
+    ASSERT(stat((env.ws + "/etc/evil.conf").c_str(), &st) != 0);
+    run_cmd("rm -rf " + env.ws + "/etc");
+}
+
+// [MCP-SEC-02b] server name with path traversal must be rejected on delete.
+TEST(mcp_sec_name_traversal_rejected_on_delete) {
+    McpEnv env("del_sec");
+    // Create a file at the path the traversal would resolve to:
+    // <workspace>/.amber/mcp/../../tmp/... = <workspace>/tmp/...
+    run_cmd("mkdir -p " + env.project_mcp);
+    std::string target = env.ws + "/tmp/amber_mcp_del_sec_target";
+    run_cmd("mkdir -p " + target);
+    write_file(target + "/victim.conf", "data");
+    // The delete should be rejected, not reach the victim file.
+    ASSERT_FALSE(agent::delete_mcp_server("../../tmp/amber_mcp_del_sec_target/victim"));
+
+    // The victim file must still exist.
+    struct stat st;
+    ASSERT_EQ(stat((target + "/victim.conf").c_str(), &st), 0);
+    run_cmd("rm -rf " + target);
+}
+
+// [MCP-SEC-03] symlinked config files must be skipped during load.
+TEST(mcp_sec_symlink_config_skipped) {
+    McpEnv env("sym_sec");
+    // Create the MCP dir so the symlink can be placed.
+    run_cmd("mkdir -p " + env.project_mcp);
+    // Create a real file outside the MCP dir.
+    write_file("/tmp/amber_mcp_sym_sec_real.conf",
+               "type=stdio\ncommand=/usr/bin/evil\n");
+    // Symlink it into the MCP dir.
+    run_cmd("ln -s /tmp/amber_mcp_sym_sec_real.conf " +
+            env.project_mcp + "/linked.conf");
+
+    auto servers = agent::load_mcp_servers();
+    // The symlinked config must not be loaded.
+    ASSERT_EQ(servers.count("linked"), 0u);
+    run_cmd("rm -f /tmp/amber_mcp_sym_sec_real.conf");
 }
