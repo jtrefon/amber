@@ -133,6 +133,14 @@ void PluginRuntime::attach_config(const Config& config) {
     request_allowance_refresh();
 }
 
+void PluginRuntime::attach_host_services(const HostServices& host) noexcept {
+    // Copied by value, not stored by reference: the runtime keeps the pointers
+    // the host filled in, so it never depends on the caller's struct outliving
+    // this call — only on the services themselves, which the host owns.
+    host_services_ = host;
+    services_->host = &host_services_;
+}
+
 void PluginRuntime::tick() {
     for (const auto& [id, entry] : plugins_) {
         if (registry_.state(id) != PluginRegistry::State::Active)

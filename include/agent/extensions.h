@@ -159,6 +159,25 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Host services
+// ---------------------------------------------------------------------------
+
+// Host-owned runtime dependencies that a capability may need in order to
+// construct what it contributes. Registries are not here — those are the
+// runtime's own; these are the services the *host* owns (a tool binds to the
+// job service, the todo store, the sub-agent executor, the cancel token),
+// passed in by pointer so the runtime never takes ownership of host state.
+//
+// A capability whose factory needs none of this ignores the struct entirely;
+// the pointers are null until the host attaches them.
+struct HostServices {
+    class JobService* jobs = nullptr;
+    class TodoStore* todos = nullptr;
+    class SubAgentExecutor* subagents = nullptr;
+    const class CancellationToken* cancel_token = nullptr;
+};
+
+// ---------------------------------------------------------------------------
 // Wallets
 // ---------------------------------------------------------------------------
 
@@ -364,6 +383,11 @@ public:
     // and headless hosts that do not need it).
     const Config* config = nullptr;
 
+    // Host-owned services a capability may need to build what it contributes.
+    // Null until the host attaches them; a capability that needs none ignores
+    // this.
+    const HostServices* host = nullptr;
+
 private:
     ToolRegistry* tools_;
     PromptRegistry* prompts_;
@@ -381,18 +405,32 @@ private:
 // Concrete capabilities a plugin declares
 // ---------------------------------------------------------------------------
 
-// Installs a tool under the plugin's ownership; removal takes exactly that
-// tool out again.
+// Installs tools under the plugin's ownership; removal takes exactly those
+// tools out again.
+//
+// Two forms: hand over a finished tool, or hand over a *factory* that receives
+// the harness services. The factory form exists because a tool is not pure
+// data — the bash tool binds to the job service, todowrite to the todo store,
+// task to the sub-agent executor. That injection is what lets the core's own
+// tools be plugin contributions instead of a hardcoded list.
+//
+// The factory returns a list: the process tools are several tools that share
+// one binding, and an empty list means the capability declined (a tool gated on
+// configuration is simply absent, not an error).
 class ToolCapability : public Capability {
 public:
+    using Factory = std::function<std::vector<std::unique_ptr<Tool>>(PluginServices&)>;
+
     ToolCapability(std::string name, std::unique_ptr<Tool> tool);
+    ToolCapability(std::string name, Factory factory);
     std::string name() const override { return name_; }
     CapabilityKind kind() const override { return CapabilityKind::Tool; }
     InstallResult install(PluginServices& services) override;
 
 private:
     std::string name_;
-    std::unique_ptr<Tool> tool_;
+    std::unique_ptr<Tool> tool_; // exactly one of these is set
+    Factory factory_;
 };
 
 // Installs a command subtree and its leaf handlers.

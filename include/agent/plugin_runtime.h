@@ -63,6 +63,12 @@ public:
     // taken at startup.
     void attach_config(const Config& config);
 
+    // Point the runtime at the host's services (job service, todo store,
+    // sub-agent executor, cancel token). Tools need them at construction, so
+    // this is what lets the core's tools be plugin contributions. Attach before
+    // start(), like the config.
+    void attach_host_services(const HostServices& host) noexcept;
+
     // --- Lifecycle ---------------------------------------------------------
 
     // Activate every plugin whose persisted state says it is on. Called once
@@ -251,6 +257,7 @@ private:
     std::unique_ptr<PluginContext> context_;
     Config config_; // fallback until the host attaches its own
     const Config* live_config_ = nullptr;
+    HostServices host_services_; // pointers set by the host, which owns them
     const Workspace* workspace_;
 
     struct Entry {

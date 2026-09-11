@@ -434,6 +434,69 @@ TEST(tool_capability_registers_and_removes_exactly_its_tool) {
     ASSERT((bool)h.tools.find("host.tool"));
 }
 
+// A tool capability's factory receives the harness services, because a tool is
+// not pure data: the bash tool needs the job service, todowrite needs the todo
+// store, task needs the sub-agent executor. That injection is what lets core
+// tools become plugin contributions.
+TEST(tool_capability_factory_receives_host_services) {
+    TestHarness h;
+    agent::HostServices host;
+    h.services.host = &host;
+
+    bool saw_services = false;
+    ToolCapability cap(
+        "greet", [&saw_services](PluginServices& services) -> std::vector<std::unique_ptr<Tool>> {
+            saw_services = services.host != nullptr;
+            std::vector<std::unique_ptr<Tool>> tools;
+            tools.push_back(std::make_unique<SilentTool>("plugin.greet"));
+            return tools;
+        });
+
+    h.services.set_owner("plug");
+    InstallResult r = cap.install(h.services);
+    ASSERT_TRUE(r.ok);
+    ASSERT_TRUE(saw_services);
+    ASSERT((bool)h.tools.find("plugin.greet"));
+}
+
+// A factory that declines (returns nothing) is a capability that did not
+// install, not a crash: a plugin can gate a tool on configuration.
+TEST(tool_capability_factory_may_decline) {
+    TestHarness h;
+    ToolCapability cap("optional",
+                       [](PluginServices&) -> std::vector<std::unique_ptr<Tool>> { return {}; });
+    h.services.set_owner("plug");
+    InstallResult r = cap.install(h.services);
+    ASSERT_FALSE(r.ok);
+    ASSERT_FALSE(r.error.empty());
+}
+
+// Several tools from one capability go away together: the ledger records a
+// single contribution, so its removal must undo all of them. (The process
+// tools are the reason this exists.)
+TEST(tool_capability_installs_and_removes_a_group) {
+    TestHarness h;
+    h.tools.register_tool(std::make_unique<SilentTool>("host.tool"));
+
+    ToolCapability cap("process", [](PluginServices&) {
+        std::vector<std::unique_ptr<Tool>> tools;
+        tools.push_back(std::make_unique<SilentTool>("process_start"));
+        tools.push_back(std::make_unique<SilentTool>("process_read"));
+        tools.push_back(std::make_unique<SilentTool>("process_stop"));
+        return tools;
+    });
+    h.services.set_owner("plug");
+    InstallResult r = cap.install(h.services);
+    ASSERT_TRUE(r.ok);
+    ASSERT_EQ(h.tools.snapshot_tools().size(), 4u);
+
+    r.contribution.remove();
+    ASSERT((bool)h.tools.find("host.tool"));
+    ASSERT_FALSE((bool)h.tools.find("process_start"));
+    ASSERT_FALSE((bool)h.tools.find("process_read"));
+    ASSERT_FALSE((bool)h.tools.find("process_stop"));
+}
+
 TEST(command_capability_tags_its_owner) {
     TestHarness h;
     h.services.set_owner("plug");

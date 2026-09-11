@@ -388,19 +388,47 @@ PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
 ToolCapability::ToolCapability(std::string name, std::unique_ptr<Tool> tool)
     : name_(std::move(name)), tool_(std::move(tool)) {}
 
+ToolCapability::ToolCapability(std::string name, Factory factory)
+    : name_(std::move(name)), factory_(std::move(factory)) {}
+
 InstallResult ToolCapability::install(PluginServices& services) {
     InstallResult r;
-    if (!tool_) {
-        r.error = "tool capability '" + name_ + "' has no tool";
+    // The factory form builds against the harness services; the direct form was
+    // already built by the plugin.
+    std::vector<std::unique_ptr<Tool>> tools;
+    if (tool_) {
+        tools.push_back(std::move(tool_));
+    } else if (factory_) {
+        tools = factory_(services);
+    }
+    if (tools.empty()) {
+        r.error = "tool capability '" + name_ + "' produced no tools";
         return r;
     }
+
     ToolRegistry* registry = &services.tools();
-    const std::string registered = tool_->name();
-    registry->register_tool(std::move(tool_));
+    std::vector<std::string> registered;
+    registered.reserve(tools.size());
+    for (auto& tool : tools) {
+        if (!tool)
+            continue;
+        registered.push_back(tool->name());
+        registry->register_tool(std::move(tool));
+    }
+    if (registered.empty()) {
+        r.error = "tool capability '" + name_ + "' produced no usable tools";
+        return r;
+    }
+
     r.ok = true;
     r.contribution.kind = CapabilityKind::Tool;
-    r.contribution.name = registered;
-    r.contribution.remove = [registry, registered] { registry->remove_tool(registered); };
+    r.contribution.name = registered.front();
+    // Every tool this capability installed goes away together: the ledger
+    // records one contribution, so its removal must undo all of them.
+    r.contribution.remove = [registry, registered] {
+        for (const auto& name : registered)
+            registry->remove_tool(name);
+    };
     return r;
 }
 
