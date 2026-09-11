@@ -43,8 +43,11 @@ class EventRouter;
 class RenderEngine;
 class SessionController;
 class SlashDispatcher;
+class TuiWindowOpsHooks;
+class WindowOps;
+class KeyBinder;
 
- // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
+// ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
 // function creates it and calls run().
 class Tui {
@@ -54,6 +57,7 @@ class Tui {
     friend class RenderEngine;
     friend class SessionController;
     friend class SlashDispatcher;
+    friend class TuiWindowOpsHooks;
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
@@ -106,6 +110,9 @@ private:
     const Window& win() const;
     Window* window_by_id(size_t id);
     std::unique_ptr<WindowManager> window_manager_;
+    std::unique_ptr<TuiWindowOpsHooks> window_ops_hooks_;
+    std::unique_ptr<WindowOps> window_ops_;
+    std::unique_ptr<KeyBinder> key_binder_;
 
     // ---- scrollback helpers (central hub; render/session/events use) ----
     static size_t utf8_len(const std::string& s, size_t i);
