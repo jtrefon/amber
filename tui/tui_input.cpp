@@ -5,6 +5,8 @@
 #include "tui/confirm_panel.h"
 #include "tui/path_confine.h"
 #include "agent/model_probe.h"
+#include "agent/plugin_console.h"
+#include "agent/plugin_runtime.h"
 #include "agent/skill_commands.h"
 #include "agent/skill_install.h"
 #include "agent/mcp_commands.h"
@@ -1086,6 +1088,18 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string& a) { cmd_model_set(a); });
     register_action("core.config.get.mcp", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
+    register_action("core.panel",
+        [this](const std::string& a) { tui_.open_panels(a); });
+    register_action("core.config.get.plugin",
+        [this](const std::string& a) { cmd_runtime_plugin_get(a); });
+    register_action("core.config.get.plugin.list",
+        [this](const std::string&) { cmd_runtime_plugin_list(); });
+    register_action("core.config.set.plugin",
+        [this](const std::string&) { cmd_runtime_plugin_list(); });
+    register_action("core.config.get.provider.wallet",
+        [this](const std::string&) { cmd_get_wallet(); });
+    register_action("core.config.set.provider.wallet",
+        [this](const std::string& a) { cmd_set_wallet(a); });
     register_action("core.config.get.provider",
         [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.provider.list",
@@ -1361,36 +1375,35 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
     }
     auto sel = tui_.providers_->select(a);
     if (!sel.ok()) {
-        // First-run flow for the custom provider: seed its dedicated file
-        // from the current connection, then confirm via the same provider
-        // form used everywhere else. Esc leaves the seeded file behind for
-        // external editing — never a dead end.
-        if (a == "custom" &&
-            sel.error.find("no endpoint") != std::string::npos) {
-            agent::seed_custom_provider(tui_.cfg_);
+        // First-run flow for a provider that has no endpoint yet (custom, or
+        // any user-added provider): seed its dedicated file from the current
+        // connection, then confirm via the same provider form used everywhere
+        // else. Esc leaves the seeded file behind for external editing — never
+        // a dead end. Which providers exist is the plugins' business; this
+        // flow only reacts to the state the domain reported.
+        if (sel.error.find("no endpoint") != std::string::npos) {
+            agent::seed_provider(a, tui_.cfg_);
             agent::Config prov_cfg;
-            prov_cfg.provider_name = "custom";
+            prov_cfg.provider_name = a;
             prov_cfg.api_base = tui_.cfg_.api_base;
             prov_cfg.api_key = tui_.cfg_.api_key;
             prov_cfg.model = tui_.cfg_.model;
             prov_cfg.model_explicit = tui_.cfg_.model_explicit;
             prov_cfg.context_size = tui_.cfg_.context_size;
             prov_cfg.context_explicit = tui_.cfg_.context_explicit;
-            if (!edit_provider_form(prov_cfg,
-                                    "Configure custom provider")) {
+            if (!edit_provider_form(prov_cfg, "Configure provider " + a)) {
                 refresh_provider_feed();
                 tui_.append_line(P_STATUS,
-                            "custom provider file created at " +
-                                agent::global_config_dir() +
-                                "/providers/custom.conf \u2014 edit it or "
-                                "re-run /set provider custom");
+                            "provider file created at " +
+                                agent::global_config_dir() + "/providers/" + a +
+                                ".conf \u2014 edit it or re-run /set provider " + a);
                 return;
             }
             tui_.providers_->save(agent::Provider{
                 prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
                 !prov_cfg.api_key.empty(), prov_cfg.model,
                 prov_cfg.context_size, false});
-            sel = tui_.providers_->select("custom");
+            sel = tui_.providers_->select(a);
             if (!sel.ok()) {
                 tui_.append_line(P_STATUS, "error: " + sel.error);
                 return;
@@ -1429,6 +1442,8 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
     }
 
     agent::apply_selection(tui_.cfg_, sel);
+    // The wallet follows the active provider, so a switch invalidates it.
+    tui_.plugin_runtime_.request_wallet_refresh();
     if (!sel.warning.empty())
         tui_.append_line(P_STATUS, "warning: " + sel.warning);
     for (auto& w : tui_.window_manager_->all())
@@ -1449,6 +1464,95 @@ void SlashDispatcher::cmd_provider_list() {
                            (p.api_base.empty() ? "unconfigured" : p.api_base) +
                            ")";
         tui_.append_line(P_STATUS, line);
+    }
+}
+
+// --- plugin runtime surface (/get plugin, /set plugin) --------------------
+// One line per plugin, fixed column order (id, tier, state, contributions) so
+// the output is both readable and stable enough to assert on.
+
+namespace {
+
+std::string plugin_state_word(bool enabled) { return enabled ? "on" : "off"; }
+
+// Capability-kind names come from the core (plugin_console), so this command
+// and the registry console cannot describe the same plugin differently.
+
+} // namespace
+
+void SlashDispatcher::cmd_runtime_plugin_list() {
+    // One formatter for the command and the registry console: what the user
+    // reads in the scrollback and what the panel shows cannot drift.
+    for (const auto& line : agent::plugin_console_lines(tui_.plugin_runtime_))
+        tui_.append_line(P_STATUS, line);
+}
+
+void SlashDispatcher::cmd_runtime_plugin_get(const std::string& id) {
+    if (id.empty() || id == "list") {
+        cmd_runtime_plugin_list();
+        return;
+    }
+    tui_.show_plugin(id);
+}
+
+// The wallet: one readout for every provider, showing the ACTIVE provider's
+// balance. A display preference, so it is a single on/off rather than a
+// per-provider setting.
+void SlashDispatcher::cmd_get_wallet() {
+    const auto wallet = tui_.plugin_runtime_.wallet();
+    std::string line =
+        std::string("provider wallet: ") + (wallet.enabled ? "on" : "off");
+    if (!wallet.supported) {
+        line += "  (" + wallet.holder + " declares no wallet)";
+    } else if (wallet.failed) {
+        line += "  (" + wallet.holder + ": unavailable \u2014 check the key)";
+    } else if (wallet.ready) {
+        char amount[48];
+        std::snprintf(amount, sizeof(amount), "%.2f", wallet.amount);
+        line += "  " + wallet.holder + ": $" + amount;
+    } else {
+        line += "  (" + wallet.holder + ": not fetched yet)";
+    }
+    tui_.append_line(P_STATUS, line);
+}
+
+void SlashDispatcher::cmd_set_wallet(const std::string& val) {
+    bool enabled;
+    if (val == "on") enabled = true;
+    else if (val == "off") enabled = false;
+    else if (val == "toggle") enabled = !tui_.cfg_.wallet_enabled;
+    else {
+        tui_.append_line(P_STATUS,
+                         "usage: /set provider wallet on|off|toggle (got: " + val + ")");
+        return;
+    }
+    tui_.cfg_.wallet_enabled = enabled;
+    tui_.cfg_.save_global(agent::global_config_path());
+    // Turning it on should show a number, not "not fetched yet".
+    if (enabled) tui_.plugin_runtime_.request_wallet_refresh();
+    tui_.append_line(P_STATUS,
+                     std::string("provider wallet ") + (enabled ? "on" : "off"));
+}
+
+void SlashDispatcher::show_plugin(const std::string& id) {
+    if (!tui_.plugin_runtime_.has(id)) {
+        tui_.append_line(P_STATUS, "unknown plugin: " + id);
+        return;
+    }
+    const auto status = tui_.plugin_runtime_.status(id);
+    tui_.append_line(P_STATUS, "plugin " + status.id + ": " +
+                                  plugin_state_word(status.enabled) +
+                                  " (" + status.category + ", " + status.tier +
+                                  " v" + status.version + ")");
+    if (!status.description.empty())
+        tui_.append_line(P_STATUS, "  " + status.description);
+    if (status.contributions.empty()) {
+        tui_.append_line(P_STATUS, "  contributes nothing");
+    }
+    for (const auto& item : status.contributions) {
+        tui_.append_line(P_STATUS,
+                         "  " + std::string(agent::capability_kind_name(item.kind)) +
+                             ": " + item.name);
     }
 }
 
@@ -1871,40 +1975,6 @@ void SlashDispatcher::job_start(const std::string& cmd) {
     tui_.draw();
 }
 
-void Tui::poll_kilo_balance() {
-    // Throttled (60 s) + async: the curl GET runs on a detached thread so a
-    // slow/unreachable endpoint never blocks the UI tick. Only active when a
-    // kilo balance token is available (explicit override, or the kilocode
-    // provider's api_key — the token the key prompt stores). The thread holds
-    // a shared_ptr to the state, so an in-flight fetch at exit cannot write
-    // freed memory.
-    const std::string token = agent::resolve_kilo_balance_token(cfg_);
-    if (token.empty()) return;
-    auto st = kilo_balance_;
-    const auto now = std::chrono::steady_clock::now();
-    if (now < st->next_poll) return;
-    st->next_poll = now + std::chrono::seconds(60);
-    if (st->inflight.exchange(true)) return;
-
-    std::thread([st, token]() {
-        double bal = agent::fetch_kilo_balance(token);
-        st->balance.store(bal);
-        st->valid.store(true);
-        st->inflight.store(false);
-    }).detach();
-}
-
-std::string Tui::kilo_balance_label() const {
-    if (agent::resolve_kilo_balance_token(cfg_).empty() ||
-        !kilo_balance_->valid.load())
-        return "";
-    const double bal = kilo_balance_->balance.load();
-    if (bal < 0) return "kilo balance \u2014";   // fetch failed/offline
-    char b[48];
-    std::snprintf(b, sizeof(b), "kilo $%.2f", bal);
-    return b;
-}
-
 void Tui::config_screen() const {
     auto mask = [](const std::string& s) {
         return s.empty() ? std::string("(unset)") : std::string(s.size(), '*');
@@ -2065,19 +2135,16 @@ void Tui::settings_screen() {
                 rich_display.push_back(prov_display[i]);
                 continue;
             }
-            bool active = (id == cfg_.provider_name);
-            std::string prefix = active ? "> " : "  ";
-            std::string key_hint = cfg_.api_key.empty() ? "no-key" : "key-set";
-            std::string line = prefix;
-            line += id;
-            line += "  (";
-            if (id == "openrouter" || id == "kilocode" || id == "custom") {
-                line += key_hint;
-            } else {
-                line += cfg_.api_key.empty() && active ? "no-key" : "key-set";
-            }
-            line += ")";
-            rich_display.push_back(line);
+            const bool active = (id == cfg_.provider_name);
+            // Only the active provider's key tells us anything about the
+            // others, so the hint is reported for it alone.
+            const char* key_hint =
+                (active && cfg_.api_key.empty()) ? "no-key" : "key-set";
+            std::string line;
+            line.reserve(id.size() + 12);
+            line.append(active ? "> " : "  ").append(id);
+            line.append("  (").append(key_hint).push_back(')');
+            rich_display.push_back(std::move(line));
         }
         rich_display.back() = "  + Add new provider...";
 

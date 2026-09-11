@@ -20,6 +20,17 @@ void ToolRegistry::register_tool(std::unique_ptr<Tool> tool) {
     tools_.push_back(std::move(owned));
 }
 
+bool ToolRegistry::remove_tool(const std::string& name) {
+    std::scoped_lock lk(mtx_);
+    for (auto it = tools_.begin(); it != tools_.end(); ++it) {
+        if ((*it)->name() == name) {
+            tools_.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
 std::shared_ptr<Tool> ToolRegistry::find(const std::string& name) const {
     std::scoped_lock lk(mtx_);
     for (const auto& t : tools_)

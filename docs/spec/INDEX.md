@@ -129,9 +129,10 @@ all layers (spec, implementation, strategy), prioritised by phase.
 
 | File | Covers |
 |------|--------|
-| `plugins/plugin-framework-v2.md` | Harness extension engine: hybrid two-tier architecture (core in-process + external separate-process), `IPlugin` interface, `Capability` system, `EventBus` pub/sub, `PluginRegistry` lifecycle, TUI/theme hooks, provider registration, backward compatibility with v1 |
-| `plugins/developer-guide.md` | How to build amber plugins: quick start, manifest reference, capability types, event bus usage, installation, admin commands, security model, core vs external differences |
-| `plugins/README.md` | v1 plugin spec: JSON-RPC protocol, manifest.json, `PluginManager`, tool registration, `/plugin` admin, bundled plugins (sysinfo, cdp) |
+| `plugins/plugin-framework-v2.md` | Harness extension engine (agreed design, phased build): three-mechanism model (registries/events/host services), typed capabilities + ledger, typed events over `EventBus` with fire sites and performance invariants, prompt blocks, status segments, panels, provider capability, threading contract, deferred register |
+| `plugins/developer-guide.md` | How to build amber plugins: availability table (what ships vs target), core plugin anatomy, capability catalogue with code, event catalogue, host services, provider path, external v1 quick start, review checklist |
+| `plugins/README.md` | v1 plugin spec (shipping): JSON-RPC protocol, manifest.json, `PluginManager`, tool registration, `/plugin` admin, bundled plugins (sysinfo, cdp) |
+| `../plugin-framework-tracker.md` | Plugin framework tracker: phases PF-1..PF-5, decision log (D1..D14), availability table, deferred register, risks, definition of done |
 
 ## Memory / Experience
 

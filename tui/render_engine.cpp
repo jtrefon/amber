@@ -157,88 +157,52 @@ int RenderEngine::gauge_pair(double f) {
     }
 }
 
-std::vector<RenderEngine::Seg> RenderEngine::bar_segments() const {
-    std::vector<Seg> segs;
-    std::string wtag = "[" + std::to_string(tui_.window_manager_->active() + 1) + "/" +
-                       std::to_string(tui_.window_manager_->count()) + "]";
-    segs.push_back({wtag, P_BANNER, 3});
-    segs.push_back({" [" + tui_.cfg_.model +
-                        tool_display::reasoning_badge(tui_.cfg_.reasoning_effort) +
-                        "]",
-                    P_GAUGE_OK, 5});
-
-    std::string mode_txt;
-    int mode_pair = P_BAR_DIM;
-    switch (tui_.cfg_.mode) {
-        case agent::AgentMode::Read:
-            mode_txt = " read ";
-            mode_pair = P_GAUGE_OK;
-            break;
-        case agent::AgentMode::Write:
-            mode_txt = " write ";
-            mode_pair = P_GAUGE_WARN;
-            break;
-        case agent::AgentMode::Yolo:
-            mode_txt = " yolo ";
-            mode_pair = P_BUTTON_ACT;
-            break;
-    }
-    segs.push_back({mode_txt, mode_pair, 2});
-
-    if (scroll_mode_) {
-        segs.push_back({" S ", P_GAUGE_OK, 0});
-    }
-
-    if (tui_.stats_.latency_ms >= 0) {
-        char b[32];
-        std::snprintf(b, sizeof(b), "  lag %.0fms", tui_.stats_.latency_ms);
-        int lag_pair;
-        if (tui_.stats_.latency_ms > 5000) lag_pair = P_GAUGE_CRIT;
-        else if (tui_.stats_.latency_ms > 1000) lag_pair = P_GAUGE_WARN;
-        else lag_pair = P_BAR_DIM;
-        segs.push_back({b, lag_pair, 6});
-    } else {
-        segs.push_back({"  lag " + std::string(text::glyph::emdash()), P_BAR_DIM, 6});
-    }
-    if (tui_.stats_.tps > 0) {
-        char b[32];
-        std::snprintf(b, sizeof(b), "  %.0f t/s", tui_.stats_.tps);
-        segs.push_back({b, P_BAR_DIM, 4});
-    } else {
-        segs.push_back({"  " + std::string(text::glyph::emdash()) + " t/s", P_BAR_DIM, 4});
-    }
-    std::string up = tui_.stats_.prompt_tokens >= 0 ? kfmt(tui_.stats_.prompt_tokens)
-                                                    : text::glyph::emdash();
-    std::string dn = tui_.stats_.completion_tokens >= 0
-                         ? kfmt(tui_.stats_.completion_tokens) : text::glyph::emdash();
-    segs.push_back({"  " + std::string(text::glyph::up()) + up + " " +
-                    text::glyph::down() + dn, P_BAR_DIM, 7});
-
-    // Optional kilo.ai balance readout (only when a token is configured and a
-    // fetch has completed).
-    std::string kilo = tui_.kilo_balance_label();
-    if (!kilo.empty())
-        segs.push_back({"  " + kilo, P_BAR_DIM, 5});
-
-    int njobs = tui_.jobs_.running_count();
-    if (njobs > 0) {
-        std::string s = "  " + std::to_string(njobs) + " job" +
-                        (njobs > 1 ? "s" : "");
-        int rem = tui_.jobs_.min_timeout_remaining();
-        if (rem >= 0) s += " " + std::to_string(rem) + "s";
-        segs.push_back({s, P_GAUGE_WARN, 1});
-    } else if (!tui_.running_tool_.empty()) {
-        segs.push_back({"  " + tui_.running_tool_ + "…", P_GAUGE_WARN, 1});
-    }
-
-    std::string mcp_txt;
+// Publish what the bar may show. Segments (core and plugin alike) are pure
+// functions of this snapshot, so nothing on the bar reaches into TUI state.
+agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
+    agent::StatusSnapshot snapshot;
+    snapshot.window_index = static_cast<int>(tui_.window_manager_->active()) + 1;
+    snapshot.window_count = static_cast<int>(tui_.window_manager_->count());
+    snapshot.model = tui_.cfg_.model;
+    snapshot.reasoning_effort = tui_.cfg_.reasoning_effort;
+    snapshot.mode = tui_.cfg_.mode;
+    snapshot.scroll_mode = scroll_mode_;
+    snapshot.latency_ms = static_cast<long>(tui_.stats_.latency_ms);
+    snapshot.tps = tui_.stats_.tps;
+    snapshot.prompt_tokens = tui_.stats_.prompt_tokens;
+    snapshot.completion_tokens = tui_.stats_.completion_tokens;
+    snapshot.running_jobs = tui_.jobs_.running_count();
+    snapshot.job_seconds_left = tui_.jobs_.min_timeout_remaining();
+    snapshot.running_tool = tui_.running_tool_;
     for (const auto& st : tui_.mcp_servers_.snapshot()) {
         if (!st.connected && st.error.empty()) continue;
-        if (!mcp_txt.empty()) mcp_txt += "·";
-        mcp_txt += (st.connected ? "" : "!") + st.name;
+        snapshot.mcp_servers.push_back(
+            {st.name, st.connected, !st.error.empty()});
     }
-    if (!mcp_txt.empty())
-        segs.push_back({"  mcp: " + mcp_txt, P_BAR_DIM, 8});
+    return snapshot;
+}
+
+// Semantic tone -> the terminal's palette. The registry speaks tones so a
+// plugin never names a colour pair.
+int RenderEngine::tone_pair(agent::StatusTone tone) {
+    switch (tone) {
+        case agent::StatusTone::Good:   return P_GAUGE_OK;
+        case agent::StatusTone::Warn:   return P_GAUGE_WARN;
+        case agent::StatusTone::Crit:   return P_GAUGE_CRIT;
+        case agent::StatusTone::Accent: return P_BUTTON_ACT;
+        case agent::StatusTone::Banner: return P_BANNER;
+        case agent::StatusTone::Dim:    break;
+    }
+    return P_BAR_DIM;
+}
+
+std::vector<RenderEngine::Seg> RenderEngine::bar_segments() const {
+    std::vector<Seg> segs;
+    for (auto& segment :
+         tui_.plugin_runtime_.status().render(build_status_snapshot())) {
+        segs.push_back({std::move(segment.text), tone_pair(segment.tone),
+                        segment.drop_priority});
+    }
     return segs;
 }
 

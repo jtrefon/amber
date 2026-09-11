@@ -29,7 +29,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/dialect.o \
             $(BUILD_DIR)/lib/stream_decoder.o \
             $(BUILD_DIR)/lib/dialect_openai.o \
-            $(BUILD_DIR)/lib/dialect_anthropic.o \
+              $(BUILD_DIR)/lib/dialect_anthropic.o \
+              $(BUILD_DIR)/lib/dialect_gemini.o \
             $(BUILD_DIR)/lib/http_transport.o \
             $(BUILD_DIR)/lib/model_probe.o \
             $(BUILD_DIR)/lib/registry.o \
@@ -72,8 +73,21 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/bootstrap.o \
               $(BUILD_DIR)/lib/plugin.o \
               $(BUILD_DIR)/lib/event_bus.o \
+              $(BUILD_DIR)/lib/plugin_capability.o \
+              $(BUILD_DIR)/lib/extensions.o \
+              $(BUILD_DIR)/lib/plugin_runtime.o \
+              $(BUILD_DIR)/lib/plugin_v1_adapter.o \
+              $(BUILD_DIR)/lib/plugins_bundled.o \
+              $(BUILD_DIR)/lib/core_segments.o \
+              $(BUILD_DIR)/lib/plugin_console.o \
+              $(BUILD_DIR)/lib/http_get.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
+              $(BUILD_DIR)/plugins/custom/custom_plugin.o \
+              $(BUILD_DIR)/plugins/gemini/gemini_plugin.o \
+              $(BUILD_DIR)/plugins/kilocode/kilocode_plugin.o \
+              $(BUILD_DIR)/plugins/openrouter/openrouter_plugin.o \
+              $(BUILD_DIR)/plugins/anthropic/anthropic_plugin.o \
               $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \
@@ -89,7 +103,6 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/lib/subagent.o \
              $(BUILD_DIR)/lib/providers_service.o \
              $(BUILD_DIR)/lib/providers_repo_files.o \
-             $(BUILD_DIR)/lib/providers_repo_static.o \
              $(BUILD_DIR)/lib/providers_catalog_http.o \
              $(BUILD_DIR)/tools/process_tool.o \
              $(BUILD_DIR)/tools/skill_tools.o \
@@ -131,6 +144,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
               $(BUILD_DIR)/tui/menu_select.o \
               $(BUILD_DIR)/tui/session_browser_core.o \
              $(BUILD_DIR)/tui/feed_manager.o \
+             $(BUILD_DIR)/tui/panel_view.o \
              $(BUILD_DIR)/tui/window_manager.o \
              $(BUILD_DIR)/tui/event_router.o \
              $(BUILD_DIR)/tui/render_engine.o \
@@ -148,6 +162,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/dialect_anthropic_test.o \
+               $(BUILD_DIR)/tests/dialect_gemini_test.o \
                $(BUILD_DIR)/tests/skill_file_test.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \
                $(BUILD_DIR)/tests/mcp_transport_test.o \
@@ -156,8 +171,12 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/mcp_tools_test.o \
                $(BUILD_DIR)/tests/learn_commands_test.o \
                $(BUILD_DIR)/tests/agent_loop_test.o \
+               $(BUILD_DIR)/tests/agent_events_test.o \
                $(BUILD_DIR)/tests/event_bus_test.o \
                $(BUILD_DIR)/tests/plugin_v2_test.o \
+               $(BUILD_DIR)/tests/plugin_framework_test.o \
+               $(BUILD_DIR)/tests/plugin_runtime_test.o \
+               $(BUILD_DIR)/tests/status_segments_test.o \
                $(BUILD_DIR)/tests/metrics_plugin_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
@@ -193,6 +212,7 @@ LINT_SRCS = $(wildcard $(SRC_DIR)/lib/*.cpp) \
             $(wildcard $(SRC_DIR)/tools/search/*.cpp) \
             $(wildcard $(SRC_DIR)/tools/plugins/*/*.cpp) \
             $(wildcard $(SRC_DIR)/tui/*.cpp) \
+            $(wildcard $(SRC_DIR)/plugins/*/*.cpp) \
             $(wildcard $(SRC_DIR)/tests/*.cpp)
 
 # Flags shared by the lint tools: same include roots the build uses, plus
@@ -259,7 +279,7 @@ complexity:
 
 format-check:
 	@echo "clang-format --dry-run (informational)..."
-	@files=$$(find $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/include/agent -name '*.cpp' -o -name '*.h' | sort); \
+	@files=$$(find $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/include/agent $(SRC_DIR)/plugins -name '*.cpp' -o -name '*.h' | sort); \
 	clang-format --dry-run --Werror $$files 2>&1 | head -n 30; \
 	echo "  clean (informational)"
 
@@ -373,9 +393,11 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 	@mkdir -p $(BUILD_DIR)/tools/search
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/plugins/metrics/%.o: $(SRC_DIR)/plugins/metrics/%.cpp
-	@mkdir -p $(BUILD_DIR)/plugins/metrics
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(CURL_CFLAGS) -c $< -o $@
+# One rule for every bundled plugin directory: adding a plugin means adding
+# its object to the list above and a directory under plugins/, nothing else.
+$(BUILD_DIR)/plugins/%/%.o: $(SRC_DIR)/plugins/%/%.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) $(CURL_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.cpp
 	@mkdir -p $(BUILD_DIR)/tests
@@ -404,6 +426,11 @@ $(BUILD_DIR)/tests/fixtures/%: $(SRC_DIR)/tests/fixtures/%.cpp
 -include $(TUI_TEST_OBJ:.o=.d)
 -include $(PLUGIN_TEST_OBJ:.o=.d)
 -include $(BUILD_DIR)/third_party/md4c/md4c.d
+# Bundled plugin objects generate .d files (the pattern rule uses DEPFLAGS) but
+# were missing from this list, so a change to a header they include — including
+# IPlugin itself — silently left them stale. With IPlugin's vtable that is not a
+# warning, it is a jump through the wrong slot.
+-include $(wildcard $(BUILD_DIR)/plugins/*/*.d)
 -include $(WS_TEST_OBJ:.o=.d)
 -include $(CDP_WS_OBJ:.o=.d)
 -include $(CDP_MAIN_OBJ:.o=.d)
@@ -458,7 +485,7 @@ clean:
 	rm -f $(BUILD_DIR)/third_party/md4c/*.o $(BUILD_DIR)/third_party/md4c/*.d
 	rm -f $(SYSINFO_PLUGIN) $(SYSINFO_PLUGIN).d $(CDP_PLUGIN)
 	rm -f $(BUILD_DIR)/tools/plugins/cdp/*.o $(BUILD_DIR)/tools/plugins/cdp/*.d
-	rm -f $(BUILD_DIR)/plugins/metrics/*.o $(BUILD_DIR)/plugins/metrics/*.d
+	rm -f $(BUILD_DIR)/plugins/*/*.o $(BUILD_DIR)/plugins/*/*.d
 	rm -f $(BUILD_DIR)/ws_test.d
 	rm -f $(BUILD_DIR)/url_test $(BUILD_DIR)/url_test.d
 	rm -f $(CORE_LIB) $(TOOLS_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)

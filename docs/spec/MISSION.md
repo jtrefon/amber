@@ -65,7 +65,7 @@ feature compete for the same cycle, P2 wins every time.
 | Support Windows | ❌ | Linux is the armour. Wine/Cygwin aren't Linux. |
 | Add web / GUI | ❌ | Terminal is the API. SSH exists. |
 | Vim modal mode | ❌ | Prompt is insert-always. |
-| Plugin system | ❌ | Every UNIX tool is already a plugin via bash. YAGNI. Skills (P3) cover the "teach the agent a procedure" case — a plugin *loader* is still not wanted. |
+| Plugin system | ⚠️ Revised 2026-09-10 | The old YAGNI verdict conflated two different things. (a) A **loader for arbitrary third-party code** — still ❌: bash and MCP servers already carry that, and no runtime loading is being built. (b) An **in-process extension framework** so amber's own extension points (LLM providers, commands, prompt blocks, status segments, panels) are *contributed* through typed registries instead of edited in shared core files — ✅, because adding a provider vendor currently means editing four core files and `/provider test` is wrong for every non-OpenAI provider. Compiled-in only, no third-party code path. See `docs/spec/plugins/plugin-framework-v2.md`, tracker PF-1..PF-5. |
 | Authored skill packages (`SKILL.md`) | ✅ P3 | Agent Skills open standard; progressive disclosure. Distinct from plugins: skills are *instructions*, not *code*. |
 | MCP client (Model Context Protocol) | ✅ P6 | Revisited 2026-07-31: MCP is now the ecosystem standard for third-party capability servers (the Agent Skills standard interoperates with it). Amber stays hexagonal — MCP is an *adapter over the existing `Tool` port*, not a second tool API. Scope: client-only (tools/resources/prompts), no roots/sampling, untrusted-by-default servers behind the approval gate. See `docs/spec/mcp/` and `docs/mcp-tracker.md`. The "no plugin loader" decision stands: MCP servers are external processes, not amber plugins. |
 | SaaS / telemetry | ❌ | Local-first. Trust invariant. |
@@ -110,6 +110,11 @@ feature compete for the same cycle, P2 wins every time.
 - Memory/skill promotion UI
 - Compression pipeline visibility in TUI
 - Multi-agent orchestration
+- **Plugin framework (in-process)** — typed contribution registries, typed
+  events, ledger-managed enable/disable, host services, provider plugins
+  (Gemini first, then the built-ins converted). Compiled-in bundled plugins
+  only; no loader. Phases PF-1..PF-5 in `docs/plugin-framework-tracker.md`;
+  sequenced after regressions and debt work, per the roadmap triage.
 - **Skills system** — two-tier (authored + learned), per `docs/spec/skills/`:
   - Authored `SKILL.md` format + tolerant frontmatter parser (`skill-files.md`)
   - `SkillCatalog` union view + persisted overrides (`skill-catalog.md`)

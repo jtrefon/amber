@@ -43,6 +43,9 @@ std::optional<Provider> parse_file(const std::string& path) {
         else if (key == "requires_key") p.requires_key = (val == "1" || val == "true");
         else if (key == "default_context_size")
             p.default_context_size = std::atoi(val.c_str());
+        // Wire dialect: absent means the OpenAI-compatible baseline, so
+        // existing provider files keep working untouched.
+        else if (key == "flavor" && !val.empty()) p.flavor = val;
     }
     return p;
 }
@@ -77,6 +80,9 @@ public:
         f << "api_key=" << p.api_key << "\n";
         f << "default_model=" << p.default_model << "\n";
         f << "requires_key=" << (p.requires_key ? "1" : "0") << "\n";
+        // Only written when it is not the default: a file that says nothing
+        // about flavor means openai, which is what every existing file means.
+        if (p.flavor != "openai") f << "flavor=" << p.flavor << "\n";
         if (p.default_context_size > 0)
             f << "default_context_size=" << p.default_context_size << "\n";
         return static_cast<bool>(f);

@@ -32,16 +32,17 @@ struct Provider {
     std::string default_model; // last-used model for this provider
     int default_context_size = 0;
     bool builtin = false;      // code preset vs user-added file
+    // Wire dialect this provider speaks. Declared here rather than looked up
+    // by name, so a provider carries its own protocol and a plugin-provided
+    // provider needs no core table entry (last so existing initialisers keep
+    // meaning "openai").
+    std::string flavor = "openai";
 };
 
-// Per-provider differences from the OpenAI-compatible baseline. This is
-// the only place provider-specific behavior is declared; callers never
-// branch on provider names. Wire-protocol differences live in the Dialect
-// the flavor selects.
-struct ProviderCapabilities {
-    std::string flavor = "openai";           // dialect selector
-    bool api_key_is_account_token = false;   // key doubles as account token
-};
+// Provider-specific behaviour is declared by the provider itself: the wire
+// protocol is `Provider::flavor`, and anything else a provider needs (a
+// balance readout, its own auth convention) belongs to its plugin, not to a
+// table of flags here.
 
 // ---------------------------------------------------------------------------
 // Ports — implemented by adapters, never by the domain.
@@ -121,15 +122,23 @@ void apply_selection(Config& cfg, const ProviderSelection& sel);
 // service; the individual factories exist for custom wiring and tests.
 // ---------------------------------------------------------------------------
 
-// Well-known presets (openrouter, kilocode) as code constants.
-std::unique_ptr<ProviderRepository> make_static_provider_repository();
+// Presets contributed by plugins. Every provider amber ships arrives this way,
+// so a plugin provider is an ordinary provider row: it shows up in
+// `/provider list`, the command feed, and selection with no special case, and
+// the core contains no provider definitions at all.
+void register_provider_preset(const Provider& preset, const std::string& owner);
+void unregister_provider_presets_for(const std::string& owner);
+std::vector<Provider> plugin_provider_presets();
 // ~/.config/amber/providers/*.conf persistence (user-added providers).
 std::unique_ptr<ProviderRepository> make_file_provider_repository();
-// Write (or update) ~/.config/amber/providers/custom.conf from the given
-// connection so the custom provider follows the file lifecycle of every
-// other provider. An empty connection still writes a complete template.
-// Returns true when written.
-bool seed_custom_provider(const Config& connection);
+// Write (or update) ~/.config/amber/providers/<name>.conf from the given
+// connection, so a provider the user is configuring follows the file lifecycle
+// of every other provider. An empty connection still writes a complete
+// template. Returns true when written.
+//
+// The name is the caller's: the core knows the file convention, not which
+// providers exist.
+bool seed_provider(const std::string& name, const Config& connection);
 // OpenAI-compatible /v1/models probe.
 std::unique_ptr<ModelCatalog> make_http_model_catalog();
 

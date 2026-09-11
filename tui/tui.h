@@ -57,7 +57,7 @@ class Tui {
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
-        agent::PluginRegistry& plugin_reg);
+        agent::PluginRuntime& plugin_runtime);
     ~Tui();
 
     Tui(const Tui&) = delete;
@@ -148,8 +148,13 @@ private:
     void refresh_policy_feed();
     void refresh_provider_feed();
     void refresh_job_feed();
+    void refresh_plugin_feed();
     void cmd_model_set(const std::string& arg);
     void cmd_provider(const std::string& arg);
+    void show_plugin(const std::string& id);
+    // Open the contributed-panel view (Alt+0 or /panel). Empty id = the first
+    // registered panel, which is always the registry console.
+    void open_panels(const std::string& id);
     void job_kill(const std::string& id);
     void job_read(const std::string& id);
     void apply_policy_rule(const std::string& name, const std::string& lvl);
@@ -162,10 +167,8 @@ private:
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;
     agent::SubAgentExecutor& subagents_;       // host-owned; shared with process_* tools
-    agent::PluginManager& plugins_; // host-owned; plugin lifecycle + tools
-    agent::PluginRegistry& plugin_reg_;  // v2 plugin registry
-    agent::Workspace workspace_; // workspace instance for PluginContext
-    std::unique_ptr<agent::PluginContext> plugin_ctx_; // owned context for v2 plugins
+    agent::PluginManager& plugins_; // host-owned; v1 external plugin lifecycle
+    agent::PluginRuntime& plugin_runtime_; // v2 runtime (registries + ledger)
     std::unique_ptr<FeedManager> feed_manager_; // feed leaves for completions
     agent::ServerManager mcp_servers_;  // session-scoped MCP manager
     std::string input_fill_;            // /prompt result applied to the input line
@@ -188,22 +191,6 @@ private:
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;
 
-    // ---- kilo.ai balance readout (optional) ------------------------------
-    // Cached result of GET https://api.kilo.ai/api/profile/balance; < 0 means
-    // unknown/unavailable (no token, offline, error). Refreshed on an
-    // interval from the UI tick loop — the fetch runs on a detached thread so
-    // a slow endpoint never blocks a paint. The thread holds a shared_ptr to
-    // the state so it outlives the Tui if a fetch is in flight at exit.
-    struct KiloBalanceState {
-        std::atomic<double> balance = -1.0;
-        std::atomic<bool> valid = false;    // a fetch has completed
-        std::atomic<bool> inflight = false;
-        std::chrono::steady_clock::time_point next_poll{};
-    };
-    std::shared_ptr<KiloBalanceState> kilo_balance_ =
-        std::make_shared<KiloBalanceState>();
-    void poll_kilo_balance();           // UI thread; throttled + async
-    std::string kilo_balance_label() const;  // "" when nothing to show
 };
 
 } // namespace tui

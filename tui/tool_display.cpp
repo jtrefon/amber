@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "agent/statusbar.h"
 #include "agent/workspace.h"
 #include "tui/textutil.h"
 
@@ -131,7 +132,7 @@ std::string working_label(const std::string& frame, const std::string& verb,
 }
 
 std::string reasoning_badge(const std::string& effort) {
-    return "(" + effort + ")";
+    return agent::bar::reasoning_badge(effort);
 }
 
 rich::Line result_line(const std::string& name, const agent::json& args,

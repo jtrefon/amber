@@ -15,6 +15,8 @@
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
+#include "agent/plugin_runtime.h"
+#include "plugins/kilocode/kilocode_plugin.h"
 #include "agent/tool_call_parser.h"
 #include "agent/todo.h"
 #include "agent/session_brief.h"
@@ -233,8 +235,40 @@ TEST(config_context_default_is_auto) {
 // Provider presets and global/project settings tiers
 // ---------------------------------------------------------------------------
 
+namespace {
+
+// The vendor presets are contributed by plugins now, so a provider test needs
+// the same runtime the app builds at startup. The plugin state directory is
+// redirected to a scratch tree: a developer who disabled a provider plugin in
+// their own config must not change what these tests observe.
+class PluginTestEnv {
+public:
+    explicit PluginTestEnv(const std::string& name = "env")
+        : dir("/tmp/amber_plugin_test_" + name) {
+        std::filesystem::remove_all(dir);
+        setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+        runtime.add_bundled();
+        runtime.start();
+    }
+    ~PluginTestEnv() {
+        unsetenv("XDG_CONFIG_HOME");
+        std::filesystem::remove_all(dir);
+    }
+    PluginTestEnv(const PluginTestEnv&) = delete;
+    PluginTestEnv& operator=(const PluginTestEnv&) = delete;
+
+    std::string dir;
+    agent::Config cfg;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime{tools, cfg, ws};
+};
+
+} // namespace
+
 TEST(config_provider_openrouter_preset) {
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    PluginTestEnv env;
+    auto svc = agent::make_default_provider_service(env.cfg);
     auto sel = svc->select("openrouter");
     ASSERT(sel.ok());
     ASSERT_EQ(sel.provider.api_base, "https://openrouter.ai/api/v1");
@@ -244,11 +278,24 @@ TEST(config_provider_openrouter_preset) {
 TEST(config_provider_kilocode_preset) {
     // Kilo's OpenAI-compatible gateway (docs: kilo.ai/docs/gateway). The
     // old api.kilocode.ai/v1 endpoint 404'd on every request.
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    PluginTestEnv env;
+    auto svc = agent::make_default_provider_service(env.cfg);
     auto sel = svc->select("kilocode");
     ASSERT(sel.ok());
     ASSERT_EQ(sel.provider.api_base, "https://api.kilo.ai/api/gateway");
     ASSERT(!sel.provider.default_model.empty());
+}
+
+TEST(config_provider_plugin_disabled_is_not_offered) {
+    // The provider set follows plugin state: with the plugin off, its provider
+    // is not in the list at all — and a provider file that still points at its
+    // flavor is refused loudly rather than falling back to another protocol.
+    PluginTestEnv env;
+    ASSERT_TRUE(env.runtime.set_state("openrouter", false));
+
+    auto svc = agent::make_default_provider_service(env.cfg);
+    ASSERT_FALSE(svc->select("openrouter").ok());
+    ASSERT_TRUE(svc->select("kilocode").ok());   // the others are unaffected
 }
 
 TEST(config_provider_unknown_is_loud_error) {
@@ -295,49 +342,47 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
     std::remove(p2.c_str());
 }
 
-// The balance readout resolves its token from the explicit override, else the
-// active provider's api_key when that provider's key IS the account token
-// (capability flag; the TUI key prompt stores it there) — so a token entered
-// via the prompt powers the readout with no extra config. The decision is
-// capability data, never a provider-name comparison.
-TEST(resolve_kilo_balance_token_falls_back_to_kilocode_api_key) {
-    agent::Config c;
-    c.provider_name = "openrouter";
-    c.api_key = "sk-openrouter";
-    ASSERT_TRUE(agent::resolve_kilo_balance_token(c).empty());
+// The balance readout belongs to the provider plugin that offers it: the
+// plugin resolves its own token (explicit override, else the gateway key when
+// its provider is active) and reports only what it can honestly show. Core
+// code has no idea the provider exists.
+TEST(kilocode_plugin_resolves_its_own_balance_token) {
+    agent::Config cfg;
 
-    // Any provider flagged as account-token-backed resolves its api_key —
-    // the name is irrelevant.
-    c.provider_name = "kilocode";
-    c.api_key_is_account_token = true;
-    c.api_key = "kilo-jwt";
-    ASSERT_EQ(agent::resolve_kilo_balance_token(c), "kilo-jwt");
+    // Another provider is active: the gateway key is not an account token.
+    cfg.provider_name = "openrouter";
+    cfg.api_key = "sk-openrouter";
+    ASSERT_TRUE(agent::plugins::kilocode_balance_token(cfg).empty());
 
-    // Explicit override wins regardless of the provider.
-    c.kilo_balance_token = "kilo-override";
-    ASSERT_EQ(agent::resolve_kilo_balance_token(c), "kilo-override");
+    // Its own provider: the gateway key doubles as the account token.
+    cfg.provider_name = "kilocode";
+    cfg.api_key = "kilo-jwt";
+    ASSERT_EQ(agent::plugins::kilocode_balance_token(cfg), std::string("kilo-jwt"));
 
-    // Anonymous kilocode (no key at all) resolves to nothing.
+    // The explicit override wins regardless of the active provider.
+    cfg.kilo_balance_token = "kilo-override";
+    cfg.provider_name = "openrouter";
+    ASSERT_EQ(agent::plugins::kilocode_balance_token(cfg),
+              std::string("kilo-override"));
+
+    // No key at all: nothing to fetch with.
     agent::Config anon;
     anon.provider_name = "kilocode";
-    anon.api_key_is_account_token = true;
-    ASSERT_TRUE(agent::resolve_kilo_balance_token(anon).empty());
-
-    // A kilocode-named config WITHOUT the capability flag yields nothing: the
-    // name alone must not decide (the flag is the single source of truth).
-    agent::Config named_only;
-    named_only.provider_name = "kilocode";
-    named_only.api_key = "kilo-jwt";
-    ASSERT_TRUE(agent::resolve_kilo_balance_token(named_only).empty());
+    ASSERT_TRUE(agent::plugins::kilocode_balance_token(anon).empty());
 }
 
-// A provider's wire capabilities must reach the transport Config on
-// selection: the client resolves the dialect from cfg.flavor and the balance
-// readout from cfg.api_key_is_account_token — no provider-name branching
-// anywhere downstream.
-TEST(apply_selection_copies_flavor_and_account_token_flag) {
+// The provider's wire protocol travels with the provider itself. Nothing in
+// the core looks a provider's dialect up by name any more.
+TEST(apply_selection_copies_flavor_from_the_provider) {
     setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_caps", 1);
     std::filesystem::remove_all("/tmp/amber_xdg_caps");
+
+    agent::Config cfg;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(tools, cfg, ws);
+    runtime.add_bundled();
+    runtime.start();
 
     auto svc = agent::make_default_provider_service(agent::Config{});
 
@@ -345,42 +390,38 @@ TEST(apply_selection_copies_flavor_and_account_token_flag) {
     ASSERT(kilo.ok());
     agent::Config kilo_cfg;
     agent::apply_selection(kilo_cfg, kilo);
-    ASSERT_EQ(kilo_cfg.flavor, "openai");
-    ASSERT_TRUE(kilo_cfg.api_key_is_account_token);
+    ASSERT_EQ(kilo_cfg.flavor, "openai");   // the gateway speaks openai
 
-    auto router = svc->select("openrouter");
-    ASSERT(router.ok());
-    agent::Config router_cfg;
-    agent::apply_selection(router_cfg, router);
-    ASSERT_EQ(router_cfg.flavor, "openai");
-    ASSERT_FALSE(router_cfg.api_key_is_account_token);
+    auto gemini = svc->select("gemini");
+    ASSERT(gemini.ok());
+    agent::Config gemini_cfg;
+    agent::apply_selection(gemini_cfg, gemini);
+    ASSERT_EQ(gemini_cfg.flavor, "gemini");  // served by the plugin's preset
 
     std::filesystem::remove_all("/tmp/amber_xdg_caps");
     unsetenv("XDG_CONFIG_HOME");
 }
 
-// The derived capability fields are never persisted: they are recomputed from
-// the provider on every boot (like api_base), so a stale flavor can never
-// survive in a config file.
-TEST(flavor_and_capability_flag_not_persisted) {
+// The derived flavor is never persisted: it is recomputed from the provider on
+// every boot, so a stale value cannot survive in a config file.
+TEST(flavor_is_derived_and_not_persisted) {
     std::string path = "/tmp/amber_flavor_persist.conf";
     agent::Config c;
     c.flavor = "openai";
-    c.api_key_is_account_token = true;
     ASSERT_TRUE(c.save_global(path));
 
     agent::Config back;
     back.load(path);
-    ASSERT_EQ(back.flavor, "openai");              // default, not stored
-    ASSERT_FALSE(back.api_key_is_account_token);   // default, not stored
+    ASSERT_EQ(back.flavor, "openai");   // default, not stored
     std::remove(path.c_str());
 }
 
- TEST(provider_service_missing_key_is_warning) {
+TEST(provider_service_missing_key_is_warning) {
     // The key-required policy lives in the domain: select() warns, never
     // fails, when a key-requiring provider has no key (the user may set
     // one via env / F10 without switching again).
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    PluginTestEnv env;
+    auto svc = agent::make_default_provider_service(env.cfg);
     auto sel = svc->select("openrouter");
     ASSERT(sel.ok());
     ASSERT(sel.warning.find("API key") != std::string::npos);
@@ -393,8 +434,14 @@ TEST(provider_builtin_key_save_clears_warning) {
     // requires-key warning must be gone — switching must not re-prompt.
     setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_builtin_key", 1);
     std::filesystem::remove_all("/tmp/amber_xdg_builtin_key");
+    agent::Config cfg;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(tools, cfg, ws);
+    runtime.add_bundled();
+    runtime.start();
     {
-        auto svc = agent::make_default_provider_service(agent::Config{});
+        auto svc = agent::make_default_provider_service(cfg);
         auto sel = svc->select("kilocode");
         ASSERT(sel.ok());
         ASSERT(sel.provider.builtin);
@@ -409,7 +456,7 @@ TEST(provider_builtin_key_save_clears_warning) {
     }
     {
         // Fresh service (restart): the file repo now carries the key.
-        auto svc2 = agent::make_default_provider_service(agent::Config{});
+        auto svc2 = agent::make_default_provider_service(cfg);
         auto sel2 = svc2->select("kilocode");
         ASSERT(sel2.ok());
         ASSERT_EQ(sel2.provider.api_key, "kilo-sk-test");
@@ -810,21 +857,18 @@ TEST(provider_service_available_merges_and_dedups) {
             ASSERT_EQ(p.api_base, "https://two.test/v1");
 }
 
-TEST(provider_custom_is_builtin_preset) {
-    // Custom follows the same lifecycle as every other provider: always
-    // present (built-in preset), selectable, and loud+actionable when
-    // unconfigured — never a silent fallback, never missing.
-    // Hermetic: a seeded custom.conf in the real config dir would shadow
-    // the built-in preset (file providers are not builtin), so the preset
-    // path is tested against a clean XDG_CONFIG_HOME.
-    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_preset", 1);
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_preset");
-    auto svc = agent::make_default_provider_service(agent::Config{});
+TEST(provider_custom_is_a_plugin_preset) {
+    // Custom follows the same lifecycle as every other provider: contributed
+    // by its plugin, selectable, and loud+actionable when unconfigured — never
+    // a silent fallback, never missing.
+    PluginTestEnv env("custom_preset");
+    auto svc = agent::make_default_provider_service(env.cfg);
     bool found = false;
     for (const auto& p : svc->available())
         if (p.name == "custom") {
             found = true;
             ASSERT(p.builtin);
+            ASSERT_TRUE(p.api_base.empty());   // the file supplies it
         }
     ASSERT(found);
     auto sel = svc->select("custom");
@@ -833,17 +877,15 @@ TEST(provider_custom_is_builtin_preset) {
 }
 
 TEST(provider_custom_file_override_wins) {
-    // The dedicated file (later repo) overrides the built-in preset, like
-    // deepseek.conf does for its preset class.
-    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_ovr", 1);
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_ovr");
+    // The dedicated file (later repo) overrides the plugin's preset.
+    PluginTestEnv env("custom_override");
     agent::Config conn;
     conn.api_base = "https://custom.test/v1";
     conn.api_key = "sk-custom";
     conn.model = "custom-model";
-    ASSERT(agent::seed_custom_provider(conn));
+    ASSERT(agent::seed_provider("custom", conn));
 
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    auto svc = agent::make_default_provider_service(env.cfg);
     auto sel = svc->select("custom");
     ASSERT(sel.ok());
     ASSERT_EQ(sel.provider.api_base, "https://custom.test/v1");
@@ -853,22 +895,19 @@ TEST(provider_custom_file_override_wins) {
     // Removing the file restores the unconfigured preset.
     std::filesystem::remove(agent::global_config_dir() +
                             "/providers/custom.conf");
-    auto svc2 = agent::make_default_provider_service(agent::Config{});
+    auto svc2 = agent::make_default_provider_service(env.cfg);
     auto sel2 = svc2->select("custom");
     ASSERT_FALSE(sel2.ok());
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_ovr");
-    unsetenv("XDG_CONFIG_HOME");
 }
 
-TEST(provider_custom_seed_writes_all_keys) {
-    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_custom_seed", 1);
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_seed");
+TEST(provider_seed_writes_all_keys) {
+    PluginTestEnv env("custom_seed");
     agent::Config conn;
     conn.api_base = "https://seed.test/v1";
     conn.api_key = "sk-seed";
     conn.model = "seed-model";
     conn.context_size = 12345;
-    ASSERT(agent::seed_custom_provider(conn));
+    ASSERT(agent::seed_provider("custom", conn));
     const std::string path =
         agent::global_config_dir() + "/providers/custom.conf";
     std::ifstream f(path);
@@ -880,12 +919,54 @@ TEST(provider_custom_seed_writes_all_keys) {
     ASSERT(content.find("api_key=sk-seed") != std::string::npos);
     ASSERT(content.find("default_model=seed-model") != std::string::npos);
     ASSERT(content.find("default_context_size=12345") != std::string::npos);
+
     // An empty connection still writes a complete template.
     agent::Config empty;
     empty.api_base.clear();
-    ASSERT(agent::seed_custom_provider(empty));
-    std::filesystem::remove_all("/tmp/amber_xdg_custom_seed");
+    ASSERT(agent::seed_provider("custom", empty));
+
+    // The helper is name-agnostic: any provider the user configures writes its
+    // own file, and an empty name is refused rather than writing "*.conf".
+    ASSERT_TRUE(agent::seed_provider("my-endpoint", conn));
+    ASSERT_TRUE(std::filesystem::exists(
+        agent::global_config_dir() + "/providers/my-endpoint.conf"));
+    ASSERT_FALSE(agent::seed_provider("", conn));
+}
+
+// The architecture claim, made testable: the core declares no providers of its
+// own. With no plugins registered, only what the user wrote is offered.
+TEST(core_declares_no_providers_without_plugins) {
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_xdg_no_plugins", 1);
+    std::filesystem::remove_all("/tmp/amber_xdg_no_plugins");
+
+    auto svc = agent::make_default_provider_service(agent::Config{});
+    ASSERT_TRUE(svc->available().empty());
+    ASSERT_FALSE(svc->select("custom").ok());
+    ASSERT_FALSE(svc->select("openrouter").ok());
+    ASSERT_FALSE(svc->select("anthropic").ok());
+
+    std::filesystem::remove_all("/tmp/amber_xdg_no_plugins");
     unsetenv("XDG_CONFIG_HOME");
+}
+
+// ...and a disabled provider plugin removes exactly its own provider.
+TEST(disabling_a_provider_plugin_removes_only_that_provider) {
+    PluginTestEnv env("provider_disable");
+    ASSERT_TRUE(env.runtime.set_state("custom", false));
+    auto svc = agent::make_default_provider_service(env.cfg);
+    ASSERT_FALSE(svc->select("custom").ok());
+    ASSERT_TRUE(svc->select("openrouter").ok());
+    ASSERT_TRUE(svc->select("gemini").ok());
+
+    // Re-enabling brings the provider back. It is unconfigured again, so
+    // selection reports the missing endpoint rather than "unknown provider" —
+    // the preset is present, which is the point.
+    ASSERT_TRUE(env.runtime.set_state("custom", true));
+    auto svc2 = agent::make_default_provider_service(env.cfg);
+    auto sel2 = svc2->select("custom");
+    ASSERT_FALSE(sel2.ok());
+    ASSERT(sel2.error.find("unknown provider") == std::string::npos);
+    ASSERT(sel2.error.find("no endpoint") != std::string::npos);
 }
 
 TEST(file_provider_repository_roundtrip) {
@@ -2994,7 +3075,7 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
 
     agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, &dctx);
+                                         approved, nullptr, nullptr, &dctx);
     ASSERT(ok);
     ASSERT(tool_results == 1);
     ASSERT(captured.ok);
@@ -3051,7 +3132,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     calls.push_back(tc2);
 
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, &dctx);
+                                         approved, nullptr, nullptr, &dctx);
     // Should be rejected as duplicate
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
@@ -3089,7 +3170,7 @@ TEST(dispatch_auto_approves_in_write_mode) {
 
     agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, &dctx);
+                                         approved, nullptr, nullptr, &dctx);
     ASSERT(ok);
     // Write mode consults the approval callback for gated tools
     ASSERT(approval_called);
@@ -3122,7 +3203,7 @@ TEST(dispatch_missing_tool_reports_unknown) {
 
     agent::Context dctx;
     bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, &dctx);
+                                         approved, nullptr, nullptr, &dctx);
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
     ASSERT_FALSE(captured.ok);
@@ -5488,12 +5569,19 @@ TEST(provider_custom_unconfigured_is_error) {
     unsetenv("AMBER_API_BASE");
     unsetenv("AMBER_API_KEY");
     unsetenv("AMBER_MODEL");
-    auto svc = agent::make_default_provider_service(agent::Config{});
+    agent::Config cfg;
+    agent::ToolRegistry tools;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(tools, cfg, ws);
+    runtime.add_bundled();
+    runtime.start();
+    auto svc = agent::make_default_provider_service(cfg);
     auto sel = svc->select("custom");
     unsetenv("XDG_CONFIG_HOME");
     ASSERT_FALSE(sel.ok());
     // Loud, actionable failure — never a silent fallback to the DTO
-    // default endpoint, and never "unknown": custom is a known preset.
+    // default endpoint, and never "unknown": the plugin contributes the
+    // preset, so custom is a known provider.
     ASSERT(sel.error.find("no endpoint") != std::string::npos);
 }
 

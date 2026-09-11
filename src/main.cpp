@@ -3,6 +3,7 @@
 #include <agent/compressor.h>
 #include <agent/experience.h>
 #include <agent/data_path.h>
+#include <agent/plugin_runtime.h>
 #include <agent/bootstrap.h>
 #include <agent/mcp_commands.h>
 #include <cctype>
@@ -21,6 +22,7 @@ void print_usage(const char* prog) {
               << "  --api-base URL     OpenAI-compatible base URL (env AMBER_API_BASE)\n"
               << "  --api-key KEY      API key (env AMBER_API_KEY)\n"
               << "  --model NAME       Model name (env AMBER_MODEL)\n"
+              << "  --no-plugins       Run without the bundled plugins\n"
               << "  --system FILE      System prompt markdown file\n"
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"
@@ -39,6 +41,7 @@ int main(int argc, char** argv) {
     std::string config_file;
     bool auto_approve = false;
     bool mcp_list_only = false;
+    bool no_plugins = false;
     std::string mcp_connect_name;
     std::string mcp_prompt_server;
     std::string mcp_prompt_name;
@@ -94,6 +97,7 @@ int main(int argc, char** argv) {
         if (a == "--api-base")        cfg.api_base = next("");
         else if (a == "--api-key")    cfg.api_key = next("");
         else if (a == "--model")      { cfg.model = next(""); cfg.model_explicit = true; }
+        else if (a == "--no-plugins") no_plugins = true;
         else if (a == "--system")     cfg.system_prompt_path = next("");
         else if (a == "--tools")      cfg.tools_prompt_path = next("");
         else if (a == "--config")     config_file = next("");
@@ -327,11 +331,26 @@ int main(int argc, char** argv) {
     auto mem_store = agent::make_memory_store(exp_cfg);
     auto retriever = std::make_unique<agent::MemoryRetriever>(*mem_store);
 
+    // The same plugin runtime the TUI uses: a headless run gets the same
+    // bundled plugins, the same persisted state, and the same registries.
+    agent::Workspace workspace;
+    agent::PluginManager plugins;
+    plugins.discover();
+    agent::PluginRuntime plugin_runtime(registry, cfg, workspace);
+    plugin_runtime.add_bundled();
+    plugin_runtime.add_external(plugins);
+    // Attach before activating: plugins read the live config, and this Config
+    // is the one the whole run uses.
+    plugin_runtime.attach_config(cfg);
+    if (!no_plugins) plugin_runtime.start();
+
     try {
         agent::Agent agent(cfg, registry, hooks,
                            std::move(compressor), std::move(gate),
                            std::move(mem_store), std::move(retriever));
         agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
+        agent.set_events(plugin_runtime.events());
+        agent.set_prompt_registry(plugin_runtime.prompts());
         std::string reply = agent.run(prompt);
         std::cout << "\n" << reply << "\n";
     } catch (const std::exception& e) {

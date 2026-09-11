@@ -316,9 +316,28 @@ TEST(anthropic_malformed_fields_do_not_throw) {
 // The registry resolves the flavor to the right dialect and falls back for
 // unknown ones — the single dispatch point for the whole provider layer.
 TEST(dialect_registry_resolves_and_falls_back) {
-    ASSERT_EQ(agent::make_dialect("anthropic")->flavor(), "anthropic");
+    // openai is the one protocol the core itself provides; every vendor
+    // protocol is contributed by its provider plugin.
     ASSERT_EQ(agent::make_dialect("openai")->flavor(), "openai");
+
+    // The Messages API dialect ships with the anthropic plugin. With the
+    // plugin not registered (as here) its flavor is simply unknown, which is
+    // the typo case: fall back rather than refuse.
+    ASSERT_EQ(agent::make_dialect("anthropic")->flavor(), "openai");
     ASSERT_EQ(agent::make_dialect("no-such-flavor")->flavor(), "openai");
+
+    // Registering it (what the plugin does on activation) makes the flavor
+    // resolve, and switching the plugin off makes it refuse loudly instead.
+    agent::register_dialect("anthropic",
+                            [] { return agent::make_anthropic_dialect(); },
+                            "anthropic");
+    ASSERT_EQ(agent::make_dialect("anthropic")->flavor(), "anthropic");
+    ASSERT_TRUE(agent::flavor_unavailable_reason("anthropic").empty());
+
+    ASSERT_TRUE(agent::unregister_dialect("anthropic", "anthropic"));
+    const std::string reason = agent::flavor_unavailable_reason("anthropic");
+    ASSERT_FALSE(reason.empty());
+    ASSERT(reason.find("/set plugin anthropic on") != std::string::npos);
 }
 
 TEST(dialect_registry_accepts_new_factories) {

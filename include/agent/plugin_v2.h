@@ -4,6 +4,7 @@
 
 #include "agent/config.h"
 #include "agent/event_bus.h"
+#include "agent/plugin_capability.h"
 #include "agent/registry.h"
 #include "agent/workspace.h"
 
@@ -14,28 +15,28 @@
 
 namespace agent {
 
-struct Capability {
-    enum class Type : std::uint8_t {
-        Tool,
-        Provider,
-        Completion,
-        Hook,
-        Theme,
-        PromptSource,
-        Memory,
-        Search,
-    };
-
-    Type type;
-    std::string name;
-    std::string description;
-    void* impl = nullptr;
-};
+// Grouping vocabulary for the plugin list. Core-declared so the console and
+// plugins agree on the common names, but deliberately open: a plugin may use
+// any category, and an unrecognised one groups under its own heading rather
+// than being hidden or forced into "other".
+namespace plugin_category {
+inline constexpr const char* kProvider = "provider";
+inline constexpr const char* kObservability = "observability";
+inline constexpr const char* kTools = "tools";
+inline constexpr const char* kUi = "ui";
+inline constexpr const char* kMemory = "memory";
+inline constexpr const char* kSearch = "search";
+inline constexpr const char* kOther = "other";
+} // namespace plugin_category
 
 struct PluginContext {
     EventBus& event_bus;
     const ToolRegistry& tools;
-    const Config& config;
+    // The host's LIVE configuration, not a copy: a plugin that reads an API
+    // key or the active provider must see what the user has changed since
+    // startup. The runtime rebinds this when the host hands it the real
+    // config (PluginRuntime::attach_config).
+    const Config* config = nullptr;
     const Workspace& workspace;
 };
 
@@ -47,10 +48,31 @@ public:
     virtual std::string version() const = 0;
     virtual std::string name() const = 0;
 
+    // One line saying what this plugin is for. Shown in the registry list, so
+    // keep it short — it answers "which one do I want", not "how does it work".
+    virtual std::string description() const { return {}; }
+
+    // Which group this plugin belongs to in the registry list. Defaults to
+    // "other" rather than forcing every tiny plugin to pick a label; the
+    // console shows the group, so an undeclared category is visible, not silent.
+    virtual std::string category() const { return plugin_category::kOther; }
+
     virtual bool initialize(const PluginContext& ctx) = 0;
     virtual void shutdown() = 0;
 
-    virtual std::vector<Capability> capabilities() const = 0;
+    // Called periodically by the host on its UI tick, for time-driven work
+    // (polling a balance, refreshing a remote value). It exists so that
+    // *rendering* can stay a pure read: a segment never fetches anything, the
+    // tick does the work and the segment reports the cached result.
+    // Must not block — schedule slow work on the plugin's own thread.
+    virtual void tick() {}
+
+    // What this plugin contributes. Called once, at activation: the runtime
+    // installs each capability and records the returned handle in its ledger,
+    // so the plugin hands over ownership and never registers anything itself.
+    // The default is a plugin that contributes nothing yet still participates
+    // in the lifecycle (the metrics observer is one).
+    virtual std::vector<std::unique_ptr<Capability>> capabilities() { return {}; }
 };
 
 } // namespace agent

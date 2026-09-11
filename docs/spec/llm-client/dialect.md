@@ -131,8 +131,9 @@ dialect.
 - **Depends on**: `llm-client/http-transport.md` (curl mechanics),
   `llm-client/streaming.md` (framing contract), `llm-client/model-probe.md`
   (listing consumers)
-- **Depended on by**: `plugins/plugin-framework-v2.md` (Phase 5 `Provider`
-  capability registers a dialect factory), provider selection
+- **Depended on by**: `plugins/plugin-framework-v2.md` (the `Provider` plugin
+  capability registers a dialect factory — PF-2 in
+  `docs/plugin-framework-tracker.md`), provider selection
   (`ProviderCapabilities::flavor`)
 - **Test coverage**: `tests/dialect_anthropic_test.cpp` (DL-01..07 protocol),
   `tests/run_tests.cpp` wire pins (openai paths + cancellation + overflow)

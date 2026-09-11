@@ -2,6 +2,7 @@
 #include "agent/providers.h"
 
 #include <algorithm>
+#include <mutex>
 
 #include "agent/config.h"
 
@@ -9,29 +10,69 @@ namespace agent {
 
 namespace {
 
-const std::vector<std::pair<std::string, ProviderCapabilities>>&
-capability_overrides() {
-    static const std::vector<std::pair<std::string, ProviderCapabilities>>
-        table = {
-            // OpenRouter and kilocode speak the OpenAI wire protocol; the
-            // kilocode gateway key doubles as the account token (balance
-            // readout).
-            {"openrouter", {"openai", false}},
-            {"kilocode", {"openai", true}},
-            // Native Messages API (x-api-key auth, content blocks, event
-            // stream) — the flavor selects the anthropic dialect.
-            {"anthropic", {"anthropic", false}},
-        };
+// Plugin-contributed presets. Guarded because a provider plugin can be toggled
+// while the provider list is being read (spec invariant 12).
+std::mutex& preset_mutex() {
+    static std::mutex mtx;
+    return mtx;
+}
+
+std::vector<std::pair<Provider, std::string>>& preset_table() {
+    static std::vector<std::pair<Provider, std::string>> table;  // preset, owner
     return table;
 }
 
-// Single source of capability data: the service and apply_selection both go
-// through here, so a provider's behavior can never drift between them.
-ProviderCapabilities capabilities_of(const std::string& name) {
-    for (const auto& [n, caps] : capability_overrides())
-        if (n == name) return caps;
-    return ProviderCapabilities{};
+} // namespace
+
+// Presets contributed by plugins (defined here so the service and the
+// repository below share one table).
+void register_provider_preset(const Provider& preset, const std::string& owner) {
+    std::scoped_lock lock(preset_mutex());
+    for (auto& entry : preset_table()) {
+        if (entry.first.name == preset.name) {
+            entry = {preset, owner};
+            return;
+        }
+    }
+    preset_table().emplace_back(preset, owner);
 }
+
+void unregister_provider_presets_for(const std::string& owner) {
+    if (owner.empty()) return;
+    std::scoped_lock lock(preset_mutex());
+    auto& table = preset_table();
+    table.erase(std::remove_if(table.begin(), table.end(),
+                               [&](const std::pair<Provider, std::string>& e) {
+                                   return e.second == owner;
+                               }),
+                table.end());
+}
+
+std::vector<Provider> plugin_provider_presets() {
+    std::scoped_lock lock(preset_mutex());
+    std::vector<Provider> out;
+    for (const auto& entry : preset_table()) out.push_back(entry.first);
+    return out;
+}
+
+namespace {
+
+// Adapter: plugin-contributed presets as a repository, so they merge into the
+// provider list exactly like the built-in and file layers.
+class PluginProviderRepository : public ProviderRepository {
+public:
+    std::vector<Provider> all() const override { return plugin_provider_presets(); }
+
+    std::optional<Provider> find(const std::string& name) const override {
+        for (const auto& p : plugin_provider_presets())
+            if (p.name == name) return p;
+        return std::nullopt;
+    }
+
+    // Read-only layer: plugin presets come from the plugin, not from here.
+    bool save(const Provider&) override { return false; }
+    bool remove(const std::string&) override { return false; }
+};
 
 } // namespace
 
@@ -130,16 +171,16 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     }
     if (sel.provider.default_context_size > 0 && !cfg.context_explicit)
         cfg.context_size = sel.provider.default_context_size;
-    // Wire capabilities: the dialect the client resolves and the balance
-    // readout's key semantics. Derived on every selection, never persisted.
-    const ProviderCapabilities caps = capabilities_of(sel.provider.name);
-    cfg.flavor = caps.flavor;
-    cfg.api_key_is_account_token = caps.api_key_is_account_token;
+    // The dialect the client resolves travels with the provider, so a provider
+    // contributed by a plugin needs nothing from a table in the core. Derived
+    // on every selection, never persisted.
+    cfg.flavor = sel.provider.flavor;
 }
 
-bool seed_custom_provider(const Config& connection) {
+bool seed_provider(const std::string& name, const Config& connection) {
+    if (name.empty()) return false;
     Provider p;
-    p.name = "custom";
+    p.name = name;
     p.api_base = connection.api_base;
     p.api_key = connection.api_key;
     p.default_model = connection.model;
@@ -150,7 +191,9 @@ bool seed_custom_provider(const Config& connection) {
 std::unique_ptr<ProviderService> make_default_provider_service(
     const Config&) {
     std::vector<std::unique_ptr<ProviderRepository>> repos;
-    repos.push_back(make_static_provider_repository());
+    // Every provider definition comes from a plugin; the file layer holds what
+    // the user wrote and overrides a same-named preset (later repos win).
+    repos.push_back(std::make_unique<PluginProviderRepository>());
     repos.push_back(make_file_provider_repository());
     return std::make_unique<ProviderService>(
         std::move(repos), make_http_model_catalog());
