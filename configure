@@ -110,10 +110,16 @@ rm -f "$builddir/conftest.cpp" "$builddir/conftest" "$builddir/conftest.err"
 
 # openssl is used indirectly via libcurl; verify headers exist for any direct use
 echo "checking for openssl..."
-if [ -f /usr/include/openssl/ssl.h ]; then
-    echo "  found /usr/include/openssl/ssl.h"
+ssl_h=""
+for p in /usr/include/openssl/ssl.h \
+         /opt/homebrew/include/openssl/ssl.h \
+         /usr/local/include/openssl/ssl.h; do
+    if [ -f "$p" ]; then ssl_h="$p"; break; fi
+done
+if [ -n "$ssl_h" ]; then
+    echo "  found $ssl_h"
 else
-    echo "  warning: openssl headers not found at /usr/include/openssl/ssl.h"
+    echo "  warning: openssl headers not found (used indirectly via libcurl)"
 fi
 
 # ncurses (+ form/menu/panel widget libs) for the TUI client.
