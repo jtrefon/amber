@@ -32,7 +32,10 @@ namespace agent {
 
 class PluginRuntime {
 public:
-    PluginRuntime(ToolRegistry& tools, const Config& config, const Workspace& workspace);
+    // `config` is taken by value: it is kept as the fallback configuration
+    // until the host attaches its own, so this constructor owns a copy either
+    // way.
+    PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace);
     ~PluginRuntime();
 
     PluginRuntime(const PluginRuntime&) = delete;

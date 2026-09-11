@@ -192,7 +192,7 @@ TEST(ledger_disable_removes_every_contribution) {
         tools.erase(std::remove(tools.begin(), tools.end(), std::string("greet")), tools.end());
     };
     ledger.record("plug", greet);
-    tools.push_back("greet");
+    tools.emplace_back("greet");
 
     ASSERT_EQ(tools.size(), 3u);
     ledger.unwind("plug");

@@ -82,7 +82,7 @@ std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime) {
     });
 
     for (const auto& category : categories) {
-        lines.push_back("");
+        lines.emplace_back();
         lines.push_back(category);
         for (const auto& p : plugins) {
             if (p.category != category)
@@ -95,7 +95,7 @@ std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime) {
             lines.push_back(std::move(line));
 
             if (p.contributions.empty()) {
-                lines.push_back("      observes only");
+                lines.emplace_back("      observes only");
                 continue;
             }
             std::string detail = "      ";
@@ -110,15 +110,15 @@ std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime) {
     }
 
     const auto panels = runtime.panels().items();
-    lines.push_back("");
+    lines.emplace_back();
     lines.push_back("panels: " + std::to_string(panels.size()));
     for (const auto& panel : panels) {
         const std::string owner = panel.owner.empty() ? "core" : panel.owner;
         lines.push_back("  " + pad(panel.name, 16) + pad(owner, 16) + panel.detail);
     }
 
-    lines.push_back("");
-    lines.push_back("toggle a plugin with /set plugin <id> on|off");
+    lines.emplace_back();
+    lines.emplace_back("toggle a plugin with /set plugin <id> on|off");
     return lines;
 }
 

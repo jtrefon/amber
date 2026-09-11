@@ -128,7 +128,7 @@ Contribution WalletRegistry::add(const std::string& owner, Fetch fetch) {
         std::remove_if(entries_.begin(), entries_.end(),
                        [&](const std::pair<std::string, Fetch>& e) { return e.first == owner; }),
         entries_.end());
-    entries_.push_back({owner, std::move(fetch)});
+    entries_.emplace_back(owner, std::move(fetch));
 
     Contribution c;
     c.kind = CapabilityKind::Wallet;
@@ -259,6 +259,7 @@ bool CommandRegistry::dispatch(const std::string& root, const std::string& path,
 
 std::vector<ExtensionItem> CommandRegistry::items() const {
     std::vector<ExtensionItem> out;
+    out.reserve(nodes_.size());
     for (const auto& node : nodes_) {
         out.push_back({CapabilityKind::Command, node.owner, node.root,
                        std::to_string(node.handlers.size()) + " command(s)"});

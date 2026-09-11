@@ -39,7 +39,7 @@ enum Drop {
 };
 
 std::string dashed(const char* glyph) {
-    return std::string(glyph);
+    return {glyph};
 }
 
 } // namespace

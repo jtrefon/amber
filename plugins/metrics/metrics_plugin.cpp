@@ -4,11 +4,12 @@
 namespace agent::plugins {
 
 bool MetricsPlugin::initialize(const PluginContext& ctx) {
+    bus_ = &ctx.event_bus;
     turn_sub_ = ctx.event_bus.subscribe(EventType::AgentTurnStart,
                                         [this](const Event& e) { on_turn_start(e); });
 
-    auto end_sub = ctx.event_bus.subscribe(EventType::AgentTurnEnd,
-                                           [this](const Event& e) { on_turn_end(e); });
+    turn_end_sub_ = ctx.event_bus.subscribe(EventType::AgentTurnEnd,
+                                            [this](const Event& e) { on_turn_end(e); });
 
     tool_before_sub_ = ctx.event_bus.subscribe(EventType::ToolCallBefore,
                                                [this](const Event& e) { on_tool_before(e); });
@@ -20,6 +21,17 @@ bool MetricsPlugin::initialize(const PluginContext& ctx) {
 }
 
 void MetricsPlugin::shutdown() {
+    // Release every subscription: the runtime calls this on disable, and a
+    // callback that outlives the plugin is exactly the leak the ledger exists
+    // to prevent on the capability side. Guarded because shutdown() must be
+    // safe on a plugin that was never initialized.
+    if (bus_) {
+        bus_->unsubscribe(turn_sub_);
+        bus_->unsubscribe(turn_end_sub_);
+        bus_->unsubscribe(tool_before_sub_);
+        bus_->unsubscribe(tool_after_sub_);
+        turn_sub_ = turn_end_sub_ = tool_before_sub_ = tool_after_sub_ = 0;
+    }
     stats_ = Stats{};
 }
 

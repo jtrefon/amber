@@ -35,9 +35,14 @@ private:
     void on_tool_before(const Event&);
     void on_tool_after(const Event&);
 
+    EventBus* bus_ = nullptr; // where the subscriptions live
     Stats stats_;
     std::chrono::steady_clock::time_point turn_start_;
+    // Direct bus subscriptions are the plugin's to release: the ledger tracks
+    // *capabilities*, so a plugin that observes rather than contributes must
+    // unsubscribe in shutdown() or it leaves callbacks behind when disabled.
     size_t turn_sub_ = 0;
+    size_t turn_end_sub_ = 0;
     size_t tool_before_sub_ = 0;
     size_t tool_after_sub_ = 0;
 };

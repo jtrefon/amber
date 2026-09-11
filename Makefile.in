@@ -212,6 +212,7 @@ LINT_SRCS = $(wildcard $(SRC_DIR)/lib/*.cpp) \
             $(wildcard $(SRC_DIR)/tools/search/*.cpp) \
             $(wildcard $(SRC_DIR)/tools/plugins/*/*.cpp) \
             $(wildcard $(SRC_DIR)/tui/*.cpp) \
+            $(wildcard $(SRC_DIR)/plugins/*/*.cpp) \
             $(wildcard $(SRC_DIR)/tests/*.cpp)
 
 # Flags shared by the lint tools: same include roots the build uses, plus

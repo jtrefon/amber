@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <utility>
 
 namespace agent {
 
@@ -56,8 +57,8 @@ bool write_enabled(const std::string& id, bool enabled) {
 
 } // namespace
 
-PluginRuntime::PluginRuntime(ToolRegistry& tools, const Config& config, const Workspace& workspace)
-    : tools_(&tools), config_(config), workspace_(&workspace) {
+PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace)
+    : tools_(&tools), config_(std::move(config)), workspace_(&workspace) {
     // Amber's own segments are registry entries like any other, so the bar is
     // composed from one list whether a segment comes from the core or a plugin.
     register_core_status_segments(status_);
@@ -148,7 +149,7 @@ namespace {
 
 // Don't let a fast tool loop hammer a provider's endpoint: a turn boundary is
 // the trigger, this is the floor.
-constexpr long long kWalletRefreshFloorMs = 10 * 1000;
+constexpr long long kWalletRefreshFloorMs = 10LL * 1000;
 
 long long steady_now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -559,6 +559,37 @@ TEST(runtime_exposes_the_builtin_wallets) {
         ASSERT(item.owner != std::string("openrouter"));
 }
 
+// A plugin that *observes* rather than contributes subscribes to the bus
+// directly, which the capability ledger knows nothing about. Disabling it must
+// still leave nothing behind: the framework's promise is that a disabled plugin
+// costs nothing, and a callback outliving its plugin is the same leak the
+// ledger prevents on the capability side.
+TEST(runtime_disable_releases_an_observers_subscriptions) {
+    ScratchConfig scratch("observer_off");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start();
+
+    // The metrics plugin observes the loop; while it is on its subscriptions
+    // are live. (AgentTurnEnd also carries the runtime's own wallet refresh,
+    // so it is checked by count rather than presence.)
+    ASSERT_TRUE(runtime.events().has_subscribers(EventType::AgentTurnStart));
+    ASSERT_TRUE(runtime.events().has_subscribers(EventType::ToolCallBefore));
+    ASSERT_TRUE(runtime.events().has_subscribers(EventType::ToolCallAfter));
+
+    ASSERT_TRUE(runtime.set_state("metrics", false));
+
+    ASSERT_FALSE(runtime.events().has_subscribers(EventType::AgentTurnStart));
+    ASSERT_FALSE(runtime.events().has_subscribers(EventType::ToolCallBefore));
+    ASSERT_FALSE(runtime.events().has_subscribers(EventType::ToolCallAfter));
+
+    // And its own state is reset, so a re-enable starts from zero.
+    auto* metrics = dynamic_cast<plugins::MetricsPlugin*>(runtime.find("metrics"));
+    ASSERT(metrics != nullptr);
+    ASSERT_EQ(metrics->stats().turns, 0);
+}
+
 TEST(runtime_find_returns_null_for_unknown_plugins) {
     ScratchConfig scratch("find_unknown");
     Fixture f;

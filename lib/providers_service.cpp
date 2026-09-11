@@ -34,7 +34,7 @@ void register_provider_preset(const Provider& preset, const std::string& owner) 
             return;
         }
     }
-    preset_table().push_back({preset, owner});
+    preset_table().emplace_back(preset, owner);
 }
 
 void unregister_provider_presets_for(const std::string& owner) {

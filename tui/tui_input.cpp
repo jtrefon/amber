@@ -2135,13 +2135,16 @@ void Tui::settings_screen() {
                 rich_display.push_back(prov_display[i]);
                 continue;
             }
-            bool active = (id == cfg_.provider_name);
-            std::string prefix = active ? "> " : "  ";
+            const bool active = (id == cfg_.provider_name);
             // Only the active provider's key tells us anything about the
             // others, so the hint is reported for it alone.
-            const std::string key_hint =
+            const char* key_hint =
                 (active && cfg_.api_key.empty()) ? "no-key" : "key-set";
-            rich_display.push_back(prefix + id + "  (" + key_hint + ")");
+            std::string line;
+            line.reserve(id.size() + 12);
+            line.append(active ? "> " : "  ").append(id);
+            line.append("  (").append(key_hint).push_back(')');
+            rich_display.push_back(std::move(line));
         }
         rich_display.back() = "  + Add new provider...";
 
