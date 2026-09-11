@@ -253,7 +253,76 @@ this code, and not a repo workflow. Worth knowing so it is not chased again.
   "correct but unauthorised" from "wrong URL" proves nothing about the URL.
   The pin on the endpoint is what makes this class of bug visible.
 
+### 2026-09-11 — Fix: compression discarded the injected memory block
+
+Found by reviewing the merged PF-1.6 work: the prompt-block migration was left
+open precisely because of this, and reading the assembly closely turned it from
+a question into a defect.
+
+- **The regression.** Injected blocks were assembled at four scattered sites.
+  The memory block was injected *before* the compression gate, and the gate's
+  rebuild does `prompt_copy.assign(...)` — replacing the whole prompt — so on
+  any compressing turn the retrieved memories were **silently discarded**, while
+  skill discovery, activated bodies, the brief and plugin blocks (all injected
+  after) survived. Compression fires on long sessions, which is exactly where
+  memories matter most.
+- **It is a regression, not a design choice.** Before the immutable-Context
+  rewrite (`a3c7af7`), compression ran on a list that *already contained* the
+  injection (`prompt_msgs = history_; … retriever_->…; prompt_msgs = compress(prompt_msgs)`).
+  The rewrite moved compression onto the sealed stack and added the `assign`,
+  and nothing covered the injection. Evidence: `git log -S build_system_prompt_suffix`
+  dates the injection before the rewrite; no test asserted a memory ever
+  reached a request, on either turn type.
+- **Live by default.** Experience is on by default (`experience.h:44`) and the
+  retriever is wired in both hosts (`tui/window_manager.cpp`, `src/main.cpp`).
+- **The fix — one assembly point, after the gate.** The four sites are replaced
+  by `Agent::inject_prompt_blocks`, called exactly once and only after the
+  rebuild, so there is no "before the gate" left to inject into by accident.
+  Order is explicit in `prompt_priority` (declared beside the assembly) rather
+  than reconstructed from injection positions: head blocks (memory 100,
+  discovery 200) sit with the system prompt; tail blocks (activated bodies 900,
+  brief 950, plugin blocks 1000) follow the conversation. The sealed `Context`
+  is untouched — this is the prompt copy.
+- **Why the core blocks are NOT registry entries (the dogfooding answer).**
+  `PromptRegistry` is runtime-owned and shared across windows; the retriever,
+  skill catalog and brief store are per-agent. Registering a core block there
+  would put one window's state into another window's prompt. The registry is for
+  app-wide contributions; core blocks are assembled by the agent that owns their
+  state, and both are merged in one ordered pass. That reasoning is now written
+  down rather than discovered again.
+- **Byte-identical on ordinary turns — verified, not asserted.** A probe dumps
+  the full prompt (memory + brief + plugin block, no compression) and the output
+  was diffed across the change: **identical**. So the blast radius of this fix is
+  compressing turns only.
+- **Verification:** red first — `agent_keeps_injected_blocks_when_compression_fires`
+  failed with the memory text never reaching the model, while the control
+  (`agent_injects_in_memory_blocks_without_compression`) passed. Green after:
+  `./run_tests` → **658 passed, 0 failed**, `make check` clean. New contract:
+  `docs/spec/agent-loop/prompt-assembly.md` (invariants, PA-01..04).
+- **Also fixed here (mine, from #105):** two compiler warnings in
+  `lib/dialect_gemini.cpp` — a dead `text_of_parts` helper and an unused
+  `stream` parameter. `-Wall` is not a CI gate, so they survived review; they
+  are fixed and named in the commit rather than left as known noise.
+
 ### 2026-09-10 — Open findings (need a decision, not more code)
+
+One item is deliberately not implemented, recorded here with the reason and the
+trigger that reopens it, so it cannot be mistaken for an oversight.
+
+**(1) ~~Core prompt blocks on the registry~~ — RESOLVED 2026-09-11.** The
+behaviour question below was answered by reading the history rather than
+guessing: the pre-compression memory block was a **regression** from the
+immutable-Context rewrite, not a design choice. Fixed by assembling every block
+at one point after the gate (`Agent::inject_prompt_blocks`), which also settles
+the layout question — the head/tail placement is preserved, so ordinary turns
+are byte-identical. The "migrate the core blocks onto the registry" part was
+**deliberately not done**, because the registry is shared across windows and
+those blocks are per-agent state; the reasoning is in
+`docs/spec/agent-loop/prompt-assembly.md`. The original entry is kept below for
+the record.
+
+<details>
+<summary>original entry</summary>
 
 Two items are deliberately not implemented. Both are recorded here with the
 reason and the trigger that reopens them, so they cannot be mistaken for
@@ -283,6 +352,8 @@ surfaces a behavioural question that is not ours to decide unilaterally:
 **Trigger:** a decision on (a) whether the pre-compression memory block is a
 bug, and (b) whether the tail layout is acceptable. Then it is a small change
 plus a bench comparison.
+
+</details>
 
 **(2) Host services (`ask`/`choose`/`confirm`/`notify`/`post_to_ui`) — no
 consumer yet.** The one real need identified ("provider token input") is
@@ -578,7 +649,7 @@ What a plugin author can rely on today. Update with every landed task.
 | Prompt block contribution | ✅ | PF-1 |
 | Settings contribution | ✅ | PF-1 |
 | `/get plugin`, `/set plugin on\|off` (persisted, live) | ✅ | PF-1 |
-| Core prompt blocks on the registry (dogfood) | ⏳ | PF-1 follow-up |
+| Core prompt blocks: single assembly after the gate (dogfood) | ✅ | 2026-09-11 |
 | Provider contribution (dialect + presets) | ✅ | PF-2 |
 | Provider presets only (shared protocol) | ✅ | PF-4 |
 | Provider list reflects plugin state without restart | ✅ | PF-4 |

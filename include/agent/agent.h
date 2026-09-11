@@ -26,6 +26,23 @@
 
 namespace agent {
 
+// Injected prompt-block order. Ascending priority; ties keep insertion order.
+//
+// These are declared here, next to the assembly that consumes them, so the
+// order of the blocks the model receives is readable in one place instead of
+// being reconstructed from scattered injection sites. A block's position is
+// deliberate for one of two reasons: `head` blocks read as instructions and sit
+// with the system prompt; `tail` blocks are trailing context and sit after the
+// conversation, where a change costs the server's KV cache only from that point
+// on — which is why the volatile ones live there.
+namespace prompt_priority {
+inline constexpr int kMemory = 100;          // head: retrieved for this request
+inline constexpr int kSkillDiscovery = 200;  // head: what skills can be activated
+inline constexpr int kActivatedSkills = 900; // tail: bodies loaded on demand
+inline constexpr int kSessionBrief = 950;    // tail: changes rarely, but late
+inline constexpr int kPluginBlock = 1000;    // tail: contributed by plugins
+} // namespace prompt_priority
+
 // Coarse activity state for a status-bar connection indicator.
 enum class RunState : std::uint8_t {
     Idle,        // waiting, no request in flight
@@ -226,6 +243,16 @@ public:
     std::string learn_pin(const std::string& id, bool pinned);
 
 private:
+    // Assemble every injected prompt block into `prompt_copy`, in one ordered
+    // pass. Called exactly once per request and only AFTER the compression
+    // gate: a block injected before the rebuild is discarded when the rebuild
+    // replaces the prompt, which is the bug this replaced (retrieved memories
+    // vanished on compressing turns). Head blocks are inserted with the system
+    // prompt, tail blocks follow the conversation; ordering is
+    // `prompt_priority`. The sealed Context is never touched — this is the
+    // prompt copy.
+    void inject_prompt_blocks(std::vector<Message>& prompt_copy) const;
+
     // Build and push the system message if the conversation is empty. Idempotent.
     void ensure_system_prompt();
 

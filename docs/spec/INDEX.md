@@ -28,6 +28,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `agent-loop/tool-dispatch.md` | Parallel dispatch, ordering, results aggregation, duplicate detection |
 | `agent-loop/mode-system.md` | read/write/yolo, PolicyStore, AlwaysAllow/AlwaysDeny, policy_approval toggle, session grants |
 | `agent-loop/error-recovery.md` | FailStreak, loop detection, recovery steering, empty-turn fallback |
+| `agent-loop/prompt-assembly.md` | Injected prompt blocks: head/tail placement, `prompt_priority`, the after-the-gate rule, and why core blocks aren't registry entries |
 
 ## Tools
 
