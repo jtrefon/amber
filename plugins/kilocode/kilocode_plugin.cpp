@@ -29,10 +29,14 @@ size_t write_body(char* ptr, size_t size, size_t nmemb, void* user) {
 
 } // namespace
 
-double fetch_kilocode_balance(const std::string& token, const std::string& api_base) {
+std::string kilocode_balance_url() {
+    return kBalanceUrl;
+}
+
+double fetch_kilocode_balance(const std::string& token) {
     if (token.empty())
         return -1.0;
-    std::string url = api_base.empty() ? kBalanceUrl : api_base + "/profile/balance";
+    const std::string url = kilocode_balance_url();
     auto curl = curl_easy_init();
     if (!curl)
         return -1.0;
@@ -98,8 +102,8 @@ void KilocodePlugin::tick() {
 
     // Throttled and off-thread: a slow endpoint must never block a paint, and
     // the state outlives the plugin if a fetch is still running at shutdown.
-    std::thread([state, token, base = cfg->api_base] {
-        const double balance = fetch_kilocode_balance(token, base);
+    std::thread([state, token] {
+        const double balance = fetch_kilocode_balance(token);
         state->balance.store(balance);
         state->valid.store(true);
         state->inflight.store(false);

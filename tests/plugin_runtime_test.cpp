@@ -340,6 +340,16 @@ TEST(runtime_plugin_sees_the_hosts_config_attached_after_start) {
     ASSERT_EQ(kilocode->balance_token(), std::string("kilo-jwt"));
 }
 
+// The balance endpoint is a fixed kilo.ai API, not the gateway the provider
+// chats through. Deriving it from api_base produced
+// ".../api/gateway/profile/balance", which 404s — so the readout never had a
+// value to show, no matter how valid the key was.
+TEST(kilocode_balance_url_is_the_api_not_the_gateway) {
+    const std::string url = plugins::kilocode_balance_url();
+    ASSERT_EQ(url, std::string("https://api.kilo.ai/api/profile/balance"));
+    ASSERT(url.find("/gateway") == std::string::npos);
+}
+
 TEST(runtime_find_returns_null_for_unknown_plugins) {
     ScratchConfig scratch("find_unknown");
     Fixture f;

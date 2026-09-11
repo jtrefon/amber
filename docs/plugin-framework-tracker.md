@@ -77,31 +77,41 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
-### 2026-09-10 — Fix: the kilo wallet readout (regression from PF-4)
+### 2026-09-10 — Fix: the kilo wallet readout (TWO regressions from PF-4)
 
-- **Bug:** after the kilocode conversion the balance readout disappeared.
-- **Root cause (mine, from PF-4):** the plugin resolved its token from a
-  `Config*` cached in `initialize()`. Hosts construct and `start()` the
-  runtime *before* they can hand over the config they actually mutate (the TUI
-  takes its `Config` by value), so that pointer kept referencing the runtime's
-  startup copy — where `provider_name` is the `Config` default and `api_key`
-  is empty. `balance_token()` therefore returned "", no fetch was ever
-  scheduled, and the segment rendered nothing.
-- **Fix, three parts:** (1) the plugin reads the config through the
-  `PluginContext` it was given, at call time; (2) both hosts now attach their
-  config *before* activating plugins (TUI: activation moved into the
-  constructor right after `attach_config`; CLI: attach then start); (3) the
-  rule is documented in the guide, with the trap named.
-- **Verification:** red first —
-  `runtime_plugin_sees_the_hosts_config_attached_after_start` failed with
-  `"" != "kilo-jwt"` — then green. Suite 622 passed. Probe against the built
-  library with the *old* host order (attach after start): token resolves, the
-  fetch runs, and the bar renders `kilo balance —` for a rejected key — the
-  honest failure state, and exactly what was missing before.
-- **Lesson for the framework:** the config is the one piece of host state a
-  plugin reads directly, so its lifetime rule belongs in the guide next to the
-  threading rules, not in a comment somewhere. `PluginRuntime::find(id)` is
-  now public so a host (or a test) can reach a plugin's own state.
+- **Bug:** after the kilocode conversion the balance readout stopped showing an
+  amount. Reported from real use: "kilo $13.22 before, dash now, key is in".
+- **Two independent causes, both introduced by the conversion:**
+
+  1. **Stale config pointer.** The plugin resolved its token from a `Config*`
+     cached in `initialize()`. Hosts construct and `start()` the runtime
+     *before* handing over the config they actually mutate (the TUI takes its
+     `Config` by value), so the pointer referenced the runtime's startup copy —
+     `provider_name` at its default, `api_key` empty. `balance_token()`
+     returned "" and no fetch was ever scheduled.
+  2. **Wrong endpoint.** The conversion derived the balance URL from
+     `api_base`. The balance API and the chat gateway live at *different* kilo
+     paths — `api.kilo.ai/api/profile/balance` vs `api.kilo.ai/api/gateway` —
+     so the request went to `.../api/gateway/profile/balance` and failed. The
+     original core code hardcoded the right URL; deriving it looked like
+     generalisation and was actually a behavioural change.
+
+- **Fix:** (1) plugins read the config through the `PluginContext` at call
+  time, and both hosts attach their config *before* activating plugins (TUI
+  activation moved into the constructor; CLI attaches then starts); (2) the
+  balance URL is a fixed endpoint owned by the plugin, exposed as
+  `kilocode_balance_url()` so it can be pinned; (3) the config-lifetime rule is
+  documented in the developer guide, and `PluginRuntime::find(id)` is public so
+  a host or test can reach a plugin's own state.
+- **Verification:** red first for each — `"" != "kilo-jwt"`, and
+  `kilocode_balance_url()` pinned to the API path with no `/gateway`.
+  Endpoints checked live: the correct URL answers **401** (exists, needs auth),
+  the URL the bug produced answers **405**. Suite 622 passed.
+- **Process lesson (recorded, not hidden):** the first fix's probe passed an
+  *invalid* key, so it printed `kilo balance —` and I read that as "the honest
+  failure state" — it was masking the 404/405. A probe that cannot distinguish
+  "correct but unauthorised" from "wrong URL" proves nothing about the URL.
+  The pin on the endpoint is what makes this class of bug visible.
 
 ### 2026-09-10 — Open findings (need a decision, not more code)
 

@@ -20,9 +20,16 @@
 
 namespace agent::plugins {
 
+// The balance endpoint. This is a fixed kilo.ai API, NOT the gateway base the
+// provider chats through: the two live under different paths
+// (api.kilo.ai/api/profile/balance vs api.kilo.ai/api/gateway). Deriving the
+// balance URL from `api_base` produced ".../api/gateway/profile/balance",
+// which 404s — the readout silently stopped working.
+std::string kilocode_balance_url();
+
 // Fetch the account balance in USD. Returns a negative value on any transport,
 // HTTP, or parse failure, so the caller can decide not to show a readout.
-double fetch_kilocode_balance(const std::string& token, const std::string& api_base);
+double fetch_kilocode_balance(const std::string& token);
 
 class KilocodePlugin : public IPlugin {
 public:
