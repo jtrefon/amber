@@ -4,6 +4,7 @@
 #include "tui/list_panel.h"
 #include "tui/confirm_panel.h"
 #include "tui/path_confine.h"
+#include "tui/window_ops.h"
 #include "agent/model_probe.h"
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
@@ -898,8 +899,10 @@ void SlashDispatcher::register_builtin_actions() {
     register_action("core.window.list", [this](const std::string&) { cmd_window_list(); });
     register_action("core.window.rename",
         [this](const std::string& a) { cmd_window_rename(a); });
+    register_action("core.window.set",
+        [this](const std::string& a) { cmd_window_set(a); });
     register_action("core.window", [this](const std::string& a) {
-        if (!a.empty()) tui_.append_line(P_STATUS, "usage: /window new|close|list|rename <name>");
+        if (!a.empty()) tui_.append_line(P_STATUS, "usage: /window new|close|list|rename|set <number>");
         cmd_window_list();
     });
     register_action("core.stop", [this](const std::string&) {
@@ -1883,6 +1886,17 @@ void SlashDispatcher::cmd_window_rename(const std::string& name) {
     tui_.win().title = name;
     tui_.append_line(P_STATUS, "renamed window to " + tui_.win().title);
     tui_.draw();
+}
+void SlashDispatcher::cmd_window_set(const std::string& arg) {
+    if (arg.empty()) { tui_.append_line(P_STATUS, "usage: /window set <number>"); return; }
+    try {
+        size_t n = static_cast<size_t>(std::stoul(arg));
+        auto r = tui_.window_ops_->set_window(n);
+        if (r.ok) tui_.append_line(P_STATUS, "switched to window " + std::to_string(n));
+        else tui_.append_line(P_STATUS, r.msg);
+    } catch (const std::exception&) {
+        tui_.append_line(P_STATUS, "usage: /window set <number> (got: " + arg + ")");
+    }
 }
 
 namespace {

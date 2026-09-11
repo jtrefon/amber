@@ -12,6 +12,9 @@
 #include "feed_manager.h"
 #include "path_confine.h"
 #include "panel_view.h"
+#include "tui_window_ops_hooks.h"
+#include "window_ops.h"
+#include "key_binder.h"
 
 #include <agent.h>
 #include <agent/mcp_tools.h>
@@ -109,6 +112,14 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     render_engine_ = std::make_unique<RenderEngine>(*this);
     session_controller_ = std::make_unique<SessionController>(*this);
     slash_dispatcher_ = std::make_unique<SlashDispatcher>(*this);
+    window_ops_hooks_ = std::make_unique<TuiWindowOpsHooks>(*this);
+    window_ops_ = std::make_unique<WindowOps>(*window_manager_, *window_ops_hooks_);
+    {
+        std::ifstream kf("keybindings.json");
+        nlohmann::json kj;
+        if (kf.is_open()) kf >> kj;
+        key_binder_ = std::make_unique<KeyBinder>(kj);
+    }
 
     reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
     mcp_servers_.connect_all();
@@ -490,60 +501,72 @@ void Tui::run() {
             continue;
         }
 
-        // Alt+1..9 window switch (meta-encoded).
-        if (ch >= 0xB1 && ch <= 0xB9) {
-            switch_to(static_cast<size_t>(ch - 0xB1));
-            draw_input(cl.text(), cl.cursor(), cl.shadow());
-            continue;
-        }
-        if (ch == 14 && !router_->busy()) {
-            new_window("chat");
-            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow()); continue;
-        }
+        // KeyBinder dispatch for window hotkeys (Alt+1..9, Ctrl+N, ESC+digit,
+        // ESC stateful). The KeyBinder is pure (no ncurses); the ESC followup
+        // read is terminal I/O and stays here.
+        if (ch >= 0xB1 && ch <= 0xB9 || ch == 14 || ch == 27 || ch == 3 || ch == 23) {
+            InputState state;
+            state.drawer_open = cl.drawer_open();
+            state.busy = router_->busy();
+            state.scroll_mode = render_engine_->scroll_mode();
+            state.window_count = window_manager_->count();
+            state.has_pending_prompt = !pending_prompt_.empty();
 
-        // ESC handling — toggle scroll mode or window switch.
-        if (ch == 27) {
-            if (cl.drawer_open()) {
-                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
+            KeyRead kr{ch, std::nullopt};
+            if (ch == 27) {
+                timeout(200);
+                int n = getch();
+                timeout(kTickTimeoutMs);
+                if (n != ERR) kr.followup = n;
             }
-            // Alt+digit arrives as ESC then the digit (xterm default). Give
-            // the follow-up read a brief window beyond the 50ms tick so the
-            // digit reliably arrives; set_escdelay(25) lets a lone ESC fall
-            // through quickly.
-            timeout(200);
-            int n = getch();
-            timeout(kTickTimeoutMs);
-            if (n >= '1' && n <= '9') {
-                switch_to(static_cast<size_t>(n - '1'));
-                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+
+            KeyAction act = key_binder_->dispatch(kr, state);
+
+            switch (act.type) {
+            case KeyAction::SwitchWindow:
+                switch_to(static_cast<size_t>(act.arg));
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
-            }
-            if (n == '0') {
-                open_panels("");
+            case KeyAction::NewWindow:
+                new_window("chat");
                 render_engine_->draw();
                 draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
-            }
-            if (n == 'b' || n == 'B') {
-                cl.on_ctrl_w();
-                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+            case KeyAction::CloseDrawer:
+                render_engine_->draw();
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
-            }
-            // Cancel when agent is busy (ESC alone).
-            if (router_->busy()) {
+            case KeyAction::DeleteWord:
+                cl.on_ctrl_w();
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
+                continue;
+            case KeyAction::CancelOrQuit:
                 cfg_.cancel_token.request();
                 router_->request_cancel();
                 append_line(P_STATUS, "cancelling…");
-                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw();
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
+            case KeyAction::ToggleScrollMode:
+                render_engine_->set_scroll_mode(!render_engine_->scroll_mode());
+                if (render_engine_->scroll_mode())
+                    append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
+                render_engine_->draw();
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
+                continue;
+            case KeyAction::None:
+                // ESC+0 opens panels (not a window switch); fall through to
+                // the CommandLine routing for other unhandled keys.
+                if (ch == 27 && kr.followup && *kr.followup == '0') {
+                    open_panels("");
+                    render_engine_->draw();
+                    draw_input(cl.text(), cl.cursor(), cl.shadow());
+                    continue;
+                }
+                break;
+            default:
+                break;
             }
-            // Plain ESC (not busy, no key within timeout): toggle scroll mode.
-            render_engine_->set_scroll_mode(!render_engine_->scroll_mode());
-            if (render_engine_->scroll_mode())
-                append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
-            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            continue;
         }
 
         // Ctrl+C: cancel or save+exit.

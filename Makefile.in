@@ -152,6 +152,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
              $(BUILD_DIR)/tui/slash_dispatcher.o \
              $(BUILD_DIR)/tui/key_binder.o \
              $(BUILD_DIR)/tui/window_ops.o \
+             $(BUILD_DIR)/tui/tui_window_ops_hooks.o \
              $(BUILD_DIR)/tui/path_confine.o \
              $(BUILD_DIR)/tui/textutil.o \
             $(BUILD_DIR)/tui/palette.o \

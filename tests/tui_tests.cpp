@@ -1308,7 +1308,8 @@ TEST(windowops_switch_to_same_index_noop) {
     wm.open_welcome_window();
     MockWindowOpsPort port;
     tui::WindowOps ops(wm, port);
-    auto r = ops.switch_to(0);
+    // active is 1 after two open_welcome_window() calls; switch to same = noop
+    auto r = ops.switch_to(wm.active());
     ASSERT_TRUE(r.ok);
     ASSERT_EQ(port.on_switch_calls, 0);
     ASSERT_EQ(port.redraw_calls, 0);

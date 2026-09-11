@@ -21,7 +21,6 @@ private:
     KeyAction dispatch_esc(const KeyRead& key, const InputState& state) const;
     KeyAction lookup_simple(const std::string& key_name) const;
     static std::string meta_digit_name(int ch);
-    static std::string esc_digit_name(int followup);
 
     nlohmann::json bindings_;
 };
