@@ -1,0 +1,17 @@
+{
+  "alt+1": {"action": "switch_window", "arg": 0},
+  "alt+2": {"action": "switch_window", "arg": 1},
+  "alt+3": {"action": "switch_window", "arg": 2},
+  "alt+4": {"action": "switch_window", "arg": 3},
+  "alt+5": {"action": "switch_window", "arg": 4},
+  "alt+6": {"action": "switch_window", "arg": 5},
+  "alt+7": {"action": "switch_window", "arg": 6},
+  "alt+8": {"action": "switch_window", "arg": 7},
+  "alt+9": {"action": "switch_window", "arg": 8},
+  "ctrl+n": {"action": "new_window"},
+  "ctrl+c": {"action": "cancel_or_quit"},
+  "ctrl+w": {"action": "delete_word"},
+  "alt+b": {"action": "delete_word"},
+  "esc+digit": {"action": "switch_window_by_digit"},
+  "esc+b": {"action": "delete_word"}
+}
