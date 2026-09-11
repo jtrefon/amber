@@ -11,6 +11,7 @@ public:
     void refresh_policy_feed();
     void refresh_provider_feed();
     void refresh_job_feed();
+    void refresh_plugin_feed();
 
 private:
     Tui& tui_;

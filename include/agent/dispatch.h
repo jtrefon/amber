@@ -35,11 +35,14 @@ bool approve_tool(const Tool& tool, const json& args, const Config& cfg,
 // false if any call failed (error, unknown tool, or denied). The `Call` struct,
 // approval gating, and parallel execution are encapsulated here so Agent::run
 // stays a thin orchestrator.
+class EventBus;
+
 bool dispatch_tool_calls(const json& calls, const Config& cfg,
                          ToolRegistry& registry, const AgentHooks& hooks,
                          ConversationLog& log,
                          std::set<std::string>& session_approved,
                          PolicyStore* policy,
+                         EventBus* events,
                          Context* context);
 
 } // namespace agent

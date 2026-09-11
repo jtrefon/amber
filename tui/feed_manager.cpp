@@ -2,6 +2,7 @@
 #include "tui.h"
 
 #include <agent/job.h>
+#include <agent/plugin_runtime.h>
 #include <agent/model_probe.h>
 #include <agent/policy.h>
 #include <agent/shell_classify.h>
@@ -92,6 +93,44 @@ void FeedManager::refresh_model_list() {
         if (ctx > 0) leaf["help"] = "ctx " + std::to_string(ctx);
         tui_.register_action(leaf["action"].get<std::string>(),
                              [this, id](const std::string&) { tui_.cmd_model_set(id); });
+    }
+    tui_.settings_.merge_completions_json(subtree);
+}
+
+// plugin state leaves: /set plugin <id> on|off toggles, /get plugin <id>
+// reports. Regenerated on every change so the drawer always matches the
+// runtime's actual state.
+void FeedManager::refresh_plugin_feed() {
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& p : tui_.plugin_runtime_.list()) {
+        const std::string id = p.id;
+        const std::string state = p.enabled ? "on" : "off";
+
+        nlohmann::json& on = subtree["set"]["children"]["plugin"]["children"][id]
+                                     ["children"]["on"];
+        on["action"] = "core.config.set.plugin." + id + ".on";
+        on["help"] = p.enabled ? "already on" : "enable this plugin";
+        tui_.register_action(on["action"].get<std::string>(),
+                             [this, id](const std::string&) {
+                                 tui_.plugin_runtime_.set_state(id, true);
+                                 tui_.refresh_plugin_feed();
+                             });
+
+        nlohmann::json& off = subtree["set"]["children"]["plugin"]["children"][id]
+                                      ["children"]["off"];
+        off["action"] = "core.config.set.plugin." + id + ".off";
+        off["help"] = p.enabled ? "disable this plugin" : "already off";
+        tui_.register_action(off["action"].get<std::string>(),
+                             [this, id](const std::string&) {
+                                 tui_.plugin_runtime_.set_state(id, false);
+                                 tui_.refresh_plugin_feed();
+                             });
+
+        nlohmann::json& detail = subtree["get"]["children"]["plugin"]["children"][id];
+        detail["action"] = "core.config.get.plugin." + id;
+        detail["help"] = state + ", " + p.tier + " v" + p.version;
+        tui_.register_action(detail["action"].get<std::string>(),
+                             [this, id](const std::string&) { tui_.show_plugin(id); });
     }
     tui_.settings_.merge_completions_json(subtree);
 }

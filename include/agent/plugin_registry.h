@@ -55,8 +55,9 @@ public:
     std::shared_ptr<IPlugin> find(const std::string& id) const;
 
     EventBus& event_bus();
+    // The host's context. Activation requires one: a registry without a context
+    // cannot activate a plugin, and says so rather than handing out a dummy.
     void set_context(PluginContext* ctx);
-    const PluginContext& context() const;
 
 private:
     struct Entry {

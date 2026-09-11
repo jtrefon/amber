@@ -1,6 +1,8 @@
 
 #include "textutil.h"
 
+#include "agent/statusbar.h"
+
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -38,36 +40,16 @@ std::optional<double> parse_setting_double(const std::string& v, double min,
 }
 
 
-namespace {
-bool detect_utf8() {
-    // UTF-8 is the default: virtually every modern terminal (and the model's
-    // output) uses it, so we render Unicode (sparkle, arrows, box gauges, em
-    // dash, CJK, emoji) by default. We only fall back to ASCII when the user
-    // explicitly opts out for a terminal that mis-renders UTF-8 (e.g. PuTTY with
-    // a Latin-1 translation table) via AMBER_ASCII=1.
-    //
-    // NOTE: We deliberately do NOT gate this on nl_langinfo(CODESET): a failed
-    // or partial setlocale() (common when LC_CTYPE is malformed or the C locale
-    // is in effect) would otherwise silently drop UTF-8 and smear every
-    // non-ASCII glyph into garbage. The opt-out is the only thing that disables
-    // Unicode; everything else gets UTF-8.
-    const char* off = std::getenv("AMBER_ASCII");
-    if (!off) return true;
-    char c = off[0];
-    return c != '1' && c != 'y' && c != 'Y' && c != 't' && c != 'T';
-}
-} // namespace
-
-bool glyph::utf8() {
-    static const bool v = detect_utf8();
-    return v;
-}
+// Terminal capability and the bar decorations live in the core (agent::bar) so
+// a status segment can build its own text without a UI header. These forward,
+// keeping one implementation of the AMBER_ASCII rule.
+bool glyph::utf8() { return agent::bar::utf8(); }
 
 const char* glyph::arrow()    { return utf8() ? "\u2192" : "->"; }
 const char* glyph::middot()   { return utf8() ? "\u00b7" : "-"; }
-const char* glyph::emdash()   { return utf8() ? "\u2014" : "-"; }
-const char* glyph::up()       { return utf8() ? "\u2191" : "^"; }
-const char* glyph::down()     { return utf8() ? "\u2193" : "v"; }
+const char* glyph::emdash()   { return agent::bar::emdash(); }
+const char* glyph::up()       { return agent::bar::up(); }
+const char* glyph::down()     { return agent::bar::down(); }
 const char* glyph::block_l()  { return utf8() ? "\u2590" : "|"; }
 const char* glyph::block_r()  { return utf8() ? "\u258c" : "|"; }
 const char* glyph::ellipsis() { return utf8() ? "\u2026" : "..."; }

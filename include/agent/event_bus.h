@@ -2,7 +2,9 @@
 #ifndef AGENT_EVENT_BUS_H
 #define AGENT_EVENT_BUS_H
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -24,7 +26,13 @@ enum class EventType : std::uint8_t {
     TUIInputChanged,
     PluginLoaded,
     PluginUnloaded,
+    CompressionCompleted,
+    ErrorRaised,
+    Count, // sentinel: number of event types
 };
+
+inline constexpr std::size_t kEventTypeCount =
+    static_cast<std::size_t>(EventType::Count);
 
 struct Event {
     EventType type;
@@ -37,11 +45,18 @@ public:
     using Observer = std::function<void(const Event&)>;
     using Interceptor = std::function<bool(Event&)>;
 
+    EventBus() noexcept;
+
     size_t subscribe(EventType type, Observer handler);
     size_t intercept(EventType type, Interceptor handler);
     bool fire(EventType type, Event& event);
     void unsubscribe(size_t id);
     void clear();
+
+    // True when at least one observer or interceptor listens for `type`.
+    // The typed layer checks this before publishing, so an event nobody
+    // subscribes to costs a single relaxed atomic load.
+    bool has_subscribers(EventType type) const noexcept;
 
 private:
     struct ObserverEntry {
@@ -60,6 +75,7 @@ private:
     std::vector<ObserverEntry> observers_;
     std::vector<InterceptorEntry> interceptors_;
     std::atomic<size_t> next_id_{1};
+    std::array<std::atomic<std::size_t>, kEventTypeCount> counts_{};
 };
 
 } // namespace agent

@@ -10,6 +10,9 @@
 #include "rich.h"
 #include "palette.h"
 
+#include "agent/extensions.h"
+#include "agent/plugin_runtime.h"
+
 namespace tui {
 class Tui;
 struct Window;
@@ -79,6 +82,8 @@ private:
         int drop;
     };
     std::vector<Seg> bar_segments() const;
+    agent::StatusSnapshot build_status_snapshot() const;
+    static int tone_pair(agent::StatusTone tone);
     static int display_cols(const std::string& s);
     static std::wstring to_wide(const std::string& s);
     static std::string kfmt(long n);

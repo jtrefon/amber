@@ -1254,8 +1254,8 @@ FIX-016 (pipeline done 7a0e69d)
 |---|---|
 | **Severity** | 🟡 Medium |
 | **Files** | `lib/plugin_registry.cpp:24` `activate` static `s_bus/s_tools` fallback + `context:78` same; `include/agent/plugin_v2.h:46` `Capability void* impl`; `lib/plugin.cpp:585` |
-| **Problem** | Static `empty_ctx` masks `ctx_==nullptr` wiring bug (plugin sees dummy `~/.amber`); `void*` anticipates 8 capability types but only `Tool`/`Hook` wired (spec `plugin-framework-v2.md:704` v2, `developer-guide.md:441`) |
-| **Target** | `activate`/`context()` `assert(ctx_)` or `return false` + explicit `set_context` at `tui/tui_main.cpp:106`/`bench` bootstrap; keep `void*` with `// TODO Phase 5: std::variant<ToolCap,HookCap…>` (YAGNI until `Provider`/`Memory` wire-up) |
+| **Problem** | Static `empty_ctx` masks `ctx_==nullptr` wiring bug (plugin sees dummy `~/.amber`); `void*` anticipates 8 capability types but only `Tool`/`Hook` were ever intended to be wired (spec `plugins/plugin-framework-v2.md`, `plugins/developer-guide.md`) |
+| **Target** | `activate`/`context()` `assert(ctx_)` or `return false` + explicit `set_context` at `tui/tui_main.cpp`/`bench` bootstrap. **Superseded on the payload question (2026-09-10):** the `void*` + "keep it, TODO later" target is replaced by typed polymorphic capabilities — decision **D2** in `docs/plugin-framework-tracker.md`; the capability protocol is rebuilt under PF-1.3 |
 | **Pattern** | Capability (type-erased), DIP (ctx injected) |
 | **Verification** | `plugin_v2_test.cpp:197` 17 green; manual `ctx_==nullptr` asserts |
 

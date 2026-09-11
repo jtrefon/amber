@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 
 namespace agent::bar {
@@ -83,6 +84,27 @@ std::string gauge_bar_ascii(double frac, int cells) {
     s.append(static_cast<size_t>(full), '#');
     s.append(static_cast<size_t>(cells - full), ' ');
     return s;
+}
+
+bool utf8() {
+    // UTF-8 is the default: virtually every modern terminal uses it. The
+    // opt-out exists for terminals that mis-render UTF-8 (PuTTY with a Latin-1
+    // translation table, say), where the user sets AMBER_ASCII=1.
+    static const bool value = [] {
+        const char* off = std::getenv("AMBER_ASCII");
+        if (!off) return true;
+        const char c = off[0];
+        return c != '1' && c != 'y' && c != 'Y' && c != 't' && c != 'T';
+    }();
+    return value;
+}
+
+const char* emdash() { return utf8() ? "\u2014" : "-"; }
+const char* up()     { return utf8() ? "\u2191" : "^"; }
+const char* down()   { return utf8() ? "\u2193" : "v"; }
+
+std::string reasoning_badge(const std::string& effort) {
+    return "(" + effort + ")";
 }
 
 } // namespace agent::bar

@@ -105,48 +105,4 @@ std::vector<std::string> list_models(const Config& cfg) {
     return out;
 }
 
-double fetch_kilo_balance(const std::string& token) {
-    if (token.empty()) return -1.0;
-    CURL* c = curl_easy_init();
-    if (!c) return -1.0;
-
-    std::string response;
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers,
-                                ("Authorization: Bearer " + token).c_str());
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-
-    curl_easy_setopt(c, CURLOPT_URL,
-                     "https://api.kilo.ai/api/profile/balance");
-    if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
-
-    CURLcode rc = curl_easy_perform(c);
-    long http_code = 0;
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http_code);
-    if (headers) curl_slist_free_all(headers);
-    curl_easy_cleanup(c);
-
-    if (rc != CURLE_OK || http_code < 200 || http_code >= 300) return -1.0;
-    json j = json::parse(response, nullptr, false);
-    if (j.is_discarded() || !j.contains("balance") ||
-        !j["balance"].is_number())
-        return -1.0;
-    return j["balance"].get<double>();
-}
-
-std::string resolve_kilo_balance_token(const Config& cfg) {
-    if (!cfg.kilo_balance_token.empty()) return cfg.kilo_balance_token;
-    // Providers whose api_key IS the account token (kilocode's gateway key —
-    // its models only work with a valid one, and the TUI key prompt stores it
-    // as api_key) power the balance readout without extra configuration. The
-    // decision is the provider's declared capability, never its name.
-    if (cfg.api_key_is_account_token) return cfg.api_key;
-    return "";
-}
-
 } // namespace agent

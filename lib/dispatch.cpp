@@ -1,5 +1,6 @@
 
 #include "agent/dispatch.h"
+#include "agent/events.h"
 #include "agent/agent_helpers.h"
 #include "agent/context.h"
 #include "agent/policy.h"
@@ -174,6 +175,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
                          ConversationLog& log,
                          std::set<std::string>& session_approved,
                          PolicyStore* policy,
+                         EventBus* events,
                          Context* context) {
     struct Call {
         std::string id, fn;
@@ -181,7 +183,13 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         bool args_ok = true;
         std::shared_ptr<Tool> tool;  // lease: alive across concurrent unregister
         bool approved = false;
+        bool intercepted = false;    // an event interceptor blocked this call
         std::string denied_reason;
+    };
+    // Tool events are optional: no bus attached means every publish below is
+    // skipped, and dispatch pays nothing for the plugin surface.
+    const auto publish = [events](auto& event) {
+        if (events) Events(*events).publish(event);
     };
     std::vector<Call> todo;
 
@@ -192,8 +200,28 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         if (hooks.on_debug) hooks.on_debug("tool_call: " + c.fn);
         log.event("tool_call", {{"name", c.fn}, {"id", c.id}, {"args", c.args}});
 
+        // An interceptor sees every requested call before the approval gate:
+        // it can rewrite the arguments or veto the call outright. This fires
+        // before approval, so it means "the model asked", not "this will run".
+        if (events) {
+            ToolRequestedEvent requested;
+            requested.name = c.fn;
+            requested.args = c.args;
+            publish(requested);
+            if (requested.cancel) {
+                c.intercepted = true;
+                c.denied_reason = "denied by interceptor: " + c.fn;
+                log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
+                                          {"reason", "interceptor"}});
+            } else if (c.args_ok) {
+                c.args = requested.args;
+            }
+        }
+
         c.tool = registry.find(c.fn);  // shared lease: survives unregister mid-dispatch
-        if (!c.tool) {
+        if (c.intercepted) {
+            // Denial already recorded; the call still produces a result below.
+        } else if (!c.tool) {
             c.denied_reason = "unknown tool: " + c.fn;
         } else if (cfg.mode == agent::AgentMode::Read && !c.tool->is_read_only()) {
             c.denied_reason = "tool \"" + c.fn + "\" is not available in read mode";
@@ -265,6 +293,10 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
 
     auto process_one = [&](const Call& c, ToolResult res) {
         if (!res.ok) all_ok = false;
+        ToolCompletedEvent completed;
+        completed.name = c.fn;
+        completed.result = &res;
+        publish(completed);
         if (hooks.on_tool_result) hooks.on_tool_result(c.fn, res, c.args);
         if (hooks.on_debug)
             hooks.on_debug("tool_result: " + c.fn + " (" +
@@ -281,6 +313,10 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
         tool_msg.content = utf8_sanitize(
             format_tool_envelope(c.fn, call_args, res));
         context->push(std::move(tool_msg));
+        MessageAddedEvent added;
+        added.message = &context->get_all().back();
+        added.index = context->get_all().size() - 1;
+        publish(added);
     };
 
     // Process non-approved calls immediately (no execution needed).

@@ -19,7 +19,7 @@ TEST(metrics_plugin_initialize_subscribes) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
 
     MetricsPlugin p;
     ASSERT_TRUE(p.initialize(ctx));
@@ -42,7 +42,7 @@ TEST(metrics_plugin_tracks_multiple_turns) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
 
     MetricsPlugin p;
     p.initialize(ctx);
@@ -61,7 +61,7 @@ TEST(metrics_plugin_shutdown_resets) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
-    PluginContext ctx{bus, tools, cfg, ws};
+    PluginContext ctx{bus, tools, &cfg, ws};
 
     MetricsPlugin p;
     p.initialize(ctx);

@@ -37,6 +37,26 @@ void emit_context_event(ContextEventSource& src, const Context& ctx) {
     src.publish(ctx.token_count(), ctx.size());
 }
 
+} // namespace
+
+void Agent::publish_message_added(const Message& msg) {
+    MessageAddedEvent added;
+    added.message = &msg;
+    added.index = context_.get_all().size() - 1;
+    publish_event(added);
+}
+
+void Agent::publish_error(const std::string& kind, const std::string& message,
+                          bool retryable) {
+    ErrorRaisedEvent raised;
+    raised.kind = kind;
+    raised.message = message;
+    raised.retryable = retryable;
+    publish_event(raised);
+}
+
+namespace {
+
 // Build an LLM client for `cfg` through the injected factory, falling back
 // to the real HttpLLMClient when no factory was provided.
 std::unique_ptr<LLMClient> make_client(const Config& cfg,
@@ -201,6 +221,7 @@ void Agent::ensure_system_prompt() {
     sys_msg.content = system;
     context_.push(std::move(sys_msg));
     emit_context_event(context_events_, context_);
+    publish_message_added(context_.get_all().back());
 }
 
 std::string Agent::learn_forget(const std::string& id) {
@@ -266,15 +287,22 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
     if (gate_ && compression_) {
         resolve_window();
         if (gate_->should_compress(context_, cfg_)) {
+            double tokens = 0, budget = 0, threshold = 0;
+            gate_->last_decision(tokens, budget, threshold);
             if (hooks_.on_debug) {
-                double tokens = 0, budget = 0, threshold = 0;
-                gate_->last_decision(tokens, budget, threshold);
                 hooks_.on_debug("gate: tokens=" +
                                 std::to_string(static_cast<long>(tokens)) +
                                 " window=" +
                                 std::to_string(static_cast<long>(budget)) +
                                 " threshold=" + std::to_string(threshold));
             }
+            // Structured replacement for the on_status prose a UI had to
+            // parse: subscribers get the numbers the gate actually decided on.
+            CompressionEvent triggered;
+            triggered.tokens = static_cast<long>(tokens);
+            triggered.budget = static_cast<long>(budget);
+            triggered.threshold = threshold;
+            publish_event(triggered);
             if (run_compression(std::function<void()>(), nullptr)) {
                 // Build prompt_copy from the new compressed context for
                 // the current LLM call.
@@ -334,6 +362,19 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
         }
     }
 
+    // Contributed prompt blocks come last: they sit at the tail of the stable
+    // prefix, so a block that changes cannot invalidate the cache for anything
+    // before it. Each block is its own system message - the sealed Context is
+    // never touched, this is the prompt copy.
+    if (prompt_registry_) {
+        for (auto& block : prompt_registry_->render_all()) {
+            Message block_msg;
+            block_msg.role = "system";
+            block_msg.content = std::move(block);
+            prompt_copy.push_back(std::move(block_msg));
+        }
+    }
+
     const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
         reply = client_->chat_stream(prompt_copy, tools,
@@ -357,6 +398,18 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
             cfg_.prompt_tokens_used = stats.prompt_tokens;
     }
 
+    // Hidden exchanges (the confirmation probe) stay hidden from subscribers
+    // too: publishing them would double-count turns in any plugin observer.
+    if (display) {
+        LlmResponseEvent response;
+        response.status = 200;
+        if (stats.valid) {
+            response.prompt_tokens = stats.prompt_tokens;
+            response.completion_tokens = stats.completion_tokens;
+        }
+        publish_event(response);
+    }
+
     ++turn_counter_;
     return reply;
 }
@@ -377,6 +430,7 @@ void Agent::push_reply(Message reply) {
         log_.event("reasoning", {{"content", reply.reasoning}});
     context_.push(std::move(reply));
     emit_context_event(context_events_, context_);
+    publish_message_added(context_.get_all().back());
 }
 
 bool Agent::extract_embedded_tool_calls(Message& reply) const {
@@ -450,6 +504,11 @@ bool Agent::run_compression(std::function<void()> progress_cb,
         r.tokens_before = tokens_before;
         r.error = cr.error;
         reporter.on_error(cr.error);
+        CompressionCompletedEvent finished;
+        finished.success = false;
+        finished.tokens_after = tokens_before;
+        publish_event(finished);
+        publish_error("compression", cr.error);
         if (out) *out = std::move(r);
         return false;
     }
@@ -487,6 +546,10 @@ bool Agent::run_compression(std::function<void()> progress_cb,
     }
 
     reporter.on_compress_done(r);
+    CompressionCompletedEvent finished;
+    finished.success = true;
+    finished.tokens_after = r.tokens_after;
+    publish_event(finished);
     if (out) *out = std::move(r);
     return true;
 }
@@ -515,7 +578,7 @@ std::string Agent::confirm_turn(const std::string& candidate,
     if (!check_tool_calls.is_null() && !check_tool_calls.empty()) {
         bool any_ran = dispatch_tool_calls(check_tool_calls, cfg_, registry_,
                                            hooks_, log_, session_approved_,
-                                           &policy_, &context_);
+                                           &policy_, event_bus_, &context_);
         if (!any_ran) {
             // Scan from the back for the last tool result; if it was denied
             // the loop is broken.
@@ -563,6 +626,7 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
     msg.content = prompt;
     context_.push(std::move(msg));
     emit_context_event(context_events_, context_);
+    publish_message_added(context_.get_all().back());
 }
 
 bool Agent::dispatch_with_loop_detection(
@@ -582,7 +646,7 @@ bool Agent::dispatch_with_loop_detection(
 
     bool ok = dispatch_tool_calls(tool_calls, cfg_, registry_,
                                   hooks_, log_, session_approved_,
-                                  &policy_, &context_);
+                                  &policy_, event_bus_, &context_);
 
     if (cfg_.detection_loop) {
         std::string cur = fingerprint_tool_calls(tool_calls);
@@ -680,9 +744,11 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
         -> std::function<Message()> {
         switch (classify_request_failure(err)) {
         case RequestFailure::TemplateParser:
+            publish_error("template_parser", err);
             if (!tools.empty()) return chat_no_tools;
             break;
         case RequestFailure::ModelName: {
+            publish_error("model_name", err);
             auto models = list_models(cfg_);
             if (!models.empty() && models[0] != cfg_.model) {
                 set_model(models[0]);
@@ -697,6 +763,7 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
             break;
         }
         case RequestFailure::Auth: {
+            publish_error("auth", err);
             // One-shot: ask the host for an API key, rebuild the client, and
             // retry. The host persists the key to the provider config; when
             // no key is provided (hook unset or user cancelled) no repair
@@ -722,11 +789,17 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
         }
         return {};
     };
-    if (strict)
-        return chat_with_retry_strict(hooks_, log_, chat, stage,
-                                      cfg_.cancel_token, 3, adapt);
-    return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3,
-                           adapt);
+    try {
+        if (strict)
+            return chat_with_retry_strict(hooks_, log_, chat, stage,
+                                          cfg_.cancel_token, 3, adapt);
+        return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3,
+                               adapt);
+    } catch (const std::exception& e) {
+        const auto* api = dynamic_cast<const ApiError*>(&e);
+        publish_error("transport", e.what(), api ? api->retryable : false);
+        throw;
+    }
 }
 
 // Cancellation path: returns a true empty reply (no empty-turn
@@ -734,6 +807,9 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
 std::string Agent::finish_turn_cancelled() {
     log_.event("turn_end", {{"reason", "cancelled"}});
     if (hooks_.on_state) hooks_.on_state(RunState::Idle);
+    TurnEndedEvent ended;
+    ended.cancelled = true;
+    publish_event(ended);
     return "";
 }
 
@@ -745,12 +821,19 @@ std::string Agent::finish_turn(std::string final_reply) {
     }
     log_.event("turn_end", {{"content", final_reply}});
     if (hooks_.on_state) hooks_.on_state(RunState::Idle);
+    TurnEndedEvent ended;
+    publish_event(ended);
     return final_reply;
 }
 
 std::string Agent::run(const std::string& user_prompt) {
     ensure_system_prompt();
-    log_and_push_user_prompt(user_prompt);
+    // The turn's opening event: fired before the prompt is sealed into the
+    // context so an interceptor can still rewrite what the model will see.
+    TurnStartedEvent turn_start;
+    turn_start.prompt = user_prompt;
+    publish_event(turn_start);
+    log_and_push_user_prompt(turn_start.prompt);
 
     auto tools = resolve_tools();
 
