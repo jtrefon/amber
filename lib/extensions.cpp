@@ -289,13 +289,18 @@ InstallResult ToolCapability::install(PluginServices& services) {
     }
 
     ToolRegistry* registry = &services.tools();
+    // Register under the contributing plugin's id. Ownership is what lets the
+    // ledger unwind without reaching across plugins: two of them may contribute
+    // the same tool name (the later registration wins), and the one that lost
+    // the name must not remove the winner's tool on its way out.
+    const std::string owner = services.owner();
     std::vector<std::string> registered;
     registered.reserve(tools.size());
     for (auto& tool : tools) {
         if (!tool)
             continue;
         registered.push_back(tool->name());
-        registry->register_tool(std::move(tool));
+        registry->register_tool(std::move(tool), owner);
     }
     if (registered.empty()) {
         r.declined = true;
@@ -305,11 +310,13 @@ InstallResult ToolCapability::install(PluginServices& services) {
     r.ok = true;
     r.contribution.kind = CapabilityKind::Tool;
     r.contribution.name = registered.front();
-    // Every tool this capability installed goes away together: the ledger
-    // records one contribution, so its removal must undo all of them.
-    r.contribution.remove = [registry, registered] {
+    // Every tool this capability installed goes away together, and only these:
+    // the ledger records one contribution, so its removal must undo all of them
+    // and nothing else. Removal is owner-checked, so a name that was taken over
+    // by another plugin stays with its new owner.
+    r.contribution.remove = [registry, registered, owner] {
         for (const auto& name : registered)
-            registry->remove_tool(name);
+            registry->remove_owned_tool(name, owner);
     };
     return r;
 }

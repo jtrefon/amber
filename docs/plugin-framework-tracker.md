@@ -77,6 +77,55 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
+### 2026-09-11 — Fix: tool ownership is recorded, so unwinding cannot cross plugins
+
+Branch `feat/capability-path`. Found by reviewing the tools-as-plugins work
+before landing it (the stack had been pushed but not PR'd).
+
+- **The defect.** `ToolCapability` unwound with `ToolRegistry::remove_tool(name)`
+  — name-based, against a registry that recorded no owner — while
+  `register_tool` is idempotent *by name* and **replaces** the earlier instance.
+  So two plugins contributing the same tool name (the override case the
+  microkernel exists to enable, e.g. a plugin replacing `bash`) meant that
+  disabling one plugin deleted the **other's** tool. The ledger's contract —
+  "removes exactly what this plugin added, and nothing else" — was false.
+- **Why it was not just a doc-level rule.** The entry below already accepted
+  *name* collisions as a policy matter. This is different: it is a mechanism
+  failure. The ledger can only be trusted if unwinding is identity-scoped.
+- **Red → green.** Two tests, both failing before the fix
+  (`./run_tests` → 694 passed, 2 failed):
+  - `tool_capability_unwind_cannot_remove_another_plugins_tool` (unit: the
+    capability + registry mechanism);
+  - `runtime_disable_cannot_remove_another_plugins_tool` (runtime: the same
+    through `set_state`, which is how a user hits it).
+- **Fix.** The registry now records **who** contributed each tool:
+  - `ToolRegistry::register_tool(tool, owner = {})` — `owner` is the plugin id;
+    empty means host. The default keeps every existing call site unchanged.
+  - `ToolRegistry::remove_owned_tool(name, owner)` — removes only when the
+    recorded owner matches. This is the ledger's unwinder, so unwinding is
+    identity-scoped by construction.
+  - `ToolCapability::install` registers with `services.owner()` and its
+    contribution removes its own names, owner-checked. A tool whose name was
+    taken over by another plugin stays with its new owner.
+  - `remove_tool(name)` stays as the host's escape hatch; `remove_tool` is no
+    longer what the ledger uses.
+- **Rejected: a whole-owner sweep** (`remove_tools_by_owner`). A capability
+  whose owner was never set (empty string) would have removed every
+  host-registered tool. Per-name, owner-checked removal is both precise and safe
+  against that footgun.
+- **Verification:** `./run_tests` → **696 passed, 0 failed**; `make check` →
+  all invariants hold; clang-tidy clean on the touched sources.
+- **Open finding (recorded, not fixed):** *shadowing has no restore.* If a
+  plugin replaces a host tool of the same name, disabling that plugin removes
+  the tool entirely — the host's displaced instance is gone, because
+  `register_tool` replaces rather than stacks. No in-tree plugin does this, so
+  it is latent. Reopen when a plugin actually overrides a core tool: the fix is
+  a per-name shadow stack (displace on register, restore on owned removal).
+- **Not covered:** the tool set is still not namespaced (`read`, not
+  `core.read`) — renaming would break every prompt and every user's muscle
+  memory. That remains a doc-level policy; what changed is that a collision can
+  no longer make unwinding reach across plugins.
+
 ### 2026-09-11 — PF-4.4: the core tool set becomes a plugin
 
 Branch `feat/tools-as-plugins`. `register_default_tools` is no longer a list of
@@ -99,7 +148,8 @@ of three).
   `activate()`. Two runtime-level tests now pin it.
 - **Not covered:** the tool set is not namespaced (`read`, not `core.read`) —
   renaming would break every prompt and every user's muscle memory, so the
-  collision risk with a third-party tool stays a doc-level rule.
+  naming policy stays a doc-level rule. (A collision can no longer make
+  unwinding reach across plugins — see the ownership fix above.)
 - **Open:** core tools are now disableable like any plugin. Turning off
   `core_tools` is a one-command way to hand the agent an empty toolbox. Whether
   the registry should mark a contribution class as load-bearing is unresolved.
