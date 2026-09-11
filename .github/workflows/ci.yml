@@ -19,17 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install dependencies
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-          sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang libcurl4-openssl-dev \
-            libncursesw5-dev pkg-config clang-tidy
+      - uses: ./.github/actions/install-deps
+        with:
+          extra: clang-tidy bear
 
       - name: Configure (generates config for include paths)
         run: CXX=clang++ ./configure
+
+      - name: Generate compile_commands.json
+        run: bear -- make -j$(nproc) || true
 
       - name: Lint (clang-tidy)
         run: make lint
@@ -42,14 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install dependencies
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-          sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends \
-            build-essential libcurl4-openssl-dev \
-            libncursesw5-dev pkg-config cppcheck
+      - uses: ./.github/actions/install-deps
+        with:
+          extra: cppcheck
 
       - name: Configure
         run: ./configure
@@ -65,14 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install dependencies
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-          sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends \
-            build-essential libcurl4-openssl-dev \
-            libncursesw5-dev pkg-config
+      - uses: ./.github/actions/install-deps
 
       - name: Configure
         run: ./configure
@@ -88,13 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install dependencies
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-          sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends \
-            build-essential libcurl4-openssl-dev \
-            libncursesw5-dev pkg-config
+      - uses: ./.github/actions/install-deps
       - name: Install lizard
         run: pip install lizard -q
       - name: Complexity (lizard)
@@ -107,39 +87,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install dependencies
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-          sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends \
-            build-essential libcurl4-openssl-dev \
-            libncursesw5-dev pkg-config clang-format
+      - uses: ./.github/actions/install-deps
+        with:
+          extra: clang-format
       - name: Format check
         run: make format-check
 
   # ---------------------------------------------------------------------------
   # Build + unit test — runs under both g++ and clang++ so ABI/syntax
-  # differences are caught at PR time.
+  # differences are caught at PR time. Runs in parallel with lint (the
+  # fast `check` gate is sufficient to avoid wasting build compute on
+  # broken trees; lint failures still block the PR as a required check).
   # ---------------------------------------------------------------------------
   build-and-test:
-    needs: [lint, analyze, check]
+    needs: [analyze, check]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         cxx: [g++, clang++]
     env:
-      CXX: ${{ matrix.cxx }}
+      CXX: ccache ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+        with:
+          extra: ccache
 
-      - name: Install dependencies
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-          sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang libcurl4-openssl-dev \
-            libncursesw5-dev pkg-config
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ matrix.cxx }}-${{ hashFiles('**/*.cpp', '**/*.h', 'Makefile.in', 'configure') }}
+          restore-keys: ccache-${{ matrix.cxx }}-
 
       - name: Configure
         run: ./configure
@@ -155,14 +135,11 @@ jobs:
   # and that the core compiles + tests pass on Apple's toolchain.
   # ---------------------------------------------------------------------------
   build-and-test-macos:
-    needs: [lint, analyze, check]
+    needs: [analyze, check]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install dependencies
-        run: |
-          brew install curl ncurses pkg-config
+      - uses: ./.github/actions/install-deps
 
       - name: Configure
         # brew's ncurses is keg-only, so pkg-config cannot see its .pc files
@@ -189,15 +166,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install dependencies
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-          sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends \
-            build-essential libcurl4-openssl-dev libncursesw5-dev \
-            pkg-config ruby ruby-dev
-          sudo gem install --no-document fpm
+      - uses: ./.github/actions/install-deps
+        with:
+          extra: ruby ruby-dev
+      - name: Install fpm
+        run: sudo gem install --no-document fpm
 
       - name: Configure
         run: ./configure --prefix=/usr
@@ -261,9 +234,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install dependencies
-        run: brew install curl ncurses pkg-config
+      - uses: ./.github/actions/install-deps
 
       - name: Configure
         # brew's ncurses is keg-only; point pkg-config at it so the wide

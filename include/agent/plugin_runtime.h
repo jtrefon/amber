@@ -225,7 +225,6 @@ private:
     void register_allowance_segment();
     const Config& active_config() const noexcept { return live_config_ ? *live_config_ : config_; }
 
-    ToolRegistry* tools_;
     PromptRegistry prompts_;
     CommandRegistry commands_;
     StatusRegistry status_;

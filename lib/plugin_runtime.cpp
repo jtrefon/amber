@@ -58,7 +58,7 @@ bool write_enabled(const std::string& id, bool enabled) {
 } // namespace
 
 PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace)
-    : tools_(&tools), config_(std::move(config)), workspace_(&workspace) {
+    : config_(std::move(config)), workspace_(&workspace) {
     // Amber's own segments are registry entries like any other, so the bar is
     // composed from one list whether a segment comes from the core or a plugin.
     register_core_status_segments(status_);
