@@ -1615,3 +1615,167 @@ TEST(session_brief_survives_compression) {
     // Hash chain intact after the clear+push rebuild.
     (void)ag.context().get_all();
 }
+
+// ---------------------------------------------------------------------------
+// Prompt assembly: every injected block must survive a compressing turn.
+//
+// The rebuild replaces the prompt copy, so any block injected BEFORE the gate
+// is silently discarded — and compression fires exactly on long sessions,
+// where retrieved memories matter most. These tests pin the contract for both
+// turn types: a block present on a normal turn must also be present when the
+// gate fires. (The suite that follows the migration asserts it for every
+// block, not just memories.)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A gate that always fires: the compressing path is exercised on the very
+// first turn instead of after the cooldown of warm-up turns the real gate
+// needs, which keeps these tests fast and deterministic.
+class AlwaysCompressGate : public agent::CompressionGate {
+public:
+    bool should_compress(const agent::Context&, const agent::Config&) const override {
+        return true;
+    }
+};
+
+// A gate that never fires: the control case. A fix for the compressing turn
+// must not cost anything on the ordinary one.
+class NeverCompressGate : public agent::CompressionGate {
+public:
+    bool should_compress(const agent::Context&, const agent::Config&) const override {
+        return false;
+    }
+};
+
+// The heaviest rebuild the pipeline can produce — everything but the system
+// prompt is dropped — so a block injected before the gate cannot survive by
+// accident.
+class SystemOnlyCompressor : public agent::CompressionStrategy {
+public:
+    std::vector<agent::Message> compress(agent::Context& context,
+                                        const agent::CompressionConfig&, agent::LLMClient&,
+                                        agent::CompressionObserver* = nullptr,
+                                        agent::CompressionResponse* = nullptr) override {
+        std::vector<agent::Message> out;
+        for (const auto& m : context.get_all())
+            if (m.role == "system") out.push_back(m);
+        if (out.empty()) {
+            agent::Message sys;
+            sys.role = "system";
+            sys.content = "system";
+            out.push_back(sys);
+        }
+        return out;
+    }
+};
+
+// A store holding one retrievable memory, plus the retriever that finds it.
+struct MemoryFixture {
+    agent::ExperienceConfig cfg;
+    std::unique_ptr<agent::MemoryStore> store = agent::make_memory_store(cfg);
+
+    MemoryFixture() {
+        store->set_current_turn(1);
+        agent::Memory mem;
+        mem.content = "the build system is make";
+        mem.tags = {"build"};
+        mem.evidence_count = 3;
+        mem.promoted = true;
+        store->upsert(mem);
+    }
+};
+
+// Did the model actually receive `needle` on any request?
+bool request_contains(const agent_test::FakeLLMClient& fake, const std::string& needle) {
+    for (const auto& req : fake.requests)
+        for (const auto& m : req)
+            if (m.content.find(needle) != std::string::npos) return true;
+    return false;
+}
+
+} // namespace
+
+TEST(agent_keeps_injected_blocks_when_compression_fires) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "the build system is make");
+    push_text(*fake, "done");
+
+    auto gate = std::make_unique<AlwaysCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    std::move(mem.store), std::move(retriever), std::move(fake));
+
+    ag.run("how do I build this?");
+
+    // The rebuild replaced the prompt copy. The memory must still reach the
+    // model: it is injected fresh for every turn, so a compressing turn is no
+    // different from any other.
+    ASSERT(request_contains(*raw, "the build system is make"));
+}
+
+TEST(agent_injects_in_memory_blocks_without_compression) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "the build system is make");
+    push_text(*fake, "done");
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    std::move(mem.store), std::move(retriever), std::move(fake));
+
+    ag.run("how do I build this?");
+
+    // The control case: this holds today, and must keep holding.
+    ASSERT(request_contains(*raw, "the build system is make"));
+}
+
+TEST(agent_places_injected_blocks_after_the_system_prompt) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "the build system is make");
+    push_text(*fake, "done");
+
+    auto gate = std::make_unique<AlwaysCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
+                    std::move(mem.store), std::move(retriever), std::move(fake));
+
+    ag.run("how do I build this?");
+
+    // Ordering is part of the contract the KV prefix depends on: the injected
+    // block sits with the system prompt, not after the conversation.
+    ASSERT(!raw->requests.empty());
+    const auto& req = raw->requests.front();
+    ASSERT(!req.empty());
+    ASSERT_EQ(req.front().role, std::string("system"));
+    bool memory_before_conversation = false;
+    for (const auto& m : req) {
+        if (m.content.find("the build system is make") != std::string::npos) {
+            memory_before_conversation = true;
+            break;
+        }
+        if (m.role == "user") break; // reached the conversation without seeing it
+    }
+    ASSERT(memory_before_conversation);
+}
