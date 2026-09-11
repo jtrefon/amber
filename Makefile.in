@@ -88,6 +88,10 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/plugins/kilocode/kilocode_plugin.o \
               $(BUILD_DIR)/plugins/openrouter/openrouter_plugin.o \
               $(BUILD_DIR)/plugins/anthropic/anthropic_plugin.o \
+              $(BUILD_DIR)/plugins/opencode_go/opencode_go_plugin.o \
+              $(BUILD_DIR)/plugins/opencode_zen/opencode_zen_plugin.o \
+              $(BUILD_DIR)/plugins/commandcode/commandcode_plugin.o \
+              $(BUILD_DIR)/plugins/deepseek/deepseek_plugin.o \
               $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \

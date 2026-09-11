@@ -161,6 +161,48 @@ std::vector<ExtensionItem> WalletRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
+// AllowanceRegistry
+// ---------------------------------------------------------------------------
+
+Contribution AllowanceRegistry::add(const std::string& owner, Fetch fetch) {
+    entries_.erase(
+        std::remove_if(entries_.begin(), entries_.end(),
+                       [&](const std::pair<std::string, Fetch>& e) { return e.first == owner; }),
+        entries_.end());
+    entries_.emplace_back(owner, std::move(fetch));
+
+    Contribution c;
+    c.kind = CapabilityKind::Allowance;
+    c.name = owner;
+    c.remove = [this, owner] {
+        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                      [&](const std::pair<std::string, Fetch>& e) {
+                                          return e.first == owner;
+                                      }),
+                       entries_.end());
+    };
+    return c;
+}
+
+const AllowanceRegistry::Fetch* AllowanceRegistry::find(const std::string& owner) const {
+    for (const auto& entry : entries_) {
+        if (entry.first == owner)
+            return &entry.second;
+    }
+    return nullptr;
+}
+
+std::vector<ExtensionItem> AllowanceRegistry::items() const {
+    std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_) {
+        out.push_back({CapabilityKind::Allowance, entry.first, "allowance",
+                       "subscription/quota windows"});
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // PanelRegistry
 // ---------------------------------------------------------------------------
 
@@ -334,9 +376,10 @@ std::vector<ExtensionItem> PluginSettingsStore::items() const {
 PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
                                CommandRegistry& commands, StatusRegistry& status,
                                PanelRegistry& panels, WalletRegistry& wallets,
-                               PluginSettingsStore& settings, EventBus& events) noexcept
+                               AllowanceRegistry& allowances, PluginSettingsStore& settings,
+                               EventBus& events) noexcept
     : tools_(&tools), prompts_(&prompts), commands_(&commands), status_(&status), panels_(&panels),
-      wallets_(&wallets), settings_(&settings), events_(&events) {}
+      wallets_(&wallets), allowances_(&allowances), settings_(&settings), events_(&events) {}
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -466,6 +509,21 @@ InstallResult WalletCapability::install(PluginServices& services) {
     }
     const std::string owner = services.owner();
     r.contribution = services.wallets().add(owner, std::move(fetch_));
+    r.ok = true;
+    return r;
+}
+
+AllowanceCapability::AllowanceCapability(AllowanceRegistry::Fetch fetch)
+    : fetch_(std::move(fetch)) {}
+
+InstallResult AllowanceCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (!fetch_) {
+        r.error = "allowance capability needs a fetch";
+        return r;
+    }
+    const std::string owner = services.owner();
+    r.contribution = services.allowances().add(owner, std::move(fetch_));
     r.ok = true;
     return r;
 }
