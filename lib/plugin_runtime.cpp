@@ -164,14 +164,27 @@ bool PluginRuntime::wallet_enabled() const {
 }
 
 PluginRuntime::WalletView PluginRuntime::wallet() const {
+    const Config& cfg = active_config();
     WalletView view;
-    view.enabled = wallet_enabled();
-    const std::string provider = active_config().provider_name;
-    view.holder = provider;
-    view.supported = wallets_.find(provider) != nullptr;
-    view.ready = wallet_ready_.load();
-    view.failed = wallet_failed_.load();
-    view.amount = wallet_amount_.load();
+    view.enabled = cfg.wallet_enabled;
+    view.holder = cfg.provider_name;
+    view.supported = wallets_.find(cfg.provider_name) != nullptr;
+
+    const WalletState& state = *wallet_state_;
+    // A result counts only when it belongs to the provider that is active now
+    // and answers the ticket currently requested. A fetch that lands after a
+    // provider switch therefore reads as "not fetched yet" rather than as the
+    // previous provider's balance shown under the new one.
+    const bool belongs = state.provider == cfg.provider_name;
+    const long long active = state.active_ticket.load();
+    const bool answered = belongs && active != 0 && state.result_ticket.load() == active;
+    // `ready` means there is an amount to show — not merely that the request
+    // came back. A provider that declares no wallet answers its ticket with no
+    // value, and must read as unavailable rather than as a balance of zero.
+    const bool has_value = state.has_value.load();
+    view.failed = answered && state.failed.load();
+    view.ready = answered && has_value;
+    view.amount = state.amount.load();
     return view;
 }
 
@@ -179,34 +192,78 @@ void PluginRuntime::request_wallet_refresh() noexcept {
     wallet_dirty_.store(true);
 }
 
-void PluginRuntime::perform_wallet_refresh() {
-    const Config& cfg = active_config();
-    const WalletRegistry::Fetch* fetch = wallets_.find(cfg.provider_name);
-    if (!fetch) {
-        // The active provider declares no wallet: nothing to report, and no
-        // stale value from a previous provider may survive.
-        wallet_ready_.store(false);
-        wallet_failed_.store(false);
-        wallet_last_ms_.store(steady_now_ms());
-        return;
-    }
+void PluginRuntime::run_wallet_fetch(const std::shared_ptr<WalletState>& state, long long ticket,
+                                     const WalletRegistry::Fetch& fetch, const Config& cfg) {
     std::optional<double> value;
     try {
-        value = (*fetch)(cfg);
+        value = fetch(cfg);
     } catch (...) {
         // A plugin's fetch is I/O against a third party: a throw is a failed
         // refresh, never a crashed host.
         value = std::nullopt;
     }
-    if (value) {
-        wallet_amount_.store(*value);
-        wallet_ready_.store(true);
-        wallet_failed_.store(false);
-    } else {
-        wallet_ready_.store(false);
-        wallet_failed_.store(true);
+    if (value)
+        state->amount.store(*value);
+    state->has_value.store(value.has_value());
+    state->failed.store(!value.has_value());
+    state->result_ticket.store(ticket);
+    state->inflight.store(false);
+}
+
+void PluginRuntime::schedule_wallet_fetch() {
+    // Snapshot on THIS thread. The worker must not read the host's live config
+    // (the host mutates it) and must not reach back into this object (it may be
+    // destroyed while the fetch is still running).
+    const Config cfg = active_config();
+    const std::string provider = cfg.provider_name;
+    const auto state = wallet_state_;
+    const long long ticket = ++wallet_ticket_;
+
+    state->provider = provider; // host-thread-only field
+    state->active_ticket.store(ticket);
+    state->last_ms.store(steady_now_ms());
+
+    const WalletRegistry::Fetch* fetch = wallets_.find(provider);
+    if (!fetch) {
+        // The active provider declares no wallet: answer the ticket straight
+        // away, so the bar shows the unavailable state and no value from the
+        // previous provider can survive the switch.
+        state->has_value.store(false);
+        state->failed.store(false);
+        state->result_ticket.store(ticket);
+        state->inflight.store(false);
+        return;
     }
-    wallet_last_ms_.store(steady_now_ms());
+
+    state->inflight.store(true);
+    WalletRegistry::Fetch work = *fetch; // copy the callable
+    // Only the shared state, the ticket, the copied callable and the copied
+    // config are captured: nothing here refers to this runtime.
+    std::thread([state, ticket, work = std::move(work), cfg] {
+        run_wallet_fetch(state, ticket, work, cfg);
+    }).detach();
+}
+
+void PluginRuntime::perform_wallet_refresh() {
+    const Config cfg = active_config();
+    const std::string provider = cfg.provider_name;
+    const auto state = wallet_state_;
+    const long long ticket = ++wallet_ticket_;
+
+    state->provider = provider;
+    state->active_ticket.store(ticket);
+    state->last_ms.store(steady_now_ms());
+
+    const WalletRegistry::Fetch* fetch = wallets_.find(provider);
+    if (!fetch) {
+        state->has_value.store(false);
+        state->failed.store(false);
+        state->result_ticket.store(ticket);
+        state->inflight.store(false);
+        return;
+    }
+    state->inflight.store(true);
+    run_wallet_fetch(state, ticket, *fetch, cfg);
 }
 
 void PluginRuntime::register_wallet_segment() {
@@ -232,21 +289,15 @@ void PluginRuntime::register_wallet_segment() {
 void PluginRuntime::maybe_refresh_wallet() {
     if (!wallet_dirty_.exchange(false))
         return;
-    if (wallet_inflight_.load()) {
+    if (wallet_state_->inflight.load()) {
         wallet_dirty_.store(true); // try again once the fetch lands
         return;
     }
-    if (steady_now_ms() - wallet_last_ms_.load() < kWalletRefreshFloorMs) {
+    if (steady_now_ms() - wallet_state_->last_ms.load() < kWalletRefreshFloorMs) {
         wallet_dirty_.store(true);
         return;
     }
-    wallet_dirty_.store(false);
-    wallet_inflight_.store(true);
-    // The fetch is the plugin's I/O; the UI thread only schedules it.
-    std::thread([this] {
-        perform_wallet_refresh();
-        wallet_inflight_.store(false);
-    }).detach();
+    schedule_wallet_fetch();
 }
 
 IPlugin* PluginRuntime::find(const std::string& id) const noexcept {

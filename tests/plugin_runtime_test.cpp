@@ -19,7 +19,10 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <atomic>
+#include <chrono>
 #include <optional>
+#include <thread>
 #include <unistd.h>
 
 using namespace agent;
@@ -87,7 +90,10 @@ private:
 // Declares a wallet whose fetch reports whether it saw the live config.
 class WalletProbePlugin : public IPlugin {
 public:
-    std::string id() const override { return "walletprobe"; }
+    explicit WalletProbePlugin(std::string id = "walletprobe", double amount = 42.5)
+        : id_(std::move(id)), amount_(amount) {}
+
+    std::string id() const override { return id_; }
     std::string version() const override { return "1.0.0"; }
     std::string name() const override { return "Wallet probe"; }
 
@@ -96,14 +102,14 @@ public:
 
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
-        caps.push_back(
-            std::make_unique<WalletCapability>([](const Config& cfg) -> std::optional<double> {
+        caps.push_back(std::make_unique<WalletCapability>(
+            [amount = amount_](const Config& cfg) -> std::optional<double> {
                 ++fetches;
                 last_provider = cfg.provider_name;
                 last_key = cfg.api_key;
                 if (cfg.api_key.empty())
                     return std::nullopt;
-                return 42.5;
+                return amount;
             }));
         return caps;
     }
@@ -111,6 +117,38 @@ public:
     static inline std::string last_provider;
     static inline std::string last_key;
     static inline int fetches = 0;
+
+private:
+    std::string id_;
+    double amount_;
+};
+
+// A wallet whose fetch takes long enough to still be running when the runtime
+// is destroyed: the lifetime guard for the detached worker.
+class SlowWalletPlugin : public IPlugin {
+public:
+    explicit SlowWalletPlugin(std::shared_ptr<std::atomic<bool>> done) : done_(std::move(done)) {}
+
+    std::string id() const override { return "slowwallet"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Slow wallet probe"; }
+
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<WalletCapability>(
+            [done = done_](const Config&) -> std::optional<double> {
+                std::this_thread::sleep_for(std::chrono::milliseconds(120));
+                done->store(true);
+                return 7.0;
+            }));
+        return caps;
+    }
+
+private:
+    std::shared_ptr<std::atomic<bool>> done_;
 };
 
 struct Fixture {
@@ -588,6 +626,68 @@ TEST(runtime_disable_releases_an_observers_subscriptions) {
     auto* metrics = dynamic_cast<plugins::MetricsPlugin*>(runtime.find("metrics"));
     ASSERT(metrics != nullptr);
     ASSERT_EQ(metrics->stats().turns, 0);
+}
+
+// The wallet fetch runs on a detached worker, so it must not depend on the
+// runtime outliving it. The worker captures the shared state, a copy of the
+// fetch and a copy of the config — never the runtime — so a fetch still running
+// when the runtime is destroyed completes safely instead of dereferencing freed
+// memory. (Under ASAN this is the test that would catch a regression.)
+TEST(runtime_wallet_fetch_survives_runtime_destruction) {
+    ScratchConfig scratch("wallet_lifetime");
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    {
+        Fixture f;
+        PluginRuntime runtime(f.tools, f.cfg, f.ws);
+        runtime.add(std::make_shared<SlowWalletPlugin>(done));
+        runtime.start();
+
+        Config live;
+        live.provider_name = "slowwallet";
+        live.api_key = "probe-key";
+        runtime.attach_config(live); // requests a refresh
+        runtime.tick();              // schedules it on the worker
+    }
+    // The runtime is gone; the fetch is still in flight and must finish safely.
+    for (int i = 0; i < 200 && !done->load(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    ASSERT(done->load());
+}
+
+// A fetch that lands after the provider changed must not be shown under the new
+// provider: the bar would report another account's balance as this one's.
+TEST(runtime_wallet_result_from_a_previous_provider_is_not_shown) {
+    ScratchConfig scratch("wallet_stale");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<WalletProbePlugin>("probe_a", 10.0));
+    runtime.add(std::make_shared<WalletProbePlugin>("probe_b", 20.0));
+    runtime.start();
+
+    Config a;
+    a.provider_name = "probe_a";
+    a.api_key = "key";
+    runtime.attach_config(a);
+    runtime.perform_wallet_refresh();
+    ASSERT_TRUE(runtime.wallet().ready);
+    ASSERT_EQ(runtime.wallet().amount, 10.0);
+
+    // Switch: probe_b declares a wallet too, but nothing has been fetched for
+    // it yet, so the readout must be "not fetched" rather than probe_a's 10.0.
+    Config b;
+    b.provider_name = "probe_b";
+    b.api_key = "key";
+    runtime.attach_config(b);
+    const auto stale = runtime.wallet();
+    ASSERT_TRUE(stale.supported);
+    ASSERT_FALSE(stale.ready);
+    ASSERT_EQ(stale.holder, std::string("probe_b"));
+
+    // Once fetched, the new provider's own value appears.
+    runtime.perform_wallet_refresh();
+    const auto fresh = runtime.wallet();
+    ASSERT_TRUE(fresh.ready);
+    ASSERT_EQ(fresh.amount, 20.0);
 }
 
 TEST(runtime_find_returns_null_for_unknown_plugins) {

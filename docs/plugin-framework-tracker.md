@@ -77,7 +77,58 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
-### 2026-09-10 — Plugin metadata (description + category), and a build fix
+### 2026-09-11 — Fix: the wallet fetch raced the host config and outlived the runtime
+
+Found by reviewing the merged PF-3.4 code (post-merge, PR #106).
+
+- **Two defects, one detached thread.** The wallet refresh did
+  `std::thread([this]{ perform_wallet_refresh(); ... }).detach()`:
+  1. **Use-after-free.** The worker dereferenced the runtime. `~PluginRuntime()`
+     only calls `shutdown()` — it never waits for or signals the fetch — so
+     destroying the runtime (TUI quit, test scope) with a fetch in flight is UB.
+  2. **Data race on live host state.** `perform_wallet_refresh()` called
+     `active_config()`, which returns a reference to the host's own `Config` —
+     in the TUI that is `cfg_`, mutated on the UI thread by provider switches
+     and `/set model`. The worker read `provider_name` / `api_key`
+     (`std::string`) concurrently with those writes.
+- **Evidence, not assertion.** A probe that drives `tick()` while the host
+  mutates its config, built with ThreadSanitizer *and* with
+  `plugin_runtime.cpp` itself instrumented (instrumenting only the probe proves
+  nothing — the archive copy is uninstrumented):
+  - pre-fix: `WARNING: ThreadSanitizer: data race` — read of size 8 in
+    `basic_string::empty()` inside the fetch, racing the host's write to
+    `api_key`;
+  - post-fix: 0 warnings, and the wallet still resolves (`ready=1`).
+- **Fix: the worker owns everything it touches.**
+  - `WalletState` is a `shared_ptr` holding only atomics; the worker keeps a
+    reference, so it outlives the runtime safely.
+  - The host thread **snapshots** what the fetch needs — a copy of the `Config`
+    and a copy of the fetch callable — before the thread starts. The worker
+    captures no `this`, reads no live state, and writes only atomics.
+  - A per-request **ticket** (plus the provider the ticket was for) means a
+    result that lands after a provider switch is ignored: the readout shows
+    "not fetched yet" rather than another account's balance under the new
+    provider.
+  - `has_value` distinguishes "answered with an amount" from "answered with
+    nothing", so a provider that declares no wallet reads as unavailable rather
+    than as a balance of zero. (The branch's own test caught that one.)
+- **Also fixed while here:** the state members are no longer duplicated on the
+  runtime, so there is one source of wallet state.
+- **Verification:** `./run_tests` → 655 passed, 0 failed; `make check` clean;
+  clang-tidy clean on the touched sources; TSan clean as above. Two new tests:
+  a fetch still in flight when the runtime is destroyed completes safely, and a
+  result from the previous provider is not shown.
+
+### 2026-09-11 — Merged! PR #105
+
+Squash-merged as `6b21243`, all required checks green (`lint`, `analyze`,
+`build-and-test` on g++ **and** clang++, `build-and-test-macos`, `check`,
+`complexity`, `format-check`). The one non-required failure,
+`Code scanning AI findings`, is **infrastructure**: GitHub's Copilot autofind
+agent exits with `400 The requested model is not supported` — no finding about
+this code, and not a repo workflow. Worth knowing so it is not chased again.
+
+### 2026-09-11 — Plugin metadata (description + category), and a build fix
 
 - **Landed**
   - **`IPlugin::description()` and `IPlugin::category()`** — the plugin
