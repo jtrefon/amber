@@ -466,10 +466,10 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 5844 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 6066 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 287 | Resolved — `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 119 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 2432 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2447 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),
