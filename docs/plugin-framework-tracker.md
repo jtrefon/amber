@@ -591,6 +591,12 @@ What a plugin author can rely on today. Update with every landed task.
 | Plugin description + category (grouped registry list) | ✅ | PF-1 |
 | Wallet contribution (fetch only; polling + rendering core) | ✅ | PF-3.4 |
 | `/get provider wallet`, `/set provider wallet on\|off` | ✅ | PF-3.4 |
+| Allowance contribution (fetch only; polling + rendering core) | ✅ | PF-3.5 |
+| `/get provider allowance`, `/set provider allowance on\|off` | ✅ | PF-3.5 |
+| OpenCode Go provider (presets + allowance) | ✅ | PF-3.5 |
+| OpenCode Zen provider (presets only) | ✅ | PF-3.5 |
+| CommandCode provider (presets + allowance) | ✅ | PF-3.5 |
+| DeepSeek provider (presets + wallet) | ✅ | PF-3.5 |
 | Host services (ask/choose/confirm/notify) | ⏳ | PF-3.3 |
 | Log sinks | – | Deferred (no consumer) |
 | Theme, key interception, geometry, hot reload | – | Deferred Register |

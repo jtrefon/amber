@@ -10,11 +10,15 @@
 #include "agent/plugins_bundled.h"
 #include "agent/tools.h"
 #include "fake_llm.h"
+#include "plugins/commandcode/commandcode_plugin.h"
+#include "plugins/deepseek/deepseek_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
+#include "plugins/opencode_go/opencode_go_plugin.h"
 #include "plugins/openrouter/openrouter_plugin.h"
 #include "test_util.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -422,9 +426,10 @@ TEST(wallet_registry_installs_and_unwinds) {
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
+    AllowanceRegistry allowances;
     PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets, settings, bus);
+    PluginServices services(tools, prompts, commands, status, panels, wallets, allowances, settings, bus);
     services.set_owner("acme");
 
     WalletCapability cap([](const Config&) -> std::optional<double> { return 7.0; });
@@ -761,4 +766,307 @@ TEST(runtime_shutdown_deactivates_everything) {
     }
     ASSERT_EQ(plugin->shutdowns_, 1);
     ASSERT_TRUE(plugin->capabilities().size() == 2u);
+}
+
+// ---------------------------------------------------------------------------
+// Allowance capability tests
+// ---------------------------------------------------------------------------
+
+class AllowanceProbePlugin : public IPlugin {
+public:
+    static AllowanceSnapshot fixed_snapshot;
+
+    std::string id() const override { return "allowanceprobe"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Allowance probe"; }
+
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<AllowanceCapability>(
+            [](const Config&) -> std::optional<AllowanceSnapshot> {
+                return fixed_snapshot;
+            }));
+        return caps;
+    }
+};
+
+AllowanceSnapshot AllowanceProbePlugin::fixed_snapshot;
+
+TEST(allowance_registry_installs_and_unwinds) {
+    ToolRegistry tools;
+    PromptRegistry prompts;
+    CommandRegistry commands;
+    StatusRegistry status;
+    PanelRegistry panels;
+    WalletRegistry wallets;
+    AllowanceRegistry allowances;
+    PluginSettingsStore settings;
+    EventBus bus;
+    PluginServices services(tools, prompts, commands, status, panels, wallets,
+                            allowances, settings, bus);
+    services.set_owner("acme");
+
+    AllowanceCapability cap([](const Config&) -> std::optional<AllowanceSnapshot> {
+        AllowanceSnapshot s;
+        s.plan = "Pro";
+        return s;
+    });
+    InstallResult r = cap.install(services);
+    ASSERT_TRUE(r.ok);
+    ASSERT_TRUE(r.contribution.kind == CapabilityKind::Allowance);
+    ASSERT(allowances.find("acme") != nullptr);
+
+    r.contribution.remove();
+    ASSERT_TRUE(allowances.find("acme") == nullptr);
+    ASSERT_EQ(allowances.size(), 0u);
+}
+
+TEST(allowance_registry_replaces_existing_for_same_owner) {
+    AllowanceRegistry allowances;
+    allowances.add("acme", [](const Config&) { return std::nullopt; });
+    ASSERT_EQ(allowances.size(), 1u);
+    allowances.add("acme", [](const Config&) { return std::nullopt; });
+    ASSERT_EQ(allowances.size(), 1u);
+}
+
+TEST(allowance_registry_items_reports_kind_and_owner) {
+    AllowanceRegistry allowances;
+    allowances.add("acme", [](const Config&) { return std::nullopt; });
+    auto items = allowances.items();
+    ASSERT_EQ(items.size(), 1u);
+    ASSERT_TRUE(items[0].kind == CapabilityKind::Allowance);
+    ASSERT_EQ(items[0].owner, std::string("acme"));
+}
+
+TEST(opencode_go_usage_parser_parses_three_windows) {
+    const std::string body = R"({
+        "usage": {
+            "rolling":  { "status": "ok", "percent": 12, "resetsAt": "2026-09-11T15:00:00Z" },
+            "weekly":   { "status": "ok", "percent": 34, "resetsAt": "2026-09-15T00:00:00Z" },
+            "monthly":  { "status": "ok", "percent": 56, "resetsAt": "2026-10-01T00:00:00Z" }
+        }
+    })";
+    auto snap = plugins::parse_opencode_go_usage(body);
+    ASSERT(snap.has_value());
+    ASSERT_EQ(snap->windows.size(), 3u);
+    ASSERT_EQ(snap->windows[0].label, std::string("5h"));
+    ASSERT_EQ(snap->windows[0].percent_used, 12.0);
+    ASSERT_EQ(snap->windows[1].label, std::string("7d"));
+    ASSERT_EQ(snap->windows[1].percent_used, 34.0);
+    ASSERT_EQ(snap->windows[2].label, std::string("monthly"));
+    ASSERT_EQ(snap->windows[2].percent_used, 56.0);
+}
+
+TEST(opencode_go_usage_parser_rejects_malformed) {
+    ASSERT_FALSE(plugins::parse_opencode_go_usage("").has_value());
+    ASSERT_FALSE(plugins::parse_opencode_go_usage("not json").has_value());
+    ASSERT_FALSE(plugins::parse_opencode_go_usage("{}").has_value());
+    ASSERT_FALSE(plugins::parse_opencode_go_usage(R"({"usage":{}})").has_value());
+}
+
+TEST(commandcode_credits_parser_parses_windows_and_credits) {
+    const std::string body = R"({
+        "credits": {
+            "monthlyCredits": 8.50,
+            "purchasedCredits": 2.00,
+            "freeCredits": 0.50
+        },
+        "windowLimits": {
+            "fiveHour": { "used": 0.50, "cap": 3.00, "resetAt": 1723468800000 },
+            "weekly":   { "used": 1.20, "cap": 6.00, "resetAt": 1723728000000 }
+        }
+    })";
+    auto snap = plugins::parse_commandcode_credits(body);
+    ASSERT(snap.has_value());
+    ASSERT_EQ(snap->windows.size(), 3u);
+    ASSERT(snap->credits_balance.has_value());
+    ASSERT_EQ(*snap->credits_balance, 11.0);
+    ASSERT_EQ(snap->windows[1].label, std::string("5h"));
+    ASSERT(snap->windows[1].percent_used > 16.0 && snap->windows[1].percent_used < 17.0);
+    ASSERT_EQ(snap->windows[1].remaining, 2.5);
+    ASSERT_EQ(snap->windows[2].label, std::string("7d"));
+    ASSERT_EQ(snap->windows[2].percent_used, 20.0);
+}
+
+TEST(commandcode_credits_parser_handles_nested_window_limits) {
+    const std::string body = R"({
+        "credits": {
+            "monthlyCredits": 5.0,
+            "windowLimits": {
+                "fiveHour": { "used": 1.0, "cap": 4.0, "resetAt": 0 }
+            }
+        }
+    })";
+    auto snap = plugins::parse_commandcode_credits(body);
+    ASSERT(snap.has_value());
+    ASSERT_EQ(snap->windows.size(), 2u);
+    ASSERT_EQ(snap->windows[1].label, std::string("5h"));
+    ASSERT_EQ(snap->windows[1].percent_used, 25.0);
+}
+
+TEST(commandcode_credits_parser_rejects_malformed) {
+    ASSERT_FALSE(plugins::parse_commandcode_credits("").has_value());
+    ASSERT_FALSE(plugins::parse_commandcode_credits("not json").has_value());
+    ASSERT_FALSE(plugins::parse_commandcode_credits("{}").has_value());
+}
+
+TEST(deepseek_balance_parser_parses_total) {
+    const std::string body = R"({
+        "is_available": true,
+        "balance_infos": [
+            { "currency": "CNY", "total_balance": "10.50" }
+        ]
+    })";
+    ASSERT_EQ(plugins::parse_deepseek_balance(body), 10.5);
+}
+
+TEST(deepseek_balance_parser_sums_multiple_currencies) {
+    const std::string body = R"({
+        "is_available": true,
+        "balance_infos": [
+            { "currency": "CNY", "total_balance": "10.00" },
+            { "currency": "USD", "total_balance": "5.00" }
+        ]
+    })";
+    ASSERT_EQ(plugins::parse_deepseek_balance(body), 15.0);
+}
+
+TEST(deepseek_balance_parser_rejects_malformed) {
+    ASSERT_EQ(plugins::parse_deepseek_balance(""), -1.0);
+    ASSERT_EQ(plugins::parse_deepseek_balance("not json"), -1.0);
+    ASSERT_EQ(plugins::parse_deepseek_balance(R"({"balance_infos":[]})"), -1.0);
+}
+
+TEST(allowance_segment_shows_closest_window) {
+    ScratchConfig scratch("allowance_closest");
+    Fixture f;
+    AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
+    AllowanceProbePlugin::fixed_snapshot.plan = "Go";
+    AllowanceProbePlugin::fixed_snapshot.unit = "percent";
+    AllowanceWindow w5h;  w5h.label = "5h";  w5h.percent_used = 80.0;
+    AllowanceWindow w7d;  w7d.label = "7d";  w7d.percent_used = 30.0;
+    AllowanceWindow wM;   wM.label = "monthly"; wM.percent_used = 20.0;
+    AllowanceProbePlugin::fixed_snapshot.windows = {w5h, w7d, wM};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<AllowanceProbePlugin>());
+    runtime.start();
+    Config live;
+    live.provider_name = "allowanceprobe";
+    live.api_key = "key";
+    runtime.attach_config(live);
+    runtime.perform_allowance_refresh();
+
+    const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
+        for (const auto& s : runtime.status().render(StatusSnapshot{}))
+            if (s.id == "allowance") return s;
+        return std::nullopt;
+    };
+    auto seg = find_allowance();
+    ASSERT(seg.has_value());
+    ASSERT(seg->text.find("80%") != std::string::npos);
+    ASSERT(seg->text.find("5h") != std::string::npos);
+    ASSERT(seg->tone == StatusTone::Warn);
+}
+
+TEST(allowance_segment_breaks_ties_by_shortest_label) {
+    ScratchConfig scratch("allowance_tie");
+    Fixture f;
+    AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
+    AllowanceWindow w5h;  w5h.label = "5h";  w5h.percent_used = 50.0;
+    AllowanceWindow w7d;  w7d.label = "7d";  w7d.percent_used = 50.0;
+    AllowanceProbePlugin::fixed_snapshot.windows = {w7d, w5h};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<AllowanceProbePlugin>());
+    runtime.start();
+    Config live;
+    live.provider_name = "allowanceprobe";
+    live.api_key = "key";
+    runtime.attach_config(live);
+    runtime.perform_allowance_refresh();
+
+    const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
+        for (const auto& s : runtime.status().render(StatusSnapshot{}))
+            if (s.id == "allowance") return s;
+        return std::nullopt;
+    };
+    auto seg = find_allowance();
+    ASSERT(seg.has_value());
+    ASSERT(seg->text.find("5h") != std::string::npos);
+}
+
+TEST(allowance_segment_hides_when_disabled) {
+    ScratchConfig scratch("allowance_hide");
+    Fixture f;
+    AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
+    AllowanceWindow w;  w.label = "5h";  w.percent_used = 50.0;
+    AllowanceProbePlugin::fixed_snapshot.windows = {w};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<AllowanceProbePlugin>());
+    runtime.start();
+    Config live;
+    live.provider_name = "allowanceprobe";
+    live.api_key = "key";
+    live.allowance_enabled = false;
+    runtime.attach_config(live);
+    runtime.perform_allowance_refresh();
+
+    const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
+        for (const auto& s : runtime.status().render(StatusSnapshot{}))
+            if (s.id == "allowance") return s;
+        return std::nullopt;
+    };
+    ASSERT_FALSE(find_allowance().has_value());
+}
+
+TEST(allowance_segment_shows_dash_for_unsupported_provider) {
+    ScratchConfig scratch("allowance_dash");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.start();
+    Config live;
+    live.provider_name = "custom";
+    runtime.attach_config(live);
+
+    const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
+        for (const auto& s : runtime.status().render(StatusSnapshot{}))
+            if (s.id == "allowance") return s;
+        return std::nullopt;
+    };
+    auto seg = find_allowance();
+    ASSERT(seg.has_value());
+    ASSERT(seg->text.find('-') != std::string::npos);
+}
+
+TEST(bundled_plugins_include_new_providers) {
+    ScratchConfig scratch("new_providers");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    auto list = runtime.list();
+    std::vector<std::string> ids;
+    for (const auto& p : list) ids.push_back(p.id);
+    auto has = [&](const std::string& id) {
+        return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+    ASSERT(has("opencode_go"));
+    ASSERT(has("opencode_zen"));
+    ASSERT(has("commandcode"));
+    ASSERT(has("deepseek"));
+}
+
+TEST(disabling_allowance_plugin_unwinds_contribution) {
+    ScratchConfig scratch("allowance_unwind");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<AllowanceProbePlugin>());
+    runtime.start();
+    ASSERT(runtime.allowances().find("allowanceprobe") != nullptr);
+    ASSERT_TRUE(runtime.set_state("allowanceprobe", false));
+    ASSERT(runtime.allowances().find("allowanceprobe") == nullptr);
 }
