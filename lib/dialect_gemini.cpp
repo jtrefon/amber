@@ -36,17 +36,6 @@ json parse_arguments_object(const json& fn) {
     return (!parsed.is_discarded() && parsed.is_object()) ? parsed : json::object();
 }
 
-std::string text_of_parts(const json& parts) {
-    std::string out;
-    if (!parts.is_array())
-        return out;
-    for (const auto& part : parts) {
-        if (part.is_object())
-            out += str_field(part, "text");
-    }
-    return out;
-}
-
 // Synthetic ids: the protocol has none, but the internal shape and history
 // replay need a stable handle per call.
 std::string synthetic_call_id(std::size_t index) {
@@ -214,7 +203,9 @@ public:
 
     json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
                          const std::vector<std::shared_ptr<Tool>>& tools,
-                         bool stream) const override {
+                         // Gemini selects streaming by URL/method, not by a body
+                         // field, so there is nothing to write here.
+                         bool /*stream*/) const override {
         json body = {{"contents", json::array()}};
 
         // One top-level system instruction, like the other dialects merge

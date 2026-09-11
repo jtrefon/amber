@@ -12,6 +12,7 @@
 #include "agent/data_path.h"
 #include "agent/workspace.h"
 
+#include <algorithm>
 #include <chrono>
 #include <stdexcept>
 #include <string>
@@ -262,27 +263,6 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
     // Sync the turn counter so the compression gate can check cooldown.
     cfg_.turn_counter = turn_counter_;
 
-    // Inject memories as a SEPARATE message (never modify system prompt).
-    // This keeps the KV prefix stable for llama.cpp cache-prompt reuse.
-    if (retriever_) {
-        std::string user_msg;
-        for (const auto& m : prompt_copy)
-            if (m.role == "user") { user_msg = m.content; break; }
-        auto suffix = retriever_->build_system_prompt_suffix(user_msg, 500);
-        if (!suffix.empty()) {
-            for (size_t i = 0; i < prompt_copy.size(); ++i) {
-                if (prompt_copy[i].role == "system") {
-                    Message knowledge;
-                    knowledge.role = "system";
-                    knowledge.content = suffix;
-                    prompt_copy.insert(prompt_copy.begin() + static_cast<ptrdiff_t>(i + 1),
-                                       std::move(knowledge));
-                    break;
-                }
-            }
-        }
-    }
-
     // Check compression gate. If triggered, compress and persist.
     if (gate_ && compression_) {
         resolve_window();
@@ -312,68 +292,12 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
         }
     }
 
-    // Inject the skill discovery block as its own system slot on the prompt
-    // copy, directly after the learned-knowledge slot. Keeps the stable prefix
-    // system -> knowledge -> discovery; bodies load only on read_skill.
-    if (skills_) {
-        auto block = skills_->discovery_block();
-        if (!block.empty()) {
-            std::string disc = "Available skills (activate with read_skill):\n";
-            for (const auto& line : block) disc += line + "\n";
-            size_t pos = 0;
-            for (size_t i = 0; i < prompt_copy.size(); ++i) {
-                if (prompt_copy[i].role == "system") { pos = i + 1; break; }
-            }
-            if (pos < prompt_copy.size() && prompt_copy[pos].role == "system")
-                ++pos;
-            if (pos <= prompt_copy.size()) {
-                Message disc_msg;
-                disc_msg.role = "system";
-                disc_msg.content = disc;
-                prompt_copy.insert(
-                    prompt_copy.begin() + static_cast<ptrdiff_t>(pos),
-                    std::move(disc_msg));
-            }
-        }
-        // Append session-activated skill bodies at the tail of the prompt
-        // copy. Activation is rare and explicit, so the prefix is extended.
-        for (const auto& act : skills_->activated_skills()) {
-            Message body_msg;
-            body_msg.role = "system";
-            body_msg.content =
-                "[activated skill: " + act.name + "]\n" + act.body;
-            prompt_copy.push_back(std::move(body_msg));
-        }
-    }
-
-    // Inject the session brief as a system message, last in the injected
-    // stack (after memories and skills, before the conversation). The brief
-    // lives in the store, not the context, so it survives compression and
-    // never touches the hash chain. Injected last because it changes more
-    // frequently than memories/skills — a brief change invalidates KV only
-    // for the conversation tail, which re-prefills every turn regardless.
-    if (!brief_store_.empty()) {
-        std::string rendered = brief_store_.render();
-        if (!rendered.empty()) {
-            Message brief_msg;
-            brief_msg.role = "system";
-            brief_msg.content = std::move(rendered);
-            prompt_copy.push_back(std::move(brief_msg));
-        }
-    }
-
-    // Contributed prompt blocks come last: they sit at the tail of the stable
-    // prefix, so a block that changes cannot invalidate the cache for anything
-    // before it. Each block is its own system message - the sealed Context is
-    // never touched, this is the prompt copy.
-    if (prompt_registry_) {
-        for (auto& block : prompt_registry_->render_all()) {
-            Message block_msg;
-            block_msg.role = "system";
-            block_msg.content = std::move(block);
-            prompt_copy.push_back(std::move(block_msg));
-        }
-    }
+    // Every injected block is assembled here, ONCE, and only after the gate.
+    // Injection used to be spread across four sites above and below this point,
+    // and the one above was silently discarded whenever the rebuild replaced
+    // the prompt — which is precisely when a long session needs its retrieved
+    // memories. There is now no "before the gate" to inject into by accident.
+    inject_prompt_blocks(prompt_copy);
 
     const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
@@ -824,6 +748,85 @@ std::string Agent::finish_turn(std::string final_reply) {
     TurnEndedEvent ended;
     publish_event(ended);
     return final_reply;
+}
+
+void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
+    struct Block {
+        int priority;
+        std::size_t seq;
+        std::string text;
+    };
+    std::vector<Block> head;
+    std::vector<Block> tail;
+    std::size_t seq = 0;
+
+    // Memories are retrieved for THIS request, so they are built here — after
+    // any compression — rather than cached from an earlier point in the turn.
+    if (retriever_) {
+        std::string user_msg;
+        for (const auto& m : prompt_copy)
+            if (m.role == "user") { user_msg = m.content; break; }
+        std::string suffix = retriever_->build_system_prompt_suffix(user_msg, 500);
+        if (!suffix.empty())
+            head.push_back({prompt_priority::kMemory, seq++, std::move(suffix)});
+    }
+
+    // Discovery metadata is cheap and constant; skill bodies load only when the
+    // model asks for one with read_skill, so they trail the conversation.
+    if (skills_) {
+        auto discovery = skills_->discovery_block();
+        if (!discovery.empty()) {
+            std::string text = "Available skills (activate with read_skill):\n";
+            for (const auto& line : discovery) text += line + "\n";
+            head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
+        }
+        for (const auto& act : skills_->activated_skills())
+            tail.push_back({prompt_priority::kActivatedSkills, seq++,
+                            "[activated skill: " + act.name + "]\n" + act.body});
+    }
+
+    // The brief lives in its store, not the context, so compression cannot lose
+    // it; it sits at the tail because it changes more often than the rest.
+    if (!brief_store_.empty()) {
+        std::string rendered = brief_store_.render();
+        if (!rendered.empty())
+            tail.push_back({prompt_priority::kSessionBrief, seq++, std::move(rendered)});
+    }
+
+    // Plugin blocks come from the shared registry, which has already ordered
+    // them by (priority, registration). They follow the core blocks, as they
+    // always have; equal priority plus increasing seq preserves that order.
+    if (prompt_registry_) {
+        for (auto& text : prompt_registry_->render_all())
+            tail.push_back({prompt_priority::kPluginBlock, seq++, std::move(text)});
+    }
+
+    const auto by_priority = [](const Block& a, const Block& b) {
+        return a.priority != b.priority ? a.priority < b.priority : a.seq < b.seq;
+    };
+    std::sort(head.begin(), head.end(), by_priority);
+    std::sort(tail.begin(), tail.end(), by_priority);
+
+    // Head: immediately after the system prompt, so they read as instructions.
+    std::size_t pos = 0;
+    for (std::size_t i = 0; i < prompt_copy.size(); ++i) {
+        if (prompt_copy[i].role == "system") { pos = i + 1; break; }
+    }
+    for (auto& block : head) {
+        Message msg;
+        msg.role = "system";
+        msg.content = std::move(block.text);
+        prompt_copy.insert(prompt_copy.begin() + static_cast<std::ptrdiff_t>(pos),
+                           std::move(msg));
+        ++pos;
+    }
+    // Tail: after the conversation.
+    for (auto& block : tail) {
+        Message msg;
+        msg.role = "system";
+        msg.content = std::move(block.text);
+        prompt_copy.push_back(std::move(msg));
+    }
 }
 
 std::string Agent::run(const std::string& user_prompt) {
