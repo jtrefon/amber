@@ -87,6 +87,11 @@
      "action": "core.window.rename",
      "help": "Rename the current window.",
      "man": "Prompts for a new title for the current chat window. The title is displayed in the window tab bar."
+    },
+    "set": {
+     "action": "core.window.set",
+     "help": "Switch to a window by number (1-based).",
+     "man": "Switches to the window at the given 1-based index as shown by /window list. Example: /window set 2 switches to the second window. Out-of-range and non-numeric values are rejected."
     }
    },
    "aliases": [

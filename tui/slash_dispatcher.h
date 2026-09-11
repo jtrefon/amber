@@ -99,6 +99,7 @@ public:
     void cmd_window_close();
     void cmd_window_list();
     void cmd_window_rename(const std::string& name);
+    void cmd_window_set(const std::string& arg);
     void cmd_mcp_show(const std::string& server);
     void cmd_mcp_connect(const std::string& server);
     void cmd_mcp_disconnect(const std::string& server);

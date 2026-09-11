@@ -2,6 +2,7 @@
 #include "tui.h"
 #include "tui/dialog.h"
 #include "tui/confirm_panel.h"
+#include "tui/window_ops.h"
 #include "tool_display.h"
 
 #include <ctime>
@@ -478,27 +479,11 @@ void Tui::lazy_load_active() {
 }
 
 void Tui::switch_to(size_t idx) {
-    if (idx >= window_manager_->all().size() || idx == window_manager_->active()) return;
-    if (busy_reject("window switch")) return;
-    window_manager_->set_active(idx);
-    router_->pending_tools().clear();  // spinner indices belong to the old window
-    lazy_load_active();
-    draw();
+    window_ops_->switch_to(idx);
 }
 
 void Tui::close_window() {
-    // Destroying a Window while the agent worker is inside its Agent::run()
-    // is a use-after-free; wait until the run finishes.
-    if (busy_reject("window close")) return;
-    if (window_manager_->all().size() <= 1) {
-        append_line(P_STATUS, "cannot close the last window");
-        return;
-    }
-    autosave();
-    window_manager_->all().erase(window_manager_->all().begin() + window_manager_->active());
-    if (window_manager_->active() >= window_manager_->all().size()) window_manager_->set_active(window_manager_->all().size() - 1);
-    router_->pending_tools().clear();
-    draw();
+    window_ops_->close_window();
 }
 
 
