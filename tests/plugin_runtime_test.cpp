@@ -542,10 +542,21 @@ TEST(runtime_exposes_the_builtin_wallets) {
     ASSERT_TRUE(runtime.wallets().find("anthropic") == nullptr);
     ASSERT_TRUE(runtime.wallets().find("custom") == nullptr);
 
+    // The all-contributions view is ledger-driven, so it must see wallets too
+    // — that is the view the "nothing survives disable" invariant is asserted
+    // against, and it silently missed three capability kinds before.
+    bool saw_wallet = false;
+    for (const auto& item : runtime.contributions())
+        if (item.kind == CapabilityKind::Wallet && item.owner == "openrouter")
+            saw_wallet = true;
+    ASSERT(saw_wallet);
+
     // Disabling the provider plugin takes its wallet with it.
     ASSERT_TRUE(runtime.set_state("openrouter", false));
     ASSERT_TRUE(runtime.wallets().find("openrouter") == nullptr);
     ASSERT_TRUE(runtime.wallets().find("kilocode") != nullptr);
+    for (const auto& item : runtime.contributions())
+        ASSERT(item.owner != std::string("openrouter"));
 }
 
 TEST(runtime_find_returns_null_for_unknown_plugins) {

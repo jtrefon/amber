@@ -348,13 +348,14 @@ bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
 }
 
 std::vector<ExtensionItem> PluginRuntime::contributions() const {
+    // Ledger-driven on purpose. Enumerating registries by hand is how this
+    // drifts: the first version of this function forgot status segments,
+    // panels and wallets, so the "nothing survives disable" invariant was
+    // weaker than it looked. The ledger records every install by definition.
     std::vector<ExtensionItem> out;
-    const auto append = [&out](const std::vector<ExtensionItem>& items) {
-        out.insert(out.end(), items.begin(), items.end());
-    };
-    append(prompts_.items());
-    append(commands_.items());
-    append(settings_.items());
+    for (const auto& plugin : list()) {
+        out.insert(out.end(), plugin.contributions.begin(), plugin.contributions.end());
+    }
     return out;
 }
 
