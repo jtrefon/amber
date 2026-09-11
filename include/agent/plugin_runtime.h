@@ -114,6 +114,27 @@ public:
         std::string holder; // provider id, for the command output
     };
 
+    // State shared with an in-flight fetch.
+    //
+    // The fetch runs on a worker, so everything it touches must outlive this
+    // runtime and must not be read from the host's live state: the host mutates
+    // its Config (provider switches, /set model) while a fetch is in flight.
+    // The worker therefore writes **only the atomics here**, and whatever it
+    // needs is copied on the host thread before the thread starts. `provider`
+    // and the ticket fields are host-thread-only bookkeeping, which is what
+    // keeps a fetch that lands after a provider switch from being shown under
+    // the new provider.
+    struct WalletState {
+        std::atomic<bool> inflight{false};
+        std::atomic<bool> has_value{false}; // the ticket answered with an amount
+        std::atomic<bool> failed{false};
+        std::atomic<double> amount{0.0};
+        std::atomic<long long> active_ticket{0};
+        std::atomic<long long> result_ticket{0};
+        std::atomic<long long> last_ms{0};
+        std::string provider; // the provider the active ticket fetches for
+    };
+
     WalletView wallet() const;
     bool wallet_enabled() const;
 
@@ -121,9 +142,9 @@ public:
     // ends and when the active provider changes.
     void request_wallet_refresh() noexcept;
 
-    // One synchronous refresh of the active provider's wallet. Public so the
-    // host's worker and tests can drive it directly; never call it on a thread
-    // that must stay responsive (it performs the plugin's I/O).
+    // One synchronous refresh of the active provider's wallet. Public so tests
+    // can drive it directly; never call it on a thread that must stay
+    // responsive (it performs the plugin's I/O).
     void perform_wallet_refresh();
 
     // --- Registries (hosts pull from these) --------------------------------
@@ -150,6 +171,14 @@ private:
     // Schedule a wallet refresh when one is due: stale, not already running,
     // and past the floor since the last one.
     void maybe_refresh_wallet();
+    // Snapshot everything a fetch needs and start (or answer) the current
+    // ticket. Host thread only.
+    void schedule_wallet_fetch();
+    // Invoke the fetch and record the result against its ticket. Reads only its
+    // arguments and the shared atomics, so it is safe on a detached worker that
+    // outlives this runtime.
+    static void run_wallet_fetch(const std::shared_ptr<WalletState>& state, long long ticket,
+                                 const WalletRegistry::Fetch& fetch, const Config& cfg);
     // Register the wallet readout on the status bar (core UI, one path for
     // every provider).
     void register_wallet_segment();
@@ -165,11 +194,12 @@ private:
     EventBus bus_;
     Subscription wallet_turn_sub_;
     std::atomic<bool> wallet_dirty_{false};
-    std::atomic<bool> wallet_inflight_{false};
-    std::atomic<bool> wallet_ready_{false};
-    std::atomic<bool> wallet_failed_{false};
-    std::atomic<double> wallet_amount_{0.0};
-    std::atomic<long long> wallet_last_ms_{0};
+    // Shared with an in-flight fetch, which owns a reference so the state
+    // outlives this runtime if a fetch is still running when it is destroyed.
+    // The worker touches only the atomics inside; `provider` and the ticket
+    // counter below are host-thread-only.
+    std::shared_ptr<WalletState> wallet_state_ = std::make_shared<WalletState>();
+    long long wallet_ticket_ = 0; // host thread only
     PluginLedger ledger_;
     PluginRegistry registry_;
     std::unique_ptr<PluginServices> services_;
