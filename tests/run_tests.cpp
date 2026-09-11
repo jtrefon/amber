@@ -347,39 +347,28 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
 // its provider is active) and reports only what it can honestly show. Core
 // code has no idea the provider exists.
 TEST(kilocode_plugin_resolves_its_own_balance_token) {
-    agent::EventBus bus;
-    agent::ToolRegistry tools;
-    agent::Workspace ws;
     agent::Config cfg;
-
-    agent::plugins::KilocodePlugin plugin;
-    agent::PluginContext ctx{bus, tools, &cfg, ws};
-    ASSERT_TRUE(plugin.initialize(ctx));
 
     // Another provider is active: the gateway key is not an account token.
     cfg.provider_name = "openrouter";
     cfg.api_key = "sk-openrouter";
-    ASSERT_TRUE(plugin.balance_token().empty());
-    ASSERT_TRUE(plugin.balance_label().empty());  // nothing fetched yet
+    ASSERT_TRUE(agent::plugins::kilocode_balance_token(cfg).empty());
 
     // Its own provider: the gateway key doubles as the account token.
     cfg.provider_name = "kilocode";
     cfg.api_key = "kilo-jwt";
-    ASSERT_EQ(plugin.balance_token(), std::string("kilo-jwt"));
+    ASSERT_EQ(agent::plugins::kilocode_balance_token(cfg), std::string("kilo-jwt"));
 
     // The explicit override wins regardless of the active provider.
     cfg.kilo_balance_token = "kilo-override";
     cfg.provider_name = "openrouter";
-    ASSERT_EQ(plugin.balance_token(), std::string("kilo-override"));
+    ASSERT_EQ(agent::plugins::kilocode_balance_token(cfg),
+              std::string("kilo-override"));
 
-    // No key at all: nothing to show.
+    // No key at all: nothing to fetch with.
     agent::Config anon;
     anon.provider_name = "kilocode";
-    agent::PluginContext anon_ctx{bus, tools, &anon, ws};
-    agent::plugins::KilocodePlugin fresh;
-    ASSERT_TRUE(fresh.initialize(anon_ctx));
-    ASSERT_TRUE(fresh.balance_token().empty());
-    ASSERT_TRUE(fresh.balance_label().empty());
+    ASSERT_TRUE(agent::plugins::kilocode_balance_token(anon).empty());
 }
 
 // The provider's wire protocol travels with the provider itself. Nothing in

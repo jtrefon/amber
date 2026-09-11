@@ -19,6 +19,11 @@
 
 namespace agent {
 
+// Human-readable name of a capability kind ("provider", "wallet", ...). One
+// implementation for the console, the `/get plugin` command and anything else
+// that has to name what a plugin contributes.
+const char* capability_kind_name(CapabilityKind kind);
+
 // One line per plugin (fixed column order: id, tier, state, version,
 // contributions), then one line per registered panel. Pure: reads the runtime,
 // writes nothing.

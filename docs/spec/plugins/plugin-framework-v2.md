@@ -185,6 +185,7 @@ is observable.
 | **Prompt blocks** | `PromptBlock{id, priority, render(snapshot) -> std::string}` | ascending priority | Core memory/skills/brief blocks migrate onto this registry (see §5) |
 | **Status segments** | `StatusSegment{id, priority, drop_priority, text, tone}` against a host-published `StatusSnapshot` | ascending priority; `drop_priority` decides overflow | Composed by `StatusRegistry`; amber's own segments register the same way (`lib/core_segments.cpp`), so a plugin's segment is indistinguishable from a core one. Rendering stays a pure read — time-driven work goes in `IPlugin::tick()` |
 | **Panels** | `PanelSpec{id, title, lines(width), on_key}` | registration order | Host owns framing, scrolling, cycling and key routing; a focused panel gets first refusal on keys. The registry console (Alt+0/`/panel`) is core UI built on this API |
+| **Wallets** | `WalletRegistry::Fetch = optional<double>(const Config&)` | keyed by provider id | A provider supplies only the *fetch*. The runtime owns when to refresh (turn end, provider switch, startup), the cache, and the rendering, so every provider's readout behaves identically and no plugin carries a poll loop or a cache. Rendered by one core status segment: `$13.22`, or `-` when the provider declares none / the fetch failed. Toggled with `/set provider wallet on\|off` |
 | **Settings** | `Setting{key, getter, setter}` | registration order | Feeds `/get` `/set`; same `SettingRegistry::add` contract used today. Log sinks were cut from this list — no phase named a consumer, so they sit in the deferred register until one exists |
 
 **Plugin registry state is itself a command-tree surface** (`plugin` namespace
@@ -366,6 +367,17 @@ registers only the transport's own `openai` protocol, so a disabled provider
 plugin takes its protocol out of the table with it. The file layer stays: a
 user's own `~/.config/amber/providers/<name>.conf` is data about a provider,
 independent of the preset that names it.
+
+**The wallet is framework-owned on purpose.** A provider's balance could be
+done per plugin (kilocode did exactly that: its own poll loop, atomic cache and
+status segment). It is not, because the part that varies is a single HTTP call
+and everything else — when to refresh, how to cache, how to render, how to drop
+under pressure — should be identical for every provider. A plugin supplies the
+fetch; a provider without one simply reports `-`. The readout refreshes when a
+turn ends (a balance moves because we spent something), on a provider switch,
+and once at startup, with a floor so a fast tool loop cannot hammer the
+endpoint; the fetch runs off the UI thread. `/get provider wallet` reports the
+state and value, using the same source as the bar.
 
 **Flavor resolution is state-dependent, and the fallback must not lie.** A
 flavor that no dialect implements (a typo in a provider file) falls back to

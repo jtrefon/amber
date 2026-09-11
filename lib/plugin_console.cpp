@@ -4,9 +4,7 @@
 
 namespace agent {
 
-namespace {
-
-const char* kind_name(CapabilityKind kind) {
+const char* capability_kind_name(CapabilityKind kind) {
     switch (kind) {
     case CapabilityKind::Tool:
         return "tool";
@@ -22,9 +20,13 @@ const char* kind_name(CapabilityKind kind) {
         return "setting";
     case CapabilityKind::Provider:
         return "provider";
+    case CapabilityKind::Wallet:
+        return "wallet";
     }
     return "?";
 }
+
+namespace {
 
 // Pad to `width` so the columns line up without a table renderer.
 std::string pad(const std::string& s, std::size_t width) {
@@ -63,8 +65,8 @@ std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime) {
             for (std::size_t i = 0; i < p.contributions.size(); ++i) {
                 if (i)
                     line += ", ";
-                line +=
-                    std::string(kind_name(p.contributions[i].kind)) + ":" + p.contributions[i].name;
+                line += std::string(capability_kind_name(p.contributions[i].kind)) + ":" +
+                        p.contributions[i].name;
             }
             line += "]";
         }

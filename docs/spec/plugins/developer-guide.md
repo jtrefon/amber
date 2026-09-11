@@ -214,6 +214,34 @@ your feature silently stops working. This cost us the kilocode balance readout
 once; the regression test is
 `runtime_plugin_sees_the_hosts_config_attached_after_start`.
 
+### Wallet (a provider's balance)
+
+If your provider has an account balance, declare how to fetch it — that is the
+whole contribution. Do **not** write a poll loop, a cache or a status segment:
+the runtime owns all of that, so your readout behaves exactly like every other
+provider's.
+
+```cpp
+caps.push_back(std::make_unique<agent::WalletCapability>(
+    [](const agent::Config& cfg) -> std::optional<double> {
+        const std::string token = my_balance_token(cfg);
+        if (token.empty()) return std::nullopt;      // nothing to fetch with
+        const double amount = my_fetch(token);
+        if (amount < 0) return std::nullopt;         // failed: claim nothing
+        return amount;
+    }));
+```
+
+- Return the amount, or `std::nullopt` when there is nothing honest to report.
+  `nullopt` is normal (no key, endpoint down, rejected key) — the bar shows `-`.
+  Never invent a value.
+- The fetch runs off the UI thread and is called with the **live** config, at
+  most once per turn boundary (plus startup and provider switches). Do not block
+  indefinitely; it is a network call you own.
+- The bar renders the amount as `$13.22` with no label — it shows the *active*
+  provider's wallet, and bar space is scarce. `/get provider wallet` reports the
+  fuller state, and `/set provider wallet on|off` is the global display switch.
+
 ### Panel
 
 ```cpp
@@ -320,7 +348,7 @@ sitting and each a template for the next:
 |---|---|
 | `plugins/custom/` | Presets only, no endpoint: the user's own endpoint, configured by file |
 | `plugins/openrouter/` | Minimal vendor on a shared protocol (presets only, no dialect) |
-| `plugins/kilocode/` | Shared protocol + a provider-specific feature (balance readout as a status segment) |
+| `plugins/kilocode/` | Shared protocol + a provider-specific feature (a wallet: one fetch, no poll loop) |
 | `plugins/anthropic/` | A vendor protocol the plugin itself provides |
 | `plugins/gemini/` | A vendor protocol with a different streaming model, usage shape and model listing |
 

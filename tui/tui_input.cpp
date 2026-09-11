@@ -1096,6 +1096,10 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string&) { cmd_runtime_plugin_list(); });
     register_action("core.config.set.plugin",
         [this](const std::string&) { cmd_runtime_plugin_list(); });
+    register_action("core.config.get.provider.wallet",
+        [this](const std::string&) { cmd_get_wallet(); });
+    register_action("core.config.set.provider.wallet",
+        [this](const std::string& a) { cmd_set_wallet(a); });
     register_action("core.config.get.provider",
         [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.provider.list",
@@ -1438,6 +1442,8 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
     }
 
     agent::apply_selection(tui_.cfg_, sel);
+    // The wallet follows the active provider, so a switch invalidates it.
+    tui_.plugin_runtime_.request_wallet_refresh();
     if (!sel.warning.empty())
         tui_.append_line(P_STATUS, "warning: " + sel.warning);
     for (auto& w : tui_.window_manager_->all())
@@ -1469,16 +1475,8 @@ namespace {
 
 std::string plugin_state_word(bool enabled) { return enabled ? "on" : "off"; }
 
-std::string contribution_kind_name(agent::CapabilityKind kind) {
-    switch (kind) {
-    case agent::CapabilityKind::Tool: return "tool";
-    case agent::CapabilityKind::Command: return "command";
-    case agent::CapabilityKind::PromptBlock: return "prompt";
-    case agent::CapabilityKind::Setting: return "setting";
-    case agent::CapabilityKind::Provider: return "provider";
-    }
-    return "?";
-}
+// Capability-kind names come from the core (plugin_console), so this command
+// and the registry console cannot describe the same plugin differently.
 
 } // namespace
 
@@ -1497,6 +1495,45 @@ void SlashDispatcher::cmd_runtime_plugin_get(const std::string& id) {
     tui_.show_plugin(id);
 }
 
+// The wallet: one readout for every provider, showing the ACTIVE provider's
+// balance. A display preference, so it is a single on/off rather than a
+// per-provider setting.
+void SlashDispatcher::cmd_get_wallet() {
+    const auto wallet = tui_.plugin_runtime_.wallet();
+    std::string line =
+        std::string("provider wallet: ") + (wallet.enabled ? "on" : "off");
+    if (!wallet.supported) {
+        line += "  (" + wallet.holder + " declares no wallet)";
+    } else if (wallet.failed) {
+        line += "  (" + wallet.holder + ": unavailable \u2014 check the key)";
+    } else if (wallet.ready) {
+        char amount[48];
+        std::snprintf(amount, sizeof(amount), "%.2f", wallet.amount);
+        line += "  " + wallet.holder + ": $" + amount;
+    } else {
+        line += "  (" + wallet.holder + ": not fetched yet)";
+    }
+    tui_.append_line(P_STATUS, line);
+}
+
+void SlashDispatcher::cmd_set_wallet(const std::string& val) {
+    bool enabled;
+    if (val == "on") enabled = true;
+    else if (val == "off") enabled = false;
+    else if (val == "toggle") enabled = !tui_.cfg_.wallet_enabled;
+    else {
+        tui_.append_line(P_STATUS,
+                         "usage: /set provider wallet on|off|toggle (got: " + val + ")");
+        return;
+    }
+    tui_.cfg_.wallet_enabled = enabled;
+    tui_.cfg_.save_global(agent::global_config_path());
+    // Turning it on should show a number, not "not fetched yet".
+    if (enabled) tui_.plugin_runtime_.request_wallet_refresh();
+    tui_.append_line(P_STATUS,
+                     std::string("provider wallet ") + (enabled ? "on" : "off"));
+}
+
 void SlashDispatcher::show_plugin(const std::string& id) {
     if (!tui_.plugin_runtime_.has(id)) {
         tui_.append_line(P_STATUS, "unknown plugin: " + id);
@@ -1511,8 +1548,9 @@ void SlashDispatcher::show_plugin(const std::string& id) {
         tui_.append_line(P_STATUS, "  contributes nothing");
     }
     for (const auto& item : status.contributions) {
-        tui_.append_line(P_STATUS, "  " + contribution_kind_name(item.kind) +
-                                       ": " + item.name);
+        tui_.append_line(P_STATUS,
+                         "  " + std::string(agent::capability_kind_name(item.kind)) +
+                             ": " + item.name);
     }
 }
 

@@ -6,8 +6,10 @@
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_v1_adapter.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 
 namespace agent {
 
@@ -63,10 +65,20 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, const Config& config, const Wo
     // "open the panel view" always lands on the registry.
     register_console_panel(panels_, *this);
     services_ = std::make_unique<PluginServices>(tools, prompts_, commands_, status_, panels_,
-                                                 settings_, bus_);
+                                                 wallets_, settings_, bus_);
     context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());
+
+    // The wallet belongs to the active provider and is refreshed when a turn
+    // ends rather than on a timer: a balance only moves because we spent
+    // something.
+    wallet_turn_sub_ = Events(bus_).subscribe<TurnEndedEvent>(
+        [this](const TurnEndedEvent&) { request_wallet_refresh(); });
+
+    // The readout is core, so every provider renders through one path: a plugin
+    // supplies a fetch, never a poll loop, a cache and a segment.
+    register_wallet_segment();
 }
 
 PluginRuntime::~PluginRuntime() {
@@ -110,6 +122,10 @@ void PluginRuntime::attach_config(const Config& config) {
     live_config_ = &config;
     context_->config = &config;
     services_->config = &config;
+    // The host attaches before it starts, so this is startup: fetch the wallet
+    // now rather than waiting for the first turn to end. A fresh session should
+    // show a balance, not a placeholder.
+    request_wallet_refresh();
 }
 
 void PluginRuntime::tick() {
@@ -123,6 +139,113 @@ void PluginRuntime::tick() {
             // simply shows whatever state it left behind.
         }
     }
+    maybe_refresh_wallet();
+}
+
+// --- Wallet ---------------------------------------------------------------
+
+namespace {
+
+// Don't let a fast tool loop hammer a provider's endpoint: a turn boundary is
+// the trigger, this is the floor.
+constexpr long long kWalletRefreshFloorMs = 10 * 1000;
+
+long long steady_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+} // namespace
+
+bool PluginRuntime::wallet_enabled() const {
+    return active_config().wallet_enabled;
+}
+
+PluginRuntime::WalletView PluginRuntime::wallet() const {
+    WalletView view;
+    view.enabled = wallet_enabled();
+    const std::string provider = active_config().provider_name;
+    view.holder = provider;
+    view.supported = wallets_.find(provider) != nullptr;
+    view.ready = wallet_ready_.load();
+    view.failed = wallet_failed_.load();
+    view.amount = wallet_amount_.load();
+    return view;
+}
+
+void PluginRuntime::request_wallet_refresh() noexcept {
+    wallet_dirty_.store(true);
+}
+
+void PluginRuntime::perform_wallet_refresh() {
+    const Config& cfg = active_config();
+    const WalletRegistry::Fetch* fetch = wallets_.find(cfg.provider_name);
+    if (!fetch) {
+        // The active provider declares no wallet: nothing to report, and no
+        // stale value from a previous provider may survive.
+        wallet_ready_.store(false);
+        wallet_failed_.store(false);
+        wallet_last_ms_.store(steady_now_ms());
+        return;
+    }
+    std::optional<double> value;
+    try {
+        value = (*fetch)(cfg);
+    } catch (...) {
+        // A plugin's fetch is I/O against a third party: a throw is a failed
+        // refresh, never a crashed host.
+        value = std::nullopt;
+    }
+    if (value) {
+        wallet_amount_.store(*value);
+        wallet_ready_.store(true);
+        wallet_failed_.store(false);
+    } else {
+        wallet_ready_.store(false);
+        wallet_failed_.store(true);
+    }
+    wallet_last_ms_.store(steady_now_ms());
+}
+
+void PluginRuntime::register_wallet_segment() {
+    // Highest drop priority: the wallet is the first thing to give up its
+    // columns when the terminal is narrow, because it is the least load-bearing
+    // fact on the bar.
+    status_.add("", "wallet", /*priority=*/800, /*drop_priority=*/9,
+                [this](const StatusSnapshot&) -> StatusText {
+                    if (!wallet_enabled())
+                        return StatusText{};
+                    const WalletView view = wallet();
+                    // "-" is the honest answer both for a provider that has no
+                    // wallet and for one whose last fetch failed; `/get
+                    // provider wallet` distinguishes the two.
+                    if (!view.supported || view.failed || !view.ready)
+                        return StatusText{"  -", StatusTone::Dim};
+                    char buf[32];
+                    std::snprintf(buf, sizeof(buf), "  $%.2f", view.amount);
+                    return StatusText{buf, StatusTone::Dim};
+                });
+}
+
+void PluginRuntime::maybe_refresh_wallet() {
+    if (!wallet_dirty_.exchange(false))
+        return;
+    if (wallet_inflight_.load()) {
+        wallet_dirty_.store(true); // try again once the fetch lands
+        return;
+    }
+    if (steady_now_ms() - wallet_last_ms_.load() < kWalletRefreshFloorMs) {
+        wallet_dirty_.store(true);
+        return;
+    }
+    wallet_dirty_.store(false);
+    wallet_inflight_.store(true);
+    // The fetch is the plugin's I/O; the UI thread only schedules it.
+    std::thread([this] {
+        perform_wallet_refresh();
+        wallet_inflight_.store(false);
+    }).detach();
 }
 
 IPlugin* PluginRuntime::find(const std::string& id) const noexcept {

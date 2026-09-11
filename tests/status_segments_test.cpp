@@ -308,9 +308,10 @@ TEST(panel_capability_installs_and_unwinds) {
     CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
+    WalletRegistry wallets;
     PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, settings, bus);
+    PluginServices services(tools, prompts, commands, status, panels, wallets, settings, bus);
     services.set_owner("gemini");
 
     PanelCapability cap(PanelSpec{
@@ -348,7 +349,9 @@ TEST(console_panel_lists_plugins_and_their_contributions) {
     ASSERT(text.find("metrics") != std::string::npos);
     ASSERT(text.find("gemini") != std::string::npos);
     ASSERT(text.find("provider:gemini") != std::string::npos);
-    ASSERT(text.find("segment:kilo_balance") != std::string::npos);
+    // kilocode contributes a wallet (its fetch), not a bespoke bar segment:
+    // the readout itself is core, so every provider renders the same way.
+    ASSERT(text.find("wallet:kilocode") != std::string::npos);
     ASSERT(text.find("/set plugin") != std::string::npos);
 
     // A disabled plugin reports itself as off, and its contributions are gone.
@@ -370,9 +373,10 @@ TEST(status_segment_capability_installs_and_unwinds) {
     CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
+    WalletRegistry wallets;
     PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, settings, bus);
+    PluginServices services(tools, prompts, commands, status, panels, wallets, settings, bus);
     services.set_owner("gemini");
 
     StatusSegmentCapability cap("balance", 850, 4, [](const StatusSnapshot&) {

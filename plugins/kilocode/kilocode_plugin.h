@@ -5,16 +5,13 @@
 // things that are genuinely kilo-specific — an account balance readout and the
 // convention that the gateway key IS the account token.
 //
-// The readout used to live in the TUI (a poll loop, an atomic cache, and a
-// hardcoded status-bar segment). It is provider behaviour, so it belongs to
-// the provider: the plugin polls on tick, caches the value, and renders the
-// segment. The UI is left with no idea that kilo.ai exists.
+// The plugin supplies only the *fetch*: the runtime owns when to poll, how to
+// cache, and how the bar renders it (see WalletRegistry). It used to carry its
+// own poll loop, atomic cache and status segment, which is exactly the
+// duplication the framework now removes.
 
 #include "agent/plugin_v2.h"
 
-#include <atomic>
-#include <chrono>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -27,6 +24,11 @@ namespace agent::plugins {
 // which 404s — the readout silently stopped working.
 std::string kilocode_balance_url();
 
+// The token the balance readout uses: the explicit override when set, else the
+// gateway key when this provider is the active one (its key doubles as the
+// account token). Empty when there is nothing usable.
+std::string kilocode_balance_token(const Config& cfg);
+
 // Fetch the account balance in USD. Returns a negative value on any transport,
 // HTTP, or parse failure, so the caller can decide not to show a readout.
 double fetch_kilocode_balance(const std::string& token);
@@ -37,31 +39,9 @@ public:
     std::string version() const override { return "1.0.0"; }
     std::string name() const override { return "Kilocode provider"; }
 
-    bool initialize(const PluginContext& ctx) override;
-    void shutdown() override;
-    void tick() override;
-
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
     std::vector<std::unique_ptr<Capability>> capabilities() override;
-
-    // The token the balance readout uses: the explicit override when set, else
-    // this provider's api_key (its gateway key doubles as the account token).
-    // Empty when the active provider is not kilocode or no key is configured.
-    std::string balance_token() const;
-
-    // Cached balance label for the status bar; "" when there is nothing honest
-    // to show yet.
-    std::string balance_label() const;
-
-private:
-    // The context, not the Config: the host may attach its own configuration
-    // after this plugin was activated (the TUI does), so a Config pointer
-    // cached at activation would keep pointing at the runtime's startup copy
-    // and the readout would silently go missing.
-    const PluginContext* ctx_ = nullptr;
-    const Config* config() const noexcept { return ctx_ ? ctx_->config : nullptr; }
-    // Cached fetch result. Shared with the detached fetch thread so an
-    // in-flight request at shutdown cannot write freed memory.
-    std::shared_ptr<struct BalanceState> state_;
 };
 
 } // namespace agent::plugins

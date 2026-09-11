@@ -77,6 +77,44 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
+### 2026-09-10 — PF-3.4: the wallet (framework-owned, all providers)
+
+- **Landed**
+  - **`WalletRegistry` + `WalletCapability`** — a provider supplies only
+    `Fetch = optional<double>(const Config&)`; the runtime owns everything else.
+    Installed through the ledger like every other capability, so disabling a
+    provider plugin takes its wallet with it.
+  - **Runtime policy:** refresh on turn end (the balance only moves because we
+    spent something), on provider switch, and once at startup; a 10s floor so a
+    fast tool loop cannot hammer the endpoint; the fetch runs off the UI thread,
+    and the agent thread never does I/O. Switching to a provider without a
+    wallet clears the value rather than showing the previous provider's.
+  - **One core status segment** (drop priority 9 — first to go on a narrow
+    terminal): `$13.22`, or `-` when the active provider declares no wallet or
+    the fetch failed. No words, per the space constraint.
+  - **`/get provider wallet`** (state, holder, amount, or why there is none)
+    and **`/set provider wallet on|off|toggle`**, persisted in the global
+    config (`wallet=`).
+  - **kilocode migrated onto it**, deleting its bespoke poll loop, atomic cache,
+    status segment and 60-second timer. The plugin is now: a preset, a URL, a
+    token rule, and one fetch lambda.
+- **Design note (recorded):** the toggle is a single global switch under the
+  `provider` namespace, **not** a per-provider setting. Two concepts were being
+  conflated — "this provider has a wallet" (a plugin capability) versus "do I
+  want it taking bar columns" (a display preference, and bar space is global).
+  Per-provider slots in additively later if a real need appears; the bare form
+  keeps its "all" meaning.
+- **Verification:** `make clean && make && make test` (exit 0), `./run_tests` →
+  **627 passed, 0 failed**, `make check` clean, cppcheck clean. Probe against
+  the built library: with a kilocode provider and an invalid key the fetch runs
+  against the real endpoint and reports `supported=1 ready=0 failed=1` →
+  segment `-`; a wallet-less provider (anthropic) also renders `-`; both at
+  drop priority 9. Live TUI: `/get provider wallet` and
+  `/set provider wallet off` both work.
+- **Not covered:** openrouter's per-key limit (next), the provider's own
+  `custom` wallet URL, and the account-wide OpenRouter credits (which would be
+  the first consumer of host services — deferred, D22).
+
 ### 2026-09-10 — Fix: the kilo wallet readout (TWO regressions from PF-4)
 
 - **Bug:** after the kilocode conversion the balance readout stopped showing an
@@ -448,6 +486,8 @@ What a plugin author can rely on today. Update with every landed task.
 | Time-driven work (`IPlugin::tick`) | ✅ | PF-3.1 |
 | Every vendor provider shipped as a plugin | ✅ | PF-4 |
 | Panel contribution + registry console | ✅ | PF-3.2 |
+| Wallet contribution (fetch only; polling + rendering core) | ✅ | PF-3.4 |
+| `/get provider wallet`, `/set provider wallet on\|off` | ✅ | PF-3.4 |
 | Host services (ask/choose/confirm/notify) | ⏳ | PF-3.3 |
 | Log sinks | – | Deferred (no consumer) |
 | Theme, key interception, geometry, hot reload | – | Deferred Register |

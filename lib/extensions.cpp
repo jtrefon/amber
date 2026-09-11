@@ -120,6 +120,47 @@ std::vector<ExtensionItem> StatusRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
+// WalletRegistry
+// ---------------------------------------------------------------------------
+
+Contribution WalletRegistry::add(const std::string& owner, Fetch fetch) {
+    entries_.erase(
+        std::remove_if(entries_.begin(), entries_.end(),
+                       [&](const std::pair<std::string, Fetch>& e) { return e.first == owner; }),
+        entries_.end());
+    entries_.push_back({owner, std::move(fetch)});
+
+    Contribution c;
+    c.kind = CapabilityKind::Wallet;
+    c.name = owner;
+    c.remove = [this, owner] {
+        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                      [&](const std::pair<std::string, Fetch>& e) {
+                                          return e.first == owner;
+                                      }),
+                       entries_.end());
+    };
+    return c;
+}
+
+const WalletRegistry::Fetch* WalletRegistry::find(const std::string& owner) const {
+    for (const auto& entry : entries_) {
+        if (entry.first == owner)
+            return &entry.second;
+    }
+    return nullptr;
+}
+
+std::vector<ExtensionItem> WalletRegistry::items() const {
+    std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_) {
+        out.push_back({CapabilityKind::Wallet, entry.first, "wallet", "account balance"});
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // PanelRegistry
 // ---------------------------------------------------------------------------
 
@@ -291,10 +332,10 @@ std::vector<ExtensionItem> PluginSettingsStore::items() const {
 
 PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts,
                                CommandRegistry& commands, StatusRegistry& status,
-                               PanelRegistry& panels, PluginSettingsStore& settings,
-                               EventBus& events) noexcept
+                               PanelRegistry& panels, WalletRegistry& wallets,
+                               PluginSettingsStore& settings, EventBus& events) noexcept
     : tools_(&tools), prompts_(&prompts), commands_(&commands), status_(&status), panels_(&panels),
-      settings_(&settings), events_(&events) {}
+      wallets_(&wallets), settings_(&settings), events_(&events) {}
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -410,6 +451,20 @@ InstallResult StatusSegmentCapability::install(PluginServices& services) {
     }
     r.contribution =
         services.status().add(services.owner(), id_, priority_, drop_priority_, render_);
+    r.ok = true;
+    return r;
+}
+
+WalletCapability::WalletCapability(WalletRegistry::Fetch fetch) : fetch_(std::move(fetch)) {}
+
+InstallResult WalletCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (!fetch_) {
+        r.error = "wallet capability needs a fetch";
+        return r;
+    }
+    const std::string owner = services.owner();
+    r.contribution = services.wallets().add(owner, std::move(fetch_));
     r.ok = true;
     return r;
 }

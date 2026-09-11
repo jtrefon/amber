@@ -130,6 +130,11 @@
        "action": "core.config.get.provider.list",
        "help": "List available providers.",
        "man": "Lists every available provider: built-in presets, saved providers and custom. The active provider is marked."
+      },
+      "wallet": {
+       "action": "core.config.get.provider.wallet",
+       "help": "Show the wallet state for the active provider.",
+       "man": "Reports whether the wallet readout is on, and the active provider's balance when it has one. Providers that offer no wallet (or whose balance could not be read) report that instead of a number. Toggle the readout with '/set provider wallet on|off'."
       }
      }
     },
@@ -526,7 +531,14 @@
     "provider": {
      "action": "core.config.set.provider",
      "help": "Switch the active LLM provider.",
-     "man": "Selects the active provider. Built-in presets and every provider saved under ~/.config/amber/providers/ are offered as completions; the switch applies immediately and is persisted."
+     "man": "Selects the active provider. Built-in presets and every provider saved under ~/.config/amber/providers/ are offered as completions; the switch applies immediately and is persisted.",
+     "children": {
+      "wallet": {
+       "action": "core.config.set.provider.wallet",
+       "help": "Turn the wallet readout on the status bar on or off.",
+       "man": "Shows or hides the active provider's wallet on the status bar: '/set provider wallet on|off' (or 'toggle'). The setting is global - the wallet always follows whichever provider is active - and is persisted. The readout refreshes when a turn ends, not on a timer."
+      }
+     }
     },
     "plugin": {
      "action": "core.config.set.plugin",

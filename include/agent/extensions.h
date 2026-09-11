@@ -21,6 +21,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -158,6 +159,35 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Wallets
+// ---------------------------------------------------------------------------
+
+// A provider's account balance, for the status bar. A plugin supplies only the
+// fetch; the runtime owns when to poll, how to cache it, and how it renders, so
+// every provider's readout behaves the same and no provider hand-rolls a poll
+// loop and a cache.
+//
+// The fetch returns the amount in the display currency, or nullopt when there
+// is nothing honest to report (no token configured, endpoint unreachable,
+// rejected key). Returning nullopt is normal, not an error: the bar shows the
+// unavailable state.
+class WalletRegistry {
+public:
+    using Fetch = std::function<std::optional<double>(const Config&)>;
+
+    Contribution add(const std::string& owner, Fetch fetch);
+
+    // The fetch for `owner` (a provider id), or null when it declares none.
+    const Fetch* find(const std::string& owner) const;
+
+    std::vector<ExtensionItem> items() const;
+    std::size_t size() const noexcept { return entries_.size(); }
+
+private:
+    std::vector<std::pair<std::string, Fetch>> entries_; // owner -> fetch
+};
+
+// ---------------------------------------------------------------------------
 // Panels
 // ---------------------------------------------------------------------------
 
@@ -268,14 +298,15 @@ private:
 class PluginServices {
 public:
     PluginServices(ToolRegistry& tools, PromptRegistry& prompts, CommandRegistry& commands,
-                   StatusRegistry& status, PanelRegistry& panels, PluginSettingsStore& settings,
-                   EventBus& events) noexcept;
+                   StatusRegistry& status, PanelRegistry& panels, WalletRegistry& wallets,
+                   PluginSettingsStore& settings, EventBus& events) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
     PromptRegistry& prompts() noexcept { return *prompts_; }
     CommandRegistry& commands() noexcept { return *commands_; }
     StatusRegistry& status() noexcept { return *status_; }
     PanelRegistry& panels() noexcept { return *panels_; }
+    WalletRegistry& wallets() noexcept { return *wallets_; }
     PluginSettingsStore& settings() noexcept { return *settings_; }
     EventBus& events() noexcept { return *events_; }
 
@@ -295,6 +326,7 @@ private:
     CommandRegistry* commands_;
     StatusRegistry* status_;
     PanelRegistry* panels_;
+    WalletRegistry* wallets_;
     PluginSettingsStore* settings_;
     EventBus* events_;
     std::string owner_;
@@ -401,6 +433,20 @@ private:
     int priority_;
     int drop_priority_;
     StatusRegistry::Render render_;
+};
+
+// Declares how to fetch this plugin's wallet (usually a provider's balance).
+// Install/unwind only register and remove the fetch; polling and rendering are
+// the runtime's.
+class WalletCapability : public Capability {
+public:
+    explicit WalletCapability(WalletRegistry::Fetch fetch);
+    std::string name() const override { return "wallet"; }
+    CapabilityKind kind() const override { return CapabilityKind::Wallet; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    WalletRegistry::Fetch fetch_;
 };
 
 // Contributes a full-screen panel.

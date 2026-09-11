@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <optional>
 #include <unistd.h>
 
 using namespace agent;
@@ -80,6 +81,35 @@ private:
     std::string id_;
     std::string text_;
     int priority_;
+};
+
+// Declares a wallet whose fetch reports whether it saw the live config.
+class WalletProbePlugin : public IPlugin {
+public:
+    std::string id() const override { return "walletprobe"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Wallet probe"; }
+
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(
+            std::make_unique<WalletCapability>([](const Config& cfg) -> std::optional<double> {
+                ++fetches;
+                last_provider = cfg.provider_name;
+                last_key = cfg.api_key;
+                if (cfg.api_key.empty())
+                    return std::nullopt;
+                return 42.5;
+            }));
+        return caps;
+    }
+
+    static inline std::string last_provider;
+    static inline std::string last_key;
+    static inline int fetches = 0;
 };
 
 struct Fixture {
@@ -322,22 +352,138 @@ TEST(runtime_provider_plugin_registers_and_unwinds) {
 //
 // This is the kilo wallet regression: the balance readout disappeared because
 // the plugin resolved its token from a stale copy.
-TEST(runtime_plugin_sees_the_hosts_config_attached_after_start) {
+TEST(runtime_wallet_reads_the_config_attached_after_start) {
     ScratchConfig scratch("live_config");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
-    runtime.start(); // plugins initialize here, before the host attaches
+    runtime.add(std::make_shared<WalletProbePlugin>());
+    runtime.start(); // activate before the host attaches (the old bug order)
 
-    // The host's real configuration arrives afterwards.
+    // The host's real configuration arrives afterwards. The wallet must be
+    // fetched with THIS config, not the runtime's startup copy.
     Config live;
-    live.provider_name = "kilocode";
+    live.provider_name = "walletprobe";
     live.api_key = "kilo-jwt";
     runtime.attach_config(live);
+    runtime.perform_wallet_refresh();
 
-    auto* kilocode = dynamic_cast<plugins::KilocodePlugin*>(runtime.find("kilocode"));
-    ASSERT(kilocode != nullptr);
-    ASSERT_EQ(kilocode->balance_token(), std::string("kilo-jwt"));
+    ASSERT_EQ(WalletProbePlugin::last_provider, std::string("walletprobe"));
+    ASSERT_EQ(WalletProbePlugin::last_key, std::string("kilo-jwt"));
+    const auto view = runtime.wallet();
+    ASSERT_TRUE(view.supported);
+    ASSERT_TRUE(view.ready);
+    ASSERT_FALSE(view.failed);
+    ASSERT_EQ(view.amount, 42.5);
+}
+
+TEST(wallet_registry_installs_and_unwinds) {
+    ToolRegistry tools;
+    PromptRegistry prompts;
+    CommandRegistry commands;
+    StatusRegistry status;
+    PanelRegistry panels;
+    WalletRegistry wallets;
+    PluginSettingsStore settings;
+    EventBus bus;
+    PluginServices services(tools, prompts, commands, status, panels, wallets, settings, bus);
+    services.set_owner("acme");
+
+    WalletCapability cap([](const Config&) -> std::optional<double> { return 7.0; });
+    InstallResult r = cap.install(services);
+    ASSERT_TRUE(r.ok);
+    ASSERT_TRUE(r.contribution.kind == CapabilityKind::Wallet);
+    ASSERT(wallets.find("acme") != nullptr);
+
+    r.contribution.remove();
+    ASSERT_TRUE(wallets.find("acme") == nullptr);
+    ASSERT_EQ(wallets.size(), 0u);
+}
+
+// The bar has no room to spare: the wallet is the first segment to give up its
+// columns, and the display switch hides it entirely.
+TEST(runtime_wallet_segment_renders_amount_dash_and_hides) {
+    ScratchConfig scratch("wallet_segment");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<WalletProbePlugin>());
+    runtime.start();
+
+    Config live;
+    live.provider_name = "other"; // a provider with no wallet declared
+    live.api_key = "probe-key";
+    runtime.attach_config(live);
+
+    // Returned by value: the segments live in a temporary vector.
+    const auto find_wallet = [&runtime]() -> std::optional<StatusSegment> {
+        for (const auto& s : runtime.status().render(StatusSnapshot{}))
+            if (s.id == "wallet")
+                return s;
+        return std::nullopt;
+    };
+
+    // Enabled, provider declares nothing: the honest dash.
+    std::optional<StatusSegment> seg = find_wallet();
+    ASSERT(seg.has_value());
+    ASSERT(seg->text.find('-') != std::string::npos);
+    ASSERT_EQ(seg->drop_priority, 9); // drops before everything else
+
+    // The switch hides it completely.
+    live.wallet_enabled = false;
+    ASSERT_FALSE(find_wallet().has_value());
+    live.wallet_enabled = true;
+
+    // A provider that declares a wallet, once fetched: just the symbol and
+    // the amount, no words.
+    live.provider_name = "walletprobe";
+    runtime.perform_wallet_refresh();
+    seg = find_wallet();
+    ASSERT(seg.has_value());
+    ASSERT_EQ(seg->text, std::string("  $42.50"));
+}
+
+// A provider that declares no wallet yields no stale value from the previous
+// one: switching to it clears the readout.
+TEST(runtime_wallet_clears_when_switching_to_a_provider_without_one) {
+    ScratchConfig scratch("wallet_switch");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<WalletProbePlugin>());
+    runtime.start();
+
+    Config live;
+    live.provider_name = "walletprobe";
+    live.api_key = "probe-key";
+    runtime.attach_config(live);
+    runtime.perform_wallet_refresh();
+    ASSERT_TRUE(runtime.wallet().ready);
+
+    live.provider_name = "gemini"; // declares no wallet
+    runtime.perform_wallet_refresh();
+    const auto view = runtime.wallet();
+    ASSERT_FALSE(view.supported);
+    ASSERT_FALSE(view.ready);
+}
+
+// The wallet refreshes when a turn ends, not on a timer.
+TEST(runtime_turn_end_requests_a_wallet_refresh) {
+    ScratchConfig scratch("wallet_turn");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<WalletProbePlugin>());
+    runtime.start();
+    Config live;
+    live.provider_name = "walletprobe";
+    live.api_key = "probe-key";
+    runtime.attach_config(live);
+    runtime.perform_wallet_refresh();
+
+    WalletProbePlugin::fetches = 0;
+    TurnEndedEvent ended;
+    Event raw{EventType::AgentTurnEnd, &ended, false};
+    runtime.events().fire(EventType::AgentTurnEnd, raw);
+    // The turn boundary only marks it stale; the tick (which the host drives)
+    // is what performs the fetch, so no I/O happens on the agent thread.
+    ASSERT_EQ(WalletProbePlugin::fetches, 0);
 }
 
 // The balance endpoint is a fixed kilo.ai API, not the gateway the provider

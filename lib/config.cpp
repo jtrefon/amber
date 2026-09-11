@@ -79,6 +79,8 @@ void Config::load(const std::string& path) {
         else if (key == "plan_tool")
             plan_tool = (val == "1" || val == "true" || val == "yes");
         else if (key == "stream") stream = (val == "1" || val == "true" || val == "yes");
+        else if (key == "wallet")
+            wallet_enabled = (val == "1" || val == "true" || val == "yes");
         else if (key == "thinking") thinking = val;
         else if (key == "thinking_budget") parse_int(key, val, thinking_budget);
         else if (key == "context_size") {
@@ -192,6 +194,7 @@ bool Config::save_global(const std::string& path) const {
         f << "kilo_balance_token=" << kilo_balance_token << "\n";
     f << "model=" << model << "\n";
     f << "context_size=" << context_size << "\n";
+    f << "wallet=" << (wallet_enabled ? 1 : 0) << "\n";
     return static_cast<bool>(f);
 }
 

@@ -14,6 +14,7 @@
 
 #include "agent/config.h"
 #include "agent/event_bus.h"
+#include "agent/events.h"
 #include "agent/extensions.h"
 #include "agent/plugin.h"
 #include "agent/plugin_capability.h"
@@ -21,6 +22,7 @@
 #include "agent/registry.h"
 #include "agent/workspace.h"
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
@@ -93,6 +95,32 @@ public:
     // activation does not leave a plugin recorded as on.
     bool set_state(const std::string& id, bool on);
 
+    // --- Wallet (the active provider's balance) ----------------------------
+
+    // What the status bar and `/get provider wallet` report. `supported` is
+    // whether the active provider declared a wallet at all; the rest describes
+    // the last refresh.
+    struct WalletView {
+        bool enabled = true; // the display switch (a user preference)
+        bool supported = false;
+        bool ready = false;  // a fetch produced a value
+        bool failed = false; // the last fetch did not
+        double amount = 0.0;
+        std::string holder; // provider id, for the command output
+    };
+
+    WalletView wallet() const;
+    bool wallet_enabled() const;
+
+    // Mark the wallet stale so the next tick refreshes it: called when a turn
+    // ends and when the active provider changes.
+    void request_wallet_refresh() noexcept;
+
+    // One synchronous refresh of the active provider's wallet. Public so the
+    // host's worker and tests can drive it directly; never call it on a thread
+    // that must stay responsive (it performs the plugin's I/O).
+    void perform_wallet_refresh();
+
     // --- Registries (hosts pull from these) --------------------------------
 
     PromptRegistry& prompts() noexcept { return prompts_; }
@@ -100,6 +128,8 @@ public:
     StatusRegistry& status() noexcept { return status_; }
     PanelRegistry& panels() noexcept { return panels_; }
     const PanelRegistry& panels() const noexcept { return panels_; }
+    WalletRegistry& wallets() noexcept { return wallets_; }
+    const WalletRegistry& wallets() const noexcept { return wallets_; }
     PluginSettingsStore& settings() noexcept { return settings_; }
     EventBus& events() noexcept { return bus_; }
 
@@ -112,13 +142,29 @@ private:
     bool activate(const std::string& id);
     void deactivate(const std::string& id);
 
+    // Schedule a wallet refresh when one is due: stale, not already running,
+    // and past the floor since the last one.
+    void maybe_refresh_wallet();
+    // Register the wallet readout on the status bar (core UI, one path for
+    // every provider).
+    void register_wallet_segment();
+    const Config& active_config() const noexcept { return live_config_ ? *live_config_ : config_; }
+
     ToolRegistry* tools_;
     PromptRegistry prompts_;
     CommandRegistry commands_;
     StatusRegistry status_;
     PanelRegistry panels_;
+    WalletRegistry wallets_;
     PluginSettingsStore settings_;
     EventBus bus_;
+    Subscription wallet_turn_sub_;
+    std::atomic<bool> wallet_dirty_{false};
+    std::atomic<bool> wallet_inflight_{false};
+    std::atomic<bool> wallet_ready_{false};
+    std::atomic<bool> wallet_failed_{false};
+    std::atomic<double> wallet_amount_{0.0};
+    std::atomic<long long> wallet_last_ms_{0};
     PluginLedger ledger_;
     PluginRegistry registry_;
     std::unique_ptr<PluginServices> services_;
