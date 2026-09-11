@@ -14,7 +14,7 @@ namespace tui {
 // stateful ESC key. Never performs I/O or side effects — fully testable.
 class KeyBinder {
 public:
-    explicit KeyBinder(const nlohmann::json& bindings);
+    explicit KeyBinder(nlohmann::json bindings);
     KeyAction dispatch(const KeyRead& key, const InputState& state) const;
 
 private:

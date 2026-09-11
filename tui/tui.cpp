@@ -118,7 +118,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         std::ifstream kf("keybindings.json");
         nlohmann::json kj;
         if (kf.is_open()) kf >> kj;
-        key_binder_ = std::make_unique<KeyBinder>(kj);
+        key_binder_ = std::make_unique<KeyBinder>(std::move(kj));
     }
 
     reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
@@ -504,7 +504,7 @@ void Tui::run() {
         // KeyBinder dispatch for window hotkeys (Alt+1..9, Ctrl+N, ESC+digit,
         // ESC stateful). The KeyBinder is pure (no ncurses); the ESC followup
         // read is terminal I/O and stays here.
-        if (ch >= 0xB1 && ch <= 0xB9 || ch == 14 || ch == 27 || ch == 3 || ch == 23) {
+        if ((ch >= 0xB1 && ch <= 0xB9) || ch == 14 || ch == 27 || ch == 3 || ch == 23) {
             InputState state;
             state.drawer_open = cl.drawer_open();
             state.busy = router_->busy();

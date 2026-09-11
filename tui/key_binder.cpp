@@ -1,8 +1,10 @@
 #include "tui/key_binder.h"
 
+#include <utility>
+
 namespace tui {
 
-KeyBinder::KeyBinder(const nlohmann::json& bindings) : bindings_(bindings) {}
+KeyBinder::KeyBinder(nlohmann::json bindings) : bindings_(std::move(bindings)) {}
 
 KeyAction KeyBinder::dispatch(const KeyRead& key, const InputState& state) const {
     // Meta-encoded Alt+digit: 0xB1=Alt+1 through 0xB9=Alt+9.
