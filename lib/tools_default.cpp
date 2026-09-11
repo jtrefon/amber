@@ -4,27 +4,41 @@
 #include "agent/process.h"
 #include "agent/job.h"
 #include "agent/todo.h"
+#include "agent/extensions.h"
+#include "plugins/core_tools/core_tools_plugin.h"
 
 namespace agent {
 
-// Register the built-in tools. Kept separate so the TUI and any other host can
-// share the exact same tool set without duplicating construction. The tool
-// translation units (read_tool.cpp, write_tool.cpp, search_tool.cpp, and the
-// search backends) are compiled separately and linked into libagent.
-void register_default_tools(ToolRegistry& reg, JobService& jobs,
-                            TodoStore& todos,
-                            const CancellationToken& cancel_token,
-                            bool enable_plan_tool,
-                            SubAgentExecutor& subagents,
-                            bool enable_task_tool) {
-    reg.register_tool(make_read_tool());
-    reg.register_tool(make_write_tool());
-    reg.register_tool(make_search_tool());
-    if (enable_plan_tool) reg.register_tool(make_todowrite_tool(todos));
-    if (enable_task_tool) reg.register_tool(make_task_tool(subagents, reg));
-    reg.register_tool(make_bash_tool(&jobs, cancel_token));
-    for (auto& t : make_process_tools(jobs))
-        reg.register_tool(std::move(t));
+// Register the built-in tools. The set itself lives in the core_tools plugin
+// (make_core_tool_capabilities), which is where a host that runs the plugin
+// lifecycle gets them. This entry point installs the same capabilities directly
+// for hosts and tests that hold a bare registry and no runtime — one
+// definition, so the two paths cannot drift.
+void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todos,
+                            const CancellationToken& cancel_token, bool enable_plan_tool,
+                            SubAgentExecutor& subagents, bool enable_task_tool) {
+    Config cfg;
+    cfg.plan_tool = enable_plan_tool;
+    cfg.task_tool = enable_task_tool;
+    HostServices host{&jobs, &todos, &subagents, &cancel_token};
+
+    // Tool capabilities reach only services.tools() and services.config/host, so
+    // the registries they do not use are empty placeholders.
+    EventBus events;
+    PromptRegistry prompts;
+    CommandRegistry commands;
+    StatusRegistry status;
+    PanelRegistry panels;
+    WalletRegistry wallets;
+    PluginSettingsStore settings;
+    PluginServices services(reg, prompts, commands, status, panels, wallets, settings, events);
+    services.config = &cfg;
+    services.host = &host;
+
+    for (auto& capability : plugins::make_core_tool_capabilities()) {
+        InstallResult r = capability->install(services);
+        (void)r;
+    }
 }
 
 } // namespace agent

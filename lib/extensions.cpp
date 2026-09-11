@@ -402,7 +402,9 @@ InstallResult ToolCapability::install(PluginServices& services) {
         tools = factory_(services);
     }
     if (tools.empty()) {
-        r.error = "tool capability '" + name_ + "' produced no tools";
+        // The factory returned nothing: the tool is gated off, not broken. The
+        // plugin stays active with one fewer contribution.
+        r.declined = true;
         return r;
     }
 
@@ -416,7 +418,7 @@ InstallResult ToolCapability::install(PluginServices& services) {
         registry->register_tool(std::move(tool));
     }
     if (registered.empty()) {
-        r.error = "tool capability '" + name_ + "' produced no usable tools";
+        r.declined = true;
         return r;
     }
 

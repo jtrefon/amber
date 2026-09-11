@@ -39,8 +39,8 @@ namespace fs = std::filesystem;
 // files land in a scratch tree.
 class ScratchConfig {
 public:
-    explicit ScratchConfig(const std::string& name) {
-        dir_ = fs::temp_directory_path() / ("amber_plugin_test_" + name);
+    explicit ScratchConfig(const std::string& name)
+        : dir_(fs::temp_directory_path() / ("amber_plugin_test_" + name)) {
         fs::remove_all(dir_);
         fs::create_directories(dir_);
         setenv("XDG_CONFIG_HOME", dir_.c_str(), 1);
@@ -161,6 +161,23 @@ struct Fixture {
     Workspace ws;
 };
 
+// A plugin whose only capability declines — the shape the core tools plugin has
+// whenever a gated tool (todowrite, task) is switched off.
+class DecliningCapabilityPlugin : public IPlugin {
+public:
+    std::string id() const override { return "gated"; }
+    std::string version() const override { return "0.1.0"; }
+    std::string name() const override { return "Gated"; }
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<ToolCapability>(
+            "gated", [](PluginServices&) -> std::vector<std::unique_ptr<Tool>> { return {}; }));
+        return caps;
+    }
+};
+
 } // namespace
 
 TEST(runtime_lists_registered_plugins_as_disabled_before_start) {
@@ -191,6 +208,107 @@ TEST(runtime_bundled_plugins_start_enabled) {
     auto rendered = runtime.prompts().render_all();
     ASSERT_EQ(rendered.size(), 1u);
     ASSERT_EQ(rendered[0], std::string("hello from alpha"));
+}
+
+TEST(runtime_declined_capability_does_not_deactivate_the_plugin) {
+    // Regression: a plugin that ships a gated capability (a tool that is absent
+    // until a config flag turns it on) must stay active when the capability
+    // declines. Treating "nothing to install" as a failure deactivated the
+    // whole plugin — which, for the core tool set, left the agent with no tools
+    // at all on a default configuration.
+    ScratchConfig scratch("decline");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<DecliningCapabilityPlugin>());
+    runtime.start();
+
+    ASSERT_TRUE(runtime.status("gated").enabled);
+    ASSERT_EQ(f.tools.snapshot_tools().size(), 0u);
+    ASSERT_TRUE(runtime.contributions().empty());
+}
+
+TEST(explicit_dialect_overrides_a_disabled_flavor) {
+    // Regression: the disabled-flavor guard tested the constructor parameter
+    // *after* it had been moved into the member. A moved-from unique_ptr reads
+    // as null, so the guard was unconditionally true and the check ran even
+    // when the caller supplied its own dialect — the explicit protocol was
+    // thrown away in favour of a refusal.
+    ScratchConfig scratch("explicit-dialect");
+    register_dialect("probe-flavor", [] { return make_dialect("openai"); }, "probe-plugin");
+    unregister_dialects_for("probe-plugin");
+
+    Config cfg;
+    cfg.flavor = "probe-flavor";
+    ASSERT_FALSE(flavor_unavailable_reason(cfg.flavor).empty());
+
+    // Nothing supplied: a disabled flavor must refuse loudly.
+    bool refused = false;
+    try {
+        HttpLLMClient client(cfg);
+    } catch (const std::exception&) {
+        refused = true;
+    }
+    ASSERT_TRUE(refused);
+
+    // An explicit dialect wins: the caller already resolved the protocol.
+    bool refused_with_explicit = false;
+    try {
+        HttpLLMClient client(cfg, make_dialect("openai"));
+    } catch (const std::exception&) {
+        refused_with_explicit = true;
+    }
+    ASSERT_FALSE(refused_with_explicit);
+}
+
+TEST(runtime_core_tools_plugin_is_active_on_a_default_config) {
+    // Regression: the core tool set is a plugin now, so a default config (plan
+    // and task tools off) must still leave the harness with its read/write/
+    // search/bash/process tools. A declining gated capability previously failed
+    // the whole plugin, and the agent came up with no tools at all.
+    ScratchConfig scratch("coretools");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE(runtime.status("core_tools").enabled);
+    ASSERT_TRUE((bool)f.tools.find("read"));
+    ASSERT_TRUE((bool)f.tools.find("write"));
+    ASSERT_TRUE((bool)f.tools.find("search"));
+    ASSERT_TRUE((bool)f.tools.find("bash"));
+    ASSERT_TRUE((bool)f.tools.find("process_start"));
+    // Gated tools are absent, not an error.
+    ASSERT_FALSE((bool)f.tools.find("todowrite"));
+    ASSERT_FALSE((bool)f.tools.find("task"));
+}
+
+TEST(runtime_core_tools_plugin_installs_gated_tools_when_enabled) {
+    ScratchConfig scratch("coretools-gated");
+    Fixture f;
+    f.cfg.plan_tool = true;
+    f.cfg.task_tool = true;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE((bool)f.tools.find("todowrite"));
+    ASSERT_TRUE((bool)f.tools.find("task"));
+
+    // Disabling the plugin takes the whole set back out, gated tools included.
+    ASSERT_TRUE(runtime.set_state("core_tools", false));
+    ASSERT_EQ(f.tools.snapshot_tools().size(), 0u);
 }
 
 TEST(runtime_disable_unwinds_every_contribution) {

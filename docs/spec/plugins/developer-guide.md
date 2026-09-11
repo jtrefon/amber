@@ -26,7 +26,8 @@ it; if they disagree, the tracker wins (and file a fix).
 | Capability | Status | Phase |
 |---|---|---|
 | External tool plugin (subprocess, JSON-RPC) | ✅ Available | v1 |
-| Tool contribution (core) | ✅ Available | PF-1 |
+| Tool contribution (incl. the core tool set) | ✅ Available | PF-4.4 |
+| Harness services in capability factories (`HostServices`) | ✅ Available | PF-4.4 |
 | Command contribution, executable | ✅ Available | PF-1 |
 | Typed event subscription | ✅ Available | PF-1 |
 | Prompt block contribution | ✅ Available | PF-1 |
@@ -118,17 +119,28 @@ public:
 
 ### Tool
 
-```cpp
-class GreetTool : public agent::Capability {
-public:
-    std::string name() const override { return "greet"; }
-    agent::CapabilityKind kind() const override { return agent::CapabilityKind::Tool; }
+A tool is contributed with `ToolCapability`. Give it a factory when the tool
+needs harness services at construction — the core tool set does, because bash
+binds to the job service and todowrite to the todo store.
 
-    agent::InstallResult install(agent::PluginServices& svc) override {
-        return svc.tools().add(std::unique_ptr<agent::Tool>(new GreetToolImpl));
-    }
-};
+```cpp
+std::vector<std::unique_ptr<agent::Capability>> GreetPlugin::capabilities() {
+    std::vector<std::unique_ptr<agent::Capability>> caps;
+    caps.push_back(std::make_unique<agent::ToolCapability>(
+        "greet", [](agent::PluginServices& svc) -> std::vector<std::unique_ptr<agent::Tool>> {
+            std::vector<std::unique_ptr<agent::Tool>> tools;
+            tools.push_back(std::make_unique<GreetToolImpl>());
+            return tools;
+        }));
+    return caps;
+}
 ```
+
+A factory returning an empty list *declines*: the tool is simply absent and the
+plugin stays active. That is the shape a tool gated on configuration uses (the
+core tool set ships `todowrite` and `task` that way). Returning several tools
+makes them one contribution — the ledger records one entry, so disabling the
+plugin takes them all back out together.
 
 Rules: return errors as `ToolResult{false, "", error}` — never throw
 (`AGENTS.md` error conventions). The tool name is namespaced so it cannot

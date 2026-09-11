@@ -468,7 +468,8 @@ TEST(tool_capability_factory_may_decline) {
     h.services.set_owner("plug");
     InstallResult r = cap.install(h.services);
     ASSERT_FALSE(r.ok);
-    ASSERT_FALSE(r.error.empty());
+    ASSERT_TRUE(r.declined);
+    ASSERT_EQ(h.tools.snapshot_tools().size(), 0u);
 }
 
 // Several tools from one capability go away together: the ledger records a

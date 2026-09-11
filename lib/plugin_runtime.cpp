@@ -571,6 +571,8 @@ bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
         if (!capability)
             continue;
         InstallResult result = capability->install(*services_);
+        if (result.declined)
+            continue; // nothing to install is not a reason to fail the plugin
         if (!result.ok)
             return false;
         ledger_.record(id, std::move(result.contribution));

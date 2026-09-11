@@ -77,6 +77,38 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
+### 2026-09-11 — PF-4.4: the core tool set becomes a plugin
+
+Branch `feat/tools-as-plugins`. `register_default_tools` is no longer a list of
+seven factories in `lib/tools_default.cpp`; the set is declared as capabilities
+in `plugins/core_tools` and installed through the same path a third-party tool
+would use (9 tools from 7 capabilities — the process tools are one contribution
+of three).
+
+- **Host services, the third capability shape.** A capability that contributes
+  data (a preset, a block) needs nothing; a provider needs a dialect factory; a
+  *tool* needs the host's runtime objects at construction — bash binds to the
+  job service, todowrite to the todo store, task to the sub-agent executor and
+  the registry. `HostServices` carries those as pointers and is attached like
+  the config (`attach_host_services`), so the runtime never owns host state.
+- **A declining capability is not a failure.** `InstallResult::declined` marks
+  "nothing to install". Without it, `todowrite`/`task` — absent by default —
+  failed the plugin, which deactivated `core_tools` and left the agent with **no
+  tools at all** on a default config. Caught in the live TUI, not by the unit
+  suite: the install path was only covered per-capability, never through
+  `activate()`. Two runtime-level tests now pin it.
+- **Not covered:** the tool set is not namespaced (`read`, not `core.read`) —
+  renaming would break every prompt and every user's muscle memory, so the
+  collision risk with a third-party tool stays a doc-level rule.
+- **Open:** core tools are now disableable like any plugin. Turning off
+  `core_tools` is a one-command way to hand the agent an empty toolbox. Whether
+  the registry should mark a contribution class as load-bearing is unresolved.
+- **Also closed:** `make analyze` never scanned `src/` or `plugins/`, so every
+  plugin was unanalyzed. Adding both surfaced one real defect — the dialect
+  guard in `lib/llm.cpp` tested its constructor parameter *after* moving it, so
+  it was unconditionally true and threw even when the caller supplied an
+  explicit dialect (fixed, with a test).
+
 ### 2026-09-11 — Fix: the wallet fetch raced the host config and outlived the runtime
 
 Found by reviewing the merged PF-3.4 code (post-merge, PR #106).
@@ -642,6 +674,9 @@ What a plugin author can rely on today. Update with every landed task.
 |---|---|---|
 | External tool plugin (subprocess, JSON-RPC) | ✅ Shipping | v1 (unchanged) |
 | Tool contribution (core plugin) | ✅ | PF-1 |
+| Core tool set as a plugin (`plugins/core_tools`, 9 tools) | ✅ | PF-4.4 |
+| Harness services injected into capability factories | ✅ | PF-4.4 |
+| Declining capability leaves its plugin active | ✅ | PF-4.4 |
 | Command contribution (executable) | ✅ | PF-1 |
 | Event subscription (typed) | ✅ | PF-1 |
 | Enable/disable with clean unwinding | ✅ | PF-1 |
@@ -743,6 +778,7 @@ last name-keyed branching instead of adding to it.
 | **PF-4.1** kilocode plugin | Balance fetch/readout moves out of `lib/model_probe.cpp` into the plugin as a status segment + auth semantics | §4, §7 |
 | **PF-4.2** openrouter + anthropic plugins | Convert to `ProviderSpec`; delete `capability_overrides()`; `Config` loses the kilo/account-token fields | §7 |
 | **PF-4.3** Docs alignment | Provider specs re-aligned; `flavor` documented as provider data | §7 |
+| **PF-4.4** Core tools plugin | `register_default_tools`' factories become `ToolCapability` factories in `plugins/core_tools`; `HostServices` (jobs/todos/subagents/cancel token) is injected at install, since a tool binds to host state | §3, §8 |
 
 **Gate:** `grep provider_name ==` → 0 in `lib/`/`include/`; no feature regressions
 in the TUI provider flows; dialect tests untouched.
