@@ -66,7 +66,7 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace
     // "open the panel view" always lands on the registry.
     register_console_panel(panels_, *this);
     services_ = std::make_unique<PluginServices>(tools, prompts_, commands_, status_, panels_,
-                                                 wallets_, settings_, bus_);
+                                                 wallets_, allowances_, settings_, bus_);
     context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());
@@ -76,10 +76,13 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace
     // something.
     wallet_turn_sub_ = Events(bus_).subscribe<TurnEndedEvent>(
         [this](const TurnEndedEvent&) { request_wallet_refresh(); });
+    allowance_turn_sub_ = Events(bus_).subscribe<TurnEndedEvent>(
+        [this](const TurnEndedEvent&) { request_allowance_refresh(); });
 
     // The readout is core, so every provider renders through one path: a plugin
     // supplies a fetch, never a poll loop, a cache and a segment.
     register_wallet_segment();
+    register_allowance_segment();
 }
 
 PluginRuntime::~PluginRuntime() {
@@ -127,6 +130,7 @@ void PluginRuntime::attach_config(const Config& config) {
     // now rather than waiting for the first turn to end. A fresh session should
     // show a balance, not a placeholder.
     request_wallet_refresh();
+    request_allowance_refresh();
 }
 
 void PluginRuntime::tick() {
@@ -141,6 +145,7 @@ void PluginRuntime::tick() {
         }
     }
     maybe_refresh_wallet();
+    maybe_refresh_allowance();
 }
 
 // --- Wallet ---------------------------------------------------------------
@@ -298,6 +303,170 @@ void PluginRuntime::maybe_refresh_wallet() {
         return;
     }
     schedule_wallet_fetch();
+}
+
+// --- Allowance ------------------------------------------------------------
+
+namespace {
+
+constexpr long long kAllowanceRefreshFloorMs = 10LL * 1000;
+
+// Select the window closest to exhaustion: highest percent_used, ties broken
+// by shortest duration (5h beats 7d beats monthly). Returns nullptr when no
+// window has a known percent.
+int window_duration_rank(const std::string& label) {
+    if (label == "5h" || label == "rolling") return 0;
+    if (label == "7d" || label == "weekly") return 1;
+    if (label == "24h" || label == "daily") return 2;
+    return 3; // monthly and everything else is longest
+}
+
+const AllowanceWindow* closest_window(const std::vector<AllowanceWindow>& ws) {
+    const AllowanceWindow* best = nullptr;
+    for (const auto& w : ws) {
+        if (w.percent_used < 0)
+            continue;
+        if (!best || w.percent_used > best->percent_used ||
+            (w.percent_used == best->percent_used &&
+             window_duration_rank(w.label) < window_duration_rank(best->label)))
+            best = &w;
+    }
+    return best;
+}
+
+} // namespace
+
+bool PluginRuntime::allowance_enabled() const {
+    return active_config().allowance_enabled;
+}
+
+PluginRuntime::AllowanceView PluginRuntime::allowance() const {
+    const Config& cfg = active_config();
+    AllowanceView view;
+    view.enabled = cfg.allowance_enabled;
+    view.holder = cfg.provider_name;
+    view.supported = allowances_.find(cfg.provider_name) != nullptr;
+
+    const AllowanceState& state = *allowance_state_;
+    const bool belongs = state.provider == cfg.provider_name;
+    const long long active = state.active_ticket.load();
+    const bool answered = belongs && active != 0 && state.result_ticket.load() == active;
+    view.failed = answered && state.failed.load();
+    view.ready = answered && state.has_value.load();
+    if (view.ready) {
+        std::lock_guard<std::mutex> lock(state.mutex);
+        view.snapshot = state.snapshot;
+    }
+    return view;
+}
+
+void PluginRuntime::request_allowance_refresh() noexcept {
+    allowance_dirty_.store(true);
+}
+
+void PluginRuntime::run_allowance_fetch(const std::shared_ptr<AllowanceState>& state,
+                                        long long ticket,
+                                        const AllowanceRegistry::Fetch& fetch,
+                                        const Config& cfg) {
+    std::optional<AllowanceSnapshot> value;
+    try {
+        value = fetch(cfg);
+    } catch (...) {
+        value = std::nullopt;
+    }
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (value)
+            state->snapshot = *value;
+        else
+            state->snapshot = AllowanceSnapshot{};
+    }
+    state->has_value.store(value.has_value());
+    state->failed.store(!value.has_value());
+    state->result_ticket.store(ticket);
+    state->inflight.store(false);
+}
+
+void PluginRuntime::schedule_allowance_fetch() {
+    const Config cfg = active_config();
+    const std::string provider = cfg.provider_name;
+    const auto state = allowance_state_;
+    const long long ticket = ++allowance_ticket_;
+
+    state->provider = provider;
+    state->active_ticket.store(ticket);
+    state->last_ms.store(steady_now_ms());
+
+    const AllowanceRegistry::Fetch* fetch = allowances_.find(provider);
+    if (!fetch) {
+        state->has_value.store(false);
+        state->failed.store(false);
+        state->result_ticket.store(ticket);
+        state->inflight.store(false);
+        return;
+    }
+
+    state->inflight.store(true);
+    AllowanceRegistry::Fetch work = *fetch;
+    std::thread([state, ticket, work = std::move(work), cfg] {
+        run_allowance_fetch(state, ticket, work, cfg);
+    }).detach();
+}
+
+void PluginRuntime::perform_allowance_refresh() {
+    const Config cfg = active_config();
+    const std::string provider = cfg.provider_name;
+    const auto state = allowance_state_;
+    const long long ticket = ++allowance_ticket_;
+
+    state->provider = provider;
+    state->active_ticket.store(ticket);
+    state->last_ms.store(steady_now_ms());
+
+    const AllowanceRegistry::Fetch* fetch = allowances_.find(provider);
+    if (!fetch) {
+        state->has_value.store(false);
+        state->failed.store(false);
+        state->result_ticket.store(ticket);
+        state->inflight.store(false);
+        return;
+    }
+    state->inflight.store(true);
+    run_allowance_fetch(state, ticket, *fetch, cfg);
+}
+
+void PluginRuntime::register_allowance_segment() {
+    status_.add("", "allowance", /*priority=*/790, /*drop_priority=*/8,
+                [this](const StatusSnapshot&) -> StatusText {
+                    if (!allowance_enabled())
+                        return StatusText{};
+                    const AllowanceView view = allowance();
+                    if (!view.supported || view.failed || !view.ready)
+                        return StatusText{"  -", StatusTone::Dim};
+                    const AllowanceWindow* w = closest_window(view.snapshot.windows);
+                    if (!w)
+                        return StatusText{"  -", StatusTone::Dim};
+                    char buf[48];
+                    std::snprintf(buf, sizeof(buf), "  %d%%·%s",
+                                  static_cast<int>(w->percent_used), w->label.c_str());
+                    const StatusTone tone = w->percent_used >= 70.0 ? StatusTone::Warn
+                                                                     : StatusTone::Dim;
+                    return StatusText{buf, tone};
+                });
+}
+
+void PluginRuntime::maybe_refresh_allowance() {
+    if (!allowance_dirty_.exchange(false))
+        return;
+    if (allowance_state_->inflight.load()) {
+        allowance_dirty_.store(true);
+        return;
+    }
+    if (steady_now_ms() - allowance_state_->last_ms.load() < kAllowanceRefreshFloorMs) {
+        allowance_dirty_.store(true);
+        return;
+    }
+    schedule_allowance_fetch();
 }
 
 IPlugin* PluginRuntime::find(const std::string& id) const noexcept {

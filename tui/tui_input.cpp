@@ -1103,6 +1103,10 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string&) { cmd_get_wallet(); });
     register_action("core.config.set.provider.wallet",
         [this](const std::string& a) { cmd_set_wallet(a); });
+    register_action("core.config.get.provider.allowance",
+        [this](const std::string&) { cmd_get_allowance(); });
+    register_action("core.config.set.provider.allowance",
+        [this](const std::string& a) { cmd_set_allowance(a); });
     register_action("core.config.get.provider",
         [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.provider.list",
@@ -1535,6 +1539,64 @@ void SlashDispatcher::cmd_set_wallet(const std::string& val) {
     if (enabled) tui_.plugin_runtime_.request_wallet_refresh();
     tui_.append_line(P_STATUS,
                      std::string("provider wallet ") + (enabled ? "on" : "off"));
+}
+
+void SlashDispatcher::cmd_get_allowance() {
+    const auto al = tui_.plugin_runtime_.allowance();
+    std::string line =
+        std::string("provider allowance: ") + (al.enabled ? "on" : "off");
+    if (!al.supported) {
+        line += "  (" + al.holder + " declares no allowance)";
+    } else if (al.failed) {
+        line += "  (" + al.holder + ": unavailable)";
+    } else if (al.ready) {
+        line += "  " + al.holder;
+        if (!al.snapshot.plan.empty())
+            line += " [" + al.snapshot.plan + "]";
+        tui_.append_line(P_STATUS, line);
+        for (const auto& w : al.snapshot.windows) {
+            std::string row = "  " + w.label;
+            if (w.percent_used >= 0)
+                row += "  " + std::to_string(static_cast<int>(w.percent_used)) + "% used";
+            if (w.remaining >= 0 && w.entitlement >= 0) {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "  %.2f/%.2f %s", w.remaining, w.entitlement,
+                              al.snapshot.currency.empty() ? al.snapshot.unit.c_str()
+                                                           : al.snapshot.currency.c_str());
+                row += buf;
+            }
+            if (!w.resets_at.empty())
+                row += "  resets " + w.resets_at;
+            tui_.append_line(P_STATUS, row);
+        }
+        if (al.snapshot.credits_balance) {
+            char buf[48];
+            std::snprintf(buf, sizeof(buf), "  credits: %.2f %s", *al.snapshot.credits_balance,
+                          al.snapshot.currency.empty() ? "" : al.snapshot.currency.c_str());
+            tui_.append_line(P_STATUS, buf);
+        }
+        return;
+    } else {
+        line += "  (" + al.holder + ": not fetched yet)";
+    }
+    tui_.append_line(P_STATUS, line);
+}
+
+void SlashDispatcher::cmd_set_allowance(const std::string& val) {
+    bool enabled;
+    if (val == "on") enabled = true;
+    else if (val == "off") enabled = false;
+    else if (val == "toggle") enabled = !tui_.cfg_.allowance_enabled;
+    else {
+        tui_.append_line(P_STATUS,
+                         "usage: /set provider allowance on|off|toggle (got: " + val + ")");
+        return;
+    }
+    tui_.cfg_.allowance_enabled = enabled;
+    tui_.cfg_.save_global(agent::global_config_path());
+    if (enabled) tui_.plugin_runtime_.request_allowance_refresh();
+    tui_.append_line(P_STATUS,
+                     std::string("provider allowance ") + (enabled ? "on" : "off"));
 }
 
 void SlashDispatcher::show_plugin(const std::string& id) {

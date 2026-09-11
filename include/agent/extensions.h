@@ -188,6 +188,48 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Allowance (subscription/quota windows)
+// ---------------------------------------------------------------------------
+
+// One usage window: a rolling 5-hour session, a weekly cap, a monthly credit
+// pool, a per-model quota — any metered limit with a reset. `percent_used` is
+// 0–100 (-1 = unknown). `remaining` and `entitlement` are counts or credits
+// (-1 = not applicable). `resets_at` is ISO 8601 or empty.
+struct AllowanceWindow {
+    std::string label;
+    double percent_used = -1;
+    std::string resets_at;
+    double remaining = -1;
+    double entitlement = -1;
+};
+
+// The full allowance picture for a provider: a plan name, the windows the
+// provider reports, an optional prepaid credit balance, and the unit/currency
+// the numbers are in.
+struct AllowanceSnapshot {
+    std::string plan;
+    std::vector<AllowanceWindow> windows;
+    std::optional<double> credits_balance;
+    std::string unit;
+    std::string currency;
+};
+
+// Same shape as WalletRegistry: a provider supplies a fetch, the runtime owns
+// polling, caching, and rendering.
+class AllowanceRegistry {
+public:
+    using Fetch = std::function<std::optional<AllowanceSnapshot>(const Config&)>;
+
+    Contribution add(const std::string& owner, Fetch fetch);
+    const Fetch* find(const std::string& owner) const;
+    std::vector<ExtensionItem> items() const;
+    std::size_t size() const noexcept { return entries_.size(); }
+
+private:
+    std::vector<std::pair<std::string, Fetch>> entries_;
+};
+
+// ---------------------------------------------------------------------------
 // Panels
 // ---------------------------------------------------------------------------
 
@@ -299,7 +341,8 @@ class PluginServices {
 public:
     PluginServices(ToolRegistry& tools, PromptRegistry& prompts, CommandRegistry& commands,
                    StatusRegistry& status, PanelRegistry& panels, WalletRegistry& wallets,
-                   PluginSettingsStore& settings, EventBus& events) noexcept;
+                   AllowanceRegistry& allowances, PluginSettingsStore& settings,
+                   EventBus& events) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
     PromptRegistry& prompts() noexcept { return *prompts_; }
@@ -307,6 +350,7 @@ public:
     StatusRegistry& status() noexcept { return *status_; }
     PanelRegistry& panels() noexcept { return *panels_; }
     WalletRegistry& wallets() noexcept { return *wallets_; }
+    AllowanceRegistry& allowances() noexcept { return *allowances_; }
     PluginSettingsStore& settings() noexcept { return *settings_; }
     EventBus& events() noexcept { return *events_; }
 
@@ -327,6 +371,7 @@ private:
     StatusRegistry* status_;
     PanelRegistry* panels_;
     WalletRegistry* wallets_;
+    AllowanceRegistry* allowances_;
     PluginSettingsStore* settings_;
     EventBus* events_;
     std::string owner_;
@@ -447,6 +492,19 @@ public:
 
 private:
     WalletRegistry::Fetch fetch_;
+};
+
+// Contributes an allowance fetch: the plugin supplies the fetch, the runtime
+// owns polling, caching, and rendering. Same pattern as WalletCapability.
+class AllowanceCapability : public Capability {
+public:
+    explicit AllowanceCapability(AllowanceRegistry::Fetch fetch);
+    std::string name() const override { return "allowance"; }
+    CapabilityKind kind() const override { return CapabilityKind::Allowance; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    AllowanceRegistry::Fetch fetch_;
 };
 
 // Contributes a full-screen panel.

@@ -258,6 +258,43 @@ caps.push_back(std::make_unique<agent::WalletCapability>(
   provider's wallet, and bar space is scarce. `/get provider wallet` reports the
   fuller state, and `/set provider wallet on|off` is the global display switch.
 
+### Allowance (subscription/quota windows)
+
+If your provider has a subscription or rate-limit system (rolling windows,
+monthly credits, per-model quotas), declare an allowance fetch. Same model as
+the wallet: the plugin supplies only the fetch, the runtime owns polling,
+caching, and rendering.
+
+```cpp
+caps.push_back(std::make_unique<agent::AllowanceCapability>(
+    [](const agent::Config& cfg) -> std::optional<agent::AllowanceSnapshot> {
+        if (cfg.api_key.empty()) return std::nullopt;
+        const auto body = agent::http_get_with_bearer(url, cfg.api_key);
+        if (!body) return std::nullopt;
+        return my_parse_usage(*body);  // returns AllowanceSnapshot or nullopt
+    }));
+```
+
+`AllowanceSnapshot` carries:
+
+- `plan` — the plan name ("Pro", "Go", "free").
+- `windows` — a vector of `AllowanceWindow`, each with a `label` ("5h", "7d",
+  "monthly"), `percent_used` (0–100, -1 = unknown), `remaining` and
+  `entitlement` (count or credits, -1 = not applicable), and `resets_at` (ISO
+  8601 or empty).
+- `credits_balance` — optional prepaid credit balance.
+- `unit` and `currency` — what the numbers mean ("credits", "USD", "CNY").
+
+The status bar shows the **closest affecting window** — the one with the
+highest `percent_used` (ties broken by shortest label, so 5h beats 7d beats
+monthly). This is the window most likely to interrupt current work.
+`/get provider allowance` shows all windows in detail, and
+`/set provider allowance on|off` is the global display switch.
+
+Return `nullopt` on any failure (no key, endpoint down, parse error) — the bar
+shows `-`, never a fake zero. The fetch runs off the UI thread at turn
+boundaries, same cadence as the wallet.
+
 ### Panel
 
 ```cpp
@@ -365,6 +402,10 @@ sitting and each a template for the next:
 | `plugins/custom/` | Presets only, no endpoint: the user's own endpoint, configured by file |
 | `plugins/openrouter/` | Minimal vendor on a shared protocol (presets only, no dialect) + a per-key wallet |
 | `plugins/kilocode/` | Shared protocol + a provider-specific feature (a wallet: one fetch, no poll loop) |
+| `plugins/opencode_go/` | Shared protocol + an allowance (subscription usage windows) |
+| `plugins/opencode_zen/` | Shared protocol, presets only (compatible models) |
+| `plugins/commandcode/` | Shared protocol + an allowance (5h/weekly/monthly windows) |
+| `plugins/deepseek/` | Shared protocol + a wallet (prepaid balance) |
 | `plugins/anthropic/` | A vendor protocol the plugin itself provides |
 | `plugins/gemini/` | A vendor protocol with a different streaming model, usage shape and model listing |
 

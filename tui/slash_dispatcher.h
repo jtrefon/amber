@@ -51,6 +51,8 @@ public:
     void cmd_runtime_plugin_list();
     void cmd_get_wallet();
     void cmd_set_wallet(const std::string& val);
+    void cmd_get_allowance();
+    void cmd_set_allowance(const std::string& val);
     void cmd_runtime_plugin_get(const std::string& id);
     void show_plugin(const std::string& id);
     void cmd_provider_delete(const std::string& name);
