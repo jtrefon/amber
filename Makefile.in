@@ -425,6 +425,11 @@ $(BUILD_DIR)/tests/fixtures/%: $(SRC_DIR)/tests/fixtures/%.cpp
 -include $(TUI_TEST_OBJ:.o=.d)
 -include $(PLUGIN_TEST_OBJ:.o=.d)
 -include $(BUILD_DIR)/third_party/md4c/md4c.d
+# Bundled plugin objects generate .d files (the pattern rule uses DEPFLAGS) but
+# were missing from this list, so a change to a header they include — including
+# IPlugin itself — silently left them stale. With IPlugin's vtable that is not a
+# warning, it is a jump through the wrong slot.
+-include $(wildcard $(BUILD_DIR)/plugins/*/*.d)
 -include $(WS_TEST_OBJ:.o=.d)
 -include $(CDP_WS_OBJ:.o=.d)
 -include $(CDP_MAIN_OBJ:.o=.d)

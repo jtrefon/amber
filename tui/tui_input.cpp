@@ -1542,8 +1542,10 @@ void SlashDispatcher::show_plugin(const std::string& id) {
     const auto status = tui_.plugin_runtime_.status(id);
     tui_.append_line(P_STATUS, "plugin " + status.id + ": " +
                                   plugin_state_word(status.enabled) +
-                                  " (" + status.tier + " v" + status.version +
-                                  ")");
+                                  " (" + status.category + ", " + status.tier +
+                                  " v" + status.version + ")");
+    if (!status.description.empty())
+        tui_.append_line(P_STATUS, "  " + status.description);
     if (status.contributions.empty()) {
         tui_.append_line(P_STATUS, "  contributes nothing");
     }

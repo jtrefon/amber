@@ -15,6 +15,20 @@
 
 namespace agent {
 
+// Grouping vocabulary for the plugin list. Core-declared so the console and
+// plugins agree on the common names, but deliberately open: a plugin may use
+// any category, and an unrecognised one groups under its own heading rather
+// than being hidden or forced into "other".
+namespace plugin_category {
+inline constexpr const char* kProvider = "provider";
+inline constexpr const char* kObservability = "observability";
+inline constexpr const char* kTools = "tools";
+inline constexpr const char* kUi = "ui";
+inline constexpr const char* kMemory = "memory";
+inline constexpr const char* kSearch = "search";
+inline constexpr const char* kOther = "other";
+} // namespace plugin_category
+
 struct PluginContext {
     EventBus& event_bus;
     const ToolRegistry& tools;
@@ -33,6 +47,15 @@ public:
     virtual std::string id() const = 0;
     virtual std::string version() const = 0;
     virtual std::string name() const = 0;
+
+    // One line saying what this plugin is for. Shown in the registry list, so
+    // keep it short — it answers "which one do I want", not "how does it work".
+    virtual std::string description() const { return {}; }
+
+    // Which group this plugin belongs to in the registry list. Defaults to
+    // "other" rather than forcing every tiny plugin to pick a label; the
+    // console shows the group, so an undeclared category is visible, not silent.
+    virtual std::string category() const { return plugin_category::kOther; }
 
     virtual bool initialize(const PluginContext& ctx) = 0;
     virtual void shutdown() = 0;

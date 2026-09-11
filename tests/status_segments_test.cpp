@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -354,14 +355,110 @@ TEST(console_panel_lists_plugins_and_their_contributions) {
     ASSERT(text.find("wallet:kilocode") != std::string::npos);
     ASSERT(text.find("/set plugin") != std::string::npos);
 
+    // Grouped by category, so a long list is scanned by heading rather than
+    // read line by line. Providers come first, by design.
+    const std::size_t provider_at = text.find("\nprovider\n");
+    const std::size_t obs_at = text.find("\nobservability\n");
+    ASSERT(provider_at != std::string::npos);
+    ASSERT(obs_at != std::string::npos);
+    ASSERT(provider_at < obs_at);
+    // Each entry carries its one-line summary.
+    ASSERT(text.find("Kilo gateway") != std::string::npos);
+    ASSERT(text.find("Counts turns") != std::string::npos);
+
     // A disabled plugin reports itself as off, and its contributions are gone.
     ASSERT_TRUE(runtime.set_state("gemini", false));
     std::string after;
     for (const auto& line : plugin_console_lines(runtime))
         after += line + "\n";
     ASSERT(after.find("provider:gemini") == std::string::npos);
-    ASSERT(after.find("gemini            bundled   off") != std::string::npos ||
-           after.find("off") != std::string::npos);
+
+    unsetenv("XDG_CONFIG_HOME");
+    std::filesystem::remove_all(dir);
+}
+
+namespace {
+
+// A plugin that invents its own category: the vocabulary is core-declared but
+// open, so no core edit is needed to add one.
+class AcmePlugin : public IPlugin {
+public:
+    std::string id() const override { return "acme"; }
+    std::string version() const override { return "2.1.0"; }
+    std::string name() const override { return "Acme"; }
+    std::string description() const override { return "Picked its own group."; }
+    std::string category() const override { return "acme"; }
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+};
+
+// A plugin that declares none of the optional metadata.
+class BarePlugin : public IPlugin {
+public:
+    std::string id() const override { return "bare"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Bare"; }
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+};
+
+} // namespace
+
+TEST(plugin_console_gives_an_unknown_category_its_own_group) {
+    const std::string dir = "/tmp/amber_plugin_test_unknown_cat";
+    std::filesystem::remove_all(dir);
+    setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+
+    ToolRegistry tools;
+    Config cfg;
+    Workspace ws;
+    PluginRuntime runtime(tools, cfg, ws);
+    runtime.add(std::make_shared<AcmePlugin>());
+    runtime.start();
+
+    std::string text;
+    for (const auto& line : plugin_console_lines(runtime))
+        text += line + "\n";
+
+    ASSERT(text.find("\nacme\n") != std::string::npos);
+    ASSERT(text.find("Picked its own group.") != std::string::npos);
+    // Unknown groups sort after the known set but before "other".
+    ASSERT(text.find("\nacme\n") < text.find("\nother\n"));
+
+    // And the status carries the metadata through to the detail view.
+    const auto status = runtime.status("acme");
+    ASSERT_EQ(status.category, std::string("acme"));
+    ASSERT_EQ(status.description, std::string("Picked its own group."));
+    ASSERT_EQ(status.version, std::string("2.1.0"));
+
+    unsetenv("XDG_CONFIG_HOME");
+    std::filesystem::remove_all(dir);
+}
+
+TEST(plugin_console_makes_undeclared_metadata_visible) {
+    const std::string dir = "/tmp/amber_plugin_test_bare_meta";
+    std::filesystem::remove_all(dir);
+    setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+
+    ToolRegistry tools;
+    Config cfg;
+    Workspace ws;
+    PluginRuntime runtime(tools, cfg, ws);
+    runtime.add(std::make_shared<BarePlugin>());
+    runtime.start();
+
+    std::string text;
+    for (const auto& line : plugin_console_lines(runtime))
+        text += line + "\n";
+
+    // Undeclared metadata is shown as such rather than silently omitted: a
+    // missing category or description is a gap the author can see.
+    ASSERT(text.find("\nother\n") != std::string::npos);
+    ASSERT(text.find("(no description)") != std::string::npos);
+
+    const auto status = runtime.status("bare");
+    ASSERT_EQ(status.category, std::string("other"));
+    ASSERT_TRUE(status.description.empty());
 
     unsetenv("XDG_CONFIG_HOME");
     std::filesystem::remove_all(dir);

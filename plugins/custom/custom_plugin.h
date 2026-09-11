@@ -24,6 +24,10 @@ public:
     std::string id() const override { return "custom"; }
     std::string version() const override { return "1.0.0"; }
     std::string name() const override { return "Custom endpoint provider"; }
+    std::string description() const override {
+        return "Your own OpenAI-compatible endpoint, configured by file.";
+    }
+    std::string category() const override { return plugin_category::kProvider; }
 
     bool initialize(const PluginContext&) override { return true; }
     void shutdown() override {}

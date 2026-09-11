@@ -78,7 +78,9 @@ public:
     struct PluginStatus {
         std::string id;
         std::string version;
-        std::string tier; // "bundled" or "external"
+        std::string tier;        // "bundled" or "external"
+        std::string description; // one-line summary, may be empty
+        std::string category;    // grouping for the registry list
         bool enabled = false;
         std::vector<ExtensionItem> contributions;
     };

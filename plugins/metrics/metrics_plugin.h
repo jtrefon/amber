@@ -13,6 +13,10 @@ public:
     std::string id() const override { return "metrics"; }
     std::string version() const override { return "1.0.0"; }
     std::string name() const override { return "Metrics"; }
+    std::string description() const override {
+        return "Counts turns, tool calls and turn duration.";
+    }
+    std::string category() const override { return plugin_category::kObservability; }
 
     bool initialize(const PluginContext& ctx) override;
     void shutdown() override;

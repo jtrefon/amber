@@ -59,7 +59,17 @@ public:
     std::string id() const override { return "hello"; }        // slug, unique
     std::string version() const override { return "1.0.0"; }   // semver
     std::string name() const override { return "Hello"; }      // display
-    int api_version() const override { return agent::kPluginApiVersion; }
+
+    // Optional metadata, shown in the registry list (/get plugin list, Alt+0).
+    // The description answers "which one do I want" — keep it to one line.
+    // The category is the group it appears under; the vocabulary in
+    // agent::plugin_category is the common set, and your own value works too.
+    std::string description() const override {
+        return "Greets people by name.";
+    }
+    std::string category() const override {
+        return agent::plugin_category::kTools;
+    }
 
     bool initialize(const agent::PluginContext& ctx) override {
         ctx_ = &ctx;          // store; do not do work here that needs installing
@@ -82,6 +92,12 @@ disabled cleanly.
 
 Bundled plugins live in `plugins/<id>/` and are registered in one place
 (`register_bundled_plugins`), so the shipped set is enumerable at a glance.
+
+Neither `description()` nor `category()` is required — a plugin that declares
+neither still works and appears under `other` with an explicit
+`(no description)` marker, so an omission is visible rather than silent. There
+is no runtime version check for bundled plugins: they are compiled into the
+same binary, so the compiler is the version check.
 
 ---
 

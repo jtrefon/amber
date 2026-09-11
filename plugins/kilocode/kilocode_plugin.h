@@ -38,6 +38,10 @@ public:
     std::string id() const override { return "kilocode"; }
     std::string version() const override { return "1.0.0"; }
     std::string name() const override { return "Kilocode provider"; }
+    std::string description() const override {
+        return "Kilo gateway, with its account balance as the wallet.";
+    }
+    std::string category() const override { return plugin_category::kProvider; }
 
     bool initialize(const PluginContext&) override { return true; }
     void shutdown() override {}

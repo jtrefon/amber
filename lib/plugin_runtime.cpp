@@ -277,6 +277,8 @@ std::vector<PluginRuntime::PluginStatus> PluginRuntime::list() const {
         status.id = id;
         status.version = entry.plugin->version();
         status.tier = entry.bundled ? "bundled" : "external";
+        status.description = entry.plugin->description();
+        status.category = entry.plugin->category();
         status.enabled = registry_.state(id) == PluginRegistry::State::Active;
         for (const auto& item : ledger_.contributions(id)) {
             status.contributions.push_back({item.kind, id, item.name, std::string{}});

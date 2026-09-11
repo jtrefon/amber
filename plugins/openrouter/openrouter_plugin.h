@@ -32,6 +32,10 @@ public:
     std::string id() const override { return "openrouter"; }
     std::string version() const override { return "1.0.0"; }
     std::string name() const override { return "OpenRouter provider"; }
+    std::string description() const override {
+        return "OpenRouter router, with this key's remaining allowance.";
+    }
+    std::string category() const override { return plugin_category::kProvider; }
 
     bool initialize(const PluginContext&) override { return true; }
     void shutdown() override {}

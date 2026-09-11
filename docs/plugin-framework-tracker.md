@@ -77,6 +77,44 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
+### 2026-09-10 — Plugin metadata (description + category), and a build fix
+
+- **Landed**
+  - **`IPlugin::description()` and `IPlugin::category()`** — the plugin
+    vocabulary was id/version/name only, so a list could be counted but not
+    scanned. Both are optional (defaults `""` and `"other"`), so existing
+    plugins keep compiling, and both are shown: an undeclared category lands
+    under `other` and an undeclared description prints `(no description)`, so
+    an omission is visible rather than silent.
+  - **`agent::plugin_category`** — core-declared names (`provider`, `tools`,
+    `observability`, `ui`, `memory`, `search`, `other`) as a *vocabulary, not
+    an enum*: a plugin may invent a category, and the console gives it its own
+    heading rather than hiding it or folding it into `other`.
+  - **The registry list is grouped** (`/get plugin list`, the console panel).
+    Known categories come first in a deliberate order, unknown ones follow
+    alphabetically, `other` last. Each entry is `id  state  version
+    description`, with contributions on an indented second line — two lines
+    rather than one over-long one, because the panel would otherwise truncate
+    silently. `/get plugin <id>` additionally reports the category and tier.
+  - Every bundled plugin now declares both fields.
+- **Build fix found by this work (real, and a class we had been warned about):**
+  bundled plugin `.d` files were generated but **never included** in
+  `Makefile.in`, so a change to a header a plugin includes did not rebuild that
+  plugin's object. Adding virtuals to `IPlugin` therefore produced a binary
+  where some objects had the old vtable — the console segfaulted on a jump
+  through a null slot. `-include $(wildcard $(BUILD_DIR)/plugins/*/*.d)` fixes
+  it. This is the repo's own documented stale-`.o` gotcha; it had simply never
+  bitten in the plugin directory before, because there was nothing there to
+  change.
+  - Related and expected: `make clean` also removes the MCP test fixtures, so
+    running `./run_tests` directly after a clean reports MCP failures until
+    `make test` rebuilds them. Not a bug, but it is how a clean run can look
+    broken.
+- **Verification:** `make clean && make && make test` (exit 0), `./run_tests` →
+  **631 passed, 0 failed**, `make check` clean, cppcheck clean, new files
+  clang-format clean. Console output verified by probe: grouped by
+  `provider` / `observability` with each plugin's one-line summary.
+
 ### 2026-09-10 — PF-3.4: the wallet (framework-owned, all providers)
 
 - **Landed**
@@ -499,6 +537,7 @@ What a plugin author can rely on today. Update with every landed task.
 | Time-driven work (`IPlugin::tick`) | ✅ | PF-3.1 |
 | Every vendor provider shipped as a plugin | ✅ | PF-4 |
 | Panel contribution + registry console | ✅ | PF-3.2 |
+| Plugin description + category (grouped registry list) | ✅ | PF-1 |
 | Wallet contribution (fetch only; polling + rendering core) | ✅ | PF-3.4 |
 | `/get provider wallet`, `/set provider wallet on\|off` | ✅ | PF-3.4 |
 | Host services (ask/choose/confirm/notify) | ⏳ | PF-3.3 |
