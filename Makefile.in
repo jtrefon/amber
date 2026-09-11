@@ -267,6 +267,7 @@ analyze:
 	    --suppressions-list=$(SRC_DIR)/cppcheck_suppressions.txt \
 	    --suppress=missingIncludeSystem --error-exitcode=1 \
 	    -I$(SRC_DIR)/include -I$(SRC_DIR)/src -I$(SRC_DIR)/tools -I$(SRC_DIR) \
+	    -i$(SRC_DIR)/bench/scenarios \
 	    $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/bench $(SRC_DIR)/src $(SRC_DIR)/plugins $(SRC_DIR)/tests 2>/tmp/cp_$$.log; rc=$$?; \
 	grep -v "^Checking\|^nofile\|^cppcheck: progress" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
 	rm -rf $(ANALYZE_BUILD_DIR); \
