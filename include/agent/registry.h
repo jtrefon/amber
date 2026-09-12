@@ -26,7 +26,12 @@ namespace agent {
 // that survives a concurrent unregister/replacement.
 class ToolRegistry {
 public:
-    void register_tool(std::unique_ptr<Tool> tool);
+    // Register a tool under an owner. `owner` is the contributing plugin's id;
+    // empty means the host. Ownership is what makes unwinding precise: a
+    // plugin's removal can only ever reach its own tools, even when two plugins
+    // contribute the same name (the later registration replaces the earlier
+    // one, and the replacement carries its own owner).
+    void register_tool(std::unique_ptr<Tool> tool, std::string owner = {});
     // Shared lease: the caller keeps the tool alive across a concurrent
     // unregister/replacement (dispatch holds the lease through execute()).
     std::shared_ptr<Tool> find(const std::string& name) const;
@@ -39,14 +44,24 @@ public:
     // Returns the number removed.
     size_t unregister_tools_with_prefix(const std::string& prefix);
 
-    // Remove exactly one tool by name. Returns true when it existed. Used by
-    // the plugin ledger to unwind a contributed tool without touching
-    // host-registered ones.
+    // Remove exactly one tool by name. Returns true when it existed. This is
+    // the host's escape hatch: it does not consult ownership.
     bool remove_tool(const std::string& name);
 
+    // Remove `name` only when `owner` is its recorded contributor. Returns true
+    // when it was removed. This is the ledger's unwinder, and it is what makes
+    // unwinding safe under a name collision: a plugin can only ever remove its
+    // own tool, never a neighbour's.
+    bool remove_owned_tool(const std::string& name, const std::string& owner);
+
 private:
+    struct Entry {
+        std::shared_ptr<Tool> tool;
+        std::string owner;
+    };
+
     mutable std::mutex mtx_;
-    std::vector<std::shared_ptr<Tool>> tools_;
+    std::vector<Entry> tools_;
 };
 
 } // namespace agent

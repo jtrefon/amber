@@ -28,11 +28,9 @@ class PluginServices;
 
 enum class CapabilityKind : std::uint8_t {
     Tool,
-    Command,
     PromptBlock,
     StatusSegment,
     Panel,
-    Setting,
     Provider,
     Wallet,
     Allowance,
@@ -48,6 +46,11 @@ struct Contribution {
 
 struct InstallResult {
     bool ok = false;
+    // Decided not to install, and that is not a failure: a capability whose
+    // subject is absent (a tool gated on configuration) contributes nothing and
+    // must not take its plugin down with it. `ok == false && declined == true`
+    // means "nothing to install"; `ok == false && !declined` means "broken".
+    bool declined = false;
     std::string error; // non-empty when ok == false
     Contribution contribution;
 };
