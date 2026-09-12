@@ -191,7 +191,7 @@ struct HostServices {
     class JobService* jobs = nullptr;
     class TodoStore* todos = nullptr;
     class SubAgentExecutor* subagents = nullptr;
-    const class CancellationToken* cancel_token = nullptr;
+    const struct CancellationToken* cancel_token = nullptr;
 };
 
 // ---------------------------------------------------------------------------
