@@ -35,7 +35,7 @@ it; if they disagree, the tracker wins (and file a fix).
 | Provider contribution (dialect + presets) | ✅ Available | PF-2 |
 | Status segment contribution | ✅ Available | PF-3 |
 | Panel contribution + registry console | ✅ Available | PF-3.2 |
-| Host services (`ask_secret`, `choose`, …) | ⏳ | PF-3 |
+| Host services (`ask_secret`, `choose`, …) | ✅ | 2026-09-12 |
 | Log sinks | – | Deferred (no consumer) |
 | Command contribution, plugin settings | – | Removed (no producer, no consumer — see tracker) |
 | Theme, key interception, window geometry, hot reload | – | Deferred register |
@@ -362,11 +362,12 @@ Catalogue and fire sites: spec §6. What you can rely on:
 ## 4. Host services (talking to the user) ⏳ target
 
 ```cpp
-std::string key = ctx_->ui().ask_secret({"Gemini API key", "Paste the key"});
-int choice = ctx_->ui().choose({"Pick a model", model_ids});
-bool ok = ctx_->ui().confirm({"Overwrite the config?", "This cannot be undone"});
-ctx_->ui().notify(agent::Level::Info, "Balance refreshed");
-ctx_->ui().post_to_ui([this] { snapshot_ = build_snapshot(); });
+// In a capability factory (or anywhere you hold a PluginServices&):
+std::string key = services.ui->ask_secret({"Gemini API key", "Paste the key", ""});
+int choice = services.ui->choose({"Pick a model", model_ids, 0});
+bool ok = services.ui->confirm({"Overwrite the config?", "This cannot be undone"});
+services.ui->notify(agent::UiLevel::Info, "Balance refreshed");
+services.ui->post_to_ui([this] { snapshot_ = build_snapshot(); });
 ```
 
 - Calls are blocking on *your* thread; the host shows the UI on its own thread

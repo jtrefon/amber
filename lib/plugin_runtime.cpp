@@ -130,6 +130,11 @@ void PluginRuntime::attach_config(const Config& config) {
     request_wallet_refresh();
 }
 
+void PluginRuntime::attach_ui_services(UiServices* ui) noexcept {
+    ui_services_ = ui ? ui : &null_ui_services();
+    if (services_) services_->ui = ui_services_;
+}
+
 void PluginRuntime::attach_host_services(const HostServices& host) noexcept {
     // Copied by value, not stored by reference: the runtime keeps the pointers
     // the host filled in, so it never depends on the caller's struct outliving
@@ -317,7 +322,9 @@ namespace {
 // one, otherwise the window closest to its reset. Wordless, as the bar is.
 StatusText wallet_status_text(const WalletSnapshot& snapshot) {
     if (snapshot.credits_balance) {
-        const std::string& unit = snapshot.currency.empty() ? std::string("$") : snapshot.currency;
+        // By value: binding a reference to a temporary in one arm of the
+        // conditional is a dangling read, and cppcheck is right to say so.
+        const std::string unit = snapshot.currency.empty() ? "$" : snapshot.currency;
         char buf[48];
         std::snprintf(buf, sizeof(buf), "  %s%.2f", unit.c_str(), *snapshot.credits_balance);
         return StatusText{buf, StatusTone::Dim};
