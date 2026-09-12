@@ -76,6 +76,35 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-09-12 — The bench runs the plugin runtime (tools spec §3.6)
+
+Branch `docs/tools-domain`. The harness now measures what a user runs, and a
+result says what produced it.
+
+- `bench/runner.cpp` builds the runtime every host builds (`add_bundled`,
+  attach host services + config, `start`) instead of calling
+  `register_default_tools` directly. That also restored the tool documentation
+  the tool split had silently removed from bench prompts.
+- `RunMeta` carries the plugin set; serialized, parsed back (the round-trip
+  rule in `bench/report.cpp`), and printed in the text and scorecard headers.
+  Older results say "plugins: not recorded" rather than implying a default.
+- `--disable ID[,ID]` switches plugins off for one run. An unknown id fails
+  loudly, and the failure names the scenario and the reason.
+- **Two invariants keep a run independent of other people's state:**
+  `PluginRuntime::apply_state` applies without persisting (a measurement is not
+  a preference, so no bench run writes the user's `plugin.conf`), and
+  `PluginRuntime::start(false)` ignores persisted state entirely. The second was
+  found the hard way: this machine's saved state had `anthropic` and
+  `tool_search` off, and the first bench runs reported a configuration nobody
+  chose.
+- Baseline artifact: `bench/results/tools-domain-hermetic-baseline.{txt,json}`
+  — 8/8 hermetic scenarios, 17 plugins, all on. This is the "before" for the
+  flag retirement (§5.3), whose prompt change (the plan tool's documentation
+  moves into its plugin) needs the comparison.
+
+724 tests pass, `make check` clean.
+
+
 ### 2026-09-12 — One plugin per tool, and the prompt travels with the tool
 
 Branch `docs/tools-domain`. The tools domain now has the granularity the spec

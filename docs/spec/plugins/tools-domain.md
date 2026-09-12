@@ -272,8 +272,8 @@ Implemented (branch `docs/tools-domain`):
 
 Left, with the reason it is not done yet:
 
-- **§5.3 (delete `plan_tool`/`task_tool`)** — the flags still gate the two tool
-  plugins, so plugin state and config are two controls for one thing. Deleting
+- **§5.3 (delete `plan_tool`/`task_tool`)** — still outstanding; the flags gate
+  the two tool plugins, so plugin state and config are two controls for one thing. Deleting
   them costs the bench its per-scenario `task_tool` switch
   (`bench/scenario.h`), so §3.6 has to land first or the bench loses a control
   rather than trading it for a better one.
@@ -281,9 +281,15 @@ Left, with the reason it is not done yet:
   session `SkillCatalog`, which the `Agent` owns and creates. Moving them means
   moving catalog ownership to the host so a plugin can receive it, which is a
   change to the host services contract, not a file move.
-- **§3.6 (bench records plugin state + a disable knob)** — unchanged, and it is
-  now the next step, because R4 ("is `search` losing to `rg`?") is finally
-  measurable: `tool_search` can be switched off.
+- **§3.6 (bench records plugin state + a disable knob)** — **done** (branch
+  `docs/tools-domain`). The harness builds the real plugin runtime, records the
+  plugin set in `RunMeta` (JSON + text + scorecard), and `--disable ID[,ID]`
+  applies a state for one run. Two invariants protect against a run depending on
+  someone's saved preferences: `apply_state` never persists, and `start(false)`
+  ignores persisted state entirely (this machine had `anthropic` and
+  `tool_search` off, so the first runs measured a configuration nobody chose).
+  Baseline: `bench/results/tools-domain-hermetic-baseline.{txt,json}` — 8/8
+  hermetic scenarios, 17 plugins, all on.
 - **§5.2 (the audit)** — unchanged.
 
 ## 6. Parked
