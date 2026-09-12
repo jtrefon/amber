@@ -139,12 +139,22 @@ struct StatusSnapshot {
     std::vector<StatusMcpServer> mcp_servers;
 };
 
+// Which edge of the bar a segment attaches to. A segment does not address a
+// column: it declares the edge and its order within that edge, and the host
+// owns the arithmetic. That is what lets a plugin put something at the right
+// end of the bar without knowing how wide the bar is or what else is on it.
+enum class StatusAlign {
+    Left, // after the left edge, in priority order
+    Right // at the right edge: highest priority closest to the edge
+};
+
 // A rendered segment, in display order.
 struct StatusSegment {
     std::string id;
     std::string text;
     StatusTone tone = StatusTone::Dim;
     int drop_priority = 0; // higher drops first when the bar is too narrow
+    StatusAlign align = StatusAlign::Left;
 };
 
 // The status bar is composed from these, never from a hardcoded list: amber's
@@ -155,7 +165,8 @@ public:
     using Render = std::function<StatusText(const StatusSnapshot&)>;
 
     Contribution add(const std::string& owner, const std::string& id, int priority,
-                     int drop_priority, Render render);
+                     int drop_priority, Render render,
+                     StatusAlign align = StatusAlign::Left);
 
     // Segments that produced text, in (priority, registration) order.
     std::vector<StatusSegment> render(const StatusSnapshot& snapshot) const;
@@ -170,6 +181,7 @@ private:
         int priority = 0;
         int drop_priority = 0;
         std::size_t seq = 0;
+        StatusAlign align = StatusAlign::Left;
         Render render;
     };
     std::vector<Entry> entries_;
@@ -489,7 +501,8 @@ private:
 class StatusSegmentCapability : public Capability {
 public:
     StatusSegmentCapability(std::string id, int priority, int drop_priority,
-                            StatusRegistry::Render render);
+                            StatusRegistry::Render render,
+                            StatusAlign align = StatusAlign::Left);
     std::string name() const override { return id_; }
     CapabilityKind kind() const override { return CapabilityKind::StatusSegment; }
     InstallResult install(PluginServices& services) override;
@@ -498,6 +511,7 @@ private:
     std::string id_;
     int priority_;
     int drop_priority_;
+    StatusAlign align_ = StatusAlign::Left;
     StatusRegistry::Render render_;
 };
 
