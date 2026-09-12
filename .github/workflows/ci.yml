@@ -11,14 +11,18 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Static analysis — clang-tidy (per-file). Runs only on the clang toolchain
-  # since clang-tidy uses clang's AST; reports every finding against the
-  # project's .clang-tidy config.
+  # Static analysis — clang-tidy (per-file). On PRs, runs incrementally: only
+  # the .cpp files changed in the PR are analyzed (headers/.clang-tidy changes
+  # trigger a full scan as fallback). On main pushes, the full lint runs as a
+  # non-gating safety net (see lint-full below).
   # ---------------------------------------------------------------------------
   lint:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/install-deps
         with:
           extra: clang-tidy bear
@@ -29,7 +33,31 @@ jobs:
       - name: Generate compile_commands.json
         run: bear -- make -j$(nproc) || true
 
-      - name: Lint (clang-tidy)
+      - name: Lint (incremental — changed files only)
+        run: make lint-changed BASE=origin/${{ github.base_ref }}
+
+  # ---------------------------------------------------------------------------
+  # Full lint — runs on main pushes as a non-gating safety net. Catches issues
+  # that incremental lint might miss (e.g. a header change that affects TUs not
+  # included in the PR diff). Does not block the pipeline.
+  # ---------------------------------------------------------------------------
+  lint-full:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+        with:
+          extra: clang-tidy bear
+
+      - name: Configure
+        run: CXX=clang++ ./configure
+
+      - name: Generate compile_commands.json
+        run: bear -- make -j$(nproc) || true
+
+      - name: Lint (full tree)
         run: make lint
 
   # ---------------------------------------------------------------------------
