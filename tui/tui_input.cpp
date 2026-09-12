@@ -45,7 +45,7 @@ void Tui::fold_reasoning(Window& w) {
 }
 
 void Tui::flush_stream(Window& w) {
-    if (w.reason.active()) fold_reasoning(w);
+    fold_reasoning(w);
     if (w.stream_buf.empty()) return;
     // Commit the streamed reply through the Markdown renderer so headings,
     // code fences, lists, etc. survive into the scrollback (the live preview

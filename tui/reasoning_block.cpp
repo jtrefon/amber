@@ -2,7 +2,12 @@
 
 namespace tui {
 
-void ReasoningBlock::append(const std::string& delta) { buffer += delta; }
+void ReasoningBlock::append(const std::string& delta) {
+    // A delta arriving after a fold opens the next episode: a tool-calling turn
+    // reasons once per LLM round-trip, and every episode must be visible again.
+    if (folded) begin();
+    buffer += delta;
+}
 
 std::string ReasoningBlock::fold() {
     if (folded) return {};
