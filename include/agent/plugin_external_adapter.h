@@ -1,5 +1,5 @@
-#ifndef AGENT_PLUGIN_V1_ADAPTER_H
-#define AGENT_PLUGIN_V1_ADAPTER_H
+#ifndef AGENT_PLUGIN_EXTERNAL_ADAPTER_H
+#define AGENT_PLUGIN_EXTERNAL_ADAPTER_H
 
 // Brings the v1 external plugin tier under the runtime (spec §2, D17).
 //
@@ -11,7 +11,7 @@
 // exactly the drift the get/set rule exists to prevent.
 
 #include "agent/plugin.h"
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <memory>
 #include <string>
@@ -21,9 +21,9 @@ namespace agent {
 // Wraps one discovered external plugin. Activation enables it in the v1
 // manager (which spawns the process and registers its tools); deactivation
 // disables it and unregisters those tools.
-class V1PluginAdapter : public IPlugin {
+class ExternalPluginAdapter : public IPlugin {
 public:
-    V1PluginAdapter(PluginManager& manager, std::string plugin_id, std::string version);
+    ExternalPluginAdapter(PluginManager& manager, std::string plugin_id, std::string version);
 
     std::string id() const override { return id_; }
     std::string version() const override { return version_; }
@@ -47,4 +47,4 @@ std::vector<std::shared_ptr<IPlugin>> make_v1_plugin_adapters(PluginManager& man
 
 } // namespace agent
 
-#endif // AGENT_PLUGIN_V1_ADAPTER_H
+#endif // AGENT_PLUGIN_EXTERNAL_ADAPTER_H

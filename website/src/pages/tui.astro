@@ -1,18 +1,20 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
+import Diagram from '../components/Diagram.astro';
+import { site } from '../data/site';
 ---
 
-<BaseLayout title="TUI" description="amber terminal UI, BitchX-inspired IRC-style agent runtime">
+<BaseLayout title="TUI" description="amber terminal UI, BitchX-inspired IRC-style multi-window agent interface for Linux and macOS">
   <NavBar />
   <main>
     <h1>The TUI</h1>
 
     <section class="section">
       <p>
-        amber's terminal UI is BitchX-inspired, IRC-style multi-window chat with slash commands,
-        a command drawer, and a status bar. It's not a web frontend. It's a terminal application
-        that runs on Linux servers, connects to LLMs, and lets you watch the agent work in real time.
+        Amber's terminal UI is a BitchX/IRC-inspired multi-window interface for
+        interacting with the agent directly from the terminal. It runs on
+        Linux and macOS.
       </p>
     </section>
 
@@ -22,7 +24,7 @@ import NavBar from '../components/NavBar.astro';
       <h2>Status Bar</h2>
       <p>The status bar sits at the bottom of the screen, always visible:</p>
       <div class="terminal">
-        <pre>───── amber 0.3.1 ───── Apache 2.0 ───── C++17 ───── utf-8 ───── ncurses ───── 2026 ─────</pre>
+        <pre>───── amber {site.version} ───── {site.license} ───── C++17 ───── utf-8 ───── ncurses ─────</pre>
       </div>
       <p>Connection state indicator, version number, and current section. Static but present.</p>
     </section>
@@ -35,10 +37,18 @@ import NavBar from '../components/NavBar.astro';
         Type <code>/</code> to open the command drawer. Commands are JSON-driven, no hardcoded
         completions. The tree structure supports unlimited nesting:
       </p>
+      <Diagram
+        name="commandTreeStructure"
+      />
+      <Diagram
+        name="commandTreeDispatch"
+      />
       <div class="terminal">
         <pre>/set model              # switch models
 /set provider           # switch providers
 /get model list         # list available models
+/get plugin             # list plugins and their state
+/set plugin &lt;id&gt; on     # enable a plugin
 /set policy rule        # manage permission rules
 /get job status         # check running jobs</pre>
       </div>
@@ -57,9 +67,49 @@ import NavBar from '../components/NavBar.astro';
   /set model           Switch LLM model
   /set provider        Switch LLM provider
   /get model list      List available models
+  /get plugin          List plugins and their state
   /get job status      Check running jobs
   /set policy rule     Manage permission rules
 ─────────────────────────────────────────────────────────────</pre>
+      </div>
+      <p>
+        Every row above comes from the tree. Runtime values, models,
+        providers, policy rules, jobs, plugins, MCP servers, are merged in as
+        feed leaves, so nothing a user can type is hardcoded in C++:
+      </p>
+      <Diagram
+        name="commandFeeds"
+      />
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Sessions & Jobs</h2>
+      <p>
+        Multiple sessions can run concurrently, each with its own context and
+        provider. Background jobs are tracked and can be inspected or killed
+        from the command tree.
+      </p>
+      <div class="terminal">
+        <pre>/get job status         # check running jobs
+/get job &lt;id&gt; read     # read a job's output
+/get job &lt;id&gt; kill     # kill a job</pre>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Plugin Controls</h2>
+      <p>
+        Plugins can be enabled and disabled at runtime. The command tree
+        reflects the current plugin state:
+      </p>
+      <div class="terminal">
+        <pre>/get plugin             # list all plugins and their state
+/set plugin anthropic on   # enable the Anthropic provider
+/set plugin anthropic off  # disable (unwinds cleanly)</pre>
       </div>
     </section>
 
@@ -128,6 +178,17 @@ import NavBar from '../components/NavBar.astro';
         different LLM or run a different agent task. Window switching is
         <code>Alt+1</code> through <code>Alt+9</code>, the same muscle memory
         as the good old days of IRC.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Runtime Telemetry</h2>
+      <p>
+        The status bar is composed from a plugin registry, surfacing runtime
+        state, connection, model, provider, job count, and metrics from the
+        bundled metrics plugin, without hardcoding UI segments.
       </p>
     </section>
   </main>

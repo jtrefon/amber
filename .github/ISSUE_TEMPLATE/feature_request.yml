@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest an idea or improvement
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Please search the
+        [existing issues](https://github.com/jtrefon/amber/issues) first.
+        your idea may already be tracked.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem are you trying to solve? What is the use case?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or change you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative approaches or workarounds you have thought about.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of amber does this touch?
+      options:
+        - Runtime / agent loop
+        - Plugins / capabilities
+        - Providers / models
+        - Tools
+        - MCP
+        - TUI
+        - CLI
+        - Benchmarks
+        - Documentation
+        - Other / unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, references, or related issues.
+    validations:
+      required: false

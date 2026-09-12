@@ -1,6 +1,6 @@
-# Phase 2 — TUI Facade: WindowManager + EventRouter + RenderEngine + SessionController — 2026-08-30
+# Phase 2, TUI Facade: WindowManager + EventRouter + RenderEngine + SessionController, 2026-08-30
 
-- **Status:** Draft — awaiting sign-off (Red → Proposal → **Sign-off** → Green → PR)
+- **Status:** Draft, awaiting sign-off (Red → Proposal → **Sign-off** → Green → PR)
 - **Branch:** `fix/022-event-router-window-manager` → `fix/023-render-session` (sequential, each squash-merged)
 - **Author:** Muse Spark (audit 2026-08-30, follow-up to `clean-architecture-2026-08-27.md:321`)
 - **Depends on:** `FIX-016..021` + `FIX-024/025-partial` shipped (`7a0e69d` pipeline, `4f82b15` EventBus, `54304b4` PluginRegistry, `aa8470c` MemoryStore, `7159402` slash `rfind`, `a4003f5` FeedManager, `5095698`+`48a2bc5` hygiene), `main` green `33089714293` (lint 23m59s, check/analyze/build g++/clang++ clean)
@@ -12,10 +12,10 @@
 
 `clean-architecture-2026-08-27.md` claimed zero-debt when `Tui` header <200, `Tui::run:394` <60, `JsonMemoryStore:287` <150, `EventBus:fire` deadlock-free, slash tree sole source. **Phase 1 delivered** the last three (`EventBus` snapshot `tui/event_bus.cpp:22`, `JsonMemoryStore` → `memory_scoring.cpp:164+memory_persistence.cpp:110` 70 lines, `FeedManager:105` + `rfind` deletion). What remains is the only structural blocker:
 
-- **God Class `tui/tui.h:448`** — `class Tui:47-444` 398 lines (limit 200) owns 7 reasons to change: ncurses lifecycle, multi-window, threads+queue, rendering, git decoration, sessions/workspace, feeds. `Tui::run:1179` 392 lines, `drain_events:217-293` 77 lines, `on_*` 8 handlers, `agent_worker:594-635`/`compress_worker:637-676`, `WindowManager` state (`windows_:407`, `active_:408`, `next_window_id_:239`, `switch_to:455`/`close_window:464`/`window_by_id:1175`), rendering (`tui_render.cpp:716`), sessions (`tui_session.cpp:508`).
-- Systemic `>10`-line methods (every `lib/*.cpp` + `register_builtin_actions` now in `feed_manager` but `Tui::run` still 392) — Boy Scout per PR, not a phase.
-- File SRP `lib/agent.cpp:811`/`lib/plugin.cpp:585` — tracked, opportunistic >500 (not in Phase 2).
-- Test monolith `tests/run_tests.cpp:4451` — Boy Scout after facade (Phase 2 does not move tests).
+- **God Class `tui/tui.h:448`**: `class Tui:47-444` 398 lines (limit 200) owns 7 reasons to change: ncurses lifecycle, multi-window, threads+queue, rendering, git decoration, sessions/workspace, feeds. `Tui::run:1179` 392 lines, `drain_events:217-293` 77 lines, `on_*` 8 handlers, `agent_worker:594-635`/`compress_worker:637-676`, `WindowManager` state (`windows_:407`, `active_:408`, `next_window_id_:239`, `switch_to:455`/`close_window:464`/`window_by_id:1175`), rendering (`tui_render.cpp:716`), sessions (`tui_session.cpp:508`).
+- Systemic `>10`-line methods (every `lib/*.cpp` + `register_builtin_actions` now in `feed_manager` but `Tui::run` still 392), Boy Scout per PR, not a phase.
+- File SRP `lib/agent.cpp:811`/`lib/plugin.cpp:585`, tracked, opportunistic >500 (not in Phase 2).
+- Test monolith `tests/run_tests.cpp:4451`, Boy Scout after facade (Phase 2 does not move tests).
 
 Phase 2 is **pure moves + facade wiring**, no behavior change, no new pattern, no prompt/llama change, no security hardening (parked). Two sequential PRs leave `Tui` as a ≈80-line **Facade** that owns components via `unique_ptr` and forwards `run()` as `poll_signals + drain + idle_tick` (<15 each):
 
@@ -39,8 +39,8 @@ After 022: `tui.h:448` → ~300, `Tui::run:392` → ~120. After 023: `tui.h` **<
 | EventBus | `lib/event_bus.cpp:22` snapshots under `mtx_` then iterates (FIX-017 `4f82b15` + 2 reentrancy tests `tests/event_bus_test.cpp:130`) | Pub/Sub snapshot |
 | PluginRegistry | `lib/plugin_registry.cpp:24` `assert(ctx_)`/`return false` + `tui/tui.h:399` `workspace_`/`plugin_ctx_` + `tui/tui.cpp:116` wiring (FIX-018 `54304b4`) | DIP |
 | MemoryStore | `lib/memory_store.cpp:118` façade 70 + `memory_scoring.cpp:164` + `memory_persistence.cpp:110` `fs::create_directories` (FIX-019 `aa8470c`) | SRP |
-| Build | `Makefile.in:65` `CORE_OBJS` includes `event_bus.o`/`plugin_registry.o`/`metrics_plugin.o`, `TUI_OBJS` includes `feed_manager.o`, `SB_TEST_OBJ` added `7a0e69d`; `-MMD -MP` deps | — |
-| Hygiene | `.clang-tidy:43` `HeaderFilterRegex 'include/agent/.*\.h|tui/.*\.h'` + suppressed `modernize-concat-nested-namespaces` etc `48a2bc5`; `tui_input.cpp:2174` (`rfind` deleted `7159402`) | — |
+| Build | `Makefile.in:65` `CORE_OBJS` includes `event_bus.o`/`plugin_registry.o`/`metrics_plugin.o`, `TUI_OBJS` includes `feed_manager.o`, `SB_TEST_OBJ` added `7a0e69d`; `-MMD -MP` deps | - |
+| Hygiene | `.clang-tidy:43` `HeaderFilterRegex 'include/agent/.*\.h|tui/.*\.h'` + suppressed `modernize-concat-nested-namespaces` etc `48a2bc5`; `tui_input.cpp:2174` (`rfind` deleted `7159402`) | - |
 
 Debt left is **one class** and **two file regroups**, not direction. No new `Capability` type, no prompt prohibition, no `llama-turboq:8081` change.
 
@@ -50,9 +50,9 @@ Debt left is **one class** and **two file regroups**, not direction. No new `Cap
 
 **Goals:** `Tui` header <200 (`AGENTS.md` audit), `Tui::run` <60, `drain_events` <15, every new method <10 with minimal branching, no duplication, Boy Scout for `>10` sites opportunistically, `make clean && make && make test && make lint && make analyze` zero warnings both compilers, `make check` P5 green on fresh checkout.
 
-**Non-goals:** security hardening (`workspace.cpp:61` lexical, `bash_tool.cpp:27` list — parked pre-alpha), prompt rework, `Context` pure stack (`push:60/pop:72/clear:93/get_all:84` + `assert(verify_chain())` — only `clear+push` rebuild), llama service, test monolith split (deferred).
+**Non-goals:** security hardening (`workspace.cpp:61` lexical, `bash_tool.cpp:27` list, parked pre-alpha), prompt rework, `Context` pure stack (`push:60/pop:72/clear:93/get_all:84` + `assert(verify_chain())`, only `clear+push` rebuild), llama service, test monolith split (deferred).
 
-**Principles:** SOLID (SRP — each component one reason; OCP — add window/event/render/session via new type not `Tui` edit; LSP — `WindowManager`/`EventRouter` substitutable via interface; ISP — narrow `WindowManager`/`EventRouter`/`RenderEngine`/`SessionController` ports; DIP — `Tui` ctor injects `Config&`/`ToolRegistry&`/`JobService&`/`ProviderService&`/`SessionStore&` into components as `unique_ptr`). KISS/DRY/YAGNI/size limits enforced by review (`tests/build_hygiene.sh` P5), not compiler. Hexagonal: `lib/` never `#includes "tui/"`.
+**Principles:** SOLID (SRP, each component one reason; OCP, add window/event/render/session via new type not `Tui` edit; LSP, `WindowManager`/`EventRouter` substitutable via interface; ISP, narrow `WindowManager`/`EventRouter`/`RenderEngine`/`SessionController` ports; DIP, `Tui` ctor injects `Config&`/`ToolRegistry&`/`JobService&`/`ProviderService&`/`SessionStore&` into components as `unique_ptr`). KISS/DRY/YAGNI/size limits enforced by review (`tests/build_hygiene.sh` P5), not compiler. Hexagonal: `lib/` never `#includes "tui/"`.
 
 ---
 
@@ -71,7 +71,7 @@ Wiring       lib/tools_default.cpp:30, tui/tui_main.cpp:106, Tui ctor: construct
 ### 4.2 Tui Facade (target `tui/tui.h` ~80 lines)
 
 ```cpp
-// tui/tui.h — Facade (~80 lines: owns components, run() <60, no rendering/event/window/session logic)
+// tui/tui.h, Facade (~80 lines: owns components, run() <60, no rendering/event/window/session logic)
 class Tui {
     friend class FeedManager;
 public:
@@ -108,7 +108,7 @@ private:
 
 ### 4.3 Component contracts
 
-#### WindowManager — `tui/window_manager.h/.cpp` (<120 lines, <10/method)
+#### WindowManager, `tui/window_manager.h/.cpp` (<120 lines, <10/method)
 
 Owns `std::vector<std::unique_ptr<Window>> windows_; size_t active_; size_t next_id_;`
 
@@ -125,9 +125,9 @@ size_t active() const; size_t count() const;
 std::vector<std::unique_ptr<Window>>& all(); // for save_workspace snapshot
 ```
 
-Extracted from `tui/tui.h:407-408,239` and `tui/tui.cpp:171-213,455-477,1175,419-453`. `busy_reject` is a `std::function<bool(std::string what)>` supplied by `Tui` (checks `router_->busy()`), so `WindowManager` never reads `agent_busy_` directly. No `Tui` include needed — only forward-declares `Window`, `SessionStore`, `Config`.
+Extracted from `tui/tui.h:407-408,239` and `tui/tui.cpp:171-213,455-477,1175,419-453`. `busy_reject` is a `std::function<bool(std::string what)>` supplied by `Tui` (checks `router_->busy()`), so `WindowManager` never reads `agent_busy_` directly. No `Tui` include needed, only forward-declares `Window`, `SessionStore`, `Config`.
 
-#### EventRouter — `tui/event_router.h/.cpp` (<280 lines)
+#### EventRouter, `tui/event_router.h/.cpp` (<280 lines)
 
 Already exists as `tui/event_router.h:20` `route_event/deny_all/pending` helpers; Phase 2 promotes it to own the full queue/worker machinery (currently in `Tui`):
 
@@ -158,11 +158,11 @@ private:
 };
 ```
 
-Extracted from `tui/tui.h:64-136` and `tui/tui.cpp:217-676`. Internals: `drain_events` snapshots batch under `mtx_`, releases lock, then iterates (same snapshot discipline as `lib/event_bus.cpp:22`); `make_agent_hooks` returns `AgentHooks` whose lambdas capture `queue_/mtx_/cancel_` by `this`; `on_approval` promise/future stays in `EventRouter` but `resolve_approval` (ncurses `approve_dialog`) stays in `Tui` — `EventRouter::drain_events` takes a `std::function<void(AgentEvent)> resolve_approval` callback supplied by `Tui` to keep ncurses out of the router (hexagonal). `pending_tools_` + `find_pending_tool` + `advance_tool_spinners` move with it. `~EventRouter` joins.
+Extracted from `tui/tui.h:64-136` and `tui/tui.cpp:217-676`. Internals: `drain_events` snapshots batch under `mtx_`, releases lock, then iterates (same snapshot discipline as `lib/event_bus.cpp:22`); `make_agent_hooks` returns `AgentHooks` whose lambdas capture `queue_/mtx_/cancel_` by `this`; `on_approval` promise/future stays in `EventRouter` but `resolve_approval` (ncurses `approve_dialog`) stays in `Tui`, `EventRouter::drain_events` takes a `std::function<void(AgentEvent)> resolve_approval` callback supplied by `Tui` to keep ncurses out of the router (hexagonal). `pending_tools_` + `find_pending_tool` + `advance_tool_spinners` move with it. `~EventRouter` joins.
 
-Alternative (if review prefers): keep `EventRouter` as pure queue+hooks factory, leave `on_*` in `Tui` as callbacks — spec keeps the richer owner (queue+dispatch) because `on_*` already need `Window*` routing and `tool_display::close_tool_line`, which are TUI-only and belong with the queue.
+Alternative (if review prefers): keep `EventRouter` as pure queue+hooks factory, leave `on_*` in `Tui` as callbacks, spec keeps the richer owner (queue+dispatch) because `on_*` already need `Window*` routing and `tool_display::close_tool_line`, which are TUI-only and belong with the queue.
 
-#### RenderEngine — `tui/render_engine.h/.cpp` (<320 lines)
+#### RenderEngine, `tui/render_engine.h/.cpp` (<320 lines)
 
 Owns `Canvas chat_canvas_; md::Style md_style_;` plus `git_project_/branch/ins/del` decoration (moved from `Tui` to keep prompt decoration with rendering).
 
@@ -191,9 +191,9 @@ private:
 };
 ```
 
-Extracted from `tui/tui_render.cpp:716` and `tui/tui.h:154-214,194-204`. `Tui::draw:314` 51 lines becomes `render_->draw(win(), ...) ; render_->draw_status_bar(scroll_glyph)` — `Tui` still owns the `draw` call ordering but all `Seg` assembly and canvas math lives in `RenderEngine`. `display_cols/to_wide/kfmt/gauge_pair` are free helpers in `render_engine.cpp` anonymous namespace. No `Agent` include except `bar::kfmt/pressure/gauge_bar`.
+Extracted from `tui/tui_render.cpp:716` and `tui/tui.h:154-214,194-204`. `Tui::draw:314` 51 lines becomes `render_->draw(win(), ...) ; render_->draw_status_bar(scroll_glyph)`, `Tui` still owns the `draw` call ordering but all `Seg` assembly and canvas math lives in `RenderEngine`. `display_cols/to_wide/kfmt/gauge_pair` are free helpers in `render_engine.cpp` anonymous namespace. No `Agent` include except `bar::kfmt/pressure/gauge_bar`.
 
-#### SessionController — `tui/session_controller.h/.cpp` (<250 lines)
+#### SessionController, `tui/session_controller.h/.cpp` (<250 lines)
 
 Owns `SessionStore store_; std::string settings_path_;` plus `snapshot/autosave/save_window_sessions/save_session/load_session/session_browser/pending RestoredCall`.
 
@@ -224,10 +224,10 @@ Extracted from `tui/tui_session.cpp:508` and `tui/tui.h:221-230,304-306,404`. `T
 
 | Phase | FIX | Scope | Depends | Effort | Gate |
 |-------|-----|-------|---------|--------|------|
-| **2a** | `FIX-022` | `WindowManager` + `EventRouter` — header `448→~300`, `run 392→~120`, `drain_events` <15 (pure move, no logic change first commit, then `<10` helper extraction) | `FeedManager` (`a4003f5`) | M (6h) | `make lint` clean, `tui.h` line count down, `drain_events`/`on_*` each <15 |
+| **2a** | `FIX-022` | `WindowManager` + `EventRouter`, header `448→~300`, `run 392→~120`, `drain_events` <15 (pure move, no logic change first commit, then `<10` helper extraction) | `FeedManager` (`a4003f5`) | M (6h) | `make lint` clean, `tui.h` line count down, `drain_events`/`on_*` each <15 |
 | **2b** | `FIX-023` | `RenderEngine` + `SessionController` → `Tui` **<200** (`180` target), `run` <60, `draw`/`draw_status_bar` moved, git decoration moved | 022 | M (6h) | `wc -l tui/tui.h` <200, `awk '/^void Tui::run/,/^}/' tui/tui.cpp` <60, `make check` P5 refresh `AGENTS.md:428`/`build_hygiene.sh:110` (`tui_render:716` exempt stays, `tui.h` now measured) |
 
-**Order rationale:** 022 touches `tui.h:64-136+239+407` and `tui.cpp:171-676` once; 023 then touches the remaining `tui_render.cpp:716`+`tui_session.cpp:508` without rebasing the 022 header churn. Both are isolated to `tui/` — no `lib/` change.
+**Order rationale:** 022 touches `tui.h:64-136+239+407` and `tui.cpp:171-676` once; 023 then touches the remaining `tui_render.cpp:716`+`tui_session.cpp:508` without rebasing the 022 header churn. Both are isolated to `tui/`, no `lib/` change.
 
 **Branch & PR discipline:** `fix/022-event-router-window-manager` off `main@48a2bc5` (`33089714293` green), draft PR early, `make lint` per few edits (not batched), second commit `<10` extractions only. Squash-merge imperative scoped (`tui: extract WindowManager and EventRouter from Tui`). 023 branches off 022 after merge (or stacked PR if reviewer prefers). No direct `main` push.
 
@@ -237,24 +237,24 @@ Extracted from `tui/tui_session.cpp:508` and `tui/tui.h:221-230,304-306,404`. `T
 
 ### FIX-022 EventRouter + WindowManager
 
-**Move-first, then shrink.** Commit 1: create `tui/window_manager.h/.cpp` and `tui/event_router.h/.cpp`, move verbatim, `Tui` forwards. `Makefile.in: TUI_OBJS += tui/window_manager.o tui/event_router.o`. `tui/tui.h` forward-declares both; `Tui` owns `unique_ptr`. No logic change — `make test` must stay 443 pass as proof.
+**Move-first, then shrink.** Commit 1: create `tui/window_manager.h/.cpp` and `tui/event_router.h/.cpp`, move verbatim, `Tui` forwards. `Makefile.in: TUI_OBJS += tui/window_manager.o tui/event_router.o`. `tui/tui.h` forward-declares both; `Tui` owns `unique_ptr`. No logic change, `make test` must stay 443 pass as proof.
 
-Commit 2 (`<10` + `minimal branching`): split `drain_events:77` into `drain_batch()` (pop under lock → return vector), `dispatch_one(ev, w)` (switch cases → `on_*`), `route_global(ev)` (StateChange/Stats/Status). Each <15 (P5 `tui_render`/`tui_input` are exempt as method-implementation files, but `drain_events` is in `tui.cpp` and must shrink). `on_tool_call:416-437` 22 lines → `allocate_pending` + `animate_spinner` helpers. `send_async:358-396` 39 lines → `prepare_send` + `launch_worker`. `make_agent_hooks:502-592` 91 lines → one closure builder `push_for(window_id)` reused 8 times (already does — keep).
+Commit 2 (`<10` + `minimal branching`): split `drain_events:77` into `drain_batch()` (pop under lock → return vector), `dispatch_one(ev, w)` (switch cases → `on_*`), `route_global(ev)` (StateChange/Stats/Status). Each <15 (P5 `tui_render`/`tui_input` are exempt as method-implementation files, but `drain_events` is in `tui.cpp` and must shrink). `on_tool_call:416-437` 22 lines → `allocate_pending` + `animate_spinner` helpers. `send_async:358-396` 39 lines → `prepare_send` + `launch_worker`. `make_agent_hooks:502-592` 91 lines → one closure builder `push_for(window_id)` reused 8 times (already does, keep).
 
 **Invariants preserved (spec § Context stack, Prompting philosophy, layering):**
 - `~Tui:145-169` ordering **unchanged**: `Fputs(?1007l) → cancel_ → deny_all(event_queue+pending) under mtx → join → endwin → save_window_sessions → save_workspace`. `EventRouter::shutdown` is called under `Tui::~Tui`'s lock, not in its own dtor.
-- `send_async` still `join` previous worker, swap-drain queue of stale `Done`, `busy_.store(true)` before `launch`, `agent_worker` pushes `Done` then `busy_.store(false)` — the push-before-clear ordering (`tui.cpp:634`) is load-bearing (send_async observes idle via `busy_` then drains).
-- `context.h:84` `assert(verify_chain())` in `snapshot` path — `WindowManager::new_window` copies `cfg_` by value into `Agent`, no context mutation.
+- `send_async` still `join` previous worker, swap-drain queue of stale `Done`, `busy_.store(true)` before `launch`, `agent_worker` pushes `Done` then `busy_.store(false)`, the push-before-clear ordering (`tui.cpp:634`) is load-bearing (send_async observes idle via `busy_` then drains).
+- `context.h:84` `assert(verify_chain())` in `snapshot` path, `WindowManager::new_window` copies `cfg_` by value into `Agent`, no context mutation.
 
-**Tests (Red→Green):** No new public API to unit-test pre-merge — prove by hermetic `make test` + manual: new window, `Alt+1..9` switch, `Ctrl+N` new, `close_window` last-window guard, `send_async` while busy queues `pending_prompt_`, `ESC` cancel, approvals queued while `modal_open_` and resolved after `redraw_after_modal`. Post-merge, add `tests/tui_tests.cpp` hermetic: `WindowManager::by_id` after erase, `EventRouter::drain_events` routes to correct `window_id` (use `FakeAgent` pushing `AgentEvent`).
+**Tests (Red→Green):** No new public API to unit-test pre-merge, prove by hermetic `make test` + manual: new window, `Alt+1..9` switch, `Ctrl+N` new, `close_window` last-window guard, `send_async` while busy queues `pending_prompt_`, `ESC` cancel, approvals queued while `modal_open_` and resolved after `redraw_after_modal`. Post-merge, add `tests/tui_tests.cpp` hermetic: `WindowManager::by_id` after erase, `EventRouter::drain_events` routes to correct `window_id` (use `FakeAgent` pushing `AgentEvent`).
 
 ### FIX-023 RenderEngine + SessionController
 
-**Commit 1 (move):** `tui/render_engine.h/.cpp` receives `tui_render.cpp:716` verbatim (`build_view`, `build_view_without_working`, `max_scroll`, `bar_segments:225-312` 88 lines, `draw:314-365`, `draw_status_bar:367-495`, `tick_clock:497-510`, `advance_tool_spinners:512-536`, `draw_input:538-648`, `draw_drawer:660-714`, `wrap_text/utf8_len/timestamp/kfmt/gauge_pair` statics). `tui/session_controller.h/.cpp` receives `tui_session.cpp:508` (`snapshot:65-86`, `autosave:88-100`, `save_session:102-116`, `load_session:118-167`, `session_browser:227-417`, `lazy_load_active:419-453`, `switch_to:455-462`, `close_window:464-477`, `save_workspace_now:481-492` — note `switch_to`/`close_window` already moved in 022; SessionController takes `snapshot/autosave/load/save_workspace` only).
+**Commit 1 (move):** `tui/render_engine.h/.cpp` receives `tui_render.cpp:716` verbatim (`build_view`, `build_view_without_working`, `max_scroll`, `bar_segments:225-312` 88 lines, `draw:314-365`, `draw_status_bar:367-495`, `tick_clock:497-510`, `advance_tool_spinners:512-536`, `draw_input:538-648`, `draw_drawer:660-714`, `wrap_text/utf8_len/timestamp/kfmt/gauge_pair` statics). `tui/session_controller.h/.cpp` receives `tui_session.cpp:508` (`snapshot:65-86`, `autosave:88-100`, `save_session:102-116`, `load_session:118-167`, `session_browser:227-417`, `lazy_load_active:419-453`, `switch_to:455-462`, `close_window:464-477`, `save_workspace_now:481-492`, note `switch_to`/`close_window` already moved in 022; SessionController takes `snapshot/autosave/load/save_workspace` only).
 
-`Tui` keeps only `draw()` call ordering and `git_refresh` delegation (or moves `git_*` fields into `RenderEngine` — preferred: `RenderEngine` owns `git_project_/branch/ins/del` so `bar_segments` needs no `Tui` capture).
+`Tui` keeps only `draw()` call ordering and `git_refresh` delegation (or moves `git_*` fields into `RenderEngine`, preferred: `RenderEngine` owns `git_project_/branch/ins/del` so `bar_segments` needs no `Tui` capture).
 
-**Commit 2 (shrink):** `bar_segments:88` → `mode_seg()` + `latency_seg()` + `tps_seg()` + `jobs_seg()` + `mcp_seg()` each <10, `draw_status_bar:129` → extract `budget` + `put` already done, just keep budget calc <15, `session_browser:191` (already `build_hygiene` exempt as implementation file) stays as is — no shrink required by policy (method-implementation files exempt). `Tui::run:392` →
+**Commit 2 (shrink):** `bar_segments:88` → `mode_seg()` + `latency_seg()` + `tps_seg()` + `jobs_seg()` + `mcp_seg()` each <10, `draw_status_bar:129` → extract `budget` + `put` already done, just keep budget calc <15, `session_browser:191` (already `build_hygiene` exempt as implementation file) stays as is, no shrink required by policy (method-implementation files exempt). `Tui::run:392` →
 
 ```cpp
 void Tui::run() {
@@ -279,7 +279,7 @@ void Tui::run() {
 
 `poll_signals:30` (consume `SignalState`, `deny_all`, `endwin`, `join+save` when `!busy`), `idle_tick:25` (had_events?draw:tick_clock, spinner, dirty flush, pending_prompt), `route_commandline:150` stays in `Tui` (CommandLine + slash dispatch are not rendering/session). `run` thus <60.
 
-**P5 audit update:** `tests/build_hygiene.sh:110` currently checks `tui/tui_input.cpp:2174` and exempts `tui_render.cpp:716`; after 023, `tui/tui.h:448→~170` passes, `tui_render.cpp` is gone (now `render_engine.cpp:716` exempt likewise), `tui_input.cpp:2174` unchanged — update `AGENTS.md:428` table `tui/tui.h 448→~170` + add `render_engine.cpp`/`window_manager.cpp`/`event_router.cpp` to exempt list if they exceed 200 as implementation files.
+**P5 audit update:** `tests/build_hygiene.sh:110` currently checks `tui/tui_input.cpp:2174` and exempts `tui_render.cpp:716`; after 023, `tui/tui.h:448→~170` passes, `tui_render.cpp` is gone (now `render_engine.cpp:716` exempt likewise), `tui_input.cpp:2174` unchanged, update `AGENTS.md:428` table `tui/tui.h 448→~170` + add `render_engine.cpp`/`window_manager.cpp`/`event_router.cpp` to exempt list if they exceed 200 as implementation files.
 
 ---
 
@@ -291,7 +291,7 @@ Per-PR, both compilers:
 make distclean && ./configure && make -j && make test && make lint && make analyze && make check
 ```
 
-Gate `ci.yml:84` `g++/clang++` must green (baseline `33089714293` 23m59s lint). `make lint` still `include|tui` `HeaderFilterRegex` — run per few edits, not batched.
+Gate `ci.yml:84` `g++/clang++` must green (baseline `33089714293` 23m59s lint). `make lint` still `include|tui` `HeaderFilterRegex`, run per few edits, not batched.
 
 Per-FIX extra:
 
@@ -306,8 +306,8 @@ No bench KPI change (`bash_cd_prefix` stable); `bench/runner.cpp:193` untouched.
 ## 8. Best Practices Enforced by This Proposal
 
 - **Size by review:** `tests/build_hygiene.sh` P5 hard-fails `tui.h>200` (not compiler); method 10-line via human review + incremental extraction (Boy Scout: leave file shorter than found).
-- **No speculative branches:** no new `Capability` type, no `ConfigSource` abstraction, no `Workspace` instance refactor — YAGNI until consumer.
-- **DRY:** `shell_quote` already deduped to `semantic_helpers.h:35` (`5095698`), `default_excluded_dirs()` single source, `memory_scoring` single source — no new duplication introduced; `bar_segments` helpers stay DRY with `kfmt/gauge_pair` free functions.
+- **No speculative branches:** no new `Capability` type, no `ConfigSource` abstraction, no `Workspace` instance refactor, YAGNI until consumer.
+- **DRY:** `shell_quote` already deduped to `semantic_helpers.h:35` (`5095698`), `default_excluded_dirs()` single source, `memory_scoring` single source, no new duplication introduced; `bar_segments` helpers stay DRY with `kfmt/gauge_pair` free functions.
 - **KISS:** snapshot discipline (EventBus `lib/event_bus.cpp:22` pattern reused for `EventRouter` queue), `fs::create_directories` not `system`, push-before-clear `busy_` not a lock-free queue.
 - **Isolation:** each PR touches ≤4 files in `tui/` only; `lib/` never depends on `tui/`.
 - **Docs:** each split updates `AGENTS.md:428` audit + `docs/issues.md:N3` line + `docs/fix-tracker.md:FIX-022/023` tasks; commit scopes `tui: extract ...` imperative.
@@ -319,8 +319,8 @@ No bench KPI change (`bash_cd_prefix` stable); `bench/runner.cpp:193` untouched.
 | Risk | Mitigation |
 |------|------------|
 | `tui.h` split rebases pain (448-line header) | 022→023 sequential, one header churn per PR; Commit 1 pure move (no logic) diff is `git mv` + forward, reviewer can `diff --stat` |
-| `~Tui` teardown order regression (join→endwin→save) | Keep ordering verbatim in `Tui::~Tui`; `EventRouter` never `join` in its own dtor — `Tui` drives it. Add `assert(!busy_.load() || shutting_down_)` in `WindowManager::close_window` guard |
-| `EventRouter` copies `std::function` (cost) | 10 event types, <5 handlers each — copy <1µs; snapshot is 5 lines |
+| `~Tui` teardown order regression (join→endwin→save) | Keep ordering verbatim in `Tui::~Tui`; `EventRouter` never `join` in its own dtor, `Tui` drives it. Add `assert(!busy_.load() || shutting_down_)` in `WindowManager::close_window` guard |
+| `EventRouter` copies `std::function` (cost) | 10 event types, <5 handlers each, copy <1µs; snapshot is 5 lines |
 | `RenderEngine` needs `Window` lines for `max_scroll` (canvas coupling) | Pass `Window const&` + `width` only; no `Tui` capture. `Canvas` stays owned by `RenderEngine`, not `Window` |
 | `SessionController` round-trip `snapshot` meta drift | Keep `ctx_used_/ctx_size/stats_` refs in `Tui` (not moved) until 023 proves meta path; 023 moves them only after `load_session` hermetic test green |
 | `make lint` broadened to `tui/` surfaces warnings | Suppressions `48a2bc5` already handle `modernize-concat-nested-namespaces` etc; fix incrementally per phase (do not batch) |
@@ -329,7 +329,7 @@ No bench KPI change (`bash_cd_prefix` stable); `bench/runner.cpp:193` untouched.
 
 ## 10. Success Criteria (beta-ready after 023)
 
-- `tui/tui.h:448` **<200** (target 180), `Tui::run:392` **<60**, `drain_events:77` <15, `bar_segments:88` decomposed to <10 helpers, no class >200 (except `run_tests.cpp` monolith — deferred), no method >10 without helper (implementation files `tui_input/render/session` remain exempt).
+- `tui/tui.h:448` **<200** (target 180), `Tui::run:392` **<60**, `drain_events:77` <15, `bar_segments:88` decomposed to <10 helpers, no class >200 (except `run_tests.cpp` monolith, deferred), no method >10 without helper (implementation files `tui_input/render/session` remain exempt).
 - Slash: `grep -rn 'rfind.*policy\|rfind.*mcp' tui/` → 0 (already `7159402`); `completions_test:37` + `e2e_test:26` green.
 - `make check` `all invariants hold` on fresh `make distclean && ./configure` (P5 `tui_input 2174` unchanged, `tui.h` now <200).
 - `make lint` + `make analyze` zero on both compilers; `gh run` green remains baseline `33089714293`.
@@ -337,7 +337,7 @@ No bench KPI change (`bash_cd_prefix` stable); `bench/runner.cpp:193` untouched.
 
 ---
 
-## 11. Appendix — File:Line Index for Reviewers
+## 11. Appendix, File:Line Index for Reviewers
 
 ```
 AGENTS.md:428                          audit table (tui.h 448→180, tui_input 2174)
@@ -365,4 +365,4 @@ tests/build_hygiene.sh:110             P5 (update tui.h + add render_engine exem
 completions.json:794                   sole source (no change)
 ```
 
-Spec credit: `docs/spec/plugins/plugin-framework-v2.md:704`, `docs/architecture.md:258`, `AGENTS.md` Engineering principles (SOLID/KISS/DRY/YAGNI/size limits/hexagonal), `tui/tui.cpp:145-676` teardown+lifecycle invariants, `lib/event_bus.cpp:22` snapshot pattern, `bench/runner.cpp:193` hermetic boundary.
+Spec credit: `docs/spec/plugins/plugin-framework.md:704`, `docs/architecture.md:258`, `AGENTS.md` Engineering principles (SOLID/KISS/DRY/YAGNI/size limits/hexagonal), `tui/tui.cpp:145-676` teardown+lifecycle invariants, `lib/event_bus.cpp:22` snapshot pattern, `bench/runner.cpp:193` hermetic boundary.

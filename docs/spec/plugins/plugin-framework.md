@@ -1,22 +1,25 @@
-## Spec: Plugin Framework v2 — Harness Extension Engine
+## Spec: Plugin Framework, Harness Extension Engine
 
-- **Status:** Design agreed (2026-09-10). Implementation is phased and tracked in
-  `docs/plugin-framework-tracker.md` (PF-1..PF-5). Where this document describes
-  a surface that is not yet implemented, the tracker's availability table is the
-  authority on status. Code and this spec disagree → the code is wrong.
-- **Supersedes:** the aspirational sections of the previous v2 draft (which
-  described `void*` capabilities, an untyped event bus, and capability routing
-  that no code performed). The v1 external-plugin protocol
-  (`plugins/README.md`) is unchanged and still shipping.
+- **Status:** Implemented through PF-4 (PF-1..PF-4 complete, 2026-09-10). This
+  document is the **design record**: the contract the framework was built to.
+  The **authority on what is available today is the availability table in
+  `docs/spec/plugins/developer-guide.md`**; where this document describes a
+  surface that is not implemented, the guide and the code win. Code and this
+  spec disagree → the code is wrong.
+- **Supersedes:** the aspirational sections of the earlier framework draft
+  (which described `void*` capabilities, an untyped event bus, and capability
+  routing that no code performed). The external-plugin protocol
+  (`plugins/README.md`) is a separate, unchanged, still-shipping contract.
 - **Related:** `docs/spec/llm-client/dialect.md` (the provider wire seam this
   framework's first real capability plugs into), `docs/spec/tui/layout-engine.md`,
-  `docs/spec/context/context-ownership-and-parallel-compression.md`.
+  `docs/spec/context/context-ownership-and-parallel-compression.md`,
+  `docs/spec/plugins/developer-guide.md` (author-facing contract).
 
 ### Purpose
 
 Make amber extensible in place: providers, tools, commands, prompt blocks, status
 segments, panels, settings, and log sinks are **contributed by plugins through
-typed registries**, and **observed through typed events** — with correct
+typed registries**, and **observed through typed events**: with correct
 enable/disable, no core edits per extension, and no ambiguity about which thread
 a callback runs on.
 
@@ -28,24 +31,24 @@ framework is dogfooded before it is opened to contributors.
 
 ---
 
-### 1. Why v2 is being rebuilt
+### 1. Why the framework was rebuilt (historical, 2026-09-10)
 
-The previous v2 draft defined a plugin system that does not run. Verified state
+The previous framework draft defined a plugin system that does not run. Verified state
 before this design (2026-09-10):
 
 | Claim in the old draft | Reality in the tree |
 |---|---|
-| Plugins register capabilities routed by the registry | `capabilities()` is called only by tests; no routing exists (`tests/plugin_v2_test.cpp`) |
-| `PluginContext` lets a plugin add tools | `tools` is `const ToolRegistry&` (`plugin_v2.h:37`); `register_tool` is non-const (`registry.h:29`) — the Tool capability is unreachable |
+| Plugins register capabilities routed by the registry | `capabilities()` is called only by tests; no routing exists (`tests/plugin_core_test.cpp`) |
+| `PluginContext` lets a plugin add tools | `tools` is `const ToolRegistry&` (`plugin_core.h:37`); `register_tool` is non-const (`registry.h:29`), the Tool capability is unreachable |
 | The EventBus carries agent lifecycle | `fire()` is called only by tests and the dormant metrics plugin; **zero production fire sites** (`lib/event_bus.cpp:22`) |
 | Plugins can render UI / intercept keys (`TUIRender`, `TUIKeyPress`) | No TUI source fires or consumes them; keys are a hardcoded `switch` (`tui/tui.cpp:557-607`) |
-| Plugin command namespaces work | v1 plugin subtrees merge into the tree but **no `plugin.*` action is ever registered** (`tui/tui_input.cpp:1253-1261`), so the drawer entries cannot execute |
+| Plugin command namespaces work | external plugin subtrees merge into the tree but **no `plugin.*` action is ever registered** (`tui/tui_input.cpp:1253-1261`), so the drawer entries cannot execute |
 | Core plugins are activated at startup | `tui/tui_main.cpp:158` constructs a `PluginRegistry`; nothing ever calls `register_plugin()` or `activate()` outside tests |
 
-What *does* work and is preserved: the v1 external-plugin tier (subprocess
-JSON-RPC, tools only — `lib/plugin.cpp`), the `PluginRegistry` lifecycle state
+What *does* work and is preserved: the external-plugin tier (subprocess
+JSON-RPC, tools only, `lib/plugin.cpp`), the `PluginRegistry` lifecycle state
 machine, `EventBus` semantics (snapshot-under-lock, LIFO interceptors,
-re-entrancy — pinned by `tests/event_bus_test.cpp`), and `AgentHooks` as the
+re-entrancy, pinned by `tests/event_bus_test.cpp`), and `AgentHooks` as the
 host UI channel.
 
 The rebuild is justified because five separate needs (provider plugins, UI
@@ -82,14 +85,14 @@ crash containment are. The framework defines three tiers and adopts two:
 
 | Tier | Mechanism | Adopted | Crash domain | Language | Cost per call |
 |---|---|---|---|---|---|
-| **Bundled (core)** | compiled into amber, `plugins/<id>/` | **Yes — PF-1..PF-4** | shared with harness | C++17 | none (direct call) |
+| **Bundled (core)** | compiled into amber, `plugins/<id>/` | **Yes, PF-1..PF-4** | shared with harness | C++17 | none (direct call) |
 | **External (process)** | separate process, framed IPC | Deferred to PF-6; shaped for | isolated | any | IPC round trip |
 | **Loadable library** | `dlopen` a shared object | **Rejected** (D16) | shared with harness | C++ (ABI-locked) | none |
 
 **Bundled is the only tier that ships now**, and it is the only tier that can
 carry amber's own providers: the streaming decoder is invoked per SSE chunk, so
 the built-in providers must never cross an address space. Disabling a bundled
-plugin costs nothing at runtime — registration happens at startup, dialect
+plugin costs nothing at runtime, registration happens at startup, dialect
 factories are constructed lazily on first use, and a disabled plugin has no
 subscriptions and no registry rows (invariant 9).
 
@@ -97,7 +100,7 @@ subscriptions and no registry rows (invariant 9).
 process cannot use the in-process `Dialect` port: the transport, the config, and
 the decoder all live in the harness address space. So an external provider owns
 its **own** HTTP client and credentials, receives the conversation over IPC, and
-streams chunks back — the same relationship an MCP server has to a tool. That is
+streams chunks back, the same relationship an MCP server has to a tool. That is
 a genuine second shape, and it duplicates retry, timeout, cancellation, and usage
 accounting in every such plugin; acceptable for third-party code, unacceptable
 for ours. The framework therefore keeps the process tier *out of the provider
@@ -109,9 +112,9 @@ is already per-plugin (`§9`); `kPluginApiVersion` exists before any external
 consumer; and no plugin may touch harness internals, so nothing has to be
 un-picked when the boundary moves.
 
-**IPC choices, when PF-6 opens:** reuse the shapes already in the tree — the v1
+**IPC choices, when PF-6 opens:** reuse the shapes already in the tree, the external
 plugin protocol (newline-delimited JSON-RPC over stdio, `lib/plugin.cpp`) and the
-MCP transport (`lib/mcp_transport.cpp`) — rather than inventing a third. A unix
+MCP transport (`lib/mcp_transport.cpp`), rather than inventing a third. A unix
 socket is preferred over stdio pipes for a provider (bidirectional streaming with
 explicit framing and cancellation). Per-token IPC is affordable at human token
 rates; framing, cancellation propagation, and backpressure are the real costs,
@@ -140,7 +143,7 @@ public:
 
 `IPlugin::capabilities()` returns `std::vector<std::unique_ptr<Capability>>`
 (core tier) and stays the single declarative statement of what a plugin
-provides — it feeds the console, the ledger, and the enable/disable path.
+provides, it feeds the console, the ledger, and the enable/disable path.
 
 **The ledger is the contract.** Every accepted install returns a `Contribution`
 handle; the runtime records it against the plugin id. `disable(id)`:
@@ -150,7 +153,7 @@ handle; the runtime records it against the plugin id. `disable(id)`:
    commands, segments, panels, subscriptions, provider rows),
 3. marks the plugin `Deactivated`.
 
-If any contribution survives deactivation, the ledger is broken — and that is a
+If any contribution survives deactivation, the ledger is broken, and that is a
 tested invariant, not an aspiration (`plugin_disable_removes_every_contribution`).
 
 **Rejected alternatives:**
@@ -180,13 +183,12 @@ is observable.
 | Registry | Contribution | Ordering | Notes |
 |---|---|---|---|
 | **Tools** | `Tool` instances (`unique_ptr`) | registry order | The existing `ToolRegistry` (`include/agent/registry.h`) grows an owner-tagged `add`/`remove`; the const-ref bug in `PluginContext` is fixed by exposing a narrow `ToolSink` |
-| **Providers** | `ProviderSpec` = flavor + dialect factory + preset rows + auth spec | registration order | Registers into the dialect table (`lib/dialect.cpp:31`) and the provider repository list; see §7 |
-| **Commands** | completions.json subtree + a handler per leaf | tree order (`help`/`man` preserved) | Merged via `SettingRegistry::merge_completions_json` (`setting_registry.h:56`); the runtime registers each leaf's action closure — closing the v1 gap where plugin leaves rendered but could not execute |
+| **Providers** | `ProviderCapability` = flavor + optional dialect factory + preset rows | registration order | Registers into the dialect table (`lib/dialect.cpp:31`) and the provider repository list; see §7 |
 | **Prompt blocks** | `PromptBlock{id, priority, render(snapshot) -> std::string}` | ascending priority | Core memory/skills/brief blocks migrate onto this registry (see §5) |
-| **Status segments** | `StatusSegment{id, priority, drop_priority, text, tone}` against a host-published `StatusSnapshot` | ascending priority; `drop_priority` decides overflow | Composed by `StatusRegistry`; amber's own segments register the same way (`lib/core_segments.cpp`), so a plugin's segment is indistinguishable from a core one. Rendering stays a pure read — time-driven work goes in `IPlugin::tick()` |
+| **Status segments** | `StatusSegment{id, priority, drop_priority, text, tone}` against a host-published `StatusSnapshot` | ascending priority; `drop_priority` decides overflow | Composed by `StatusRegistry`; amber's own segments register the same way (`lib/core_segments.cpp`), so a plugin's segment is indistinguishable from a core one. Rendering stays a pure read, time-driven work goes in `IPlugin::tick()` |
 | **Panels** | `PanelSpec{id, title, lines(width), on_key}` | registration order | Host owns framing, scrolling, cycling and key routing; a focused panel gets first refusal on keys. The registry console (Alt+0/`/panel`) is core UI built on this API |
+| **Commands** | `CommandSpec{root, help, man, subtree, handlers}` | registration order | The host merges the subtree into the command tree and binds each executable leaf's derived action (`plugin.<id>.<path>`) to its handler. Handlers return the text to display, so the plugin stays UI-free. TUI-only: the headless CLI has no command tree |
 | **Wallets** | `WalletRegistry::Fetch = optional<double>(const Config&)` | keyed by provider id | A provider supplies only the *fetch*. The runtime owns when to refresh (turn end, provider switch, startup), the cache, and the rendering, so every provider's readout behaves identically and no plugin carries a poll loop or a cache. Rendered by one core status segment: `$13.22`, or `-` when the provider declares none / the fetch failed. Toggled with `/set provider wallet on\|off` |
-| **Settings** | `Setting{key, getter, setter}` | registration order | Feeds `/get` `/set`; same `SettingRegistry::add` contract used today. Log sinks were cut from this list — no phase named a consumer, so they sit in the deferred register until one exists |
 
 **Plugin registry state is itself a command-tree surface** (`plugin` namespace
 under `/get` and `/set`, D17):
@@ -204,12 +206,25 @@ cannot drift between two commands.
 
 **Toggling re-publishes the surfaces the plugin fed.** Enabling or disabling
 refreshes the provider feed (`refresh_provider_feed`) and the command tree, so
-`/get provider list` and the drawer reflect the change immediately — a disabled
+`/get provider list` and the drawer reflect the change immediately, a disabled
 provider plugin's rows are gone, an enabled one's appear, without a restart.
 
-**Deferred extension points** (not in v1 of the framework, with reasons):
+**Commands (re-added).** A `CommandCapability` contributes a slash-command
+namespace: a root, its help/man, the child nodes (completions.json shape), and
+one handler per executable leaf. The host merges the subtree and binds each
+leaf's derived action (`plugin.<id>.<path>`) to its handler. Handlers return the
+text to display, so a command plugin stays UI-free. The bundled
+`plugins/hello/` is the worked example (`/hello greet <name>`). The TUI owns the
+slash engine, so a command contribution is TUI-only today.
+
+**Removed extension points.** **Per-plugin settings** was cut before landing,
+because nothing produced and nothing consumed it; the `CapabilityKind` enum does
+not carry it and no plugin may register one. It reopens when a real consumer
+exists.
+
+**Deferred extension points** (not in this framework version, with reasons):
 themes, raw key interception, window geometry/z-order, per-token stream events,
-hot reload, and loading plugin code at runtime. See §10.
+log sinks, hot reload, and loading plugin code at runtime. See §10.
 
 ---
 
@@ -220,7 +235,7 @@ insertion algorithms: learned memories (`agent.cpp:244-263`), skill discovery an
 activated skill bodies (`:290-319`), and the session brief (`:327-335`), after
 `ensure_system_prompt` assembles the base prompt (`:190-204`).
 
-v2 replaces that with one ordered registry:
+The framework replaces that with one ordered registry:
 
 ```
 base system prompt (prompts/system.md, tools, env card, MCP)
@@ -233,7 +248,7 @@ base system prompt (prompts/system.md, tools, env card, MCP)
 ```
 
 `Agent` asks the registry for blocks in priority order and appends each
-non-empty block as its own `system` message on the **prompt copy** — never on the
+non-empty block as its own `system` message on the **prompt copy**: never on the
 sealed `Context` (invariant preserved from the existing design).
 
 **KV-prefix rule:** block order and content must be deterministic for a given
@@ -246,7 +261,7 @@ The core blocks migrating onto the registry is deliberate dogfooding: if the
 registry cannot express amber's own prompt assembly, it cannot express a
 plugin's.
 
-**Status of that migration (2026-09-11): resolved — and the answer was not the
+**Status of that migration (2026-09-11): resolved, and the answer was not the
 one the design assumed.** Reading the history showed the pre-compression memory
 block was a **regression**, not a layout preference: before the immutable-Context
 rewrite, compression ran on a list that already contained the injection, and the
@@ -270,7 +285,7 @@ Events are typed. The existing untyped `EventBus` remains as the primitive
 (it is tested and its semantics are pinned); a typed layer sits above it:
 
 ```cpp
-// include/agent/events.h — payloads, no void* in the plugin-facing API
+// include/agent/events.h, payloads, no void* in the plugin-facing API
 struct TurnStartedEvent  { std::string prompt; };
 struct TurnEndedEvent    { const Message& reply; };
 struct MessageAddedEvent { const Message& msg; };
@@ -298,12 +313,12 @@ may be mutated or the event cancelled):
 | `LlmResponseReceived` | `chat_once` after `chat`/`chat_stream` returns | no | Hidden `confirm_turn` exchanges are **not** published (they use `silent_hooks`; same gate applies) |
 | `CompressionTriggered` / `CompressionCompleted` | gate decision `agent.cpp:266-278`; rebuild `:458-461` | no | Structured replacement for the current `on_status` prose |
 | `ErrorRaised` | retry/classification paths `agent_helpers.cpp:134-249`, auth repair `agent.cpp:699-719` | no | Observation only: **error classification stays in the dialect** (`is_retryable`, `context_overflow_hint`) |
-| `PluginLoaded` / `PluginUnloaded` | runtime | no | Main thread |
+| `PluginLoaded` / `PluginUnloaded` | - | no | Declared in `events.h`, **never published** (no fire site). Kept for a future consumer; do not subscribe expecting them. |
 
 **Performance invariants (hard):**
 
 1. `publish<E>()` with no subscribers for `E` performs a single relaxed atomic
-   load and returns — no allocation, no virtual dispatch, no lock.
+   load and returns, no allocation, no virtual dispatch, no lock.
 2. Nothing publishes per token. Token streaming remains an `AgentHooks` concern
    for the host UI; a plugin needing stream progress subscribes to a coalesced
    event added deliberately, not to a per-token fire.
@@ -322,32 +337,45 @@ may be mutated or the event cancelled):
   trait mapping per event.
 - *Firing events from the host by translating `AgentHooks`.* Cheap, but
   compression lifecycle, error classification, and request/response are not
-  hooks — the translation would fabricate events from prose (`on_status`
+  hooks, the translation would fabricate events from prose (`on_status`
   strings) and produce a bus that lies.
 
 ---
 
 ### 7. Provider plugins (the first real consumer)
 
-A provider plugin contributes a `ProviderSpec`:
+A provider plugin contributes a `ProviderCapability`. (An earlier draft called
+this `ProviderSpec` with an `AuthSpec`; neither type exists in the tree, the
+delivered shape below is what the code uses.)
 
 ```cpp
-struct ProviderSpec {
-    std::string flavor;                             // "gemini", "anthropic", ...
-    std::function<std::unique_ptr<Dialect>()> make_dialect;
-    std::vector<ProviderPreset> presets;            // name, api_base, default model, requires_key
-    AuthSpec auth;                                  // how credentials are obtained/validated
+// include/agent/extensions.h, the delivered type.
+class ProviderCapability : public Capability {
+public:
+    struct Preset {
+        std::string name;          // provider name, e.g. "gemini"
+        std::string api_base;
+        std::string default_model;
+        bool requires_key = true;
+    };
+
+    // `make_dialect` empty: presets only, speaking a protocol provided
+    // elsewhere (the shared openai dialect).
+    ProviderCapability(std::string flavor,
+                       std::function<std::unique_ptr<class Dialect>()> make_dialect = {},
+                       std::vector<Preset> presets = {});
+    ...
 };
 ```
 
 - `make_dialect` registers into the **existing** dialect table
-  (`register_dialect`, `include/agent/dialect.h:89`) — the port is already
+  (`register_dialect`, `include/agent/dialect.h:89`), the port is already
   public and already documented as the extension point.
 - `presets` become provider rows through the existing repository merge
   (`ProviderService::available()`), so they appear in `/provider list` and the
   command feed with no new concept.
 - The dialect supplies endpoints, auth headers, body, buffered parse, stream
-  decoding, model listing, usage mapping, and error classification — everything
+  decoding, model listing, usage mapping, and error classification, everything
   wire-specific. **No boolean capability flags**: behavior lives in the dialect,
   the plugin supplies data and structure.
 
@@ -366,8 +394,8 @@ balance readout, which moved out of `lib/model_probe.cpp` and the TUI into the
 plugin) and `anthropic` are plugins; `capability_overrides()`,
 `ProviderCapabilities` and the static preset repository are deleted, and
 `flavor` is a field of the provider definition, round-tripped through
-`~/.config/amber/providers/*.conf`. The core registers no provider at all —
-with no plugins loaded, `/provider list` is empty — and `lib/dialect.cpp`
+`~/.config/amber/providers/*.conf`. The core registers no provider at all,
+with no plugins loaded, `/provider list` is empty, and `lib/dialect.cpp`
 registers only the transport's own `openai` protocol, so a disabled provider
 plugin takes its protocol out of the table with it. The file layer stays: a
 user's own `~/.config/amber/providers/<name>.conf` is data about a provider,
@@ -376,16 +404,16 @@ independent of the preset that names it.
 **The wallet is framework-owned on purpose.** A provider's balance could be
 done per plugin (kilocode did exactly that: its own poll loop, atomic cache and
 status segment). It is not, because the part that varies is a single HTTP call
-and everything else — when to refresh, how to cache, how to render, how to drop
-under pressure — should be identical for every provider. A plugin supplies the
+and everything else, when to refresh, how to cache, how to render, how to drop
+under pressure, should be identical for every provider. A plugin supplies the
 fetch; a provider without one simply reports `-`.
 
 Two providers declare wallets today, and they show why the fetch is the right
 seam: kilocode reads an account balance (`api.kilo.ai/api/profile/balance`,
 authenticated with the gateway key), while OpenRouter reports a *per-key* spend
 cap (`GET /v1/key` → `limit_remaining`, visible to an ordinary inference key).
-A third kind of provider — one with no account API to ask, which is every
-OpenAI-compatible endpoint including the user's own — declares nothing and
+A third kind of provider, one with no account API to ask, which is every
+OpenAI-compatible endpoint including the user's own, declares nothing and
 renders `-` rather than a fabricated number. Account-wide OpenRouter credits
 need a management key, so they are deliberately out of scope; when that need
 arrives it becomes the first consumer of host services (§8), not a wallet
@@ -397,9 +425,9 @@ state and value, using the same source as the bar.
 
 **Flavor resolution is state-dependent, and the fallback must not lie.** A
 flavor that no dialect implements (a typo in a provider file) falls back to
-`openai` — that behaviour is correct and stays. A flavor that *a disabled plugin*
+`openai`, that behaviour is correct and stays. A flavor that *a disabled plugin*
 implements must **fail loudly**, naming the plugin and the fix
-("`gemini` is provided by plugin `gemini`, which is disabled —
+("`gemini` is provided by plugin `gemini`, which is disabled,
 `/set plugin gemini on`"). Otherwise a user file (`~/.config/amber/providers/*.conf`,
 which holds the key and survives the plugin being switched off) keeps looking
 configured while silently speaking the wrong protocol. Unknown ⇒ fallback;
@@ -411,11 +439,16 @@ and probes with the default dialect (`lib/providers_catalog_http.cpp:14-24`), so
 (`https://api.anthropic.com/models` with a Bearer header). The catalog becomes
 provider-driven: resolve the provider's dialect, use its `models_url` and
 `auth_headers`, parse with `parse_model_list_response`. An empty `models_url`
-means "no listing" — reported as such, never as a false negative.
+means "no listing", reported as such, never as a false negative.
 
 ---
 
-### 8. Host services (UI)
+### 8. Host services (UI), not implemented
+
+> **Status: not available.** This section is the agreed contract, not the
+> shipped API. `PluginServices` exposes no `ui()`, and `HostServices` today
+> carries only jobs, todos, sub-agents and the cancel token. Tracked as PF-3.3;
+> do not build against it.
 
 Plugins need the user: an API key, a choice, a confirmation, a notice. They get
 **host-mediated verbs**, never widgets:
@@ -434,7 +467,7 @@ public:
 
 - **TUI implementation** reuses the existing machinery: widgets
   (`form_edit`, `menu_select`, `confirm_panel`, `info_dialog`) run on the UI
-  thread while the requesting thread blocks on a future — exactly how the
+  thread while the requesting thread blocks on a future, exactly how the
   API-key prompt works today (`event_router.cpp:135-150` → `tui_input.cpp:1981`),
   including the modal-deferral queues.
 - **CLI implementation** prompts on the TTY and denies non-interactively, matching
@@ -442,7 +475,7 @@ public:
 - `post_to_ui` is the sanctioned cross-thread update path; the host drains it on
   its existing tick (the TUI's 50 ms loop, `widgets.h:72`).
 
-**Provider key entry** is the first consumer: the auth flow in `AuthSpec` may
+**Provider key entry** is the first consumer: the auth flow may
 call `ask_secret`, and 401/403 repair migrates from the hardcoded
 `AgentHooks::on_api_key` path onto the same service. Plugins never learn what a
 dialog is.
@@ -451,21 +484,23 @@ dialog is.
 
 ### 9. Composition root, lifecycle, state
 
-**`Runtime`** (working name) is the single composition root used by both hosts:
+**`PluginRuntime`** is the single composition root used by both hosts:
 
 ```
-Runtime
+PluginRuntime
  ├─ ToolRegistry          (existing)
  ├─ ProviderService       (existing; presets merged from plugin contributions)
- ├─ PluginRegistry        (existing lifecycle; now fed by the runtime)
- ├─ EventBus              (existing primitive + typed layer)
- ├─ extension registries  (commands, prompts, status, panels, settings, logs)
- ├─ HostServices          (TUI or CLI implementation)
+ ├─ PluginRegistry        (existing lifecycle; fed by the runtime)
+ ├─ EventBus              (existing primitive + typed Events layer)
+ ├─ extension registries  (prompts, status, panels, wallets, allowances)
+ ├─ HostServices          (jobs, todos, sub-agents, cancel token)
  └─ PluginLedger
 ```
 
-`src/amber-cli` and `tui/` both construct a `Runtime`; today the CLI has no
-plugin system at all, which is the asymmetry this removes.
+`src/main.cpp` (CLI) and `tui/tui_main.cpp` both construct a `PluginRuntime`,
+call `add_bundled()`, `attach_host_services()`, `attach_config()` and `start()`,
+so both hosts expose the same plugin surface. The earlier asymmetry where the
+CLI had no plugin system is gone.
 
 **Lifecycle:** `Discovered → Registered → (enable) Active → (disable)
 Deactivated → Shutdown`, unchanged from the existing state machine
@@ -483,11 +518,11 @@ Bundled core plugins are compiled in today (no dlopen, no process boundary);
 their *state* still lives in the per-plugin directory so that opening the
 framework later does not change the layout users see. `$(datadir)` is
 `<prefix>/share/amber` (`Makefile.in:413`), already the install target for
-`prompts/` and `completions.json`, and already scanned by the v1 plugin
+`prompts/` and `completions.json`, and already scanned by the external plugin
 discovery roots (`lib/plugin.cpp:163-168`).
 
 **Versioning:** not in this tier. A compiled-in plugin cannot be a different
-version from the harness — the compiler enforces it — so no runtime version gate
+version from the harness, the compiler enforces it, so no runtime version gate
 exists until PF-6 admits code that was built elsewhere (D10).
 
 ---
@@ -496,7 +531,7 @@ exists until PF-6 admits code that was built elsewhere (D10).
 
 | Deferred | Why now |
 |---|---|
-| External (process) tier — PF-6 | The in-process port must be proven first (Gemini, PF-2) before its wire form is knowable; designing an IPC protocol for an unproven interface is speculative. Shaped for in the meantime: declarative capabilities, per-plugin state dir, no harness-internal dependencies. |
+| External (process) tier, PF-6 | The in-process port must be proven first (Gemini, PF-2) before its wire form is knowable; designing an IPC protocol for an unproven interface is speculative. Shaped for in the meantime: declarative capabilities, per-plugin state dir, no harness-internal dependencies. |
 | Log sinks | Cut from PF-1: no phase named a consumer, and a registry that nothing drives is the failure mode this design exists to avoid. Reopens when a component needs structured log fan-out (the conversation log stays authoritative). |
 | `kPluginApiVersion` gate | **Deferred to PF-6.** For compiled-in plugins the compiler is the version check; a runtime constant compared at registration does nothing. It earns its place only when code can arrive that was not built with the harness. |
 | `dlopen` loadable libraries | **Rejected, not deferred** (D16): it buys "install without rebuilding" while costing a C++ ABI contract that is fragile across compilers and stdlib versions, and it keeps the shared crash domain. The process tier is strictly better for that use case. |
@@ -505,7 +540,7 @@ exists until PF-6 admits code that was built elsewhere (D10).
 | Per-token stream events | Violates the performance invariants; the host UI already consumes tokens via `AgentHooks`. |
 | Themes / arbitrary render hijack | `Theme` in the old draft painted inside ncurses internals. Deferred until the segment/panel contract is stable. |
 | Hot reload, plugin dependencies | No consumer; adds lifecycle states with no benefit yet. |
-| External plugins gaining non-tool capabilities | The v1 process protocol stays tools-only until the in-process framework is proven. |
+| External plugins gaining non-tool capabilities | The external process protocol stays tools-only until the in-process framework is proven. |
 
 ---
 
@@ -514,7 +549,7 @@ exists until PF-6 admits code that was built elsewhere (D10).
 - **Core plugins are trusted code.** They run in-process with full harness
   access; enabling one is a build/ship decision, not a runtime one. This is why
   the framework ships compiled-in and why the docs must say so plainly.
-- **External (v1) plugins are untrusted**: separate process, workspace-confined
+- **External plugins are untrusted**: separate process, workspace-confined
   paths, 64 KiB output cap, tools only, `plugin_<id>_<name>` namespace. No
   change to that model.
 - **Namespacing**: contributed commands live under the plugin's declared root;
@@ -530,7 +565,7 @@ exists until PF-6 admits code that was built elsewhere (D10).
 | Surface | Thread | Rule |
 |---|---|---|
 | Event handlers | the thread that published (agent owner thread, or UI thread for UI events) | Must not block. Long work goes to the plugin's own worker. |
-| Status segment / panel render callables | UI thread only | Must be fast (they run inside frame composition) and **must be pure reads** — no mutation of plugin state, no I/O |
+| Status segment / panel render callables | UI thread only | Must be fast (they run inside frame composition) and **must be pure reads**: no mutation of plugin state, no I/O |
 | `ask_*` / `choose` / `confirm` | called from the plugin's thread; the host shows the modal on the UI thread | Blocking on the caller side is expected and matches the existing approval/API-key pattern |
 | `notify`, `post_to_ui` | any thread | Queued; drained by the host tick |
 | Plugin-owned mutable state shared between event handlers and render | the plugin's responsibility | Sanctioned pattern: mutate from the event, then `post_to_ui` the UI-visible snapshot. Direct cross-thread reads are the plugin's bug, and the guide says so. |
@@ -543,25 +578,25 @@ the sealed stack.
 
 ### 13. Testing strategy
 
-1. **Registry unit tests** — install, order, introspection, removal for every
+1. **Registry unit tests**: install, order, introspection, removal for every
    extension point (hermetic, no host).
-2. **Ledger tests** — a plugin contributing one of everything, disabled, leaves
+2. **Ledger tests**: a plugin contributing one of everything, disabled, leaves
    the registries byte-identical to their pre-activation state. This is the test
    that makes enable/disable real.
-3. **Typed event tests** — subscribe/publish per payload type; the unsubscribed
+3. **Typed event tests**: subscribe/publish per payload type; the unsubscribed
    fast path returns without invoking anything; existing `event_bus_test.cpp`
    semantics (LIFO interceptors, re-entrancy) stay green.
-4. **Prompt block tests** — ordering, determinism across turns, KV-prefix
+4. **Prompt block tests**: ordering, determinism across turns, KV-prefix
    stability (same inputs → same prefix).
-5. **Host surface tests** — segment rendering and panel key handling against a
+5. **Host surface tests**: segment rendering and panel key handling against a
    fake host; the TUI-specific parts in `tests/tui_tests.cpp`.
-6. **Provider capability tests** — Gemini dialect body/parse/stream against
+6. **Provider capability tests**: Gemini dialect body/parse/stream against
    fixtures (mirroring `tests/dialect_anthropic_test.cpp`), plus the
    provider-driven catalog behaviour for a provider without a listing endpoint.
-7. **Performance guard** — a test asserting `publish()` with no subscribers is a
+7. **Performance guard**: a test asserting `publish()` with no subscribers is a
    no-op, and that a full turn with the framework active publishes nothing per
    token.
-8. **End-to-end** — a harness test that boots `Runtime` with bundled plugins,
+8. **End-to-end**: a harness test that boots `Runtime` with bundled plugins,
    drives a fake-LLM turn, and asserts the contributions are live and then gone
    after disable.
 
@@ -577,7 +612,7 @@ These hold always. A test that cannot express one of them is a design smell.
 1. **Install returns a handle.** Every contribution is removable through the
    handle the registry returned; there is no write-only registration.
 2. **No orphan contributions.** After `disable(id)` returns, nothing the plugin
-   contributed remains reachable — registries, subscriptions, command leaves,
+   contributed remains reachable, registries, subscriptions, command leaves,
    provider rows, segments, panels.
 3. **Registration never happens through events.** Events notify; registries
    install.
@@ -588,12 +623,12 @@ These hold always. A test that cannot express one of them is a design smell.
 7. **Plugins never mutate `Context`.** Prompt contributions render onto the
    prompt copy; the sealed stack is untouched (see the context ownership spec).
 8. **A disabled plugin costs nothing.** No subscriptions, no registry rows, no
-   constructed dialect, no polling — the only residue is its `plugin.conf`.
+   constructed dialect, no polling, the only residue is its `plugin.conf`.
 9. **Plugin state has one source of truth.** Enable/disable and settings live in
    `~/.config/amber/plugins/<id>/plugin.conf`; commands read and write that, never
    a shadow copy.
-10. **Every plugin surface is reachable from the command tree** — `/get plugin`,
-    `/set plugin`, and the contributed commands themselves. No hidden state.
+10. **Every plugin surface is reachable from the command tree**: `/get plugin`
+    and `/set plugin` are the control surface. No hidden state.
 11. **Plugins depend only on the public plugin API.** No `tui/` includes, no
    harness-internal types, so moving the tier boundary later costs nothing.
 12. **Flavor resolution is state-aware and race-free.** Unknown flavors fall
@@ -619,7 +654,7 @@ These hold always. A test that cannot express one of them is a design smell.
 
 - **Given**: a provider contributed by an enabled plugin
 - **Input**: `/get provider list`, then `/set plugin <id> off`, then `/get provider list` again
-- **Expected**: the provider appears, then is gone — with no restart, and with
+- **Expected**: the provider appears, then is gone, with no restart, and with
   the completion drawer agreeing with the list. Re-enabling restores it.
 - **Regression guard**: `provider_feed_follows_plugin_state`.
 
@@ -629,27 +664,27 @@ These hold always. A test that cannot express one of them is a design smell.
   provider file (`~/.config/amber/providers/<name>.conf`) holding its key
 - **Input**: `/set plugin <id> off`, then a turn against that provider
 - **Expected**: the turn fails loudly, naming the plugin and the command that
-  re-enables it — **never** a silent fallback to the OpenAI dialect. Re-enabling
+  re-enables it, **never** a silent fallback to the OpenAI dialect. Re-enabling
   restores normal operation.
 - **Regression guard**: `disabled_flavor_fails_loudly`, `flavor_fallback_is_unknown_only`.
 
 #### [PLG-01] Activation installs, deactivation removes
 
 - **Given**: a runtime with an empty harness
-- **Input**: enable a plugin contributing a tool, a command, a prompt block, a
-  status segment, and an event subscription; then disable it
+- **Input**: enable a plugin contributing a tool, a prompt block, a status
+  segment, and an event subscription; then disable it
 - **Expected**: every contribution is observable while active and absent after
   disable; the registries are in their pre-activation state; no callback fires
   afterwards.
 - **Regression guard**: `plugin_ledger_*` tests.
 
-#### [PLG-02] Plugin command leaves execute
+#### [PLG-02] Plugin command leaves execute, not applicable
 
-- **Given**: a plugin contributing a command subtree
-- **Input**: dispatch the deepest leaf from the drawer
-- **Expected**: the plugin's handler runs with the argument; the v1 behaviour
-  where drawer entries render but have no handler is gone.
-- **Regression guard**: `plugin_command_dispatch` test.
+- **Status**: not applicable. The command-contribution capability was removed
+  (no producer, no consumer); `CapabilityKind` has no `Command`. This scenario
+  is retained as a record and reopens only if a command capability returns.
+- **Historical expectation**: a plugin contributing a command subtree would have
+  its handler run when the deepest leaf is dispatched from the drawer.
 
 #### [PLG-03] Typed events carry payloads
 
@@ -663,7 +698,7 @@ These hold always. A test that cannot express one of them is a design smell.
 
 - **Given**: no subscribers
 - **Input**: publish every event type in a loop
-- **Expected**: no handler invocation, no allocation, no observable cost —
+- **Expected**: no handler invocation, no allocation, no observable cost,
   asserted by a no-op test and by the absence of per-token publishing.
 - **Regression guard**: `publish_without_subscribers_is_noop`.
 
@@ -726,19 +761,22 @@ These hold always. A test that cannot express one of them is a design smell.
   (single-owner rule, prompt-copy augmentation), `tui/layout-engine.md`
   (regions), `config/file-config.md` (state layout conventions).
 - **Depended on by**: `plugins/tools-domain.md` (splitting the tool set into
-  plugins, per-tool meta and prompts — the next domain to move),
+  plugins, per-tool meta and prompts, the next domain to move),
   `plugins/developer-guide.md` (author-facing contract), `plugins/README.md`
-  (v1 external tier — unchanged), `llm-client/model-probe.md`
+  (external tier, unchanged), `llm-client/model-probe.md`
   (provider-driven catalog).
 - **Tracker**: `docs/plugin-framework-tracker.md` (phases PF-1..PF-5, decision
   log, deferred register).
-- **Test coverage**: registry and ledger tests (new), `tests/plugin_v2_test.cpp`,
-  `tests/event_bus_test.cpp`, `tests/metrics_plugin_test.cpp`,
-  `tests/dialect_*_test.cpp`, `tests/tui_tests.cpp`.
+- **Test coverage**: registry and ledger tests (new), `tests/plugin_core_test.cpp`,
+  `tests/plugin_framework_test.cpp`, `tests/plugin_runtime_test.cpp`,
+  `tests/event_bus_test.cpp`, `tests/agent_events_test.cpp`,
+  `tests/metrics_plugin_test.cpp`, `tests/dialect_*_test.cpp`,
+  `tests/tui_tests.cpp`.
 
 ### Revision history
 
 | Date | Reason |
 |------|--------|
-| 2026-09-09 | Initial v2 draft (aspirational: `void*` capabilities, untyped bus, capability routing, theme/UI hijack, Phase 1 only) |
+| 2026-09-09 | Initial framework draft (aspirational: `void*` capabilities, untyped bus, capability routing, theme/UI hijack, Phase 1 only) |
 | 2026-09-10 | Rebuilt as the agreed architecture: typed capabilities + ledger, typed events with real fire sites, three-mechanism model, declared UI regions, host services, composition root, provider capability as first consumer, performance invariants, deferred register |
+| 2026-09-12 | Aligned with the shipped API: commands and settings removed, host services marked not implemented, `PluginRuntime` named, external tier renamed, "v2" dropped in favour of amber's own versioning |

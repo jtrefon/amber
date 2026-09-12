@@ -872,3 +872,37 @@ TEST(test_get_provider_list_node) {
 
 // ── Test: feed leaves are visible to the drawer/completion queries ──
 
+
+// ── Test: a plugin command namespace merges and resolves ──
+// SlashDispatcher::refresh_completions merges each CommandRegistry contribution
+// as {root: {help, man, children: subtree}} and stamps executable leaves with a
+// derived action (plugin.<id>.<path>). This locks the shape the host relies on,
+// and the action path handle_slash reads to dispatch.
+
+TEST(test_plugin_command_subtree_merges_and_resolves) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+
+    nlohmann::json node = nlohmann::json::object();
+    node["help"] = "Say hello";
+    node["man"] = "Usage: /hello greet <name>";
+    node["children"] = nlohmann::json::parse(
+        R"({"greet": {"help": "Greet someone", "action": "plugin.hello.greet"}})");
+
+    nlohmann::json merge = nlohmann::json::object();
+    merge["hello"] = node;
+    ASSERT(reg.merge_completions_json(merge));
+
+    auto kids = reg.complete("hello");
+    REQUIRE_NONEMPTY(kids);
+    bool has_greet = false;
+    for (const auto& k : kids)
+        if (k == "hello.greet") has_greet = true;
+    ASSERT(has_greet);
+    ASSERT_EQ(reg.help_for("hello.greet"), "Greet someone");
+
+    const auto& tree = reg.command_tree();
+    ASSERT_EQ(tree["commands"]["hello"]["children"]["greet"]["action"].get<std::string>(),
+              std::string("plugin.hello.greet"));
+}

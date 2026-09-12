@@ -1,16 +1,15 @@
-# Amber Plugin Framework — Specification
+# Amber Plugin Framework, Specification
 
-**Status:** Implemented (v1)
+**Status:** Implemented
 **Owner:** amber core
-**Version:** protocol 1
+**Version:** external plugin protocol 1
 
 > **Scope note.** This document specifies the **external** plugin tier only:
 > separate processes, JSON-RPC over stdio, tools as the sole capability. The
-> in-process **core plugin** framework (providers, commands, prompt blocks,
-> status segments, panels, typed events, ledger-managed enable/disable) is a
-> separate design: `plugin-framework-v2.md`, tracked in
-> `docs/plugin-framework-tracker.md`. The two tiers share the word "plugin" and
-> nothing else.
+> in-process **core plugin** framework (providers, prompt blocks, status
+> segments, panels, wallets, allowances, typed events, ledger-managed
+> enable/disable) is a separate contract: `plugin-framework.md`. The two tiers
+> share the word "plugin" and nothing else.
 
 Plugins are self-contained programs that extend amber with new agent tools and
 new slash-command namespaces. The harness never links plugin code: every plugin
@@ -38,7 +37,7 @@ the core.
   call and kept alive until disabled or the harness exits.
 - **I/O contract.** Everything a plugin exchanges with the harness is JSON.
   Inputs: JSON-RPC requests. Outputs: JSON-RPC responses whose `result` is the
-  tool envelope `{ok, output, meta}` — the same contract as built-in tools, so
+  tool envelope `{ok, output, meta}`, the same contract as built-in tools, so
   the agent reads plugin results exactly like `bash` or `search` results.
 - **Isolation.** The plugin runs unprivileged like the harness. Path arguments
   are confined to the workspace by the harness before dispatch. Output is
@@ -55,7 +54,7 @@ the core.
   "author": "…",
   "url": "https://…",
   "license": "MIT",
-  "description": "How and when to use this plugin — advertised to the agent "
+  "description": "How and when to use this plugin, advertised to the agent "
                  "in the tool prompt when the plugin is enabled.",
   "main": "cdp-plugin",
   "settings": { "endpoint": "ws://127.0.0.1:9222" },
@@ -115,10 +114,10 @@ A `protocol_version` mismatch, or `"ok": false`, marks the plugin
  "params": {"name": "navigate", "args": {"url": "https://example.com"}}}
 ```
 
-Response — the tool envelope:
+Response, the tool envelope:
 
 ```json
-{"id": 2, "result": {"ok": true, "output": "https://example.com — title", "meta": {}}}
+{"id": 2, "result": {"ok": true, "output": "https://example.com, title", "meta": {}}}
 ```
 
 Errors are returned, never thrown: `{"ok": false, "output": "ERROR: …"}`.
@@ -134,7 +133,7 @@ The plugin exits cleanly. The harness also SIGKILLs stragglers.
 ### 3.4 Timeouts
 
 A tool call that produces no line within 60 s is killed and reported as a
-timeout (partial output lost — plugins must emit one line per request).
+timeout (partial output lost, plugins must emit one line per request).
 
 ## 4. Tool registration and the agent
 
@@ -170,7 +169,7 @@ timeout (partial output lost — plugins must emit one line per request).
   plugin capabilities visibly namespaced; approval rules can target them by
   name like any other tool.
 
-## 7. Bundled plugins
+## 7. Shipped external plugins
 
 | Plugin | Ships in | Purpose |
 |--------|----------|---------|

@@ -1,0 +1,179 @@
+---
+import PluginDocsLayout from '../../layouts/PluginDocsLayout.astro';
+import Diagram from '../../components/Diagram.astro';
+import { site } from '../../data/site';
+
+const manifest = `{
+  "id": "hello",
+  "name": "Hello",
+  "version": "1.0.0",
+  "protocol_version": 1,
+  "author": "you",
+  "url": "https://example.com",
+  "license": "MIT",
+  "description": "How and when to use this plugin, advertised to the agent.",
+  "main": "hello-plugin",
+  "settings": { "greeting": "Hello" },
+  "completion": {
+    "hello": {
+      "help": "one-line drawer description",
+      "man": "Manual page: use case, usage, examples.",
+      "children": {
+        "greet": { "help": "Greet someone", "man": "Usage: /hello greet <name>" }
+      }
+    }
+  },
+  "tools": [
+    { "name": "greet",
+      "description": "Greet someone by name.",
+      "schema": { "name": {"type": "string", "required": true} } }
+  ]
+}`;
+
+const layout = `~/.config/amber/plugins/hello/
+├── manifest.json      # id, name, version, protocol_version, main, tools[], completion{}
+└── hello-plugin       # executable, chmod +x`;
+
+const initialize = `// harness -> plugin
+{"id": 1, "method": "initialize", "params": {
+  "protocol_version": 1,
+  "settings": { "greeting": "Hello" },
+  "workspace": "/path/to/workspace"}}
+
+// plugin -> harness
+{"id": 1, "result": {"protocol_version": 1, "ok": true}}`;
+
+const toolCall = `// harness -> plugin
+{"id": 2, "method": "tool.call",
+ "params": {"name": "greet", "args": {"name": "amber"}}}
+
+// plugin -> harness  (the standard tool envelope)
+{"id": 2, "result": {"ok": true, "output": "Hello, amber!", "meta": {}}}
+
+// errors are returned, never thrown:
+{"id": 2, "result": {"ok": false, "output": "ERROR: ..."}}`;
+
+const shutdown = `{"method": "shutdown"}   // notification; the plugin exits cleanly`;
+
+const protocolDir = `${site.repo}/blob/main/docs/spec/plugins/README.md`;
+---
+
+<PluginDocsLayout
+  title="External plugins"
+  description="The amber external plugin protocol: manifest.json, JSON-RPC 2.0 over stdio, lifecycle, administration and security."
+  current="external"
+>
+  <h1>External plugins</h1>
+
+  <p>
+    External plugins are self-contained executables that extend amber with new
+    tools. The harness never links plugin code: every plugin is a separate
+    process speaking newline-delimited JSON-RPC 2.0 over stdio, so a plugin
+    crash cannot take down the app and protocol changes ship as plugin updates
+    without touching the core.
+  </p>
+
+  <p>
+    They contribute <strong>tools only</strong>. For anything else, providers,
+    status segments, panels, prompt blocks, event hooks, use a
+    <a href="/plugins/anatomy">core plugin</a>.
+  </p>
+
+  <h2>Layout and discovery</h2>
+  <div class="terminal"><pre>{layout}</pre></div>
+  <p>Search order (first hit wins):</p>
+  <ol class="steps">
+    <li><code>$XDG_CONFIG_HOME/amber/plugins/&lt;id&gt;</code></li>
+    <li><code>~/.config/amber/plugins/&lt;id&gt;</code></li>
+    <li><code>&lt;workspace&gt;/.amber/plugins/&lt;id&gt;</code></li>
+    <li><code>$(datadir)/amber/plugins/&lt;id&gt;</code> (system-shipped)</li>
+  </ol>
+
+  <h2>Manifest</h2>
+  <div class="terminal"><pre>{manifest}</pre></div>
+  <table>
+    <thead><tr><th>Field</th><th>Required</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td>yes</td><td>Slug <code>[a-z0-9_]+</code>; directory name, tool prefix, namespace root.</td></tr>
+      <tr><td><code>name</code></td><td>yes</td><td>Display name.</td></tr>
+      <tr><td><code>version</code></td><td>yes</td><td>Semver.</td></tr>
+      <tr><td><code>protocol_version</code></td><td>yes</td><td>Integer. The harness rejects a mismatch (<em>incompatible</em>).</td></tr>
+      <tr><td><code>description</code></td><td>yes</td><td>Prompt advertisement: how/when to use the tools, rendered while enabled.</td></tr>
+      <tr><td><code>main</code></td><td>yes</td><td>Executable path relative to the plugin directory.</td></tr>
+      <tr><td><code>author</code> / <code>url</code> / <code>license</code></td><td>no</td><td>Attribution, shown by <code>/plugin info</code>.</td></tr>
+      <tr><td><code>settings</code></td><td>no</td><td>Default key/value settings; overridden via <code>/plugin set</code>.</td></tr>
+      <tr><td><code>completion</code></td><td>no</td><td>A completions.json subtree merged into the command tree on enable.</td></tr>
+      <tr><td><code>tools</code></td><td>no</td><td>Tool definitions, registered as <code>plugin_&lt;id&gt;_&lt;name&gt;</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Protocol</h2>
+  <p>One JSON object per line on stdin/stdout, UTF-8. All messages carry an <code>id</code> except notifications.</p>
+  <Diagram
+    name="externalPluginHandshake"
+  />
+
+  <h3>initialize</h3>
+  <div class="terminal"><pre>{initialize}</pre></div>
+  <p>
+    A <code>protocol_version</code> mismatch or <code>"ok": false</code> marks
+    the plugin incompatible and unregisters it.
+  </p>
+
+  <h3>tool.call</h3>
+  <div class="terminal"><pre>{toolCall}</pre></div>
+  <p>
+    The result is the same tool envelope the built-in tools use, so the agent
+    reads a plugin result exactly like a <code>bash</code> or
+    <code>search</code> result.
+  </p>
+
+  <h3>shutdown</h3>
+  <div class="terminal"><pre>{shutdown}</pre></div>
+
+  <h3>Timeouts</h3>
+  <p>
+    A tool call that produces no line within 60&nbsp;s is killed and reported as
+    a timeout. Partial output is lost, plugins must emit one line per request.
+  </p>
+
+  <h2>Administration</h2>
+  <div class="terminal"><pre>{`/plugin list | status <id> | enable <id> | disable <id> | get <id> [key]
+/plugin set <id> <key>=<value> | info <id> | install <path|url> | uninstall <id>`}</pre></div>
+  <p>
+    <code>install</code> takes a tar.gz (local path or http(s) URL) containing
+    <code>manifest.json</code> and the executable; it is validated and staged to
+    <code>~/.config/amber/plugins/&lt;id&gt;/</code>. System-shipped plugins
+    cannot be uninstalled.
+  </p>
+
+  <h2>Security</h2>
+  <ul class="feature-list">
+    <li>Plugin code is <strong>untrusted</strong> but runs with the user's privileges, like the harness. Install only plugins you trust; <code>/plugin info</code> shows author/url/license before enabling.</li>
+    <li>All path arguments pass through workspace confinement before the plugin sees them.</li>
+    <li>Output is capped at 64&nbsp;KiB per tool result.</li>
+    <li>Tools are namespaced <code>plugin_&lt;id&gt;_&lt;name&gt;</code>, so approval rules can target them by name.</li>
+  </ul>
+
+  <h2>Known limitation</h2>
+  <p>
+    Command subtrees contributed by external plugins render in the completion
+    drawer but <strong>cannot execute</strong>: no handler is registered for
+    <code>plugin.*</code> actions. The command-contribution capability was
+    removed (nothing produced or consumed one). Expose behaviour through tools
+    instead.
+  </p>
+
+  <p>
+    Full protocol: <a href={protocolDir} rel="noopener">docs/spec/plugins/README.md</a>.
+  </p>
+</PluginDocsLayout>
+
+<style>
+  .steps {
+    color: #9a7c47;
+    font-size: 13px;
+    line-height: 1.9;
+    padding-left: 20px;
+  }
+</style>

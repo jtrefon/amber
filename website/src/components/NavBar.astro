@@ -1,16 +1,21 @@
 ---
+import { site } from '../data/site';
 ---
 
 <nav class="nav-bar">
   <span class="nav-prefix">amber ~/website $</span>
   <a href="/">Home</a>
-  <a href="/download">Download</a>
+  <a href="/download">Get Amber</a>
+  <a href="/install">Install</a>
   <a href="/benchmarks">Benchmarks</a>
   <a href="/tui">TUI</a>
   <a href="/architecture">Architecture</a>
+  <a href="/architecture/diagrams">Diagrams</a>
+  <a href="/plugins">Plugins</a>
   <a href="/manual">Manual</a>
   <a href="/roadmap">Roadmap</a>
   <a href="/mission">Mission</a>
-  <a href="https://github.com/jtrefon/amber" target="_blank" rel="noopener">GitHub</a>
+  <a href="/report">Report</a>
+  <a href={site.repo} target="_blank" rel="noopener">GitHub</a>
   <span class="nav-hint">drawer</span>
 </nav>

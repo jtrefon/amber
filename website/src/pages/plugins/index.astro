@@ -1,0 +1,182 @@
+---
+import PluginDocsLayout from '../../layouts/PluginDocsLayout.astro';
+import Diagram from '../../components/Diagram.astro';
+import { site } from '../../data/site';
+
+const tierSnippet = `class HelloPlugin : public agent::IPlugin {
+public:
+    std::string id()      const override { return "hello"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name()    const override { return "Hello"; }
+
+    bool initialize(const agent::PluginContext&) override { return true; }
+    void shutdown() override {}
+
+    std::vector<std::unique_ptr<agent::Capability>> capabilities() override;
+};`;
+
+const capSnippet = `std::vector<std::unique_ptr<agent::Capability>> HelloPlugin::capabilities() {
+    std::vector<std::unique_ptr<agent::Capability>> caps;
+    caps.push_back(std::make_unique<agent::ToolCapability>(
+        "greet", [](agent::PluginServices&) {
+            std::vector<std::unique_ptr<agent::Tool>> tools;
+            tools.push_back(std::make_unique<GreetTool>());
+            return tools;   // empty list = declined, not an error
+        }));
+    return caps;
+}`;
+
+const sourceDir = `${site.repo}/tree/main/docs/spec/plugins`;
+const repo = site.repo;
+
+const cmdSnippet = `agent::CommandSpec spec;
+spec.root = "hello";
+spec.help = "Say hello";
+spec.subtree = agent::json::parse(R"({"greet": {"help": "Greet someone"}})");
+spec.handlers["greet"] = [](const std::string& arg) {
+    return "Hello, " + (arg.empty() ? std::string("world") : arg) + "!";
+};
+caps.push_back(std::make_unique<agent::CommandCapability>(std::move(spec)));`;
+---
+
+<PluginDocsLayout
+  title="Overview"
+  description="How to extend amber: core plugins in C++17 and external plugins in any language. Reference, examples and quickstart."
+  current="index"
+>
+  <h1>Plugin docs</h1>
+
+  <p>
+    Amber is built to be extended. Its own providers, core tools, status bar and
+    registry console are all plugins, the same API described here. There is no
+    privileged internal path.
+  </p>
+
+  <h2>Two tiers</h2>
+
+  <p>
+    Where a plugin runs is an isolation decision, not a size decision. Pick
+    deliberately:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th></th><th>Core plugin</th><th>External plugin</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Language</td><td>C++17, compiled in</td><td>Any executable</td></tr>
+      <tr><td>Isolation</td><td>Same process; a crash takes amber down</td><td>Separate process; a crash cannot</td></tr>
+      <tr><td>Can contribute</td><td>Tools, providers, prompt blocks, status segments, panels, wallets, allowances, event subscriptions</td><td>Tools only</td></tr>
+      <tr><td>Distribution</td><td><code>plugins/&lt;id&gt;/</code>, compiled in</td><td><code>~/.config/amber/plugins/&lt;id&gt;/</code></td></tr>
+      <tr><td>Cost per call</td><td>none (direct call)</td><td>IPC round trip</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Which tier?</h2>
+  <Diagram
+    name="pluginTierChoice"
+  />
+
+  <h2>Quickstart</h2>
+
+  <p>
+    A complete, compiled, tested example ships in the repository at
+    <code>examples/plugin_hello/</code> (exercised by
+    <code>tests/example_plugin_test.cpp</code>). The shape:
+  </p>
+
+  <div class="terminal"><pre>{tierSnippet}</pre></div>
+
+  <p>Then declare what it contributes:</p>
+
+  <div class="terminal"><pre>{capSnippet}</pre></div>
+
+  <ol class="steps">
+    <li>Create <code>plugins/&lt;id&gt;/</code> with your plugin class.</li>
+    <li>Declare capabilities in <code>capabilities()</code>.</li>
+    <li>Register it in <code>make_bundled_plugins()</code> (<code>lib/plugins_bundled.cpp</code>) and add the object to <code>Makefile.in</code>.</li>
+    <li>Write a hermetic test (see <a href="/plugins/testing">Testing</a>).</li>
+  </ol>
+
+  <p>
+    <strong>You declare; the runtime installs.</strong> Every contribution goes
+    through the ledger, which is what makes disable total. A plugin that
+    registers outside this path cannot be disabled cleanly, that is the one
+    rule the framework is built around.
+  </p>
+
+  <h3>Slash command quickstart</h3>
+  <p>
+    To expose logic through the slash engine, contribute a
+    <code>CommandCapability</code>: declare the JSON mapping, expose the callback,
+    and the host binds it. The bundled <code>plugins/hello/</code> is this exact
+    example, type <code>/hello greet amber</code> and it returns
+    <code>Hello, amber!</code>
+  </p>
+  <div class="terminal"><pre>{cmdSnippet}</pre></div>
+  <p>
+    The handler returns the text to display and the host prints it, so the plugin
+    stays free of any UI dependency. See
+    <a href="/plugins/capabilities">Capabilities → Command</a> for the full
+    contract.
+  </p>
+
+  <h2>In this reference</h2>
+  <ul class="feature-list">
+    <li><a href="/plugins/anatomy">Plugin anatomy</a>, <code>IPlugin</code>, <code>PluginContext</code>, <code>PluginServices</code>, the ledger, lifecycle</li>
+    <li><a href="/plugins/capabilities">Capabilities</a>, every capability kind, with code</li>
+    <li><a href="/plugins/events">Events</a>, the typed event bus, subscribe and intercept, full catalogue</li>
+    <li><a href="/plugins/providers">Providers</a>, add an LLM provider, with wallet and allowance</li>
+    <li><a href="/plugins/external">External plugins</a>, the JSON-RPC protocol and manifest</li>
+    <li><a href="/plugins/testing">Testing &amp; review</a>, hermetic tests and the PR checklist</li>
+  </ul>
+
+  <h2>Availability</h2>
+  <p>
+    What ships today, at a glance. The
+    <a href={`${sourceDir}/developer-guide.md`} rel="noopener">developer guide</a>
+    is the canonical source; this table mirrors it.
+  </p>
+  <table>
+    <thead><tr><th>Capability</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>External tool plugin (JSON-RPC)</td><td>✅ Available</td></tr>
+      <tr><td>Tool contribution (incl. core tools)</td><td>✅ Available</td></tr>
+      <tr><td>Typed event subscription</td><td>✅ Available</td></tr>
+      <tr><td>Prompt block contribution</td><td>✅ Available</td></tr>
+      <tr><td>Provider contribution</td><td>✅ Available</td></tr>
+      <tr><td>Status segment contribution</td><td>✅ Available</td></tr>
+      <tr><td>Panel contribution</td><td>✅ Available</td></tr>
+      <tr><td>Wallet / allowance readout</td><td>✅ Available</td></tr>
+      <tr><td>Command contribution (slash namespace)</td><td>✅ Available</td></tr>
+      <tr><td>Host services to the user (ask/choose/confirm)</td><td>Not available</td></tr>
+      <tr><td>Per-plugin settings, log sinks</td><td>Not available</td></tr>
+      <tr><td><code>PluginLoaded</code> / <code>PluginUnloaded</code> events</td><td>Declared, never published</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Source</h2>
+  <ul class="feature-list">
+    <li><a href={repo} rel="noopener">Repository</a></li>
+    <li><a href={sourceDir} rel="noopener">docs/spec/plugins/</a>, design record, developer guide, external protocol</li>
+    <li><a href={`${repo}/blob/main/lib/plugins_bundled.cpp`} rel="noopener">lib/plugins_bundled.cpp</a>, the shipped set</li>
+  </ul>
+
+  <p>
+    Found a gap in the framework? That is a
+    <a href="/report">bug report or feature request</a>, and a good one.
+  </p>
+</PluginDocsLayout>
+
+<style>
+  .steps {
+    color: #9a7c47;
+    font-size: 13px;
+    line-height: 1.9;
+    padding-left: 20px;
+  }
+
+  .steps li {
+    margin-bottom: 6px;
+  }
+</style>

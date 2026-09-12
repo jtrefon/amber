@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation and manual
+    url: https://jtrefon.github.io/amber/manual/
+    about: Setup, usage, and troubleshooting live here. Worth a look before filing.
+  - name: Contributing guide
+    url: https://github.com/jtrefon/amber/blob/main/CONTRIBUTING.md
+    about: How to build, test, and submit changes to amber.

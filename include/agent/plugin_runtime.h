@@ -207,6 +207,8 @@ public:
     const WalletRegistry& wallets() const noexcept { return wallets_; }
     AllowanceRegistry& allowances() noexcept { return allowances_; }
     const AllowanceRegistry& allowances() const noexcept { return allowances_; }
+    CommandRegistry& commands() noexcept { return commands_; }
+    const CommandRegistry& commands() const noexcept { return commands_; }
     EventBus& events() noexcept { return bus_; }
 
     // Contributions across every registry, for the console.
@@ -248,6 +250,7 @@ private:
     PromptRegistry prompts_;
     StatusRegistry status_;
     PanelRegistry panels_;
+    CommandRegistry commands_;
     WalletRegistry wallets_;
     EventBus bus_;
     Subscription wallet_turn_sub_;

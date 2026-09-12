@@ -1,4 +1,4 @@
-# AGENTS.md — amber (cpp-agent)
+# AGENTS.md, amber (cpp-agent)
 
 C++17 AI agent harness: a core library (`libagent_core.a` + `libagent_tools.a`)
 plus a headless CLI (`amber-cli`) and an ncurses TUI (`amber`, the flagship),
@@ -10,10 +10,10 @@ driven by an OpenAI-compatible LLM API.
   generate `Makefile` from `Makefile.in`. You rarely need to call `./configure`
   by hand.
 - `make` builds everything (`lib cli tui`). The binaries and archive land in the
-  repo root (`amber`, `amber-cli`, `libagent_core.a`, `libagent_tools.a`) — in-tree, not in a `build/`.
+  repo root (`amber`, `amber-cli`, `libagent_core.a`, `libagent_tools.a`), in-tree, not in a `build/`.
 - `make test` builds and runs the unit suite (`run_tests`). `make check` is a
   separate, lighter gate (`smoketest` + `tests/build_hygiene.sh` build
-  invariants) — do not confuse the two.
+  invariants), do not confuse the two.
 - `make lint` runs **clang-tidy** over every project source (third_party
   excluded) using the `.clang-tidy` config in the repo root. It is fast enough
   to gate changes on. `make analyze` runs **cppcheck** as an independent,
@@ -30,7 +30,7 @@ driven by an OpenAI-compatible LLM API.
 ## Compilation gotchas
 
 - Header dependency files (`.d`, via `-MMD -MP`) are generated, not committed
-  (`*.d` is gitignored). If you change a struct layout or any header, rebuild —
+  (`*.d` is gitignored). If you change a struct layout or any header, rebuild,
   stale `.o` from missing `.d` entries silently causes ABI/heap-corruption bugs
   at runtime (called out in the Makefile). When in doubt, `make clean && make`.
 - `include/agent/version.h` is **generated** by `./configure` from
@@ -47,7 +47,7 @@ driven by an OpenAI-compatible LLM API.
   `AgentHooks`. `tui/` must never be depended on by `lib/`.
 - `bench/` is the benchmark & KPI harness (`amber-bench`): scenario loader,
   oracle scorer, recorder (an `AgentHooks` observer), KPI aggregation, static
-  template engine. Same layering rules as the clients — `bench/` only links
+  template engine. Same layering rules as the clients, `bench/` only links
   the libraries, never touches the engine. Hermetic mode (fake LLM) is
   deterministic and safe for CI; live mode targets any OpenAI-compatible
   endpoint. Specs: `docs/spec/benchmark/`.
@@ -55,15 +55,17 @@ driven by an OpenAI-compatible LLM API.
   pluggable: `mode="grep"` (default, wraps `grep -rnI`) or `mode="semantic"`
   (dependency-free lexical index). Swap only `embed()` to use a real model.
 - System/tool prompts are Markdown in `prompts/` (`system.md`, `tools.md`),
-  loaded at runtime — editing those changes agent behavior without recompiling.
+  loaded at runtime, editing those changes agent behavior without recompiling.
 
-## Plugin architecture (v2 — design agreed, phased build in progress)
+## Plugin architecture
 
 The plugin system is the harness extensibility backbone: plugins contribute
-tools, LLM providers, commands, prompt blocks, status segments, panels,
-settings, and log sinks, and observe the agent loop through typed events.
+tools, LLM providers, prompt blocks, status segments, panels, wallets and
+allowances, and observe the agent loop through typed events. Commands,
+per-plugin settings and log sinks are **not** extension points (removed or
+deferred, see the developer guide's availability table).
 
-**Agreed model (binding — see the spec before touching any of it):**
+**Binding model (see the spec before touching any of it):**
 
 - **Three mechanisms.** Contribution registries (things that *exist*), typed
   events (things that *happen*), host services (things the plugin needs the host
@@ -71,46 +73,48 @@ settings, and log sinks, and observe the agent loop through typed events.
   time, not pushed from worker threads.
 - **Declare, don't install.** A core plugin declares typed `Capability` objects;
   the runtime installs each into its registry and records it in a per-plugin
-  ledger. `disable()` unwinds the ledger in reverse order — if a contribution can
+  ledger. `disable()` unwinds the ledger in reverse order, if a contribution can
   survive deactivation, the ledger is broken and that is a tested invariant.
 - **Typed events over the tested `EventBus`.** Payload structs in
   `include/agent/events.h`; no `void*` in the plugin-facing API. Unsubscribed
-  `publish()` is a single atomic load — **no per-token events, ever**
+  `publish()` is a single atomic load, **no per-token events, ever**
   (streaming stays an `AgentHooks`/UI concern).
-- **Compiled-in core plugins** (`plugins/<id>/`, registered in one bundled list)
-  ship with amber; the external tier (`tools/plugins/`, process + JSON-RPC v1)
-  remains tools-only. Runtime loading (`dlopen`) is deferred but the registries
-  and state layout (`~/.config/amber/plugins/<id>/plugin.conf`) are shaped for it.
+- **Two tiers.** Core plugins are compiled in (`plugins/<id>/`, registered in
+  `make_bundled_plugins()`); external plugins are separate processes
+  (`tools/plugins/`, JSON-RPC over stdio) and contribute tools only. Runtime
+  loading (`dlopen`) is deferred but the registries and state layout
+  (`~/.config/amber/plugins/<id>/plugin.conf`) are shaped for it.
 - **Provider plugins are the flagship consumer, and the conversion is done.**
-  Every provider amber ships (`plugins/custom|openrouter|kilocode|anthropic|gemini`)
-  is a plugin, and the core declares **none** — with no plugins registered,
+  Every provider amber ships (`plugins/custom|openrouter|kilocode|anthropic|gemini|…`)
+  is a plugin, and the core declares **none**: with no plugins registered,
   `/provider list` is empty. A provider capability is flavor + optional dialect
   factory + presets; wire behavior lives in the `Dialect`
   (`docs/spec/llm-client/dialect.md`), a provider plugin must not open its own
   HTTP client, and `lib/dialect.cpp` registers only the transport's own `openai`
   protocol so a disabled provider plugin takes its protocol with it. The one
-  provider name left in core is `Config::provider_name`'s default — a default
+  provider name left in core is `Config::provider_name`'s default, a default
   *selection*, not a definition.
-- **Status (2026-09-10, PF-1/2/4):** the framework runs. Typed events fire at
-  the agent and tool sites, capabilities install into typed registries through
-  the ledger, `/get plugin` and `/set plugin <id> on|off` control state
-  persisted in `~/.config/amber/plugins/<id>/plugin.conf`, the status bar is
-  composed from a registry, and the bundled metrics plugin observes real turns.
-  The runtime lives in `lib/plugin_runtime.cpp`; the bundled set in
-  `lib/plugins_bundled.cpp`. The target is a microkernel — amber as orchestrator
-  plus plugin registry, everything else arriving as a plugin — so no change may
-  add core domain state that a later extraction would have to unpick.
-- Spec: `docs/spec/plugins/plugin-framework-v2.md` (contract, decisions,
+- **Status:** the framework runs. Typed events fire at the agent and tool sites,
+  capabilities install into typed registries through the ledger, `/get plugin`
+  and `/set plugin <id> on|off` control state persisted in
+  `~/.config/amber/plugins/<id>/plugin.conf`, the status bar is composed from a
+  registry, and both hosts (`src/main.cpp`, `tui/tui_main.cpp`) construct a
+  `PluginRuntime`. The runtime lives in `lib/plugin_runtime.cpp`; the bundled set
+  in `lib/plugins_bundled.cpp`. The target is a microkernel, amber as
+  orchestrator plus plugin registry, everything else arriving as a plugin, so no
+  change may add core domain state that a later extraction would have to unpick.
+- Spec: `docs/spec/plugins/plugin-framework.md` (design record, decisions,
   scenarios).
-- Tracker: `docs/plugin-framework-tracker.md` (phases PF-1..PF-5, decision log,
-  availability table, deferred register with reasons).
-- Contributor guide: `docs/spec/plugins/developer-guide.md`.
+- Tracker: `docs/plugin-framework-tracker.md` (phases PF-1..PF-6, decision log,
+  deferred register with reasons).
+- Contributor guide: `docs/spec/plugins/developer-guide.md` (its availability
+  table is the single status surface).
 
 ## Conventions
 
 - Style: `.clang-format` (LLVM-based, 4-space, no tabs, 100 cols). Run
   `clang-format -i <files>` on touched code. No comments that restate code.
-- New source files need no copyright/SPDX header — keep the first line functional.
+- New source files need no copyright/SPDX header, keep the first line functional.
 - Commits: imperative mood, scoped prefixes (e.g. `tui: fix drawer scroll`).
   Tests for behavior changes go in `tests/run_tests.cpp`.
 
@@ -127,7 +131,7 @@ settings, and log sinks, and observe the agent loop through typed events.
 
 `completions.json` is the **single source of truth** for slash-command
 structure: namespace branches (unlimited nesting), short help (drawer),
-man pages (`?` popup), and leaf `action`s (internal command mapping — what
+man pages (`?` popup), and leaf `action`s (internal command mapping, what
 the branch executes). Dispatch (`handle_slash`), completion
 (`update_completions`), and the drawer (`draw_drawer`) all derive from the
 tree in `SettingRegistry`; C++ handlers are pure `(action, arg)` closures.
@@ -138,12 +142,12 @@ tree in `SettingRegistry`; C++ handlers are pure `(action, arg)` closures.
   `set.model`); dotted `/get` lookups resolve exact → `get.<key>` →
   `set.<key>` (`resolve_key` in setting_registry.cpp).
 - **Dynamic values are feed leaves**: runtime state and external
-  integrations merge leaf subtrees via `merge_completions_json` (deep merge —
+  integrations merge leaf subtrees via `merge_completions_json` (deep merge,
   static fields preserved, children unioned; MCP/plugin/feeds never clobber
   documented nodes). Each leaf carries a **generated action**
   (`<parent action>.<leaf key>`) and the feed registers the handler closure.
   Existing feeds: `refresh_model_list` (set.model), `refresh_policy_feed`
-  (get/set policy rule — the permission system, unchanged, surfaced in the
+  (get/set policy rule, the permission system, unchanged, surfaced in the
   tree), `refresh_job_feed` (job kill/read), plus `mcp_completion_subtree`.
   New dynamic content = a new feed, never a C++ completion lambda.
 - `SettingRegistry::complete(ns)` returns the **direct children** of a
@@ -159,10 +163,10 @@ tree + feeds. Concretely:
 - **No hardcoded command paths in handlers.** `handle_slash` walks the tree
   and dispatches the deepest documented node's `action`; C++ handlers are
   pure `(action, arg)` closures. Do NOT special-case command names in
-  `cmd_set`/`cmd_get`/`handle_slash` — if a command is missing from the
+  `cmd_set`/`cmd_get`/`handle_slash`, if a command is missing from the
   tree, add the node (or a feed leaf), not an `if (arg.rfind(...))`.
 - **No hardcoded completion/choice lists.** Completion rows, `choices`,
-  usage hints, and "try: ..." messages derive from the tree/feeds —
+  usage hints, and "try: ..." messages derive from the tree/feeds,
   including dynamically discovered names (providers, policy rules, models,
   MCP servers): they are feed leaves (`merge_completions_json`), never
   hardcoded C++ lists.
@@ -178,7 +182,7 @@ user can type must be resolvable there.
 
 ## Context stack architecture (immutable, hash-chained)
 
-The `Context` class (`include/agent/context.h`) is a **pure stack** — messages are
+The `Context` class (`include/agent/context.h`) is a **pure stack**: messages are
 sealed on `push()` and can never be modified in-place. The only mutation
 operations are:
 
@@ -191,7 +195,7 @@ operations are:
 
 Every `push()` computes `h_i = FNV(prev_hash || msg)` and stores it in a parallel
 deque. `pop()` restores the previous hash in O(1). `get_all()` recomputes the
-entire chain from the stored messages — any in-place mutation (`const_cast`,
+entire chain from the stored messages, any in-place mutation (`const_cast`,
 rogue `replace` method, direct deque access) breaks a link and crashes with
 `assert` in debug builds.
 
@@ -221,10 +225,10 @@ rogue `replace` method, direct deque access) breaks a link and crashes with
 - `amber.conf` sets `api_base`/`model`/`system_prompt`/`tools_prompt`. Defaults
   point at a local OpenAI-compatible endpoint (`localhost:8081/v1`).
 - Streaming via SSE; disable with `--no-stream` or `AMBER_STREAM=0`.
-- Releases are tag-driven (`vX.Y.Z`; tags with `-` are pre-releases) — see
+- Releases are tag-driven (`vX.Y.Z`; tags with `-` are pre-releases), see
   `.github/workflows/release.yml`.
 
-### The local inference service is INVOLATE — never touch it
+### The local inference service is INVOLATE, never touch it
 
 The OpenAI-compatible endpoint on `:8081` is served by the **`llama-turboq`
 systemd service** (`systemctl status llama-turboq`): a custom-built llama.cpp
@@ -242,7 +246,7 @@ via `start-qwopus-turboq.sh`). Hard rules, no exceptions:
   assumption of approval.
 - If you ever find an unexpected process serving :8081 (manual `llama-server`,
   etc.), treat it as a fault you must NOT have caused; do not "fix" or swap the
-  service yourself — stop what you're doing and report it.
+  service yourself, stop what you're doing and report it.
 - Benchmark/model evaluation uses the service as-is. If the fixed model cannot
   represent the population under test, that is a finding to surface, not a
   reason to reconfigure inference.
@@ -250,25 +254,25 @@ via `start-qwopus-turboq.sh`). Hard rules, no exceptions:
 ## Engineering principles (mandatory)
 
 These are hard requirements for every change. The bar is **zero technical debt**:
-leave code in better shape than you found it (Boy Scout rule) — never commit a
+leave code in better shape than you found it (Boy Scout rule), never commit a
 known mess, even in adjacent code.
 
 - **SOLID** must hold:
-  - *SRP* — a class has one reason to change.
-  - *OCP* — open for extension, closed for modification (add tools/backends via
+  - *SRP*, a class has one reason to change.
+  - *OCP*, open for extension, closed for modification (add tools/backends via
     new types, not edits to the loop).
-  - *LSP* — subtypes (every `Tool`/`SearchBackend`) must be substitutable.
-  - *ISP* — narrow interfaces (`Tool`, `SearchBackend`, `AgentHooks`) only.
-  - *DIP* — depend on abstractions (`Tool`, `SearchBackend`, `LLMClient`), not
+  - *LSP*, subtypes (every `Tool`/`SearchBackend`) must be substitutable.
+  - *ISP*, narrow interfaces (`Tool`, `SearchBackend`, `AgentHooks`) only.
+  - *DIP*, depend on abstractions (`Tool`, `SearchBackend`, `LLMClient`), not
     concretions; wiring happens at the boundary (CLI/TUI).
-- **KISS / DRY / YAGNI** — no speculative generality, no duplicated logic. If you
+- **KISS / DRY / YAGNI**: no speculative generality, no duplicated logic. If you
   copy a block, extract it. If a feature isn't required now, don't add it.
 - **Size limits** (enforced in review, not by the compiler):
   - A class/struct definition should stay **under 200 lines**. Split larger
     types (see Audit below).
   - A method/function should stay **under 10 lines** with **minimal branching**.
     Extract loops, parsing, and branching into named helpers.
-- **Layering / isolation** — this repo uses a **hexagonal (ports & adapters)**
+- **Layering / isolation**: this repo uses a **hexagonal (ports & adapters)**
   style, not strict N-layer:
   - *Domain core* (`lib/` + `include/agent/`) defines the ports (`Tool`,
     `SearchBackend`, `LLMClient`, `AgentHooks`) and the agent use-case. No UI,
@@ -295,34 +299,34 @@ known mess, even in adjacent code.
   message must follow the imperative, scoped convention
   (e.g. `fix: cancel token now lives in core, not bash_tool globals`).
 
-### Fix workflow — Red → Proposal → Sign-off → Green → PR
+### Fix workflow, Red → Proposal → Sign-off → Green → PR
 
 Every bug fix and every feature MUST follow this strict sequence:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  1. RED — Write a failing test that reproduces the bug or    │
+│  1. RED, Write a failing test that reproduces the bug or    │
 │     specifies the desired behaviour. Commit it on the branch │
 │     so CI shows the failure.                                 │
 │                                                              │
-│  2. PROPOSAL — Draft the architecture refactor in the PR     │
+│  2. PROPOSAL, Draft the architecture refactor in the PR     │
 │     description or a linked doc (see docs/fix-tracker.md).   │
 │     Describe target state, not the diff.                     │
 │                                                              │
-│  3. SIGN-OFF — Reviewer approves the architecture proposal   │
+│  3. SIGN-OFF, Reviewer approves the architecture proposal   │
 │     before any production code is written.                   │
 │                                                              │
-│  4. GREEN — Implement the fix. Make the test pass. Refactor  │
+│  4. GREEN, Implement the fix. Make the test pass. Refactor  │
 │     to meet all Engineering Principles above. Run local      │
 │     linting and static analysis every few edits (don't       │
 │     batch all issues to the end). Address every clang-tidy   │
-│     and cppcheck finding — zero warnings is the threshold.   │
+│     and cppcheck finding, zero warnings is the threshold.   │
 │     If your editor has LSP (clangd) integration, keep the    │
 │     diagnostics panel clean as you type; LSP-reported errors │
 │     (type mistakes, missing includes, const correctness)     │
 │     must be resolved before the next compile.                │
 │                                                              │
-│  5. PR — Open/update the pull request. Run final clean
+│  5. PR, Open/update the pull request. Run final clean
 │     verification: make clean && make && make test &&         │
 │     make lint && make analyze. All must pass with zero       │
 │     warnings. The reviewer verifies the diff matches the     │
@@ -351,14 +355,14 @@ Every PR reviewer MUST verify:
       fix commit (or a clear explanation if not possible).
 - [ ] All CI checks pass: `make`, `make test`, `make lint`, `make analyze`.
 - [ ] Zero dead code: no commented-out code, no stubs, no speculative branches.
-- [ ] No SPDX/copyright boilerplate — first line is functional (`#include`, `#ifndef`, etc.).
+- [ ] No SPDX/copyright boilerplate, first line is functional (`#include`, `#ifndef`, etc.).
 - [ ] No new clang-tidy or cppcheck warnings.
-- [ ] **Context is a pure stack** — only `push()`, `pop()` (LIFO), `clear()`, `get_all()`. No mutation of sealed messages. No `replace()` or similar. The FNV-1a hash chain in `get_all()` asserts integrity — any bypass crashes in debug.
+- [ ] **Context is a pure stack**: only `push()`, `pop()` (LIFO), `clear()`, `get_all()`. No mutation of sealed messages. No `replace()` or similar. The FNV-1a hash chain in `get_all()` asserts integrity, any bypass crashes in debug.
 
 ## Prompting philosophy (mandatory)
 
 Prompts are **descriptive, not prohibitive**: describe the role, personality,
-environment and tooling, and empower the agent to work — never force or
+environment and tooling, and empower the agent to work, never force or
 forbid behavior ("never", "don't", "must", "do not" are banned from
 `prompts/`). Conventions (like the closing `done` marker) are described as
 the natural shape of finished work, not commands. A prompt change is a
@@ -367,34 +371,34 @@ behavior change: prove it with a before/after benchmark run (see
 
 ## Coding standards
 
-- **RAII** — ownership follows resource acquisition. Use `unique_ptr` for
+- **RAII**: ownership follows resource acquisition. Use `unique_ptr` for
   exclusive ownership, scoped objects on the stack, and `shared_ptr` only when
   ownership is genuinely shared. Never use raw `new`/`delete`.
-- **Rule of Five / Zero** — prefer Rule of Zero (implicit special members are
+- **Rule of Five / Zero**: prefer Rule of Zero (implicit special members are
   correct). When a destructor, copy constructor, copy assignment, move constructor,
   or move assignment is user-defined, explicitly declare all five or `= delete`.
-- **`noexcept`** — mark pure accessors, trivial getters, and functions that
+- **`noexcept`**: mark pure accessors, trivial getters, and functions that
   never throw as `noexcept`. Only omit `noexcept` when the function legitimately
   throws. Every `Tool::name()`, `is_read_only()`, `requires_approval()`,
   `SearchBackend::name()`, `StreamDecoder::prompt_tokens()` should be `noexcept`.
-- **Const-correctness** — mark member functions and parameters `const` wherever
+- **Const-correctness**: mark member functions and parameters `const` wherever
   possible. Use `const&` for read-only parameters of non-trivial types.
 
 ## Error handling conventions
 
-- **Tools** — always return errors via `ToolResult{false, "", error_msg}`.
+- **Tools**: always return errors via `ToolResult{false, "", error_msg}`.
   Never throw from `Tool::execute()`. Catch unexpected exceptions and convert
   to `ToolResult`.
-- **Library functions** — may throw `std::runtime_error` for truly exceptional
+- **Library functions**: may throw `std::runtime_error` for truly exceptional
   conditions (transport failure, corrupt config). Do not throw for expected
-  states (empty results, missing files) — return an error code, empty optional,
+  states (empty results, missing files), return an error code, empty optional,
   or `ToolResult`.
-- **Recoverable errors** — model errors (malformed JSON, HTTP 4xx/5xx) should
+- **Recoverable errors**: model errors (malformed JSON, HTTP 4xx/5xx) should
   be returned as assistant messages or error-flagged `ToolResult` so the LLM
   can self-recover.
-- **Unrecoverable errors** — configuration corruption, libcurl init failure.
+- **Unrecoverable errors**: configuration corruption, libcurl init failure.
   Throw at construction; the host (CLI/TUI) catches and reports.
-- **Assertions** — use `assert()` only for invariants that should never fire
+- **Assertions**: use `assert()` only for invariants that should never fire
   in a correct program. Never use asserts for input validation.
 
 ## TDD / Red-Green-Refactor (mandatory)
@@ -413,45 +417,45 @@ behavior change: prove it with a before/after benchmark run (see
   large test function. Each test exercises one behaviour.
 - **Test location**: behaviour changes go in `tests/run_tests.cpp`. New test
   files may be added for major modules (`tests/compressor_test.cpp`,
-  `tests/agent_test.cpp`) — add them to `UNITTEST_OBJ` in `Makefile`.
+  `tests/agent_test.cpp`), add them to `UNITTEST_OBJ` in `Makefile`.
 
 ## Design patterns in use
 
-- **Strategy** — `SearchBackend` (`grep` vs `semantic`), selected at runtime by
+- **Strategy**: `SearchBackend` (`grep` vs `semantic`), selected at runtime by
   the `search` tool's `mode` arg without changing the schema.
-- **Strategy + Registry (provider wire protocols)** — `Dialect` implementations
+- **Strategy + Registry (provider wire protocols)**: `Dialect` implementations
   (`openai`, `anthropic`, …) are selected once per client from `Config::flavor`
   through the `make_dialect` registry; the transport, agent loop, and UIs never
   branch on the protocol. Adding a provider protocol is one dialect file + one
   registry row (`docs/spec/llm-client/dialect.md`).
-- **Factory** — `make_*_tool()` / `make_*_backend()` free functions return
+- **Factory**: `make_*_tool()` / `make_*_backend()` free functions return
   `unique_ptr<>` so the registry owns distinct instances; `register_default_tools`
   wires the standard set for every host.
-- **Registry / Service Locator** — `ToolRegistry` owns and looks up tools by
+- **Registry / Service Locator**: `ToolRegistry` owns and looks up tools by
   name for the agent loop and the LLM `tools[]` schema.
-- **Observer** — `AgentHooks` (via `std::function` callbacks) lets UIs observe
+- **Observer**: `AgentHooks` (via `std::function` callbacks) lets UIs observe
   the agent loop without the core knowing about them. More precise than "Template
   Method" since the hooks are set, not subclassed.
-- **Command** — `ProcessStartTool` / `ProcessReadTool` / `ProcessStopTool` each
+- **Command**: `ProcessStartTool` / `ProcessReadTool` / `ProcessStopTool` each
   encapsulate a background-process request as an object with a uniform `execute()`.
-- **Protection Proxy** — `Workspace::confine()` guards filesystem access behind
+- **Protection Proxy**: `Workspace::confine()` guards filesystem access behind
   path-confinement checks, proxying the real filesystem.
-- **Null Object** — `Agent::silent_hooks()` returns a no-op `AgentHooks` so
+- **Null Object**: `Agent::silent_hooks()` returns a no-op `AgentHooks` so
   internal confirmation exchanges never reach the scrollback, without null-checking
   at every call site.
-- **Memento** — `run_compression()` (gate path) and `compress_now()` leave the
+- **Memento**: `run_compression()` (gate path) and `compress_now()` leave the
   live `context_` untouched when the pipeline fails (spec invariant 7); the
   rebuild via `clear()` + `push()` only happens on success, capturing and
   rolling back state atomically.
-- **Adapter** — `LLMClient` adapts libcurl + the configured `Dialect` behind a
+- **Adapter**: `LLMClient` adapts libcurl + the configured `Dialect` behind a
   small C++ interface; each `Dialect` adapts one provider wire protocol;
   `Workspace` adapts filesystem confinement behind a simple `confine()` port.
-- **Facade** — `Agent` orchestrates client + registry + hooks + log into one
+- **Facade**: `Agent` orchestrates client + registry + hooks + log into one
   `run()` use-case.
-- **Pub/Sub** — `EventBus` (plugin v2) provides typed event subscription with
+- **Pub/Sub**: `EventBus` (plugin framework) provides typed event subscription with
   intercept (modify/cancel) and observe (read-only) semantics. Plugins subscribe
   to agent lifecycle events without coupling to the agent loop.
-- **Capability** — `IPlugin` declares `Capability` objects (tool, provider, hook,
+- **Capability**: `IPlugin` declares `Capability` objects (tool, provider, hook,
   theme, completion, memory, search) that the `PluginRegistry` registers into
   the appropriate subsystem. New capability types extend without modifying the
   registry (OCP).
@@ -462,20 +466,20 @@ Last reviewed against the limits above. The architecture and SOLID posture are
 **sound** (clean hexagonal boundaries, correct abstraction, no core↔UI coupling),
 but several files exceed the hard size limits and must be split before we can
 claim 0-debt conformance. Line counts below are enforced by
-`tests/build_hygiene.sh` (`make check`) — if they drift, refresh the table:
+`tests/build_hygiene.sh` (`make check`), if they drift, refresh the table:
 
 | File | Lines | Issue |
 |------|------:|-------|
 | `tests/run_tests.cpp` | 6070 | Test file; exempt from class-size rule but a candidate for per-area headers. |
-| `lib/session.cpp` | 287 | Resolved — `list()` now uses `std::filesystem::directory_iterator`. |
+| `lib/session.cpp` | 287 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 119 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 2578 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2581 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),
   `dialect_openai` (the OpenAI wire format), `http_transport`, `model_probe`,
   `debug_log` (+ `llm.cpp` keeps the class). Provider wire protocols now live in
-  `lib/dialect_*.cpp` behind the `Dialect` port — see
+  `lib/dialect_*.cpp` behind the `Dialect` port, see
   `docs/spec/llm-client/dialect.md`.
 - `lib/agent.cpp` (473 → 200, now 773): `run` decomposed into `confirm_turn`,
   `dispatch_tool_calls`, `agent_helpers`, `tool_recovery`; `compress_now` now
@@ -490,7 +494,7 @@ claim 0-debt conformance. Line counts below are enforced by
 - `tools/bash_tool.cpp` (191 → 196): `execute()` decomposed into free helpers
   `run_with_timeout` + `drain_output` in the anonymous namespace.
 - **Detached thread in `chat_once`** (Critical): replaced with synchronous
-  extraction — `chat_once` no longer spawns a thread.
+  extraction, `chat_once` no longer spawns a thread.
 - **HTTP transport + tool-cancel globals** (Critical): `CancellationToken` in
   `include/agent/process.h`, used by `http_transport`; no module-level globals.
 - **`Agent::run()` SRP** (High): decomposed into 4 named methods.

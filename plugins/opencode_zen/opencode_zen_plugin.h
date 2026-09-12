@@ -7,7 +7,7 @@
 // protocols, but those require a routing dialect not yet implemented — so
 // this plugin advertises only the models the shared openai dialect can call.
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <string>
 #include <vector>

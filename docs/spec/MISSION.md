@@ -3,7 +3,7 @@
 **How we achieve the vision. Concrete, tactical, decision-enabling.**
 
 The vision (`VISION.md`) says *what* we build and *why*. This document says
-*how* — priorities, trade-offs, phase order, user promise, and the feature
+*how*, priorities, trade-offs, phase order, user promise, and the feature
 filter that gates every decision.
 
 ---
@@ -13,7 +13,7 @@ filter that gates every decision.
 - Your agent runs until it's done. Background jobs survive.
 - You drive it with commands; it reports back in the scrollback.
 - Every action has a command path; every command produces UI feedback.
-- Help is one `?` away at any depth — you never retype the path.
+- Help is one `?` away at any depth, you never retype the path.
 - Your data stays on your machine. No telemetry, no SaaS.
 - The tool gets out of your way when you know what you're doing.
 
@@ -24,22 +24,22 @@ filter that gates every decision.
 When you can't do everything (you never can), this is the order:
 
 ```
-Priority 1 — CORE LOOP     Agent runs, calls LLM, uses tools, returns answer.
+Priority 1, CORE LOOP     Agent runs, calls LLM, uses tools, returns answer.
                             Everything depends on this. Must be solid first.
 
-Priority 2 — RELIABILITY    Loop detection, recovery, compression, persistence.
+Priority 2, RELIABILITY    Loop detection, recovery, compression, persistence.
                             The agent must not hang, loop, or lose state.
 
-Priority 3 — USER INTERFACE Command system, autosuggest, drawer, help, readline.
+Priority 3, USER INTERFACE Command system, autosuggest, drawer, help, readline.
                             The user must drive the agent efficiently.
 
-Priority 4 — TOOLING        Read, write, search, bash, process, system ops.
+Priority 4, TOOLING        Read, write, search, bash, process, system ops.
                             More tools = more capable agent.
 
-Priority 5 — MANAGEMENT     Sessions, providers, config, jobs, files. CRUD.
+Priority 5, MANAGEMENT     Sessions, providers, config, jobs, files. CRUD.
                             The user manages the tool through the tool.
 
-Priority 6 — LEARNING       Memory, skills, patterns. Agent improves over time.
+Priority 6, LEARNING       Memory, skills, patterns. Agent improves over time.
                             High value, depends on everything else being stable.
 ```
 
@@ -65,9 +65,9 @@ feature compete for the same cycle, P2 wins every time.
 | Support Windows | ❌ | Linux is the armour. Wine/Cygwin aren't Linux. |
 | Add web / GUI | ❌ | Terminal is the API. SSH exists. |
 | Vim modal mode | ❌ | Prompt is insert-always. |
-| Plugin system | ⚠️ Revised 2026-09-10 | The old YAGNI verdict conflated two different things. (a) A **loader for arbitrary third-party code** — still ❌: bash and MCP servers already carry that, and no runtime loading is being built. (b) An **in-process extension framework** so amber's own extension points (LLM providers, commands, prompt blocks, status segments, panels) are *contributed* through typed registries instead of edited in shared core files — ✅, because adding a provider vendor currently means editing four core files and `/provider test` is wrong for every non-OpenAI provider. Compiled-in only, no third-party code path. See `docs/spec/plugins/plugin-framework-v2.md`, tracker PF-1..PF-5. |
+| Plugin system | ⚠️ Revised 2026-09-10 | The old YAGNI verdict conflated two different things. (a) A **loader for arbitrary third-party code**: still ❌: bash and MCP servers already carry that, and no runtime loading is being built. (b) An **in-process extension framework** so amber's own extension points (LLM providers, prompt blocks, status segments, panels, wallets, allowances) are *contributed* through typed registries instead of edited in shared core files, ✅, because adding a provider vendor currently means editing four core files and `/provider test` is wrong for every non-OpenAI provider. Compiled-in only, no third-party code path. See `docs/spec/plugins/plugin-framework.md`, tracker PF-1..PF-6. |
 | Authored skill packages (`SKILL.md`) | ✅ P3 | Agent Skills open standard; progressive disclosure. Distinct from plugins: skills are *instructions*, not *code*. |
-| MCP client (Model Context Protocol) | ✅ P6 | Revisited 2026-07-31: MCP is now the ecosystem standard for third-party capability servers (the Agent Skills standard interoperates with it). Amber stays hexagonal — MCP is an *adapter over the existing `Tool` port*, not a second tool API. Scope: client-only (tools/resources/prompts), no roots/sampling, untrusted-by-default servers behind the approval gate. See `docs/spec/mcp/` and `docs/mcp-tracker.md`. The "no plugin loader" decision stands: MCP servers are external processes, not amber plugins. |
+| MCP client (Model Context Protocol) | ✅ P6 | Revisited 2026-07-31: MCP is now the ecosystem standard for third-party capability servers (the Agent Skills standard interoperates with it). Amber stays hexagonal, MCP is an *adapter over the existing `Tool` port*, not a second tool API. Scope: client-only (tools/resources/prompts), no roots/sampling, untrusted-by-default servers behind the approval gate. See `docs/spec/mcp/` and `docs/mcp-tracker.md`. The "no plugin loader" decision stands: MCP servers are external processes, not amber plugins. |
 | SaaS / telemetry | ❌ | Local-first. Trust invariant. |
 | Mobile app / remote web | ❌ | SSH exists. Amber lives on the server. |
 | Add inline images | ⚠️ Post-1.0 | Fun but doesn't help coding/server/research. |
@@ -78,7 +78,7 @@ feature compete for the same cycle, P2 wins every time.
 
 ## Phasing
 
-### Phase 1 — Foundation (what works now)
+### Phase 1, Foundation (what works now)
 - Agent loop, LLM calls, streaming
 - Tool dispatch, approval gating
 - Read/write/search/bash tools
@@ -86,7 +86,7 @@ feature compete for the same cycle, P2 wins every time.
 - Session save/load
 - Config file + env vars
 
-### Phase 2 — UX Overhaul (next)
+### Phase 2, UX Overhaul (next)
 - Command tree with `CommandNode`/`ArgSpec`/`FlagSpec`
 - Autosuggest shadow (always-visible completion)
 - Tab inline cycling (zsh-style)
@@ -103,19 +103,19 @@ feature compete for the same cycle, P2 wins every time.
 - `/files` browsing (ls, tree, open, find)
 - `/system` operations (exec, delete, rmdir, mkdir, mv, cp, info, ps, kill, df, uptime)
 
-### Phase 3 — Long Haul (future)
+### Phase 3, Long Haul (future)
 - `config` key-chain (unlimited depth)
 - File-path completion for commands
 - Background job notifications in status bar
 - Memory/skill promotion UI
 - Compression pipeline visibility in TUI
 - Multi-agent orchestration
-- **Plugin framework (in-process)** — typed contribution registries, typed
+- **Plugin framework (in-process)**: typed contribution registries, typed
   events, ledger-managed enable/disable, host services, provider plugins
   (Gemini first, then the built-ins converted). Compiled-in bundled plugins
   only; no loader. Phases PF-1..PF-5 in `docs/plugin-framework-tracker.md`;
   sequenced after regressions and debt work, per the roadmap triage.
-- **Skills system** — two-tier (authored + learned), per `docs/spec/skills/`:
+- **Skills system**: two-tier (authored + learned), per `docs/spec/skills/`:
   - Authored `SKILL.md` format + tolerant frontmatter parser (`skill-files.md`)
   - `SkillCatalog` union view + persisted overrides (`skill-catalog.md`)
   - Progressive disclosure: discovery metadata → `read_skill` activation → gated resources
@@ -129,19 +129,19 @@ feature compete for the same cycle, P2 wins every time.
 
 ## Non-negotiable rules
 
-1. **1:1 mapping** — Every UI action has a command; every command has UI
+1. **1:1 mapping**: Every UI action has a command; every command has UI
    feedback. No silent actions. No command-only ghettos.
-2. **Security is UI-only** — Approval dialogs block the agent thread and
+2. **Security is UI-only**: Approval dialogs block the agent thread and
    require explicit consent. `--yes` is the only bypass.
-3. **Terminal-native** — If it requires a GUI dependency, it doesn't belong.
-4. **Local-first** — No telemetry, no phoning home, no SaaS dependency.
+3. **Terminal-native**: If it requires a GUI dependency, it doesn't belong.
+4. **Local-first**: No telemetry, no phoning home, no SaaS dependency.
    Configuration is a file, not a server.
-5. **Insert-always** — No modal editing. The prompt is always ready for input.
-6. **One `?` at any depth** — Never retype a path to get help.
+5. **Insert-always**: No modal editing. The prompt is always ready for input.
+6. **One `?` at any depth**: Never retype a path to get help.
    `/set detection loop ?`, not `/help set detection loop`.
-7. **Every CRUD operation has both paths** — Providers, models, sessions,
-   jobs, files — all manageable from the command line AND from dialogs.
-8. **Phase order is binding** — P1 must be solid before P2 ships. P2 must
+7. **Every CRUD operation has both paths**: Providers, models, sessions,
+   jobs, files, all manageable from the command line AND from dialogs.
+8. **Phase order is binding**: P1 must be solid before P2 ships. P2 must
    be solid before P3 ships. No skipping.
 
 ---

@@ -10,7 +10,7 @@
 // own poll loop, atomic cache and status segment, which is exactly the
 // duplication the framework now removes.
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <string>
 #include <vector>

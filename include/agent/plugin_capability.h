@@ -34,6 +34,7 @@ enum class CapabilityKind : std::uint8_t {
     Provider,
     Wallet,
     Allowance,
+    Command,
 };
 
 // A live contribution. The owner is the plugin id; `remove` unwinds it and is

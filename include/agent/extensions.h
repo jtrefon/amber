@@ -191,7 +191,7 @@ struct HostServices {
     class JobService* jobs = nullptr;
     class TodoStore* todos = nullptr;
     class SubAgentExecutor* subagents = nullptr;
-    const class CancellationToken* cancel_token = nullptr;
+    const struct CancellationToken* cancel_token = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -306,6 +306,50 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Commands (slash-command namespaces)
+// ---------------------------------------------------------------------------
+
+// A plugin's slash-command namespace: a root name, its help/man, the child
+// nodes (completions.json shape), and one handler per executable leaf.
+//
+// The plugin never names an action string: the host derives the action from the
+// plugin id and the leaf's dotted path (`plugin.<id>.<path>`), so a plugin
+// command cannot collide with a core one. A leaf with no handler stays inert:
+// documented in the drawer, not executable. The same behaviour external plugin
+// commands have today.
+//
+// Handlers return the text to display and the host prints it. That keeps the
+// plugin UI-free (no tui/ includes), which is the framework's core rule.
+struct CommandSpec {
+    std::string root;       // namespace root, e.g. "hello"
+    std::string help;       // drawer one-liner for the root
+    std::string man;        // manual page for the root
+    nlohmann::json subtree; // children nodes (completions.json shape)
+    // Leaf path (dotted, relative to the root) -> handler returning output text.
+    std::map<std::string, std::function<std::string(const std::string&)>> handlers;
+};
+
+class CommandRegistry {
+public:
+    struct Entry {
+        std::string owner; // plugin id
+        CommandSpec spec;
+    };
+
+    Contribution add(const std::string& owner, CommandSpec spec);
+
+    // Every contributed namespace, for the host to merge and bind, in
+    // registration order.
+    const std::vector<Entry>& all() const noexcept { return entries_; }
+
+    std::vector<ExtensionItem> items() const;
+    std::size_t size() const noexcept { return entries_.size(); }
+
+private:
+    std::vector<Entry> entries_;
+};
+
+// ---------------------------------------------------------------------------
 // The services a capability installs into
 // ---------------------------------------------------------------------------
 
@@ -315,7 +359,7 @@ class PluginServices {
 public:
     PluginServices(ToolRegistry& tools, PromptRegistry& prompts, StatusRegistry& status,
                    PanelRegistry& panels, WalletRegistry& wallets, AllowanceRegistry& allowances,
-                   EventBus& events) noexcept;
+                   EventBus& events, CommandRegistry& commands) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
     PromptRegistry& prompts() noexcept { return *prompts_; }
@@ -324,6 +368,7 @@ public:
     WalletRegistry& wallets() noexcept { return *wallets_; }
     AllowanceRegistry& allowances() noexcept { return *allowances_; }
     EventBus& events() noexcept { return *events_; }
+    CommandRegistry& commands() noexcept { return *commands_; }
 
     // The plugin whose capabilities are being installed right now. The runtime
     // sets this around each plugin's install pass so a contribution is tagged
@@ -348,6 +393,7 @@ private:
     WalletRegistry* wallets_;
     AllowanceRegistry* allowances_;
     EventBus* events_;
+    CommandRegistry* commands_;
     std::string owner_;
 };
 
@@ -497,6 +543,20 @@ public:
 
 private:
     PanelSpec spec_;
+};
+
+// Contributes a slash-command namespace. The plugin declares the root, its
+// help/man, the child nodes, and one handler per executable leaf; the host
+// merges the subtree and binds the handlers. See CommandSpec for the contract.
+class CommandCapability : public Capability {
+public:
+    explicit CommandCapability(CommandSpec spec);
+    std::string name() const override { return spec_.root; }
+    CapabilityKind kind() const override { return CapabilityKind::Command; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    CommandSpec spec_;
 };
 
 } // namespace agent

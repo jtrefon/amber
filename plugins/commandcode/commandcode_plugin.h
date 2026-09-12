@@ -10,7 +10,7 @@
 // nullopt on any failure so the bar never shows a wrong number.
 
 #include "agent/extensions.h"
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <optional>
 #include <string>
