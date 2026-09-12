@@ -35,6 +35,79 @@ void print_usage(const char* prog) {
 
 } // namespace
 
+namespace {
+
+// The CLI's user-interaction port (§8). The terminal is a line at a time, so a
+// question is a prompt on stdout and an answer from stdin; with no TTY there is
+// nobody to ask, so every question fails closed, exactly like the bash tool's
+// approval contract.
+class CliUiServices : public agent::UiServices {
+public:
+    explicit CliUiServices(bool interactive) : interactive_(interactive) {}
+
+    std::string ask_text(const agent::AskSpec& spec) override {
+        return ask(spec, /*secret=*/false);
+    }
+
+    std::string ask_secret(const agent::AskSpec& spec) override {
+        return ask(spec, /*secret=*/true);
+    }
+
+    int choose(const agent::ChooseSpec& spec) override {
+        if (!interactive_ || spec.choices.empty()) return -1;
+        std::cout << spec.title << "\n";
+        for (std::size_t i = 0; i < spec.choices.size(); ++i)
+            std::cout << "  " << (i + 1) << ") " << spec.choices[i] << "\n";
+        std::cout << "choice [1-" << spec.choices.size() << "]: " << std::flush;
+        std::string line;
+        if (!std::getline(std::cin, line)) return -1;
+        try {
+            const int n = std::stoi(line);
+            return n >= 1 && n <= static_cast<int>(spec.choices.size()) ? n - 1 : -1;
+        } catch (const std::exception&) {
+            return -1;
+        }
+    }
+
+    bool confirm(const agent::ConfirmSpec& spec) override {
+        if (!interactive_) return false;
+        std::cout << spec.title << "\n" << spec.message << "\n";
+        std::cout << "proceed? [y/N]: " << std::flush;
+        std::string line;
+        if (!std::getline(std::cin, line)) return false;
+        return !line.empty() && (line[0] == 'y' || line[0] == 'Y');
+    }
+
+    void notify(agent::UiLevel level, const std::string& message) override {
+        const std::string prefix = level == agent::UiLevel::Info
+                                       ? std::string()
+                                       : std::string(agent::to_string(level)) + ": ";
+        std::cerr << prefix << message << "\n";
+    }
+
+    // No UI thread exists here: the CLI prints as it goes, so posted work runs
+    // where it was posted from. A plugin sees the same contract either way.
+    void post_to_ui(std::function<void()> work) override {
+        if (work) work();
+    }
+
+private:
+    std::string ask(const agent::AskSpec& spec, bool secret) {
+        if (!interactive_) return {};
+        if (!spec.title.empty()) std::cout << spec.title << "\n";
+        std::cout << (spec.prompt.empty() ? "value" : spec.prompt) << ": " << std::flush;
+        std::string line;
+        if (!std::getline(std::cin, line)) return {};
+        if (line.empty() && !spec.initial.empty()) return spec.initial;
+        (void)secret; // no echo control on a pipe; documented in the guide
+        return line;
+    }
+
+    bool interactive_;
+};
+
+} // namespace
+
 int main(int argc, char** argv) {
     agent::Config cfg;
     std::string prompt;
@@ -375,6 +448,10 @@ int main(int argc, char** argv) {
     // the whole run uses.
     agent::HostServices host_services{&jobs, &todos, &subagents, &cfg.cancel_token};
     plugin_runtime.attach_host_services(host_services);
+    // A plugin's questions go to the terminal when there is one; with no TTY
+    // there is nobody to ask, so they fail closed rather than block.
+    CliUiServices cli_ui(::isatty(STDIN_FILENO) != 0);
+    plugin_runtime.attach_ui_services(&cli_ui);
     plugin_runtime.attach_config(cfg);
     if (!no_plugins) {
         plugin_runtime.start();

@@ -75,9 +75,9 @@ bug.
 | Provider contribution (dialect + presets) | ✅ Available | `ProviderCapability` |
 | Status segment contribution | ✅ Available | `StatusSegmentCapability` |
 | Panel contribution + registry console | ✅ Available | `PanelCapability` |
-| Wallet / allowance readout | ✅ Available | `WalletCapability`, `AllowanceCapability` |
+| Wallet readout | ✅ Available | `WalletCapability` |
 | Command contribution (slash namespace) | ✅ Available | `CommandCapability` |
-| Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`) | – | Not available, no consumer yet (tracker PF-3.3) |
+| Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`) | ✅ Available | `PluginServices::ui` |
 | Per-plugin settings | – | Not available, use `~/.config/amber/plugins/<id>/plugin.conf` |
 | Log sinks | – | Deferred (no consumer) |
 | `PluginLoaded` / `PluginUnloaded` events | – | Declared in `events.h`, never published |
@@ -326,70 +326,61 @@ your feature silently stops working. This cost us the kilocode balance readout
 once; the regression test is
 `runtime_plugin_sees_the_hosts_config_attached_after_start`.
 
-### Wallet (a provider's balance)
+### Wallet (a provider's account state)
 
-If your provider has an account balance, declare how to fetch it, that is the
-whole contribution. Do **not** write a poll loop, a cache or a status segment:
-the runtime owns all of that, so your readout behaves exactly like every other
-provider's.
+If your provider knows anything about the account behind the active key, a
+prepaid balance, a set of quota windows, or both, declare how to fetch it. That
+is the whole contribution. Do **not** write a poll loop, a cache or a status
+segment: the runtime owns all of that, so your readout behaves exactly like every
+other provider's.
+
+One capability answers one question, "what is left?", in whatever shape your
+provider reports. A provider that knows a number:
 
 ```cpp
 caps.push_back(std::make_unique<agent::WalletCapability>(
-    [](const agent::Config& cfg) -> std::optional<double> {
+    [](const agent::Config& cfg) -> std::optional<agent::WalletSnapshot> {
         const std::string token = my_balance_token(cfg);
         if (token.empty()) return std::nullopt;      // nothing to fetch with
         const double amount = my_fetch(token);
         if (amount < 0) return std::nullopt;         // failed: claim nothing
-        return amount;
+        return agent::WalletSnapshot::of_balance(amount);
     }));
 ```
 
-- Return the amount, or `std::nullopt` when there is nothing honest to report.
-  `nullopt` is normal (no key, endpoint down, rejected key), the bar shows `-`.
-  Never invent a value.
-- The fetch runs off the UI thread and is called with the **live** config, at
-  most once per turn boundary (plus startup and provider switches). Do not block
-  indefinitely; it is a network call you own.
-- The bar renders the amount as `$13.22` with no label, it shows the *active*
-  provider's wallet, and bar space is scarce. `/get provider wallet` reports the
-  fuller state, and `/set provider wallet on|off` is the global display switch.
-
-### Allowance (subscription/quota windows)
-
-If your provider has a subscription or rate-limit system (rolling windows,
-monthly credits, per-model quotas), declare an allowance fetch. Same model as
-the wallet: the plugin supplies only the fetch, the runtime owns polling,
-caching, and rendering.
+A provider that meters usage windows returns them instead:
 
 ```cpp
-caps.push_back(std::make_unique<agent::AllowanceCapability>(
-    [](const agent::Config& cfg) -> std::optional<agent::AllowanceSnapshot> {
+caps.push_back(std::make_unique<agent::WalletCapability>(
+    [](const agent::Config& cfg) -> std::optional<agent::WalletSnapshot> {
         if (cfg.api_key.empty()) return std::nullopt;
         const auto body = agent::http_get_with_bearer(url, cfg.api_key);
         if (!body) return std::nullopt;
-        return my_parse_usage(*body);  // returns AllowanceSnapshot or nullopt
+        return my_parse_usage(*body);  // WalletSnapshot or nullopt
     }));
 ```
 
-`AllowanceSnapshot` carries:
+`WalletSnapshot` carries:
 
 - `plan`, the plan name ("Pro", "Go", "free").
-- `windows`, a vector of `AllowanceWindow`, each with a `label` ("5h", "7d",
+- `windows`, a vector of `WalletWindow`, each with a `label` ("5h", "7d",
   "monthly"), `percent_used` (0–100, -1 = unknown), `remaining` and
   `entitlement` (count or credits, -1 = not applicable), and `resets_at` (ISO
   8601 or empty).
-- `credits_balance`, optional prepaid credit balance.
+- `credits_balance`, optional prepaid balance.
 - `unit` and `currency`, what the numbers mean ("credits", "USD", "CNY").
 
-The status bar shows the **closest affecting window**: the one with the
-highest `percent_used` (ties broken by shortest label, so 5h beats 7d beats
-monthly). This is the window most likely to interrupt current work.
-`/get provider allowance` shows all windows in detail, and
-`/set provider allowance on|off` is the global display switch.
+Every field is optional, and filling only some of them is normal. What the bar
+shows follows one rule: **the balance when there is one, otherwise the window
+closest to interrupting current work** (highest `percent_used`; ties broken by
+shortest label, so 5h beats 7d beats monthly). `/get provider wallet` shows the
+whole picture, plan, every window, the balance, and
+`/set provider wallet on|off` is the global display switch.
 
 Return `nullopt` on any failure (no key, endpoint down, parse error), the bar
-shows `-`, never a fake zero. The fetch runs off the UI thread at turn
-boundaries, same cadence as the wallet.
+shows `-`, never a fake zero. The fetch runs off the UI thread and is called with
+the **live** config, at most once per turn boundary plus startup and provider
+switches. Do not block indefinitely; it is a network call you own.
 
 ### Runtime state: on/off and settings
 
@@ -477,25 +468,25 @@ What you can rely on:
 
 ---
 
-## 4. Host services (talking to the user), not yet available
+## 4. Host services (talking to the user)
 
 The agreed contract is a `PluginServices`-hosted UI service:
 
 ```cpp
-std::string key = svc.ui().ask_secret({"Gemini API key", "Paste the key"});
-int choice = svc.ui().choose({"Pick a model", model_ids});
-bool ok = svc.ui().confirm({"Overwrite the config?", "This cannot be undone"});
-svc.ui().notify(agent::Level::Info, "Balance refreshed");
-svc.ui().post_to_ui([this] { snapshot_ = build_snapshot(); });
+// In a capability factory (or anywhere you hold a PluginServices&):
+std::string key = services.ui->ask_secret({"Gemini API key", "Paste the key", ""});
+int choice = services.ui->choose({"Pick a model", model_ids, 0});
+bool ok = services.ui->confirm({"Overwrite the config?", "This cannot be undone"});
+services.ui->notify(agent::UiLevel::Info, "Balance refreshed");
+services.ui->post_to_ui([this] { snapshot_ = build_snapshot(); });
 ```
 
-**This is not implemented.** `PluginServices` exposes no `ui()`, and
-`HostServices` currently carries only jobs, todos, sub-agents and the cancel
-token. Do not build against it, it is tracked as PF-3.3. If you need user
-input today, expose it through a tool or a command and say so in your PR.
-
-`post_to_ui` in particular does not exist; cross-thread UI updates currently go
-through the host's own tick/render path.
+- Calls are blocking on *your* thread; the host shows the UI on its own thread
+  and returns the answer. In a non-interactive CLI run they fail closed, the
+  same way the bash tool's approval does.
+- Use `post_to_ui` for anything the render callables will read: that is the
+  sanctioned cross-thread update path.
+- Never assume a terminal. Your plugin must work in the headless CLI.
 
 ---
 

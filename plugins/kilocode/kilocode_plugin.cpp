@@ -65,14 +65,14 @@ std::vector<std::unique_ptr<Capability>> KilocodePlugin::capabilities() {
     // runtime, so every provider's readout behaves the same way and this plugin
     // carries no threads, no timers and no bar code.
     caps.push_back(
-        std::make_unique<WalletCapability>([](const Config& cfg) -> std::optional<double> {
+        std::make_unique<WalletCapability>([](const Config& cfg) -> std::optional<WalletSnapshot> {
             const std::string token = kilocode_balance_token(cfg);
             if (token.empty())
                 return std::nullopt;
             const double balance = fetch_kilocode_balance(token);
             if (balance < 0.0)
                 return std::nullopt; // failed or unavailable: claim nothing
-            return balance;
+            return WalletSnapshot::of_balance(balance);
         }));
     return caps;
 }

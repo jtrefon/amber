@@ -75,6 +75,22 @@ inline void deny_all_pending_api_keys(std::queue<AgentEvent>& q) {
     }
 }
 
+// Shutdown path for pending plugin questions: answer "cancelled"/"no" so a
+// plugin blocked on its promise can finish instead of deadlocking teardown.
+inline void deny_all_pending_asks(std::queue<AgentEvent>& q) {
+    while (!q.empty()) {
+        AgentEvent& ev = q.front();
+        if (ev.ask_promise) {
+            try {
+                ev.ask_promise->set_value(AskAnswer{});
+            } catch (const std::future_error&) {
+                // Already resolved by the UI thread; nothing to do.
+            }
+        }
+        q.pop();
+    }
+}
+
 struct PendingToolLine {
     size_t index = std::string::npos;
     size_t window_id = std::string::npos;
@@ -115,11 +131,13 @@ public:
     agent::AgentHooks make_hooks(size_t window_id);
 
     void shutdown_queues(std::queue<AgentEvent>& pending_approvals,
-                         std::queue<AgentEvent>& pending_api_keys);
+                         std::queue<AgentEvent>& pending_api_keys,
+                         std::queue<AgentEvent>& pending_asks);
 
     std::vector<PendingToolLine>& pending_tools() noexcept { return pending_tools_; }
     std::queue<AgentEvent>& pending_approvals() noexcept { return pending_approvals_; }
     std::queue<AgentEvent>& pending_api_keys() noexcept { return pending_api_keys_; }
+    std::queue<AgentEvent>& pending_asks() noexcept { return pending_asks_; }
 
     // ---- event dispatch (drain_events machinery) -------------------------
     bool drain_events();
@@ -135,6 +153,8 @@ public:
     void pump_pending_approvals();
     void resolve_api_key(const AgentEvent& ev);
     void pump_pending_api_keys();
+    void resolve_ask(const AgentEvent& ev);
+    void pump_pending_asks();
     void advance_tool_spinners();
 
 private:
@@ -151,6 +171,7 @@ private:
     std::vector<PendingToolLine> pending_tools_;
     std::queue<AgentEvent> pending_approvals_;
     std::queue<AgentEvent> pending_api_keys_;
+    std::queue<AgentEvent> pending_asks_;
 };
 
 } // namespace tui

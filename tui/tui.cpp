@@ -102,6 +102,13 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     // plugin reading an API key or the active provider must be pointed at it
     // rather than at the copy the runtime took at construction.
     plugin_runtime_.attach_config(cfg_);
+    // The port is attached before activation, so a plugin that asks something
+    // during initialize() gets a real answer rather than the fail-closed null.
+    ui_services_ = std::make_unique<TuiUiServices>(
+        [this](const std::shared_ptr<AgentEvent>& ev) { return request_ask(ev); },
+        [this](agent::UiLevel level, const std::string& msg) { notify_from_plugin(level, msg); },
+        [this](std::function<void()> work) { post_to_ui_thread(std::move(work)); });
+    plugin_runtime_.attach_ui_services(ui_services_.get());
     // Activate now, with the live config in place: a plugin that reads the
     // configuration (a balance endpoint, an API key) must see the real thing
     // from its first call.
@@ -458,6 +465,7 @@ void Tui::run() {
             _Exit(128 + g_signal_state.signal());
         }
         bool had_events = drain_events();
+        drain_ui_posts();
         jobs_.check_timeouts();
         // Time-driven plugin work (a provider's balance refresh, say). The bar
         // reads what the tick cached; segments themselves never fetch.
@@ -870,6 +878,48 @@ void Tui::open_panels(const std::string& id) {
     // The panel view owns the screen while it is up; repaint around it.
     redraw_after_modal();
 }
+// A plugin's question: post it to the same queue the worker-side asks use, then
+// block until the UI thread answers. Returning early while shutting down is the
+// difference between a stopped shutdown and a hung one.
+AskAnswer Tui::request_ask(const std::shared_ptr<AgentEvent>& ev) {
+    // Before the router exists (activation) or after it stops (shutdown) there
+    // is no one to answer: fail closed rather than block forever.
+    if (!router_ || router_->shutting_down()) return {};
+    std::shared_future<AskAnswer> answer = ev->ask_promise->get_future().share();
+    router_->push(*ev);
+    return answer.get();
+}
+
+void Tui::notify_from_plugin(agent::UiLevel level, const std::string& message) {
+    const int color = level == agent::UiLevel::Info ? P_STATUS : P_USER;
+    const std::string line = level == agent::UiLevel::Info
+                                 ? message
+                                 : std::string(agent::to_string(level)) + ": " + message;
+    post_to_ui_thread([this, color, line] { append_line(color, line); });
+}
+
+void Tui::post_to_ui_thread(std::function<void()> work) {
+    std::scoped_lock lk(ui_post_mtx_);
+    ui_post_.push_back(std::move(work));
+}
+
+void Tui::drain_ui_posts() {
+    std::vector<std::function<void()>> work;
+    {
+        std::scoped_lock lk(ui_post_mtx_);
+        if (ui_post_.empty()) return;
+        work.swap(ui_post_);
+    }
+    for (auto& fn : work) {
+        try {
+            fn();
+        } catch (...) {
+            // A plugin's posted callable is plugin code: a throw is a lost
+            // repaint, never a dead UI thread.
+        }
+    }
+}
+
 void Tui::job_kill(const std::string& id) { slash_dispatcher_->job_kill(id); }
 void Tui::job_read(const std::string& id) { slash_dispatcher_->job_read(id); }
 void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) { slash_dispatcher_->apply_policy_rule(name, lvl); }

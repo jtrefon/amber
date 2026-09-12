@@ -138,14 +138,9 @@
       },
       "wallet": {
        "action": "core.config.get.provider.wallet",
-       "help": "Show the wallet state for the active provider.",
-       "man": "Reports whether the wallet readout is on, and the active provider's balance when it has one. Providers that offer no wallet (or whose balance could not be read) report that instead of a number. Toggle the readout with '/set provider wallet on|off'."
-      },
-      "allowance": {
-       "action": "core.config.get.provider.allowance",
-       "help": "Show the allowance (subscription/quota) state for the active provider.",
-       "man": "Reports whether the allowance readout is on, and the active provider's subscription usage windows when it has them. Each window shows its label, used percentage, remaining and entitlement, and reset time. The status bar shows the window closest to exhaustion; this command shows all of them. Toggle the readout with '/set provider allowance on|off'."
-      }
+       "help": "Show the wallet (balance and quota windows) state for the active provider.",
+       "man": "Reports whether the wallet readout is on, and what the active provider reports about the account behind the key: a prepaid balance, its quota or subscription windows (label, percent used, remaining, entitlement, reset time), or both. A provider that offers no wallet, or whose state could not be read, reports that instead of a number. The status bar shows the balance when there is one and otherwise the window closest to reset; this command shows the whole picture. Toggle the readout with '/set provider wallet on|off'."
+       }
      }
     },
     "policy": {
@@ -547,11 +542,6 @@
        "action": "core.config.set.provider.wallet",
        "help": "Turn the wallet readout on the status bar on or off.",
        "man": "Shows or hides the active provider's wallet on the status bar: '/set provider wallet on|off' (or 'toggle'). The setting is global - the wallet always follows whichever provider is active - and is persisted. The readout refreshes when a turn ends, not on a timer."
-      },
-      "allowance": {
-       "action": "core.config.set.provider.allowance",
-       "help": "Turn the allowance readout on the status bar on or off.",
-       "man": "Shows or hides the active provider's allowance (subscription/quota windows) on the status bar: '/set provider allowance on|off' (or 'toggle'). The setting is global - the allowance always follows whichever provider is active - and is persisted. The readout refreshes when a turn ends, not on a timer."
       }
      }
     },

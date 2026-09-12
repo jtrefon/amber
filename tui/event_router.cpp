@@ -2,6 +2,7 @@
 #include "tui.h"
 #include "tool_display.h"
 #include "confirm_panel.h"
+#include "widgets.h"
 #include "textutil.h"
 
 #include <utility>
@@ -41,12 +42,14 @@ void EventRouter::join_thread() {
 }
 
 void EventRouter::shutdown_queues(std::queue<AgentEvent>& pending_approvals,
-                                  std::queue<AgentEvent>& pending_api_keys) {
+                                  std::queue<AgentEvent>& pending_api_keys,
+                                  std::queue<AgentEvent>& pending_asks) {
     std::scoped_lock lk(mtx_);
     shutting_down_ = true;
     deny_all_pending_approvals(queue_);
     deny_all_pending_approvals(pending_approvals);
     deny_all_pending_api_keys(pending_api_keys);
+    deny_all_pending_asks(pending_asks);
 }
 
 agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
@@ -222,11 +225,22 @@ bool EventRouter::drain_events() {
             resolve_api_key(ev);
             break;
         }
+        case AgentEvent::Ask: {
+            // A plugin's question while a modal is already up queue the same
+            // way, so we never nest ncurses dialogs or deadlock its worker.
+            if (tui_.modal_open_) {
+                pending_asks_.push(std::move(ev));
+                break;
+            }
+            resolve_ask(ev);
+            break;
+        }
         }
     }
 
     pump_pending_approvals();
     pump_pending_api_keys();
+    pump_pending_asks();
     return true;
 }
 
@@ -255,6 +269,15 @@ void EventRouter::resolve_approval(const AgentEvent& ev) {
         ev.approval_promise->set_value(d);
 }
 
+void EventRouter::pump_pending_asks() {
+    // Same cadence as the other deferred questions: one per tick, so a question
+    // asked from inside a dialog's handler queues rather than re-entering.
+    if (tui_.modal_open_ || pending_asks_.empty()) return;
+    AgentEvent ev = std::move(pending_asks_.front());
+    pending_asks_.pop();
+    resolve_ask(ev);
+}
+
 void EventRouter::pump_pending_api_keys() {
     // Resolve key requests queued while a modal was open (same cadence as
     // pending approvals: one per pump).
@@ -262,6 +285,33 @@ void EventRouter::pump_pending_api_keys() {
     AgentEvent ev = std::move(pending_api_keys_.front());
     pending_api_keys_.pop();
     resolve_api_key(ev);
+}
+
+// A plugin's question, answered with the modal that matches it. The plugin's
+// worker is blocked on the promise throughout; the answer is always set, even
+// on cancel, so no plugin thread is left waiting.
+void EventRouter::resolve_ask(const AgentEvent& ev) {
+    AskAnswer answer;
+    switch (ev.ask_kind) {
+    case AgentEvent::AskText:
+    case AgentEvent::AskSecret: {
+        std::vector<FieldSpec> fields{
+            {ev.ask_spec.prompt.empty() ? std::string("Value") : ev.ask_spec.prompt,
+             ev.ask_spec.initial, ev.ask_kind == AgentEvent::AskSecret}};
+        if (form_edit(ev.ask_spec.title.empty() ? "Input" : ev.ask_spec.title, fields))
+            answer.text = fields[0].value;
+        break;
+    }
+    case AgentEvent::AskChoose:
+        answer.index = menu_select(ev.choose_spec.title, ev.choose_spec.choices);
+        break;
+    case AgentEvent::AskConfirm: {
+        ConfirmPanel confirm(ev.confirm_spec.title, ev.confirm_spec.message);
+        answer.confirmed = confirm.run();
+        break;
+    }
+    }
+    if (ev.ask_promise) ev.ask_promise->set_value(answer);
 }
 
 void EventRouter::resolve_api_key(const AgentEvent& ev) {

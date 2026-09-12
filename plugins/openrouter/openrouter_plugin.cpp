@@ -59,14 +59,17 @@ std::vector<std::unique_ptr<Capability>> OpenRouterPlugin::capabilities() {
 
     // The wallet: this key's remaining allowance, when the key is capped.
     caps.push_back(
-        std::make_unique<WalletCapability>([](const Config& cfg) -> std::optional<double> {
+        std::make_unique<WalletCapability>([](const Config& cfg) -> std::optional<WalletSnapshot> {
             if (cfg.provider_name != "openrouter" || cfg.api_key.empty())
                 return std::nullopt;
             const std::optional<std::string> body =
                 http_get_with_bearer(openrouter_key_url(cfg.api_base), cfg.api_key);
             if (!body)
                 return std::nullopt;
-            return parse_openrouter_key(*body);
+            const std::optional<double> amount = parse_openrouter_key(*body);
+            if (!amount)
+                return std::nullopt;
+            return WalletSnapshot::of_balance(*amount);
         }));
     return caps;
 }
