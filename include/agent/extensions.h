@@ -398,11 +398,12 @@ private:
 // Installs tools under the plugin's ownership; removal takes exactly those
 // tools out again.
 //
-// Two forms: hand over a finished tool, or hand over a *factory* that receives
-// the harness services. The factory form exists because a tool is not pure
-// data — the bash tool binds to the job service, todowrite to the todo store,
-// task to the sub-agent executor. That injection is what lets the core's own
-// tools be plugin contributions instead of a hardcoded list.
+// A tool arrives as a *factory* that receives the harness services. A tool is
+// not pure data — the bash tool binds to the job service, todowrite to the todo
+// store, task to the sub-agent executor — and the factory is also what makes the
+// capability re-installable: disabling and re-enabling a plugin replays the
+// declaration, so a capability that hands over a finished object would have
+// nothing left to install the second time.
 //
 // The factory returns a list: the process tools are several tools that share
 // one binding, and an empty list means the capability declined (a tool gated on
@@ -418,7 +419,6 @@ public:
     // is simply invisible to the audit.
     using Meta = std::map<std::string, ToolMeta>;
 
-    ToolCapability(std::string name, std::unique_ptr<Tool> tool, Meta meta = {});
     ToolCapability(std::string name, Factory factory, Meta meta = {});
     std::string name() const override { return name_; }
     CapabilityKind kind() const override { return CapabilityKind::Tool; }
@@ -427,7 +427,6 @@ public:
 private:
     std::string name_;
     Meta meta_;
-    std::unique_ptr<Tool> tool_; // exactly one of these is set
     Factory factory_;
 };
 

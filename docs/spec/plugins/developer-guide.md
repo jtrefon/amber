@@ -171,9 +171,10 @@ empty list declines.
 
 ### Tool
 
-A tool is contributed with `ToolCapability`. Give it a factory when the tool
-needs harness services at construction, the core tool set does, because bash
-binds to the job service and todowrite to the todo store.
+A tool is contributed with `ToolCapability`, always through a factory that
+receives the harness services: the core tool set does so because bash binds to
+the job service and todowrite to the todo store, and the factory runs again on
+every activation, so disabling and re-enabling a plugin brings its tools back.
 
 ```cpp
 std::vector<std::unique_ptr<agent::Capability>> GreetPlugin::capabilities() {
