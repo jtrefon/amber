@@ -147,6 +147,37 @@ public:
     // responsive (it performs the plugin's I/O).
     void perform_wallet_refresh();
 
+    // --- Allowance (the active provider's subscription/quota windows) ------
+
+    struct AllowanceView {
+        bool enabled = true;
+        bool supported = false;
+        bool ready = false;
+        bool failed = false;
+        AllowanceSnapshot snapshot;
+        std::string holder;
+    };
+
+    // State shared with an in-flight allowance fetch, same pattern as
+    // WalletState: the worker writes only the atomics, the snapshot is copied
+    // on the host thread before the fetch starts.
+    struct AllowanceState {
+        std::atomic<bool> inflight{false};
+        std::atomic<bool> has_value{false};
+        std::atomic<bool> failed{false};
+        std::atomic<long long> active_ticket{0};
+        std::atomic<long long> result_ticket{0};
+        std::atomic<long long> last_ms{0};
+        std::string provider;
+        AllowanceSnapshot snapshot; // written by the worker under mutex
+        mutable std::mutex mutex;
+    };
+
+    AllowanceView allowance() const;
+    bool allowance_enabled() const;
+    void request_allowance_refresh() noexcept;
+    void perform_allowance_refresh();
+
     // --- Registries (hosts pull from these) --------------------------------
 
     PromptRegistry& prompts() noexcept { return prompts_; }
@@ -156,6 +187,8 @@ public:
     const PanelRegistry& panels() const noexcept { return panels_; }
     WalletRegistry& wallets() noexcept { return wallets_; }
     const WalletRegistry& wallets() const noexcept { return wallets_; }
+    AllowanceRegistry& allowances() noexcept { return allowances_; }
+    const AllowanceRegistry& allowances() const noexcept { return allowances_; }
     PluginSettingsStore& settings() noexcept { return settings_; }
     EventBus& events() noexcept { return bus_; }
 
@@ -182,6 +215,14 @@ private:
     // Register the wallet readout on the status bar (core UI, one path for
     // every provider).
     void register_wallet_segment();
+    // Allowance refresh helpers, same structure as the wallet ones.
+    void maybe_refresh_allowance();
+    void schedule_allowance_fetch();
+    static void run_allowance_fetch(const std::shared_ptr<AllowanceState>& state,
+                                    long long ticket,
+                                    const AllowanceRegistry::Fetch& fetch,
+                                    const Config& cfg);
+    void register_allowance_segment();
     const Config& active_config() const noexcept { return live_config_ ? *live_config_ : config_; }
 
     PromptRegistry prompts_;
@@ -199,6 +240,11 @@ private:
     // counter below are host-thread-only.
     std::shared_ptr<WalletState> wallet_state_ = std::make_shared<WalletState>();
     long long wallet_ticket_ = 0; // host thread only
+    AllowanceRegistry allowances_;
+    Subscription allowance_turn_sub_;
+    std::atomic<bool> allowance_dirty_{false};
+    std::shared_ptr<AllowanceState> allowance_state_ = std::make_shared<AllowanceState>();
+    long long allowance_ticket_ = 0;
     PluginLedger ledger_;
     PluginRegistry registry_;
     std::unique_ptr<PluginServices> services_;

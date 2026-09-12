@@ -310,9 +310,10 @@ TEST(panel_capability_installs_and_unwinds) {
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
+    AllowanceRegistry allowances;
     PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets, settings, bus);
+    PluginServices services(tools, prompts, commands, status, panels, wallets, allowances, settings, bus);
     services.set_owner("gemini");
 
     PanelCapability cap(PanelSpec{
@@ -471,9 +472,10 @@ TEST(status_segment_capability_installs_and_unwinds) {
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
+    AllowanceRegistry allowances;
     PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets, settings, bus);
+    PluginServices services(tools, prompts, commands, status, panels, wallets, allowances, settings, bus);
     services.set_owner("gemini");
 
     StatusSegmentCapability cap("balance", 850, 4, [](const StatusSnapshot&) {
