@@ -1,7 +1,5 @@
 #include "agent/registry.h"
 
-#include <iterator>
-
 #include <algorithm>
 #include <iterator>
 
