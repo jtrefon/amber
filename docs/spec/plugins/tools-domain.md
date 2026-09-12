@@ -1,6 +1,9 @@
 # Spec: The Tools Domain as Plugins
 
-Status: **proposal for review** (nothing here is implemented yet)
+Status: **partly implemented.** §3.1 (one plugin per tunable unit), §3.3
+(display verbs), §3.4 (prompts travel with the tool) and §4.9 are in. §5.3
+(the config flags), §5.4 (the skill tools), §3.6 (the bench records plugin
+state) and §5.2 (the audit) are not, and the reasons are recorded in §8.
 Supersedes: nothing. Extends `plugin-framework-v2.md` §4 (extension points).
 Tracker: `docs/plugin-framework-tracker.md` (PF-5).
 
@@ -239,6 +242,49 @@ one segment, one command pair, named wallet**, with `AllowanceSnapshot`'s richer
 type as the wallet's return type so nothing is lost (plan, windows,
 credits_balance, unit, currency). Two providers retarget from allowance to
 wallet. Recorded in the tracker as open finding (3).
+
+## 8. What landed, and what is left
+
+Implemented (branch `docs/tools-domain`):
+
+- **§3.1** — the set is one plugin per tunable unit: `tool_search`, `tool_read`,
+  `tool_write`, `tool_bash`, `tool_process` (three tools, one binding),
+  `tool_plan`, `tool_task`. `core_tools` is gone; `register_default_tools`
+  installs the same definitions for hosts with no runtime, so both paths still
+  share one definition per tool.
+- **§3.3 / §4.9** — the display verb is capability data in `ToolRegistry`.
+- **§3.4** — tool documentation is a `System` prompt block owned by the tool
+  plugin, loaded from `prompts/tools/<tool>.md`. Two invariants are tested:
+  the assembled prompt is byte-identical to the pre-split text
+  (`tests/fixtures/tools_prompt_at_migration.md`), and switching a plugin off
+  removes its section from the system prompt in the same session.
+- **Placement (§3.4's missing half).** Prompt blocks were all injected as tail
+  blocks. That is right for text that changes per turn and wrong for tool
+  documentation, which describes the harness and belongs in the stable prefix.
+  A block now declares `System`, `Head` or `Tail` (default `Tail`, so nothing
+  existing moved). Without this the migration would have been a behaviour
+  change on every request, needing a bench, and would have pushed capability
+  instructions to the end of the conversation.
+- **Prompt staleness.** The system prompt was built once and sealed, so a
+  toggle would have changed the schema and left the prose behind.
+  `Agent::ensure_system_prompt` now re-derives it and rebuilds only when the
+  text changed.
+
+Left, with the reason it is not done yet:
+
+- **§5.3 (delete `plan_tool`/`task_tool`)** — the flags still gate the two tool
+  plugins, so plugin state and config are two controls for one thing. Deleting
+  them costs the bench its per-scenario `task_tool` switch
+  (`bench/scenario.h`), so §3.6 has to land first or the bench loses a control
+  rather than trading it for a better one.
+- **§5.4 (skill tools)** — `read_skill`/`list_skills`/`write_skill` bind to the
+  session `SkillCatalog`, which the `Agent` owns and creates. Moving them means
+  moving catalog ownership to the host so a plugin can receive it, which is a
+  change to the host services contract, not a file move.
+- **§3.6 (bench records plugin state + a disable knob)** — unchanged, and it is
+  now the next step, because R4 ("is `search` losing to `rg`?") is finally
+  measurable: `tool_search` can be switched off.
+- **§5.2 (the audit)** — unchanged.
 
 ## 6. Parked
 

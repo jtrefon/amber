@@ -75,6 +75,38 @@ measured against. Re-verify rather than trust it if the tree has moved.
 ## Progress Log
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
+
+### 2026-09-12 — One plugin per tool, and the prompt travels with the tool
+
+Branch `docs/tools-domain`. The tools domain now has the granularity the spec
+asked for, and the model-facing documentation can no longer disagree with the
+tool schema.
+
+- **Split (§3.1):** `tool_search`, `tool_read`, `tool_write`, `tool_bash`,
+  `tool_process`, `tool_plan`, `tool_task`; `plugins/core_tools` deleted.
+  `register_default_tools` installs the same per-tool definitions for hosts
+  with no runtime, and now takes the prompt registry so a tool and its prose
+  arrive together on both paths.
+- **Prompt blocks gained a placement (§3.4):** `System` (the stable prefix,
+  where tool documentation belongs), `Head`, `Tail` (default, so no existing
+  contributor moved). Without this, per-tool documentation would have landed
+  *after the conversation* — a behaviour change on every request, and the wrong
+  place for capability instructions.
+- **The system prompt is no longer sealed (staleness fix):** it is re-derived
+  per turn and rebuilt only when the text changed, so a plugin toggle changes
+  schema and prose in the same action. A prior external review flagged this
+  class of bug ("the model's tool documentation can become stale"); it is now
+  closed for tools and covered by `disabling_a_tool_plugin_removes_its_documentation`.
+- **Tested invariants:** the assembled prompt is byte-identical to the pre-split
+  text (`tests/fixtures/tools_prompt_at_migration.md`), section order included;
+  disabling `tool_search` removes exactly its section and its schema.
+- **Deliberately not done, in the spec's §8:** the `plan_tool`/`task_tool` flag
+  deletion (needs §3.6 first, or the bench loses its per-scenario switch), the
+  skill tools (need catalog ownership to move out of `Agent`), the bench plugin
+  state (§3.6) and the audit (§5.2).
+
+Suite 722 passed, `make check` clean.
+
 cover.
 
 ### 2026-09-11 — Fix: tool ownership is recorded, so unwinding cannot cross plugins
