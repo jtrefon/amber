@@ -14,7 +14,7 @@ namespace agent::plugins {
 class AnthropicPlugin : public IPlugin {
 public:
     std::string id() const override { return "anthropic"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Anthropic provider"; }
     std::string description() const override { return "Anthropic Messages API, native protocol."; }
     std::string category() const override { return plugin_category::kProvider; }

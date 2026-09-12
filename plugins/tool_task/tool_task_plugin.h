@@ -18,7 +18,7 @@ std::vector<std::unique_ptr<Capability>> make_task_tool_capabilities();
 class ToolTaskPlugin : public IPlugin {
 public:
     std::string id() const override { return "tool_task"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Task tool"; }
     std::string description() const override {
         return "The task tool: delegate work to a sub-agent.";

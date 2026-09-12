@@ -18,7 +18,7 @@ std::vector<std::unique_ptr<Capability>> make_read_tool_capabilities();
 class ToolReadPlugin : public IPlugin {
 public:
     std::string id() const override { return "tool_read"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Read tool"; }
     std::string description() const override {
         return "The read tool: paginated file reads inside the workspace.";

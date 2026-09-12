@@ -1,7 +1,7 @@
 {
   "id": "sysinfo",
   "name": "Host Info",
-  "version": "1.0.0",
+  "version": "0.4.0",
   "protocol_version": 1,
   "author": "amber",
   "license": "Apache-2.0",

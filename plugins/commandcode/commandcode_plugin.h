@@ -25,7 +25,7 @@ std::optional<WalletSnapshot> parse_commandcode_credits(const std::string& body)
 class CommandcodePlugin : public IPlugin {
 public:
     std::string id() const override { return "commandcode"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "CommandCode provider"; }
     std::string description() const override {
         return "CommandCode gateway, with 5h/weekly/monthly usage windows.";

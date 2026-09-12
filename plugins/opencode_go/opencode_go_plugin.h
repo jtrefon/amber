@@ -22,7 +22,7 @@ std::optional<WalletSnapshot> parse_opencode_go_usage(const std::string& body);
 class OpencodeGoPlugin : public IPlugin {
 public:
     std::string id() const override { return "opencode_go"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "OpenCode Go provider"; }
     std::string description() const override {
         return "OpenCode Go gateway, with subscription usage windows.";

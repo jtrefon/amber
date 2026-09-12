@@ -1,12 +1,12 @@
 {
   "id": "cdp",
   "name": "CDP Browser",
-  "version": "1.0.0",
+  "version": "0.4.0",
   "protocol_version": 1,
   "author": "amber",
   "license": "Apache-2.0",
   "url": "https://developer.chrome.com/docs/devtools/protocol",
-  "description": "Controls a real Chrome browser through the Chrome DevTools Protocol. Use it when the task needs a live web page: navigate to URLs, read the page, evaluate JavaScript, click at coordinates, type text, take screenshots, and inspect the DOM. Requires Chrome running with --remote-debugging-port=9222; the endpoint is configurable via /plugin set cdp endpoint=ws://host:port.",
+  "description": "Controls a real Chrome browser through the Chrome DevTools Protocol. Use it when the task needs a live web page: navigate to URLs, read the page, evaluate JavaScript, click at coordinates, type text, take screenshots, and inspect the DOM. Requires Chrome running with --remote-debugging-port=9222; the endpoint is configurable via /set plugin settings cdp endpoint=ws://host:port.",
   "main": "cdp-plugin",
   "settings": {"endpoint": "ws://127.0.0.1:9222"},
   "completion": {
