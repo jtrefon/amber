@@ -187,13 +187,22 @@ guided by a number rather than by feel.
 - **4.6** MCP is parked (§6). Its tools stay registered directly for now.
 - **4.7** `search` is the pilot for the whole exercise: it is the tool with a
   concrete, user-observed problem, so it proves the mechanism or fails it early.
+- **4.8** Scope is the whole domain in one pass: the eight tool plugins, the
+  skill tools (moving a direct registration out of `lib/agent.cpp`), and
+  deleting `plan_tool`/`task_tool` (§5.3). Not the two-tool pilot.
+- **4.9** The display verb lives as **capability data in `ToolRegistry`**
+  (§5.1) — decided and implemented.
+- **4.10** The guard is **deficiency and ambiguity warnings, never a lock**
+  (§5.2).
+- **4.11** Wallet and Allowance are **one mechanism**, called **wallet**, with
+  the richer snapshot as its type (§5.5).
 
-## 5. Open — needs a decision
+## 5. Resolved
 
-**5.1 Where does the display verb live?** (§3.2) Recommendation: data on the
-capability, beside `owner` in `ToolRegistry`. Alternative: `Tool::display_verb()`.
-This is a real fork — it decides whether presentation vocabulary is allowed on
-the domain port.
+**5.1 Where does the display verb live?** (§3.2) **RESOLVED: capability data,
+beside `owner` in `ToolRegistry`.** A ToolCapability declares verbs keyed by
+tool name; `ToolRegistry::meta_for()` answers the UI. Implemented — see the
+"a tool declares its own display verb" commit.
 
 **5.2 What does the "two reads" guard actually do?** (the open R7). Three
 candidate behaviours:
@@ -210,18 +219,26 @@ candidate behaviours:
   have descriptions that do not distinguish them, since that is what actually
   confuses a model. Cheap, and it targets the real symptom.
 
-Recommendation: **deficiency and ambiguity warnings; no hard lock.** If a lock is
-still wanted, it should be opt-in strictness for CI/bench rather than a runtime
-refusal.
+**RESOLVED: deficiency and ambiguity warnings; no hard lock.** A lock would
+forbid the two-search-implementations comparison this work exists to enable, and
+two similar tools is a description problem the bench can measure, not a
+permissions problem. If a hard gate is ever wanted it belongs in CI/bench as
+opt-in strictness, not in the user's session.
 
-**5.3 Does anything still need `plan_tool`/`task_tool`?** Recommendation: delete
-both once the tools are plugins (plugin state replaces them). Needs a decision
-because it is a config-surface change, and the CLI/tests pass those flags
-positionally today.
+**5.3 Does anything still need `plan_tool`/`task_tool`?** **RESOLVED: delete
+both.** Plugin state replaces the flag, so the two config booleans and their
+plumbing go. (Note for the implementation: the CLI and several tests pass those
+flags positionally, so `register_default_tools`' signature changes with it — its
+remaining purpose is hosts that hold a bare registry and no runtime.)
 
-**5.4 Do skill tools move too?** They are in §3.1 as one plugin, which also
-removes a direct registration from `lib/agent.cpp`. Confirm, or keep them out of
-scope for this pass.
+**5.4 Do skill tools move too?** **RESOLVED: yes**, as one plugin — it also
+removes the last direct tool registration from `lib/agent.cpp`.
+
+**5.5 Wallet vs Allowance.** **RESOLVED: one mechanism, one registry, one flag,
+one segment, one command pair, named wallet**, with `AllowanceSnapshot`'s richer
+type as the wallet's return type so nothing is lost (plan, windows,
+credits_balance, unit, currency). Two providers retarget from allowance to
+wallet. Recorded in the tracker as open finding (3).
 
 ## 6. Parked
 
