@@ -623,7 +623,8 @@ TEST(wallet_registry_installs_and_unwinds) {
     WalletRegistry wallets;
     AllowanceRegistry allowances;
     EventBus bus;
-    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
+    CommandRegistry commands;
+    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus, commands);
     services.set_owner("acme");
 
     WalletCapability cap([](const Config&) -> std::optional<double> { return 7.0; });
@@ -1019,7 +1020,8 @@ TEST(allowance_registry_installs_and_unwinds) {
     WalletRegistry wallets;
     AllowanceRegistry allowances;
     EventBus bus;
-    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
+    CommandRegistry commands;
+    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus, commands);
     services.set_owner("acme");
 
     AllowanceCapability cap([](const Config&) -> std::optional<AllowanceSnapshot> {
@@ -1362,4 +1364,93 @@ TEST(disabling_allowance_plugin_unwinds_contribution) {
     ASSERT(runtime.allowances().find("allowanceprobe") != nullptr);
     ASSERT_TRUE(runtime.set_state("allowanceprobe", false));
     ASSERT(runtime.allowances().find("allowanceprobe") == nullptr);
+}
+
+namespace {
+
+// Contributes one slash-command namespace, so activation has a command to
+// install and disable has one to unwind.
+class CommandPlugin : public IPlugin {
+public:
+    explicit CommandPlugin(std::string id = "cmd") : id_(std::move(id)) {}
+
+    std::string id() const override { return id_; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Command probe"; }
+
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        CommandSpec spec;
+        spec.root = "hello";
+        spec.help = "Say hello";
+        spec.man = "Usage: /hello greet <name>";
+        spec.subtree = json::parse(R"({"greet":{"help":"Greet someone"}})");
+        spec.handlers["greet"] = [](const std::string& arg) {
+            return "Hello, " + (arg.empty() ? std::string("world") : arg) + "!";
+        };
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<CommandCapability>(std::move(spec)));
+        return caps;
+    }
+
+private:
+    std::string id_;
+};
+
+} // namespace
+
+TEST(runtime_command_capability_installs_and_unwinds) {
+    ScratchConfig scratch("command");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<CommandPlugin>());
+
+    ASSERT_EQ(runtime.commands().size(), 0u);
+
+    runtime.start();
+    ASSERT_TRUE(runtime.status("cmd").enabled);
+    ASSERT_EQ(runtime.commands().size(), 1u);
+
+    const auto& all = runtime.commands().all();
+    ASSERT_EQ(all[0].owner, std::string("cmd"));
+    ASSERT_EQ(all[0].spec.root, std::string("hello"));
+    ASSERT_EQ(all[0].spec.handlers.count("greet"), 1u);
+    ASSERT_EQ(all[0].spec.handlers.at("greet")("amber"), std::string("Hello, amber!"));
+
+    ASSERT_TRUE(runtime.set_state("cmd", false));
+    ASSERT_EQ(runtime.commands().size(), 0u);
+}
+
+TEST(runtime_command_contribution_is_listed_and_removed) {
+    ScratchConfig scratch("command-list");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<CommandPlugin>());
+    runtime.start();
+
+    bool listed = false;
+    for (const auto& c : runtime.status("cmd").contributions)
+        if (c.kind == CapabilityKind::Command && c.name == "hello")
+            listed = true;
+    ASSERT_TRUE(listed);
+
+    ASSERT_TRUE(runtime.set_state("cmd", false));
+    for (const auto& c : runtime.status("cmd").contributions)
+        ASSERT_FALSE(c.kind == CapabilityKind::Command);
+}
+
+TEST(bundled_hello_plugin_contributes_the_hello_command) {
+    ScratchConfig scratch("hello-command");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE(runtime.status("hello").enabled);
+    ASSERT_EQ(runtime.commands().size(), 1u);
+    ASSERT_EQ(runtime.commands().all()[0].spec.root, std::string("hello"));
+    ASSERT_EQ(runtime.commands().all()[0].spec.handlers.at("greet")("amber"),
+              std::string("Hello, amber!"));
 }

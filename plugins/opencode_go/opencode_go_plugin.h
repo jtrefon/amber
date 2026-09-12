@@ -7,7 +7,7 @@
 // the Go API key.
 
 #include "agent/extensions.h"
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <optional>
 #include <string>

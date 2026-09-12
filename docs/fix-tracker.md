@@ -1,4 +1,4 @@
-# amber — Issue Fix Tracker
+# amber, Issue Fix Tracker
 
 - **Status:** ✅ Complete (all tasks done, incl. FIX-015 2026-08-02)
 - **Target:** Zero technical debt
@@ -16,7 +16,7 @@
    - **Sign-off**: Reviewer approves the proposed architecture.
    - **Green**: Implement the fix; make the test pass; refactor to zero debt.
    - **PR**: Open/update the pull request. All checks must pass.
-2. Each task below is **self-contained** — an agent or developer can pick it up
+2. Each task below is **self-contained**: an agent or developer can pick it up
    independently.
 3. Tasks are ordered by dependency (prerequisites first).
 4. Each task has a **refactor spec** describing the target architecture, not just
@@ -33,10 +33,10 @@
 ## Legend
 
 ```
-[todo]     — Not started, ready for assignment
-[wip]      — Assigned and actively being worked
-[done]     — Code merged, all checks pass, no known regressions
-[blocked]  — Blocked on another task or external dependency
+[todo]    , Not started, ready for assignment
+[wip]     , Assigned and actively being worked
+[done]    , Code merged, all checks pass, no known regressions
+[blocked] , Blocked on another task or external dependency
 ```
 
 ---
@@ -80,7 +80,7 @@ This is a hexagonal boundary violation (core → adapter), uses global state, an
 - `cancel_check_cb` in `http_transport.cpp` reads `cfg.cancel_token.is_requested()`.
 - `BashTool::execute()` and `process_start_tool` check the same token.
 - The TUI (`/stop` command, Esc key) calls `cfg_.cancel_token.request()` instead of `request_tool_cancel()`.
-- _Do not_ add `#include <atomic>` to `Config.h` if not already present — forward-declare or include `process.h`.
+- _Do not_ add `#include <atomic>` to `Config.h` if not already present, forward-declare or include `process.h`.
 
 ### Verification
 
@@ -132,7 +132,7 @@ Replace the fire-and-forget async extraction with a safe asynchronous pattern. O
   `agent_busy_.store(false)` reset. The TUI owns its thread lifetime and the
   thread does not capture `this` across destruction boundaries in a way that
   causes use-after-free (the Tui object lives for the full process lifetime).
-- Do NOT add `shared_from_this` to `Agent` unless truly needed — prefer value-capture of data.
+- Do NOT add `shared_from_this` to `Agent` unless truly needed, prefer value-capture of data.
 - If using `std::async`, verify the extraction lambda does not capture `this`; capture `memory_store_` raw pointer only after verifying lifetime is managed (e.g., Agent owns the store via `unique_ptr`, and the future is joined before the `unique_ptr` is destroyed).
 - Extract the inline heuristic into a named private method `extract_memories_from_tool_results()`.
 
@@ -151,7 +151,7 @@ Replace the fire-and-forget async extraction with a safe asynchronous pattern. O
 |---|---|
 | **ID** | `FIX-003` |
 | **Severity** | 🟠 High |
-| **Depends on** | FIX-001 (cancel token) — optional but reduces touch conflicts |
+| **Depends on** | FIX-001 (cancel token), optional but reduces touch conflicts |
 | **Blocks** | Nothing |
 | **Estimated effort** | 4-6 hours |
 | **Files touched** | `lib/agent.cpp`, `include/agent/agent.h`, optionally `include/agent/agent_helpers.h` + `lib/agent_helpers.cpp` |
@@ -221,7 +221,7 @@ std::string Agent::run(const std::string& user_prompt) {
 
 - Every extracted method must be ≤10 lines. If the extracted logic is longer (e.g., loop detection), extract sub-helpers.
 - Do NOT introduce new state in `Agent`. All extracted methods use existing members.
-- `detect_tool_loop` and `detect_text_loop` are candidates for extraction into `agent_helpers.h` as free functions — consider that if they grow further.
+- `detect_tool_loop` and `detect_text_loop` are candidates for extraction into `agent_helpers.h` as free functions, consider that if they grow further.
 - After extraction, `run()` must be ≤30 lines. Count the lines.
 - The loop invariants must hold: `history_` is always in a consistent state, and every path through the loop either continues, breaks with a final reply, or hits max iterations.
 
@@ -242,7 +242,7 @@ std::string Agent::run(const std::string& user_prompt) {
 |---|---|
 | **ID** | `FIX-004` |
 | **Severity** | 🟠 High |
-| **Depends on** | FIX-003 (same file — do after to avoid merge conflict) |
+| **Depends on** | FIX-003 (same file, do after to avoid merge conflict) |
 | **Blocks** | Nothing |
 | **Estimated effort** | 4-6 hours |
 | **Files touched** | `lib/agent.cpp`, `include/agent/compressor.h`, `lib/compressor.cpp` |
@@ -318,9 +318,9 @@ CompressionResult Agent::compress_now() {
 
 - `CompressionObserver` is a pure port; keep it in `include/agent/compressor.h`.
 - The default no-op implementations mean consumers that don't need observation pay no cost.
-- Do NOT add `AgentHooks` to `CompressionPipeline` — keep it decoupled.
+- Do NOT add `AgentHooks` to `CompressionPipeline`, keep it decoupled.
 - The `CompressionReporter` adapter (implementing `CompressionObserver`) lives in `lib/agent.cpp` (anonymous namespace) and maps observer calls to `hooks_.on_status`.
-- After refactor, `compress_now()` should not contain any loop-collapse, build-request, LLM-call, or parse logic — those are all inside `CompressionPipeline::compress()`.
+- After refactor, `compress_now()` should not contain any loop-collapse, build-request, LLM-call, or parse logic, those are all inside `CompressionPipeline::compress()`.
 
 ### Verification
 
@@ -445,16 +445,16 @@ Only include headers for types used by value or with inline methods.
 Add to the "Design patterns in use" section:
 
 ```
-- **Observer** — `AgentHooks` (via `std::function` callbacks) lets UIs observe the
+- **Observer**: `AgentHooks` (via `std::function` callbacks) lets UIs observe the
   agent loop without the core knowing about them. More precise than "Template Method"
   since the hooks are set, not subclassed.
-- **Command** — `ProcessStartTool` / `ProcessReadTool` / `ProcessStopTool` each
+- **Command**: `ProcessStartTool` / `ProcessReadTool` / `ProcessStopTool` each
   encapsulate a background-process request as an object with a uniform `execute()`.
-- **Protection Proxy** — `Workspace::confine()` guards filesystem access behind
+- **Protection Proxy**: `Workspace::confine()` guards filesystem access behind
   path-confinement checks, proxying the real filesystem.
-- **Null Object** — `Agent::silent_hooks()` returns a no-op `AgentHooks` so internal
+- **Null Object**: `Agent::silent_hooks()` returns a no-op `AgentHooks` so internal
   confirmation exchanges never reach the scrollback, without null-checking at every call site.
-- **Memento** — `compress_now()` snapshots `history_` before mutation and restores
+- **Memento**: `compress_now()` snapshots `history_` before mutation and restores
   it on failure, capturing and rolling back state.
 ```
 
@@ -499,7 +499,7 @@ Insert a new subsection under "Engineering principles":
   test function. Each test exercises one behaviour.
 - **Test location**: behaviour changes go in `tests/run_tests.cpp`. New test files
   may be added for major modules (`tests/compressor_test.cpp`, `tests/agent_test.cpp`)
-  — add them to `UNITTEST_OBJ` in `Makefile`.
+ , add them to `UNITTEST_OBJ` in `Makefile`.
 ```
 
 ### Verification
@@ -534,7 +534,7 @@ Add to AGENTS.md under "Conventions":
   - Test coverage: the PR includes a failing test → fix → passing test sequence
   - No new clang-tidy or cppcheck warnings
   - No commented-out code, dead branches, or speculative generality
-  - No SPDX/copyright boilerplate — first line is functional
+  - No SPDX/copyright boilerplate, first line is functional
 
 ### Error handling conventions
 
@@ -542,10 +542,10 @@ Add to AGENTS.md under "Conventions":
   from `Tool::execute()`. Catch unexpected exceptions and convert to `ToolResult`.
 - **Library functions**: may throw `std::runtime_error` for truly exceptional conditions
   (transport failure, corrupt config). Do not throw for expected states (empty results,
-  missing files) — return an error code, empty optional, or `ToolResult`.
+  missing files), return an error code, empty optional, or `ToolResult`.
 - **Recoverable errors**: model errors (malformed JSON, HTTP 4xx/5xx) should be returned
   as assistant messages or error-flagged `ToolResult` so the LLM can self-recover.
-- **Unrecoverable errors**: configuration corruption, curl init failure — throw at
+- **Unrecoverable errors**: configuration corruption, curl init failure, throw at
   construction; the host (CLI/TUI) catches and reports.
 - **Assertions**: use `assert()` only for invariants that should never fire in a correct
   program. Do not use asserts for input validation.
@@ -558,7 +558,7 @@ Add to AGENTS.md under "Conventions":
 
 ---
 
-## Task 10: Build system cleanup — separate tool objects from core (H4)
+## Task 10: Build system cleanup, separate tool objects from core (H4)
 
 | Field | Value |
 |---|---|
@@ -577,8 +577,8 @@ Add to AGENTS.md under "Conventions":
 Split into two archives:
 
 ```
-libagent_core.a   — lib/*.o only (domain core)
-libagent_tools.a  — tools/*.o, tools/search/*.o (adapter implementations)
+libagent_core.a  , lib/*.o only (domain core)
+libagent_tools.a , tools/*.o, tools/search/*.o (adapter implementations)
 ```
 
 Both binaries link both archives:
@@ -591,9 +591,9 @@ test:      tests/run_tests.o + libagent_core.a + libagent_tools.a
 ### Refactor Rules
 
 - Keep the `lib` phony target concise: `lib: libagent_core.a libagent_tools.a`
-- Do NOT change any source code — only the build system.
+- Do NOT change any source code, only the build system.
 - If any core file transitively depends on a tool file (currently `http_transport.cpp` → `tools.h`), FIX-001 must be done first.
-- If `register_default_tools` is in `lib/tools_default.cpp` and includes tool factories, it must be in `libagent_tools.a` or `libagent_core.a` — whichever makes the dependency graph acyclic. Likely `libagent_tools.a` since it calls `make_bash_tool`, `make_search_tool`, etc.
+- If `register_default_tools` is in `lib/tools_default.cpp` and includes tool factories, it must be in `libagent_tools.a` or `libagent_core.a`, whichever makes the dependency graph acyclic. Likely `libagent_tools.a` since it calls `make_bash_tool`, `make_search_tool`, etc.
 - Update `make install` to install both archives.
 - Update `make clean` to remove both archives.
 
@@ -613,7 +613,7 @@ test:      tests/run_tests.o + libagent_core.a + libagent_tools.a
 |---|---|
 | **ID** | `FIX-011` |
 | **Severity** | 🟡 Medium |
-| **Depends on** | FIX-002 (must be done first — touches the same thread in chat_once) |
+| **Depends on** | FIX-002 (must be done first, touches the same thread in chat_once) |
 | **Estimated effort** | 2-3 hours |
 | **Files touched** | `lib/agent.cpp`, `include/agent/experience.h` (maybe) |
 
@@ -658,20 +658,20 @@ Prefer Option A unless the heuristic demonstrably provides value.
 
 Add `noexcept` to:
 
-- `Tool::name()` — pure virtual, never throws
-- `Tool::description()` — pure virtual, never throws
-- `Tool::parameters_schema()` — pure virtual, never throws
-- `Tool::requires_approval()` — default returns false, never throws
-- `Tool::is_read_only()` — default returns false, never throws
-- `Tool::summarize()` — never throws
-- `SearchBackend::name()` — pure virtual, never throws
-- ~~`Config::api_url()` / `Config::models_url()`~~ — retired with the dialect
+- `Tool::name()`, pure virtual, never throws
+- `Tool::description()`, pure virtual, never throws
+- `Tool::parameters_schema()`, pure virtual, never throws
+- `Tool::requires_approval()`, default returns false, never throws
+- `Tool::is_read_only()`, default returns false, never throws
+- `Tool::summarize()`, never throws
+- `SearchBackend::name()`, pure virtual, never throws
+- ~~`Config::api_url()` / `Config::models_url()`~~, retired with the dialect
   port (FIX-028); URL building now lives in `Dialect::chat_url` / `models_url`
 - All `make_*_tool()` factory functions
-- `ToolRegistry::empty()` — trivial
+- `ToolRegistry::empty()`, trivial
 - `Stats` struct: all fields are arithmetic types
 
-Do NOT add `noexcept` to `Tool::execute()` — it may throw on some implementations (though the contract says it shouldn't; document that it's expected to be noexcept once all implementations comply).
+Do NOT add `noexcept` to `Tool::execute()`, it may throw on some implementations (though the contract says it shouldn't; document that it's expected to be noexcept once all implementations comply).
 
 ### Refactor Rules
 
@@ -726,7 +726,7 @@ Then use it in `list()`. Remove the `#include <dirent.h>`.
 ### Refactor Rules
 
 - The existing behaviour (skipping `index.json` and `workspace.json`) must be preserved.
-- `std::filesystem` is C++17 — already required by the project.
+- `std::filesystem` is C++17, already required by the project.
 - Verify the `list()` still returns newest-updated first (the sort at the end is unchanged).
 
 ### Verification
@@ -749,14 +749,14 @@ Then use it in `list()`. Remove the `#include <dirent.h>`.
 
 ### Problem
 
-`Workspace` is entirely static methods backed by a function-local static `std::string root`. Tests cannot independently set the root — they interfere with each other.
+`Workspace` is entirely static methods backed by a function-local static `std::string root`. Tests cannot independently set the root, they interfere with each other.
 
 ### Target Architecture
 
 Option A (Minimal): Add a static `reset()` method for tests:
 
 ```cpp
-static void reset();  // test only — clears cached root
+static void reset();  // test only, clears cached root
 ```
 
 Option B (Clean): Make `Workspace` instance-based:
@@ -784,9 +784,9 @@ Prefer Option A for now (minimal change, solves the test problem). Option B is t
 
 ---
 
-## Task 15: JSON-driven command engine — zero hardcoded completion (I-15)
+## Task 15: JSON-driven command engine, zero hardcoded completion (I-15)
 
-**Status: ✅ Done 2026-08-02** — all phases shipped on `feat/agent-loop-hardening`
+**Status: ✅ Done 2026-08-02**: all phases shipped on `feat/agent-loop-hardening`
 (red+green commits per phase; final gate `make clean && make && make test &&
 make lint && make analyze` green).
 
@@ -803,18 +803,18 @@ make lint && make analyze` green).
 
 The command tree (`completions.json` → `SettingRegistry`) is the declared single source of truth for slash-command structure, but four hardcoded escapes and two registry defects block the target state:
 
-1. **Dynamic values have no tree path.** Model ids, policy-rule names, and job ids are completed by C++ lambdas (`complete_arg` on the legacy `set`/`model`/`job` commands in `build_commands()`), and `cmd_get_model` parses `list|context` verbs in C++ — `/get model list` is not a tree branch. The original design doc flags the gap: `set policy rule ` → "N/A (dynamic names, can't enumerate)" (docs/help-system-scope.md).
-2. **Get/set namespace collision.** `index_node` strips the first display-path component (setting_registry.cpp:138-145), so `get.model` and `set.model` both index as `model` — the get and set sides of the same namespace cannot carry different children/help/man.
-3. **Live merges clobber the tree.** `merge_completions_json` replaces `tree_["commands"][key]` wholesale while the index unions children — after a live MCP/plugin merge the static children are lost to tree-walk dispatch (`/mcp list` degrades to the raw-arg fallback).
+1. **Dynamic values have no tree path.** Model ids, policy-rule names, and job ids are completed by C++ lambdas (`complete_arg` on the legacy `set`/`model`/`job` commands in `build_commands()`), and `cmd_get_model` parses `list|context` verbs in C++, `/get model list` is not a tree branch. The original design doc flags the gap: `set policy rule ` → "N/A (dynamic names, can't enumerate)" (docs/help-system-scope.md).
+2. **Get/set namespace collision.** `index_node` strips the first display-path component (setting_registry.cpp:138-145), so `get.model` and `set.model` both index as `model`, the get and set sides of the same namespace cannot carry different children/help/man.
+3. **Live merges clobber the tree.** `merge_completions_json` replaces `tree_["commands"][key]` wholesale while the index unions children, after a live MCP/plugin merge the static children are lost to tree-walk dispatch (`/mcp list` degrades to the raw-arg fallback).
 4. **Compensation hacks.** The `/set` read-only-leaf filter in `update_completions` (tui.cpp), the `complete_arg` fallback + ctx decoration in `draw_drawer` (tui_render.cpp), and the `on_tab` guard in CommandLine exist only to keep two parallel completion systems aligned.
 
-The permission (policy) system itself exists and is documented (`PolicyStore`, approval gating) and partially in the tree (`get/set policy mode|approval|timeout`), but the dangerous-command rules curation (`/set policy rule <tool> <allow|deny|ask>`) is hardcoded arg-parsing in `cmd_set` (tui_input.cpp:220-250) — it never became tree branches. No new permission engine is built; the existing one is surfaced in the tree.
+The permission (policy) system itself exists and is documented (`PolicyStore`, approval gating) and partially in the tree (`get/set policy mode|approval|timeout`), but the dangerous-command rules curation (`/set policy rule <tool> <allow|deny|ask>`) is hardcoded arg-parsing in `cmd_set` (tui_input.cpp:220-250), it never became tree branches. No new permission engine is built; the existing one is surfaced in the tree.
 
 ### Refactor spec (target architecture)
 
-**Core principle.** `completions.json` is the single source of command structure: namespace branches (unlimited nesting), short help (drawer ahead-list), man pages (`?` popup — unchanged behavior, Esc to exit), and leaf `action`s (internal command mapping — what the branch executes). Runtime state and external integrations contribute content through the same tree mechanism: merge-generated leaf subtrees ("feeds"). No C++ code defines command structure, completion, or argument parsing.
+**Core principle.** `completions.json` is the single source of command structure: namespace branches (unlimited nesting), short help (drawer ahead-list), man pages (`?` popup, unchanged behavior, Esc to exit), and leaf `action`s (internal command mapping, what the branch executes). Runtime state and external integrations contribute content through the same tree mechanism: merge-generated leaf subtrees ("feeds"). No C++ code defines command structure, completion, or argument parsing.
 
-**Schema (unchanged — no new fields).**
+**Schema (unchanged, no new fields).**
 
 ```json
 "<branch>": {
@@ -827,7 +827,7 @@ The permission (policy) system itself exists and is documented (`PolicyStore`, a
 
 Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is derived from tree structure (children / leaf values).
 
-**Leaves-as-values — the dynamic-value mechanism.** A feed generates leaf children for a branch; each leaf carries a **generated action** `"<parent action>.<leaf key>"` (the established MCP pattern — `mcp_completion_subtree` in lib/mcp_tools.cpp), and the feed registers the matching handler closure at merge time. Tree-walk dispatch is unchanged: the deepest node's `action` resolves to a registered handler; remaining tokens are the arg. The leaf key lives in the internal command mapping, so the handler knows which value was selected. Examples:
+**Leaves-as-values, the dynamic-value mechanism.** A feed generates leaf children for a branch; each leaf carries a **generated action** `"<parent action>.<leaf key>"` (the established MCP pattern, `mcp_completion_subtree` in lib/mcp_tools.cpp), and the feed registers the matching handler closure at merge time. Tree-walk dispatch is unchanged: the deepest node's `action` resolves to a registered handler; remaining tokens are the arg. The leaf key lives in the internal command mapping, so the handler knows which value was selected. Examples:
 
 - `/set model llama3-8b` → walk consumes the merged leaf → `core.config.set.model.llama3-8b` → closure runs the existing set/validate/save logic.
 - `/set policy rule bash allow` → leaf `bash` → `core.config.set.policy.rule.bash` → closure sets the rule; `allow` arrives as the arg.
@@ -835,21 +835,21 @@ Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is deri
 
 **Registry (`setting_registry.{h,cpp}`).**
 
-1. **Full-path indexing** — `children_of`/`help_for`/`man_for`/`complete` key by the complete display path (`get.model` ≠ `set.model`; top-level `model` stays `model`). Dotted `/get` fallbacks resolve: try key → `get.<key>` → `set.<key>`.
-2. **Deep merge** — `merge_completions_json` recursively unions children and preserves static action/help/man, so live MCP/plugin/feed merges never clobber documented nodes.
-3. **Feed contract** — a feed produces a subtree (leaves + actions) for a branch and registers the leaf-action closures; consumers (drawer, completions, dispatch) stay uniform.
+1. **Full-path indexing**: `children_of`/`help_for`/`man_for`/`complete` key by the complete display path (`get.model` ≠ `set.model`; top-level `model` stays `model`). Dotted `/get` fallbacks resolve: try key → `get.<key>` → `set.<key>`.
+2. **Deep merge**: `merge_completions_json` recursively unions children and preserves static action/help/man, so live MCP/plugin/feed merges never clobber documented nodes.
+3. **Feed contract**: a feed produces a subtree (leaves + actions) for a branch and registers the leaf-action closures; consumers (drawer, completions, dispatch) stay uniform.
 
 **Command surface (target).**
 
-- `get model` (current readout), `get model list`, `get model context` — static JSON children with split action handlers (`core.config.get.model.list/.context`).
-- `set model` — JSON branch (`action: core.config.set.model`; bare = current model + usage); children fed from the model cache (`id` + `help: "ctx N"`; actions `core.config.set.model.<id>`).
-- Root `/model` removed — model is a state-modifying accessor; canonical home is `get`/`set`. Nothing is lost: switching lives at `/set model`, queries at `/get model`.
-- `get policy` / `set policy` — existing `mode`/`approval`/`timeout` plus new `rule` branches fed from `PolicyStore` + `ToolRegistry`; the dangerous-command curation becomes visible in the drawer and dispatches through the tree.
-- `job kill|read` — leaves fed from `JobService` (kills the last `complete_arg` lambda).
+- `get model` (current readout), `get model list`, `get model context`, static JSON children with split action handlers (`core.config.get.model.list/.context`).
+- `set model`, JSON branch (`action: core.config.set.model`; bare = current model + usage); children fed from the model cache (`id` + `help: "ctx N"`; actions `core.config.set.model.<id>`).
+- Root `/model` removed, model is a state-modifying accessor; canonical home is `get`/`set`. Nothing is lost: switching lives at `/set model`, queries at `/get model`.
+- `get policy` / `set policy`, existing `mode`/`approval`/`timeout` plus new `rule` branches fed from `PolicyStore` + `ToolRegistry`; the dangerous-command curation becomes visible in the drawer and dispatches through the tree.
+- `job kill|read`, leaves fed from `JobService` (kills the last `complete_arg` lambda).
 
 **Host-layer deletions.** `Tui::complete_models`; `complete_arg` lambdas on `set`/`model`/`job`; the `/set` read-only-leaf filter; drawer `complete_arg` fallback + ctx decoration; `cmd_get_model` verb parsing; redundant `model`/`provider`/`config` registry entries. `update_completions` and `draw_drawer` collapse to a single path: branch children (or root names) → rows; feed leaves carry their own help text.
 
-**Unchanged.** Tree-walk dispatch semantics; CommandLine shadow/Tab/Enter contracts (including the committed prefix-preserving Enter dispatch and Tab guard); the policy engine and approval gating (no permission-system changes — it moves under one roof only); security model; `?` popup behavior; aliases.
+**Unchanged.** Tree-walk dispatch semantics; CommandLine shadow/Tab/Enter contracts (including the committed prefix-preserving Enter dispatch and Tab guard); the policy engine and approval gating (no permission-system changes, it moves under one roof only); security model; `?` popup behavior; aliases.
 
 ### Phases (each Red → Green → commit on the current branch)
 
@@ -859,11 +859,11 @@ Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is deri
 | 2 | Feeds + model: JSON content (`set.model`, `get.model list/context`), model feed + leaf-action registration, handler split; delete `complete_models`, lambdas, filter, drawer fallback | run_tests: feed subtree generation hermetic; command_line/e2e: generated leaf actions dispatch |
 | 3 | Policy-rule feed (permission in the tree) | run_tests: rule feed subtree (names + levels); `/set policy rule` completion |
 | 4 | Job feed; delete remaining `complete_arg`; single-path `update_completions`/`draw_drawer`; remove redundant registry entries | command_line/completions green; `job kill|read` completion |
-| 5 | Docs: AGENTS.md engine note; issues.md register closed | — |
+| 5 | Docs: AGENTS.md engine note; issues.md register closed | - |
 
 ### Verification
 
-- [x] `make clean && make && make test && make lint && make analyze` — zero warnings
+- [x] `make clean && make && make test && make lint && make analyze`, zero warnings
 - [x] `/set model` drawer lists models with `(ctx N)`; Tab/Enter switch; `/get model list|context` dispatch through the tree
 - [x] `/set policy rule <tool> <level>` and `/get policy rule <tool>` dispatch through the tree; rules visible in the drawer
 - [x] `/job kill|read` complete from the feed
@@ -884,7 +884,7 @@ Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is deri
   metadata (`run`/`complete_arg`/`current_value`/`show_command_frame` deleted);
   redundant read-only registry entries removed.
 - Residual (2026-08-02): `/set model` persisted to disk but never reached the
-  RUNNING agent — `Agent` holds its own `Config` copy and the `LLMClient` keeps
+  RUNNING agent, `Agent` holds its own `Config` copy and the `LLMClient` keeps
   a snapshot from construction. `Agent::set_model()` now rebuilds the client
   through an injectable `LLMClientFactory` (default: `HttpLLMClient`), and
   `cmd_model_set` propagates the switch to every window's agent.
@@ -897,11 +897,11 @@ Aliases stay in the legacy host layer (unchanged, out of scope). `usage` is deri
 
 ---
 
-## Task 16: Startup environment card v2 — workspace anchor, privilege, date, cd-prefix KPI (I-9)
+## Task 16: Startup environment card v2, workspace anchor, privilege, date, cd-prefix KPI (I-9)
 
 ### Problem
 
-The agent habitually prefixed every bash call with `cd <workspace> && ...` —
+The agent habitually prefixed every bash call with `cd <workspace> && ...`,
 always redundant because every bash call already runs in a fresh shell rooted
 at `Workspace::root()`. Root causes: the environment card reported the amber
 process `getcwd()` (a different value source than where commands run, wrong
@@ -931,7 +931,7 @@ guess itself.
 
 ### Verification
 
-- [x] `make clean && make && make test && make lint && make analyze` — zero warnings
+- [x] `make clean && make && make test && make lint && make analyze`, zero warnings
 - [x] RED commit: tests pin the new card spec (workspace root, privilege
   variants, date, sorted tools) before implementation
 - [x] Card renders `Workspace: <root> (bash commands run here)`; probe equals
@@ -948,19 +948,19 @@ guess itself.
 
 ---
 
-## Task 17: Compression trigger final — 70% of the active model's real window (I-7/I-9)
+## Task 17: Compression trigger final, 70% of the active model's real window (I-7/I-9)
 
 ### Problem
 
 Compression fired at ~8% of the context window. Root cause: the running
 binary carried the legacy "cap the budget at 32k regardless of n_ctx" gate
-(3a85e53) — with a 262144 window that fires at 16k tokens (~6-9%). The honest
+(3a85e53), with a 262144 window that fires at 16k tokens (~6-9%). The honest
 gate (#29) existed on origin/main but never reached the binary (stale-base
 rebuild, same story as the provider engine). Residual defects: the probe
 read the FIRST model's metadata instead of the active model's (routers list
 models without meta first), `meta.n_ctx` is the trained window not the
 runtime `--ctx-size`, and the 400-overflow learner wrote into the client's
-Config copy where the gate could never see it — and its guard skipped
+Config copy where the gate could never see it, and its guard skipped
 learning when the window was explicitly configured.
 
 ### Target architecture
@@ -987,7 +987,7 @@ learning when the window was explicitly configured.
 - [x] RED commit pins: 70% default, no cap on large windows, unknown window
   never auto-fires, probe prefers the active model, archive carry-forward,
   summary truncation, pair sanitize, Phase-0 pruning, learned-window clamp
-- [x] `make clean && make && make test && make lint && make analyze` — zero warnings
+- [x] `make clean && make && make test && make lint && make analyze`, zero warnings
 - [ ] Live session: gate fires at ~70% of the runtime window (learner clamps
   the trained 262144 to the real --ctx-size after the first overflow)
 
@@ -1002,24 +1002,24 @@ learning when the window was explicitly configured.
 ```
 FIX-001  (cancel token in core)
    │
-   ├── FIX-003  (decompose Agent::run) — optional dep, reduces conflicts
-   ├── FIX-010  (build system split) — hard dep
+   ├── FIX-003  (decompose Agent::run), optional dep, reduces conflicts
+   ├── FIX-010  (build system split), hard dep
    │
 FIX-002  (detached thread)
    │
-   ├── FIX-011  (memory heuristic) — hard dep (same code area)
+   ├── FIX-011  (memory heuristic), hard dep (same code area)
    │
-FIX-004  (compress_now dedup) — depends on FIX-003 (same file)
+FIX-004  (compress_now dedup), depends on FIX-003 (same file)
    │
-FIX-005  (test/TUI decoupling) — independent
-FIX-006  (dispatch.h includes) — independent
-FIX-007  (document patterns) — independent
-FIX-008  (TDD policy) — independent
-FIX-009  (review + error conventions) — independent
-FIX-012  (noexcept) — independent
-FIX-013  (opendir → filesystem) — independent
-FIX-014  (Workspace isolation) — independent
-FIX-015  (JSON-driven command engine) — independent
+FIX-005  (test/TUI decoupling), independent
+FIX-006  (dispatch.h includes), independent
+FIX-007  (document patterns), independent
+FIX-008  (TDD policy), independent
+FIX-009  (review + error conventions), independent
+FIX-012  (noexcept), independent
+FIX-013  (opendir → filesystem), independent
+FIX-014  (Workspace isolation), independent
+FIX-015  (JSON-driven command engine), independent
 ```
 
 **Recommended execution order:**
@@ -1035,32 +1035,32 @@ FIX-015  (JSON-driven command engine) — independent
 
 ---
 
-## Benchmark chapter (BENCH) — the measurement platform
+## Benchmark chapter (BENCH), the measurement platform
 
-> Reference: `docs/spec/benchmark/MISSION.md` — the mission, dimensions map, and
+> Reference: `docs/spec/benchmark/MISSION.md`, the mission, dimensions map, and
 > definitions of done. The benchmark is a diagnostic instrument for the harness,
 > not a leaderboard; it must be calibrated BEFORE harness work so every change
 > is attributable (harness vs model vs benchmark).
 
-### BENCH-01 — Repeat medians + confidence intervals (the resolution floor)
+### BENCH-01, Repeat medians + confidence intervals (the resolution floor)
 
 - **Problem:** single-run scores make near-identical models (1% apart) statistically indistinguishable; the noise floor is unknown.
 - **Target architecture:** `amber-bench --repeat N` runs each scenario N times, reports the median per scenario and per model with a confidence interval; the resolution rule: a model difference is a claim only when it exceeds ~2-3σ of its runs. Report-level change; scenario/scoring schema unchanged.
 - **Verification:** red test: two synthetic run populations 1% apart with known variance → the report must declare them resolvable only when the gap > 3σ; `make test` green.
 
-### BENCH-02 — Discrimination-weighted aggregation (the resolution engine)
+### BENCH-02, Discrimination-weighted aggregation (the resolution engine)
 
-- **Problem:** every scenario contributes by difficulty, not separation power — scenarios everyone solves ("participation trophies") dilute the score; the ranking moves on a handful of scenarios by accident.
+- **Problem:** every scenario contributes by difficulty, not separation power, scenarios everyone solves ("participation trophies") dilute the score; the ranking moves on a handful of scenarios by accident.
 - **Target architecture:** item-analysis weighting: scenario weight ∝ separation power across the model population (variance × difficulty-adjusted). Trophies → weight ≈ 0; high-variance scenarios dominate deltas. Implemented as a population-aware reporting layer (post-hoc recompute from run JSONs), not a `compute_score` formula change.
 - **Verification:** red tests with a synthetic population: a scenario all models solve contributes ≈0 to the delta; a scenario splitting the population dominates it.
 
-### BENCH-03 — Reference-anchored difficulty ladder (calibration + headroom)
+### BENCH-03, Reference-anchored difficulty ladder (calibration + headroom)
 
-- **Problem:** the 27B reference scores 910/1000 — the ladder tops out below it, leaving no headroom for 100B-1T models; a mid-tier model punching above its weight should sit at the median of the chart, not the ceiling.
-- **Target architecture:** a `reference_profile` policy (default: the 27B) must land at the 50th percentile of the population; difficulty values re-tuned until the anchor holds (measurable calibration loop, red-green test with a synthetic population). Add a headroom difficulty tier (multi-file SD, long-context, deep reasoning) that the reference cannot solve — failure is data; the chart must have a top. Weights + ladder re-anchored per population snapshot when large models arrive; the median anchor holds across re-anchors.
+- **Problem:** the 27B reference scores 910/1000, the ladder tops out below it, leaving no headroom for 100B-1T models; a mid-tier model punching above its weight should sit at the median of the chart, not the ceiling.
+- **Target architecture:** a `reference_profile` policy (default: the 27B) must land at the 50th percentile of the population; difficulty values re-tuned until the anchor holds (measurable calibration loop, red-green test with a synthetic population). Add a headroom difficulty tier (multi-file SD, long-context, deep reasoning) that the reference cannot solve, failure is data; the chart must have a top. Weights + ladder re-anchored per population snapshot when large models arrive; the median anchor holds across re-anchors.
 - **Verification:** red test: synthetic population with the reference at 910 → calibration rebalance until reference ≈ 50th percentile; headroom scenarios exist that the reference fails.
 
-### BENCH-04 — Pending scoring follow-ups (CodeRabbit round on the v2 merge)
+### BENCH-04, Pending scoring follow-ups (CodeRabbit round on the v2 merge)
 
 - **Problem:** review findings on the merged v2 content (rebase of PR #47 exposed them; they belong to a follow-up PR).
 - **Target architecture:**
@@ -1071,31 +1071,31 @@ FIX-015  (JSON-driven command engine) — independent
   - `tests/bench_test.cpp`: fixture helper uses `ASSERT` instead of `assert`; function-length extractions per the 10-line rule.
 - **Verification:** all findings addressed in the follow-up PR; full gate green; CodeRabbit clean.
 
-### BENCH-05 — Quality-perception suite completion (Phase B)
+### BENCH-05, Quality-perception suite completion (Phase B)
 
 - **Problem:** Phase A covers 2 scenarios per category; the mission requires ≥5 per dimension for a stable per-suite signal.
 - **Target architecture:** fill the six review categories to 5 scenarios each (30 total), controls included; per-suite (per-category) score aggregation in the report = the per-dimension capability matrix.
 - **Verification:** 30 review scenarios load and run; per-suite lines in the text report; full gate green.
 
-### BENCH-06 — Live capability suites + context dilution
+### BENCH-06, Live capability suites + context dilution
 
 - **Problem:** terminal proficiency and software-development coverage are thin; the context-dilution dimension (logic retention over long conversations, large files, mid-conversation constraint changes) has no suite.
 - **Target architecture:** terminal-suite expansion (bash semantics: pipes, background jobs, timeouts, cwd, exit codes, caps); template-suite volume (multi-file tasks); a new context-dilution suite (N-turn instruction retention, large-file pressure, mid-conversation constraint changes).
 - **Verification:** each new scenario has a purpose (isolates one mechanism/dimension); hermetic ones are CI-gated; full gate green.
 
-### BENCH-07 — Regression gate + trend history (the early-warning system)
+### BENCH-07, Regression gate + trend history (the early-warning system)
 
 - **Problem:** the hermetic suite exists but nothing runs it in CI; harness regressions are discovered late.
 - **Target architecture:** hermetic suite green on every commit (CI job); `.amber/bench/results` trend history with delta alerts when success/bullseye/latency regress beyond a threshold.
 - **Verification:** CI job exists and fails on a seeded hermetic regression; trend alert fires on a synthetic regression run.
 
-### BENCH-08 — Harness benchmark category (the engine health report, Phase C)
+### BENCH-08, Harness benchmark category (the engine health report, Phase C)
 
 - **Problem:** the baseline exposed that harness faults masquerade as model
   weakness. The model-axis benchmark varies the model and holds the harness
   constant, so a harness defect (bare-JSON tool-call parsing, oracle path
   matching, stale-oracle records) reads as "model scored 596" or "15 scenarios
-  at 60" — one bug contaminated 15-43 scenarios. The KPIs cannot distinguish
+  at 60", one bug contaminated 15-43 scenarios. The KPIs cannot distinguish
   harness errors from model errors, and nothing measures engine integrity as a
   first-class signal.
 - **Target architecture:** a second run category, `amber-bench run
@@ -1112,12 +1112,12 @@ FIX-015  (JSON-driven command engine) — independent
   corresponding probe must fail; probes green on a clean tree; `--cat
   harness` runs deterministically; harness_integrity = 1.0 in CI.
 
-### BENCH-09 — Agentic loop probes (Dimensions A–B: planning + loop control)
+### BENCH-09, Agentic loop probes (Dimensions A–B: planning + loop control)
 
 - **Problem:** the engine's loop-control machinery (tool-loop breakout at 3×
   same fingerprint, text-loop steer at 2× / hard stop at 5×, fail-streak
   recovery steer + hard stop, `done`-termination contract, iteration budget)
-  is the core of the harness — and nothing tests any of it. The 15 BENCH-08
+  is the core of the harness, and nothing tests any of it. The 15 BENCH-08
   probes cover mechanism fidelity (parse/extract/dispatch/context) but not
   the agentic loop itself: plan design, execution adherence to the plan
   (graph/chain), and the loop's ability to terminate correctly or break out
@@ -1127,33 +1127,33 @@ FIX-015  (JSON-driven command engine) — independent
   registry (family `loop`), each scripting the loop via FakeClient and
   asserting the engine's loop behavior. Plus a new KPI family surfaced in the
   scorecard: `adherence_ratio`, `breakout_latency`, `steer_effectiveness`.
-  - P-loop-done-flag — scripted tool_calls → tool_calls → "done": loop
+  - P-loop-done-flag, scripted tool_calls → tool_calls → "done": loop
     terminates on done, correct turn count, no extra dispatch (positive
     termination).
-  - P-loop-continue-flag — scripted tool_calls × N (task incomplete): no
+  - P-loop-continue-flag, scripted tool_calls × N (task incomplete): no
     premature termination while calls keep coming (negative signal).
-  - P-loop-infinite-breakout — identical tool call repeated 10×: breakout
+  - P-loop-infinite-breakout, identical tool call repeated 10×: breakout
     fires ≤3 repeats ("loop detected: breaking tool loop"), no runaway,
     honest final_reply.
-  - P-loop-text-repeat — same text 5×: steer at 2, hard stop at 5,
+  - P-loop-text-repeat, same text 5×: steer at 2, hard stop at 5,
     recovery attempt counted.
-  - P-loop-fail-streak — failing calls 4×: steer at 3, hard stop on next
+  - P-loop-fail-streak, failing calls 4×: steer at 3, hard stop on next
     failure; scripted-good reply after steer completes (steer_effectiveness).
-  - P-loop-no-false-positive — legitimate distinct repeated calls (same
+  - P-loop-no-false-positive, legitimate distinct repeated calls (same
     tool, different args): must NOT be flagged (detector precision).
-  - P-loop-hard-stop-honesty — runaway → hard_stop=true in KPI, failure
+  - P-loop-hard-stop-honesty, runaway → hard_stop=true in KPI, failure
     recorded, score capped at 60.
-  - P-plan-adherence-chain — scripted multi-step plan; assert the executed
+  - P-plan-adherence-chain, scripted multi-step plan; assert the executed
     tool sequence satisfies the plan's dependency edges (graph match).
 - **Verification:** each probe red-first (seeded loop fault must fail its
   probe, e.g. `detection_loop=false` → P-loop-infinite-breakout fails);
   probes green on a clean tree; `--cat harness` integrity 1.0; new KPIs
   render in the scorecard; full gate green.
 
-### BENCH-10 — Tool-call fidelity probes (Dimension C)
+### BENCH-10, Tool-call fidelity probes (Dimension C)
 
 - **Problem:** tool misuse, wrong params, unknown tools, and malformed-args
-  repair (MISSION Phase 1 promises "malformed-args repair" — untested).
+  repair (MISSION Phase 1 promises "malformed-args repair", untested).
 - **Target architecture:** 5 probes in family `fidelity`:
   P-misuse-wrong-tool (bash cat instead of read → tool-choice precision,
   forbidden-tool rate), P-params-value-fidelity (value-level arg precision,
@@ -1162,7 +1162,7 @@ FIX-015  (JSON-driven command engine) — independent
   (both wire shapes dispatch).
 - **Verification:** red-first per probe; green on clean tree; gate green.
 
-### BENCH-11 — Output interpretation + execution precision (Dimension D–E)
+### BENCH-11, Output interpretation + execution precision (Dimension D–E)
 
 - **Problem:** nothing asserts the model *acted on* tool output (read X →
   next call reflects X); output truncation at 64 KiB untested; per-call
@@ -1174,7 +1174,7 @@ FIX-015  (JSON-driven command engine) — independent
     crash), P-output-envelope-ext (error text + meta round-trip preserved).
   - Report persistence: per-call `{name, args, ok, error, denied, timeout,
     duration_ms}` written into the results JSON (the post-mortem story).
-  - New KPIs: calls_per_step histogram (p50/p95/max — detects call bursting),
+  - New KPIs: calls_per_step histogram (p50/p95/max, detects call bursting),
     failure taxonomy (tool_failures split by error/timeout/denied/
     unknown-tool/malformed-args).
 - **Verification:** red-first; green on clean tree; a stored run's JSON
@@ -1182,20 +1182,20 @@ FIX-015  (JSON-driven command engine) — independent
 
 ## Status
 
-- **BENCH-01** (repeat medians + CI, the resolution floor) — shipped, PR #49
-- **BENCH-04** (v2 scoring follow-ups) — shipped, PR #48
-- **BENCH-02** (discrimination-weighted aggregation) — shipped, PR #50 (+ round-1 restore 6e2d680)
-- **BENCH-03** (reference-anchored calibration + headroom tier) — shipped, PR #51
-- **BENCH-08** (harness benchmark category — engine health scorecard) — shipped, PR #55
-- **BENCH-09** (agentic loop probes — done/continue flags, breakout, steering, plan adherence) — shipped, PR #56
-- **BENCH-10** (tool-call fidelity probes — misuse, value params, unknown tool, malformed args, wire shapes) — shipped, PR #56
-- **BENCH-11** (output interpretation probes + per-call telemetry persistence, calls_per_step, failure taxonomy) — shipped, PR #56
-- **BENCH-12** (KPI catalog — 8 hermetic probes incl. engine-enforced wall-clock deadline, loop-live suite, delta report view) — shipped, PR #58
+- **BENCH-01** (repeat medians + CI, the resolution floor), shipped, PR #49
+- **BENCH-04** (v2 scoring follow-ups), shipped, PR #48
+- **BENCH-02** (discrimination-weighted aggregation), shipped, PR #50 (+ round-1 restore 6e2d680)
+- **BENCH-03** (reference-anchored calibration + headroom tier), shipped, PR #51
+- **BENCH-08** (harness benchmark category, engine health scorecard), shipped, PR #55
+- **BENCH-09** (agentic loop probes, done/continue flags, breakout, steering, plan adherence), shipped, PR #56
+- **BENCH-10** (tool-call fidelity probes, misuse, value params, unknown tool, malformed args, wire shapes), shipped, PR #56
+- **BENCH-11** (output interpretation probes + per-call telemetry persistence, calls_per_step, failure taxonomy), shipped, PR #56
+- **BENCH-12** (KPI catalog, 8 hermetic probes incl. engine-enforced wall-clock deadline, loop-live suite, delta report view), shipped, PR #58
 
 ## Recommended execution order (remaining)
 
 1. **Calibration runs**: first real model runs under v2 scoring with
-   `amber-bench calibrate` — calibration data, not competition.
+   `amber-bench calibrate`, calibration data, not competition.
 2. **BENCH-05** (review suites to 5/category + per-suite matrix) → **BENCH-06**
    (terminal/SD volume + context-dilution suite) → **BENCH-07** (regression
    gate + trend history).
@@ -1204,9 +1204,9 @@ FIX-015  (JSON-driven command engine) — independent
 
 ---
 
-## Clean Architecture 2026-08-27 — Proposal `docs/fix-proposal/clean-architecture-2026-08-27.md`
+## Clean Architecture 2026-08-27, Proposal `docs/fix-proposal/clean-architecture-2026-08-27.md`
 
-Pipeline `7a0e69d` (`33075234503` green) closed `N1` (build drift `Makefile.in:394` vs `Makefile:406`) + `N2` (`AGENTS.md:428` 2308→2295).  Remaining `N3..N11` are tracked as `FIX-017..025` below — 4 phases, 9 PRs, each Red→Green per `AGENTS.md`.
+Pipeline `7a0e69d` (`33075234503` green) closed `N1` (build drift `Makefile.in:394` vs `Makefile:406`) + `N2` (`AGENTS.md:428` 2308→2295).  Remaining `N3..N11` are tracked as `FIX-017..025` below, 4 phases, 9 PRs, each Red→Green per `AGENTS.md`.
 
 ### Dependency Graph (clean)
 
@@ -1223,45 +1223,45 @@ FIX-016 (pipeline done 7a0e69d)
    └── FIX-025 Test split + ephemeral ports + shell_quote dedup ──────────┘
 ```
 
-### FIX-016 Pipeline unblock — Done `7a0e69d`
+### FIX-016 Pipeline unblock, Done `7a0e69d`
 
 | Field | Value |
 |---|---|
 | **Severity** | 🔴 Critical |
-| **Files** | `AGENTS.md:428`, `Makefile.in:65`, `include/agent/event_bus.h:67`, `include/agent/plugin_registry.h:74`, `include/agent/plugin_v2.h:58`, `lib/event_bus.cpp:57`, `lib/plugin_registry.cpp:87`, `plugins/metrics/metrics_plugin.*:51`, `tui/session_browser_core.*:145`, `tests/event_bus_test.cpp:130` etc, `.gitignore:30` |
+| **Files** | `AGENTS.md:428`, `Makefile.in:65`, `include/agent/event_bus.h:67`, `include/agent/plugin_registry.h:74`, `include/agent/plugin_core.h:58`, `lib/event_bus.cpp:57`, `lib/plugin_registry.cpp:87`, `plugins/metrics/metrics_plugin.*:51`, `tui/session_browser_core.*:145`, `tests/event_bus_test.cpp:130` etc, `.gitignore:30` |
 | **Fix** | Sync `Makefile.in` (CORE/TUI/UNITTEST/SB + `plugins/metrics` rule), track 12 untracked sources, 2308→2295 |
 | **Verification** | `make check` P5 green, `make lint` clean (was `file not found`), `make test` 440+4 new suites green, `gh run 33075234503` all success |
 
 ---
 
-### FIX-017 EventBus deadlock — `lib/event_bus.cpp:22`
+### FIX-017 EventBus deadlock, `lib/event_bus.cpp:22`
 
 | Field | Value |
 |---|---|
 | **Severity** | 🟡 Medium |
 | **Files** | `lib/event_bus.cpp:22`, `include/agent/event_bus.h:67`, `tests/event_bus_test.cpp:130` |
-| **Problem** | `fire:23` holds `scoped_lock` 23-37 while invoking interceptors/observers — any handler that `subscribe/unsubscribe/fire` deadlocks; 13 `EventType` declared, only `MetricsPlugin` uses today |
-| **Target** | Snapshot `matched` vectors under lock, release, then iterate (reverse interceptors, forward observers) — 10 lines, defensive copy |
+| **Problem** | `fire:23` holds `scoped_lock` 23-37 while invoking interceptors/observers, any handler that `subscribe/unsubscribe/fire` deadlocks; 13 `EventType` declared, only `MetricsPlugin` uses today |
+| **Target** | Snapshot `matched` vectors under lock, release, then iterate (reverse interceptors, forward observers), 10 lines, defensive copy |
 | **Pattern** | Pub/Sub snapshot (defensive copy) |
 | **SOLID** | SRP (fire does one thing), ISP (narrow subscribe/intercept) |
 | **Verification** | New `fire_reentrancy_subscribe_inside_handler` RED→GREEN; `make test` 8 `event_bus` tests green |
 
 ---
 
-### FIX-018 PluginRegistry masking + Capability type erasure — `lib/plugin_registry.cpp:24`, `include/agent/plugin_v2.h:46`
+### FIX-018 PluginRegistry masking + Capability type erasure, `lib/plugin_registry.cpp:24`, `include/agent/plugin_core.h:46`
 
 | Field | Value |
 |---|---|
 | **Severity** | 🟡 Medium |
-| **Files** | `lib/plugin_registry.cpp:24` `activate` static `s_bus/s_tools` fallback + `context:78` same; `include/agent/plugin_v2.h:46` `Capability void* impl`; `lib/plugin.cpp:585` |
-| **Problem** | Static `empty_ctx` masks `ctx_==nullptr` wiring bug (plugin sees dummy `~/.amber`); `void*` anticipates 8 capability types but only `Tool`/`Hook` were ever intended to be wired (spec `plugins/plugin-framework-v2.md`, `plugins/developer-guide.md`) |
-| **Target** | `activate`/`context()` `assert(ctx_)` or `return false` + explicit `set_context` at `tui/tui_main.cpp`/`bench` bootstrap. **Superseded on the payload question (2026-09-10):** the `void*` + "keep it, TODO later" target is replaced by typed polymorphic capabilities — decision **D2** in `docs/plugin-framework-tracker.md`; the capability protocol is rebuilt under PF-1.3 |
+| **Files** | `lib/plugin_registry.cpp:24` `activate` static `s_bus/s_tools` fallback + `context:78` same; `include/agent/plugin_core.h:46` `Capability void* impl`; `lib/plugin.cpp:585` |
+| **Problem** | Static `empty_ctx` masks `ctx_==nullptr` wiring bug (plugin sees dummy `~/.amber`); `void*` anticipates 8 capability types but only `Tool`/`Hook` were ever intended to be wired (spec `plugins/plugin-framework.md`, `plugins/developer-guide.md`) |
+| **Target** | `activate`/`context()` `assert(ctx_)` or `return false` + explicit `set_context` at `tui/tui_main.cpp`/`bench` bootstrap. **Superseded on the payload question (2026-09-10):** the `void*` + "keep it, TODO later" target is replaced by typed polymorphic capabilities, decision **D2** in `docs/plugin-framework-tracker.md`; the capability protocol is rebuilt under PF-1.3 |
 | **Pattern** | Capability (type-erased), DIP (ctx injected) |
-| **Verification** | `plugin_v2_test.cpp:197` 17 green; manual `ctx_==nullptr` asserts |
+| **Verification** | `plugin_core_test.cpp:197` 17 green; manual `ctx_==nullptr` asserts |
 
 ---
 
-### FIX-019 JsonMemoryStore split — `lib/memory_store.cpp:115` 287 lines
+### FIX-019 JsonMemoryStore split, `lib/memory_store.cpp:115` 287 lines
 
 | Field | Value |
 |---|---|
@@ -1274,19 +1274,19 @@ FIX-016 (pipeline done 7a0e69d)
 
 ---
 
-### FIX-020 Slash residuals — `tui/tui_input.cpp:199,245,298`
+### FIX-020 Slash residuals, `tui/tui_input.cpp:199,245,298`
 
 | Field | Value |
 |---|---|
 | **Severity** | 🟡 Medium |
 | **Files** | `tui/tui_input.cpp:199` `rfind("policy ")`, `245` `rfind("mcp ")`, `298` `rfind("rule")`; `completions.json:794`; `tui/tui_input.cpp:1113` `core.config.set.policy` leaf |
-| **Problem** | `handle_slash:1263` tree-walk exemplary (`SettingRegistry::complete` 1:1 drawer), but bare-namespace fallbacks duplicate `refresh_policy_feed:402` leaves (`core.config.set.policy.rule.<tool>`) + `mcp_completion_subtree` — spec `no dead legacy dispatch` |
+| **Problem** | `handle_slash:1263` tree-walk exemplary (`SettingRegistry::complete` 1:1 drawer), but bare-namespace fallbacks duplicate `refresh_policy_feed:402` leaves (`core.config.set.policy.rule.<tool>`) + `mcp_completion_subtree`, spec `no dead legacy dispatch` |
 | **Target** | Delete `rfind` branches; bare `/set policy` stays as `register_action("core.config.set.policy")` branch handler (already does `usage`); `get.mcp`/`learn` via tree leaves (`grep -rn 'rfind.*policy\|rfind.*mcp' tui/` → 0) |
 | **Verification** | `completions_test.cpp:37`, `e2e_test.cpp:26` green; `grep` 0 hits |
 
 ---
 
-### FIX-021 FeedManager extraction — first Tui split
+### FIX-021 FeedManager extraction, first Tui split
 
 | Field | Value |
 |---|---|
@@ -1309,7 +1309,7 @@ FIX-016 (pipeline done 7a0e69d)
 
 ---
 
-### FIX-023 RenderEngine + SessionController — `Tui` <200
+### FIX-023 RenderEngine + SessionController, `Tui` <200
 
 | Field | Value |
 |---|---|
@@ -1320,7 +1320,7 @@ FIX-016 (pipeline done 7a0e69d)
 
 ---
 
-### FIX-024 Hygiene — `.clang-tidy`, `compile_flags.txt`, `build_hygiene.sh`
+### FIX-024 Hygiene, `.clang-tidy`, `compile_flags.txt`, `build_hygiene.sh`
 
 | Field | Value |
 |---|---|
@@ -1344,19 +1344,19 @@ Total 9 PRs, ~31h, each `make clean && make && make test && make lint && make an
 
 ---
 
-## Provider Dialect 2026-09-09 — Proposal `docs/fix-proposal/provider-dialect-architecture-2026-09-09.md`
+## Provider Dialect 2026-09-09, Proposal `docs/fix-proposal/provider-dialect-architecture-2026-09-09.md`
 
-PR [#99](https://github.com/jtrefon/amber/pull/99) — squash-merged to `main` as `e7ecfa4` (11 commits reviewed, one per FIX, all CI checks green). Growth claim: adding a provider is one dialect file + one registry row; `FIX-030` demonstrates it (Anthropic landed touching no transport/agent/UI code).
+PR [#99](https://github.com/jtrefon/amber/pull/99), squash-merged to `main` as `e7ecfa4` (11 commits reviewed, one per FIX, all CI checks green). Growth claim: adding a provider is one dialect file + one registry row; `FIX-030` demonstrates it (Anthropic landed touching no transport/agent/UI code).
 
 | FIX | Subject | State |
 |-----|---------|-------|
-| `FIX-027` | Wire-layer characterization pins (9 tests + mock helpers) — written before any production line moved | ✅ in `e7ecfa4` |
-| — | Architecture proposal (decisions D1–D10, regression strategy, phases) | ✅ in `e7ecfa4` |
+| `FIX-027` | Wire-layer characterization pins (9 tests + mock helpers), written before any production line moved | ✅ in `e7ecfa4` |
+| - | Architecture proposal (decisions D1–D10, regression strategy, phases) | ✅ in `e7ecfa4` |
 | `FIX-028` | `Dialect` port: OpenAI wire format moved verbatim; `StreamDecoder` extraction; `request_builder.*`/`sse_parser.*` deleted | ✅ in `e7ecfa4` |
 | `FIX-029` | Capabilities reach the wire (`flavor`, `api_key_is_account_token`); last `provider_name ==` branch in core removed | ✅ in `e7ecfa4` |
-| `FIX-030` | Anthropic Messages API dialect — the growth proof (one file + registry/preset/capability rows) | ✅ in `e7ecfa4` |
+| `FIX-030` | Anthropic Messages API dialect, the growth proof (one file + registry/preset/capability rows) | ✅ in `e7ecfa4` |
 | `FIX-032` | Learned context window surfaces from `learned_context_size()` on the throwing 400 path (red test → fix) | ✅ in `e7ecfa4` |
 | `FIX-031` | `docs/spec/llm-client/dialect.md` + llm-client spec re-alignment | ✅ in `e7ecfa4` |
-| — | Follow-up: `ModelInfo` homed in `llm.h`; `sanitize_tool_calls` encapsulated; `ToolRegistry` wire shim removed; stale doc references retired; `url_test` untracked | ✅ `chore/no-debt-cleanup` |
+| - | Follow-up: `ModelInfo` homed in `llm.h`; `sanitize_tool_calls` encapsulated; `ToolRegistry` wire shim removed; stale doc references retired; `url_test` untracked | ✅ `chore/no-debt-cleanup` |
 
 Follow-ups NOT in the merged PR: Bedrock/Vertex request signing (new increment on the same seam), streaming test gaps documented in `streaming.md` (connection drop, malformed SSE, double-finalize), Anthropic `thinking`/`reasoning_effort` have no Messages API equivalent (documented in the dialect).

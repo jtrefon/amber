@@ -10,7 +10,7 @@
 // can see; account-wide credits need a management key and are deliberately out
 // of scope.
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <optional>
 #include <string>

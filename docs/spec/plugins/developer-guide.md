@@ -1,48 +1,87 @@
 # Amber Plugin Developer Guide
 
 How to extend amber. Two plugin tiers exist, and they are different products
-with different trade-offs — pick deliberately:
+with different trade-offs, pick deliberately:
 
-| | **External plugin** (v1) | **Core plugin** (v2) |
+| | **Core plugin** | **External plugin** |
 |---|---|---|
-| Ships today | ✅ Yes | ⏳ In progress — see the availability table below |
-| Language | Any (executable) | C++17, compiled into amber |
-| Isolation | Separate process; a crash cannot take amber down | Same process; a crash takes amber down |
-| Can contribute | Tools (+ inert command subtrees) | Tools, providers, commands, prompt blocks, status segments, panels, settings, log sinks, event hooks |
-| Distribution | User installs into `~/.config/amber/plugins/<id>/` | Bundled with amber (compiled-in) |
-| Spec | `plugins/README.md` (protocol), this guide §6 | `plugins/plugin-framework-v2.md` |
+| Ships today | ✅ Yes | ✅ Yes |
+| Language | C++17, compiled into amber | Any (executable) |
+| Isolation | Same process; a crash takes amber down | Separate process; a crash cannot take amber down |
+| Can contribute | Tools, providers, prompt blocks, status segments, panels, wallets, allowances, event subscriptions | Tools |
+| Distribution | Compiled in, `plugins/<id>/` | User installs into `~/.config/amber/plugins/<id>/` |
+| Spec | `plugins/plugin-framework.md` | `plugins/README.md` (wire protocol), this guide §6 |
 
-**The framework is being built to be dogfooded.** Providers, status readouts,
-and the registry console are its first consumers. If you are here to add an LLM
-provider, read §5 — that path is the reason the framework exists.
+There is no separate "plugin framework version". The framework ships as part of
+amber and follows amber's own version (`version.txt`). The external tier has its
+own wire `protocol_version` (currently `1`); that is a protocol number, not a
+framework version.
+
+**The framework is dogfooded.** Amber's own providers, its core tool set, the
+status bar and the registry console are all built on the same capability API a
+plugin uses. If you are here to add an LLM provider, read §5, that path is the
+reason the framework exists.
+
+---
+
+## Quickstart: your first plugin
+
+A complete, compiled, tested example lives in `examples/plugin_hello/`, its
+test is `tests/example_plugin_test.cpp`, and it is built by `make test`. Copy it
+and change the id.
+
+1. **Create the directory** `plugins/<id>/` with `<id>_plugin.h` and
+   `<id>_plugin.cpp`.
+2. **Implement `IPlugin`** (§1).
+3. **Declare a capability** in `capabilities()` (§2).
+4. **Register it** in `make_bundled_plugins()` (`lib/plugins_bundled.cpp`) and
+   add the object to `Makefile.in` (the compile rule is generic).
+5. **Test it hermetically** (§8), no network, ever.
+6. **Prove the seam held:** your diff must not touch `lib/http_transport.cpp`,
+   the agent loop, or the TUI. If it does, the framework, not your plugin, is
+   missing an extension point; say so in the PR instead of working around it.
+
+### Which tier do I want?
+
+```
+Does it need to run arbitrary/other-language code, or must a crash be contained?
+  └─ yes → External plugin (separate process, tools only)          §6
+  └─ no
+      ├─ Does it contribute anything other than a tool
+      │  (provider, status segment, panel, prompt block, event hook)?
+      │     └─ yes → Core plugin (C++17, compiled in)              §1
+      └─ Is the endpoint OpenAI-wire compatible?
+            └─ yes → you may not need code at all: a provider *file*
+                      is enough (user-side config, no plugin)       §5
+```
 
 ---
 
 ## Availability
 
-The authority on status is `docs/plugin-framework-tracker.md`. This table mirrors
-it; if they disagree, the tracker wins (and file a fix).
+This table is the single status surface for the framework. It reflects the code
+on `main`; if it disagrees with the code, the code is right and the table is a
+bug.
 
-| Capability | Status | Phase |
+| Capability | Status | Notes |
 |---|---|---|
-| External tool plugin (subprocess, JSON-RPC) | ✅ Available | v1 |
-| Tool contribution (incl. the core tool set) | ✅ Available | PF-4.4 |
-| Harness services in capability factories (`HostServices`) | ✅ Available | PF-4.4 |
-| Typed event subscription | ✅ Available | PF-1 |
-| Prompt block contribution | ✅ Available | PF-1 (no caller yet) |
-| v1 external plugins under the unified registry | ✅ Available | PF-1 |
-| `/get plugin`, `/set plugin on\|off` | ✅ Available | PF-1 |
-| Provider contribution (dialect + presets) | ✅ Available | PF-2 |
-| Status segment contribution | ✅ Available | PF-3 |
-| Panel contribution + registry console | ✅ Available | PF-3.2 |
-| Host services (`ask_secret`, `choose`, …) | ⏳ | PF-3 |
+| External tool plugin (subprocess, JSON-RPC) | ✅ Available | `plugins/README.md` |
+| Tool contribution (incl. the core tool set) | ✅ Available | `ToolCapability` |
+| Harness services in capability factories (`HostServices`) | ✅ Available | jobs, todos, sub-agents, cancel token |
+| Typed event subscription | ✅ Available | `Events`, §3 |
+| Prompt block contribution | ✅ Available | `PromptBlockCapability` |
+| External plugins under the unified registry | ✅ Available | `ExternalPluginAdapter` |
+| `/get plugin`, `/set plugin <id> on\|off` | ✅ Available | single write path |
+| Provider contribution (dialect + presets) | ✅ Available | `ProviderCapability` |
+| Status segment contribution | ✅ Available | `StatusSegmentCapability` |
+| Panel contribution + registry console | ✅ Available | `PanelCapability` |
+| Wallet / allowance readout | ✅ Available | `WalletCapability`, `AllowanceCapability` |
+| Command contribution (slash namespace) | ✅ Available | `CommandCapability` |
+| Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`) | – | Not available, no consumer yet (tracker PF-3.3) |
+| Per-plugin settings | – | Not available, use `~/.config/amber/plugins/<id>/plugin.conf` |
 | Log sinks | – | Deferred (no consumer) |
-| Command contribution, plugin settings | – | Removed (no producer, no consumer — see tracker) |
-| Theme, key interception, window geometry, hot reload | – | Deferred register |
-
-Sections marked **⏳ target** describe the agreed contract. Do not build against
-them until the tracker flips them to available — the spec is the design of
-record, not a promise about `main`.
+| `PluginLoaded` / `PluginUnloaded` events | – | Declared in `events.h`, never published |
+| Theme, key interception, window geometry, hot reload | – | Deferred register (tracker) |
 
 ---
 
@@ -52,7 +91,7 @@ A core plugin is a C++ class implementing `IPlugin` plus the capabilities it
 declares:
 
 ```cpp
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 class HelloPlugin : public agent::IPlugin {
 public:
@@ -61,7 +100,7 @@ public:
     std::string name() const override { return "Hello"; }      // display
 
     // Optional metadata, shown in the registry list (/get plugin list, Alt+0).
-    // The description answers "which one do I want" — keep it to one line.
+    // The description answers "which one do I want", keep it to one line.
     // The category is the group it appears under; the vocabulary in
     // agent::plugin_category is the common set, and your own value works too.
     std::string description() const override {
@@ -78,7 +117,7 @@ public:
 
     void shutdown() override {
         // Release plugin-owned resources. Contributions are removed by the
-        // runtime's ledger — do not unregister them yourself.
+        // runtime's ledger, do not unregister them yourself.
     }
 
     std::vector<std::unique_ptr<agent::Capability>> capabilities() override;
@@ -91,17 +130,22 @@ plugin that registers things outside this path is a bug, because it cannot be
 disabled cleanly.
 
 Bundled plugins live in `plugins/<id>/` and are registered in one place
-(`register_bundled_plugins`), so the shipped set is enumerable at a glance.
+(`make_bundled_plugins()` in `lib/plugins_bundled.cpp`), so the shipped set is
+enumerable at a glance.
 
-Neither `description()` nor `category()` is required — a plugin that declares
+Neither `description()` nor `category()` is required, a plugin that declares
 neither still works and appears under `other` with an explicit
 `(no description)` marker, so an omission is visible rather than silent. There
-is no runtime version check for bundled plugins: they are compiled into the
-same binary, so the compiler is the version check.
+is no runtime version check for core plugins: they are compiled into the same
+binary, so the compiler is the version check.
+
+`tick()` is called periodically on the UI thread for time-driven work (polling a
+balance, refreshing a remote value). It exists so that *rendering* stays a pure
+read. It must not block, schedule slow work on your own thread.
 
 ---
 
-## 2. Capabilities ⏳ target
+## 2. Capabilities
 
 One capability = one contribution. `kind()` tells the runtime which registry
 installs it; `install()` returns a handle the ledger keeps.
@@ -116,10 +160,19 @@ public:
 };
 ```
 
+`CapabilityKind` has eight values: `Tool`, `PromptBlock`, `StatusSegment`,
+`Panel`, `Provider`, `Wallet`, `Allowance`, `Command`. Each has a concrete base
+class in `include/agent/extensions.h`.
+
+`InstallResult` distinguishes a **decline** from a **failure**:
+`ok == false && declined == true` means "nothing to install" and the plugin
+stays active; `ok == false && !declined` means "broken". A factory returning an
+empty list declines.
+
 ### Tool
 
 A tool is contributed with `ToolCapability`. Give it a factory when the tool
-needs harness services at construction — the core tool set does, because bash
+needs harness services at construction, the core tool set does, because bash
 binds to the job service and todowrite to the todo store.
 
 ```cpp
@@ -138,28 +191,12 @@ std::vector<std::unique_ptr<agent::Capability>> GreetPlugin::capabilities() {
 A factory returning an empty list *declines*: the tool is simply absent and the
 plugin stays active. That is the shape a tool gated on configuration uses (the
 core tool set ships `todowrite` and `task` that way). Returning several tools
-makes them one contribution — the ledger records one entry, so disabling the
+makes them one contribution, the ledger records one entry, so disabling the
 plugin takes them all back out together.
 
-Rules: return errors as `ToolResult{false, "", error}` — never throw
-(`AGENTS.md` error conventions). The tool name is namespaced so it cannot
-collide with a core tool.
-
-### Command
-
-```cpp
-agent::CommandSpec spec;
-spec.root = "hello";                       // one namespace root, owned by you
-spec.subtree = json::parse(R"({
-  "greet": { "help": "Greet someone", "man": "Usage: /hello greet <name>" }
-})");
-spec.handlers["greet"] = [](const std::string& arg) { /* ... */ };
-```
-
-The runtime merges the subtree into the command tree and registers each leaf's
-handler — leaf entries in the drawer always execute. The command surface stays
-JSON-driven: never hardcode a path in a handler (`AGENTS.md`, command-tree
-rules).
+Rules: return errors as `ToolResult{false, "", error}`, never throw
+(`AGENTS.md` error conventions). Tool ownership is recorded by the registry, so
+unwinding is identity-scoped: a plugin can never remove another plugin's tool.
 
 ### Prompt block
 
@@ -175,7 +212,7 @@ public:
 };
 ```
 
-Blocks are appended as their own `system` message on the **prompt copy** — the
+Blocks are appended as their own `system` message on the **prompt copy**: the
 sealed `Context` is never mutated. **Determinism matters:** a block whose content
 changes every turn invalidates the server's KV prefix from its position onward.
 Keep volatile content at a high priority (near the tail), or cache until the
@@ -202,38 +239,86 @@ publish the UI-visible snapshot with `post_to_ui` if needed.
 
 ### Panel
 
+A panel is text plus optional key handling. The host frames it, scrolls it and
+offers cycling between panels (Tab); your `on_key` gets first refusal on every
+key while your panel is focused, and returning true means "I handled it".
+
 ```cpp
-class ConsolePanel : public agent::PanelCapability {
-public:
-    std::string id() const override { return "registry_console"; }
-    std::string title() const override { return "Plugins"; }
-    void render(agent::PanelCanvas& c, const agent::StatusSnapshot&) const override;
-    bool handle_key(int key) override;   // true = consumed; called only when focused
+agent::PanelSpec spec;
+spec.id = "gemini_models";
+spec.title = "Gemini models";
+spec.lines = [this](int width) { return model_lines(width); };  // pure
+spec.on_key = [](int key) { return key == 'r'; };               // optional
+caps.push_back(std::make_unique<agent::PanelCapability>(std::move(spec)));
+```
+
+`lines(width)` is called on every repaint, so keep it pure and fast, no I/O,
+no blocking. The registry console at Alt+0 is the worked example.
+
+### Command
+
+A plugin contributes a slash-command namespace: a root, its help/man, the child
+nodes (completions.json shape), and one handler per executable leaf. The host
+merges the subtree into the command tree and binds each leaf to its handler.
+
+```cpp
+agent::CommandSpec spec;
+spec.root = "hello";
+spec.help = "Say hello";
+spec.man  = "Usage: /hello greet <name>";
+spec.subtree = agent::json::parse(R"({
+  "greet": {"help": "Greet someone by name"}
+})");
+spec.handlers["greet"] = [](const std::string& arg) {
+    return "Hello, " + (arg.empty() ? std::string("world") : arg) + "!";
 };
+caps.push_back(std::make_unique<agent::CommandCapability>(std::move(spec)));
 ```
 
-The host owns placement, focus, and overflow — plugins never address the screen
-directly. Keys arrive only while your panel is focused; the framework
-deliberately does not allow global key interception (see the deferred register).
+- The handler returns the text to display; the host prints it. That keeps the
+  plugin UI-free, no `tui/` includes.
+- `handlers` is keyed by the leaf's **dotted path** relative to the root
+  (`"greet"`, `"config.set"`). A leaf with no handler stays inert: documented in
+  the drawer, not executable.
+- You never name an action string. The host derives it
+  (`plugin.<id>.<path>`), so a plugin command cannot collide with a core one.
+- The **TUI** owns the slash engine; the headless CLI has no command tree, so a
+  command contribution is TUI-only today.
+- Toggling the plugin rebuilds the tree immediately, its commands appear or
+  disappear with no restart.
 
-### Provider ⏳ target (PF-2)
+The bundled `plugins/hello/` is the worked example: `/hello greet amber`
+returns `Hello, amber!`.
+
+### Provider
 
 ```cpp
-agent::ProviderSpec spec;
-spec.flavor = "gemini";
-spec.make_dialect = [] { return std::make_unique<GeminiDialect>(); };
-spec.presets = {{"gemini", "https://generativelanguage.googleapis.com", "gemini-2.5-pro", true}};
-spec.auth = agent::AuthSpec::api_key("GEMINI_API_KEY");   // may prompt via host services
+agent::ProviderCapability::Preset preset;
+preset.name = "gemini";
+preset.api_base = "https://generativelanguage.googleapis.com";
+preset.default_model = "gemini-2.5-pro";
+preset.requires_key = true;
+
+// Own protocol: provide the dialect factory.
+caps.push_back(std::make_unique<agent::ProviderCapability>(
+    "gemini", [] { return make_gemini_dialect(); },
+    std::vector<agent::ProviderCapability::Preset>{preset}));
+
+// Shared protocol (an OpenAI-compatible gateway): pass NO factory, so
+// disabling the plugin cannot take the shared protocol down with it.
+caps.push_back(std::make_unique<agent::ProviderCapability>(
+    "openai", std::function<std::unique_ptr<agent::Dialect>()>{},
+    std::vector<agent::ProviderCapability::Preset>{preset}));
 ```
 
-Everything wire-specific — endpoints, auth headers, body, buffered parse, stream
-decoding, model listing, usage mapping, retry classification, overflow hints —
+Everything wire-specific, endpoints, auth headers, body, buffered parse, stream
+decoding, model listing, usage mapping, retry classification, overflow hints,
 belongs in the **dialect** (`docs/spec/llm-client/dialect.md`), not in the
 plugin's plumbing. A provider plugin must not open its own HTTP client: the
 transport is shared.
 
 **Reading the host's configuration:** keep the `PluginContext` you are given
-and read `ctx.config` (a pointer) at the moment you need it — never cache the
+and read `ctx.config` (a pointer) at the moment you need it, never cache the
 `Config*` in a member. The host may attach the configuration it actually
 mutates *after* your plugin was activated (the TUI takes its `Config` by
 value), so a cached pointer keeps pointing at the runtime's startup copy and
@@ -243,7 +328,7 @@ once; the regression test is
 
 ### Wallet (a provider's balance)
 
-If your provider has an account balance, declare how to fetch it — that is the
+If your provider has an account balance, declare how to fetch it, that is the
 whole contribution. Do **not** write a poll loop, a cache or a status segment:
 the runtime owns all of that, so your readout behaves exactly like every other
 provider's.
@@ -260,12 +345,12 @@ caps.push_back(std::make_unique<agent::WalletCapability>(
 ```
 
 - Return the amount, or `std::nullopt` when there is nothing honest to report.
-  `nullopt` is normal (no key, endpoint down, rejected key) — the bar shows `-`.
+  `nullopt` is normal (no key, endpoint down, rejected key), the bar shows `-`.
   Never invent a value.
 - The fetch runs off the UI thread and is called with the **live** config, at
   most once per turn boundary (plus startup and provider switches). Do not block
   indefinitely; it is a network call you own.
-- The bar renders the amount as `$13.22` with no label — it shows the *active*
+- The bar renders the amount as `$13.22` with no label, it shows the *active*
   provider's wallet, and bar space is scarce. `/get provider wallet` reports the
   fuller state, and `/set provider wallet on|off` is the global display switch.
 
@@ -288,63 +373,39 @@ caps.push_back(std::make_unique<agent::AllowanceCapability>(
 
 `AllowanceSnapshot` carries:
 
-- `plan` — the plan name ("Pro", "Go", "free").
-- `windows` — a vector of `AllowanceWindow`, each with a `label` ("5h", "7d",
+- `plan`, the plan name ("Pro", "Go", "free").
+- `windows`, a vector of `AllowanceWindow`, each with a `label` ("5h", "7d",
   "monthly"), `percent_used` (0–100, -1 = unknown), `remaining` and
   `entitlement` (count or credits, -1 = not applicable), and `resets_at` (ISO
   8601 or empty).
-- `credits_balance` — optional prepaid credit balance.
-- `unit` and `currency` — what the numbers mean ("credits", "USD", "CNY").
+- `credits_balance`, optional prepaid credit balance.
+- `unit` and `currency`, what the numbers mean ("credits", "USD", "CNY").
 
-The status bar shows the **closest affecting window** — the one with the
+The status bar shows the **closest affecting window**: the one with the
 highest `percent_used` (ties broken by shortest label, so 5h beats 7d beats
 monthly). This is the window most likely to interrupt current work.
 `/get provider allowance` shows all windows in detail, and
 `/set provider allowance on|off` is the global display switch.
 
-Return `nullopt` on any failure (no key, endpoint down, parse error) — the bar
+Return `nullopt` on any failure (no key, endpoint down, parse error), the bar
 shows `-`, never a fake zero. The fetch runs off the UI thread at turn
 boundaries, same cadence as the wallet.
 
-### Panel
-
-```cpp
-agent::PanelSpec spec;
-spec.id = "gemini_models";
-spec.title = "Gemini models";
-spec.lines = [this](int width) { return model_lines(width); };  // pure
-spec.on_key = [](int key) { return key == 'r'; };               // optional
-caps.push_back(std::make_unique<agent::PanelCapability>(std::move(spec)));
-```
-
-A panel is text plus optional key handling. The host frames it, scrolls it and
-offers cycling between panels (Tab); your `on_key` gets first refusal on every
-key while your panel is focused, and returning true means "I handled it".
-`lines(width)` is called on every repaint, so keep it pure and fast — no I/O,
-no blocking. The registry console at Alt+0 is the worked example.
-
-### Settings and log sinks
-
-Settings contribute `/get`/`/set` entries with the same getter/setter contract
-the core uses. Log sinks receive `(level, tag, message)`; they must be bounded,
-non-blocking, and must not throw — the conversation log stays authoritative.
-
 ### Runtime state: on/off and settings
 
-Bundled plugins are **on by default**. Users control them through the command
+Core plugins are **on by default**. Users control them through the command
 tree, not through a config file edit:
 
 | Command | Effect |
 |---|---|
 | `/get plugin list` | Every plugin with tier, state, and what it contributes |
-| `/get plugin <id>` | Detail: version, api version, capabilities, state source |
+| `/get plugin <id>` | Detail: version, capabilities, state source |
 | `/set plugin <id> off` \| `on` | Enable/disable; applies immediately and persists |
 | `/set plugin <id> <key>=<value>` | Per-plugin settings |
 
-State lives in `~/.config/amber/plugins/<id>/plugin.conf` (the same directory a
-user-installed external plugin already uses for its `manifest.json`). Your plugin
-does not read or write that file — the runtime does, and a disabled plugin is
-never initialized.
+State lives in `~/.config/amber/plugins/<id>/plugin.conf`. Your plugin does not
+read or write that file, the runtime does, and a disabled plugin is never
+initialized.
 
 When a plugin contributes providers, toggling it re-publishes the provider feed:
 its providers appear in `/get provider list` and the completion drawer when on,
@@ -353,24 +414,58 @@ visible live, say so in your PR description and add the feed-refresh test.
 
 ---
 
-## 3. Events ⏳ target
+## 3. Events
 
-Subscribe through a `Hook` capability so the subscription is ledger-owned:
+Events are **typed**. Subscribe through the `Events` facade over the event bus,
+and keep the returned `Subscription`, it is RAII, so dropping it unsubscribes:
 
 ```cpp
-class TurnCounter : public agent::HookCapability {
+#include "agent/events.h"
+
+class TurnCounter : public agent::IPlugin {
 public:
-    std::string name() const override { return "count_turns"; }
-    void install(agent::PluginServices& svc) override {
-        sub_ = svc.events().subscribe<agent::TurnEndedEvent>(
-            [this](const agent::TurnEndedEvent&) { ++turns_; });
+    bool initialize(const agent::PluginContext& ctx) override {
+        sub_ = agent::Events(ctx.event_bus)
+                   .subscribe<agent::TurnEndedEvent>(
+                       [this](const agent::TurnEndedEvent&) { ++turns_; });
+        return true;
     }
+    void shutdown() override { sub_.release(); }   // or just let it drop
+
+private:
+    agent::Subscription sub_;
+    int turns_ = 0;
 };
 ```
 
-Catalogue and fire sites: spec §6. What you can rely on:
+Interceptors run before observers and may mutate a payload or cancel the event;
+returning `false` cancels it:
 
-- Payloads are **typed** — no `void*` casts.
+```cpp
+sub_ = agent::Events(ctx.event_bus).intercept<agent::ToolRequestedEvent>(
+    [](agent::ToolRequestedEvent& e) { return e.name != "danger"; });
+```
+
+Catalogue. **Fire sites are in `lib/agent.cpp` (loop) and `lib/dispatch.cpp`
+(tools)** unless noted:
+
+| Event | Fires? | Notes |
+|---|---|---|
+| `TurnStartedEvent` | ✅ | payload carries the prompt (interceptable) |
+| `TurnEndedEvent` | ✅ | `cancelled` flag |
+| `MessageAddedEvent` | ✅ | every `Context::push` in loop and dispatch |
+| `ToolRequestedEvent` | ✅ | before the approval gate; interceptable (args, cancel) |
+| `ToolCompletedEvent` | ✅ | after execution; carries the result and duration |
+| `LlmResponseEvent` | ✅ | status + token counts |
+| `CompressionEvent` | ✅ | compression triggered |
+| `CompressionCompletedEvent` | ✅ | compression finished |
+| `ErrorRaisedEvent` | ✅ | observation only; classification stays in the dialect |
+| `PluginLoadedEvent` | ❌ | declared, never published |
+| `PluginUnloadedEvent` | ❌ | declared, never published |
+
+What you can rely on:
+
+- Payloads are **typed**: no `void*` casts.
 - Handlers run on the **thread that published** (the agent's owner thread for
   turn/tool/LLM events). Do not block. Long work goes to your own worker.
 - `ToolRequested` fires **before** the approval gate: it means "the model asked",
@@ -378,35 +473,37 @@ Catalogue and fire sites: spec §6. What you can rely on:
 - Hidden confirmation exchanges are never published.
 - **There is no per-token event.** Streaming tokens remain the host UI's channel;
   a bus that fires per token would be a performance regression by design.
-- Error events are observation-only; classification (retryable? overflow?) is
-  provider behaviour and lives in the dialect.
+- Unsubscribed `publish()` is a single atomic load, cheap by construction.
 
 ---
 
-## 4. Host services (talking to the user) ⏳ target
+## 4. Host services (talking to the user), not yet available
+
+The agreed contract is a `PluginServices`-hosted UI service:
 
 ```cpp
-std::string key = ctx_->ui().ask_secret({"Gemini API key", "Paste the key"});
-int choice = ctx_->ui().choose({"Pick a model", model_ids});
-bool ok = ctx_->ui().confirm({"Overwrite the config?", "This cannot be undone"});
-ctx_->ui().notify(agent::Level::Info, "Balance refreshed");
-ctx_->ui().post_to_ui([this] { snapshot_ = build_snapshot(); });
+std::string key = svc.ui().ask_secret({"Gemini API key", "Paste the key"});
+int choice = svc.ui().choose({"Pick a model", model_ids});
+bool ok = svc.ui().confirm({"Overwrite the config?", "This cannot be undone"});
+svc.ui().notify(agent::Level::Info, "Balance refreshed");
+svc.ui().post_to_ui([this] { snapshot_ = build_snapshot(); });
 ```
 
-- Calls are blocking on *your* thread; the host shows the UI on its own thread
-  and returns the answer. In a non-interactive CLI run they fail closed, the
-  same way the bash tool's approval does.
-- Use `post_to_ui` for anything the render callables will read — that is the
-  sanctioned cross-thread update path.
-- Never assume a terminal. Your plugin must work in the headless CLI.
+**This is not implemented.** `PluginServices` exposes no `ui()`, and
+`HostServices` currently carries only jobs, todos, sub-agents and the cancel
+token. Do not build against it, it is tracked as PF-3.3. If you need user
+input today, expose it through a tool or a command and say so in your PR.
+
+`post_to_ui` in particular does not exist; cross-thread UI updates currently go
+through the host's own tick/render path.
 
 ---
 
-## 5. Adding a provider (the flagship path) ⏳ target
+## 5. Adding a provider (the flagship path)
 
-**Every provider amber ships is a plugin** — there is no core provider list to
-add to. `plugins/` holds the five shipped ones, each small enough to read in one
-sitting and each a template for the next:
+**Every provider amber ships is a plugin**: there is no core provider list to
+add to. `plugins/` holds the nine shipped providers, each small enough to read
+in one sitting and each a template for the next:
 
 | Plugin | What it shows |
 |---|---|
@@ -420,24 +517,32 @@ sitting and each a template for the next:
 | `plugins/anthropic/` | A vendor protocol the plugin itself provides |
 | `plugins/gemini/` | A vendor protocol with a different streaming model, usage shape and model listing |
 
+The other bundled plugins are not providers. The tool set is one plugin per
+tunable unit, so a user can switch off exactly the tool they want to experiment
+with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
+`plugins/tool_bash/`, `plugins/tool_process/`, `plugins/tool_plan/` and
+`plugins/tool_task/`. Alongside them: `plugins/metrics/` (an event-observing
+plugin with no contributions) and `plugins/hello/` (the command example). That
+is 18 bundled plugins in total.
+
 Steps:
 
 1. **Config-only first.** If the endpoint speaks the OpenAI wire protocol
-   (`/chat/completions`, bearer auth, OpenAI SSE), a *user* needs no code at all
-   — a provider file is enough. A plugin is for what amber should ship.
-2. **New plugin directory** (`plugins/<id>/`, plus its object in `Makefile.in`
-   — the compile rule is generic).
+   (`/chat/completions`, bearer auth, OpenAI SSE), a *user* needs no code at all:
+   a provider file is enough. A plugin is for what amber should ship.
+2. **New plugin directory** (`plugins/<id>/`, plus its object in `Makefile.in`;
+   the compile rule is generic).
 3. **Decide the dialect question:** does the endpoint speak the shared `openai`
    protocol (pass no dialect factory: presets only) or its own (write the
    dialect: `chat_url`, `models_url`, `auth_headers`, `build_chat_body`,
    `parse_completion`, `make_decoder`, `parse_models_response`, `parse_usage`,
    `is_retryable`, `context_overflow_hint`)?
 4. **Declare the capability** and add it to `make_bundled_plugins()`.
-5. **Test it hermetically** — body/parse/stream fixtures like
+5. **Test it hermetically**: body/parse/stream fixtures like
    `tests/dialect_gemini_test.cpp`, plus a registration test. No live network in
    `make test`.
 6. **Prove the seam held:** your diff must not touch `lib/http_transport.cpp`,
-   the agent loop, or the TUI. If it does, the framework — not your plugin — is
+   the agent loop, or the TUI. If it does, the framework, not your plugin, is
    missing an extension point; say so in the PR instead of working around it.
 
 ---
@@ -465,11 +570,11 @@ to the agent as `plugin_<id>_<name>`; the agent prompt advertises them when the
 plugin is enabled.
 
 **Known limitation:** command subtrees contributed by external plugins render in
-the completion drawer but cannot execute — no handler is registered for
-`plugin.*` actions. A command-contribution capability existed and was removed
-(2026-09-11): nothing had ever produced one and nothing consumed it. Treat
-external plugin commands as documented-but-inert and expose behaviour through
-tools; re-add a capability when a plugin actually needs one.
+the completion drawer but cannot execute, no handler is bound for their
+`plugin.*` actions. Handler binding is a **core plugin** extension point
+(`CommandCapability`, `plugin-framework.md`); it does not reach the subprocess
+tier, which contributes tools only. Treat external plugin commands as
+documented-but-inert and expose behaviour through tools.
 
 ---
 
@@ -496,7 +601,7 @@ tools; re-add a capability when a plugin actually needs one.
   with the fake LLM client (`tests/fake_llm.h`), assert observable effects. No
   network, ever.
 - **Dialect tests** (providers): pure body/parse/stream fixtures.
-- **Regression**: run `make test` — your plugin's contributions must not leak
+- **Regression**: run `make test`, your plugin's contributions must not leak
   into other tests (the ledger test exists to catch exactly this).
 
 Every contribution lands with a failing test first (red), then the
@@ -508,14 +613,15 @@ green on g++ and clang++.
 
 ## 9. Review checklist for plugin PRs
 
-- [ ] Plugin depends only on the public plugin API — no `tui/` includes, no
+- [ ] Plugin depends only on the public plugin API, no `tui/` includes, no
       reaching into `Tui` internals.
 - [ ] Every contribution goes through a capability; nothing is registered in
       `initialize` outside the ledger.
-- [ ] Render callables are pure; cross-thread state uses `post_to_ui`.
+- [ ] Render callables are pure; cross-thread state is synchronized by the host.
 - [ ] No blocking, no I/O in event handlers.
 - [ ] Tests: contribution, removal, and one hermetic end-to-end path.
-- [ ] The availability table in the tracker is updated in the same PR.
+- [ ] The availability table in this guide is updated in the same PR if a
+      capability's status changed.
 - [ ] Zero new clang-tidy/cppcheck findings; size limits respected (class ≤200
       lines, method ≤10 lines).
 
@@ -525,9 +631,9 @@ green on g++ and clang++.
 
 | Question | Document |
 |---|---|
-| What is the framework, exactly? | `docs/spec/plugins/plugin-framework-v2.md` |
+| What is the framework, exactly? | `docs/spec/plugins/plugin-framework.md` |
 | What is being built when? | `docs/plugin-framework-tracker.md` |
 | Provider wire protocols | `docs/spec/llm-client/dialect.md` |
-| External plugin protocol (v1) | `docs/spec/plugins/README.md` |
+| External plugin protocol | `docs/spec/plugins/README.md` |
 | Engineering standards, TDD workflow | `AGENTS.md` |
 | Command-tree rules | `AGENTS.md` (command tree architecture) |

@@ -1,49 +1,77 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
+import Diagram from '../components/Diagram.astro';
 ---
 
-<BaseLayout title="Architecture" description="amber architecture, C++17 bare-metal agent harness">
+<BaseLayout title="Architecture" description="amber architecture: a native C++17 agent runtime with a plugin/capability system, multi-provider support, MCP, sub-agents and terminal clients.">
   <NavBar />
   <main>
     <h1>Architecture</h1>
 
+    <p>
+      Every diagram on this page, and the rest of the system, is
+      collected on the <a href="/architecture/diagrams">diagrams index</a>.
+    </p>
+
     <section class="section">
       <p>
-        amber is a C++17 agent harness, not a Python wrapper, not a Node.js script, not a React
-        frontend with a Flask backend. Compiled C++ with libcurl, ncurses, and zero Python dependency.
+        Amber is compiled C++17 from the runtime up. The agent loop, context
+        management, tools, plugin system and clients share the same native
+        core. The result is a small, explicit runtime with no Python or Node
+        dependency, while the core remains usable as a library rather than
+        being tied to a single interface.
       </p>
-      <p>
-        The engine is a portable library, <code>libagent_core.a</code>, with no UI and no
-        main(). The three binaries are thin shells over it: <code>amber</code> (interactive
-        TUI), <code>amber-cli</code> (headless, for workflows and scheduling), and
-        <code>amber-bench</code> (benchmark and KPI harness). Embed the library in your own
-        C++ project and you get the agent loop, tool registry, compression pipeline, and MCP
-        transport without a terminal in sight.
-      </p>
-      <div class="terminal">
-        <pre>┌─ libagent_core.a ──────────────────────────────────────────┐
-│  Agent loop · LLM client · Tool registry · Compression    │
-│  Context integrity (FNV-1a hash chain) · MCP transport     │
-└───────────────────────────────────────────────────────────┘
-         │              │              │
-    ┌────▼─────┐  ┌────▼─────┐  ┌────▼─────┐
-    │ amber    │  │amber-cli │  │amber-bench│
-    │ (TUI)    │  │(headless)│  │(KPI harness)│
-    └──────────┘  └──────────┘  └──────────┘</pre>
-      </div>
+      <Diagram
+        name="runtimeOverview"
+      />
     </section>
 
     <hr class="divider-thick" />
 
     <section class="section">
-      <h2>Context Integrity</h2>
+      <h2>Runtime</h2>
       <p>
-        The Context class uses an FNV-1a hash chain to seal every message. Once on the stack,
-        messages can never be modified in-place. The only operations are push (append), pop
-        (remove top, LIFO), clear, and get_all (read-only). get_all() recomputes the entire
-        chain and asserts the final hash matches chain_hash_. Any in-place modification of a
-        sealed message breaks every subsequent link and triggers an assertion.
+        The runtime is the engine: the agent loop, context management, and
+        the plugin system that installs capabilities. It has no UI and no
+        <code>main()</code>. The three clients (<code>amber</code>,
+        <code>amber-cli</code>, <code>amber-bench</code>) are thin shells
+        over it. Embed the library in your own C++ project and you get the
+        agent loop, tool registry, compression pipeline, plugin runtime and
+        MCP transport without a terminal in sight.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Agent Loop</h2>
+      <p>
+        The agent loop sends the context to the LLM, receives tool calls,
+        executes them through the tool registry, feeds results back, and
+        repeats until the agent terminates. Streaming is via SSE; token
+        deltas are surfaced through <code>AgentHooks</code> for live TUI
+        rendering.
+      </p>
+      <Diagram
+        name="agentLoopCycle"
+      />
+      <Diagram
+        name="errorRecovery"
+      />
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Context</h2>
+      <p>
+        The <code>Context</code> class is a pure stack, messages are sealed
+        on <code>push()</code> and can never be modified in-place. Every
+        push computes an FNV-1a hash chain
+        (<code>h_i = FNV(prev_hash || msg)</code>); <code>get_all()</code>
+        recomputes the entire chain and asserts integrity before returning.
+        Any in-place mutation breaks a link and crashes in debug builds.
       </p>
       <div class="terminal">
         <pre>h_0 = FNV(0              || msg_0)
@@ -52,6 +80,127 @@ h_2 = FNV(h_1            || msg_2)
 ...
 chain_hash_ = h_n-1</pre>
       </div>
+      <p>
+        The only mutation operations are <code>push</code> (append),
+        <code>pop</code> (remove top, LIFO), <code>clear</code> (remove all),
+        and <code>get_all</code> (read-only). There is no replace, insert, or
+        update, if you need to rebuild, <code>clear()</code> then
+        <code>push()</code> each message.
+      </p>
+      <Diagram
+        name="contextHashChain"
+      />
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Capability / Plugin System</h2>
+      <p>
+        The plugin system is the extensibility backbone. Plugins contribute
+        tools, LLM providers, commands, prompt blocks, status segments,
+        panels, settings, and log sinks, and observe the agent loop through
+        typed events.
+      </p>
+      <p>
+        Three mechanisms:
+      </p>
+      <ul class="feature-list">
+        <li><strong>Contribution registries</strong>: things that exist (tools, providers, status segments). A core plugin declares typed <code>Capability</code> objects; the runtime installs each into its registry and records it in a per-plugin ledger.</li>
+        <li><strong>Typed events</strong>: things that happen. Payload structs in <code>events.h</code>; no <code>void*</code> in the plugin-facing API. Unsubscribed <code>publish()</code> is a single atomic load, no per-token events.</li>
+        <li><strong>Host services</strong>: things the plugin needs the host to do. Registration never happens through events; UI state is pulled at render time, not pushed from worker threads.</li>
+      </ul>
+      <p>
+        <code>disable()</code> unwinds the ledger in reverse order, if a
+        contribution can survive deactivation, the ledger is broken and that
+        is a tested invariant. Every provider amber ships is a plugin, and
+        the core declares none. With no plugins registered,
+        <code>/provider list</code> is empty.
+      </p>
+      <Diagram
+        name="pluginLifecycle"
+      />
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Providers</h2>
+      <p>
+        Provider integrations live behind the same plugin architecture. A
+        provider capability is flavor plus optional dialect factory plus
+        presets; wire behavior lives in the <code>Dialect</code>. A provider
+        plugin must not open its own HTTP client, it uses the transport's
+        <code>openai</code> protocol, so a disabled provider plugin takes its
+        protocol with it.
+      </p>
+      <p>
+        Bundled provider plugins: Anthropic, Gemini, OpenRouter, DeepSeek,
+        KiloCode, OpenCode, CommandCode, Custom, and OpenAI-compatible
+        endpoints. Each owns its presets, protocol, and provider-specific
+        features.
+      </p>
+      <Diagram
+        name="llmDialectPath"
+      />
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Tools</h2>
+      <p>
+        The built-in tool set (read, write, search, bash) arrives through
+        the same capability path an extension would use, so the path cannot
+        rot. Each tool has a name, description, parameter schema, and an
+        <code>execute</code> method. The bash tool is approval-gated, each
+        call must be approved by the host before it runs; if no approval
+        handler is installed the call is denied (fail-safe).
+      </p>
+      <p>
+        The search tool is pluggable: <code>mode="grep"</code> (default, wraps
+        <code>grep -rnI</code>) or <code>mode="semantic"</code>
+        (dependency-free lexical index). Swap the <code>embed()</code> step
+        to use a real embedding model.
+      </p>
+      <Diagram
+        name="toolDispatch"
+      />
+      <Diagram
+        name="searchBackendSelection"
+      />
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>MCP</h2>
+      <p>
+        Amber connects to MCP (Model Context Protocol) servers over the
+        supported transports, extending the agent with external tools and
+        services. The <code>ServerManager</code> handles lifecycle.
+      </p>
+      <Diagram
+        name="mcpSessionLifecycle"
+      />
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Sub-agents</h2>
+      <p>
+        <code>SubAgentExecutor</code> runs focused sub-agents with their own
+        context and a custom system prompt. Execution mode is
+        runtime-configurable:
+      </p>
+      <ul class="feature-list">
+        <li><strong>Serial</strong>: sub-agents run one at a time; sequential requests share the system-prompt prefix, keeping provider prompt caches warm.</li>
+        <li><strong>Parallel</strong>: sub-agents run concurrently, capped by <code>max()</code>.</li>
+      </ul>
+      <Diagram
+        name="subagentExecution"
+      />
     </section>
 
     <hr class="divider" />
@@ -59,11 +208,13 @@ chain_hash_ = h_n-1</pre>
     <section class="section">
       <h2>Compression Pipeline</h2>
       <p>
-        Two-phase pipeline: classify-then-extract. Phase 1 classifies the conversation into
-        core/context/prune segments. Phase 2 extracts memory and skill operations. The pipeline
-        is pure, the context is only READ. Classify/extract requests are assembled from a
-        working copy of the snapshot, so a failed pipeline leaves the context untouched by
-        construction.
+        Two-phase pipeline: classify-then-extract. Phase 1 classifies the
+        conversation into core/context/prune segments. Phase 2 extracts
+        memory and skill operations. The pipeline is pure, the context is
+        only read. Classify/extract requests are assembled from a working
+        copy of the snapshot, so a failed pipeline leaves the context
+        untouched by construction. The rebuild (<code>clear()</code> +
+        <code>push()</code>) happens only on success.
       </p>
       <ul class="feature-list">
         <li>Classify: segments the conversation by importance</li>
@@ -71,75 +222,44 @@ chain_hash_ = h_n-1</pre>
         <li>Prune: replaces bulky tool outputs with placeholders</li>
         <li>Headroom: enforces 25% headroom after compression</li>
       </ul>
-    </section>
-
-    <hr class="divider" />
-
-    <section class="section">
-      <h2>Tool Registry</h2>
-      <p>
-        Tools are registered by the host (library or UI) and looked up by name when the model
-        requests an invocation. Each tool has a name, description, parameter schema, and an
-        execute method. The bash tool is approval-gated, each call must be approved by the
-        host before it runs. If no approval handler is installed the call is denied (fail-safe).
-      </p>
-      <div class="terminal">
-        <pre>Tool interface:
-  name() → string
-  description() → string
-  parameters_schema() → json
-  requires_approval(args) → bool
-  is_read_only() → bool
-  execute(arguments) → ToolResult</pre>
-      </div>
+      <Diagram
+        name="compressionPipeline"
+      />
     </section>
 
     <hr class="divider" />
 
     <section class="section">
       <h2>Security Model</h2>
+      <p>Amber treats model output as untrusted input.</p>
       <ul class="feature-list">
-        <li>Workspace confinement: read/write confine paths to the workspace root</li>
-        <li>Approval gating: bash tool requires explicit user approval</li>
-        <li>Process isolation: commands run in their own process group</li>
-        <li>Output capping: command output capped at 64 KiB</li>
-        <li>Timeout: default 60s timeout on shell commands</li>
+        <li><strong>Workspace confinement</strong>: read/write confine paths to the workspace root (default cwd, override with <code>AMBER_WORKSPACE</code>); absolute paths and <code>../</code> escapes are rejected</li>
+        <li><strong>Approval gating</strong>: bash tool requires explicit user approval; denied (fail-safe) if no approver</li>
+        <li><strong>Process isolation</strong>: commands run in their own process group</li>
+        <li><strong>Output capping</strong>: command output capped at 64 KiB</li>
+        <li><strong>Timeout</strong>: default 60s timeout on shell commands</li>
       </ul>
+      <Diagram
+        name="approvalGate"
+      />
+      <Diagram
+        name="pathConfinement"
+      />
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>Compression Observer</h2>
+      <h2>Host Clients</h2>
       <p>
-        CompressionObserver is notified of compression pipeline progress. All methods have
-        default no-op implementations so consumers only override what they need. The UI can
-        display live progress during compression.
-      </p>
-      <div class="terminal">
-        <pre>CompressionObserver interface:
-  on_compress_start(msgs_before, tokens_before)
-  on_loop_collapse(removed)
-  on_llm_request_sent()
-  on_llm_reply_received(elapsed_ms)
-  on_parse_result(compression_response)
-  on_apply_result(compression_result)
-  on_error(msg)
-  on_compress_done(compression_result)</pre>
-      </div>
-    </section>
-
-    <hr class="divider" />
-
-    <section class="section">
-      <h2>Sub-Agent Architecture</h2>
-      <p>
-        SubAgentExecutor runs focused sub-agents with their own context and a custom system
-        prompt. Execution mode is runtime-configurable:
+        The three clients link <code>libagent_core.a</code> +
+        <code>libagent_tools.a</code> and communicate via
+        <code>AgentHooks</code>:
       </p>
       <ul class="feature-list">
-        <li>Serial: sub-agents run one at a time, sequential requests share the system-prompt prefix, keeping provider prompt caches warm</li>
-        <li>Parallel: sub-agents run concurrently, capped by max()</li>
+        <li><strong>amber</strong>: interactive ncurses TUI (BitchX-inspired multi-window, sessions, slash commands, jobs, plugin controls, approval dialogs)</li>
+        <li><strong>amber-cli</strong>: headless CLI for scripts, CI, automation, scheduled jobs</li>
+        <li><strong>amber-bench</strong>: benchmark and KPI harness (scenario loader, oracle scorer, recorder as an <code>AgentHooks</code> observer)</li>
       </ul>
     </section>
 
@@ -151,11 +271,15 @@ chain_hash_ = h_n-1</pre>
       <div class="terminal">
         <pre>make          # build everything (lib + cli + tui)
 make test     # run unit tests
+make check    # smoketest + build hygiene
 make lint     # run clang-tidy
 make analyze  # run cppcheck
 make clean    # remove .o / .d / binaries
 make distclean # also removes the generated Makefile</pre>
       </div>
+      <Diagram
+        name="buildLayering"
+      />
     </section>
   </main>
 </BaseLayout>

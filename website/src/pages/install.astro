@@ -1,41 +1,81 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
+import { site } from '../data/site';
 ---
 
-<BaseLayout title="Install" description="Install amber on Linux, from source in minutes">
+<BaseLayout title="Install" description="Install amber on macOS or Linux, from source or Homebrew. C++17 compiler required.">
   <NavBar />
   <main>
     <h1>Install</h1>
 
     <section class="section">
       <p>
-        Prefer binaries? <a href="/download">Download the .deb, .rpm, or tarball</a>,
-        no compiler needed. This page covers building from source.
+        Prefer binaries? <a href="/download">Get Amber</a> for prebuilt
+        Homebrew, .deb, .rpm, or tarball, no compiler needed. This page covers
+        building from source.
       </p>
     </section>
 
     <hr class="divider-thick" />
 
     <section class="section">
-      <h2>Dependencies</h2>
-      <p>amber requires a C++17 compiler and a few development libraries:</p>
+      <h2>macOS</h2>
+      <h3>Homebrew (recommended)</h3>
       <div class="terminal">
-        <pre># Debian / Ubuntu
-sudo apt install build-essential libcurl4-openssl-dev libncurses-dev
-
-# Arch Linux
-sudo pacman -S base-devel curl ncurses
-
-# Fedora
-sudo dnf install gcc-c++ libcurl-devel ncurses-devel</pre>
+        <pre>brew install {site.homebrewTap}/{site.homebrewFormula}</pre>
+      </div>
+      <p>
+        Installs the prebuilt <code>amber</code> (TUI), <code>amber-cli</code>
+        (headless) and <code>amber-bench</code> (benchmark harness) binaries
+        with no compilation. Apple Silicon only.
+      </p>
+      <p>
+        Or use the one-line installer (also installs Homebrew if you don't have
+        it):
+      </p>
+      <div class="terminal">
+        <pre>/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/{site.homebrewTap}/main/install.sh)"</pre>
       </div>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>Build & Run</h2>
+      <h2>Build from source</h2>
+      <h3>Prerequisites</h3>
+      <p>amber requires a C++17 compiler and a few development libraries:</p>
+      <div class="terminal">
+        <pre># macOS (Homebrew)
+brew install curl ncurses pkg-config
+
+# Debian / Ubuntu
+sudo apt install build-essential libcurl4-openssl-dev libncurses-dev
+
+# Arch Linux
+sudo pacman -S base-devel curl ncurses
+
+# Fedora / RHEL
+sudo dnf install gcc-c++ libcurl-devel ncurses-devel</pre>
+      </div>
+      <ul class="feature-list">
+        <li>A C++17 compiler (g++ or clang++)</li>
+        <li>GNU make</li>
+        <li>libcurl (development headers)</li>
+        <li>ncurses (development headers, for the TUI client)</li>
+        <li>OpenSSL (for HTTPS, pulled in by libcurl)</li>
+        <li>nlohmann/json is vendored under include/ (no separate install needed)</li>
+      </ul>
+      <p>
+        No Python or Node.js runtime is required. The test infrastructure has
+        been deliberately moved away from Python dependencies.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h3>Build & Run</h3>
       <div class="terminal">
         <pre>git clone https://github.com/jtrefon/amber
 cd amber
@@ -47,8 +87,8 @@ make
 # Run headless
 ./amber-cli
 
-# Run benchmarks
-./amber-bench run --profile qwopus-27b</pre>
+# Run benchmarks (hermetic mode, no model needed)
+./amber-bench run</pre>
       </div>
     </section>
 
@@ -61,7 +101,6 @@ make
         <pre># amber.conf (project-local, only data paths)
 system_prompt=prompts/system.md
 tools_prompt=prompts/tools.md
-git_prompt=prompts/git.md
 
 # Provider config lives in ~/.config/amber/providers/
 # Example: ~/.config/amber/providers/llama.conf
@@ -73,15 +112,37 @@ model=Qwopus-27B-Fusion</pre>
     <hr class="divider" />
 
     <section class="section">
+      <h2>Plugins</h2>
+      <p>
+        Amber ships with bundled plugins for providers (Anthropic, Gemini,
+        OpenRouter, DeepSeek, KiloCode, OpenCode, CommandCode, Custom,
+        OpenAI-compatible), core tools, and metrics. Plugins are controlled
+        at runtime:
+      </p>
+      <div class="terminal">
+        <pre>/get plugin              # list plugins and their state
+/set plugin anthropic on  # enable a provider plugin
+/set plugin anthropic off # disable (unwinds cleanly)</pre>
+      </div>
+      <p>
+        Plugin state is persisted in
+        <code>~/.config/amber/plugins/&lt;id&gt;/plugin.conf</code>.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
       <h2>What Happens Next</h2>
       <p>When you run <code>./amber</code>, you'll see the welcome screen, the command drawer, and the slash command system:</p>
       <ul class="feature-list">
-        <li><code>/set model</code>, switch models at runtime</li>
-        <li><code>/get model list</code>, list available models</li>
-        <li><code>/set provider</code>, switch provider configurations</li>
-        <li><code>/set detection namespace</code>, toggle loop/duplicate detection</li>
-        <li><code>/compress</code>, force compression of conversation history</li>
-        <li><code>/set policy</code>, configure approval rules</li>
+        <li><code>/set model</code>: switch models at runtime</li>
+        <li><code>/get model list</code>: list available models</li>
+        <li><code>/set provider</code>: switch provider configurations</li>
+        <li><code>/get plugin</code>: list plugins and their state</li>
+        <li><code>/set plugin &lt;id&gt; on|off</code>: enable or disable a plugin</li>
+        <li><code>/compress</code>: force compression of conversation history</li>
+        <li><code>/set policy</code>: configure approval rules</li>
       </ul>
     </section>
 
@@ -93,6 +154,7 @@ model=Qwopus-27B-Fusion</pre>
       <div class="terminal">
         <pre>make          # build everything (lib + cli + tui)
 make test     # run unit tests
+make check    # smoketest + build hygiene
 make lint     # run clang-tidy
 make analyze  # run cppcheck
 make clean    # remove .o / .d / binaries

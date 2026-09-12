@@ -1,0 +1,187 @@
+---
+import PluginDocsLayout from '../../layouts/PluginDocsLayout.astro';
+import Diagram from '../../components/Diagram.astro';
+import { site } from '../../data/site';
+
+const preset = `struct ProviderCapability::Preset {
+    std::string name;            // provider name, e.g. "gemini"
+    std::string api_base;        // endpoint root
+    std::string default_model;
+    bool requires_key = true;
+};`;
+
+const capability = `// Own protocol (Gemini): provide the dialect factory.
+caps.push_back(std::make_unique<agent::ProviderCapability>(
+    "gemini",
+    [] { return make_gemini_dialect(); },
+    std::vector<agent::ProviderCapability::Preset>{preset}));
+
+// Shared protocol (DeepSeek speaks OpenAI wire): pass NO factory.
+caps.push_back(std::make_unique<agent::ProviderCapability>(
+    "openai",
+    std::function<std::unique_ptr<agent::Dialect>()>{},   // empty
+    std::vector<agent::ProviderCapability::Preset>{preset}));`;
+
+const dialect = `class Dialect {
+public:
+    virtual std::string flavor() const = 0;
+
+    virtual std::string chat_url(const Config& cfg) const = 0;
+    virtual std::string models_url(const Config& cfg) const = 0;   // "" = none
+
+    virtual std::vector<std::string> auth_headers(const Config& cfg) const = 0;
+
+    virtual json build_chat_body(const Config& cfg,
+                                 const std::vector<Message>& messages,
+                                 const std::vector<std::shared_ptr<Tool>>& tools,
+                                 bool stream) const = 0;
+
+    virtual Message parse_completion(const std::string& raw) const = 0;
+    virtual std::unique_ptr<StreamDecoder> make_decoder(
+        Message& out, StreamDecoder::ChunkSink on_chunk, std::string debug_path) const = 0;
+
+    virtual ServerInfo parse_models_response(const std::string& body,
+                                             const std::string& preferred_model) const = 0;
+    virtual std::vector<ModelInfo> parse_model_list_response(const std::string& body) const = 0;
+
+    virtual TokenUsage parse_usage(const std::string& raw) const = 0;
+
+    virtual bool is_retryable(long http_code, const std::string& body) const = 0;
+    virtual int  context_overflow_hint(const std::string& error_body) const = 0;
+};
+
+void register_dialect(const std::string& flavor,
+                      std::function<std::unique_ptr<Dialect>()> factory,
+                      const std::string& owner = "");`;
+
+const wallet = `caps.push_back(std::make_unique<agent::WalletCapability>(
+    [](const agent::Config& cfg) -> std::optional<double> {
+        if (cfg.api_key.empty()) return std::nullopt;
+        const auto body = agent::http_get_with_bearer(
+            "https://api.deepseek.com/user/balance", cfg.api_key);
+        if (!body) return std::nullopt;
+        const double balance = parse_deepseek_balance(*body);
+        return balance < 0 ? std::nullopt : std::optional<double>(balance);
+    }));`;
+
+const steps = `1. Config-only first: if the endpoint speaks the OpenAI wire protocol,
+   a *user* needs no code at all, a provider file is enough.
+2. New directory plugins/<id>/ (+ its object in Makefile.in).
+3. Shared protocol? -> pass no dialect factory.
+   Own protocol?    -> write the dialect and register it.
+4. Declare ProviderCapability (+ Wallet/Allowance if the vendor has them).
+5. Register in make_bundled_plugins().
+6. Test hermetically: body/parse/stream fixtures, no live network.`;
+
+const specDir = `${site.repo}/tree/main/docs/spec/plugins`;
+const dialectSpec = `${site.repo}/blob/main/docs/spec/llm-client/dialect.md`;
+---
+
+<PluginDocsLayout
+  title="Providers"
+  description="Add an LLM provider to amber as a plugin: ProviderCapability, dialects, presets, wallets and allowances."
+  current="providers"
+>
+  <h1>Providers</h1>
+
+  <p>
+    <strong>Every provider amber ships is a plugin</strong>: there is no core
+    provider list to add to. With no plugins registered, <code>/provider list</code>
+    is empty. A provider plugin owns its presets, its protocol, and its
+    provider-specific features.
+  </p>
+
+  <h2>ProviderCapability</h2>
+  <p>
+    A provider contributes <strong>presets</strong> plus, optionally, the
+    <strong>dialect</strong> (wire protocol) they speak:
+  </p>
+  <div class="terminal"><pre>{preset}</pre></div>
+  <div class="terminal"><pre>{capability}</pre></div>
+
+  <p>
+    The first argument is the <em>flavor</em>, the wire protocol identifier.
+    <code>register_dialect</code> puts the factory into the same table the
+    built-ins use; the presets become provider rows through the ordinary
+    repository merge, so they appear in <code>/provider list</code> and the
+    command drawer with no new concept.
+  </p>
+
+  <h2>Shared protocol vs own protocol</h2>
+  <ul class="feature-list">
+    <li><strong>Shared</strong> (an OpenAI-compatible gateway): pass no dialect factory. You contribute presets and leave the shared <code>openai</code> protocol alone, so switching your plugin off cannot take the shared protocol down with it.</li>
+    <li><strong>Own</strong> (Gemini, Anthropic): provide a factory. Your dialect is registered under your plugin id, so disabling the plugin removes exactly that flavor.</li>
+  </ul>
+
+  <h2>The Dialect port</h2>
+  <p>
+    Everything wire-specific lives here, endpoints, auth headers, request body,
+    buffered parse, stream decoding, model listing, usage mapping, retry
+    classification, overflow hints. A provider plugin must <strong>not</strong>
+    open its own HTTP client: <code>lib/http_transport.cpp</code> is the single
+    curl mechanism for every provider.
+  </p>
+  <div class="terminal"><pre>{dialect}</pre></div>
+  <p>
+    Pure methods (<code>build_chat_body</code>, <code>parse_*</code>) are
+    unit-testable without libcurl. Full contract:
+    <a href={dialectSpec} rel="noopener">docs/spec/llm-client/dialect.md</a>.
+  </p>
+
+  <Diagram
+    name="llmDialectPath"
+  />
+
+  <h2>Wallet and allowance</h2>
+  <p>
+    If the vendor has an account balance or usage windows, declare a
+    <code>WalletCapability</code> / <code>AllowanceCapability</code>. Supply
+    only the fetch; the runtime owns polling, caching and rendering:
+  </p>
+  <div class="terminal"><pre>{wallet}</pre></div>
+  <p>
+    Return <code>std::nullopt</code> when there is nothing honest to report, a
+    provider with no account API declares nothing and the bar shows
+    <code>-</code>, never a fabricated number.
+  </p>
+
+  <h2>Flavor resolution</h2>
+  <p>
+    A flavor nobody provides falls back to <code>openai</code>: correct for a
+    typo in a user provider file. A flavor provided by a <strong>disabled
+    plugin</strong> fails loudly, naming the plugin and the fix, rather than
+    silently speaking the wrong protocol to a configured endpoint.
+  </p>
+
+  <h2>Adding one, step by step</h2>
+  <div class="terminal"><pre>{steps}</pre></div>
+
+  <h2>The shipped set</h2>
+  <p>
+    Nine providers ship as plugins, each small enough to read in one sitting:
+  </p>
+  <table>
+    <thead><tr><th>Plugin</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <tr><td><code>plugins/custom/</code></td><td>Presets only, no endpoint, the user's own endpoint</td></tr>
+      <tr><td><code>plugins/openrouter/</code></td><td>Shared protocol + per-key wallet</td></tr>
+      <tr><td><code>plugins/kilocode/</code></td><td>Shared protocol + provider-specific wallet</td></tr>
+      <tr><td><code>plugins/opencode_go/</code></td><td>Shared protocol + allowance windows</td></tr>
+      <tr><td><code>plugins/opencode_zen/</code></td><td>Shared protocol, presets only</td></tr>
+      <tr><td><code>plugins/commandcode/</code></td><td>Shared protocol + 5h/weekly/monthly allowance</td></tr>
+      <tr><td><code>plugins/deepseek/</code></td><td>Shared protocol + prepaid-balance wallet</td></tr>
+      <tr><td><code>plugins/anthropic/</code></td><td>A vendor protocol the plugin itself provides</td></tr>
+      <tr><td><code>plugins/gemini/</code></td><td>A vendor protocol with a different streaming model</td></tr>
+    </tbody>
+  </table>
+  <p>
+    The other bundled plugins are not providers. The tool set is one plugin per
+    tunable unit (<code>plugins/tool_search/</code>, <code>tool_read/</code>,
+    <code>tool_write/</code>, <code>tool_bash/</code>, <code>tool_process/</code>,
+    <code>tool_plan/</code>, <code>tool_task/</code>), plus
+    <code>plugins/metrics/</code> (an event observer with no contributions) and
+    <code>plugins/hello/</code> (the command example),
+    <strong>18 bundled plugins</strong> in total. See
+    <a href={`${specDir}/developer-guide.md`} rel="noopener">the developer guide</a>.
+  </p>
+</PluginDocsLayout>

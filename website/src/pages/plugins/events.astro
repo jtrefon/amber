@@ -1,0 +1,165 @@
+---
+import PluginDocsLayout from '../../layouts/PluginDocsLayout.astro';
+
+const eventsApi = `class Events {
+public:
+    explicit Events(EventBus& bus) noexcept;
+
+    // Observer: called after interceptors, in subscription order.
+    template <class E> Subscription subscribe(std::function<void(const E&)> handler);
+
+    // Interceptor: runs before observers, newest first. Return false to cancel.
+    template <class E> Subscription intercept(std::function<bool(E&)> handler);
+
+    // Publish a payload; returns false when an interceptor cancelled it.
+    template <class E> bool publish(E& e);
+};`;
+
+const subscription = `class Subscription {
+public:
+    Subscription() = default;
+    ~Subscription();                     // releases on destruction
+    Subscription(Subscription&&) noexcept;
+    Subscription& operator=(Subscription&&) noexcept;
+    void release() noexcept;             // explicit early release
+
+    Subscription(const Subscription&) = delete;   // move-only
+};`;
+
+const countTurns = `#include "agent/plugin_core.h"
+#include "agent/events.h"
+
+class TurnCounter : public agent::IPlugin {
+public:
+    std::string id() const override { return "turn_counter"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Turn counter"; }
+
+    bool initialize(const agent::PluginContext& ctx) override {
+        sub_ = agent::Events(ctx.event_bus)
+                   .subscribe<agent::TurnEndedEvent>(
+                       [this](const agent::TurnEndedEvent& e) {
+                           ++turns_;
+                           if (e.cancelled) ++cancelled_;
+                       });
+        return true;
+    }
+
+    void shutdown() override { sub_.release(); }
+
+    int turns() const { return turns_; }
+
+private:
+    agent::Subscription sub_;
+    int turns_ = 0;
+    int cancelled_ = 0;
+};`;
+
+const vetoTool = `// An interceptor sees every requested call BEFORE the approval gate.
+// Returning false cancels it: no observer sees the event, and the call is denied.
+sub_ = agent::Events(ctx.event_bus).intercept<agent::ToolRequestedEvent>(
+    [](agent::ToolRequestedEvent& e) {
+        if (e.name == "bash" && e.args.value("command", "").find("rm -rf") != std::string::npos)
+            return false;   // veto
+        return true;        // allow; may also rewrite e.args
+    });`;
+
+const observeTools = `sub_ = agent::Events(ctx.event_bus)
+           .subscribe<agent::ToolCompletedEvent>(
+               [this](const agent::ToolCompletedEvent& e) {
+                   // e.result is owned by the publisher: valid for this call only.
+                   if (e.result && !e.result->ok)
+                       ++failures_;
+                   total_ms_ += e.duration_ms;
+               });`;
+
+const catalogue = `struct TurnStartedEvent   { std::string prompt; };                 // interceptable
+struct TurnEndedEvent     { bool cancelled = false; };
+struct MessageAddedEvent  { const Message* message; std::size_t index; };
+struct ToolRequestedEvent { std::string name; json args; bool cancel; };  // interceptable
+struct ToolCompletedEvent { std::string name; const ToolResult* result; long duration_ms; };
+struct LlmResponseEvent   { long status; long prompt_tokens; long completion_tokens; };
+struct CompressionEvent   { long tokens; long budget; double threshold; };
+struct CompressionCompletedEvent { bool success; long tokens_after; };
+struct ErrorRaisedEvent   { std::string kind; std::string message; bool retryable; };
+struct PluginLoadedEvent  { std::string plugin_id; };     // declared, never published
+struct PluginUnloadedEvent{ std::string plugin_id; };     // declared, never published`;
+---
+
+<PluginDocsLayout
+  title="Events"
+  description="Subscribe to and intercept amber's typed events: turn, tool, LLM, compression and error events, with payload reference and examples."
+  current="events"
+>
+  <h1>Events</h1>
+
+  <p>
+    Events are how a plugin observes the agent loop. They are <strong>typed</strong>:
+    subscribers receive a concrete payload struct, never a <code>void*</code>
+    to cast. The typed layer sits over the tested <code>EventBus</code> primitive.
+  </p>
+
+  <h2>The Events facade</h2>
+  <div class="terminal"><pre>{eventsApi}</pre></div>
+  <p>
+    Subscribe from <code>initialize</code>, where you have the
+    <code>PluginContext</code> (its <code>event_bus</code> reference). Include
+    <code>"agent/events.h"</code>: <code>plugin_core.h</code> does not pull it
+    in for you.
+  </p>
+
+  <h2>Subscription is RAII</h2>
+  <p>
+    Both <code>subscribe</code> and <code>intercept</code> return a
+    <code>Subscription</code>. Hold it as a member; dropping it unsubscribes.
+    This is what stops a deactivated plugin from leaving a callback behind.
+  </p>
+  <div class="terminal"><pre>{subscription}</pre></div>
+
+  <h2>Example: count turns</h2>
+  <div class="terminal"><pre>{countTurns}</pre></div>
+
+  <h2>Example: veto a tool call</h2>
+  <p>
+    An interceptor runs <em>before</em> observers and before the approval gate.
+    It may rewrite the payload or cancel the event outright:
+  </p>
+  <div class="terminal"><pre>{vetoTool}</pre></div>
+  <p>
+    <code>ToolRequested</code> fires before approval, so it means
+    <strong>"the model asked"</strong>, not "this will run".
+  </p>
+
+  <h2>Example: observe tool completions</h2>
+  <div class="terminal"><pre>{observeTools}</pre></div>
+
+  <h2>Payload catalogue</h2>
+  <div class="terminal"><pre>{catalogue}</pre></div>
+
+  <table>
+    <thead><tr><th>Event</th><th>Fires</th><th>Fire site</th></tr></thead>
+    <tbody>
+      <tr><td><code>TurnStartedEvent</code></td><td>✅</td><td><code>lib/agent.cpp</code></td></tr>
+      <tr><td><code>TurnEndedEvent</code></td><td>✅</td><td><code>lib/agent.cpp</code></td></tr>
+      <tr><td><code>MessageAddedEvent</code></td><td>✅</td><td><code>lib/agent.cpp</code>, <code>lib/dispatch.cpp</code></td></tr>
+      <tr><td><code>ToolRequestedEvent</code></td><td>✅</td><td><code>lib/dispatch.cpp</code> (before approval)</td></tr>
+      <tr><td><code>ToolCompletedEvent</code></td><td>✅</td><td><code>lib/dispatch.cpp</code></td></tr>
+      <tr><td><code>LlmResponseEvent</code></td><td>✅</td><td><code>lib/agent.cpp</code></td></tr>
+      <tr><td><code>CompressionEvent</code></td><td>✅</td><td><code>lib/agent.cpp</code></td></tr>
+      <tr><td><code>CompressionCompletedEvent</code></td><td>✅</td><td><code>lib/agent.cpp</code></td></tr>
+      <tr><td><code>ErrorRaisedEvent</code></td><td>✅</td><td><code>lib/agent.cpp</code></td></tr>
+      <tr><td><code>PluginLoadedEvent</code></td><td>❌ never published</td><td>-</td></tr>
+      <tr><td><code>PluginUnloadedEvent</code></td><td>❌ never published</td><td>-</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Rules</h2>
+  <ul class="feature-list">
+    <li>Handlers run on the <strong>thread that published</strong>: the agent's owner thread for turn/tool/LLM events. Do not block; long work goes to your own worker.</li>
+    <li>Pointers in payloads (<code>message</code>, <code>result</code>) are owned by the publisher and valid only for the duration of the call. Copy what you need.</li>
+    <li>Interceptors run before observers, newest first; returning <code>false</code> cancels the event so nothing downstream sees it.</li>
+    <li>Hidden confirmation exchanges are never published.</li>
+    <li><strong>There is no per-token event.</strong> Streaming tokens remain the host UI's channel; a bus that fires per token would be a performance regression by design.</li>
+    <li>An unsubscribed <code>publish()</code> is a single atomic load, cheap by construction.</li>
+  </ul>
+</PluginDocsLayout>

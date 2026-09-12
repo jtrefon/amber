@@ -253,14 +253,49 @@ std::vector<ExtensionItem> PanelRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+Contribution CommandRegistry::add(const std::string& owner, CommandSpec spec) {
+    const std::string root = spec.root;
+    Entry entry;
+    entry.owner = owner;
+    entry.spec = std::move(spec);
+    entries_.push_back(std::move(entry));
+
+    Contribution c;
+    c.kind = CapabilityKind::Command;
+    c.name = root;
+    c.remove = [this, owner, root] {
+        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                      [&](const Entry& e) {
+                                          return e.owner == owner && e.spec.root == root;
+                                      }),
+                       entries_.end());
+    };
+    return c;
+}
+
+std::vector<ExtensionItem> CommandRegistry::items() const {
+    std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_)
+        out.push_back({CapabilityKind::Command, entry.owner, entry.spec.root,
+                       "/" + entry.spec.root + "  (" + std::to_string(entry.spec.handlers.size()) +
+                           " handler(s))"});
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // PluginServices
 // ---------------------------------------------------------------------------
 
 PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts, StatusRegistry& status,
                                PanelRegistry& panels, WalletRegistry& wallets,
-                               AllowanceRegistry& allowances, EventBus& events) noexcept
+                               AllowanceRegistry& allowances, EventBus& events,
+                               CommandRegistry& commands) noexcept
     : tools_(&tools), prompts_(&prompts), status_(&status), panels_(&panels), wallets_(&wallets),
-      allowances_(&allowances), events_(&events) {}
+      allowances_(&allowances), events_(&events), commands_(&commands) {}
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -451,6 +486,19 @@ InstallResult PanelCapability::install(PluginServices& services) {
         return r;
     }
     r.contribution = services.panels().add(services.owner(), std::move(spec_));
+    r.ok = true;
+    return r;
+}
+
+CommandCapability::CommandCapability(CommandSpec spec) : spec_(std::move(spec)) {}
+
+InstallResult CommandCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (spec_.root.empty() || !spec_.subtree.is_object()) {
+        r.error = "command capability needs a root and an object subtree";
+        return r;
+    }
+    r.contribution = services.commands().add(services.owner(), std::move(spec_));
     r.ok = true;
     return r;
 }

@@ -1,136 +1,195 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
+import Diagram from '../components/Diagram.astro';
 ---
 
-<BaseLayout title="Benchmarks" description="amber benchmark results, real data, real scenarios">
+<BaseLayout title="Benchmarks" description="amber benchmark results: harness KPI progression and multi-model evaluation across 49 scenarios.">
   <NavBar />
   <main>
     <h1>Benchmarks</h1>
 
     <section class="section">
       <p>
-        amber-bench is the KPI harness, how well the agent loop, tool schemas, and prompts
-        drive each model to the correct solution. This is a harness score, not a model leaderboard:
-        every scenario runs through the same engine, and the score measures the harness+model pair
-        over 31 scenarios across 6 suites (agent failures, terminal work, tool selection, prompt
-        adherence, coding, refactoring).
+        amber-bench is the KPI harness, how well the agent loop, tool schemas,
+        and prompts drive each model to the correct solution. This is a harness
+        score, not a model leaderboard: every scenario runs through the same
+        engine, and the score measures the harness+model pair.
       </p>
       <p>
-        Scoring: each scenario earns 0-100 from four sub-scores, correctness (bullseye + hidden-test
-        artifact), efficiency (steps/wasted/redundant vs expected), robustness (retries/recoveries/hard-stops),
-        and adherence (prompt-checks minus forbidden-tool use). The model score is the difficulty-weighted
-        aggregate (1-5 per scenario), scaled to /1000.
+        The benchmark corpus has grown over time. The current dataset is 49
+        scenarios across 10 suites (agent failures, terminal work, tool
+        selection, prompt adherence, coding, refactoring, repo, review,
+        delegate, and the loop-live axis measuring model loop discipline).
+      </p>
+      <p>
+        Scoring: each scenario earns 0-100 from four sub-scores, correctness
+        (bullseye + hidden-test artifact), efficiency (steps/wasted/redundant
+        vs expected), robustness (retries/recoveries/hard-stops), and
+        adherence (prompt-checks minus forbidden-tool use). The model score is
+        the difficulty-weighted aggregate (1-5 per scenario), scaled to /1000.
       </p>
     </section>
 
     <hr class="divider-thick" />
 
     <section class="section">
-      <h2>Results</h2>
+      <h2>Harness progression</h2>
+      <p>
+        The benchmark exists to measure the harness itself, to track how
+        architecture changes move the KPIs. These are the recorded baselines
+        for the Qwopus3.6-27B model as the engine evolved:
+      </p>
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Baseline</th>
+            <th>Date</th>
+            <th>Scenarios</th>
+            <th>Score</th>
+            <th>Pass</th>
+            <th>Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>v2 (first live calibration)</td>
+            <td>2026-08-11</td>
+            <td>43</td>
+            <td>769.1</td>
+            <td>39/43</td>
+            <td>-</td>
+          </tr>
+          <tr>
+            <td>v3 (post-fix run)</td>
+            <td>2026-08-12</td>
+            <td>43</td>
+            <td><strong>821.6</strong></td>
+            <td>41/43</td>
+            <td>+52.5 pts, +2 scenarios</td>
+          </tr>
+          <tr>
+            <td>v4 (loop-live axis added)</td>
+            <td>2026-08-12</td>
+            <td>49</td>
+            <td>788.2</td>
+            <td>42/49</td>
+            <td>new axis, not comparable</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        The v2→v3 jump (+52.5 points) came from oracle path normalization,
+        bare-JSON extraction, and an SSE-sink lifetime fix, all harness
+        defects the benchmark itself surfaced. The v4 run added the loop-live
+        suite (6 scenarios measuring plan design, adherence, repeat
+        discipline, termination, tool choice, output interpretation), so its
+        score is not directly comparable to v3.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Model population (2026-08-13)</h2>
+      <p>
+        All 10 models in the local swap registry, benchmarked live on the
+        fixed harness (49 scenarios each, serial execution, single GPU slot).
+        Records: <code>bench/results/&lt;alias&gt;-bench.json</code>. Harness
+        floor: <code>bench/results/harness-baseline-v2.json</code> (42/42
+        probes, integrity 1.0).
+      </p>
       <table class="bench-table">
         <thead>
           <tr>
             <th>Model</th>
             <th>Score</th>
             <th>Pass</th>
-            <th>Agentic</th>
-            <th>Plan%</th>
-            <th>Tools</th>
-            <th>Redun</th>
-            <th>Steps</th>
+            <th>Loop-live</th>
+            <th>Wasted</th>
+            <th>Redundant</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>Qwen3.6-27B dense</td>
-            <td><strong>910</strong></td>
-            <td>24/25</td>
-            <td>68</td>
-            <td>46</td>
-            <td>104</td>
-            <td>10</td>
-            <td>115</td>
+            <td>Qwen3.6-27B (dense)</td>
+            <td><strong>816.2</strong></td>
+            <td>44/49</td>
+            <td>89.0</td>
+            <td>146</td>
+            <td>12</td>
           </tr>
           <tr>
-            <td>qwopus-27b</td>
-            <td>900</td>
-            <td>24/25</td>
-            <td>62</td>
-            <td>44</td>
-            <td>109</td>
+            <td>Qwopus3.6-27B-v2-MTP</td>
+            <td>808.0</td>
+            <td>42/49</td>
+            <td>76.2</td>
+            <td>142</td>
+            <td>12</td>
+          </tr>
+          <tr>
+            <td>Gemma-4-31B</td>
+            <td>806.2</td>
+            <td>38/49</td>
+            <td>75.9</td>
+            <td>108</td>
+            <td>8</td>
+          </tr>
+          <tr>
+            <td>Gemma-4-12B Q4</td>
+            <td>780.0</td>
+            <td>37/49</td>
+            <td>75.8</td>
+            <td>120</td>
             <td>17</td>
-            <td>121</td>
+          </tr>
+          <tr>
+            <td>Ornith-1.0-35B</td>
+            <td>770.0</td>
+            <td>40/49</td>
+            <td>75.6</td>
+            <td>192</td>
+            <td>43</td>
           </tr>
           <tr>
             <td>Qwen3.6-27B MTP</td>
-            <td>901</td>
-            <td>24/25</td>
-            <td>66</td>
-            <td>47</td>
-            <td>104</td>
-            <td>11</td>
-            <td>117</td>
+            <td>768.8</td>
+            <td>41/49</td>
+            <td>77.1</td>
+            <td>166</td>
+            <td>17</td>
           </tr>
           <tr>
-            <td>gemma4-31b</td>
-            <td>903</td>
-            <td>24/25</td>
-            <td>72</td>
-            <td>47</td>
-            <td>103</td>
-            <td>4</td>
-            <td>127</td>
+            <td>Gemma-4-12B Q8</td>
+            <td>756.8</td>
+            <td>37/49</td>
+            <td>75.8</td>
+            <td>135</td>
+            <td>28</td>
           </tr>
           <tr>
-            <td>Qwen3.6-35B MoE (A3B)</td>
-            <td>877</td>
-            <td>23/25</td>
-            <td>59</td>
-            <td>35</td>
-            <td>137</td>
-            <td>16</td>
-            <td>145</td>
-          </tr>
-          <tr>
-            <td>ornith-1.0-35b</td>
-            <td>837</td>
-            <td>22/25</td>
-            <td>63</td>
-            <td>39</td>
-            <td>124</td>
-            <td>25</td>
-            <td>153</td>
-          </tr>
-          <tr>
-            <td>kilo-auto/free</td>
-            <td>861</td>
-            <td>23/25</td>
-            <td>63</td>
-            <td>42</td>
-            <td>115</td>
-            <td>6</td>
-            <td>121</td>
-          </tr>
-          <tr>
-            <td>NVIDIA Nemotron 550B (free)</td>
-            <td>806</td>
-            <td>21/25</td>
-            <td>58</td>
+            <td>Qwen3.6-35B-A3B (MoE)</td>
+            <td>742.2</td>
+            <td>36/49</td>
+            <td>65.9</td>
+            <td>183</td>
             <td>36</td>
-            <td>133</td>
-            <td>15</td>
-            <td>149</td>
           </tr>
           <tr>
-            <td>gemma4-12b-q4</td>
-            <td>726</td>
-            <td>20/25</td>
-            <td>70</td>
-            <td>47</td>
-            <td>103</td>
-            <td>11</td>
-            <td>127</td>
+            <td>Qwen3.6-27B (pi-reasoning)</td>
+            <td>723.3</td>
+            <td>36/49</td>
+            <td>63.2</td>
+            <td>197</td>
+            <td>36</td>
+          </tr>
+          <tr>
+            <td>Ornith-1.0-9B</td>
+            <td>716.6</td>
+            <td>27/49</td>
+            <td>80.0</td>
+            <td>271</td>
+            <td>122</td>
           </tr>
         </tbody>
       </table>
@@ -139,27 +198,31 @@ import NavBar from '../components/NavBar.astro';
     <hr class="divider" />
 
     <section class="section">
-      <h2>Key Findings</h2>
+      <h2>Key findings</h2>
       <ul class="feature-list">
-        <li><strong>Qwen3.6-27B dense leads</strong>, 910/1000, beating the 550B Nemotron by 104 points despite 20x fewer parameters</li>
-        <li><strong>The agentic gap is real</strong>, 2.48x optimal tool calls, ~20% tool failures with 27B models</li>
-        <li><strong>Frontier models collapse the gap</strong>, DeepSeek through the same harness: 93.9/100, 103 tools, 2 redundant calls, 3 failures</li>
-        <li><strong>Compression pipeline works</strong>, 900/1000 score survives context compression without degradation</li>
+        <li><strong>Dense 27B leads</strong>: the Qwen3.6-27B dense variants (816/808) are the strongest local agentic models, the 27B dense family is consistently at the top.</li>
+        <li><strong>MoE costs tool discipline</strong>: the 35B MoE (742) and pi-reasoning (723) trail despite size, MoE routing and reasoning modes cost tool discipline.</li>
+        <li><strong>Tool economy varies widely</strong>: Gemma-4-31B has the best tool economy (108 wasted, 8 redundant) but fails more scenario checks (38/49); Ornith-9B collapses on loop discipline (271 wasted, 122 redundant).</li>
+        <li><strong>The benchmark catches harness bugs</strong>: the v2 calibration run surfaced three harness defects (oracle normalization, JSON extraction, SSE-sink lifetime), all fixed, the +52.5 point v2→v3 jump is the result.</li>
       </ul>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>Scenario Breakdown</h2>
-      <p>31 scenarios across 6 suites:</p>
+      <h2>Scenario suites</h2>
+      <p>49 scenarios across 10 suites:</p>
       <ul class="feature-list">
-        <li><strong>Coding (5)</strong>, fizzbuzz, sorting, ring buffer, LCS, graph BFS</li>
-        <li><strong>Prompt adherence (6)</strong>, envelope format, banned tool refusal, verify-after-action, multi-constraint, verify-before-claim</li>
-        <li><strong>Refactoring (4)</strong>, extract method, polymorphism-over-switch, adapter, strategy</li>
-        <li><strong>Terminal work (6)</strong>, ls count files, grep extract value, compile run cpp, env inventory, pipeline transform, multi-dir count</li>
-        <li><strong>Tool selection (7)</strong>, search vs bash grep, read vs cat, write vs rewrite, process vs blocking, write-verify-loop</li>
-        <li><strong>Agent failures (5)</strong>, redundant call elimination, mistake-then-recover, mid-stream dropout, parallel vs sequential</li>
+        <li><strong>Coding (5)</strong>: fizzbuzz, sorting, ring buffer, LCS, graph BFS</li>
+        <li><strong>Prompt adherence (5)</strong>: envelope format, banned tool refusal, verify-after-action, multi-constraint, verify-before-claim</li>
+        <li><strong>Refactoring (4)</strong>: extract method, polymorphism-over-switch, adapter, strategy</li>
+        <li><strong>Terminal work (6)</strong>: ls count files, grep extract value, compile run cpp, env inventory, pipeline transform, multi-dir count</li>
+        <li><strong>Tool selection (6)</strong>: search vs bash grep, read vs cat, write vs rewrite, process vs blocking, write-verify-loop</li>
+        <li><strong>Agent failures (6)</strong>: redundant call elimination, mistake-then-recover, mid-stream dropout, parallel vs sequential, empty-reply recovery, tool-denied grace</li>
+        <li><strong>Loop-live (6)</strong>: loop termination, output interpretation, plan adherence, plan design, loop repeat, tool choice</li>
+        <li><strong>Repo (2)</strong>: repository navigation and search</li>
+        <li><strong>Review (8)</strong>: arch, clean, datastructures, patterns, quality, refactor, code review perception scenarios</li>
+        <li><strong>Delegate (1)</strong>: sub-agent delegation</li>
       </ul>
     </section>
 
@@ -168,10 +231,22 @@ import NavBar from '../components/NavBar.astro';
     <section class="section">
       <h2>Reproducing</h2>
       <div class="terminal">
-        <pre>./amber-bench run --live --profile qwopus-27b --out results/qwopus-27b.json
+        <pre># Hermetic mode (no model needed, fake LLM, deterministic, CI-safe)
+./amber-bench run
+
+# Live mode (requires a running OpenAI-compatible server)
+./amber-bench run --live --profile qwopus-27b --out results/qwopus-27b.json
 ./amber-bench run --live --profile qwen35-dense --out results/qwen35-dense.json
 ./amber-bench report results/*.json --format markdown</pre>
       </div>
+      <p>
+        <Diagram
+        name="benchHarness"
+      />
+      Raw per-run JSON lives in <code>bench/results/</code>. The full KPI
+        record, methodology, and per-model scorecards are in
+        <a href="https://github.com/jtrefon/amber/blob/main/BENCHMARK.md">BENCHMARK.md</a>.
+      </p>
     </section>
   </main>
 </BaseLayout>

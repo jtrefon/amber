@@ -1,6 +1,6 @@
 
-#ifndef AGENT_PLUGIN_V2_H
-#define AGENT_PLUGIN_V2_H
+#ifndef AGENT_PLUGIN_CORE_H
+#define AGENT_PLUGIN_CORE_H
 
 #include "agent/config.h"
 #include "agent/event_bus.h"
@@ -77,4 +77,4 @@ public:
 
 } // namespace agent
 
-#endif // AGENT_PLUGIN_V2_H
+#endif // AGENT_PLUGIN_CORE_H

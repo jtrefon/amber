@@ -3,47 +3,39 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 ---
 
-<BaseLayout title="Mission" description="amber mission and vision, AI on Linux, unleashed">
+<BaseLayout title="Mission" description="amber mission: build an agent runtime that stays understandable as agents become more capable.">
   <NavBar />
   <main>
-    <h1>Mission &amp; Vision</h1>
+    <h1>Mission</h1>
 
     <section class="section">
       <h2>The North Star</h2>
       <p class="lead">
-        AI on Linux, unleashed.
+        Build an agent runtime that stays understandable as agents become more
+        capable.
       </p>
       <p>
-        amber is a single agentic tool for the terminal: one tool, one interface,
-        one mental model. It writes, edits, refactors, and reviews code. It manages
-        servers, runs commands, and monitors systems. It searches codebases, reads
-        docs, and manages itself, sessions, config, providers, jobs. It persists:
-        leave it running for days and come back to results.
-      </p>
-      <p>
-        Linux is the armour: stability, longevity, tool integration, the entire UNIX
-        philosophy. AI is the brain. Other harnesses stack Python, Node, or hosted
-        SaaS layers on top of that. amber is compiled C++17, one process, one
-        binary, no interpreter, no account, no telemetry.
+        As models get stronger, the harness around them matters more, not less.
+        A capable model in a tangled, hardcoded runtime is harder to trust
+        than a weaker model in an explicit one. Amber's mission is to keep the
+        runtime legible, so you can understand what the agent is doing, why,
+        and where its boundaries are.
       </p>
     </section>
 
     <hr class="divider-thick" />
 
     <section class="section">
-      <h2>Mission</h2>
-      <p>
-        Build a bare-metal C++17 agent harness for Linux that reads, writes,
-        searches, runs commands, and compresses context across arbitrarily long
-        sessions, engineered for stability, benchmarked with real data, and
-        trusted with a single fix or an entire project.
-      </p>
-      <p>
-        The agent runs until it is done. Background jobs survive. You drive it with
-        commands; it reports back in the scrollback. Every action has a command
-        path; every command produces UI feedback. Help is one <code>?</code> away
-        at any depth, you never retype a path.
-      </p>
+      <h2>How</h2>
+      <ul class="feature-list">
+        <li><strong>Native runtime</strong>: compiled C++17 from the agent loop up, not a collection of scripts around an API. One process, no interpreter dependency, the core usable as a library.</li>
+        <li><strong>Explicit capabilities</strong>: providers, tools and UI extensions arrive through the same plugin architecture. The core does not need to know every integration that exists; new ones do not require special cases throughout the engine.</li>
+        <li><strong>Model / provider separation</strong>: the agent runtime is independent of the model provider. Provider integrations are plugins, so the harness works with different vendors and OpenAI-compatible endpoints without changing the agent loop.</li>
+        <li><strong>Extensibility</strong>: plugins can be enabled, disabled and unwound cleanly, with contributions tracked by owner. The architecture is shaped for runtime loading, even if the current set is compiled in.</li>
+        <li><strong>Measurable behavior</strong>: amber-bench runs repeatable scenarios against the same engine and produces KPI scores. Harness changes are tested against the corpus, not judged from demos.</li>
+        <li><strong>Explicit trust boundaries</strong>: model output is treated as untrusted input. Filesystem operations are confined, side-effecting operations can require approval, shell execution is gated. The goal is not to pretend an agent is safe by default, but to make its trust boundaries explicit.</li>
+        <li><strong>Open source</strong>: Apache 2.0, for everyone, without discrimination. Ready for people to try, break, inspect and contribute to.</li>
+      </ul>
     </section>
 
     <hr class="divider" />
@@ -51,12 +43,11 @@ import NavBar from '../components/NavBar.astro';
     <section class="section">
       <h2>The Spirit</h2>
       <p>
-        God-like power wrapped in a terminal, delivered through an interface
-        inspired by BitchX and the golden age of IRC. Fast, keyboard-driven,
-        dense, beautiful. The drawer pops on <code>/</code>, filters as you type,
-        and <code>/q</code>, <code>/sl</code> become muscle memory again. The
-        interface anticipates. It helps. It gets out of your way when you know
-        what you are doing.
+        An interface inspired by BitchX and the golden age of IRC. Fast,
+        keyboard-driven, dense, beautiful. The drawer pops on <code>/</code>,
+        filters as you type, and <code>/q</code>, <code>/sl</code> become
+        muscle memory again. The interface anticipates. It helps. It gets out
+        of your way when you know what you are doing.
       </p>
     </section>
 
@@ -65,39 +56,17 @@ import NavBar from '../components/NavBar.astro';
     <section class="section">
       <h2>Who It Is For</h2>
       <ul class="feature-list">
-        <li><strong>Developers</strong>, from a single file to a monorepo</li>
-        <li><strong>System administrators</strong>, server management, automation, deployment</li>
-        <li><strong>Security professionals</strong>, auditing, tooling, long-running investigations</li>
-        <li><strong>Researchers</strong>, data analysis, experiments that run for days</li>
-        <li><strong>Anyone</strong> who SSHes into a box and wants an AI partner</li>
+        <li><strong>Developers</strong>: from a single file to a monorepo</li>
+        <li><strong>System administrators</strong>: server management, automation, deployment</li>
+        <li><strong>Security professionals</strong>: auditing, tooling, long-running investigations</li>
+        <li><strong>Researchers</strong>: data analysis, experiments that run for days</li>
+        <li><strong>Anyone</strong> who lives in a terminal and wants an AI partner</li>
       </ul>
       <p>
-        amber is free and open source (Apache 2.0), for everyone, without
-        discrimination. If you live in a terminal, it is yours.
+        Amber runs on Linux and macOS. It is free and open source (Apache
+        2.0), for everyone, without discrimination. If you live in a terminal,
+        it is yours.
       </p>
-    </section>
-
-    <hr class="divider" />
-
-    <section class="section">
-      <h2>What We Stand For</h2>
-      <table class="stand-table">
-        <thead>
-          <tr>
-            <th>We are</th>
-            <th>We are not</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td>Terminal-native</td><td>A web app</td></tr>
-          <tr><td>Keyboard-first</td><td>Mouse-driven</td></tr>
-          <tr><td>Local-first, self-hosted</td><td>SaaS or telemetry</td></tr>
-          <tr><td>Linux-powered</td><td>A Windows or macOS port</td></tr>
-          <tr><td>Composable with UNIX tools</td><td>A walled garden</td></tr>
-          <tr><td>Insert-always</td><td>A modal editor</td></tr>
-          <tr><td>Compiled, integrated</td><td>A plugin platform</td></tr>
-        </tbody>
-      </table>
     </section>
   </main>
 </BaseLayout>
@@ -107,34 +76,5 @@ import NavBar from '../components/NavBar.astro';
     color: #00ff41;
     font-size: 1.4em;
     font-weight: bold;
-  }
-
-  .stand-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    margin: 16px 0;
-  }
-
-  .stand-table th,
-  .stand-table td {
-    padding: 8px 16px;
-    text-align: left;
-    border-bottom: 1px solid #333333;
-  }
-
-  .stand-table th {
-    color: #00ff41;
-    font-weight: bold;
-    border-bottom: 2px solid #333333;
-  }
-
-  .stand-table td:first-child {
-    color: #00ff41;
-    width: 55%;
-  }
-
-  .stand-table td:last-child {
-    color: #888888;
   }
 </style>

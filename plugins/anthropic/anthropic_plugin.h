@@ -4,7 +4,7 @@
 // The Anthropic provider plugin: it provides the Messages API dialect (the
 // one that used to be registered by the core) and its preset.
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <string>
 #include <vector>

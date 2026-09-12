@@ -1,0 +1,154 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  current: string;
+}
+
+const { title, description, current } = Astro.props;
+
+const nav = [
+  { href: '/plugins', label: 'Overview', id: 'index' },
+  { href: '/plugins/anatomy', label: 'Plugin anatomy', id: 'anatomy' },
+  { href: '/plugins/capabilities', label: 'Capabilities', id: 'capabilities' },
+  { href: '/plugins/events', label: 'Events', id: 'events' },
+  { href: '/plugins/providers', label: 'Providers', id: 'providers' },
+  { href: '/plugins/external', label: 'External plugins', id: 'external' },
+  { href: '/plugins/testing', label: 'Testing & review', id: 'testing' },
+];
+---
+
+<BaseLayout title={`${title} | plugin docs`} description={description}>
+  <NavBar />
+  <main>
+    <div class="docs">
+      <aside class="docs-side">
+        <p class="docs-side-title">Plugin docs</p>
+        <nav>
+          {nav.map((item) => (
+            <a
+              href={item.href}
+              class:list={['docs-link', { active: item.id === current }]}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      </aside>
+
+      <article class="docs-body">
+        <slot />
+      </article>
+    </div>
+  </main>
+</BaseLayout>
+
+<style>
+  .docs {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 32px;
+    align-items: start;
+  }
+
+  .docs-side {
+    position: sticky;
+    top: 16px;
+    border: 1px solid #33260e;
+    background: #0a0700;
+    padding: 14px;
+  }
+
+  .docs-side-title {
+    color: #6b4f1f;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+
+  .docs-side nav {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .docs-link {
+    display: block;
+    padding: 6px 8px;
+    font-size: 13px;
+    color: #9a7c47;
+    text-decoration: none;
+    border-left: 2px solid transparent;
+  }
+
+  .docs-link:hover {
+    color: #ffb000;
+  }
+
+  .docs-link.active {
+    color: #ffb000;
+    border-left-color: #ffb000;
+    background: rgba(255, 176, 0, 0.06);
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.4);
+  }
+
+  .docs-body {
+    min-width: 0;
+  }
+
+  .docs-body :global(h1) {
+    margin-top: 0;
+  }
+
+  .docs-body :global(h2) {
+    margin-top: 34px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #33260e;
+  }
+
+  .docs-body :global(h3) {
+    margin-top: 26px;
+  }
+
+  .docs-body :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 13px;
+  }
+
+  .docs-body :global(th),
+  .docs-body :global(td) {
+    border: 1px solid #33260e;
+    padding: 7px 10px;
+    text-align: left;
+    vertical-align: top;
+    color: #9a7c47;
+  }
+
+  .docs-body :global(th) {
+    color: #ffcf4d;
+    background: #0a0700;
+    font-weight: normal;
+  }
+
+  .docs-body :global(code) {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+  }
+
+  @media (max-width: 720px) {
+    .docs {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+
+    .docs-side {
+      position: static;
+    }
+  }
+</style>

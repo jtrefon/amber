@@ -12,7 +12,7 @@
 // amber comes from a plugin, and the core keeps only the file layer that
 // reads what the user wrote.
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <string>
 #include <vector>

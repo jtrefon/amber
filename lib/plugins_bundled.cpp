@@ -5,6 +5,7 @@
 #include "plugins/custom/custom_plugin.h"
 #include "plugins/deepseek/deepseek_plugin.h"
 #include "plugins/gemini/gemini_plugin.h"
+#include "plugins/hello/hello_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
 #include "plugins/opencode_go/opencode_go_plugin.h"
@@ -49,6 +50,9 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     plugins.push_back(std::make_shared<plugins::OpencodeZenPlugin>());
     plugins.push_back(std::make_shared<plugins::CommandcodePlugin>());
     plugins.push_back(std::make_shared<plugins::DeepseekPlugin>());
+    // Example command plugin: registers the /hello namespace. Small enough to
+    // read in one sitting and the reference for the command capability.
+    plugins.push_back(std::make_shared<plugins::HelloPlugin>());
     return plugins;
 }
 

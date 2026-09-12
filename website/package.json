@@ -2,7 +2,7 @@
   "name": "amber-website",
   "type": "module",
   "version": "1.0.0",
-  "description": "amber: an AI agent harness for Linux servers",
+  "description": "amber: a native C++ AI agent runtime and CLI harness",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build && node scripts/add-base.mjs",
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",
-    "astro": "^7.2.8"
+    "astro": "^7.2.8",
+    "mermaid": "11.17.2"
   }
 }

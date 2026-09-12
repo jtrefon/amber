@@ -1,0 +1,232 @@
+---
+import PluginDocsLayout from '../../layouts/PluginDocsLayout.astro';
+import Diagram from '../../components/Diagram.astro';
+
+const iplugin = `class IPlugin {
+public:
+    virtual ~IPlugin() = default;
+
+    virtual std::string id() const = 0;        // slug, unique; the ledger owner
+    virtual std::string version() const = 0;   // semver
+    virtual std::string name() const = 0;      // display
+
+    // Optional. Shown in the registry list; category groups it there.
+    virtual std::string description() const { return {}; }
+    virtual std::string category() const { return plugin_category::kOther; }
+
+    virtual bool initialize(const PluginContext& ctx) = 0;   // false => Failed
+    virtual void shutdown() = 0;                             // release own state
+
+    // Time-driven work, called on the UI thread. Must not block.
+    virtual void tick() {}
+
+    // Called once at activation. The runtime installs each and ledgers it.
+    virtual std::vector<std::unique_ptr<Capability>> capabilities() { return {}; }
+};`;
+
+const context = `struct PluginContext {
+    EventBus& event_bus;          // typed events live on top of this
+    const ToolRegistry& tools;    // read-only view
+    const Config* config;         // the host's LIVE config; read at use time
+    const Workspace& workspace;
+};`;
+
+const services = `class PluginServices {
+public:
+    ToolRegistry&     tools();
+    PromptRegistry&   prompts();
+    StatusRegistry&   status();
+    PanelRegistry&    panels();
+    WalletRegistry&   wallets();
+    AllowanceRegistry& allowances();
+    EventBus&         events();
+
+    const std::string& owner() const;  // the plugin being installed
+
+    const Config* config = nullptr;        // host's live config
+    const HostServices* host = nullptr;    // jobs, todos, sub-agents, cancel token
+};`;
+
+const capability = `enum class CapabilityKind : std::uint8_t {
+    Tool, PromptBlock, StatusSegment, Panel, Provider, Wallet, Allowance,
+};
+
+class Capability {
+public:
+    virtual ~Capability() = default;
+    virtual std::string name() const = 0;   // unique within the plugin
+    virtual CapabilityKind kind() const = 0;
+    virtual InstallResult install(PluginServices&) = 0;
+};`;
+
+const installResult = `struct InstallResult {
+    bool ok = false;
+    bool declined = false;   // "nothing to install", NOT a failure
+    std::string error;       // non-empty when ok == false && !declined
+    Contribution contribution;
+};
+
+struct Contribution {
+    CapabilityKind kind = CapabilityKind::Tool;
+    std::string name;
+    std::function<void()> remove;   // the ledger's unwinder; may be null
+};`;
+
+const ledger = `class PluginLedger {
+public:
+    void record(const std::string& plugin_id, Contribution c);
+    std::size_t size(const std::string& plugin_id) const noexcept;
+    std::vector<Contribution> contributions(const std::string& plugin_id) const;
+    std::vector<std::string> owners() const;
+    void unwind(const std::string& plugin_id) noexcept;  // newest first
+    void clear() noexcept;
+};`;
+---
+
+<PluginDocsLayout
+  title="Plugin anatomy"
+  description="The IPlugin interface, PluginContext, PluginServices, the Capability protocol and the contribution ledger."
+  current="anatomy"
+>
+  <h1>Plugin anatomy</h1>
+
+  <p>
+    A core plugin is a C++ class implementing <code>IPlugin</code> plus the
+    capabilities it declares. Everything the plugin contributes is declared
+    once, in <code>capabilities()</code>, and installed by the runtime.
+  </p>
+
+  <h2>IPlugin</h2>
+  <div class="terminal"><pre>{iplugin}</pre></div>
+
+  <p>
+    Only <code>id</code>, <code>version</code>, <code>name</code>,
+    <code>initialize</code>, <code>shutdown</code> and <code>capabilities</code>
+    are required. A plugin with no capabilities still participates in the
+    lifecycle (the metrics plugin is exactly that, it only observes events).
+  </p>
+
+  <h3>id</h3>
+  <p>
+    A slug (<code>[a-z0-9_]+</code>) that is unique across both tiers. It is the
+    ledger owner: everything the plugin contributes is recorded against it, and
+    disabling it unwinds exactly those contributions. It is also the directory
+    name (<code>plugins/&lt;id&gt;/</code>) and the state-file key.
+  </p>
+
+  <h3>description and category</h3>
+  <p>
+    Both optional, both shown by the registry console. The category is open,
+    <code>agent::plugin_category</code> holds the common values
+    (<code>kProvider</code>, <code>kObservability</code>, <code>kTools</code>,
+    <code>kUi</code>, <code>kMemory</code>, <code>kSearch</code>,
+    <code>kOther</code>), and an unknown value groups under its own heading
+    rather than being hidden.
+  </p>
+
+  <h3>initialize / shutdown / tick</h3>
+  <ul class="feature-list">
+    <li><code>initialize</code> is where you capture the context. Returning <code>false</code> marks the plugin <em>Failed</em> and installs nothing.</li>
+    <li><code>shutdown</code> releases plugin-owned resources. <strong>Do not</strong> unregister contributions, the ledger does that.</li>
+    <li><code>tick</code> runs on the UI thread for time-driven work (polling a balance, refreshing a remote value). It must not block; slow work goes on your own thread. It exists so render callables can stay pure reads.</li>
+  </ul>
+
+  <h2>PluginContext</h2>
+  <p>What <code>initialize</code> receives:</p>
+  <div class="terminal"><pre>{context}</pre></div>
+  <p>
+    <strong>Read <code>config</code> at the moment you need it; never cache the
+    pointer.</strong> The host may attach the configuration it actually mutates
+    <em>after</em> your plugin was activated, so a cached pointer can keep
+    pointing at the runtime's startup copy and your feature silently stops
+    working. This regression is pinned by
+    <code>runtime_plugin_sees_the_hosts_config_attached_after_start</code>.
+  </p>
+
+  <h2>PluginServices</h2>
+  <p>What <code>Capability::install</code> receives:</p>
+  <div class="terminal"><pre>{services}</pre></div>
+  <p>
+    The registries are the harness's own, a capability never constructs one. A
+    capability that needs none of the host services ignores
+    <code>host</code> entirely.
+  </p>
+
+  <h2>The Capability protocol</h2>
+  <div class="terminal"><pre>{capability}</pre></div>
+
+  <p>
+    <code>CapabilityKind</code> is the dispatch key: it tells the runtime which
+    registry installs the contribution. There are eight kinds, each with a
+    concrete base class, see <a href="/plugins/capabilities">Capabilities</a>.
+  </p>
+
+  <h3>InstallResult: decline vs failure</h3>
+  <div class="terminal"><pre>{installResult}</pre></div>
+  <ul class="feature-list">
+    <li><code>ok == true</code>: installed; the contribution is ledgered.</li>
+    <li><code>ok == false &amp;&amp; declined == true</code>: nothing to install, and that is <strong>normal</strong>. The plugin stays active. This is how a tool gated on configuration behaves (the core set ships <code>todowrite</code> and <code>task</code> that way).</li>
+    <li><code>ok == false &amp;&amp; !declined</code>: broken. The plugin is marked Failed.</li>
+  </ul>
+
+  <h2>The ledger</h2>
+  <p>
+    Every accepted install returns a <code>Contribution</code> handle, and the
+    runtime records it against the plugin id:
+  </p>
+  <div class="terminal"><pre>{ledger}</pre></div>
+  <p>
+    Disabling a plugin calls <code>shutdown()</code> and then unwinds its ledger
+    in <strong>reverse install order</strong>. If any contribution can survive
+    deactivation, the ledger is broken, and that is a tested invariant
+    (<code>plugin_disable_removes_every_contribution</code>), not an aspiration.
+  </p>
+  <Diagram
+    name="capabilityLedger"
+  />
+
+  <h2>Lifecycle</h2>
+  <table>
+    <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Registered</td><td>Known to the runtime; nothing installed.</td></tr>
+      <tr><td>Active</td><td>Enabled; capabilities installed and ledgered.</td></tr>
+      <tr><td>Deactivated</td><td>Disabled; ledger unwound, nothing reachable.</td></tr>
+      <tr><td>Failed</td><td><code>initialize</code> returned false, or an install failed.</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Registration never activates. State is read from the persisted file, so a
+    restart reproduces the same harness. <code>start()</code> activates every
+    plugin whose state says it is on; <code>set_state(id, on)</code> is the
+    single write path backing <code>/set plugin &lt;id&gt; on|off</code>.
+  </p>
+
+  <h2>Registration and state</h2>
+  <p>
+    The shipped set is one list, <code>make_bundled_plugins()</code> in
+    <code>lib/plugins_bundled.cpp</code>: so it is enumerable at a glance.
+    Adding a plugin means a directory under <code>plugins/&lt;id&gt;/</code>, an
+    object in <code>Makefile.in</code>, and one line there.
+  </p>
+  <p>
+    Runtime state lives in
+    <code>~/.config/amber/plugins/&lt;id&gt;/plugin.conf</code>. Your plugin
+    never reads or writes that file; the runtime does, and a disabled plugin is
+    never initialized.
+  </p>
+
+  <h2>Rules the framework enforces</h2>
+  <table>
+    <thead><tr><th>Rule</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Declare capabilities; let the runtime install them</td><td>Only the ledger can guarantee a clean disable</td></tr>
+      <tr><td>No screen access, no ncurses</td><td>Plugins must run headless</td></tr>
+      <tr><td>Render callables are pure and fast</td><td>They run inside frame composition</td></tr>
+      <tr><td>Never mutate <code>Context</code></td><td>It is a sealed, hash-chained stack</td></tr>
+      <tr><td>No per-token work</td><td>The streaming path is the hot path</td></tr>
+      <tr><td>No blocking in event handlers</td><td>They run on the agent's owner thread</td></tr>
+      <tr><td>Errors are returned, not thrown</td><td><code>ToolResult</code> / <code>InstallResult</code> conventions</td></tr>
+    </tbody>
+  </table>
+</PluginDocsLayout>

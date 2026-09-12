@@ -4,7 +4,7 @@
 
 #include "agent/config.h"
 #include "agent/event_bus.h"
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 #include "agent/registry.h"
 #include "agent/workspace.h"
 

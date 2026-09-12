@@ -6,7 +6,7 @@
 // that describe the endpoint — nothing else, and nothing in the transport, the
 // agent loop, or the UI knows this file exists.
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <string>
 #include <vector>

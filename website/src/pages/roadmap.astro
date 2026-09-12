@@ -3,29 +3,48 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 ---
 
-<BaseLayout title="Roadmap" description="amber roadmap, what's coming next, within the mission">
+<BaseLayout title="Roadmap" description="amber roadmap: plugin/capability architecture, provider and tool work, runtime quality, testing, and documentation.">
   <NavBar />
   <main>
     <h1>Roadmap</h1>
 
     <section class="section">
       <p>
-        amber is a bare-metal C++ agent harness for Linux. The roadmap is about
-        expanding what the harness can do, not adding UI polish, not chasing
-        platforms outside the mission. Linux is the armour; the roadmap stays
-        inside it.
+        Amber is a native C++ AI agent runtime and CLI harness with an
+        extensible plugin architecture. The roadmap is about deepening the
+        capability system, improving runtime quality, and making the project
+        easier to use and contribute to, on Linux and macOS.
       </p>
     </section>
 
     <hr class="divider-thick" />
 
     <section class="section">
-      <h2>Near Term</h2>
+      <h2>Current state</h2>
+      <p>Already shipped and in use:</p>
       <ul class="feature-list">
-        <li>Long-duration research, tmux integration, days and weeks of autonomous work</li>
+        <li>Linux and macOS support (Apple Silicon distributed builds via Homebrew)</li>
+        <li>Plugin / capability architecture: providers, tools, and UI capabilities through one mechanism</li>
+        <li>Multi-provider support: Anthropic, Gemini, OpenRouter, DeepSeek, KiloCode, OpenCode, CommandCode, Custom, OpenAI-compatible</li>
+        <li>MCP support over supported transports</li>
+        <li>Sub-agents with serial and parallel execution</li>
+        <li>Context compression with memory/skill extraction</li>
+        <li>Context integrity (FNV-1a hash chain)</li>
+        <li>Workspace/path confinement and approval-gated side effects</li>
+        <li>Benchmark and evaluation harness (amber-bench)</li>
+        <li>Interactive TUI and headless CLI</li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Near term</h2>
+      <ul class="feature-list">
+        <li>Runtime loading of external plugins (dlopen), building on the existing registry and ledger infrastructure</li>
         <li>Semantic search backends, real embedding models for code search</li>
+        <li>More provider plugins and provider-specific dialects</li>
         <li>Skills system, authored and learned skills, project-scoped memory</li>
-        <li>Background job notifications in the status bar</li>
         <li>MCP ecosystem, more servers, richer tooling over the existing client</li>
       </ul>
     </section>
@@ -33,39 +52,43 @@ import NavBar from '../components/NavBar.astro';
     <hr class="divider" />
 
     <section class="section">
-      <h2>Mid Term</h2>
+      <h2>Mid term</h2>
       <ul class="feature-list">
-        <li>Multi-agent orchestration, sub-agents with shared context, parallel execution</li>
-        <li>Compression pipeline visibility, live progress in the TUI</li>
-        <li>Config key-chain, unlimited-depth configuration from the command line</li>
-        <li>File-path completion, bash/zsh standard behaviour</li>
-        <li>Memory and skill promotion UI, learn, inspect, pin, export</li>
+        <li>Runtime quality, hardening the agent loop, plugin lifecycle, and context management under long sessions</li>
+        <li>Testing, expanding the benchmark corpus and hermetic regression coverage</li>
+        <li>Usability, onboarding, configuration discovery, and the command tree experience</li>
+        <li>Documentation, architecture guides, plugin developer guide, and scenario authoring</li>
+        <li>External contribution, lowering the barrier to write and ship plugins</li>
       </ul>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>Far Term</h2>
+      <h2>Far term</h2>
       <ul class="feature-list">
+        <li>Long-duration research, tmux integration, days and weeks of autonomous work</li>
+        <li>Multi-agent orchestration, sub-agents with shared context, parallel execution at scale</li>
         <li>Self-hosted LLM tooling, local inference, quantized models, VRAM management</li>
-        <li>Distributed agent clusters, multiple agents on the same project</li>
-        <li>Multi-window background jobs, the agent keeps working while you switch windows</li>
       </ul>
     </section>
 
     <hr class="divider" />
 
     <section class="section">
-      <h2>Not on the Roadmap</h2>
+      <h2>Not on the roadmap</h2>
       <p>Some things amber is not going to do, by design, not by accident:</p>
       <ul class="feature-list">
-        <li><strong>Windows or macOS ports</strong>, Linux is the armour. Wine and Cygwin are not Linux.</li>
-        <li><strong>Web or GUI frontends</strong>, the terminal is the API. SSH exists.</li>
-        <li><strong>Plugin loaders</strong>, every UNIX tool is already a plugin. Skills and MCP cover the rest.</li>
-        <li><strong>SaaS or telemetry</strong>, local-first. Your data stays on your machine.</li>
-        <li><strong>Mobile apps</strong>, amber lives on the server.</li>
+        <li><strong>Windows</strong>: there is no committed plan. If it arrives, it will be because someone does the work, not because the roadmap promised it.</li>
+        <li><strong>Web or GUI frontends</strong>: the terminal is the interface. SSH exists.</li>
+        <li><strong>SaaS or telemetry</strong>: local-first. Your data stays on your machine.</li>
+        <li><strong>Mobile apps</strong>: amber lives in the terminal.</li>
       </ul>
+      <p>
+        No dates are promised. If an item above has already shipped, it lives in
+        "Current state" rather than here. The roadmap is a direction, not a
+        calendar.
+      </p>
     </section>
   </main>
 </BaseLayout>
