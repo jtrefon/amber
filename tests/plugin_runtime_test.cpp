@@ -330,16 +330,15 @@ TEST(runtime_tool_plugins_are_active_on_a_default_config) {
     ASSERT_TRUE((bool)f.tools.find("search"));
     ASSERT_TRUE((bool)f.tools.find("bash"));
     ASSERT_TRUE((bool)f.tools.find("process_start"));
-    // Gated tools are absent, not an error.
-    ASSERT_FALSE((bool)f.tools.find("todowrite"));
-    ASSERT_FALSE((bool)f.tools.find("task"));
+    // The plan and task tools are ordinary plugin contributions now: present
+    // by default, absent when their plugin is switched off.
+    ASSERT_TRUE((bool)f.tools.find("todowrite"));
+    ASSERT_TRUE((bool)f.tools.find("task"));
 }
 
-TEST(runtime_tool_plugins_install_gated_tools_when_enabled) {
+TEST(runtime_tool_plugin_state_controls_the_plan_and_task_tools) {
     ScratchConfig scratch("coretools-gated");
     Fixture f;
-    f.cfg.plan_tool = true;
-    f.cfg.task_tool = true;
     JobService jobs;
     TodoStore todos;
     SubAgentExecutor subagents;

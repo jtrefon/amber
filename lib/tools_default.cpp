@@ -32,12 +32,9 @@ std::vector<std::unique_ptr<Tool>> wrap_tool(std::unique_ptr<Tool> tool) {
 // are installed undocumented, which is what a bare unit test wants; the hosts
 // pass their registry so a tool and its prose always arrive together.
 void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todos,
-                            const CancellationToken& cancel_token, bool enable_plan_tool,
-                            SubAgentExecutor& subagents, bool enable_task_tool,
+                            const CancellationToken& cancel_token, SubAgentExecutor& subagents,
                             PromptRegistry* prompts) {
     Config cfg;
-    cfg.plan_tool = enable_plan_tool;
-    cfg.task_tool = enable_task_tool;
     HostServices host{&jobs, &todos, &subagents, &cancel_token};
 
     // Tool capabilities reach only services.tools() and services.config/host,

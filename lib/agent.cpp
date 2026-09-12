@@ -208,13 +208,6 @@ std::string Agent::render_system_prompt() const {
     if (!mcp.empty())
         system += "\n\n" + mcp;
 
-    // Optional planning-tool prompt — only when the todowrite tool is enabled.
-    if (cfg_.plan_tool) {
-        std::string plan = load_optional_prompt("prompts/tools_planning.md");
-        if (!plan.empty())
-            system += "\n\n" + plan;
-    }
-
     return system;
 }
 

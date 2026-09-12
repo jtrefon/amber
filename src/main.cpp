@@ -382,8 +382,8 @@ int main(int argc, char** argv) {
         // The core tools are plugin contributions, so skipping activation would
         // leave the agent with no tools at all. --no-plugins is meant to skip
         // the plugin tier, not to strip the harness of its built-ins.
-        agent::register_default_tools(registry, jobs, todos, cfg.cancel_token, cfg.plan_tool,
-                                      subagents, cfg.task_tool, &plugin_runtime.prompts());
+        agent::register_default_tools(registry, jobs, todos, cfg.cancel_token, subagents,
+                                      &plugin_runtime.prompts());
     }
 
     try {
