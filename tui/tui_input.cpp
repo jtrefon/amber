@@ -569,70 +569,36 @@ void SlashDispatcher::cmd_skills_get(const std::string& sub) {
     tui_.draw();
 }
 
-std::string SlashDispatcher::plugin_state_name(agent::PluginState st) const {
-    switch (st) {
-    case agent::PluginState::Enabled: return "enabled";
-    case agent::PluginState::Incompatible: return "incompatible";
-    default: return "disabled";
+namespace {
+
+// The registered ids, for usage pages and settings listings: derived from the
+// runtime, never a hardcoded list.
+std::string plugin_ids(const agent::PluginRuntime& runtime) {
+    std::string ids;
+    for (const auto& p : runtime.list()) {
+        if (!ids.empty()) ids += " ";
+        ids += p.id;
     }
+    return ids.empty() ? std::string("(none registered)") : ids;
 }
 
-void SlashDispatcher::cmd_plugin_list() {
-    std::string msg;
-    for (const auto& p : tui_.plugins_.plugins()) {
-        msg += p.id + " v" + p.version + " [" + plugin_state_name(p.state) + "] ";
-        if (!p.error.empty()) msg += "(" + p.error + ") ";
-    }
-    tui_.append_line(P_STATUS, "plugins: " + (msg.empty() ? "(none)" : msg));
+} // namespace
+
+void SlashDispatcher::cmd_plugin_state_usage(const std::string& verb) {
+    tui_.append_line(P_STATUS, "usage: /set plugin " + verb + " <id>  [plugins: " +
+                                   plugin_ids(tui_.plugin_runtime_) + "]");
 }
 
-void SlashDispatcher::cmd_plugin_status(const std::string& id) {
-    if (id.empty()) { tui_.append_line(P_STATUS, "usage: /plugin status <id>"); return; }
-    const agent::PluginInfo* p = tui_.plugins_.find(id);
-    if (!p) { tui_.append_line(P_STATUS, "unknown plugin: " + id); return; }
-    tui_.append_line(P_STATUS, id + " v" + p->version + " [" +
-                              plugin_state_name(p->state) + "] dir " + p->dir);
-    if (!p->error.empty()) tui_.append_line(P_STATUS, "  error: " + p->error);
-}
-
-void SlashDispatcher::cmd_plugin_info(const std::string& id) {
-    if (id.empty()) { tui_.append_line(P_STATUS, "usage: /plugin info <id>"); return; }
-    const agent::PluginInfo* p = tui_.plugins_.find(id);
-    if (!p) { tui_.append_line(P_STATUS, "unknown plugin: " + id); return; }
-    tui_.append_line(P_STATUS, id + " \u2014 " + p->manifest.name + " (" +
-                              p->manifest.author + ")");
-    tui_.append_line(P_STATUS, "  url: " + p->manifest.url);
-    tui_.append_line(P_STATUS, "  license: " + p->manifest.license);
-    tui_.append_line(P_STATUS, "  tools: " +
-                              std::to_string(p->manifest.tools.size()));
-}
-
-void SlashDispatcher::cmd_plugin_enable(const std::string& id) {
-    if (id.empty()) { tui_.append_line(P_STATUS, "usage: /plugin enable <id>"); return; }
-    agent::PluginInfo* p = tui_.plugins_.find(id);
-    if (!p) { tui_.append_line(P_STATUS, "unknown plugin: " + id); return; }
-    if (tui_.plugins_.enable(id, tui_.reg_)) {
-        refresh_completions();
-        tui_.append_line(P_STATUS, "plugin enabled: " + id +
-                                  " \u2014 tools are advertised in new conversations");
-    } else {
-        tui_.append_line(P_STATUS, "enable failed: " +
-                                  (p->error.empty() ? std::string("unknown error") : p->error));
-    }
-}
-
-void SlashDispatcher::cmd_plugin_disable(const std::string& id) {
-    if (id.empty()) { tui_.append_line(P_STATUS, "usage: /plugin disable <id>"); return; }
-    if (!tui_.plugins_.find(id)) { tui_.append_line(P_STATUS, "unknown plugin: " + id); return; }
-    if (tui_.plugins_.disable(id, tui_.reg_)) {
-        refresh_completions();
-        tui_.append_line(P_STATUS, "plugin disabled: " + id);
-    }
-}
-
-void SlashDispatcher::cmd_plugin_get(const std::string& args) {
+// External plugins read their settings at startup; these read and write the
+// manager's persisted key/value store.
+void SlashDispatcher::cmd_plugin_settings_get(const std::string& args) {
     size_t sp = args.find(' ');
     std::string id = (sp == std::string::npos) ? args : args.substr(0, sp);
+    if (id.empty()) {
+        tui_.append_line(P_STATUS, "usage: /get plugin settings <id> [key]  [plugins: " +
+                                       plugin_ids(tui_.plugin_runtime_) + "]");
+        return;
+    }
     std::string key = (sp == std::string::npos) ? "" : args.substr(sp + 1);
     const agent::PluginInfo* p = tui_.plugins_.find(id);
     if (!p) { tui_.append_line(P_STATUS, "unknown plugin: " + id); return; }
@@ -640,23 +606,24 @@ void SlashDispatcher::cmd_plugin_get(const std::string& args) {
         std::string all;
         for (auto it = p->settings.begin(); it != p->settings.end(); ++it)
             all += it.key() + "=" + it.value().dump() + " ";
-        tui_.append_line(P_STATUS, "settings " + id + ": " + all);
+        tui_.append_line(P_STATUS,
+                         "settings " + id + ": " + (all.empty() ? "(none)" : all));
         return;
     }
     tui_.append_line(P_STATUS, id + " " + key + " = " + tui_.plugins_.get_setting(id, key));
 }
 
-void SlashDispatcher::cmd_plugin_set(const std::string& args) {
+void SlashDispatcher::cmd_plugin_settings_set(const std::string& args) {
     size_t sp = args.find(' ');
     if (sp == std::string::npos) {
-        tui_.append_line(P_STATUS, "usage: /plugin set <id> <key>=<value>");
+        tui_.append_line(P_STATUS, "usage: /set plugin settings <id> <key>=<value>");
         return;
     }
     std::string id = args.substr(0, sp);
     std::string kv = args.substr(sp + 1);
     size_t eq = kv.find('=');
     if (eq == std::string::npos) {
-        tui_.append_line(P_STATUS, "usage: /plugin set <id> <key>=<value>");
+        tui_.append_line(P_STATUS, "usage: /set plugin settings <id> <key>=<value>");
         return;
     }
     if (tui_.plugins_.set_setting(id, kv.substr(0, eq), kv.substr(eq + 1)))
@@ -665,23 +632,38 @@ void SlashDispatcher::cmd_plugin_set(const std::string& args) {
         tui_.append_line(P_STATUS, "unknown plugin: " + id);
 }
 
+// Installing stages the archive and leaves the plugin off: activation is a
+// separate, deliberate step.
 void SlashDispatcher::cmd_plugin_install(const std::string& source) {
-    if (source.empty()) { tui_.append_line(P_STATUS, "usage: /plugin install <path|url>"); return; }
+    if (source.empty()) {
+        tui_.append_line(P_STATUS, "usage: /set plugin install <path|url>");
+        return;
+    }
     tui_.append_line(P_STATUS, "installing " + source + " ...");
     std::string err = tui_.plugins_.install(source);
     if (!err.empty()) { tui_.append_line(P_STATUS, "install failed: " + err); return; }
     tui_.plugins_.discover();
+    // Hand the staged plugin to the runtime so it appears in the registry and
+    // the feed right away; registration is idempotent per id.
+    tui_.plugin_runtime_.add_external(tui_.plugins_);
     refresh_completions();
-    tui_.append_line(P_STATUS, "installed \u2014 /plugin enable <id> to activate");
+    tui_.append_line(P_STATUS, "installed \u2014 '/set plugin on <id>' activates it");
 }
 
 void SlashDispatcher::cmd_plugin_uninstall(const std::string& id) {
-    if (id.empty()) { tui_.append_line(P_STATUS, "usage: /plugin uninstall <id>"); return; }
+    if (id.empty()) { tui_.append_line(P_STATUS, "usage: /set plugin uninstall <id>"); return; }
+    // Stop a live plugin before its files go away; the registry entry itself
+    // is dropped on the next start.
+    const bool registered = tui_.plugin_runtime_.has(id);
+    if (registered)
+        tui_.plugin_runtime_.set_state(id, false);
     std::string err = tui_.plugins_.uninstall(id);
     if (!err.empty()) { tui_.append_line(P_STATUS, "uninstall failed: " + err); return; }
     tui_.plugins_.discover();
     refresh_completions();
-    tui_.append_line(P_STATUS, "uninstalled: " + id);
+    tui_.append_line(P_STATUS,
+                     "uninstalled: " + id +
+                         (registered ? " \u2014 registry entry clears on restart" : ""));
 }
 
 void SlashDispatcher::cmd_mcp(const std::string& rest) {
@@ -1090,8 +1072,20 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string& a) { cmd_runtime_plugin_get(a); });
     register_action("core.config.get.plugin.list",
         [this](const std::string&) { cmd_runtime_plugin_list(); });
-    register_action("core.config.set.plugin",
-        [this](const std::string&) { cmd_runtime_plugin_list(); });
+    register_action("core.config.get.plugin.info",
+        [this](const std::string& a) { cmd_runtime_plugin_get(a); });
+    register_action("core.config.get.plugin.settings",
+        [this](const std::string& a) { cmd_plugin_settings_get(a); });
+    register_action("core.config.set.plugin.on",
+        [this](const std::string&) { cmd_plugin_state_usage("on"); });
+    register_action("core.config.set.plugin.off",
+        [this](const std::string&) { cmd_plugin_state_usage("off"); });
+    register_action("core.config.set.plugin.install",
+        [this](const std::string& a) { cmd_plugin_install(a); });
+    register_action("core.config.set.plugin.uninstall",
+        [this](const std::string& a) { cmd_plugin_uninstall(a); });
+    register_action("core.config.set.plugin.settings",
+        [this](const std::string& a) { cmd_plugin_settings_set(a); });
     register_action("core.config.get.provider.wallet",
         [this](const std::string&) { cmd_get_wallet(); });
     register_action("core.config.set.provider.wallet",
@@ -1180,30 +1174,6 @@ void SlashDispatcher::register_builtin_actions() {
         [this](const std::string& a) { cmd_mcp_set_enabled(a, false); });
     register_action("core.mcp.trust",
         [this](const std::string& a) { cmd_mcp_trust(a); });
-    // plugin
-    register_action("core.plugin", [this](const std::string& a) {
-        if (!a.empty())
-            tui_.append_line(P_STATUS, "usage: /plugin list|status|enable|disable|get|set|info|install|uninstall");
-        cmd_plugin_list();
-    });
-    register_action("core.plugin.list",
-        [this](const std::string&) { cmd_plugin_list(); });
-    register_action("core.plugin.status",
-        [this](const std::string& a) { cmd_plugin_status(a); });
-    register_action("core.plugin.enable",
-        [this](const std::string& a) { cmd_plugin_enable(a); });
-    register_action("core.plugin.disable",
-        [this](const std::string& a) { cmd_plugin_disable(a); });
-    register_action("core.plugin.get",
-        [this](const std::string& a) { cmd_plugin_get(a); });
-    register_action("core.plugin.set",
-        [this](const std::string& a) { cmd_plugin_set(a); });
-    register_action("core.plugin.info",
-        [this](const std::string& a) { cmd_plugin_info(a); });
-    register_action("core.plugin.install",
-        [this](const std::string& a) { cmd_plugin_install(a); });
-    register_action("core.plugin.uninstall",
-        [this](const std::string& a) { cmd_plugin_uninstall(a); });
 }
 
 const palette::Command* SlashDispatcher::find_command(const std::string& name) {
@@ -1580,6 +1550,20 @@ void SlashDispatcher::show_plugin(const std::string& id) {
                          "  " + std::string(agent::capability_kind_name(item.kind)) +
                              ": " + item.name);
     }
+    // External plugins also carry a manifest: who wrote them, where they are
+    // installed, and what went wrong when they did not load.
+    const agent::PluginInfo* info = tui_.plugins_.find(id);
+    if (!info) return;
+    tui_.append_line(P_STATUS, "  " + info->manifest.name + " (" +
+                                   info->manifest.author + ")");
+    if (!info->manifest.url.empty())
+        tui_.append_line(P_STATUS, "  url: " + info->manifest.url);
+    if (!info->manifest.license.empty())
+        tui_.append_line(P_STATUS, "  license: " + info->manifest.license);
+    tui_.append_line(P_STATUS, "  dir: " + info->dir);
+    tui_.append_line(P_STATUS, "  tools: " + std::to_string(info->manifest.tools.size()));
+    if (!info->error.empty())
+        tui_.append_line(P_STATUS, "  error: " + info->error);
 }
 
 namespace {

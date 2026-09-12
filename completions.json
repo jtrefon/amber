@@ -289,12 +289,22 @@
     "plugin": {
      "action": "core.config.get.plugin",
      "help": "Show registered plugins (runtime state, contributions).",
-     "man": "Lists every registered plugin with its tier (bundled/external), whether it is on or off, and what it contributes. Plugins are toggled with '/set plugin <id> on' or 'off'.",
+     "man": "Lists every registered plugin with its tier (bundled/external), whether it is on or off, and what it contributes. Per-plugin detail is '/get plugin info <id>'; plugins are toggled with '/set plugin on <id>' and '/set plugin off <id>'.",
      "children": {
       "list": {
        "action": "core.config.get.plugin.list",
        "help": "List plugins and their state.",
        "man": "Lists every registered plugin: id, tier, on/off state, and the contributions it currently installs."
+      },
+      "info": {
+       "action": "core.config.get.plugin.info",
+       "help": "Show one plugin's detail.",
+       "man": "Shows one plugin's runtime state (on/off, tier, version, category and contributions) plus, for external plugins, the manifest metadata (author, url, license, tools) and the install directory. With no id it lists the registered plugins."
+      },
+      "settings": {
+       "action": "core.config.get.plugin.settings",
+       "help": "Read an external plugin's settings.",
+       "man": "Usage: '/get plugin settings <id> [key]' prints every persisted setting of an external plugin, or a single key. Bundled plugins keep their state in plugin.conf and expose no settings."
       }
      }
     }
@@ -511,7 +521,12 @@
       "max": {
        "action": "core.config.set.subagent.max",
        "help": "Maximum concurrent sub-agents.",
-       "man": "Upper bound on simultaneously running worker agents when parallel is on. Range 1-16."
+       "man": "Upper bound on simultaneously running worker agents when parallel is on. Range 1-16.",
+       "type": "int",
+       "range": [
+        1,
+        16
+       ]
       }
      }
     },
@@ -546,9 +561,35 @@
      }
     },
     "plugin": {
-     "action": "core.config.set.plugin",
-     "help": "Enable or disable a plugin.",
-     "man": "Enables or disables a registered plugin: '/set plugin <id> on' or '/set plugin <id> off'. The change applies immediately and is persisted, so it survives a restart. Disabling a plugin removes everything it contributed - its tools, commands, prompt blocks and settings stop being available."
+     "help": "Enable, disable, install and remove plugins.",
+     "man": "The plugin namespace owns plugin state and packaging: '/set plugin on <id>' and '/set plugin off <id>' toggle a registered plugin (applied immediately, persisted), '/set plugin install <path|url>' stages an archive into the user plugin directory and leaves it disabled, '/set plugin uninstall <id>' removes it, and '/set plugin settings <id> <key>=<value>' persists an external plugin setting. State is read with '/get plugin list' and '/get plugin info <id>'.",
+     "children": {
+      "on": {
+       "action": "core.config.set.plugin.on",
+       "help": "Enable a plugin.",
+       "man": "Activates the plugin: its tools register in the agent's tool registry and its command namespaces merge into the completion tree. The state persists in plugin.conf. With no id, lists the registered plugins."
+      },
+      "off": {
+       "action": "core.config.set.plugin.off",
+       "help": "Disable a plugin.",
+       "man": "Deactivates the plugin: its tools unregister and its namespaces leave the completion tree. The state persists in plugin.conf. With no id, lists the registered plugins."
+      },
+      "install": {
+       "action": "core.config.set.plugin.install",
+       "help": "Install a plugin from a local archive or URL.",
+       "man": "Downloads or reads a tar.gz plugin archive, validates its manifest, and stages it into the user plugin directory. The plugin is left disabled: '/set plugin on <id>' activates it."
+      },
+      "uninstall": {
+       "action": "core.config.set.plugin.uninstall",
+       "help": "Remove an installed plugin.",
+       "man": "Deactivates the plugin and deletes it from the user plugin directory."
+      },
+      "settings": {
+       "action": "core.config.set.plugin.settings",
+       "help": "Write an external plugin setting.",
+       "man": "Usage: '/set plugin settings <id> <key>=<value>' persists a setting an external plugin reads at startup. '/get plugin settings <id>' shows the current values."
+      }
+     }
     }
    }
   },
@@ -792,58 +833,6 @@
    "action": "core.prompt",
    "help": "Invoke an MCP prompt template (fills the input line).",
    "man": "The prompt command invokes a prompt template exposed by an MCP server. The template's arguments are filled with the provided key=value pairs and the resulting prompt is placed into the input line for review before sending."
-  },
-  "plugin": {
-   "action": "core.plugin",
-   "help": "Manage plugins.",
-   "man": "The plugin command administers plugins: standalone programs that expose tools and command namespaces to the harness over a stdio JSON-RPC protocol. Plugins are packaged as a directory with manifest.json and are discovered in ~/.config/amber/plugins/, .amber/plugins/, and the system data dir. Use '/plugin list' to see installed plugins, '/plugin enable' / '/plugin disable' to toggle them, and '/plugin install <path|url>' to install a plugin archive.",
-   "children": {
-    "list": {
-     "action": "core.plugin.list",
-     "help": "List installed plugins and their state.",
-     "man": "Lists every discovered plugin with its id, version, author, and state (available/enabled/disabled/incompatible)."
-    },
-    "status": {
-     "action": "core.plugin.status",
-     "help": "Show the status of one plugin.",
-     "man": "Shows a plugin's manifest metadata, protocol version, enabled state, and settings."
-    },
-    "enable": {
-     "action": "core.plugin.enable",
-     "help": "Enable a plugin (loads its tools and namespaces).",
-     "man": "Activates the plugin: its tools register in the agent's tool registry and its command namespaces merge into the completion tree."
-    },
-    "disable": {
-     "action": "core.plugin.disable",
-     "help": "Disable a plugin.",
-     "man": "Deactivates the plugin: its tools unregister and its namespaces leave the completion tree."
-    },
-    "get": {
-     "action": "core.plugin.get",
-     "help": "Read a plugin setting.",
-     "man": "Shows the value of a plugin's persisted setting, or all settings when no key is given."
-    },
-    "set": {
-     "action": "core.plugin.set",
-     "help": "Set a plugin setting.",
-     "man": "Persists a key=value setting for the plugin, which it reads at startup."
-    },
-    "info": {
-     "action": "core.plugin.info",
-     "help": "Show plugin manifest details.",
-     "man": "Displays the full manifest: author, url, license, description, protocol version, exposed tools and namespaces."
-    },
-    "install": {
-     "action": "core.plugin.install",
-     "help": "Install a plugin from a local archive or URL.",
-     "man": "Downloads or reads a tar.gz plugin archive, validates its manifest, and stages it into the user plugin directory."
-    },
-    "uninstall": {
-     "action": "core.plugin.uninstall",
-     "help": "Remove an installed plugin.",
-     "man": "Deactivates and deletes the plugin from the user plugin directory."
-    }
-   }
   },
   "sessions": {
    "action": "core.session.list",

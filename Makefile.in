@@ -152,6 +152,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/setting_registry.o \
              $(BUILD_DIR)/tui/plugin_commands.o \
              $(BUILD_DIR)/tui/reasoning_block.o \
+             $(BUILD_DIR)/tui/plugin_feed.o \
              $(BUILD_DIR)/tui/dialog.o \
              $(BUILD_DIR)/tui/form_edit.o \
              $(BUILD_DIR)/tui/info_dialog.o \
@@ -392,8 +393,8 @@ check: $(BUILD_DIR)/smoketest
 test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test
 
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/third_party/md4c/md4c.o $(EXAMPLE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/third_party/md4c/md4c.o $(EXAMPLE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/third_party/md4c/md4c.o $(EXAMPLE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/third_party/md4c/md4c.o $(EXAMPLE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 	$(CXX) $(CXXFLAGS) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
@@ -404,8 +405,8 @@ $(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_brows
 $(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 	$(CXX) $(CXXFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 
-$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
-	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
+$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_feed.o
+	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_feed.o
 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)

@@ -1,4 +1,5 @@
 #include "feed_manager.h"
+#include "plugin_feed.h"
 #include "tui.h"
 
 #include <agent/job.h>
@@ -97,42 +98,29 @@ void FeedManager::refresh_model_list() {
     tui_.settings_.merge_completions_json(subtree);
 }
 
-// plugin state leaves: /set plugin <id> on|off toggles, /get plugin <id>
-// reports. Regenerated on every change so the drawer always matches the
-// runtime's actual state.
+// plugin control leaves: /set plugin on|off <id> toggles, /get plugin info <id>
+// reports. Ids hang under their verb, so the drawers of get.plugin and
+// set.plugin stay command lists whatever the plugin count. Regenerated on every
+// change so the tree always matches the runtime's actual state.
 void FeedManager::refresh_plugin_feed() {
-    nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& p : tui_.plugin_runtime_.list()) {
+    const auto plugins = tui_.plugin_runtime_.list();
+    std::vector<PluginFeedEntry> entries;
+    entries.reserve(plugins.size());
+    for (const auto& p : plugins)
+        entries.push_back({p.id, p.version, p.tier, p.enabled});
+    tui_.settings_.merge_completions_json(plugin_feed_subtree(entries));
+
+    for (const auto& p : plugins) {
         const std::string id = p.id;
-        const std::string state = p.enabled ? "on" : "off";
-
-        nlohmann::json& on = subtree["set"]["children"]["plugin"]["children"][id]
-                                     ["children"]["on"];
-        on["action"] = "core.config.set.plugin." + id + ".on";
-        on["help"] = p.enabled ? "already on" : "enable this plugin";
-        tui_.register_action(on["action"].get<std::string>(),
-                             [this, id](const std::string&) {
-                                 tui_.set_plugin(id, true);
-                                 tui_.refresh_plugin_feed();
-                             });
-
-        nlohmann::json& off = subtree["set"]["children"]["plugin"]["children"][id]
-                                      ["children"]["off"];
-        off["action"] = "core.config.set.plugin." + id + ".off";
-        off["help"] = p.enabled ? "disable this plugin" : "already off";
-        tui_.register_action(off["action"].get<std::string>(),
-                             [this, id](const std::string&) {
-                                 tui_.set_plugin(id, false);
-                                 tui_.refresh_plugin_feed();
-                             });
-
-        nlohmann::json& detail = subtree["get"]["children"]["plugin"]["children"][id];
-        detail["action"] = "core.config.get.plugin." + id;
-        detail["help"] = state + ", " + p.tier + " v" + p.version;
-        tui_.register_action(detail["action"].get<std::string>(),
+        tui_.register_action(plugin_action("get.plugin.info", id),
                              [this, id](const std::string&) { tui_.show_plugin(id); });
+        // set_plugin rebuilds the command tree (and with it this feed), so the
+        // rows always match the state the toggle left behind.
+        tui_.register_action(plugin_action("set.plugin.on", id),
+                             [this, id](const std::string&) { tui_.set_plugin(id, true); });
+        tui_.register_action(plugin_action("set.plugin.off", id),
+                             [this, id](const std::string&) { tui_.set_plugin(id, false); });
     }
-    tui_.settings_.merge_completions_json(subtree);
 }
 
 void FeedManager::refresh_job_feed() {
