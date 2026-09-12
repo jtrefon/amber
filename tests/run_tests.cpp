@@ -55,7 +55,8 @@ TEST(config_defaults) {
     ASSERT_EQ(c.model, "gpt-4o-mini");
     ASSERT_EQ(c.max_tool_iterations, 100);
     ASSERT_TRUE(c.stream);
-    ASSERT_EQ(agent::make_dialect(c.flavor)->chat_url(c), "http://localhost:8000/v1/chat/completions");
+    ASSERT_EQ(agent::make_dialect(c.flavor)->chat_url(c),
+              "http://localhost:8000/v1/chat/completions");
 }
 
 TEST(config_validate_accepts_defaults) {
@@ -65,17 +66,17 @@ TEST(config_validate_accepts_defaults) {
 
 TEST(config_validate_flags_problems) {
     agent::Config c;
-    c.api_base = "localhost:8000/v1";   // missing scheme
-    c.model = "";                       // empty
-    c.max_tool_iterations = 0;          // too small
-    c.temperature = 5.0;                // out of range
-    c.max_tokens = 0;                   // zero
-    c.thinking = "sometimes";           // invalid enum
+    c.api_base = "localhost:8000/v1"; // missing scheme
+    c.model = "";                     // empty
+    c.max_tool_iterations = 0;        // too small
+    c.temperature = 5.0;              // out of range
+    c.max_tokens = 0;                 // zero
+    c.thinking = "sometimes";         // invalid enum
     auto errs = c.validate();
     ASSERT(errs.size() >= 6);
 
     agent::Config trailing;
-    trailing.api_base = "http://localhost:8000/v1/";  // trailing slash
+    trailing.api_base = "http://localhost:8000/v1/"; // trailing slash
     ASSERT_FALSE(trailing.validate().empty());
 }
 
@@ -169,8 +170,7 @@ TEST(config_save_settings_keeps_llm_global) {
     ASSERT_EQ(d.debug_log, "/tmp/amber_debug.log");
     // And the raw file must not contain the LLM keys.
     std::ifstream f(path);
-    std::string body((std::istreambuf_iterator<char>(f)),
-                     std::istreambuf_iterator<char>());
+    std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     std::fprintf(stderr, "[dbg] body(%zu): %.300s\n", body.size(), body.c_str());
     ASSERT(body.find("api_base=") == std::string::npos);
     std::fprintf(stderr, "[dbg] body(%zu): %.300s\n", body.size(), body.c_str());
@@ -195,8 +195,8 @@ TEST(config_blank_model_and_zero_context_stay_auto) {
     {
         std::ofstream f(path);
         f << "api_base=http://localhost:8080/v1\n";
-        f << "model=\n";            // blank => auto-detect
-        f << "context_size=0\n";    // zero  => auto-detect
+        f << "model=\n";         // blank => auto-detect
+        f << "context_size=0\n"; // zero  => auto-detect
     }
     agent::Config c;
     c.load(path);
@@ -295,13 +295,13 @@ TEST(config_provider_plugin_disabled_is_not_offered) {
 
     auto svc = agent::make_default_provider_service(env.cfg);
     ASSERT_FALSE(svc->select("openrouter").ok());
-    ASSERT_TRUE(svc->select("kilocode").ok());   // the others are unaffected
+    ASSERT_TRUE(svc->select("kilocode").ok()); // the others are unaffected
 }
 
 TEST(config_provider_unknown_is_loud_error) {
     auto svc = agent::make_default_provider_service(agent::Config{});
     auto sel = svc->select("nonexistent");
-    ASSERT_FALSE(sel.ok());  // never a silent fallback
+    ASSERT_FALSE(sel.ok()); // never a silent fallback
 }
 
 TEST(config_global_save_roundtrip_preserves_provider) {
@@ -346,7 +346,7 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
 // contribution that installs it. The display falls back to a generic word when
 // one is missing, so a forgotten verb is invisible at runtime — which is
 // exactly why it is asserted here against the real set.
-TEST(core_tools_declare_their_display_verbs) {
+TEST(tool_plugins_declare_their_display_verbs) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
@@ -389,8 +389,7 @@ TEST(kilocode_plugin_resolves_its_own_balance_token) {
     // The explicit override wins regardless of the active provider.
     cfg.kilo_balance_token = "kilo-override";
     cfg.provider_name = "openrouter";
-    ASSERT_EQ(agent::plugins::kilocode_balance_token(cfg),
-              std::string("kilo-override"));
+    ASSERT_EQ(agent::plugins::kilocode_balance_token(cfg), std::string("kilo-override"));
 
     // No key at all: nothing to fetch with.
     agent::Config anon;
@@ -417,13 +416,13 @@ TEST(apply_selection_copies_flavor_from_the_provider) {
     ASSERT(kilo.ok());
     agent::Config kilo_cfg;
     agent::apply_selection(kilo_cfg, kilo);
-    ASSERT_EQ(kilo_cfg.flavor, "openai");   // the gateway speaks openai
+    ASSERT_EQ(kilo_cfg.flavor, "openai"); // the gateway speaks openai
 
     auto gemini = svc->select("gemini");
     ASSERT(gemini.ok());
     agent::Config gemini_cfg;
     agent::apply_selection(gemini_cfg, gemini);
-    ASSERT_EQ(gemini_cfg.flavor, "gemini");  // served by the plugin's preset
+    ASSERT_EQ(gemini_cfg.flavor, "gemini"); // served by the plugin's preset
 
     std::filesystem::remove_all("/tmp/amber_xdg_caps");
     unsetenv("XDG_CONFIG_HOME");
@@ -439,7 +438,7 @@ TEST(flavor_is_derived_and_not_persisted) {
 
     agent::Config back;
     back.load(path);
-    ASSERT_EQ(back.flavor, "openai");   // default, not stored
+    ASSERT_EQ(back.flavor, "openai"); // default, not stored
     std::remove(path.c_str());
 }
 
@@ -488,7 +487,7 @@ TEST(provider_builtin_key_save_clears_warning) {
         ASSERT(sel2.ok());
         ASSERT_EQ(sel2.provider.api_key, "kilo-sk-test");
         ASSERT_EQ(sel2.provider.api_base, "https://api.kilo.ai/api/gateway");
-        ASSERT(sel2.warning.empty());   // no re-prompt after restart
+        ASSERT(sel2.warning.empty()); // no re-prompt after restart
     }
     std::filesystem::remove_all("/tmp/amber_xdg_builtin_key");
     unsetenv("XDG_CONFIG_HOME");
@@ -500,7 +499,8 @@ TEST(config_validate_skips_api_key_for_custom) {
     auto errs = c.validate();
     bool found = false;
     for (const auto& e : errs)
-        if (e.find("api_key") != std::string::npos) found = true;
+        if (e.find("api_key") != std::string::npos)
+            found = true;
     ASSERT_FALSE(found);
 }
 
@@ -543,7 +543,7 @@ TEST(request_body_survives_invalid_utf8) {
     tool.tool_call_id = "x";
     // 0x66 ('f') followed by a lone continuation byte 0x80 — invalid UTF-8.
     std::string bad = "hits:\nfoo";
-    bad.push_back(static_cast<char>(0x80));  // lone continuation byte: invalid UTF-8
+    bad.push_back(static_cast<char>(0x80)); // lone continuation byte: invalid UTF-8
     bad += "bar";
     tool.content = bad;
     msgs.push_back(tool);
@@ -558,7 +558,7 @@ TEST(request_body_survives_invalid_utf8) {
         threw = true;
     }
     ASSERT_FALSE(threw);
-    ASSERT(payload.find("\xEF\xBF\xBD") != std::string::npos);  // U+FFFD present
+    ASSERT(payload.find("\xEF\xBF\xBD") != std::string::npos); // U+FFFD present
 }
 
 TEST(request_builder_merges_consecutive_system_messages) {
@@ -570,9 +570,18 @@ TEST(request_builder_merges_consecutive_system_messages) {
     // common prefix tokens stay identical either way.
     agent::Config c;
     std::vector<agent::Message> msgs;
-    agent::Message s1; s1.role = "system"; s1.content = "main prompt"; msgs.push_back(s1);
-    agent::Message s2; s2.role = "system"; s2.content = "memories block"; msgs.push_back(s2);
-    agent::Message u; u.role = "user"; u.content = "hi"; msgs.push_back(u);
+    agent::Message s1;
+    s1.role = "system";
+    s1.content = "main prompt";
+    msgs.push_back(s1);
+    agent::Message s2;
+    s2.role = "system";
+    s2.content = "memories block";
+    msgs.push_back(s2);
+    agent::Message u;
+    u.role = "user";
+    u.content = "hi";
+    msgs.push_back(u);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
     json body = agent::make_dialect("openai")->build_chat_body(c, msgs, no_tools, false);
@@ -599,11 +608,21 @@ TEST(request_builder_hoists_midstream_system_into_leading_block) {
     // ONE block emitted BEFORE the first non-system message.
     agent::Config c;
     std::vector<agent::Message> msgs;
-    agent::Message s1; s1.role = "system"; s1.content = "main prompt"; msgs.push_back(s1);
-    agent::Message u;  u.role = "user";    u.content = "hi";         msgs.push_back(u);
-    agent::Message a;  a.role = "assistant"; a.content = "hello";    msgs.push_back(a);
+    agent::Message s1;
+    s1.role = "system";
+    s1.content = "main prompt";
+    msgs.push_back(s1);
+    agent::Message u;
+    u.role = "user";
+    u.content = "hi";
+    msgs.push_back(u);
+    agent::Message a;
+    a.role = "assistant";
+    a.content = "hello";
+    msgs.push_back(a);
     // Trailing system: the compressed-context archive after the turns.
-    agent::Message arch; arch.role = "system";
+    agent::Message arch;
+    arch.role = "system";
     arch.content = "Compressed conversation context:\n{\"archive\":[]}";
     msgs.push_back(arch);
 
@@ -613,7 +632,8 @@ TEST(request_builder_hoists_midstream_system_into_leading_block) {
     // Exactly one system message, at the front, carrying BOTH system contents.
     size_t system_count = 0;
     for (const auto& m : wire)
-        if (m["role"] == "system") ++system_count;
+        if (m["role"] == "system")
+            ++system_count;
     ASSERT_EQ(system_count, 1u);
     ASSERT_EQ(wire[0]["role"], "system");
     std::string sys = wire[0]["content"];
@@ -633,11 +653,19 @@ TEST(request_builder_assistant_message_always_has_content) {
     // stripped/empty reply never produces a malformed request.
     agent::Config c;
     std::vector<agent::Message> msgs;
-    agent::Message u; u.role = "user"; u.content = "think hard"; msgs.push_back(u);
-    agent::Message a; a.role = "assistant"; a.content = "";  // empty, no tool_calls
+    agent::Message u;
+    u.role = "user";
+    u.content = "think hard";
+    msgs.push_back(u);
+    agent::Message a;
+    a.role = "assistant";
+    a.content = ""; // empty, no tool_calls
     msgs.push_back(a);
-    agent::Message t; t.role = "tool"; t.name = "read"; t.tool_call_id = "c1";
-    t.content = "";  // empty tool result
+    agent::Message t;
+    t.role = "tool";
+    t.name = "read";
+    t.tool_call_id = "c1";
+    t.content = ""; // empty tool result
     msgs.push_back(t);
 
     std::vector<std::shared_ptr<agent::Tool>> no_tools;
@@ -658,17 +686,19 @@ TEST(request_builder_assistant_message_always_has_content) {
 TEST(request_builder_sanitizes_placeholder_tool_calls) {
     agent::Config c;
     std::vector<agent::Message> msgs;
-    agent::Message u; u.role = "user"; u.content = "hi"; msgs.push_back(u);
-    agent::Message a; a.role = "assistant";
+    agent::Message u;
+    u.role = "user";
+    u.content = "hi";
+    msgs.push_back(u);
+    agent::Message a;
+    a.role = "assistant";
     a.tool_calls = json::array({
-        json::object(),   // <-- the corrupt placeholder (messages.7 case)
-        {{"function", {{"name", "bash"},
-                       {"arguments", R"({"command":"ls -loha"})"}}},
-         {"id", "call_1"}},                    // type missing -> defaulted
+        json::object(), // <-- the corrupt placeholder (messages.7 case)
+        {{"function", {{"name", "bash"}, {"arguments", R"({"command":"ls -loha"})"}}},
+         {"id", "call_1"}}, // type missing -> defaulted
         {{"type", "function"},
-         {"function", {{"name", "read"},
-                       {"arguments", R"({"path":"a.txt"})"}}},
-         {"id", "call_2"}}                     // fully valid, unchanged
+         {"function", {{"name", "read"}, {"arguments", R"({"path":"a.txt"})"}}},
+         {"id", "call_2"}} // fully valid, unchanged
     });
     msgs.push_back(a);
 
@@ -677,7 +707,7 @@ TEST(request_builder_sanitizes_placeholder_tool_calls) {
     const auto& wire = body["messages"][1]["tool_calls"];
     ASSERT_EQ(wire.size(), 2u);
     ASSERT_EQ(wire[0]["function"]["name"], "bash");
-    ASSERT_EQ(wire[0]["type"], "function");   // defaulted, not absent
+    ASSERT_EQ(wire[0]["type"], "function"); // defaulted, not absent
     ASSERT_EQ(wire[1]["id"], "call_2");
     ASSERT_EQ(wire[1]["type"], "function");
     // No element is an empty placeholder.
@@ -693,7 +723,8 @@ TEST(request_builder_sanitizes_placeholder_tool_calls) {
 TEST(request_builder_all_placeholder_tool_calls_degrades) {
     agent::Config c;
     std::vector<agent::Message> msgs;
-    agent::Message a; a.role = "assistant";
+    agent::Message a;
+    a.role = "assistant";
     a.content = "I tried but nothing ran.";
     a.tool_calls = json::array({json::object(), json::object()});
     msgs.push_back(a);
@@ -708,7 +739,8 @@ TEST(request_builder_all_placeholder_tool_calls_degrades) {
 // The buffered (non-streaming) ingestion path applies the same sanitizer, so
 // junk from a server response never enters the context stack either.
 TEST(message_from_completion_sanitizes_tool_calls) {
-    std::string body = R"({"choices":[{"message":{)"
+    std::string body =
+        R"({"choices":[{"message":{)"
         R"("role":"assistant","content":null,"tool_calls":[)"
         R"({},)"
         R"({"function":{"name":"read","arguments":"{\"path\":\"a.txt\"}"},"id":"c1"})"
@@ -717,7 +749,7 @@ TEST(message_from_completion_sanitizes_tool_calls) {
     ASSERT(m.tool_calls.is_array());
     ASSERT_EQ(m.tool_calls.size(), 1u);
     ASSERT_EQ(m.tool_calls[0]["function"]["name"], "read");
-    ASSERT_EQ(m.tool_calls[0]["type"], "function");   // defaulted
+    ASSERT_EQ(m.tool_calls[0]["type"], "function"); // defaulted
 }
 
 // ---------------------------------------------------------------------------
@@ -754,7 +786,8 @@ public:
     std::vector<agent::Provider> all() const override { return items; }
     std::optional<agent::Provider> find(const std::string& n) const override {
         for (const auto& p : items)
-            if (p.name == n) return p;
+            if (p.name == n)
+                return p;
         return std::nullopt;
     }
     bool save(const agent::Provider& p) override {
@@ -762,18 +795,15 @@ public:
         return save_ret;
     }
     bool remove(const std::string& n) override {
-        items.erase(
-            std::remove_if(items.begin(), items.end(),
-                           [&](const agent::Provider& p) {
-                               return p.name == n;
-                           }),
-            items.end());
+        items.erase(std::remove_if(items.begin(), items.end(),
+                                   [&](const agent::Provider& p) { return p.name == n; }),
+                    items.end());
         return true;
     }
 };
 
-std::vector<std::unique_ptr<agent::ProviderRepository>> make_repos(
-    std::unique_ptr<agent::ProviderRepository> repo) {
+std::vector<std::unique_ptr<agent::ProviderRepository>>
+make_repos(std::unique_ptr<agent::ProviderRepository> repo) {
     std::vector<std::unique_ptr<agent::ProviderRepository>> v;
     v.push_back(std::move(repo));
     return v;
@@ -781,8 +811,7 @@ std::vector<std::unique_ptr<agent::ProviderRepository>> make_repos(
 
 class FakeModelCatalog : public agent::ModelCatalog {
 public:
-    std::vector<std::string> list_models(
-        const agent::Provider&) const override {
+    std::vector<std::string> list_models(const agent::Provider&) const override {
         return {"m1", "m2"};
     }
 };
@@ -800,8 +829,8 @@ agent::Provider test_provider(const std::string& name, const std::string& base,
 TEST(provider_service_select_applies_connection) {
     auto repo = std::make_unique<FakeProviderRepo>();
     repo->items.push_back(test_provider("alpha", "https://alpha.test/v1"));
-    auto svc = agent::ProviderService(
-        make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+    auto svc =
+        agent::ProviderService(make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
 
     auto sel = svc.select("alpha");
     ASSERT(sel.ok());
@@ -816,9 +845,8 @@ TEST(provider_service_select_applies_connection) {
 }
 
 TEST(provider_service_select_unknown_fails) {
-    auto svc = agent::ProviderService(
-        make_repos(std::make_unique<FakeProviderRepo>()),
-        std::make_unique<FakeModelCatalog>());
+    auto svc = agent::ProviderService(make_repos(std::make_unique<FakeProviderRepo>()),
+                                      std::make_unique<FakeModelCatalog>());
     auto sel = svc.select("does-not-exist");
     ASSERT_FALSE(sel.ok());
     ASSERT(sel.error.find("unknown provider") != std::string::npos);
@@ -829,8 +857,8 @@ TEST(provider_service_select_unconfigured_fails) {
     // loud error, never a silent fallback to another provider.
     auto repo = std::make_unique<FakeProviderRepo>();
     repo->items.push_back(test_provider("custom", ""));
-    auto svc = agent::ProviderService(
-        make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+    auto svc =
+        agent::ProviderService(make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
     auto sel = svc.select("custom");
     ASSERT_FALSE(sel.ok());
     ASSERT(sel.error.find("no endpoint") != std::string::npos);
@@ -838,10 +866,9 @@ TEST(provider_service_select_unconfigured_fails) {
 
 TEST(provider_service_auto_loads_last_model) {
     auto repo = std::make_unique<FakeProviderRepo>();
-    repo->items.push_back(test_provider("alpha", "https://alpha.test/v1",
-                                        "alpha-last-model"));
-    auto svc = agent::ProviderService(
-        make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+    repo->items.push_back(test_provider("alpha", "https://alpha.test/v1", "alpha-last-model"));
+    auto svc =
+        agent::ProviderService(make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
     auto sel = svc.select("alpha");
     agent::Config cfg;
     agent::apply_selection(cfg, sel);
@@ -853,8 +880,8 @@ TEST(provider_service_remember_model_persists) {
     auto repo = std::make_unique<FakeProviderRepo>();
     repo->items.push_back(test_provider("alpha", "https://alpha.test/v1"));
     auto* raw = repo.get();
-    auto svc = agent::ProviderService(
-        make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+    auto svc =
+        agent::ProviderService(make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
     ASSERT(svc.remember_model("alpha", "new-model"));
     ASSERT_EQ(raw->saved.size(), 1u);
     ASSERT_EQ(raw->saved[0].name, "alpha");
@@ -870,13 +897,13 @@ TEST(provider_service_available_merges_and_dedups) {
     std::vector<std::unique_ptr<agent::ProviderRepository>> repos;
     repos.push_back(std::move(repo1));
     repos.push_back(std::move(repo2));
-    auto svc = agent::ProviderService(std::move(repos),
-                                      std::make_unique<FakeModelCatalog>());
+    auto svc = agent::ProviderService(std::move(repos), std::make_unique<FakeModelCatalog>());
     auto all = svc.available();
     size_t shared = 0;
     for (const auto& p : all)
-        if (p.name == "shared") shared++;
-    ASSERT_EQ(shared, 1u);  // de-duplicated
+        if (p.name == "shared")
+            shared++;
+    ASSERT_EQ(shared, 1u); // de-duplicated
     ASSERT_EQ(all.size(), 2u);
     // Later repository wins on collision.
     for (const auto& p : all)
@@ -895,7 +922,7 @@ TEST(provider_custom_is_a_plugin_preset) {
         if (p.name == "custom") {
             found = true;
             ASSERT(p.builtin);
-            ASSERT_TRUE(p.api_base.empty());   // the file supplies it
+            ASSERT_TRUE(p.api_base.empty()); // the file supplies it
         }
     ASSERT(found);
     auto sel = svc->select("custom");
@@ -920,8 +947,7 @@ TEST(provider_custom_file_override_wins) {
     ASSERT_EQ(sel.provider.default_model, "custom-model");
 
     // Removing the file restores the unconfigured preset.
-    std::filesystem::remove(agent::global_config_dir() +
-                            "/providers/custom.conf");
+    std::filesystem::remove(agent::global_config_dir() + "/providers/custom.conf");
     auto svc2 = agent::make_default_provider_service(env.cfg);
     auto sel2 = svc2->select("custom");
     ASSERT_FALSE(sel2.ok());
@@ -935,12 +961,10 @@ TEST(provider_seed_writes_all_keys) {
     conn.model = "seed-model";
     conn.context_size = 12345;
     ASSERT(agent::seed_provider("custom", conn));
-    const std::string path =
-        agent::global_config_dir() + "/providers/custom.conf";
+    const std::string path = agent::global_config_dir() + "/providers/custom.conf";
     std::ifstream f(path);
     ASSERT(f.good());
-    std::string content((std::istreambuf_iterator<char>(f)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     ASSERT(content.find("provider=custom") != std::string::npos);
     ASSERT(content.find("api_base=https://seed.test/v1") != std::string::npos);
     ASSERT(content.find("api_key=sk-seed") != std::string::npos);
@@ -955,8 +979,8 @@ TEST(provider_seed_writes_all_keys) {
     // The helper is name-agnostic: any provider the user configures writes its
     // own file, and an empty name is refused rather than writing "*.conf".
     ASSERT_TRUE(agent::seed_provider("my-endpoint", conn));
-    ASSERT_TRUE(std::filesystem::exists(
-        agent::global_config_dir() + "/providers/my-endpoint.conf"));
+    ASSERT_TRUE(
+        std::filesystem::exists(agent::global_config_dir() + "/providers/my-endpoint.conf"));
     ASSERT_FALSE(agent::seed_provider("", conn));
 }
 
@@ -1001,9 +1025,7 @@ TEST(file_provider_repository_roundtrip) {
     std::filesystem::create_directories(dir);
     auto repo = agent::make_file_provider_repository();
     ASSERT(repo != nullptr);
-    agent::Provider p = test_provider("zzz_roundtrip",
-                                      "https://roundtrip.test/v1",
-                                      "last-model");
+    agent::Provider p = test_provider("zzz_roundtrip", "https://roundtrip.test/v1", "last-model");
     p.requires_key = true;
     ASSERT(repo->save(p));
     auto found = repo->find("zzz_roundtrip");
@@ -1026,10 +1048,11 @@ TEST(registry_repeated_registration_dedups) {
     agent::register_default_tools(r, jobs, todos);
     const size_t first = r.snapshot_tools().size();
     agent::register_default_tools(r, jobs, todos);
-    ASSERT_EQ(r.snapshot_tools().size(), first);  // no duplicates
+    ASSERT_EQ(r.snapshot_tools().size(), first); // no duplicates
     std::set<std::string> names;
-    for (const auto& t : r.snapshot_tools()) names.insert(t->name());
-    ASSERT_EQ(names.size(), first);      // schema names unique
+    for (const auto& t : r.snapshot_tools())
+        names.insert(t->name());
+    ASSERT_EQ(names.size(), first); // schema names unique
 }
 
 // The OpenAI tools[] payload is the dialect's responsibility, built from the
@@ -1048,8 +1071,8 @@ TEST(dialect_openai_builds_tool_payload) {
     user.content = "hi";
     msgs.push_back(user);
 
-    agent::json body = agent::make_dialect("openai")->build_chat_body(
-        cfg, msgs, r.snapshot_tools(), false);
+    agent::json body =
+        agent::make_dialect("openai")->build_chat_body(cfg, msgs, r.snapshot_tools(), false);
     const agent::json& s = body["tools"];
     ASSERT(s.is_array());
     ASSERT_EQ(s.size(), 7u);
@@ -1092,7 +1115,7 @@ TEST(prompt_render_tools_markdown_lists_all) {
     ASSERT(md.find("`write`") != std::string::npos);
     ASSERT(md.find("`search`") != std::string::npos);
     ASSERT(md.find("`bash`") != std::string::npos);
-    ASSERT(md.find("path") != std::string::npos);   // a known parameter
+    ASSERT(md.find("path") != std::string::npos); // a known parameter
 }
 
 // ---------------------------------------------------------------------------
@@ -1104,7 +1127,8 @@ TEST(read_tool_basic_and_pagination) {
     std::string path = "/tmp/amber_read_test.txt";
     {
         std::ofstream f(path);
-        for (int i = 1; i <= 10; ++i) f << "line " << i << "\n";
+        for (int i = 1; i <= 10; ++i)
+            f << "line " << i << "\n";
     }
     auto tool = agent::make_read_tool();
     auto r = tool->execute({{"path", path}, {"offset", 1}, {"limit", 3}});
@@ -1128,7 +1152,7 @@ TEST(read_tool_basic_and_pagination) {
 
 TEST(read_tool_missing_path_errors) {
     auto tool = agent::make_read_tool();
-    auto r = tool->execute({{"limit", 5}});   // no path
+    auto r = tool->execute({{"limit", 5}}); // no path
     ASSERT_FALSE(r.ok);
     ASSERT_FALSE(r.error.empty());
 }
@@ -1154,19 +1178,21 @@ TEST(write_tool_create_then_patch) {
     std::remove(path.c_str());
     auto tool = agent::make_write_tool();
 
-    auto r = tool->execute({{"path", path},
-                            {"edits", {{{"old", ""}, {"new", "alpha\nbeta\n"}}}}});
+    auto r = tool->execute({{"path", path}, {"edits", {{{"old", ""}, {"new", "alpha\nbeta\n"}}}}});
     ASSERT_TRUE(r.ok);
     {
-        std::ifstream f(path); std::stringstream ss; ss << f.rdbuf();
+        std::ifstream f(path);
+        std::stringstream ss;
+        ss << f.rdbuf();
         ASSERT_EQ(ss.str(), "alpha\nbeta\n");
     }
 
-    auto r2 = tool->execute({{"path", path},
-                             {"edits", {{{"old", "beta"}, {"new", "gamma"}}}}});
+    auto r2 = tool->execute({{"path", path}, {"edits", {{{"old", "beta"}, {"new", "gamma"}}}}});
     ASSERT_TRUE(r2.ok);
     {
-        std::ifstream f(path); std::stringstream ss; ss << f.rdbuf();
+        std::ifstream f(path);
+        std::stringstream ss;
+        ss << f.rdbuf();
         ASSERT_EQ(ss.str(), "alpha\ngamma\n");
     }
     std::remove(path.c_str());
@@ -1177,8 +1203,7 @@ TEST(write_tool_missing_old_fails) {
     std::string path = "/tmp/amber_write_test2.txt";
     std::remove(path.c_str());
     auto tool = agent::make_write_tool();
-    auto r = tool->execute({{"path", path},
-                            {"edits", {{{"old", "nope"}, {"new", "x"}}}}});
+    auto r = tool->execute({{"path", path}, {"edits", {{{"old", "nope"}, {"new", "x"}}}}});
     ASSERT_FALSE(r.ok);
     ASSERT(r.error.find("not found") != std::string::npos);
     std::remove(path.c_str());
@@ -1189,8 +1214,7 @@ TEST(write_tool_result_reports_relative_path) {
     std::string path = "/tmp/amber_write_rel88.txt";
     std::remove(path.c_str());
     auto tool = agent::make_write_tool();
-    auto r = tool->execute({{"path", path},
-                            {"edits", {{{"old", ""}, {"new", "x\n"}}}}});
+    auto r = tool->execute({{"path", path}, {"edits", {{{"old", ""}, {"new", "x\n"}}}}});
     ASSERT_TRUE(r.ok);
     ASSERT(r.output.find("/tmp/amber_write_rel88.txt") == std::string::npos);
     ASSERT(r.output.find("amber_write_rel88.txt") != std::string::npos);
@@ -1232,8 +1256,7 @@ TEST(read_write_tools_reject_paths_outside_workspace) {
     ASSERT(rr.error.find("workspace") != std::string::npos);
 
     auto wtool = agent::make_write_tool();
-    auto wr = wtool->execute({{"path", "../escape.txt"},
-                              {"edits", {{{"old", ""}, {"new", "x"}}}}});
+    auto wr = wtool->execute({{"path", "../escape.txt"}, {"edits", {{{"old", ""}, {"new", "x"}}}}});
     ASSERT_FALSE(wr.ok);
     ASSERT(wr.error.find("workspace") != std::string::npos);
 }
@@ -1241,8 +1264,7 @@ TEST(read_write_tools_reject_paths_outside_workspace) {
 TEST(workspace_rejects_symlink_escape) {
     std::string root = "/tmp/amber_ws_symlink";
     std::string outside = "/tmp/amber_outside_symlink";
-    run_cmd("rm -rf " + root + " " + outside + " && mkdir -p " + root +
-            " && mkdir -p " + outside);
+    run_cmd("rm -rf " + root + " " + outside + " && mkdir -p " + root + " && mkdir -p " + outside);
     agent::Workspace::set_root(root);
 
     // A symlink inside the workspace that points outside must not be readable
@@ -1257,8 +1279,8 @@ TEST(workspace_rejects_symlink_escape) {
     ASSERT_FALSE(rr.ok);
 
     auto wtool = agent::make_write_tool();
-    auto wr = wtool->execute({{"path", "escape/pwned.txt"},
-                              {"edits", {{{"old", ""}, {"new", "x"}}}}});
+    auto wr =
+        wtool->execute({{"path", "escape/pwned.txt"}, {"edits", {{{"old", ""}, {"new", "x"}}}}});
     ASSERT_FALSE(wr.ok);
     ASSERT_FALSE(std::filesystem::exists(outside + "/pwned.txt"));
 
@@ -1270,7 +1292,7 @@ TEST(workspace_rejects_symlink_escape) {
     ASSERT_EQ(resolved, root + "/inner/real/file.txt");
     auto rtool2 = agent::make_read_tool();
     auto rr2 = rtool2->execute({{"path", "inner/real/file.txt"}});
-    ASSERT_FALSE(rr2.ok);  // file does not exist yet — but confine must not reject the path
+    ASSERT_FALSE(rr2.ok); // file does not exist yet — but confine must not reject the path
 }
 
 // ---------------------------------------------------------------------------
@@ -1306,8 +1328,10 @@ TEST(search_grep_backend) {
     ASSERT_FALSE(hits.empty());
     bool saw_a = false, saw_b = false;
     for (const auto& h : hits) {
-        if (h.path.find("a.cpp") != std::string::npos) saw_a = true;
-        if (h.path.find("b.cpp") != std::string::npos) saw_b = true;
+        if (h.path.find("a.cpp") != std::string::npos)
+            saw_a = true;
+        if (h.path.find("b.cpp") != std::string::npos)
+            saw_b = true;
         ASSERT(h.line_no > 0);
     }
     ASSERT(saw_a && saw_b);
@@ -1364,7 +1388,8 @@ TEST(sec03_grep_backend_pattern_starting_with_dash) {
     ASSERT_FALSE(hits.empty());
     bool found = false;
     for (const auto& h : hits) {
-        if (h.line.find("-foo") != std::string::npos) found = true;
+        if (h.line.find("-foo") != std::string::npos)
+            found = true;
     }
     ASSERT(found);
     run_cmd("rm -rf " + dir);
@@ -1408,7 +1433,7 @@ TEST(sec03_search_tool_clamps_max) {
     auto tool = agent::make_search_tool();
     // A huge max must not crash or produce an unbounded query.
     auto r = tool->execute({{"pattern", "x"}, {"max", 999999999}});
-    ASSERT_TRUE(r.ok);  // it runs, just clamped
+    ASSERT_TRUE(r.ok); // it runs, just clamped
     run_cmd("rm -rf /tmp/amber_sec03_sym /tmp/amber_sec03_outside");
 }
 
@@ -1418,16 +1443,18 @@ TEST(search_tool_mode_switch) {
     auto tool = agent::make_search_tool();
 
     auto g = tool->execute({{"pattern", "register_default_tools"},
-                            {"path", dir}, {"glob", "*.cpp"}, {"mode", "grep"}});
+                            {"path", dir},
+                            {"glob", "*.cpp"},
+                            {"mode", "grep"}});
     ASSERT_TRUE(g.ok);
     ASSERT(g.output.find("[grep]") != std::string::npos);
 
-    auto s = tool->execute({{"pattern", "register the default tools"},
-                            {"path", dir}, {"mode", "semantic"}});
+    auto s = tool->execute(
+        {{"pattern", "register the default tools"}, {"path", dir}, {"mode", "semantic"}});
     ASSERT_TRUE(s.ok);
     ASSERT(s.output.find("[semantic]") != std::string::npos);
     run_cmd("rm -rf " + dir);
-    agent::Workspace::set_root(".");   // leave a valid root for later tests
+    agent::Workspace::set_root("."); // leave a valid root for later tests
 }
 
 // ---------------------------------------------------------------------------
@@ -1437,8 +1464,8 @@ TEST(search_tool_mode_switch) {
 TEST(probe_parse_llamacpp_models) {
     // Real llama.cpp /v1/models shape (trimmed): id + meta.n_ctx/n_ctx_train.
     std::string body = R"({"object":"list","data":[{"id":"Qwopus3.6-27B.gguf",)"
-        R"("object":"model","owned_by":"llamacpp","meta":{"n_vocab":248320,)"
-        R"("n_ctx":262144,"n_ctx_train":262144,"n_embd":5120}}]})";
+                       R"("object":"model","owned_by":"llamacpp","meta":{"n_vocab":248320,)"
+                       R"("n_ctx":262144,"n_ctx_train":262144,"n_embd":5120}}]})";
     agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "Qwopus3.6-27B.gguf");
@@ -1448,8 +1475,7 @@ TEST(probe_parse_llamacpp_models) {
 
 TEST(probe_parse_models_array_fallback) {
     // Ollama-ish {"models":[{"name":..,"n_ctx":..}]} fallback shape.
-    std::string body =
-        R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192}]})";
+    std::string body = R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192}]})";
     agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "llama-3.2-3b");
@@ -1469,9 +1495,9 @@ TEST(probe_parse_models_malformed_is_not_ok) {
 // disabled.
 TEST(probe_parse_kilocode_context_length) {
     std::string body = R"({"data":[{"id":"kilo-auto/free","object":"model",)"
-        R"("owned_by":"kilo","context_length":256000,"meta":null},)"
-        R"({"id":"kilo-auto/frontier","object":"model",)"
-        R"("owned_by":"kilo","context_length":1000000,"meta":null}]})";
+                       R"("owned_by":"kilo","context_length":256000,"meta":null},)"
+                       R"({"id":"kilo-auto/frontier","object":"model",)"
+                       R"("owned_by":"kilo","context_length":1000000,"meta":null}]})";
     agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "kilo-auto/free");
@@ -1483,7 +1509,7 @@ TEST(probe_parse_kilocode_context_length) {
 // llama.cpp shape wins — it is the loaded model's real window.
 TEST(probe_prefers_n_ctx_over_context_length) {
     std::string body = R"({"data":[{"id":"hybrid","object":"model",)"
-        R"("meta":{"n_ctx":32768,"n_ctx_train":32768},"context_length":131072}]})";
+                       R"("meta":{"n_ctx":32768,"n_ctx_train":32768},"context_length":131072}]})";
     agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.context_size, 32768);
@@ -1494,8 +1520,8 @@ TEST(probe_prefers_n_ctx_over_context_length) {
 // ahead of the one the user actually runs).
 TEST(probe_prefers_the_active_model) {
     std::string body = R"({"data":[{"id":"Devstral-Small-2-24B","object":"model",)"
-        R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
-        R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
+                       R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
+                       R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
     agent::ServerInfo info =
         agent::make_dialect("openai")->parse_models_response(body, "Qwopus3.6-27B-Fusion");
     ASSERT_TRUE(info.ok);
@@ -1505,19 +1531,19 @@ TEST(probe_prefers_the_active_model) {
 
 TEST(probe_active_model_without_meta_is_unknown) {
     std::string body = R"({"data":[{"id":"Devstral-Small-2-24B","object":"model",)"
-        R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
-        R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
+                       R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
+                       R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
     agent::ServerInfo info =
         agent::make_dialect("openai")->parse_models_response(body, "Devstral-Small-2-24B");
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "Devstral-Small-2-24B");
-    ASSERT_EQ(info.context_size, 0);  // honest: no metadata, no fabrication
+    ASSERT_EQ(info.context_size, 0); // honest: no metadata, no fabrication
 }
 
 TEST(probe_falls_back_to_first_model_with_context) {
     std::string body = R"({"data":[{"id":"Devstral-Small-2-24B","object":"model",)"
-        R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
-        R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
+                       R"("owned_by":"llamacpp"},{"id":"Qwopus3.6-27B-Fusion","object":"model",)"
+                       R"("owned_by":"llamacpp","meta":{"n_ctx":262144,"n_ctx_train":262144}}]})";
     agent::ServerInfo info = agent::make_dialect("openai")->parse_models_response(body);
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.context_size, 262144);
@@ -1526,9 +1552,8 @@ TEST(probe_falls_back_to_first_model_with_context) {
 // The model LIST parser keeps per-model context info so the /set model drawer
 // can show "id (ctx N)" inline instead of bare ids.
 TEST(probe_parse_model_list_with_ctx) {
-    std::string body =
-        R"({"data":[{"id":"alpha","meta":{"n_ctx":8192,"n_ctx_train":32768}},)"
-        R"({"id":"beta"}]})";
+    std::string body = R"({"data":[{"id":"alpha","meta":{"n_ctx":8192,"n_ctx_train":32768}},)"
+                       R"({"id":"beta"}]})";
     auto models = agent::make_dialect("openai")->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "alpha");
@@ -1547,9 +1572,8 @@ TEST(probe_parse_model_list_malformed) {
 
 TEST(probe_parse_model_list_ollama_shape) {
     // Ollama-ish {"models":[{name, n_ctx}]} fallback shape, two entries.
-    std::string body =
-        R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192},)"
-        R"({"name":"qwen-7b"}]})";
+    std::string body = R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192},)"
+                       R"({"name":"qwen-7b"}]})";
     auto models = agent::make_dialect("openai")->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "llama-3.2-3b");
@@ -1561,11 +1585,10 @@ TEST(probe_parse_model_list_ollama_shape) {
 // (the loaded chat template cannot be auto-parsed for tool calling). The error
 // message must say so instead of dumping the raw body.
 TEST(http_error_describes_parser_generation_failure) {
-    std::string body =
-        R"({"error":{"code":400,"message":"Unable to generate parser for this )"
-        R"(template. Automatic parser generation failed: [json.exception.)"
-        R"(type_error.302] type must be array, but is null","type":")"
-        R"(invalid_request_error"}})";
+    std::string body = R"({"error":{"code":400,"message":"Unable to generate parser for this )"
+                       R"(template. Automatic parser generation failed: [json.exception.)"
+                       R"(type_error.302] type must be array, but is null","type":")"
+                       R"(invalid_request_error"}})";
     std::string msg = agent::describe_http_error(400, body);
     ASSERT(msg.find("chat-template parser failure") != std::string::npos);
     ASSERT(msg.find("reload the model") != std::string::npos);
@@ -1613,23 +1636,27 @@ TEST(autodetect_fills_only_auto_fields) {
     info.context_size = 262144;
 
     // Both auto -> both filled.
-    agent::Config a;  // defaults: model_explicit=false, context_explicit=false
+    agent::Config a; // defaults: model_explicit=false, context_explicit=false
     agent::merge_server_info(a, info);
     ASSERT_EQ(a.model, "server-model");
     ASSERT_EQ(a.context_size, 262144);
 
     // Both explicit -> untouched.
     agent::Config b;
-    b.model = "user-model";   b.model_explicit = true;
-    b.context_size = 4096;    b.context_explicit = true;
+    b.model = "user-model";
+    b.model_explicit = true;
+    b.context_size = 4096;
+    b.context_explicit = true;
     agent::merge_server_info(b, info);
     ASSERT_EQ(b.model, "user-model");
     ASSERT_EQ(b.context_size, 4096);
 
     // Mixed -> only the auto one changes.
     agent::Config c;
-    c.model = "user-model";   c.model_explicit = true;   // pinned
-    c.context_size = 0;       c.context_explicit = false; // auto
+    c.model = "user-model";
+    c.model_explicit = true; // pinned
+    c.context_size = 0;
+    c.context_explicit = false; // auto
     agent::merge_server_info(c, info);
     ASSERT_EQ(c.model, "user-model");
     ASSERT_EQ(c.context_size, 262144);
@@ -1637,11 +1664,11 @@ TEST(autodetect_fills_only_auto_fields) {
 
 // An unreachable / not-ok probe must never mutate the config.
 TEST(autodetect_noop_when_server_down) {
-    agent::ServerInfo down;  // ok defaults to false
+    agent::ServerInfo down; // ok defaults to false
     down.model = "ghost";
     down.context_size = 999;
     agent::Config c;
-    c.model = "keep";  // auto, but server is down
+    c.model = "keep"; // auto, but server is down
     agent::merge_server_info(c, down);
     ASSERT_EQ(c.model, "keep");
     ASSERT_EQ(c.context_size, 0);
@@ -1709,7 +1736,8 @@ namespace {
 // Listen on loopback:port. Returns the listening fd, or -1 on failure.
 int bind_listener(int port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
+    if (fd < 0)
+        return -1;
     int opt = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     sockaddr_in addr{};
@@ -1730,16 +1758,20 @@ std::string drain_request(int c) {
     std::string req;
     while (true) {
         int n = recv(c, buf, sizeof(buf) - 1, 0);
-        if (n <= 0) break;
+        if (n <= 0)
+            break;
         req.append(buf, n);
-        if (req.find("\r\n\r\n") == std::string::npos) continue;
+        if (req.find("\r\n\r\n") == std::string::npos)
+            continue;
         const size_t cl = req.find("Content-Length:");
-        if (cl == std::string::npos) break;
+        if (cl == std::string::npos)
+            break;
         const size_t hl = req.find("\r\n\r\n");
         long len = std::atol(req.c_str() + cl + 15);
         while ((long)req.size() < (long)hl + 4 + len) {
             int m = recv(c, buf, sizeof(buf) - 1, 0);
-            if (m <= 0) break;
+            if (m <= 0)
+                break;
             req.append(buf, m);
         }
         break;
@@ -1751,18 +1783,19 @@ std::string drain_request(int c) {
 // close. Lets the wire-layer pins exercise buffered chat, HTTP-error and
 // streaming paths without any external dependency.
 int spawn_mock_http(int port, std::string& body_out, const std::string& status,
-                    const std::string& content_type,
-                    const std::string& payload) {
+                    const std::string& content_type, const std::string& payload) {
     int fd = bind_listener(port);
-    if (fd < 0) return -1;
+    if (fd < 0)
+        return -1;
     body_out.clear();
     std::thread t([fd, status, content_type, payload, &body_out]() {
         int c = accept(fd, nullptr, nullptr);
-        if (c < 0) return;
+        if (c < 0)
+            return;
         body_out = drain_request(c);
         std::string http = status + "\r\nContent-Type: " + content_type +
-                           "\r\nContent-Length: " +
-                           std::to_string(payload.size()) + "\r\n\r\n" + payload;
+                           "\r\nContent-Length: " + std::to_string(payload.size()) + "\r\n\r\n" +
+                           payload;
         send(c, http.c_str(), http.size(), 0);
         // give client time to read
         usleep(200000);
@@ -1775,19 +1808,18 @@ int spawn_mock_http(int port, std::string& body_out, const std::string& status,
 // Serve one canned SSE response (a streamed tool call in two fragments by
 // default), then close. Lets us exercise LLMClient::chat_stream including
 // fragment merging without any external dependency.
-int spawn_mock_sse(int port, std::string& body_out,
-                   const std::string& sse_override = "") {
-    std::string sse = !sse_override.empty()
-        ? sse_override
-        : std::string(
-              "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
-              "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
-              "\"arguments\":\"\"}}]}}]}\n\n"
-              "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
-              "\"function\":{\"arguments\":\"{\\\"pattern\\\":\\\"foo\\\",\\\"path\\\":\\\".\\\"}\"}}]}}]}\n\n"
-              "data: [DONE]\n\n");
-    return spawn_mock_http(port, body_out, "HTTP/1.1 200 OK",
-                           "text/event-stream", sse);
+int spawn_mock_sse(int port, std::string& body_out, const std::string& sse_override = "") {
+    std::string sse =
+        !sse_override.empty()
+            ? sse_override
+            : std::string("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
+                          "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
+                          "\"arguments\":\"\"}}]}}]}\n\n"
+                          "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+                          "\"function\":{\"arguments\":\"{\\\"pattern\\\":\\\"foo\\\",\\\"path\\\":"
+                          "\\\".\\\"}\"}}]}}]}\n\n"
+                          "data: [DONE]\n\n");
+    return spawn_mock_http(port, body_out, "HTTP/1.1 200 OK", "text/event-stream", sse);
 }
 
 // Accept one request, drain it, then hold the connection open WITHOUT
@@ -1795,12 +1827,14 @@ int spawn_mock_sse(int port, std::string& body_out,
 // caller's cancel token aborts it (curl's progress callback polls the token).
 int spawn_stall_server(int port) {
     int fd = bind_listener(port);
-    if (fd < 0) return -1;
+    if (fd < 0)
+        return -1;
     std::thread t([fd]() {
         int c = accept(fd, nullptr, nullptr);
-        if (c < 0) return;
+        if (c < 0)
+            return;
         drain_request(c);
-        sleep(30);  // hold open; the test cancels well before this expires
+        sleep(30); // hold open; the test cancels well before this expires
         close(c);
     });
     t.detach();
@@ -1821,7 +1855,7 @@ TEST(probe_autodetect_prefers_explicit_active_model) {
         {"id":"kilo-auto/free","object":"model","owned_by":"kilo",
          "context_length":256000,"meta":null}]})");
     ASSERT(srv >= 0);
-    usleep(100000);  // let the listener bind
+    usleep(100000); // let the listener bind
 
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8924/v1";
@@ -1845,11 +1879,11 @@ TEST(probe_autodetect_first_with_context_when_auto) {
         {"id":"kilo-auto/free","object":"model","owned_by":"kilo",
          "context_length":256000,"meta":null}]})");
     ASSERT(srv >= 0);
-    usleep(100000);  // let the listener bind
+    usleep(100000); // let the listener bind
 
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8925/v1";
-    cfg.model_explicit = false;   // auto-detect
+    cfg.model_explicit = false; // auto-detect
     agent::apply_server_autodetect(cfg);
     close(srv);
 
@@ -1857,7 +1891,7 @@ TEST(probe_autodetect_first_with_context_when_auto) {
     ASSERT_EQ(cfg.model, "kilo-auto/frontier");
 }
 
- TEST(llm_streaming_tool_call_object_arguments_preserved) {
+TEST(llm_streaming_tool_call_object_arguments_preserved) {
     // Some OpenAI-compatible servers stream tool-call `arguments` as a JSON
     // object in one delta instead of a string fragment. The parser must
     // preserve it, otherwise a valid call (e.g. search with a pattern) arrives
@@ -1869,16 +1903,13 @@ TEST(probe_autodetect_first_with_context_when_auto) {
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
         agent::json choice = {{"delta", delta}};
-        return "data: " +
-               agent::json{{"choices", agent::json::array({choice})}}.dump() +
-               "\n\n";
+        return "data: " + agent::json{{"choices", agent::json::array({choice})}}.dump() + "\n\n";
     };
 
     // Fragment 1: arguments as a JSON object (not a string).
     agent::json fn1 = {{"name", "search"},
                        {"arguments", agent::json::object({{"pattern", "ncurses"}})}};
-    agent::json call1 = {{"index", 0}, {"id", "c1"}, {"type", "function"},
-                         {"function", fn1}};
+    agent::json call1 = {{"index", 0}, {"id", "c1"}, {"type", "function"}, {"function", fn1}};
     std::string s1 = ev(agent::json::array({call1}));
 
     // Fragment 2: a trailing string fragment appended to the object.
@@ -1913,21 +1944,19 @@ TEST(llm_streaming_parser_accepts_auto_lambda_sink) {
     agent::Message m;
     auto sink = [](const agent::StreamChunk&) {};
     auto p = agent::make_dialect("openai")->make_decoder(m, sink, "");
-    const char* sse =
-        "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
-        "data: [DONE]\n\n";
+    const char* sse = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
+                      "data: [DONE]\n\n";
     const std::string body(sse);
     p->on_write(body.c_str(), body.size(), 1);
     p->finalize();
     ASSERT_EQ(m.content, "hello");
 }
 
- TEST(llm_streaming_merges_tool_call_fragments) {
+TEST(llm_streaming_merges_tool_call_fragments) {
     std::string dummy;
     int srv = spawn_mock_sse(8911, dummy);
     ASSERT(srv >= 0);
-    usleep(100000);  // let the listener bind
-
+    usleep(100000); // let the listener bind
 
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8911/v1";
@@ -1935,10 +1964,10 @@ TEST(llm_streaming_parser_accepts_auto_lambda_sink) {
     agent::HttpLLMClient client(cfg);
 
     std::vector<std::string> tokens;
-    agent::Message m = client.chat_stream({}, {},
-        [&tokens](const agent::StreamChunk& ch) {
-            if (!ch.done && !ch.delta.empty()) tokens.push_back(ch.delta);
-        });
+    agent::Message m = client.chat_stream({}, {}, [&tokens](const agent::StreamChunk& ch) {
+        if (!ch.done && !ch.delta.empty())
+            tokens.push_back(ch.delta);
+    });
 
     ASSERT(m.tool_calls.is_array());
     ASSERT_EQ(m.tool_calls.size(), 1u);
@@ -1970,12 +1999,12 @@ TEST(llm_streaming_inline_think_segmentation) {
     agent::HttpLLMClient client(cfg);
 
     std::string answer, reasoning;
-    agent::Message m = client.chat_stream({}, {},
-        [&](const agent::StreamChunk& ch) {
-            if (ch.done) return;
-            answer += ch.delta;
-            reasoning += ch.reasoning;
-        });
+    agent::Message m = client.chat_stream({}, {}, [&](const agent::StreamChunk& ch) {
+        if (ch.done)
+            return;
+        answer += ch.delta;
+        reasoning += ch.reasoning;
+    });
 
     ASSERT_EQ(m.content, "Hello world");
     ASSERT_EQ(m.reasoning, "plan the answer");
@@ -1987,11 +2016,10 @@ TEST(llm_streaming_inline_think_segmentation) {
 TEST(llm_streaming_reasoning_content_field) {
     std::string dummy;
     // Dedicated reasoning_content field (vLLM / llama.cpp deepseek format).
-    std::string sse =
-        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"step one \"}}]}\n\n"
-        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"step two\"}}]}\n\n"
-        "data: {\"choices\":[{\"delta\":{\"content\":\"done\"}}]}\n\n"
-        "data: [DONE]\n\n";
+    std::string sse = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"step one \"}}]}\n\n"
+                      "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"step two\"}}]}\n\n"
+                      "data: {\"choices\":[{\"delta\":{\"content\":\"done\"}}]}\n\n"
+                      "data: [DONE]\n\n";
     int srv = spawn_mock_sse(8913, dummy, sse);
     ASSERT(srv >= 0);
     usleep(100000);
@@ -2001,8 +2029,7 @@ TEST(llm_streaming_reasoning_content_field) {
     cfg.stream = true;
     agent::HttpLLMClient client(cfg);
 
-    agent::Message m = client.chat_stream({}, {},
-        [](const agent::StreamChunk&) {});
+    agent::Message m = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
 
     ASSERT_EQ(m.content, "done");
     ASSERT_EQ(m.reasoning, "step one step two");
@@ -2012,11 +2039,10 @@ TEST(llm_streaming_reasoning_content_field) {
 TEST(llm_streaming_captures_usage_stats) {
     std::string dummy;
     // Final include_usage chunk: usage present, empty choices[] (llama.cpp/vLLM).
-    std::string sse =
-        "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"
-        "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4096,"
-        "\"completion_tokens\":128,\"total_tokens\":4224}}\n\n"
-        "data: [DONE]\n\n";
+    std::string sse = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"
+                      "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4096,"
+                      "\"completion_tokens\":128,\"total_tokens\":4224}}\n\n"
+                      "data: [DONE]\n\n";
     int srv = spawn_mock_sse(8914, dummy, sse);
     ASSERT(srv >= 0);
     usleep(100000);
@@ -2027,8 +2053,7 @@ TEST(llm_streaming_captures_usage_stats) {
     agent::HttpLLMClient client(cfg);
 
     agent::Stats stats;
-    agent::Message m = client.chat_stream({}, {},
-        [](const agent::StreamChunk&) {}, &stats);
+    agent::Message m = client.chat_stream({}, {}, [](const agent::StreamChunk&) {}, &stats);
 
     ASSERT_EQ(m.content, "hi");
     ASSERT_TRUE(stats.valid);
@@ -2046,7 +2071,7 @@ TEST(llm_streaming_captures_usage_stats) {
 // ---------------------------------------------------------------------------
 
 TEST(apply_auth_emits_bearer_only_with_key) {
-    agent::Config cfg;  // no api_key
+    agent::Config cfg; // no api_key
     agent::HeaderList headers;
     for (const auto& h : agent::make_dialect("openai")->auth_headers(cfg))
         headers.add(h);
@@ -2057,9 +2082,8 @@ TEST(apply_auth_emits_bearer_only_with_key) {
     for (const auto& h : agent::make_dialect("openai")->auth_headers(cfg))
         keyed.add(h);
     ASSERT(keyed.list != nullptr);
-    ASSERT_EQ(std::string(keyed.list->data),
-              "Authorization: Bearer sk-test-123");
-    ASSERT(keyed.list->next == nullptr);  // never more than the one auth header
+    ASSERT_EQ(std::string(keyed.list->data), "Authorization: Bearer sk-test-123");
+    ASSERT(keyed.list->next == nullptr); // never more than the one auth header
 }
 
 TEST(config_models_url_derivation) {
@@ -2080,12 +2104,14 @@ TEST(dialect_context_overflow_hint_patterns) {
     ASSERT_EQ(d->context_overflow_hint("n_ctx is 2048"), 2048);
     ASSERT_EQ(d->context_overflow_hint("n_ctx = 1024"), 1024);
     ASSERT_EQ(d->context_overflow_hint("context length exceeds 16384"), 16384);
-    ASSERT_EQ(d->context_overflow_hint("Request exceeds maximum context length (4096 tokens)"), 4096);
+    ASSERT_EQ(d->context_overflow_hint("Request exceeds maximum context length (4096 tokens)"),
+              4096);
     ASSERT_EQ(d->context_overflow_hint("context length of 32768"), 32768);
     // OpenAI wraps the prose in an error object; the sniffer scans the body.
-    ASSERT_EQ(d->context_overflow_hint(
-                  R"({"error":{"message":"This model's maximum context length is 16384 tokens."}})"),
-              16384);
+    ASSERT_EQ(
+        d->context_overflow_hint(
+            R"({"error":{"message":"This model's maximum context length is 16384 tokens."}})"),
+        16384);
     // No known pattern, or an implausible value, yields 0 (never a guess).
     ASSERT_EQ(d->context_overflow_hint(R"({"error":"bad request"})"), 0);
     ASSERT_EQ(d->context_overflow_hint(""), 0);
@@ -2100,10 +2126,9 @@ TEST(buffered_chat_fills_stats_from_usage) {
         "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hello "
         "there\"}}],\"usage\":{\"prompt_tokens\":50,\"completion_tokens\":3,"
         "\"total_tokens\":53}}";
-    int srv = spawn_mock_http(8931, req, "HTTP/1.1 200 OK",
-                              "application/json", body);
+    int srv = spawn_mock_http(8931, req, "HTTP/1.1 200 OK", "application/json", body);
     ASSERT(srv >= 0);
-    usleep(100000);  // let the listener bind
+    usleep(100000); // let the listener bind
 
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8931/v1";
@@ -2126,7 +2151,7 @@ TEST(buffered_chat_malformed_body_degrades_to_recovery_message) {
     // message carrying the raw body — which the agent loop feeds back to the
     // model for self-recovery — never an exception.
     std::string dummy;
-    int srv = spawn_mock_sse(8932, dummy);  // default SSE tool-call stream
+    int srv = spawn_mock_sse(8932, dummy); // default SSE tool-call stream
     ASSERT(srv >= 0);
     usleep(100000);
 
@@ -2136,10 +2161,9 @@ TEST(buffered_chat_malformed_body_degrades_to_recovery_message) {
     agent::Message m = client.chat({}, {}, nullptr);
 
     ASSERT_EQ(m.role, "assistant");
-    const std::string prefix =
-        "[error: malformed LLM response, raw body follows]";
+    const std::string prefix = "[error: malformed LLM response, raw body follows]";
     ASSERT_EQ(m.content.compare(0, prefix.size(), prefix), 0);
-    ASSERT(m.content.find("data:") != std::string::npos);  // raw body kept
+    ASSERT(m.content.find("data:") != std::string::npos); // raw body kept
     close(srv);
 }
 
@@ -2148,8 +2172,7 @@ TEST(overflow_400_streaming_throws_non_retryable_api_error) {
     // The client must throw a typed, non-retryable ApiError (never a fake
     // assistant reply, never a retry loop).
     std::string req;
-    int srv = spawn_mock_http(8933, req, "HTTP/1.1 400 Bad Request",
-                              "text/plain", "n_ctx is 2048");
+    int srv = spawn_mock_http(8933, req, "HTTP/1.1 400 Bad Request", "text/plain", "n_ctx is 2048");
     ASSERT(srv >= 0);
     usleep(100000);
 
@@ -2177,11 +2200,9 @@ TEST(overflow_400_streaming_throws_non_retryable_api_error) {
 TEST(overflow_400_buffered_throws_non_retryable_api_error) {
     // OpenAI-style JSON-wrapped overflow rejection on the buffered path.
     std::string req;
-    const std::string body =
-        "{\"error\":{\"message\":\"This model's maximum context length is "
-        "16384 tokens. However, you requested 20000 tokens.\"}}";
-    int srv = spawn_mock_http(8934, req, "HTTP/1.1 400 Bad Request",
-                              "application/json", body);
+    const std::string body = "{\"error\":{\"message\":\"This model's maximum context length is "
+                             "16384 tokens. However, you requested 20000 tokens.\"}}";
+    int srv = spawn_mock_http(8934, req, "HTTP/1.1 400 Bad Request", "application/json", body);
     ASSERT(srv >= 0);
     usleep(100000);
 
@@ -2207,8 +2228,7 @@ TEST(client_serves_next_turn_after_overflow_rejection) {
     // context_explicit set). A later healthy request on the SAME client must
     // be unaffected — the rejection must not poison subsequent turns.
     std::string req;
-    int srv400 = spawn_mock_http(8935, req, "HTTP/1.1 400 Bad Request",
-                                 "text/plain",
+    int srv400 = spawn_mock_http(8935, req, "HTTP/1.1 400 Bad Request", "text/plain",
                                  "maximum context length is 8192 tokens");
     ASSERT(srv400 >= 0);
     usleep(100000);
@@ -2219,23 +2239,21 @@ TEST(client_serves_next_turn_after_overflow_rejection) {
     agent::HttpLLMClient client(cfg);
     try {
         client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
-        ASSERT(false);  // the 400 must have thrown
+        ASSERT(false); // the 400 must have thrown
     } catch (const agent::ApiError&) {
     }
     close(srv400);
 
     // Rebind the same port (SO_REUSEADDR) with a healthy SSE responder and
     // drive the SAME client instance again.
-    const std::string sse =
-        "data: {\"choices\":[{\"delta\":{\"content\":\"still works\"}}]}\n\n"
-        "data: [DONE]\n\n";
+    const std::string sse = "data: {\"choices\":[{\"delta\":{\"content\":\"still works\"}}]}\n\n"
+                            "data: [DONE]\n\n";
     std::string dummy;
     int srv2 = spawn_mock_sse(8935, dummy, sse);
     ASSERT(srv2 >= 0);
     usleep(100000);
 
-    agent::Message m =
-        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    agent::Message m = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
     ASSERT_EQ(m.content, "still works");
     // The teaching is sticky: the healthy turn neither clears nor changes it.
     ASSERT_EQ(client.learned_context_size(), 8192);
@@ -2283,8 +2301,8 @@ TEST(llm_cancel_mid_stream_aborts_with_cancelled_error) {
             err = std::current_exception();
         }
     });
-    usleep(300000);               // let the request go in-flight
-    cfg.cancel_token.request();   // copies share the flag with the client
+    usleep(300000);             // let the request go in-flight
+    cfg.cancel_token.request(); // copies share the flag with the client
     caller.join();
 
     ASSERT(err != nullptr);
@@ -2309,9 +2327,15 @@ TEST(llm_cancel_mid_stream_aborts_with_cancelled_error) {
 TEST(session_json_roundtrip_preserves_messages) {
     agent::Session s;
     s.model = "test-model";
-    agent::Message sys; sys.role = "system"; sys.content = "be helpful";
-    agent::Message u;   u.role = "user";     u.content = "hi\nthere";
-    agent::Message a;   a.role = "assistant"; a.content = "hello";
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "be helpful";
+    agent::Message u;
+    u.role = "user";
+    u.content = "hi\nthere";
+    agent::Message a;
+    a.role = "assistant";
+    a.content = "hello";
     a.reasoning = "think first";
     s.messages = {sys, u, a};
     s.derive_title();
@@ -2332,7 +2356,9 @@ TEST(session_store_save_load_list_delete) {
     agent::SessionStore store(dir);
 
     agent::Session s1;
-    agent::Message u; u.role = "user"; u.content = "first";
+    agent::Message u;
+    u.role = "user";
+    u.content = "first";
     s1.messages = {u};
     s1.derive_title();
     ASSERT_TRUE(store.save(s1));
@@ -2346,7 +2372,9 @@ TEST(session_store_save_load_list_delete) {
 
     usleep(2000);
     agent::Session s2;
-    agent::Message u2; u2.role = "user"; u2.content = "second";
+    agent::Message u2;
+    u2.role = "user";
+    u2.content = "second";
     s2.messages = {u2};
     s2.derive_title();
     ASSERT_TRUE(store.save(s2));
@@ -2412,10 +2440,9 @@ TEST(bash_tool_times_out) {
 TEST(bash_tool_idle_timeout_keeps_progressing) {
     auto tool = agent::make_bash_tool();
     // ~3s of runtime, output every 0.3s, timeout 1s: never idle long enough.
-    auto r = tool->execute(
-        {{"command",
-          "for i in 1 2 3 4 5 6 7 8 9 10; do echo tick; sleep 0.3; done"},
-         {"timeout", 1}});
+    auto r =
+        tool->execute({{"command", "for i in 1 2 3 4 5 6 7 8 9 10; do echo tick; sleep 0.3; done"},
+                       {"timeout", 1}});
     ASSERT(r.ok);
     ASSERT(r.output.find("[exit 0]") != std::string::npos);
     ASSERT(r.output.find("timed out") == std::string::npos);
@@ -2424,8 +2451,7 @@ TEST(bash_tool_idle_timeout_keeps_progressing) {
 TEST(bash_tool_truncates_large_output) {
     auto tool = agent::make_bash_tool();
     // yes emits far more than the 64 KiB cap; head bounds the runtime.
-    auto r = tool->execute(
-        {{"command", "yes AAAAAAAAAA | head -c 200000"}, {"timeout", 30}});
+    auto r = tool->execute({{"command", "yes AAAAAAAAAA | head -c 200000"}, {"timeout", 30}});
     ASSERT(r.output.find("[output truncated") != std::string::npos);
     ASSERT(r.output.size() < static_cast<std::size_t>(70) * 1024u);
 }
@@ -2442,7 +2468,7 @@ TEST(bash_tool_tracked_by_job_service) {
     ASSERT_TRUE(ok.ok);
     ASSERT(ok.output.find("tracked") != std::string::npos);
     ASSERT(ok.output.find("[exit 0]") != std::string::npos);
-    ASSERT(jobs.list().empty());  // finished job erased, not leaked
+    ASSERT(jobs.list().empty()); // finished job erased, not leaked
 
     auto bad = tool->execute({{"command", "exit 7"}});
     ASSERT_FALSE(bad.ok);
@@ -2466,8 +2492,8 @@ TEST(bash_tool_cancel_token_stays_requested) {
     token.request();
     auto r = tool->execute({{"command", "sleep 30"}, {"timeout", 60}});
     ASSERT_FALSE(r.ok);
-    ASSERT(token.is_requested());  // must NOT have been cleared
-    ASSERT(jobs.list().empty());   // job killed and erased
+    ASSERT(token.is_requested()); // must NOT have been cleared
+    ASSERT(jobs.list().empty());  // job killed and erased
 
     // The same token still cancels subsequent work.
     token.clear();
@@ -2488,19 +2514,20 @@ TEST(bash_approval_allowlist) {
     ASSERT_FALSE(tool->requires_approval({{"command", "git diff HEAD~1"}}));
     // Mutating / bypass attempts require approval.
     ASSERT_TRUE(tool->requires_approval({{"command", "rm file.txt"}}));
-    ASSERT_TRUE(tool->requires_approval({{"command", "/bin/rm -rf /"}}));       // qualified path
-    ASSERT_TRUE(tool->requires_approval({{"command", "sudo ls"}}));              // prefix command
-    ASSERT_TRUE(tool->requires_approval({{"command", "git push origin main"}})); // non-read-only subcmd
+    ASSERT_TRUE(tool->requires_approval({{"command", "/bin/rm -rf /"}})); // qualified path
+    ASSERT_TRUE(tool->requires_approval({{"command", "sudo ls"}}));       // prefix command
+    ASSERT_TRUE(
+        tool->requires_approval({{"command", "git push origin main"}})); // non-read-only subcmd
     ASSERT_TRUE(tool->requires_approval({{"command", "git reset --hard"}}));
     ASSERT_TRUE(tool->requires_approval({{"command", "find . -delete"}}));
     ASSERT_TRUE(tool->requires_approval({{"command", "sed -i s/a/b/ f"}}));
-    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi > file.txt"}}));   // redirect
-    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi >file.txt"}}));    // glued redirect
-    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi >>file.txt"}}));   // glued append
-    ASSERT_TRUE(tool->requires_approval({{"command", "echo $(rm -rf /)"}}));     // cmd substitution
-    ASSERT_TRUE(tool->requires_approval({{"command", "cat a && rm b"}}));        // composition
-    ASSERT_TRUE(tool->requires_approval({{"command", "cat a | grep b"}}));       // pipe
-    ASSERT_TRUE(tool->requires_approval({{"command", "rm -fr /"}}));             // reordered flags
+    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi > file.txt"}})); // redirect
+    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi >file.txt"}}));  // glued redirect
+    ASSERT_TRUE(tool->requires_approval({{"command", "echo hi >>file.txt"}})); // glued append
+    ASSERT_TRUE(tool->requires_approval({{"command", "echo $(rm -rf /)"}}));   // cmd substitution
+    ASSERT_TRUE(tool->requires_approval({{"command", "cat a && rm b"}}));      // composition
+    ASSERT_TRUE(tool->requires_approval({{"command", "cat a | grep b"}}));     // pipe
+    ASSERT_TRUE(tool->requires_approval({{"command", "rm -fr /"}}));           // reordered flags
 }
 
 // ---------------------------------------------------------------------------
@@ -2513,12 +2540,11 @@ TEST(agent_denies_gated_tool_without_handler) {
     agent::Config cfg;
     agent::ToolRegistry reg;
     reg.register_tool(agent::make_bash_tool());
-    agent::Agent ag(cfg, reg);   // hooks default: no on_approval
+    agent::Agent ag(cfg, reg); // hooks default: no on_approval
     // No public approve_call, so exercise via the hook contract instead:
     agent::AgentHooks hooks;
     bool called = false;
-    hooks.on_approval = [&](const std::string& n, const agent::json&,
-                            const std::string& s) {
+    hooks.on_approval = [&](const std::string& n, const agent::json&, const std::string& s) {
         called = true;
         ASSERT_EQ(n, std::string("bash"));
         ASSERT(s.find("run:") != std::string::npos);
@@ -2529,8 +2555,8 @@ TEST(agent_denies_gated_tool_without_handler) {
     ASSERT_TRUE(t != nullptr);
     ASSERT_TRUE(t->requires_approval({{"command", "rm -rf /tmp/test"}}));
     ASSERT_FALSE(t->requires_approval({{"command", "ls"}}));
-    agent::Approval d = hooks.on_approval("bash", {{"command", "ls"}},
-                                          t->summarize({{"command", "ls"}}));
+    agent::Approval d =
+        hooks.on_approval("bash", {{"command", "ls"}}, t->summarize({{"command", "ls"}}));
     ASSERT_TRUE(called);
     ASSERT(d == agent::Approval::AllowSession);
 }
@@ -2610,27 +2636,20 @@ TEST(shell_requires_approval_matches_classifier) {
 TEST(sec01_reader_args_outside_workspace) {
     agent::Workspace::set_root("/tmp/amber_cls_ws");
     // Reader heads with outside-workspace args must be Outside, not ReadOnly.
-    ASSERT(agent::classify_shell("cat /etc/passwd",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("cat /etc/passwd", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::Outside);
-    ASSERT(agent::classify_shell("grep foo /etc/passwd",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("grep foo /etc/passwd", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::Outside);
-    ASSERT(agent::classify_shell("ls /tmp",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("ls /tmp", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::Outside);
-    ASSERT(agent::classify_shell("head /etc/passwd",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("head /etc/passwd", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::Outside);
-    ASSERT(agent::classify_shell("tail /etc/passwd",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("tail /etc/passwd", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::Outside);
     // In-workspace reader args stay ReadOnly (common case).
-    ASSERT(agent::classify_shell("cat file.txt",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("cat file.txt", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::ReadOnly);
-    ASSERT(agent::classify_shell("grep -rn foo .",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("grep -rn foo .", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::ReadOnly);
     agent::Workspace::set_root(".");
 }
@@ -2639,13 +2658,11 @@ TEST(sec01_cd_not_reader) {
     agent::Workspace::set_root("/tmp/amber_cls_ws");
     // `cd` changes process state and enables relative-path escapes; it is
     // never read-only.
-    ASSERT(agent::classify_shell("cd /tmp",
-                                 "/tmp/amber_cls_ws").effect !=
+    ASSERT(agent::classify_shell("cd /tmp", "/tmp/amber_cls_ws").effect !=
            agent::ShellEffect::ReadOnly);
     // `cd /tmp && cat secret` escapes: the classifier must see the outside
     // path, not treat the whole line as a read-only `cd`.
-    ASSERT(agent::classify_shell("cd /tmp && cat secret",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("cd /tmp && cat secret", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::Outside);
     agent::Workspace::set_root(".");
 }
@@ -2656,14 +2673,12 @@ TEST(sec01_newline_is_chain_operator) {
     // command reads /etc/passwd, so the whole line must be Outside, not
     // ReadOnly (which the old tokenizer produced by merging both lines into
     // one segment attributed to `echo`).
-    ASSERT(agent::classify_shell("echo a\ncat /etc/passwd",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("echo a\ncat /etc/passwd", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::Outside);
     // A newline-only composition of in-workspace readers stays non-ReadOnly
     // (composed commands are never provably read-only), but must not be
     // Outside either.
-    auto c = agent::classify_shell("ls .\ncat file.txt",
-                                    "/tmp/amber_cls_ws");
+    auto c = agent::classify_shell("ls .\ncat file.txt", "/tmp/amber_cls_ws");
     ASSERT(c.effect != agent::ShellEffect::ReadOnly);
     ASSERT(c.effect != agent::ShellEffect::Outside);
     agent::Workspace::set_root(".");
@@ -2673,12 +2688,10 @@ TEST(sec01_input_redirect_outside) {
     agent::Workspace::set_root("/tmp/amber_cls_ws");
     // Input redirect target must be confined: `cat < /etc/passwd` reads
     // outside the workspace, so it must be Outside, not ReadOnly.
-    ASSERT(agent::classify_shell("cat < /etc/passwd",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("cat < /etc/passwd", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::Outside);
     // In-workspace input redirect stays ReadOnly.
-    ASSERT(agent::classify_shell("cat < input.txt",
-                                 "/tmp/amber_cls_ws").effect ==
+    ASSERT(agent::classify_shell("cat < input.txt", "/tmp/amber_cls_ws").effect ==
            agent::ShellEffect::ReadOnly);
     agent::Workspace::set_root(".");
 }
@@ -2744,8 +2757,10 @@ TEST(sec02_plugin_tool_requires_approval) {
     ASSERT_TRUE(echo->requires_approval({{"text", "hello"}}));
     ASSERT_TRUE(echo->requires_approval({}));
 
-    if (was_set) setenv("XDG_CONFIG_HOME", saved_xdg.c_str(), 1);
-    else unsetenv("XDG_CONFIG_HOME");
+    if (was_set)
+        setenv("XDG_CONFIG_HOME", saved_xdg.c_str(), 1);
+    else
+        unsetenv("XDG_CONFIG_HOME");
 }
 
 // ---------------------------------------------------------------------------
@@ -2817,8 +2832,7 @@ TEST(policy_session_grant_per_scope) {
 
     // A session grant for rm suppresses a second rm...
     policy.grant_session("bash:rm");
-    agent::Decision d1 =
-        agent::decide_approval(cfg, *bash, {{"command", "rm -rf x"}}, policy);
+    agent::Decision d1 = agent::decide_approval(cfg, *bash, {{"command", "rm -rf x"}}, policy);
     ASSERT(d1.v == agent::Verdict::Allow);
     // ...but a different destructive command still prompts.
     agent::Decision d2 =
@@ -2826,8 +2840,7 @@ TEST(policy_session_grant_per_scope) {
     ASSERT(d2.v == agent::Verdict::Prompt);
     // Clearing session grants restores prompting.
     policy.clear_session();
-    agent::Decision d3 =
-        agent::decide_approval(cfg, *bash, {{"command", "rm -rf x"}}, policy);
+    agent::Decision d3 = agent::decide_approval(cfg, *bash, {{"command", "rm -rf x"}}, policy);
     ASSERT(d3.v == agent::Verdict::Prompt);
 }
 
@@ -2863,8 +2876,8 @@ TEST(policy_outside_scope_prompts_and_grants) {
     policy.grant_session("outside:/tmp/amber_outside_ws");
     agent::Decision d2 = agent::decide_approval(cfg, *bash, args, policy);
     ASSERT(d2.v == agent::Verdict::Allow);
-    agent::Decision d3 = agent::decide_approval(
-        cfg, *bash, {{"command", "echo x > /etc/hosts"}}, policy);
+    agent::Decision d3 =
+        agent::decide_approval(cfg, *bash, {{"command", "echo x > /etc/hosts"}}, policy);
     ASSERT(d3.v == agent::Verdict::Prompt);
     agent::Workspace::set_root(".");
 }
@@ -2886,8 +2899,7 @@ TEST(policy_rule_roundtrip_preserves_scopes) {
     ASSERT(loaded.find("bash:git reset") != nullptr);
     ASSERT(loaded.find("bash:git reset")->level == agent::PolicyLevel::AlwaysDeny);
     ASSERT(loaded.find("outside:/tmp/amber_outside_ws") != nullptr);
-    ASSERT(loaded.find("outside:/tmp/amber_outside_ws")->level ==
-           agent::PolicyLevel::AlwaysAllow);
+    ASSERT(loaded.find("outside:/tmp/amber_outside_ws")->level == agent::PolicyLevel::AlwaysAllow);
     run_cmd("rm -f " + path);
 }
 
@@ -2898,34 +2910,37 @@ TEST(policy_rule_roundtrip_preserves_scopes) {
 TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     // A mock SSE server that re-serves the same "search {}" tool call on every
     // connection (unlike spawn_mock_sse, which accepts only once).
-    std::string sse =
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
-        "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
-        "\"arguments\":\"{}\"}}]}}]}\n\n"
-        "data: [DONE]\n\n";
+    std::string sse = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
+                      "\"c1\",\"type\":\"function\",\"function\":{\"name\":\"search\","
+                      "\"arguments\":\"{}\"}}]}}]}\n\n"
+                      "data: [DONE]\n\n";
     int fd = socket(AF_INET, SOCK_STREAM, 0);
-    int opt = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(8920);
-    ASSERT(bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);  // NOLINT
+    ASSERT(bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0); // NOLINT
     ASSERT(listen(fd, 8) == 0);
     std::thread srv([fd, sse]() {
         while (true) {
             int c = accept(fd, nullptr, nullptr);
-            if (c < 0) break;
-            char buf[4096]; std::string req;
+            if (c < 0)
+                break;
+            char buf[4096];
+            std::string req;
             while (true) {
                 int n = recv(c, buf, sizeof(buf) - 1, 0);
-                if (n <= 0) break;
+                if (n <= 0)
+                    break;
                 req.append(buf, n);
-                if (req.find("\r\n\r\n") != std::string::npos) break;
+                if (req.find("\r\n\r\n") != std::string::npos)
+                    break;
             }
-            std::string http =
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
-                "Content-Length: " + std::to_string(sse.size()) +
-                "\r\n\r\n" + sse;
+            std::string http = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                               "Content-Length: " +
+                               std::to_string(sse.size()) + "\r\n\r\n" + sse;
             send(c, http.c_str(), http.size(), 0);
             usleep(100000);
             close(c);
@@ -2938,8 +2953,8 @@ TEST(agent_stops_on_repeated_empty_arg_tool_call) {
     cfg.api_base = "http://127.0.0.1:8920/v1";
     cfg.stream = true;
     cfg.mode = agent::AgentMode::Yolo;
-    cfg.max_tool_iterations = 32;   // default; the loop must NOT reach this
-    cfg.detection_loop = true;       // enable loop detection for this test
+    cfg.max_tool_iterations = 32; // default; the loop must NOT reach this
+    cfg.detection_loop = true;    // enable loop detection for this test
     cfg.system_prompt_path = "prompts/system.md";
     agent::ToolRegistry reg;
     agent::JobService jobs;
@@ -2982,7 +2997,7 @@ TEST(job_service_start_read_stop) {
     ASSERT(jobs.output(id).find("world") != std::string::npos);
     ASSERT(jobs.stop(id));
     ASSERT_EQ(jobs.running_count(), 0);
-    ASSERT_FALSE(jobs.stop(id));  // already gone
+    ASSERT_FALSE(jobs.stop(id)); // already gone
 }
 
 TEST(job_service_idle_timeout_kills) {
@@ -3045,7 +3060,7 @@ TEST(job_service_stop_finished_returns_true) {
     std::string id = jobs.start("true", "/tmp/amber_job_ws");
     ASSERT_FALSE(id.empty());
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
-    ASSERT(jobs.stop(id));      // still in the map -> true
+    ASSERT(jobs.stop(id));       // still in the map -> true
     ASSERT_FALSE(jobs.stop(id)); // already removed -> false
 }
 
@@ -3053,8 +3068,7 @@ TEST(job_service_caps_output_at_one_mib) {
     agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
     // Emit ~2 MiB of 'A's; the reader must cap at 1 MiB and flag truncation.
-    std::string id = jobs.start(
-        "head -c 2000000 /dev/zero | tr '\\0' 'A'", "/tmp/amber_job_ws");
+    std::string id = jobs.start("head -c 2000000 /dev/zero | tr '\\0' 'A'", "/tmp/amber_job_ws");
     ASSERT_FALSE(id.empty());
     // Wait (polling) for the reader to hit the cap — a fixed sleep is racy on
     // slow CI runners (macOS), where 2 MiB through the pipe can exceed it.
@@ -3063,7 +3077,10 @@ TEST(job_service_caps_output_at_one_mib) {
     bool saw_truncated = false;
     for (int i = 0; i < 50; ++i) {
         agent::JobInfo info = j->info();
-        if (info.truncated) { saw_truncated = true; break; }
+        if (info.truncated) {
+            saw_truncated = true;
+            break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     ASSERT(saw_truncated);
@@ -3087,7 +3104,8 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     int tool_results = 0;
     agent::ToolResult captured;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& r, const agent::json&) {
+    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& r,
+                               const agent::json&) {
         ++tool_results;
         captured = r;
     };
@@ -3096,13 +3114,12 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     agent::json tc;
     tc["id"] = "c1";
     tc["type"] = "function";
-    tc["function"] = {{"name", "bash"},
-                      {"arguments", {{"command", "echo hello"}}}};
+    tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo hello"}}}};
     calls.push_back(tc);
 
     agent::Context dctx;
-    bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, nullptr, &dctx);
+    bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     ASSERT(ok);
     ASSERT(tool_results == 1);
     ASSERT(captured.ok);
@@ -3111,8 +3128,10 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     // Tool result must be recorded in context
     bool found = false;
     for (const auto& m : dctx.get_all())
-        if (m.role == "tool" && m.name == "bash")
-            { found = true; break; }
+        if (m.role == "tool" && m.name == "bash") {
+            found = true;
+            break;
+        }
     ASSERT(found);
 }
 
@@ -3132,8 +3151,7 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     agent::json tc1;
     tc1["id"] = "prev";
     tc1["type"] = "function";
-    tc1["function"] = {{"name", "bash"},
-                        {"arguments", R"({"command":"echo hello"})"}};
+    tc1["function"] = {{"name", "bash"}, {"arguments", R"({"command":"echo hello"})"}};
     prior_tc.push_back(tc1);
     agent::Message prior;
     prior.role = "assistant";
@@ -3154,12 +3172,11 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     agent::json tc2;
     tc2["id"] = "c1";
     tc2["type"] = "function";
-    tc2["function"] = {{"name", "bash"},
-                        {"arguments", {{"command", "echo hello"}}}};
+    tc2["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo hello"}}}};
     calls.push_back(tc2);
 
-    bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, nullptr, &dctx);
+    bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     // Should be rejected as duplicate
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
@@ -3178,9 +3195,8 @@ TEST(dispatch_auto_approves_in_write_mode) {
     int tool_results = 0;
     bool approval_called = false;
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& /*r*/, const agent::json&) {
-        ++tool_results;
-    };
+    hooks.on_tool_result = [&](const std::string& /*n*/, const agent::ToolResult& /*r*/,
+                               const agent::json&) { ++tool_results; };
     hooks.on_approval = [&](const std::string& /*n*/, const agent::json&,
                             const std::string&) -> agent::Approval {
         approval_called = true;
@@ -3196,8 +3212,8 @@ TEST(dispatch_auto_approves_in_write_mode) {
     calls.push_back(tc);
 
     agent::Context dctx;
-    bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, nullptr, &dctx);
+    bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     ASSERT(ok);
     // Write mode consults the approval callback for gated tools
     ASSERT(approval_called);
@@ -3224,13 +3240,12 @@ TEST(dispatch_missing_tool_reports_unknown) {
     agent::json tc;
     tc["id"] = "c1";
     tc["type"] = "function";
-    tc["function"] = {{"name", "nonexistent_tool"},
-                      {"arguments", "{}"}};
+    tc["function"] = {{"name", "nonexistent_tool"}, {"arguments", "{}"}};
     calls.push_back(tc);
 
     agent::Context dctx;
-    bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                         approved, nullptr, nullptr, &dctx);
+    bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
     ASSERT_FALSE(captured.ok);
@@ -3242,7 +3257,7 @@ TEST(dispatch_missing_tool_reports_unknown) {
 // ---------------------------------------------------------------------------
 
 static agent::Message msg(const std::string& role, const std::string& content,
-                           const std::string& name = "") {
+                          const std::string& name = "") {
     return {role, content, "", "", name, json::object()};
 }
 
@@ -3262,12 +3277,8 @@ TEST(collapse_loops_noop_on_short_history) {
 
 TEST(collapse_loops_noop_on_no_loop) {
     std::vector<agent::Message> hist = {
-        msg("system", "prompt"),
-        msg("user", "do something"),
-        msg("assistant", "ok"),
-        msg("tool", "output", "read"),
-        msg("assistant", "done"),
-        msg("user", "next"),
+        msg("system", "prompt"),       msg("user", "do something"), msg("assistant", "ok"),
+        msg("tool", "output", "read"), msg("assistant", "done"),    msg("user", "next"),
     };
     auto before = hist.size();
     agent::collapse_loops(hist);
@@ -3376,16 +3387,11 @@ TEST(apply_classification_prunes_and_archives) {
     // Four user exchanges; the recent-turn safety net protects the last two,
     // so an early prunable exchange is still removed.
     std::vector<agent::Message> hist = {
-        msg("system", "prompt"),
-        msg("user", "explore file a"),
-        msg("assistant", ""),
-        msg("tool", std::string(200, 'x'), "read"),
-        msg("assistant", "done a"),
-        msg("user", "explore file b"),
-        msg("assistant", "done b"),
-        msg("user", "explore file c"),
-        msg("assistant", "done c"),
-        msg("user", "active task"),
+        msg("system", "prompt"),     msg("user", "explore file a"),
+        msg("assistant", ""),        msg("tool", std::string(200, 'x'), "read"),
+        msg("assistant", "done a"),  msg("user", "explore file b"),
+        msg("assistant", "done b"),  msg("user", "explore file c"),
+        msg("assistant", "done c"),  msg("user", "active task"),
         msg("assistant", "working"),
     };
     agent::CompressionResponse cr;
@@ -3402,17 +3408,14 @@ TEST(apply_classification_context_creates_archive_entry) {
     // The archived exchange is the oldest one — outside the recent-turn
     // safety net, so it is replaced by an archive entry as classified.
     std::vector<agent::Message> hist = {
-        msg("system", "prompt"),
-        msg("user", "do something"),
-        msg("assistant", "working"),
-        msg("user", "continue"),
-        msg("assistant", "ok"),
-        msg("user", "next"),
+        msg("system", "prompt"),  msg("user", "do something"), msg("assistant", "working"),
+        msg("user", "continue"),  msg("assistant", "ok"),      msg("user", "next"),
         msg("assistant", "sure"),
     };
     agent::CompressionResponse cr;
     cr.segments.push_back({0, 0, agent::Classification::core, ""});
-    cr.segments.push_back({1, 2, agent::Classification::context, "user asked and assistant worked"});
+    cr.segments.push_back(
+        {1, 2, agent::Classification::context, "user asked and assistant worked"});
     cr.segments.push_back({3, 6, agent::Classification::core, ""});
     auto result = agent::apply_classification(hist, cr);
     // Should contain system msg + core turns + archive system msg
@@ -3470,12 +3473,8 @@ TEST(apply_classification_keeps_recent_turns_verbatim) {
     // the last two user turns and everything after them must survive —
     // a misclassification must never drop the active task.
     std::vector<agent::Message> hist = {
-        msg("system", "Amber"),
-        msg("user", "task one"),
-        msg("assistant", "done one"),
-        msg("user", "task two"),
-        msg("assistant", "doing two"),
-        msg("user", "current task"),
+        msg("system", "Amber"),      msg("user", "task one"),       msg("assistant", "done one"),
+        msg("user", "task two"),     msg("assistant", "doing two"), msg("user", "current task"),
         msg("assistant", "working"),
     };
     agent::CompressionResponse cr;
@@ -3505,8 +3504,7 @@ TEST(apply_classification_carries_previous_archive) {
     old_ctx["archive"] = old_archive;
     std::vector<agent::Message> hist = {
         msg("system", "Amber"),
-        msg("system", std::string(agent::kCompressedContextPrefix) + "\n" +
-                          old_ctx.dump()),
+        msg("system", std::string(agent::kCompressedContextPrefix) + "\n" + old_ctx.dump()),
         msg("user", "middle task"),
         msg("assistant", "mid work"),
         msg("user", "later task"),
@@ -3515,8 +3513,7 @@ TEST(apply_classification_carries_previous_archive) {
         msg("assistant", "working"),
     };
     agent::CompressionResponse cr;
-    cr.segments.push_back(
-        {2, 3, agent::Classification::context, "new investigation"});
+    cr.segments.push_back({2, 3, agent::Classification::context, "new investigation"});
     auto result = agent::apply_classification(hist, cr);
     std::string body;
     for (const auto& m : result)
@@ -3524,15 +3521,16 @@ TEST(apply_classification_carries_previous_archive) {
                               agent::kCompressedContextPrefix) == 0)
             body = m.content;
     ASSERT_FALSE(body.empty());
-    auto j = agent::json::parse(
-        body.substr(sizeof(agent::kCompressedContextPrefix) - 1), nullptr,
-        false);
+    auto j = agent::json::parse(body.substr(sizeof(agent::kCompressedContextPrefix) - 1), nullptr,
+                                false);
     ASSERT(j.is_object());
-    ASSERT_EQ(j["archive"].size(), 2u);  // old entry + new entry
+    ASSERT_EQ(j["archive"].size(), 2u); // old entry + new entry
     bool old_found = false, new_found = false;
     for (const auto& e : j["archive"]) {
-        if (e["summary"] == "old work") old_found = true;
-        if (e["summary"] == "new investigation") new_found = true;
+        if (e["summary"] == "old work")
+            old_found = true;
+        if (e["summary"] == "new investigation")
+            new_found = true;
     }
     ASSERT(old_found);
     ASSERT(new_found);
@@ -3547,17 +3545,12 @@ TEST(apply_classification_carries_previous_archive) {
 
 TEST(apply_classification_truncates_long_summaries) {
     std::vector<agent::Message> hist = {
-        msg("system", "Amber"),
-        msg("user", "middle task"),
-        msg("assistant", "mid work"),
-        msg("user", "later task"),
-        msg("assistant", "later work"),
-        msg("user", "current task"),
+        msg("system", "Amber"),      msg("user", "middle task"),     msg("assistant", "mid work"),
+        msg("user", "later task"),   msg("assistant", "later work"), msg("user", "current task"),
         msg("assistant", "working"),
     };
     agent::CompressionResponse cr;
-    cr.segments.push_back({1, 2, agent::Classification::context,
-                           std::string(500, 'x')});
+    cr.segments.push_back({1, 2, agent::Classification::context, std::string(500, 'x')});
     auto result = agent::apply_classification(hist, cr);
     std::string body;
     for (const auto& m : result)
@@ -3565,9 +3558,8 @@ TEST(apply_classification_truncates_long_summaries) {
                               agent::kCompressedContextPrefix) == 0)
             body = m.content;
     ASSERT_FALSE(body.empty());
-    auto j = agent::json::parse(
-        body.substr(sizeof(agent::kCompressedContextPrefix) - 1), nullptr,
-        false);
+    auto j = agent::json::parse(body.substr(sizeof(agent::kCompressedContextPrefix) - 1), nullptr,
+                                false);
     ASSERT(j.is_object());
     ASSERT_EQ(j["archive"].size(), 1u);
     std::string summary = j["archive"][0]["summary"].get<std::string>();
@@ -3578,7 +3570,7 @@ TEST(sanitize_tool_pairs_drops_orphan_tool_message) {
     std::vector<agent::Message> hist = {
         msg("system", "Amber"),
         msg("user", "task"),
-        msg("tool", "orphan result"),  // no preceding assistant tool_calls
+        msg("tool", "orphan result"), // no preceding assistant tool_calls
         msg("user", "next"),
     };
     agent::sanitize_tool_pairs(hist);
@@ -3593,18 +3585,17 @@ TEST(sanitize_tool_pairs_stubs_missing_result) {
     call.tool_calls = json::array();
     call.tool_calls.push_back({{"id", "call_1"},
                                {"type", "function"},
-                               {"function",
-                                {{"name", "bash"}, {"arguments", "{}"}}}});
+                               {"function", {{"name", "bash"}, {"arguments", "{}"}}}});
     std::vector<agent::Message> hist = {
         msg("system", "Amber"),
         msg("user", "task"),
-        call,                  // tool_calls whose result was pruned
+        call, // tool_calls whose result was pruned
         msg("user", "next"),
     };
     agent::sanitize_tool_pairs(hist);
     ASSERT_EQ(hist.size(), 5u);
-    ASSERT_EQ(hist[2].role, "assistant");  // the tool_calls message
-    ASSERT_EQ(hist[3].role, "tool");       // stub injected before the user turn
+    ASSERT_EQ(hist[2].role, "assistant"); // the tool_calls message
+    ASSERT_EQ(hist[3].role, "tool");      // stub injected before the user turn
     ASSERT_EQ(hist[4].role, "user");
 }
 
@@ -3613,13 +3604,13 @@ TEST(prune_tool_io_removes_bulky_output_outside_tail) {
         msg("system", "Amber"),
         msg("user", "task a"),
         msg("assistant", "a done"),
-        msg("tool", std::string(500, 'a'), "bash"),   // bulky, old
+        msg("tool", std::string(500, 'a'), "bash"), // bulky, old
         msg("user", "task b"),
         msg("assistant", "b done"),
-        msg("tool", "short", "bash"),                  // short, old
+        msg("tool", "short", "bash"), // short, old
         msg("user", "current task"),
         msg("assistant", "working"),
-        msg("tool", std::string(500, 'b'), "bash"),    // bulky, in tail
+        msg("tool", std::string(500, 'b'), "bash"), // bulky, in tail
     };
     agent::prune_tool_io(hist);
     size_t omitted = 0;
@@ -3628,9 +3619,9 @@ TEST(prune_tool_io_removes_bulky_output_outside_tail) {
             ++omitted;
     }
     ASSERT_EQ(omitted, 1u);
-    ASSERT_EQ(hist[3].content.find("aa"), std::string::npos);  // pruned
-    ASSERT_EQ(hist[6].content, "short");                       // kept
-    ASSERT(hist[9].content.size() == 500u);                    // tail kept
+    ASSERT_EQ(hist[3].content.find("aa"), std::string::npos); // pruned
+    ASSERT_EQ(hist[6].content, "short");                      // kept
+    ASSERT(hist[9].content.size() == 500u);                   // tail kept
 }
 
 TEST(compression_gate_below_threshold) {
@@ -3654,7 +3645,7 @@ TEST(compression_gate_above_threshold) {
     agent::Context ctx;
     for (int i = 0; i < 10; ++i)
         ctx.push(msg("user", std::string(100, 'a')));
-    cfg.turn_counter = 25;  // past the 20-turn cooldown
+    cfg.turn_counter = 25; // past the 20-turn cooldown
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -3680,9 +3671,9 @@ TEST(compression_gate_default_threshold_is_70_percent) {
     cfg.turn_counter = 25;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
-    cfg.prompt_tokens_used = 183000;  // ~69.8%
+    cfg.prompt_tokens_used = 183000; // ~69.8%
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-    cfg.prompt_tokens_used = 184000;  // ~70.2%
+    cfg.prompt_tokens_used = 184000; // ~70.2%
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -3708,7 +3699,7 @@ TEST(compression_gate_unknown_window_never_fires) {
     agent::CompressionConfig cc;
     cc.min_turns = 1;
     auto gate = agent::make_compression_gate(cc);
-    agent::Config cfg;  // context_size == 0
+    agent::Config cfg; // context_size == 0
     cfg.prompt_tokens_used = 100000;
     cfg.turn_counter = 25;
     agent::Context ctx;
@@ -3936,11 +3927,11 @@ TEST(integration_apply_and_retrieve) {
     //   - everything else = context with summary
     agent::CompressionResponse cr;
     cr.segments.push_back({0, 0, agent::Classification::core, ""});
-    cr.segments.push_back({1, 2, agent::Classification::context,
-                           "user asked about build system, assistant checked"});
+    cr.segments.push_back(
+        {1, 2, agent::Classification::context, "user asked about build system, assistant checked"});
     cr.segments.push_back({3, 3, agent::Classification::prune, ""});
-    cr.segments.push_back({4, 4, agent::Classification::context,
-                           "assistant answered build system question"});
+    cr.segments.push_back(
+        {4, 4, agent::Classification::context, "assistant answered build system question"});
     cr.segments.push_back({5, 5, agent::Classification::core, ""});
     cr.segments.push_back({6, 7, agent::Classification::prune, ""});
     cr.segments.push_back({8, 8, agent::Classification::prune, ""});
@@ -3958,8 +3949,11 @@ TEST(integration_apply_and_retrieve) {
     auto store = agent::make_memory_store(ec);
     store->set_current_turn(1);
 
-    cr.memory_ops.push_back(
-        {"build system", "project uses GNU make with ./configure", {"build", "make"}, "upsert", ""});
+    cr.memory_ops.push_back({"build system",
+                             "project uses GNU make with ./configure",
+                             {"build", "make"},
+                             "upsert",
+                             ""});
     cr.memory_ops.push_back(
         {"test results", "103 tests passed", {"tests", "testing"}, "upsert", ""});
 
@@ -3970,8 +3964,7 @@ TEST(integration_apply_and_retrieve) {
 
     // Phase 3: Retrieve relevant memories
     agent::MemoryRetriever retriever(*store);
-    std::string suffix = retriever.build_system_prompt_suffix(
-        "how do I build this project?");
+    std::string suffix = retriever.build_system_prompt_suffix("how do I build this project?");
     ASSERT(!suffix.empty());
     bool found = suffix.find("GNU make") != std::string::npos ||
                  suffix.find("./configure") != std::string::npos;
@@ -4062,8 +4055,7 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
     // and recorded as archive entries on the compressed-context message.
     agent::Message ctx_msg;
     ctx_msg.role = "system";
-    ctx_msg.content =
-        "Compressed conversation context:\n{\"archive\":[],\"facts\":{}}";
+    ctx_msg.content = "Compressed conversation context:\n{\"archive\":[],\"facts\":{}}";
     std::vector<agent::Message> msgs = {
         msg("system", "Amber"),
         msg("user", std::string(4000, 'a')),
@@ -4076,8 +4068,7 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
     auto out = agent::enforce_headroom(std::move(msgs), 3000);
     ASSERT_EQ(out.size(), size_t{4});
     for (const auto& m : out)
-        ASSERT(m.content.find("[over-budget archived]") ==
-               std::string::npos);
+        ASSERT(m.content.find("[over-budget archived]") == std::string::npos);
     bool archived = false;
     for (const auto& m : out)
         if (m.content.find("Compressed conversation context:") == 0)
@@ -4119,15 +4110,20 @@ TEST(agent_text_only_reply) {
     agent::ToolRegistry reg;
     agent::Agent ag(cfg, reg);
 
-    agent::Message sys; sys.role = "system"; sys.content = "test";
-    agent::Message u;   u.role = "user";     u.content = "say hello";
-    agent::Message a;   a.role = "assistant"; a.content = "Hello world";
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "test";
+    agent::Message u;
+    u.role = "user";
+    u.content = "say hello";
+    agent::Message a;
+    a.role = "assistant";
+    a.content = "Hello world";
     ag.set_context({sys, u, a});
 
     ASSERT(ag.context().size() >= 3u);
     ASSERT(ag.context().get_all().back().role == "assistant");
     ASSERT(ag.context().get_all().back().content.find("Hello") != std::string::npos);
-
 }
 
 // ---------------------------------------------------------------------------
@@ -4177,10 +4173,15 @@ TEST(build_system_separates_core_and_tools) {
     std::string core_contents;
     {
         std::array<char, 128> buf;
-        auto deleter = [](FILE* f) { if (f) pclose(f); };
-        std::unique_ptr<FILE, decltype(deleter)> pipe(
-            popen(("ar t " + core_archive).c_str(), "r"), deleter);
-        if (pipe) while (fgets(buf.data(), buf.size(), pipe.get())) core_contents += buf.data();
+        auto deleter = [](FILE* f) {
+            if (f)
+                pclose(f);
+        };
+        std::unique_ptr<FILE, decltype(deleter)> pipe(popen(("ar t " + core_archive).c_str(), "r"),
+                                                      deleter);
+        if (pipe)
+            while (fgets(buf.data(), buf.size(), pipe.get()))
+                core_contents += buf.data();
     }
     if (core_contents.find("tools/") != std::string::npos) {
         std::fprintf(stderr, "core archive contains tool objects\n");
@@ -4227,10 +4228,10 @@ TEST(cancel_token_tokens_are_independent) {
 TEST(cancel_token_copies_share_state) {
     agent::CancellationToken t1;
     t1.request();
-    agent::CancellationToken t2 = t1;  // copy — same underlying state
+    agent::CancellationToken t2 = t1; // copy — same underlying state
     ASSERT_TRUE(t2.is_requested());
     t2.clear();
-    ASSERT_FALSE(t1.is_requested());  // shared: clearing t2 clears t1
+    ASSERT_FALSE(t1.is_requested()); // shared: clearing t2 clears t1
 }
 
 // ---------------------------------------------------------------------------
@@ -4262,15 +4263,15 @@ TEST(context_token_count_tracks_content) {
 
     agent::Message m;
     m.role = "user";
-    m.content = "hello world";               // 11 chars / 4 = 2 + 4 overhead = 6
+    m.content = "hello world"; // 11 chars / 4 = 2 + 4 overhead = 6
     ctx.push(std::move(m));
     ASSERT_EQ(ctx.token_count(), 6u);
 
     agent::Message m2;
     m2.role = "assistant";
-    m2.content = std::string(100, 'x');      // 100/4 = 25 + 4 = 29
+    m2.content = std::string(100, 'x'); // 100/4 = 25 + 4 = 29
     ctx.push(std::move(m2));
-    ASSERT_EQ(ctx.token_count(), 35u);       // 6 + 29
+    ASSERT_EQ(ctx.token_count(), 35u); // 6 + 29
 
     ctx.clear();
     ASSERT_EQ(ctx.token_count(), 0u);
@@ -4320,38 +4321,46 @@ TEST(context_hash_chain_integrity) {
 
     // Push user and assistant turns.
     agent::Message u1, a1, u2, a2;
-    u1.role = "user";      u1.content = "hello";
-    a1.role = "assistant"; a1.content = "hi there";
-    u2.role = "user";      u2.content = "what is c++";
-    a2.role = "assistant"; a2.content = "a language";
-    ctx.push(std::move(u1)); ctx.get_all();
-    ctx.push(std::move(a1)); ctx.get_all();
-    ctx.push(std::move(u2)); ctx.get_all();
-    ctx.push(std::move(a2)); ctx.get_all();
+    u1.role = "user";
+    u1.content = "hello";
+    a1.role = "assistant";
+    a1.content = "hi there";
+    u2.role = "user";
+    u2.content = "what is c++";
+    a2.role = "assistant";
+    a2.content = "a language";
+    ctx.push(std::move(u1));
+    ctx.get_all();
+    ctx.push(std::move(a1));
+    ctx.get_all();
+    ctx.push(std::move(u2));
+    ctx.get_all();
+    ctx.push(std::move(a2));
+    ctx.get_all();
     ASSERT_EQ(ctx.size(), 5u);
 
     // Pop the last assistant reply (LIFO).
     auto popped = ctx.pop();
     ASSERT_EQ(popped.content, "a language");
-    ctx.get_all();  // chain must survive pop
+    ctx.get_all(); // chain must survive pop
     ASSERT_EQ(ctx.size(), 4u);
 
     // Pop again.
     popped = ctx.pop();
     ASSERT_EQ(popped.content, "what is c++");
-    ctx.get_all();  // chain must survive second pop
+    ctx.get_all(); // chain must survive second pop
     ASSERT_EQ(ctx.size(), 3u);
 
     // Clear and re-push from scratch.
     ctx.clear();
-    ctx.get_all();  // chain must survive clear
+    ctx.get_all(); // chain must survive clear
     ASSERT_EQ(ctx.size(), 0u);
 
     agent::Message m;
     m.role = "user";
     m.content = "fresh start";
     ctx.push(std::move(m));
-    ctx.get_all();  // chain must survive rebuild
+    ctx.get_all(); // chain must survive rebuild
     ASSERT_EQ(ctx.size(), 1u);
     ASSERT_EQ(ctx.get_all().back().content, "fresh start");
 }
@@ -4363,8 +4372,14 @@ TEST(context_event_source_delivers_to_all_subscribers) {
     int sub1_count = 0, sub2_count = 0;
     size_t sub1_tokens = 0, sub2_tokens = 0;
 
-    src.subscribe([&](size_t t, size_t) { ++sub1_count; sub1_tokens = t; });
-    src.subscribe([&](size_t t, size_t) { ++sub2_count; sub2_tokens = t; });
+    src.subscribe([&](size_t t, size_t) {
+        ++sub1_count;
+        sub1_tokens = t;
+    });
+    src.subscribe([&](size_t t, size_t) {
+        ++sub2_count;
+        sub2_tokens = t;
+    });
 
     // Publish initial event.
     src.publish(ctx.token_count(), ctx.size());
@@ -4424,7 +4439,9 @@ TEST(context_event_integration_with_agent) {
 
 // ---------------------------------------------------------------------------
 
-int main() { return agent::test::run_all(); }
+int main() {
+    return agent::test::run_all();
+}
 
 // ---------------------------------------------------------------------------
 // Learn UI: store listing / remove / promote APIs ([LU-01], [LU-03], [LU-04],
@@ -4495,7 +4512,8 @@ TEST(learn_store_remove_persists) {
 
     std::string gone_id;
     for (const auto& mem : store->all_memories())
-        if (mem.name == "gone") gone_id = mem.id;
+        if (mem.name == "gone")
+            gone_id = mem.id;
     ASSERT_FALSE(gone_id.empty());
 
     ASSERT_TRUE(store->remove(gone_id));
@@ -4581,7 +4599,8 @@ TEST(learn_agent_forget_persists) {
     ASSERT_TRUE(s->load(path));
     std::string gone_id;
     for (const auto& mem : s->all_memories())
-        if (mem.name == "gone") gone_id = mem.id;
+        if (mem.name == "gone")
+            gone_id = mem.id;
     ASSERT_FALSE(gone_id.empty());
 
     ASSERT_EQ(agent.learn_forget(gone_id), "");
@@ -4663,16 +4682,11 @@ namespace {
 std::string make_exclusion_tree() {
     std::string dir = "/tmp/amber_search_excl";
     run_cmd("rm -rf " + dir);
-    run_cmd("mkdir -p " + dir + "/.git " + dir + "/.amber " +
-            dir + "/third_party " + dir + "/src");
-    std::ofstream(dir + "/src/a.cpp")
-        << "int the_marker_symbol() { return 1; }\n";
-    std::ofstream(dir + "/.git/x.cpp")
-        << "int the_marker_symbol() { return 2; }\n";
-    std::ofstream(dir + "/.amber/y.json")
-        << "the_marker_symbol\n";
-    std::ofstream(dir + "/third_party/z.cpp")
-        << "int the_marker_symbol() { return 3; }\n";
+    run_cmd("mkdir -p " + dir + "/.git " + dir + "/.amber " + dir + "/third_party " + dir + "/src");
+    std::ofstream(dir + "/src/a.cpp") << "int the_marker_symbol() { return 1; }\n";
+    std::ofstream(dir + "/.git/x.cpp") << "int the_marker_symbol() { return 2; }\n";
+    std::ofstream(dir + "/.amber/y.json") << "the_marker_symbol\n";
+    std::ofstream(dir + "/third_party/z.cpp") << "int the_marker_symbol() { return 3; }\n";
     return dir;
 }
 
@@ -4691,8 +4705,7 @@ TEST(search_excludes_are_removable) {
     std::string dir = make_exclusion_tree();
     auto be = agent::make_grep_backend();
     // Dropping "third_party" from the excludes makes vendored code searchable.
-    auto hits = be->search("the_marker_symbol", dir, "*.cpp", 100,
-                           {".amber", ".git"});
+    auto hits = be->search("the_marker_symbol", dir, "*.cpp", 100, {".amber", ".git"});
     bool saw_vendored = false;
     for (const auto& h : hits)
         if (h.path.find("/third_party/z.cpp") != std::string::npos)
@@ -4707,14 +4720,12 @@ TEST(search_tool_explicit_path_inside_excluded) {
     agent::Workspace::set_root(dir);
     auto tool = agent::make_search_tool();
 
-    auto default_run = tool->execute({{"pattern", "the_marker_symbol"},
-                                      {"glob", "*.cpp"}});
+    auto default_run = tool->execute({{"pattern", "the_marker_symbol"}, {"glob", "*.cpp"}});
     ASSERT_TRUE(default_run.ok);
     ASSERT(default_run.output.find("z.cpp") == std::string::npos);
 
-    auto vendored = tool->execute({{"pattern", "the_marker_symbol"},
-                                   {"glob", "*.cpp"},
-                                   {"path", "third_party"}});
+    auto vendored = tool->execute(
+        {{"pattern", "the_marker_symbol"}, {"glob", "*.cpp"}, {"path", "third_party"}});
     ASSERT_TRUE(vendored.ok);
     ASSERT(vendored.output.find("z.cpp") != std::string::npos);
     run_cmd("rm -rf " + dir);
@@ -4730,12 +4741,11 @@ TEST(search_tool_rejects_out_of_workspace_path) {
     std::ofstream(outside + "/secret.txt") << "needle_secret_marker\n";
 
     auto tool = agent::make_search_tool();
-    auto r = tool->execute({{"pattern", "needle_secret_marker"},
-                            {"path", outside}});
+    auto r = tool->execute({{"pattern", "needle_secret_marker"}, {"path", outside}});
     ASSERT_FALSE(r.ok);
     ASSERT(r.error.find("workspace") != std::string::npos);
     run_cmd("rm -rf " + dir + " " + outside);
-    agent::Workspace::set_root(".");   // leave a valid root for later tests
+    agent::Workspace::set_root("."); // leave a valid root for later tests
 }
 
 // ---------------------------------------------------------------------------
@@ -4765,8 +4775,7 @@ TEST(environment_card_renders_compact) {
     ASSERT(card.find("Workspace: /home/jack/project") != std::string::npos);
     ASSERT(card.find("Date: 2026-08-07 (UTC+2)") != std::string::npos);
     ASSERT(card.find("8 cores") != std::string::npos);
-    ASSERT(card.find("Tools available: g++, git, make, python3") !=
-           std::string::npos);
+    ASSERT(card.find("Tools available: g++, git, make, python3") != std::string::npos);
     // Compact: well under a couple of hundred tokens.
     ASSERT(card.size() < 600u);
 }
@@ -4782,8 +4791,7 @@ TEST(environment_card_reports_privilege) {
     info.root = false;
     info.sudo_passwordless = true;
     card = agent::render_environment_card(info);
-    ASSERT(card.find("User: jack (non-root, passwordless sudo)") !=
-           std::string::npos);
+    ASSERT(card.find("User: jack (non-root, passwordless sudo)") != std::string::npos);
 }
 
 TEST(environment_card_sorts_tools) {
@@ -4829,7 +4837,7 @@ TEST(environment_probe_collects_facts) {
     ASSERT_FALSE(info.date.empty());
     ASSERT_FALSE(info.timezone.empty());
     ASSERT_FALSE(info.resources.empty());
-    ASSERT(!info.tools.empty());  // git or python3 present in CI
+    ASSERT(!info.tools.empty()); // git or python3 present in CI
     ASSERT_FALSE(agent::render_environment_card(info).empty());
 }
 
@@ -4852,7 +4860,8 @@ struct DataTree {
 
     ~DataTree() {
         run_cmd("rm -rf " + base);
-        if (!saved_cwd.empty()) (void)chdir(saved_cwd.c_str());
+        if (!saved_cwd.empty())
+            (void)chdir(saved_cwd.c_str());
         if (xdg_was_set)
             setenv("XDG_DATA_HOME", saved_xdg.c_str(), 1);
         else
@@ -4869,7 +4878,8 @@ DataTree make_data_tree() {
     run_cmd("rm -rf " + t.base);
     run_cmd("mkdir -p " + t.cwd + " " + t.bin + " " + t.xdg + "/amber/prompts");
     char buf[4096];
-    if (getcwd(buf, sizeof buf)) t.saved_cwd = buf;
+    if (getcwd(buf, sizeof buf))
+        t.saved_cwd = buf;
     t.saved_xdg = std::getenv("XDG_DATA_HOME") ? std::getenv("XDG_DATA_HOME") : "";
     t.xdg_was_set = std::getenv("XDG_DATA_HOME") != nullptr;
     setenv("XDG_DATA_HOME", t.xdg.c_str(), 1);
@@ -4877,7 +4887,9 @@ DataTree make_data_tree() {
     return t;
 }
 
-std::string dp_argv0(const std::string& bin_dir) { return bin_dir + "/amber"; }
+std::string dp_argv0(const std::string& bin_dir) {
+    return bin_dir + "/amber";
+}
 
 } // namespace
 
@@ -4885,8 +4897,7 @@ TEST(data_path_resolves_from_xdg_data_home) {
     DataTree t = make_data_tree();
     std::ofstream(t.xdg + "/amber/prompts/system.md") << "xdg";
     // Not in CWD, not next to the binary — must come from XDG_DATA_HOME.
-    std::string got =
-        agent::resolve_data_path("prompts/system.md", dp_argv0(t.bin).c_str());
+    std::string got = agent::resolve_data_path("prompts/system.md", dp_argv0(t.bin).c_str());
     ASSERT_EQ(got, t.xdg + "/amber/prompts/system.md");
 }
 
@@ -4924,8 +4935,7 @@ TEST(data_path_priority_cwd_bin_xdg) {
 TEST(data_path_returns_empty_when_missing) {
     DataTree t = make_data_tree();
     std::string got =
-        agent::resolve_data_path("prompts/definitely_not_here.md",
-                                 dp_argv0(t.bin).c_str());
+        agent::resolve_data_path("prompts/definitely_not_here.md", dp_argv0(t.bin).c_str());
     ASSERT_EQ(got, "");
 }
 
@@ -4950,8 +4960,7 @@ TEST(data_path_finds_fhs_sibling_share_dir) {
     std::string argv0s = bin_dir + "/amber";
     const char* argv0 = argv0s.c_str();
 
-    std::string got =
-        agent::resolve_data_path("completions.json", argv0);
+    std::string got = agent::resolve_data_path("completions.json", argv0);
     // The sibling rule yields <bin>/../share/amber/completions.json (the ".."
     // is left literal but the OS resolves it); assert the file is found and
     // points into the share dir.
@@ -4971,8 +4980,7 @@ TEST(bootstrap_validator_reports_missing_files) {
     cfg.system_prompt_path = "prompts/system.md";
     cfg.tools_prompt_path = "prompts/tools.md";
 
-    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
-                                                  false);
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(), false);
     ASSERT_EQ(missing.size(), 2u);
     ASSERT(missing[0].find("system") != std::string::npos);
     ASSERT(missing[1].find("tools") != std::string::npos);
@@ -4988,13 +4996,13 @@ TEST(bootstrap_validator_reports_searched_paths_and_hint) {
     cfg.system_prompt_path = "prompts/system.md";
     std::string argv0 = dp_argv0(t.bin);
     auto missing = agent::missing_bootstrap_files(cfg, argv0.c_str(), false);
-    ASSERT_EQ(missing.size(), 1u);  // only the prompt (completions not required)
+    ASSERT_EQ(missing.size(), 1u); // only the prompt (completions not required)
     const std::string& m = missing[0];
     ASSERT(m.find("system prompt") != std::string::npos);
     ASSERT(m.find("searched:") != std::string::npos);
-    ASSERT(m.find(t.bin) != std::string::npos);   // argv0-dir candidate listed
+    ASSERT(m.find(t.bin) != std::string::npos); // argv0-dir candidate listed
     ASSERT(m.find("[missing]") != std::string::npos);
-    ASSERT(m.find("expected:") != std::string::npos);  // install-prefix hint
+    ASSERT(m.find("expected:") != std::string::npos); // install-prefix hint
     ASSERT(m.find("hint:") != std::string::npos);
 }
 
@@ -5010,8 +5018,7 @@ TEST(bootstrap_validator_passes_when_files_exist) {
     cfg.tools_prompt_path = "prompts/tools.md";
 
     // Prompts found in CWD; completions.json must come from XDG.
-    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
-                                                  true);
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(), true);
     ASSERT_EQ(missing.size(), 0u);
 }
 
@@ -5026,8 +5033,7 @@ TEST(bootstrap_validator_requires_completions_when_requested) {
     cfg.tools_prompt_path = "prompts/tools.md";
 
     // completions.json exists nowhere; TUI requires it.
-    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(),
-                                                  true);
+    auto missing = agent::missing_bootstrap_files(cfg, dp_argv0(t.bin).c_str(), true);
     ASSERT_EQ(missing.size(), 1u);
     ASSERT(missing[0].find("completions") != std::string::npos);
 }
@@ -5045,8 +5051,10 @@ TEST(parse_model_list_dedupes_ids) {
     ASSERT_EQ(models.size(), 3u);
     bool saw_qwopus = false, saw_qwen = false;
     for (const auto& m : models) {
-        if (m == "qwopus-27b") saw_qwopus = true;
-        if (m == "qwen35-moe") saw_qwen = true;
+        if (m == "qwopus-27b")
+            saw_qwopus = true;
+        if (m == "qwen35-moe")
+            saw_qwen = true;
     }
     ASSERT(saw_qwopus && saw_qwen);
 }
@@ -5119,7 +5127,8 @@ TEST(skill_install_from_archive) {
     auto files = agent::scan_skill_dir(dest, agent::SkillScope::Global);
     bool found = false;
     for (const auto& f : files)
-        if (f.name == "skilltest") found = true;
+        if (f.name == "skilltest")
+            found = true;
     ASSERT(found);
 
     err = agent::uninstall_skill("skilltest", dest);
@@ -5162,15 +5171,9 @@ TEST(mcp_completion_subtree_reflects_live_tools) {
     struct FakeMcpTool : agent::Tool {
         std::string id;
         std::string name() const noexcept override { return id; }
-        std::string description() const noexcept override {
-            return "desc of " + id;
-        }
-        agent::json parameters_schema() const override {
-            return agent::json::object();
-        }
-        agent::ToolResult execute(const agent::json&) const override {
-            return {};
-        }
+        std::string description() const noexcept override { return "desc of " + id; }
+        agent::json parameters_schema() const override { return agent::json::object(); }
+        agent::ToolResult execute(const agent::json&) const override { return {}; }
     };
     auto add = [&](const std::string& n) {
         auto t = std::make_unique<FakeMcpTool>();
@@ -5179,7 +5182,7 @@ TEST(mcp_completion_subtree_reflects_live_tools) {
     };
     add("mcp_github_list_issues");
     add("mcp_github_get_issue");
-    add("read");  // non-mcp tool must be ignored
+    add("read"); // non-mcp tool must be ignored
 
     auto subtree = agent::mcp_completion_subtree(reg);
     ASSERT(subtree.contains("mcp"));
@@ -5195,18 +5198,18 @@ TEST(mcp_completion_subtree_reflects_live_tools) {
 TEST(request_failure_classifier) {
     using agent::RequestFailure;
     ASSERT(agent::classify_request_failure(
-        "HTTP 400 from LLM server: {\"error\":{\"code\":400,\"message\":"
-        "\"Unable to generate parser for this template. Automatic parser "
-        "generation failed\"}}") == RequestFailure::TemplateParser);
+               "HTTP 400 from LLM server: {\"error\":{\"code\":400,\"message\":"
+               "\"Unable to generate parser for this template. Automatic parser "
+               "generation failed\"}}") == RequestFailure::TemplateParser);
     ASSERT(agent::classify_request_failure(
-        "HTTP 400 from LLM server: {\"error\":\"The model ornith-35b does "
-        "not exist\"}") == RequestFailure::ModelName);
-    ASSERT(agent::classify_request_failure(
-        "HTTP 401 from LLM server: bad key") == RequestFailure::Auth);
-    ASSERT(agent::classify_request_failure(
-        "HTTP 403 from LLM server: forbidden") == RequestFailure::Auth);
-    ASSERT(agent::classify_request_failure(
-        "HTTP 400 from LLM server: context overflow") == RequestFailure::None);
+               "HTTP 400 from LLM server: {\"error\":\"The model ornith-35b does "
+               "not exist\"}") == RequestFailure::ModelName);
+    ASSERT(agent::classify_request_failure("HTTP 401 from LLM server: bad key") ==
+           RequestFailure::Auth);
+    ASSERT(agent::classify_request_failure("HTTP 403 from LLM server: forbidden") ==
+           RequestFailure::Auth);
+    ASSERT(agent::classify_request_failure("HTTP 400 from LLM server: context overflow") ==
+           RequestFailure::None);
 }
 
 // [GR] Tool schemas are sanitized before they reach the server so its grammar
@@ -5218,9 +5221,7 @@ TEST(tool_schema_sanitizer) {
               {"properties",
                {{"tags", {{"type", "array"}, {"items", nullptr}}},
                 {"count", {{"type", "array"}}},
-                {"nested", {{"type", "object"},
-                            {"properties",
-                             {{"x", {{"type", nullptr}}}}}}},
+                {"nested", {{"type", "object"}, {"properties", {{"x", {{"type", nullptr}}}}}}},
                 {"bare", nullptr}}}};
     agent::sanitize_tool_schema(s);
     ASSERT(s["properties"]["tags"]["items"].is_object());
@@ -5250,15 +5251,14 @@ TEST(tool_schema_sanitizer_repairs_null_required) {
 //   </function>
 //   </tool_call>
 TEST(tool_call_parser_attribute_style) {
-    std::string text =
-        "I'll review the app.\n"
-        "<tool_call>\n"
-        "<function=bash>\n"
-        "<parameter=command>\n"
-        "find . -type f | head\n"
-        "</parameter>\n"
-        "</function>\n"
-        "</tool_call>";
+    std::string text = "I'll review the app.\n"
+                       "<tool_call>\n"
+                       "<function=bash>\n"
+                       "<parameter=command>\n"
+                       "find . -type f | head\n"
+                       "</parameter>\n"
+                       "</function>\n"
+                       "</tool_call>";
     auto calls = agent::extract_tool_calls_from_text(text);
     ASSERT_TRUE(!calls.is_null());
     ASSERT_EQ(calls.size(), 1u);
@@ -5268,55 +5268,48 @@ TEST(tool_call_parser_attribute_style) {
 }
 
 TEST(tool_call_parser_attribute_style_multiple) {
-    std::string text =
-        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
-        "</parameter>\n</function>\n</tool_call>\n"
-        "<tool_call>\n<function=search>\n<parameter=pattern>\nTODO\n"
-        "</parameter>\n</function>\n</tool_call>";
+    std::string text = "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+                       "</parameter>\n</function>\n</tool_call>\n"
+                       "<tool_call>\n<function=search>\n<parameter=pattern>\nTODO\n"
+                       "</parameter>\n</function>\n</tool_call>";
     auto calls = agent::extract_tool_calls_from_text(text);
     ASSERT_TRUE(!calls.is_null());
     ASSERT_EQ(calls.size(), 2u);
     ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
     ASSERT_EQ(calls[1]["function"]["name"].get<std::string>(), "search");
-    ASSERT_EQ(calls[1]["function"]["arguments"]["pattern"].get<std::string>(),
-              "TODO");
+    ASSERT_EQ(calls[1]["function"]["arguments"]["pattern"].get<std::string>(), "TODO");
 }
 
 TEST(tool_call_parser_attribute_style_unclosed) {
     // Model cut off mid-call: no closing </tool_call>.
-    std::string text =
-        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n";
+    std::string text = "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n";
     auto calls = agent::extract_tool_calls_from_text(text);
     ASSERT_TRUE(!calls.is_null());
     ASSERT_EQ(calls.size(), 1u);
     ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
-    ASSERT_EQ(calls[0]["function"]["arguments"]["path"].get<std::string>(),
-              "Makefile");
+    ASSERT_EQ(calls[0]["function"]["arguments"]["path"].get<std::string>(), "Makefile");
 }
 
 // [TC] Hermes-style bare-JSON tool calls (Qwen2.5-Coder via llama.cpp):
 // the model emits {"name":"read","arguments":{...}} as plain content text,
 // without any XML wrapper. A call in the middle of prose must be extracted.
 TEST(tool_call_parser_bare_json) {
-    std::string text =
-        "Let's read the task file.\n"
-        "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
-        "I'll then write the solution.";
+    std::string text = "Let's read the task file.\n"
+                       "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
+                       "I'll then write the solution.";
     auto calls = agent::extract_tool_calls_from_text(text);
     ASSERT_TRUE(!calls.is_null());
     ASSERT_EQ(calls.size(), 1u);
     ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
-    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(),
-              "{\"path\":\"TASK.md\"}");
+    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(), "{\"path\":\"TASK.md\"}");
 }
 
 // [TC] Multiple Hermes-style calls in one response, each with arguments,
 // must all be extracted in order.
 TEST(tool_call_parser_bare_json_multiple) {
-    std::string text =
-        "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
-        "{\"name\": \"write\", \"arguments\": {\"path\": \"fizzbuzz.cpp\", "
-        "\"edits\": [{\"old\": \"\", \"new\": \"int main(){}\"}]}}";
+    std::string text = "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
+                       "{\"name\": \"write\", \"arguments\": {\"path\": \"fizzbuzz.cpp\", "
+                       "\"edits\": [{\"old\": \"\", \"new\": \"int main(){}\"}]}}";
     auto calls = agent::extract_tool_calls_from_text(text);
     ASSERT_TRUE(!calls.is_null());
     ASSERT_EQ(calls.size(), 2u);
@@ -5327,15 +5320,13 @@ TEST(tool_call_parser_bare_json_multiple) {
 // [TC] The 32B, when forced to use a tool, wraps the call in <tools> tags:
 // <tools>{"name": "read", "arguments": {"path": "/etc/hostname"}}</tools>
 TEST(tool_call_parser_bare_json_tools_wrapper) {
-    std::string text =
-        "<tools>{\"name\": \"read\", \"arguments\": {\"path\": \"/etc/hostname\"}}"
-        "</tools>";
+    std::string text = "<tools>{\"name\": \"read\", \"arguments\": {\"path\": \"/etc/hostname\"}}"
+                       "</tools>";
     auto calls = agent::extract_tool_calls_from_text(text);
     ASSERT_TRUE(!calls.is_null());
     ASSERT_EQ(calls.size(), 1u);
     ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "read");
-    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(),
-              "{\"path\":\"/etc/hostname\"}");
+    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(), "{\"path\":\"/etc/hostname\"}");
 }
 
 // Binary files must be refused, not dumped as garbage lines (a NUL-byte
@@ -5363,7 +5354,8 @@ TEST(read_tool_clamps_limit) {
     std::string dir = "read_big_" + std::to_string(getpid());
     std::filesystem::create_directories(dir);
     std::ofstream f(dir + "/big.txt");
-    for (int i = 0; i < 5000; ++i) f << "line " << i << "\n";
+    for (int i = 0; i < 5000; ++i)
+        f << "line " << i << "\n";
     f.close();
     auto tool = agent::make_read_tool();
     auto r = tool->execute({{"path", dir + "/big.txt"}, {"limit", 100000}});
@@ -5398,10 +5390,11 @@ TEST(todowrite_tool_replaces_and_echoes) {
     agent::TodoStore store;
     auto tool = agent::make_todowrite_tool(store);
     ASSERT_EQ(tool->name(), "todowrite");
-    auto r = tool->execute({{"todos", {
-        {{"id", "p1"}, {"text", "fix parsing"}, {"status", "in_progress"}},
-        {{"id", "p2"}, {"text", "write tests"}, {"status", "pending"}},
-    }}});
+    auto r = tool->execute({{"todos",
+                             {
+                                 {{"id", "p1"}, {"text", "fix parsing"}, {"status", "in_progress"}},
+                                 {{"id", "p2"}, {"text", "write tests"}, {"status", "pending"}},
+                             }}});
     ASSERT(r.ok);
     ASSERT(r.output.find("p1") != std::string::npos);
     ASSERT(r.output.find("fix parsing") != std::string::npos);
@@ -5415,16 +5408,17 @@ TEST(todowrite_tool_replaces_and_echoes) {
 TEST(todowrite_tool_rejects_invalid_status) {
     agent::TodoStore store;
     auto tool = agent::make_todowrite_tool(store);
-    auto r = tool->execute({{"todos", {
-        {{"id", "p1"}, {"text", "x"}, {"status", "done"}},  // not a valid status
-    }}});
+    auto r =
+        tool->execute({{"todos",
+                        {
+                            {{"id", "p1"}, {"text", "x"}, {"status", "done"}}, // not a valid status
+                        }}});
     ASSERT_FALSE(r.ok);
     ASSERT(store.items().empty());
     // Missing required key also fails.
     auto r2 = tool->execute(agent::json::object());
     ASSERT_FALSE(r2.ok);
 }
-
 
 TEST(todowrite_off_by_default_not_registered) {
     agent::ToolRegistry reg;
@@ -5438,8 +5432,7 @@ TEST(todowrite_registered_when_enabled) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, true);
     ASSERT(reg.find("todowrite") != nullptr);
 }
 
@@ -5458,9 +5451,9 @@ TEST(compression_gate_large_window_fires_at_threshold_fraction) {
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
-    cfg.prompt_tokens_used = 20000;   // ~7.6% of the window: below threshold
+    cfg.prompt_tokens_used = 20000; // ~7.6% of the window: below threshold
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-    cfg.prompt_tokens_used = 150000;  // ~57% of the window: above threshold
+    cfg.prompt_tokens_used = 150000; // ~57% of the window: above threshold
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -5478,9 +5471,9 @@ TEST(compression_gate_explicit_window_honored) {
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
-    cfg.prompt_tokens_used = 50000;   // 50% of the window: below threshold
+    cfg.prompt_tokens_used = 50000; // 50% of the window: below threshold
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-    cfg.prompt_tokens_used = 70000;   // 70% of the window: at threshold
+    cfg.prompt_tokens_used = 70000; // 70% of the window: at threshold
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -5494,14 +5487,14 @@ TEST(compression_gate_unknown_window_never_auto_fires) {
     cc.cooldown_turns = 0;
     cc.min_turns = 2;
     auto gate = agent::make_compression_gate(cc);
-    agent::Config cfg;                 // context_size stays 0 (unknown)
+    agent::Config cfg; // context_size stays 0 (unknown)
     cfg.turn_counter = 5;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
     cfg.prompt_tokens_used = 15000;
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-    cfg.prompt_tokens_used = 100000;   // even a huge estimate must not fire
+    cfg.prompt_tokens_used = 100000; // even a huge estimate must not fire
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
 }
 
@@ -5517,7 +5510,7 @@ TEST(compression_gate_first_compress_not_cooldown_blocked) {
     agent::Config cfg;
     cfg.context_size = 262144;
     cfg.turn_counter = 5;
-    cfg.prompt_tokens_used = 200000;   // > 50% of the window: threshold met
+    cfg.prompt_tokens_used = 200000; // > 50% of the window: threshold met
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
@@ -5525,7 +5518,7 @@ TEST(compression_gate_first_compress_not_cooldown_blocked) {
     // After the first compression, cooldown applies normally.
     gate->set_last_compress_turn(5);
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-    cfg.turn_counter = 26;  // 5 + 20 + 1
+    cfg.turn_counter = 26; // 5 + 20 + 1
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -5647,12 +5640,9 @@ public:
     explicit ProbeTool(std::string name) : name_(std::move(name)) {}
     std::string name() const noexcept override { return name_; }
     std::string description() const noexcept override { return "probe"; }
-    agent::json parameters_schema() const override {
-        return agent::json::object();
-    }
-    agent::ToolResult execute(const agent::json&) const override {
-        return {true, "ok", ""};
-    }
+    agent::json parameters_schema() const override { return agent::json::object(); }
+    agent::ToolResult execute(const agent::json&) const override { return {true, "ok", ""}; }
+
 private:
     std::string name_;
 };
@@ -5670,13 +5660,14 @@ TEST(registry_concurrent_register_find) {
     for (int t = 0; t < kThreads; ++t)
         threads.emplace_back([&reg, t]() {
             for (int i = 0; i < kPerThread; ++i) {
-                reg.register_tool(std::make_unique<ProbeTool>(
-                    "probe_" + std::to_string(t) + "_" + std::to_string(i)));
+                reg.register_tool(std::make_unique<ProbeTool>("probe_" + std::to_string(t) + "_" +
+                                                              std::to_string(i)));
                 (void)reg.find("probe_0_0");
                 (void)reg.snapshot_tools();
             }
         });
-    for (auto& th : threads) th.join();
+    for (auto& th : threads)
+        th.join();
     ASSERT_EQ(reg.snapshot_tools().size(), static_cast<size_t>(kThreads * kPerThread));
     ASSERT(reg.find("probe_7_24") != nullptr);
 }
@@ -5714,8 +5705,7 @@ TEST(registry_lease_survives_unregister) {
 TEST(job_eof_daemon_is_terminated) {
     agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
-    std::string id = jobs.start("exec 1>&- 2>&-; sleep 30", "/tmp/amber_job_ws",
-                                60, 30);
+    std::string id = jobs.start("exec 1>&- 2>&-; sleep 30", "/tmp/amber_job_ws", 60, 30);
     ASSERT(!id.empty());
     // Poll past the 2s reap grace for the EOF path to force-kill the group —
     // a fixed sleep is racy on slow CI runners (macOS process teardown can
@@ -5725,7 +5715,8 @@ TEST(job_eof_daemon_is_terminated) {
     agent::JobState final_state = agent::JobState::Running;
     for (int i = 0; i < 60; ++i) {
         final_state = j->info().state;
-        if (final_state != agent::JobState::Running) break;
+        if (final_state != agent::JobState::Running)
+            break;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     agent::JobInfo info = j->info();
@@ -5745,17 +5736,16 @@ TEST(job_eof_daemon_is_terminated) {
 // index; the parser must cap it, never allocate a billion empty slots.
 TEST(sse_tool_call_index_capped) {
     agent::Message m;
-    auto p = agent::make_dialect("openai")->make_decoder(
-        m, [](const agent::StreamChunk&) {}, "");
-    agent::json delta = {{"tool_calls", agent::json::array({
-        {{"index", 100000}, {"id", "bomb"}, {"type", "function"},
-         {"function", {{"name", "search"}, {"arguments", "{}"}}}}
-    })}};
+    auto p = agent::make_dialect("openai")->make_decoder(m, [](const agent::StreamChunk&) {}, "");
+    agent::json delta = {
+        {"tool_calls",
+         agent::json::array({{{"index", 100000},
+                              {"id", "bomb"},
+                              {"type", "function"},
+                              {"function", {{"name", "search"}, {"arguments", "{}"}}}}})}};
     agent::json choice = {{"delta", delta}};
     std::string data =
-        "data: " +
-        agent::json{{"choices", agent::json::array({choice})}}.dump() +
-        "\n\n";
+        "data: " + agent::json{{"choices", agent::json::array({choice})}}.dump() + "\n\n";
     p->on_write(data.data(), 1, data.size());
     ASSERT(m.tool_calls.size() <= agent::kMaxToolCallsPerMessage);
 }
@@ -5763,8 +5753,7 @@ TEST(sse_tool_call_index_capped) {
 // The raw stream accumulation is diagnostics-only; it must be bounded.
 TEST(sse_raw_body_bounded) {
     agent::Message m;
-    auto p = agent::make_dialect("openai")->make_decoder(
-        m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, [](const agent::StreamChunk&) {}, "");
     std::string junk(std::size_t(1024) * 1024, 'x');
     p->on_write(junk.data(), 1, junk.size());
     ASSERT(p->raw_body().size() <= agent::kMaxRawBodyBytes);
@@ -5778,20 +5767,17 @@ TEST(sse_raw_body_bounded) {
 // kilocode kilo-auto/free failures.
 TEST(sse_one_based_tool_call_index_compacted) {
     agent::Message m;
-    auto p = agent::make_dialect("openai")->make_decoder(
-        m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, [](const agent::StreamChunk&) {}, "");
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
         agent::json choice = {{"delta", delta}};
-        return "data: " +
-               agent::json{{"choices", agent::json::array({choice})}}.dump() +
-               "\n\n";
+        return "data: " + agent::json{{"choices", agent::json::array({choice})}}.dump() + "\n\n";
     };
     // The kilocode gateway's real wire shape: index is 1, never 0.
-    agent::json frag = {{"index", 1}, {"id", "call_1"},
+    agent::json frag = {{"index", 1},
+                        {"id", "call_1"},
                         {"type", "function"},
-                        {"function", {{"name", "read"},
-                                      {"arguments", "{}"}}}};
+                        {"function", {{"name", "read"}, {"arguments", "{}"}}}};
     std::string sse = ev(agent::json::array({frag}));
     p->on_write(sse.c_str(), sse.size(), 1);
     p->finalize();
@@ -5815,18 +5801,16 @@ TEST(sse_one_based_tool_call_index_compacted) {
 // id-only slot is dropped at finalize like any other incomplete call.
 TEST(sse_id_only_tool_call_dropped) {
     agent::Message m;
-    auto p = agent::make_dialect("openai")->make_decoder(
-        m, [](const agent::StreamChunk&) {}, "");
+    auto p = agent::make_dialect("openai")->make_decoder(m, [](const agent::StreamChunk&) {}, "");
     auto ev = [](const agent::json& tc) -> std::string {
         agent::json delta = {{"tool_calls", tc}};
         agent::json choice = {{"delta", delta}};
-        return "data: " +
-               agent::json{{"choices", agent::json::array({choice})}}.dump() +
-               "\n\n";
+        return "data: " + agent::json{{"choices", agent::json::array({choice})}}.dump() + "\n\n";
     };
     // id + type but the function name never arrives (truncated/errored
     // stream) — this is not a call amber can execute or replay.
-    agent::json frag = {{"index", 0}, {"id", "call_ghost"},
+    agent::json frag = {{"index", 0},
+                        {"id", "call_ghost"},
                         {"type", "function"},
                         {"function", {{"arguments", "{}"}}}};
     std::string sse = ev(agent::json::array({frag}));
@@ -5842,7 +5826,7 @@ TEST(config_bad_line_skipped_rest_parsed) {
     {
         std::ofstream f(path);
         f << "model=\"my-model\"\n";
-        f << "temperature=hot\n";      // unparseable numeric
+        f << "temperature=hot\n"; // unparseable numeric
         f << "max_tool_iterations=5\n";
     }
     agent::Config c;
@@ -5896,9 +5880,8 @@ TEST(read_tool_rejects_fifo) {
     run_cmd("rm -rf /tmp/amber_read_fifo_ws && mkdir -p /tmp/amber_read_fifo_ws");
     run_cmd("mkfifo /tmp/amber_read_fifo_ws/pipe.txt");
     auto tool = agent::make_read_tool();
-    auto future = std::async(std::launch::async, [&tool]() {
-        return tool->execute({{"path", "pipe.txt"}});
-    });
+    auto future =
+        std::async(std::launch::async, [&tool]() { return tool->execute({{"path", "pipe.txt"}}); });
     ASSERT(future.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     auto r = future.get();
     ASSERT(!r.ok);
@@ -5981,8 +5964,7 @@ TEST(session_brief_merge_done_append_and_cap) {
 
     // Merge a second brief that adds more done entries — total exceeds 10.
     agent::SessionBrief b2;
-    b2.done = {"step4", "step5", "step6", "step7", "step8", "step9",
-               "step10", "step11", "step12"};
+    b2.done = {"step4", "step5", "step6", "step7", "step8", "step9", "step10", "step11", "step12"};
     store.merge(b2);
 
     std::string rendered = store.render();

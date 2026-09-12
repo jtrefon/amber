@@ -306,7 +306,7 @@ TEST(explicit_dialect_overrides_a_disabled_flavor) {
     ASSERT_FALSE(refused_with_explicit);
 }
 
-TEST(runtime_core_tools_plugin_is_active_on_a_default_config) {
+TEST(runtime_tool_plugins_are_active_on_a_default_config) {
     // Regression: the core tool set is a plugin now, so a default config (plan
     // and task tools off) must still leave the harness with its read/write/
     // search/bash/process tools. A declining gated capability previously failed
@@ -323,7 +323,8 @@ TEST(runtime_core_tools_plugin_is_active_on_a_default_config) {
     runtime.add_bundled();
     runtime.start();
 
-    ASSERT_TRUE(runtime.status("core_tools").enabled);
+    ASSERT_TRUE(runtime.status("tool_read").enabled);
+    ASSERT_TRUE(runtime.status("tool_search").enabled);
     ASSERT_TRUE((bool)f.tools.find("read"));
     ASSERT_TRUE((bool)f.tools.find("write"));
     ASSERT_TRUE((bool)f.tools.find("search"));
@@ -334,7 +335,7 @@ TEST(runtime_core_tools_plugin_is_active_on_a_default_config) {
     ASSERT_FALSE((bool)f.tools.find("task"));
 }
 
-TEST(runtime_core_tools_plugin_installs_gated_tools_when_enabled) {
+TEST(runtime_tool_plugins_install_gated_tools_when_enabled) {
     ScratchConfig scratch("coretools-gated");
     Fixture f;
     f.cfg.plan_tool = true;
@@ -352,9 +353,10 @@ TEST(runtime_core_tools_plugin_installs_gated_tools_when_enabled) {
     ASSERT_TRUE((bool)f.tools.find("todowrite"));
     ASSERT_TRUE((bool)f.tools.find("task"));
 
-    // Disabling the plugin takes the whole set back out, gated tools included.
-    ASSERT_TRUE(runtime.set_state("core_tools", false));
-    ASSERT_EQ(f.tools.snapshot_tools().size(), 0u);
+    // Disabling the plugin takes its tool back out, and only its tool.
+    ASSERT_TRUE(runtime.set_state("tool_plan", false));
+    ASSERT_FALSE((bool)f.tools.find("todowrite"));
+    ASSERT_TRUE((bool)f.tools.find("task"));
 }
 
 TEST(runtime_disable_unwinds_every_contribution) {

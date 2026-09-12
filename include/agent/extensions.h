@@ -42,22 +42,38 @@ struct ExtensionItem {
 // Prompt blocks
 // ---------------------------------------------------------------------------
 
-// A block of text appended to the prompt as its own system message. Rendering
-// happens on the prompt copy, never on the sealed Context.
+// Where a contributed block lands in the prompt. Position is a property of
+// what the block *is*, not of when it was registered:
 //
-// Determinism: blocks are ordered by (priority, registration order) and must
-// render identically for identical inputs. A block whose content changes every
-// turn invalidates the server's KV prefix from its position onwards, so
-// volatile content belongs at a high priority (near the tail) - or should wait
-// until the fact it reports actually changed.
+// - `System` — concatenated into the system prompt itself. This is the stable
+//   prefix the server caches, so it is where text that describes the harness
+//   belongs: tool documentation, conventions. Content here is byte-identical
+//   for identical inputs, and disabling its contributor removes it from the
+//   prompt in the same action that removes the capability it documents.
+// - `Head` — its own system message, immediately after the system prompt.
+//   Reads as instructions for this request.
+// - `Tail` — its own system message, at the end of the conversation. The
+//   default, because a block that changes per turn is cheapest there: it costs
+//   the KV cache only from its own position onwards.
+enum class PromptPlacement : std::uint8_t { System, Head, Tail };
+
+// A block of text contributed to the prompt. Rendering happens on the prompt
+// copy, never on the sealed Context.
+//
+// Determinism: within a placement, blocks are ordered by (priority,
+// registration order) and must render identically for identical inputs. A
+// block whose content changes every turn invalidates the server's KV prefix
+// from its position onwards, so volatile content belongs at a high priority
+// (near the tail) - or should wait until the fact it reports actually changed.
 class PromptRegistry {
 public:
     using Render = std::function<std::string()>;
 
-    Contribution add(const std::string& owner, const std::string& id, int priority, Render render);
+    Contribution add(const std::string& owner, const std::string& id, int priority, Render render,
+                     PromptPlacement placement = PromptPlacement::Tail);
 
     // Blocks in priority order, skipping any that render empty.
-    std::vector<std::string> render_all() const;
+    std::vector<std::string> render_all(PromptPlacement placement = PromptPlacement::Tail) const;
 
     std::vector<ExtensionItem> items() const;
     std::size_t size() const noexcept { return blocks_.size(); }
@@ -67,6 +83,7 @@ private:
         std::string owner;
         std::string id;
         int priority = 0;
+        PromptPlacement placement = PromptPlacement::Tail;
         std::size_t seq = 0;
         Render render;
     };
@@ -376,7 +393,8 @@ private:
 // Installs one ordered prompt block.
 class PromptBlockCapability : public Capability {
 public:
-    PromptBlockCapability(std::string id, int priority, PromptRegistry::Render render);
+    PromptBlockCapability(std::string id, int priority, PromptRegistry::Render render,
+                          PromptPlacement placement = PromptPlacement::Tail);
     std::string name() const override { return id_; }
     CapabilityKind kind() const override { return CapabilityKind::PromptBlock; }
     InstallResult install(PluginServices& services) override;
@@ -385,6 +403,7 @@ private:
     std::string id_;
     int priority_;
     PromptRegistry::Render render_;
+    PromptPlacement placement_;
 };
 
 // Contributes a provider: its presets, and optionally the wire protocol they
