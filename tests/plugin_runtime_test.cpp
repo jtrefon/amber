@@ -1443,13 +1443,15 @@ TEST(runtime_command_contribution_is_listed_and_removed) {
     runtime.start();
 
     bool listed = false;
-    for (const auto& c : runtime.status("cmd").contributions)
+    const auto enabled = runtime.status("cmd");
+    for (const auto& c : enabled.contributions)
         if (c.kind == CapabilityKind::Command && c.name == "hello")
             listed = true;
     ASSERT_TRUE(listed);
 
     ASSERT_TRUE(runtime.set_state("cmd", false));
-    for (const auto& c : runtime.status("cmd").contributions)
+    const auto disabled = runtime.status("cmd");
+    for (const auto& c : disabled.contributions)
         ASSERT_FALSE(c.kind == CapabilityKind::Command);
 }
 
