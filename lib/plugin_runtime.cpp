@@ -612,6 +612,10 @@ bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
     return true;
 }
 
+std::vector<AuditFinding> PluginRuntime::audit() const {
+    return audit_toolset(services_->tools());
+}
+
 std::vector<ExtensionItem> PluginRuntime::contributions() const {
     // Ledger-driven on purpose. Enumerating registries by hand is how this
     // drifts: the first version of this function forgot status segments,

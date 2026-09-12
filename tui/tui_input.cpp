@@ -1674,6 +1674,17 @@ void SlashDispatcher::set_plugin(const std::string& id, bool on) {
     // A plugin may contribute a slash-command namespace: rebuild the tree so
     // its commands appear or disappear immediately, with no restart.
     refresh_completions();
+    // What that change means for the set as a whole: a capability the harness
+    // assumes is now unperformable, or two tools competing for one job. The
+    // line above says what left; this says what it costs.
+    report_toolset_audit();
+}
+
+void SlashDispatcher::report_toolset_audit() {
+    for (const auto& finding : tui_.plugin_runtime_.audit()) {
+        tui_.append_line(P_STATUS, "warning (" + agent::to_string(finding.kind) +
+                                       "): " + finding.message);
+    }
 }
 
 void SlashDispatcher::cmd_provider_delete(const std::string& name) {

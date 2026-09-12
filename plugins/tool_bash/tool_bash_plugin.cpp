@@ -18,7 +18,7 @@ std::vector<std::unique_ptr<Capability>> make_bash_tool_capabilities() {
                                                 : CancellationToken{};
             return wrap_tool(make_bash_tool(jobs, token));
         },
-        ToolCapability::Verbs{{{"bash", "hacking"}}}));
+        ToolCapability::Meta{{{"bash", {"hacking", ToolRole::Execute}}}}));
     caps.push_back(
         make_tool_doc_capability("bash_doc", tool_doc_priority::kBash, "prompts/tools/bash.md"));
     return caps;

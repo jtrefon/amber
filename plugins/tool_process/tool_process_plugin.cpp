@@ -18,9 +18,9 @@ std::vector<std::unique_ptr<Capability>> make_process_tool_capabilities() {
                 return {};
             return make_process_tools(*services.host->jobs);
         },
-        ToolCapability::Verbs{{{"process_start", "spawning"},
-                               {"process_read", "reading"},
-                               {"process_stop", "stopping"}}}));
+        ToolCapability::Meta{{{"process_start", {"spawning", ToolRole::Execute}},
+                              {"process_read", {"reading", ToolRole::Execute}},
+                              {"process_stop", {"stopping", ToolRole::Execute}}}}));
     caps.push_back(make_tool_doc_capability("process_doc", tool_doc_priority::kProcess,
                                             "prompts/tools/process.md"));
     return caps;

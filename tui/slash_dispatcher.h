@@ -55,6 +55,7 @@ public:
     void cmd_set_allowance(const std::string& val);
     void cmd_runtime_plugin_get(const std::string& id);
     void show_plugin(const std::string& id);
+    void report_toolset_audit();
     // Toggle a plugin and report what the change did, in one place, so every
     // entry point says the same thing (the command tree and the registry panel
     // both land here).

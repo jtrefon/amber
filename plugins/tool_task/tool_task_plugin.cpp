@@ -16,7 +16,7 @@ std::vector<std::unique_ptr<Capability>> make_task_tool_capabilities() {
                 return {};
             return wrap_tool(make_task_tool(*services.host->subagents, services.tools()));
         },
-        ToolCapability::Verbs{{{"task", "delegating"}}}));
+        ToolCapability::Meta{{{"task", {"delegating", ToolRole::Delegate}}}}));
     return caps;
 }
 
