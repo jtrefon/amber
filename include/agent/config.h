@@ -39,7 +39,6 @@ struct Config {
     // preference, not a per-provider setting: bar space is global, and the
     // wallet follows whichever provider is active.
     bool wallet_enabled = true;
-    bool allowance_enabled = true;
     int max_tool_iterations = 100;
     long max_wall_ms = 0; // 0 = unlimited; loop deadline (engine-enforced)
     double temperature = 0.2;

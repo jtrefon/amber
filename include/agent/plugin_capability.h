@@ -33,7 +33,6 @@ enum class CapabilityKind : std::uint8_t {
     Panel,
     Provider,
     Wallet,
-    Allowance,
     Command,
 };
 

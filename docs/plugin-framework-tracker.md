@@ -87,6 +87,49 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-09-12 — One wallet: the duplication finding (3) resolved
+
+Branch `refactor/one-wallet`, stacked on the toolset audit.
+
+- **Decision: `wallet` is the surviving word.** It is the surface users already
+  type (`/get provider wallet`) and read (`$13.22`), it is already the config
+  key, and "allowance" names only one of the shapes (quota windows) rather than
+  the question both answer. The mechanism is not named differently from the
+  surface it backs (D9).
+- **One of each:** `WalletRegistry`, `WalletCapability`, `CapabilityKind::Wallet`,
+  `WalletSnapshot`, one config flag, one status segment, one command pair.
+  `AllowanceRegistry`, `AllowanceCapability`, `AllowanceSnapshot`,
+  `AllowanceWindow`, `CapabilityKind::Allowance`, `allowance_enabled` and the
+  `/get|/set provider allowance` nodes are deleted, not deprecated.
+- **The richer snapshot is the payload** — `WalletSnapshot{plan, windows[],
+  credits_balance, unit, currency}` — so nothing the allowance half could report
+  was lost; the wallet's old bare `optional<double>` becomes
+  `WalletSnapshot::of_balance(amount)`, which is what the three balance-only
+  plugins (kilocode, openrouter, deepseek) now return.
+- **The bar rule, in one place:** the balance when the snapshot has one,
+  otherwise the window closest to reset. Width is the constraint; `/get provider
+  wallet` carries the whole picture.
+- **Deleted with it:** the duplicated polling machinery (two state structs, two
+  ticket counters, two dirty flags, two schedulers, two turn subscriptions, two
+  refresh floors) and four tests that duplicated the wallet's own — the registry
+  tests and the unwind test, which now cover one registry instead of two.
+- **A defect the duplication hid:** `allowance_enabled` was never parsed or
+  saved (`lib/config.cpp` had no `allowance` key and `save_global` never wrote
+  it), so `/set provider allowance off` reported success and forgot it. The
+  provider-switch path also refreshed only the wallet, leaving the allowance
+  stale until the next turn ended. One mechanism cannot have half a control
+  surface; both are gone with it.
+- **Evidence:** 729 tests green (was 732: −4 duplicated, +1 new for the
+  precedence rule). Live probe against the built libraries: **one** `wallet`
+  status segment and zero `allowance` segments, with all five provider plugins
+  (commandcode, deepseek, kilocode, opencode_go, openrouter) declaring the same
+  `Wallet` capability.
+- **Found while here, fixed:** the contributor guide documented a superseded
+  panel API (`class ConsolePanel : public PanelCapability` with `render`/
+  `handle_key` overrides) that could not compile — `PanelCapability` takes a
+  `PanelSpec`. The stale example is deleted; the accurate one stands.
+
+
 ### 2026-09-12 — The toolset audit (§5.2): roles as capability data
 
 Branch `refactor/toolset-audit`, stacked on the flag retirement.
@@ -663,8 +706,17 @@ model picker). The implementation shape is already specified in the spec §8
 and reuses the existing modal + promise pattern, so nothing is lost by
 waiting for the caller.
 
-**(3) Wallet and Allowance are two mechanisms for one concept, NEW, needs a
-decision.** Found while consolidating, not from a failure: nothing is broken,
+**(3) Wallet and Allowance are two mechanisms for one concept, RESOLVED
+2026-09-12.** `wallet` survived as the single word: it is the surface users
+already type and read, it is already the config key, and "allowance" names only
+one of the shapes (quota windows) rather than the question both answer. One
+registry, one flag, one segment, one command pair, with the richer snapshot as
+the payload. The original entry is kept below for the record.
+
+<details>
+<summary>original entry</summary>
+
+**Wallet and Allowance are two mechanisms for one concept.** Found while consolidating, not from a failure: nothing is broken,
 but the same idea now exists twice, which is the inconsistency this project
 keeps having to unpick later.
 
@@ -696,6 +748,8 @@ keeps having to unpick later.
 - **Trigger:** it is a decision, not a discovery, the change itself is
   mechanical (delete one registry, retarget two plugins, fold one flag and one
   segment). It should happen before more providers are written on top of it.
+
+</details>
 
 ### 2026-09-10, PF-3.2: panels and the registry console
 
@@ -991,13 +1045,11 @@ What a plugin author can rely on today. Update with every landed task.
 | Every vendor provider shipped as a plugin | ✅ | PF-4 |
 | Panel contribution + registry console | ✅ | PF-3.2 |
 | Plugin description + category (grouped registry list) | ✅ | PF-1 |
-| Wallet contribution (fetch only; polling + rendering core) | ✅ | PF-3.4 |
+| Wallet contribution — balance and/or quota windows (fetch only; polling + rendering core) | ✅ | PF-3.4, unified 2026-09-12 |
 | `/get provider wallet`, `/set provider wallet on\|off` | ✅ | PF-3.4 |
-| Allowance contribution (fetch only; polling + rendering core) | ✅ | PF-3.5 |
-| `/get provider allowance`, `/set provider allowance on\|off` | ✅ | PF-3.5 |
-| OpenCode Go provider (presets + allowance) | ✅ | PF-3.5 |
+| OpenCode Go provider (presets + wallet) | ✅ | PF-3.5 |
 | OpenCode Zen provider (presets only) | ✅ | PF-3.5 |
-| CommandCode provider (presets + allowance) | ✅ | PF-3.5 |
+| CommandCode provider (presets + wallet) | ✅ | PF-3.5 |
 | DeepSeek provider (presets + wallet) | ✅ | PF-3.5 |
 | Host services (ask/choose/confirm/notify) | ⏳ | PF-3.3 |
 | Log sinks | – | Deferred (no consumer) |
