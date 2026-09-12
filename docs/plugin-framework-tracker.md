@@ -516,6 +516,40 @@ model picker). The implementation shape is already specified in the spec §8
 and reuses the existing modal + promise pattern, so nothing is lost by
 waiting for the caller.
 
+**(3) Wallet and Allowance are two mechanisms for one concept — NEW, needs a
+decision.** Found while consolidating, not from a failure: nothing is broken,
+but the same idea now exists twice, which is the inconsistency this project
+keeps having to unpick later.
+
+- **The evidence.** `WalletRegistry` (`include/agent/extensions.h:193`) and
+  `AllowanceRegistry` (`:238`) have the same contract — `Fetch`,
+  `add(owner, fetch)`, `find(owner)`, `items()`, `size()` — and the allowance
+  header says so in as many words: *"Same shape as WalletRegistry"*. Both are
+  runtime-owned (polling, caching, rendering). The duplication reaches the
+  surfaces: two config flags (`wallet_enabled`, `allowance_enabled`), two
+  status segments (`wallet` priority 800 / drop 9, `allowance` 790 / drop 8 —
+  **both can render side by side**), and two command pairs
+  (`/get|/set provider wallet` and `/get|/set provider allowance`).
+- **They are not even different concepts.** `AllowanceSnapshot`
+  (`plan`, `windows[]`, `credits_balance`, `unit`, `currency`) is a strict
+  **superset** of the wallet's `optional<double>` — the wallet's value is
+  `credits_balance` with the extra fields unset.
+- **The cost.** Four providers split across the two: kilocode and openrouter
+  declare wallets, commandcode and opencode_go declare allowances. A user asks
+  one question ("what is left?") and learns two surfaces; the next provider
+  author must pick one and can only guess; and the two paths will drift, since
+  they are already separate code.
+- **Recommendation.** One mechanism, one registry, one flag, one segment, one
+  command pair, with the richer snapshot as the type (nothing is lost — the
+  wallet's number is the snapshot's `credits_balance`). Keep the bar readout
+  wordless (`$13.22`) as specified; let the command surface carry
+  plan/windows/credits. Which word survives is a single coin-flip worth making
+  once rather than twice; the mechanism should not be named differently from
+  the surface it backs.
+- **Trigger:** it is a decision, not a discovery — the change itself is
+  mechanical (delete one registry, retarget two plugins, fold one flag and one
+  segment). It should happen before more providers are written on top of it.
+
 ### 2026-09-10 — PF-3.2: panels and the registry console
 
 - **Landed**

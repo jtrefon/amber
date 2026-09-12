@@ -725,8 +725,10 @@ These hold always. A test that cannot express one of them is a design smell.
   `agent-loop/core-loop.md` (turn boundaries), `context/context-ownership-and-parallel-compression.md`
   (single-owner rule, prompt-copy augmentation), `tui/layout-engine.md`
   (regions), `config/file-config.md` (state layout conventions).
-- **Depended on by**: `plugins/developer-guide.md` (author-facing contract),
-  `plugins/README.md` (v1 external tier — unchanged), `llm-client/model-probe.md`
+- **Depended on by**: `plugins/tools-domain.md` (splitting the tool set into
+  plugins, per-tool meta and prompts — the next domain to move),
+  `plugins/developer-guide.md` (author-facing contract), `plugins/README.md`
+  (v1 external tier — unchanged), `llm-client/model-probe.md`
   (provider-driven catalog).
 - **Tracker**: `docs/plugin-framework-tracker.md` (phases PF-1..PF-5, decision
   log, deferred register).
