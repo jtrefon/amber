@@ -63,6 +63,12 @@ public:
     // taken at startup.
     void attach_config(const Config& config);
 
+    // Point the runtime at the host's services (job service, todo store,
+    // sub-agent executor, cancel token). Tools need them at construction, so
+    // this is what lets the core's tools be plugin contributions. Attach before
+    // start(), like the config.
+    void attach_host_services(const HostServices& host) noexcept;
+
     // --- Lifecycle ---------------------------------------------------------
 
     // Activate every plugin whose persisted state says it is on. Called once
@@ -181,7 +187,6 @@ public:
     // --- Registries (hosts pull from these) --------------------------------
 
     PromptRegistry& prompts() noexcept { return prompts_; }
-    CommandRegistry& commands() noexcept { return commands_; }
     StatusRegistry& status() noexcept { return status_; }
     PanelRegistry& panels() noexcept { return panels_; }
     const PanelRegistry& panels() const noexcept { return panels_; }
@@ -189,7 +194,6 @@ public:
     const WalletRegistry& wallets() const noexcept { return wallets_; }
     AllowanceRegistry& allowances() noexcept { return allowances_; }
     const AllowanceRegistry& allowances() const noexcept { return allowances_; }
-    PluginSettingsStore& settings() noexcept { return settings_; }
     EventBus& events() noexcept { return bus_; }
 
     // Contributions across every registry, for the console.
@@ -212,25 +216,26 @@ private:
     // outlives this runtime.
     static void run_wallet_fetch(const std::shared_ptr<WalletState>& state, long long ticket,
                                  const WalletRegistry::Fetch& fetch, const Config& cfg);
-    // Register the wallet readout on the status bar (core UI, one path for
-    // every provider).
-    void register_wallet_segment();
-    // Allowance refresh helpers, same structure as the wallet ones.
+    // Allowance refresh helpers, same structure as the wallet ones. The readout
+    // itself is declared by install_core_ui, with the rest of the core UI.
     void maybe_refresh_allowance();
     void schedule_allowance_fetch();
-    static void run_allowance_fetch(const std::shared_ptr<AllowanceState>& state,
-                                    long long ticket,
-                                    const AllowanceRegistry::Fetch& fetch,
-                                    const Config& cfg);
-    void register_allowance_segment();
+    static void run_allowance_fetch(const std::shared_ptr<AllowanceState>& state, long long ticket,
+                                    const AllowanceRegistry::Fetch& fetch, const Config& cfg);
+
+    // Install the harness's own UI - the status-bar segments, the wallet
+    // readout and the registry console - through the same declare-and-install
+    // path a plugin's capabilities take, under a reserved "core" owner. Core
+    // and plugin contributions therefore cannot drift apart, and an install
+    // that is broken cannot hide behind "no plugin uses that capability yet".
+    // Not ledgered: core UI lives as long as the runtime and is never disabled.
+    void install_core_ui();
     const Config& active_config() const noexcept { return live_config_ ? *live_config_ : config_; }
 
     PromptRegistry prompts_;
-    CommandRegistry commands_;
     StatusRegistry status_;
     PanelRegistry panels_;
     WalletRegistry wallets_;
-    PluginSettingsStore settings_;
     EventBus bus_;
     Subscription wallet_turn_sub_;
     std::atomic<bool> wallet_dirty_{false};
@@ -251,6 +256,7 @@ private:
     std::unique_ptr<PluginContext> context_;
     Config config_; // fallback until the host attaches its own
     const Config* live_config_ = nullptr;
+    HostServices host_services_; // pointers set by the host, which owns them
     const Workspace* workspace_;
 
     struct Entry {

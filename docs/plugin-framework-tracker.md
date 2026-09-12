@@ -77,6 +77,88 @@ measured against. Re-verify rather than trust it if the tree has moved.
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 cover.
 
+### 2026-09-11 — Fix: tool ownership is recorded, so unwinding cannot cross plugins
+
+Branch `feat/capability-path`. Found by reviewing the tools-as-plugins work
+before landing it (the stack had been pushed but not PR'd).
+
+- **The defect.** `ToolCapability` unwound with `ToolRegistry::remove_tool(name)`
+  — name-based, against a registry that recorded no owner — while
+  `register_tool` is idempotent *by name* and **replaces** the earlier instance.
+  So two plugins contributing the same tool name (the override case the
+  microkernel exists to enable, e.g. a plugin replacing `bash`) meant that
+  disabling one plugin deleted the **other's** tool. The ledger's contract —
+  "removes exactly what this plugin added, and nothing else" — was false.
+- **Why it was not just a doc-level rule.** The entry below already accepted
+  *name* collisions as a policy matter. This is different: it is a mechanism
+  failure. The ledger can only be trusted if unwinding is identity-scoped.
+- **Red → green.** Two tests, both failing before the fix
+  (`./run_tests` → 694 passed, 2 failed):
+  - `tool_capability_unwind_cannot_remove_another_plugins_tool` (unit: the
+    capability + registry mechanism);
+  - `runtime_disable_cannot_remove_another_plugins_tool` (runtime: the same
+    through `set_state`, which is how a user hits it).
+- **Fix.** The registry now records **who** contributed each tool:
+  - `ToolRegistry::register_tool(tool, owner = {})` — `owner` is the plugin id;
+    empty means host. The default keeps every existing call site unchanged.
+  - `ToolRegistry::remove_owned_tool(name, owner)` — removes only when the
+    recorded owner matches. This is the ledger's unwinder, so unwinding is
+    identity-scoped by construction.
+  - `ToolCapability::install` registers with `services.owner()` and its
+    contribution removes its own names, owner-checked. A tool whose name was
+    taken over by another plugin stays with its new owner.
+  - `remove_tool(name)` stays as the host's escape hatch; `remove_tool` is no
+    longer what the ledger uses.
+- **Rejected: a whole-owner sweep** (`remove_tools_by_owner`). A capability
+  whose owner was never set (empty string) would have removed every
+  host-registered tool. Per-name, owner-checked removal is both precise and safe
+  against that footgun.
+- **Verification:** `./run_tests` → **696 passed, 0 failed**; `make check` →
+  all invariants hold; clang-tidy clean on the touched sources.
+- **Open finding (recorded, not fixed):** *shadowing has no restore.* If a
+  plugin replaces a host tool of the same name, disabling that plugin removes
+  the tool entirely — the host's displaced instance is gone, because
+  `register_tool` replaces rather than stacks. No in-tree plugin does this, so
+  it is latent. Reopen when a plugin actually overrides a core tool: the fix is
+  a per-name shadow stack (displace on register, restore on owned removal).
+- **Not covered:** the tool set is still not namespaced (`read`, not
+  `core.read`) — renaming would break every prompt and every user's muscle
+  memory. That remains a doc-level policy; what changed is that a collision can
+  no longer make unwinding reach across plugins.
+
+### 2026-09-11 — PF-4.4: the core tool set becomes a plugin
+
+Branch `feat/tools-as-plugins`. `register_default_tools` is no longer a list of
+seven factories in `lib/tools_default.cpp`; the set is declared as capabilities
+in `plugins/core_tools` and installed through the same path a third-party tool
+would use (9 tools from 7 capabilities — the process tools are one contribution
+of three).
+
+- **Host services, the third capability shape.** A capability that contributes
+  data (a preset, a block) needs nothing; a provider needs a dialect factory; a
+  *tool* needs the host's runtime objects at construction — bash binds to the
+  job service, todowrite to the todo store, task to the sub-agent executor and
+  the registry. `HostServices` carries those as pointers and is attached like
+  the config (`attach_host_services`), so the runtime never owns host state.
+- **A declining capability is not a failure.** `InstallResult::declined` marks
+  "nothing to install". Without it, `todowrite`/`task` — absent by default —
+  failed the plugin, which deactivated `core_tools` and left the agent with **no
+  tools at all** on a default config. Caught in the live TUI, not by the unit
+  suite: the install path was only covered per-capability, never through
+  `activate()`. Two runtime-level tests now pin it.
+- **Not covered:** the tool set is not namespaced (`read`, not `core.read`) —
+  renaming would break every prompt and every user's muscle memory, so the
+  naming policy stays a doc-level rule. (A collision can no longer make
+  unwinding reach across plugins — see the ownership fix above.)
+- **Open:** core tools are now disableable like any plugin. Turning off
+  `core_tools` is a one-command way to hand the agent an empty toolbox. Whether
+  the registry should mark a contribution class as load-bearing is unresolved.
+- **Also closed:** `make analyze` never scanned `src/` or `plugins/`, so every
+  plugin was unanalyzed. Adding both surfaced one real defect — the dialect
+  guard in `lib/llm.cpp` tested its constructor parameter *after* moving it, so
+  it was unconditionally true and threw even when the caller supplied an
+  explicit dialect (fixed, with a test).
+
 ### 2026-09-11 — Fix: the wallet fetch raced the host config and outlived the runtime
 
 Found by reviewing the merged PF-3.4 code (post-merge, PR #106).
@@ -303,6 +385,71 @@ a question into a defect.
   `lib/dialect_gemini.cpp` — a dead `text_of_parts` helper and an unused
   `stream` parameter. `-Wall` is not a CI gate, so they survived review; they
   are fixed and named in the commit rather than left as known noise.
+
+### 2026-09-11 — Hardening the plugin surface: core UI dogfood, two dead kinds pruned
+
+Three findings from reviewing the tools-as-plugins work, closed together.
+
+**1. Disabling a plugin said nothing.** `/set plugin <id> off` silently persisted
+and unwound; the user had to run `/get plugin <id>` afterwards to learn what
+disappeared. `SlashDispatcher::set_plugin` now reports the change in one place
+(both the command tree and the registry land there): `plugin core_tools off
+(removed 9 tool)`. Grouped by capability kind, because "9 tool" and "1 segment"
+mean different things.
+
+- *Investigated and rejected:* a warning for "no tools left, the agent cannot
+  act". The premise turned out to be **false** — `Agent` always registers the
+  three skill tools (`read_skill`, `list_skills`, `write_skill`,
+  `register_skills=true` by default and no host overrides it), so the registry
+  cannot reach zero in production and the warning would have been unreachable
+  code. The two new tests pin both halves: a genuinely empty registry still
+  completes a turn (`register_skills=false`), and the default keeps exactly 3
+  tools with no plugin contributions.
+
+**2. The capability path was unexercised in production.** Five of eight kinds
+had zero production contributors (Command, PromptBlock, StatusSegment, Panel,
+Setting), and core *bypassed its own mechanism*: `register_core_status_segments`
+and `register_console_panel` wrote the registries directly. Dogfooded:
+
+- `lib/core_segments.cpp` now returns `core_status_capabilities()` instead of
+  writing a registry; the wallet readout and the console panel are declared as
+  capabilities in `PluginRuntime::install_core_ui()`, installed under a reserved
+  `core` owner that `/set plugin` cannot touch (it is not a registered plugin).
+- Result, verified by grep: `StatusRegistry::add` and `PanelRegistry::add` are
+  each called from **exactly one place** — the capability's own `install`. Core
+  and plugin contributions now cannot drift, and an install that is broken
+  fails loudly at startup instead of hiding behind "no plugin uses it yet".
+- Not ledgered on purpose: the ledger is per plugin and exists to unwind, while
+  core UI lives exactly as long as the runtime.
+- New test `runtime_core_ui_installs_through_the_capability_path` asserts the
+  entries carry owner `core` — which only `PluginServices` can set, so it is
+  evidence of the path, not of the outcome.
+
+**3. Two capability kinds were dead in both directions** — no producer and no
+consumer anywhere in production, only their own wrapper plus one test each:
+`CommandCapability` + `CommandRegistry`, and `SettingCapability` +
+`PluginSettingsStore`. Deleted, along with their `CapabilityKind` values, the
+console's kind names, the runtime members/accessors, the placeholder registries
+in `register_default_tools`, and their tests. `PluginServices` shrank from 8
+constructor arguments to 6.
+
+- **Deviation from the plan, stated plainly:** the proposal was to prune
+  PromptBlock too. On inspection it is a different case — `PromptRegistry` has a
+  live **consumer** (the agent renders its blocks; both hosts wire it in), so it
+  is an *unused extension point*, not dead code, unlike Command/Setting which
+  had nothing on either side. Kept, and marked "(no caller yet)" in the
+  availability table. Removing it is a small follow-up if we want strict D22.
+
+- **Verification:** `./run_tests` → **694 passed, 0 failed**; `make check`
+  clean (AGENTS.md audit refreshed for `tui/tui_input.cpp`); `make all` with no
+  warnings, including the `panel_view.cpp` one below.
+
+**4. A compiler warning, fixed at the cause.** `tui/panel_view.cpp` produced five
+`-Wdangling-pointer` warnings from unnamed temporaries in the footer
+constructor, rebuilt on every keypress inside the panel loop. Hoisting the
+ternary was not enough (the temporary moved); building the vector with
+`push_back` removed it and silenced the warning with **no suppression**. The
+footer is now built once instead of per keystroke.
 
 ### 2026-09-10 — Open findings (need a decision, not more code)
 
@@ -642,14 +789,17 @@ What a plugin author can rely on today. Update with every landed task.
 |---|---|---|
 | External tool plugin (subprocess, JSON-RPC) | ✅ Shipping | v1 (unchanged) |
 | Tool contribution (core plugin) | ✅ | PF-1 |
-| Command contribution (executable) | ✅ | PF-1 |
+| Core tool set as a plugin (`plugins/core_tools`, 9 tools) | ✅ | PF-4.4 |
+| Harness services injected into capability factories | ✅ | PF-4.4 |
+| Declining capability leaves its plugin active | ✅ | PF-4.4 |
+| Command contribution (executable) | – | Removed 2026-09-11 (no producer, no consumer) |
 | Event subscription (typed) | ✅ | PF-1 |
 | Enable/disable with clean unwinding | ✅ | PF-1 |
 | v1 external plugins under the unified registry | ✅ | PF-1 |
-| Prompt block contribution | ✅ | PF-1 |
-| Settings contribution | ✅ | PF-1 |
+| Prompt block contribution | ✅ | PF-1 (no caller yet) |
+| Plugin settings store + contribution | – | Removed 2026-09-11 (no producer, no consumer) |
 | `/get plugin`, `/set plugin on\|off` (persisted, live) | ✅ | PF-1 |
-| Core prompt blocks: single assembly after the gate (dogfood) | ✅ | 2026-09-11 |
+| Core UI on the capability path (dogfood) | ✅ | 2026-09-11 |
 | Provider contribution (dialect + presets) | ✅ | PF-2 |
 | Provider presets only (shared protocol) | ✅ | PF-4 |
 | Provider list reflects plugin state without restart | ✅ | PF-4 |
@@ -743,6 +893,7 @@ last name-keyed branching instead of adding to it.
 | **PF-4.1** kilocode plugin | Balance fetch/readout moves out of `lib/model_probe.cpp` into the plugin as a status segment + auth semantics | §4, §7 |
 | **PF-4.2** openrouter + anthropic plugins | Convert to `ProviderSpec`; delete `capability_overrides()`; `Config` loses the kilo/account-token fields | §7 |
 | **PF-4.3** Docs alignment | Provider specs re-aligned; `flavor` documented as provider data | §7 |
+| **PF-4.4** Core tools plugin | `register_default_tools`' factories become `ToolCapability` factories in `plugins/core_tools`; `HostServices` (jobs/todos/subagents/cancel token) is injected at install, since a tool binds to host state | §3, §8 |
 
 **Gate:** `grep provider_name ==` → 0 in `lib/`/`include/`; no feature regressions
 in the TUI provider flows; dialect tests untouched.

@@ -39,8 +39,8 @@ namespace fs = std::filesystem;
 // files land in a scratch tree.
 class ScratchConfig {
 public:
-    explicit ScratchConfig(const std::string& name) {
-        dir_ = fs::temp_directory_path() / ("amber_plugin_test_" + name);
+    explicit ScratchConfig(const std::string& name)
+        : dir_(fs::temp_directory_path() / ("amber_plugin_test_" + name)) {
         fs::remove_all(dir_);
         fs::create_directories(dir_);
         setenv("XDG_CONFIG_HOME", dir_.c_str(), 1);
@@ -77,7 +77,9 @@ public:
         std::vector<std::unique_ptr<Capability>> caps;
         caps.push_back(
             std::make_unique<PromptBlockCapability>("block", priority_, [this] { return text_; }));
-        caps.push_back(std::make_unique<SettingCapability>("greeting", "what to say"));
+        caps.push_back(std::make_unique<StatusSegmentCapability>(
+            "block_seg", priority_, /*drop_priority=*/0,
+            [this](const StatusSnapshot&) { return StatusText{text_, StatusTone::Dim}; }));
         return caps;
     }
 
@@ -155,10 +157,71 @@ private:
     std::shared_ptr<std::atomic<bool>> done_;
 };
 
+// A tool with no behaviour: enough to prove registry ownership across a
+// plugin's activate/deactivate cycle.
+class StubTool : public Tool {
+public:
+    explicit StubTool(std::string name) : name_(std::move(name)) {}
+    std::string name() const noexcept override { return name_; }
+    std::string description() const noexcept override { return "stub"; }
+    json parameters_schema() const override { return json::object(); }
+    ToolResult execute(const json&) const override { return {true, "", "", json{}}; }
+
+private:
+    std::string name_;
+};
+
+// Contributes one tool under a chosen name, so two plugins can collide on it.
+class NamedToolPlugin : public IPlugin {
+public:
+    NamedToolPlugin(std::string id, std::string tool_name)
+        : id_(std::move(id)), tool_name_(std::move(tool_name)) {}
+
+    std::string id() const override { return id_; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Named tool probe"; }
+
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        const std::string tool_name = tool_name_;
+        caps.push_back(std::make_unique<ToolCapability>(
+            tool_name, [tool_name](PluginServices&) -> std::vector<std::unique_ptr<Tool>> {
+                std::vector<std::unique_ptr<Tool>> tools;
+                tools.push_back(std::make_unique<StubTool>(tool_name));
+                return tools;
+            }));
+        return caps;
+    }
+
+private:
+    std::string id_;
+    std::string tool_name_;
+};
+
 struct Fixture {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
+};
+
+// A plugin whose only capability declines — the shape the core tools plugin has
+// whenever a gated tool (todowrite, task) is switched off.
+class DecliningCapabilityPlugin : public IPlugin {
+public:
+    std::string id() const override { return "gated"; }
+    std::string version() const override { return "0.1.0"; }
+    std::string name() const override { return "Gated"; }
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<ToolCapability>(
+            "gated", [](PluginServices&) -> std::vector<std::unique_ptr<Tool>> { return {}; }));
+        return caps;
+    }
 };
 
 } // namespace
@@ -193,6 +256,107 @@ TEST(runtime_bundled_plugins_start_enabled) {
     ASSERT_EQ(rendered[0], std::string("hello from alpha"));
 }
 
+TEST(runtime_declined_capability_does_not_deactivate_the_plugin) {
+    // Regression: a plugin that ships a gated capability (a tool that is absent
+    // until a config flag turns it on) must stay active when the capability
+    // declines. Treating "nothing to install" as a failure deactivated the
+    // whole plugin — which, for the core tool set, left the agent with no tools
+    // at all on a default configuration.
+    ScratchConfig scratch("decline");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<DecliningCapabilityPlugin>());
+    runtime.start();
+
+    ASSERT_TRUE(runtime.status("gated").enabled);
+    ASSERT_EQ(f.tools.snapshot_tools().size(), 0u);
+    ASSERT_TRUE(runtime.contributions().empty());
+}
+
+TEST(explicit_dialect_overrides_a_disabled_flavor) {
+    // Regression: the disabled-flavor guard tested the constructor parameter
+    // *after* it had been moved into the member. A moved-from unique_ptr reads
+    // as null, so the guard was unconditionally true and the check ran even
+    // when the caller supplied its own dialect — the explicit protocol was
+    // thrown away in favour of a refusal.
+    ScratchConfig scratch("explicit-dialect");
+    register_dialect("probe-flavor", [] { return make_dialect("openai"); }, "probe-plugin");
+    unregister_dialects_for("probe-plugin");
+
+    Config cfg;
+    cfg.flavor = "probe-flavor";
+    ASSERT_FALSE(flavor_unavailable_reason(cfg.flavor).empty());
+
+    // Nothing supplied: a disabled flavor must refuse loudly.
+    bool refused = false;
+    try {
+        HttpLLMClient client(cfg);
+    } catch (const std::exception&) {
+        refused = true;
+    }
+    ASSERT_TRUE(refused);
+
+    // An explicit dialect wins: the caller already resolved the protocol.
+    bool refused_with_explicit = false;
+    try {
+        HttpLLMClient client(cfg, make_dialect("openai"));
+    } catch (const std::exception&) {
+        refused_with_explicit = true;
+    }
+    ASSERT_FALSE(refused_with_explicit);
+}
+
+TEST(runtime_core_tools_plugin_is_active_on_a_default_config) {
+    // Regression: the core tool set is a plugin now, so a default config (plan
+    // and task tools off) must still leave the harness with its read/write/
+    // search/bash/process tools. A declining gated capability previously failed
+    // the whole plugin, and the agent came up with no tools at all.
+    ScratchConfig scratch("coretools");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE(runtime.status("core_tools").enabled);
+    ASSERT_TRUE((bool)f.tools.find("read"));
+    ASSERT_TRUE((bool)f.tools.find("write"));
+    ASSERT_TRUE((bool)f.tools.find("search"));
+    ASSERT_TRUE((bool)f.tools.find("bash"));
+    ASSERT_TRUE((bool)f.tools.find("process_start"));
+    // Gated tools are absent, not an error.
+    ASSERT_FALSE((bool)f.tools.find("todowrite"));
+    ASSERT_FALSE((bool)f.tools.find("task"));
+}
+
+TEST(runtime_core_tools_plugin_installs_gated_tools_when_enabled) {
+    ScratchConfig scratch("coretools-gated");
+    Fixture f;
+    f.cfg.plan_tool = true;
+    f.cfg.task_tool = true;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE((bool)f.tools.find("todowrite"));
+    ASSERT_TRUE((bool)f.tools.find("task"));
+
+    // Disabling the plugin takes the whole set back out, gated tools included.
+    ASSERT_TRUE(runtime.set_state("core_tools", false));
+    ASSERT_EQ(f.tools.snapshot_tools().size(), 0u);
+}
+
 TEST(runtime_disable_unwinds_every_contribution) {
     ScratchConfig scratch("disable");
     Fixture f;
@@ -202,13 +366,11 @@ TEST(runtime_disable_unwinds_every_contribution) {
     runtime.start();
 
     ASSERT_EQ(runtime.prompts().size(), 1u);
-    ASSERT_FALSE(runtime.settings().items().empty());
 
     ASSERT_TRUE(runtime.set_state("alpha", false));
 
     ASSERT_FALSE(runtime.status("alpha").enabled);
     ASSERT_EQ(runtime.prompts().size(), 0u);
-    ASSERT_TRUE(runtime.settings().items().empty());
     ASSERT_EQ(plugin->shutdowns_, 1);
     ASSERT_TRUE(runtime.contributions().empty());
 }
@@ -274,6 +436,39 @@ TEST(runtime_failed_initialize_leaves_nothing_installed) {
     ASSERT_TRUE(runtime.contributions().empty());
 }
 
+TEST(runtime_core_ui_installs_through_the_capability_path) {
+    ScratchConfig scratch("coreui");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+
+    // The owner comes only from PluginServices, so "core" on these entries is
+    // evidence they were installed by a StatusSegmentCapability rather than
+    // written into the registry by hand. That is the point: the path core UI
+    // ships on is the path a plugin's contributions take, so a broken install
+    // (the class of bug that once shipped an agent with no tools) cannot hide
+    // behind "no plugin uses that capability yet".
+    bool saw_core_segment = false;
+    for (const auto& item : runtime.status().items()) {
+        if (item.owner != std::string("core"))
+            continue;
+        saw_core_segment = true;
+    }
+    ASSERT_TRUE(saw_core_segment);
+
+    // The wallet readout and the console are core contributions too.
+    const auto segments = runtime.status().render(StatusSnapshot{});
+    bool saw_wallet = false;
+    for (const auto& segment : segments)
+        if (segment.id == std::string("wallet"))
+            saw_wallet = true;
+    ASSERT_TRUE(saw_wallet);
+
+    const auto panels = runtime.panels().items();
+    ASSERT(!panels.empty());
+    ASSERT_EQ(panels[0].owner, std::string("core"));
+    ASSERT_EQ(panels[0].name, std::string("plugins"));
+}
+
 TEST(runtime_contributions_span_every_registry) {
     ScratchConfig scratch("contrib");
     Fixture f;
@@ -281,16 +476,16 @@ TEST(runtime_contributions_span_every_registry) {
     runtime.add(std::make_shared<BlockPlugin>("alpha", "text"));
     runtime.start();
 
-    bool saw_prompt = false, saw_setting = false;
+    bool saw_prompt = false, saw_segment = false;
     for (const auto& item : runtime.contributions()) {
         ASSERT_EQ(item.owner, std::string("alpha"));
         if (item.kind == CapabilityKind::PromptBlock)
             saw_prompt = true;
-        if (item.kind == CapabilityKind::Setting)
-            saw_setting = true;
+        if (item.kind == CapabilityKind::StatusSegment)
+            saw_segment = true;
     }
     ASSERT_TRUE(saw_prompt);
-    ASSERT_TRUE(saw_setting);
+    ASSERT_TRUE(saw_segment);
 
     auto list = runtime.list();
     ASSERT_EQ(list.size(), 1u);
@@ -422,14 +617,12 @@ TEST(runtime_wallet_reads_the_config_attached_after_start) {
 TEST(wallet_registry_installs_and_unwinds) {
     ToolRegistry tools;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
-    PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets, allowances, settings, bus);
+    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
     services.set_owner("acme");
 
     WalletCapability cap([](const Config&) -> std::optional<double> { return 7.0; });
@@ -754,6 +947,30 @@ TEST(runtime_bundled_plugin_observes_a_real_turn) {
     ASSERT_FALSE(runtime.status("metrics").enabled);
 }
 
+// Disabling one plugin must leave another plugin's identically-named tool
+// alone. This is the ledger's headline promise seen through the runtime:
+// unwinding a plugin restores the registries to their pre-activation state and
+// never touches a neighbour's contribution.
+TEST(runtime_disable_cannot_remove_another_plugins_tool) {
+    ScratchConfig scratch("tool_owner");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<NamedToolPlugin>("alpha", "probe"));
+    runtime.add(std::make_shared<NamedToolPlugin>("beta", "probe"));
+    runtime.start();
+
+    ASSERT_TRUE((bool)f.tools.find("probe"));
+
+    // beta registered last, so the live "probe" is beta's. Disabling alpha must
+    // not take it away — alpha's own instance was superseded on registration.
+    ASSERT_TRUE(runtime.set_state("alpha", false));
+    ASSERT_TRUE((bool)f.tools.find("probe"));
+
+    // Disabling beta removes its own.
+    ASSERT_TRUE(runtime.set_state("beta", false));
+    ASSERT_FALSE((bool)f.tools.find("probe"));
+}
+
 TEST(runtime_shutdown_deactivates_everything) {
     ScratchConfig scratch("shutdown");
     Fixture f;
@@ -786,9 +1003,7 @@ public:
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
         caps.push_back(std::make_unique<AllowanceCapability>(
-            [](const Config&) -> std::optional<AllowanceSnapshot> {
-                return fixed_snapshot;
-            }));
+            [](const Config&) -> std::optional<AllowanceSnapshot> { return fixed_snapshot; }));
         return caps;
     }
 };
@@ -798,15 +1013,12 @@ AllowanceSnapshot AllowanceProbePlugin::fixed_snapshot;
 TEST(allowance_registry_installs_and_unwinds) {
     ToolRegistry tools;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
-    PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets,
-                            allowances, settings, bus);
+    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
     services.set_owner("acme");
 
     AllowanceCapability cap([](const Config&) -> std::optional<AllowanceSnapshot> {
@@ -947,9 +1159,15 @@ TEST(allowance_segment_shows_closest_window) {
     AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
     AllowanceProbePlugin::fixed_snapshot.plan = "Go";
     AllowanceProbePlugin::fixed_snapshot.unit = "percent";
-    AllowanceWindow w5h;  w5h.label = "5h";  w5h.percent_used = 80.0;
-    AllowanceWindow w7d;  w7d.label = "7d";  w7d.percent_used = 30.0;
-    AllowanceWindow wM;   wM.label = "monthly"; wM.percent_used = 20.0;
+    AllowanceWindow w5h;
+    w5h.label = "5h";
+    w5h.percent_used = 80.0;
+    AllowanceWindow w7d;
+    w7d.label = "7d";
+    w7d.percent_used = 30.0;
+    AllowanceWindow wM;
+    wM.label = "monthly";
+    wM.percent_used = 20.0;
     AllowanceProbePlugin::fixed_snapshot.windows = {w5h, w7d, wM};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -963,7 +1181,8 @@ TEST(allowance_segment_shows_closest_window) {
 
     const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance") return s;
+            if (s.id == "allowance")
+                return s;
         return std::nullopt;
     };
     auto seg = find_allowance();
@@ -977,8 +1196,12 @@ TEST(allowance_segment_breaks_ties_by_shortest_label) {
     ScratchConfig scratch("allowance_tie");
     Fixture f;
     AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
-    AllowanceWindow w5h;  w5h.label = "5h";  w5h.percent_used = 50.0;
-    AllowanceWindow w7d;  w7d.label = "7d";  w7d.percent_used = 50.0;
+    AllowanceWindow w5h;
+    w5h.label = "5h";
+    w5h.percent_used = 50.0;
+    AllowanceWindow w7d;
+    w7d.label = "7d";
+    w7d.percent_used = 50.0;
     AllowanceProbePlugin::fixed_snapshot.windows = {w7d, w5h};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -992,7 +1215,8 @@ TEST(allowance_segment_breaks_ties_by_shortest_label) {
 
     const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance") return s;
+            if (s.id == "allowance")
+                return s;
         return std::nullopt;
     };
     auto seg = find_allowance();
@@ -1004,7 +1228,9 @@ TEST(allowance_segment_hides_when_disabled) {
     ScratchConfig scratch("allowance_hide");
     Fixture f;
     AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
-    AllowanceWindow w;  w.label = "5h";  w.percent_used = 50.0;
+    AllowanceWindow w;
+    w.label = "5h";
+    w.percent_used = 50.0;
     AllowanceProbePlugin::fixed_snapshot.windows = {w};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -1019,7 +1245,8 @@ TEST(allowance_segment_hides_when_disabled) {
 
     const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance") return s;
+            if (s.id == "allowance")
+                return s;
         return std::nullopt;
     };
     ASSERT_FALSE(find_allowance().has_value());
@@ -1036,7 +1263,8 @@ TEST(allowance_segment_shows_dash_for_unsupported_provider) {
 
     const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance") return s;
+            if (s.id == "allowance")
+                return s;
         return std::nullopt;
     };
     auto seg = find_allowance();
@@ -1052,7 +1280,8 @@ TEST(bundled_plugins_include_new_providers) {
     auto list = runtime.list();
     std::vector<std::string> ids;
     ids.reserve(list.size());
-    for (const auto& p : list) ids.push_back(p.id);
+    for (const auto& p : list)
+        ids.push_back(p.id);
     auto has = [&](const std::string& id) {
         return std::find(ids.begin(), ids.end(), id) != ids.end();
     };

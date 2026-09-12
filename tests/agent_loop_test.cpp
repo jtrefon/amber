@@ -1834,3 +1834,44 @@ TEST(agent_places_injected_blocks_after_the_system_prompt) {
     }
     ASSERT(memory_before_conversation);
 }
+
+// Disabling a plugin can strip the registry down to nothing it contributed (the
+// core tool set is a plugin contribution). That has to read as an agent that
+// cannot act, not as a hang: the turn still completes, and the request
+// advertises no tools rather than failing to build.
+TEST(agent_runs_with_an_empty_tool_registry) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg; // deliberately empty
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "I have no tools");
+    push_text(*fake, "done");
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake), {},
+                    /*register_skills=*/false);
+    const std::string reply = ag.run("what can you do?");
+
+    ASSERT_EQ(reply, "I have no tools");
+    ASSERT(!raw->requests.empty());
+    ASSERT_EQ(raw->tool_counts.front(), static_cast<std::size_t>(0));
+}
+
+// ...and with skills on — the default in every host — the agent always has the
+// skill tools, so an empty registry is never a tool-less agent. This is why
+// "no tools at all" is not a state a disable can produce.
+TEST(agent_registers_skill_tools_even_with_an_empty_registry) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg; // no plugin contributions
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "ok");
+    push_text(*fake, "done");
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.run("hello");
+
+    ASSERT(!raw->tool_counts.empty());
+    ASSERT_EQ(raw->tool_counts.front(), static_cast<std::size_t>(3));
+}

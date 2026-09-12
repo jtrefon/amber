@@ -159,6 +159,7 @@ private:
     void cmd_model_set(const std::string& arg);
     void cmd_provider(const std::string& arg);
     void show_plugin(const std::string& id);
+    void set_plugin(const std::string& id, bool on);
     // Open the contributed-panel view (Alt+0 or /panel). Empty id = the first
     // registered panel, which is always the registry console.
     void open_panels(const std::string& id);

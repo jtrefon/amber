@@ -83,6 +83,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/http_get.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
+              $(BUILD_DIR)/plugins/core_tools/core_tools_plugin.o \
               $(BUILD_DIR)/plugins/custom/custom_plugin.o \
               $(BUILD_DIR)/plugins/gemini/gemini_plugin.o \
               $(BUILD_DIR)/plugins/kilocode/kilocode_plugin.o \
@@ -262,6 +263,9 @@ lint:
 # parse). Slower than lint; run explicitly rather than on every build.
 ANALYZE_JOBS = $(NPROC)
 ANALYZE_BUILD_DIR = /tmp/cppcheck_amber
+# Scanned dirs mirror LINT_SRCS, minus bench/: its scenarios/ hold deliberately
+# broken skeletons and references, so analyzing them is pure noise. src/ and
+# plugins/ were missing — every plugin was unanalyzed until they were added.
 analyze:
 	@echo "cppcheck (warning/style/performance/portability/unusedFunction)..."
 	@mkdir -p $(ANALYZE_BUILD_DIR)
