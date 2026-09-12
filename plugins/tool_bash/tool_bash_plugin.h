@@ -18,7 +18,7 @@ std::vector<std::unique_ptr<Capability>> make_bash_tool_capabilities();
 class ToolBashPlugin : public IPlugin {
 public:
     std::string id() const override { return "tool_bash"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Shell tool"; }
     std::string description() const override {
         return "The bash tool: shell commands, with the approval gate.";

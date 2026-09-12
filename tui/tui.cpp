@@ -368,20 +368,16 @@ void Tui::run() {
     detect_server(false);
     timeout(kTickTimeoutMs);
 
-    // Build the setting registry and command tree FIRST, then merge the
-    // live feeds. Merging feeds before the rebuild wiped their leaves
-    // (models, policy rules, providers, job ids) from the tree.
+    // Build the setting registry and command tree FIRST; refresh_completions
+    // rebuilds the tree from completions.json and then merges the live feeds
+    // (models, providers, policy rules, jobs, plugin states). Merging feeds
+    // before the rebuild wiped their leaves from the tree.
     build_settings();
     (void)commands();  // force command tree build
     // Load completion metadata from JSON (help text, choices, ranges).
     // This is the single source of truth for completion metadata — code edits
     // cannot break completion unless the JSON file is damaged.
     refresh_completions();
-    refresh_model_list();
-    refresh_policy_feed();
-    refresh_job_feed();
-    refresh_provider_feed();
-    refresh_plugin_feed();
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
     CommandLine cl;

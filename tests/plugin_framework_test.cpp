@@ -300,6 +300,16 @@ private:
     std::string name_;
 };
 
+// A one-tool factory: the form every tool capability takes, so installing is
+// repeatable (a disable/re-enable replays it).
+ToolCapability::Factory single_tool(const std::string& name) {
+    return [name](PluginServices&) {
+        std::vector<std::unique_ptr<Tool>> tools;
+        tools.push_back(std::make_unique<SilentTool>(name));
+        return tools;
+    };
+}
+
 // The smallest harness a capability can install into.
 struct TestHarness {
     ToolRegistry tools;
@@ -401,7 +411,7 @@ TEST(tool_capability_registers_and_removes_exactly_its_tool) {
     TestHarness h;
     h.tools.register_tool(std::make_unique<SilentTool>("host.tool"));
 
-    ToolCapability cap("greet", std::make_unique<SilentTool>("plugin.greet"));
+    ToolCapability cap("greet", single_tool("plugin.greet"));
     h.services.set_owner("plug");
     InstallResult r = cap.install(h.services);
     ASSERT_TRUE(r.ok);
@@ -459,12 +469,12 @@ TEST(tool_capability_factory_may_decline) {
 TEST(tool_capability_unwind_cannot_remove_another_plugins_tool) {
     TestHarness h;
 
-    ToolCapability alpha("shared", std::make_unique<SilentTool>("shared.tool"));
+    ToolCapability alpha("shared", single_tool("shared.tool"));
     h.services.set_owner("alpha");
     InstallResult a = alpha.install(h.services);
     ASSERT_TRUE(a.ok);
 
-    ToolCapability beta("shared", std::make_unique<SilentTool>("shared.tool"));
+    ToolCapability beta("shared", single_tool("shared.tool"));
     h.services.set_owner("beta");
     InstallResult b = beta.install(h.services);
     ASSERT_TRUE(b.ok);

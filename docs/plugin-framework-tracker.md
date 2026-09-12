@@ -950,9 +950,9 @@ keeps having to unpick later.
     activation.
   - **PF-1.5 runtime**: composition root, ledger install/unwind,
     `~/.config/amber/plugins/<id>/plugin.conf`, bundled-on-by-default,
-    `set_state` as the single write path. TUI: `/get plugin [list|<id>]`,
-    `/set plugin <id> on|off` as feed leaves, agents get the bus and the
-    prompt registry. CLI: same runtime, `--no-plugins`.
+    `set_state` as the single write path. TUI: `/get plugin list|info <id>`,
+    `/set plugin on|off <id>` as feed values under their verb (D23), agents get
+    the bus and the prompt registry. CLI: same runtime, `--no-plugins`.
   - **PF-1.6 v1 adapter**: `ExternalPluginAdapter` puts discovered external plugins
     under the same surface (off by default; first-wins on id collision).
   - **PF-1.7 dogfood (partial)**: metrics is live; an end-to-end test drives a
@@ -1048,6 +1048,7 @@ Binding. Superseding a decision requires editing the spec in the same change.
 | **D20** | **A provider capability may contribute presets with no dialect factory** (presets-only), and a presets-only provider never takes a shared protocol down with it. | Requiring a factory, an OpenAI-compatible gateway (kilocode, openrouter) would have to claim ownership of the shared `openai` dialect, so switching that one provider off would break OpenAI-compatible use everywhere. |
 | **D21** | **Plugins read the host's LIVE config** (`PluginRuntime::attach_config`), never a startup copy. | A snapshot taken at construction, a plugin resolving an API key or the active provider would act on stale state after the user changes either. |
 | **D22** | **No plugin-facing surface without a caller.** Host services and log sinks are specified but unbuilt until something calls them. | Building them now, a plugin API nothing uses is exactly the state this rebuild started from (`capabilities()` read only by tests, a bus nobody fired), and it makes the surface's real shape unknowable while it is still unproven. The spec keeps the design; the tracker keeps the trigger. |
+| **D23** | **The plugin control surface is command-first and single-rooted (supersedes the packaging-namespace half of D17).** Plugin ids are feed values under their verb (`get.plugin.info.<id>`, `set.plugin.on\|off.<id>`), never siblings of the commands; the top-level `/plugin` namespace is retired — packaging moves to `/set plugin install\|uninstall`, manifest detail to `/get plugin info <id>`, external settings to `/get\|/set plugin settings`; install stages a plugin **disabled**. A discovery root shared with host state yields plugins only for directories carrying a manifest. | D17 left three surfaces (root `/plugin`, `/get plugin`, `/set plugin`) and hung every id beside the `list` command, so the drawer's command list drowned as the bundled set grew — the point where a plugin list stops being an option list. Ids under their verb keep both drawers command lists; one root means one place to look; install-off keeps "fetch a plugin" and "run a plugin" separate decisions. The shared root is why a `plugin.conf`-only state directory used to surface as an unversioned, incompatible ghost of a real plugin in the legacy list and, for ids with no bundled plugin, as a phantom external entry in the runtime. |
 
 ---
 
@@ -1107,8 +1108,8 @@ cleanly on both hosts, with the dormant metrics plugin as the live consumer.
 | **PF-1.2** Publish sites | Fire the catalogue at the verified sites (turn, message, tool, LLM response, compression, error) behind an optional `EventBus*` port on `Agent`; never publish hidden confirmation exchanges | §6, PLG-03 |
 | **PF-1.3** Capability protocol + ledger | Typed `Capability`; `InstallResult`/`Contribution`; `PluginLedger` with reverse unwinding | §3, PLG-01 |
 | **PF-1.4** Registries | Tools (owner-tagged add/remove, const bug fixed), Commands (subtree + handlers), Prompt blocks, Settings; common `ExtensionPoint` introspection view. **No log sinks**: cut, no consumer | §4, §5, PLG-02, PLG-05 |
-| **PF-1.5** Runtime + host wiring | Composition root; plugin state persistence (`plugin.conf`, bundled plugins **on by default**); `/get plugin list\|<id>` + `/set plugin <id> on\|off` as the single write path (D17); default-on applied at first boot; CLI parity | §4, §9, PLG-10, PLG-11 |
-| **PF-1.6** v1 tier under the same registry | `ExternalPluginAdapter` wraps the external `PluginManager` in `IPlugin`, so external plugins appear in `/get plugin list` and are toggled by `/set plugin <id> on\|off`. **This is what makes deleting `/plugin enable\|disable` safe**: without it, D17 strands the external tier with no control surface | §2, §9, PLG-11 |
+| **PF-1.5** Runtime + host wiring | Composition root; plugin state persistence (`plugin.conf`, bundled plugins **on by default**); `/get plugin list\|info <id>` + `/set plugin on\|off <id>` as the single write path (D17, command-first per D23); default-on applied at first boot; CLI parity | §4, §9, PLG-10, PLG-11 |
+| **PF-1.6** v1 tier under the same registry | `ExternalPluginAdapter` wraps the external `PluginManager` in `IPlugin`, so external plugins appear in `/get plugin list` and are toggled by `/set plugin on\|off <id>`. **This is what makes deleting `/plugin enable\|disable` safe**: without it, D17 strands the external tier with no control surface | §2, §9, PLG-11 |
 | **PF-1.7** Dogfood | Metrics plugin activated on both hosts; core prompt blocks (memory/skills/brief) migrated onto the prompt registry; `chat_once` injection logic deleted | §5, §6 |
 
 **Gate:** ledger test proves disable restores the registries exactly; prompt
@@ -1240,9 +1241,9 @@ entry names the trigger that would reopen it.
    transport, agent-loop, or TUI code.
 2. The built-ins are plugins; the name-keyed capability table is deleted;
    `/provider test` is dialect-correct for every provider.
-3. `/get plugin list` and `/set plugin <id> on|off` are the plugin control
-   surface; state persists; a toggle immediately adds or removes the plugin's
-   providers from `/get provider list` and the drawer, with no restart.
+3. `/get plugin list|info <id>` and `/set plugin on|off <id>` are the plugin
+   control surface; state persists; a toggle immediately adds or removes the
+   plugin's providers from `/get provider list` and the drawer, with no restart.
 4. Enable/disable is clean and tested (nothing survives deactivation); the
    console shows what each plugin contributes.
 5. The contributor guide matches the shipped API, with the availability table as

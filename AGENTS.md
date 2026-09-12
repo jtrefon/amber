@@ -96,7 +96,7 @@ deferred, see the developer guide's availability table).
   *selection*, not a definition.
 - **Status:** the framework runs. Typed events fire at the agent and tool sites,
   capabilities install into typed registries through the ledger, `/get plugin`
-  and `/set plugin <id> on|off` control state persisted in
+  and `/set plugin on|off <id>` control state persisted in
   `~/.config/amber/plugins/<id>/plugin.conf`, the status bar is composed from a
   registry, and both hosts (`src/main.cpp`, `tui/tui_main.cpp`) construct a
   `PluginRuntime`. The runtime lives in `lib/plugin_runtime.cpp`; the bundled set
@@ -148,8 +148,11 @@ tree in `SettingRegistry`; C++ handlers are pure `(action, arg)` closures.
   (`<parent action>.<leaf key>`) and the feed registers the handler closure.
   Existing feeds: `refresh_model_list` (set.model), `refresh_policy_feed`
   (get/set policy rule, the permission system, unchanged, surfaced in the
-  tree), `refresh_job_feed` (job kill/read), plus `mcp_completion_subtree`.
-  New dynamic content = a new feed, never a C++ completion lambda.
+  tree), `refresh_job_feed` (job kill/read), `refresh_plugin_feed`
+  (get.plugin.info and set.plugin.on|off — ids hang under their verb so the
+  drawers stay command lists however many plugins register), plus
+  `mcp_completion_subtree`. New dynamic content = a new feed, never a C++
+  completion lambda.
 - `SettingRegistry::complete(ns)` returns the **direct children** of a
   namespace (tree-walked) so drawer rows and completions stay 1:1 for Enter
   dispatch. The legacy flat `palette::Command` carries display metadata only
@@ -473,7 +476,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tests/run_tests.cpp` | 6070 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 287 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 119 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 2553 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2537 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),
