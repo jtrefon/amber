@@ -16,9 +16,9 @@ constexpr const char* kDefaultModel = "gpt-4.1";
 constexpr const char* kCreditsPath = "/alpha/billing/credits";
 
 // Map a CommandCode windowLimits entry (used/cap in USD, resetAt in epoch ms)
-// into an AllowanceWindow with a derived percent_used.
-AllowanceWindow window_from_cc_json(const std::string& label, const nlohmann::json& j) {
-    AllowanceWindow w;
+// into an WalletWindow with a derived percent_used.
+WalletWindow window_from_cc_json(const std::string& label, const nlohmann::json& j) {
+    WalletWindow w;
     w.label = label;
     double used = -1, cap = -1;
     if (j.contains("used") && j["used"].is_number())
@@ -41,11 +41,11 @@ AllowanceWindow window_from_cc_json(const std::string& label, const nlohmann::js
 
 } // namespace
 
-std::optional<AllowanceSnapshot> parse_commandcode_credits(const std::string& body) {
+std::optional<WalletSnapshot> parse_commandcode_credits(const std::string& body) {
     nlohmann::json j = nlohmann::json::parse(body, nullptr, false);
     if (j.is_discarded() || !j.is_object())
         return std::nullopt;
-    AllowanceSnapshot snap;
+    WalletSnapshot snap;
     snap.unit = "USD";
     snap.currency = "USD";
 
@@ -62,7 +62,7 @@ std::optional<AllowanceSnapshot> parse_commandcode_credits(const std::string& bo
         const double total = monthly + purchased + free_c;
         if (total > 0) {
             snap.credits_balance = total;
-            AllowanceWindow monthly_w;
+            WalletWindow monthly_w;
             monthly_w.label = "monthly";
             monthly_w.remaining = total;
             monthly_w.entitlement = total;
@@ -101,8 +101,8 @@ std::vector<std::unique_ptr<Capability>> CommandcodePlugin::capabilities() {
         std::make_unique<ProviderCapability>("openai", std::function<std::unique_ptr<Dialect>()>{},
                                              std::vector<ProviderCapability::Preset>{preset}));
 
-    caps.push_back(std::make_unique<AllowanceCapability>(
-        [](const Config& cfg) -> std::optional<AllowanceSnapshot> {
+    caps.push_back(std::make_unique<WalletCapability>(
+        [](const Config& cfg) -> std::optional<WalletSnapshot> {
             if (cfg.api_key.empty())
                 return std::nullopt;
             const std::optional<std::string> body =

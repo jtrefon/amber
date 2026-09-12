@@ -18,9 +18,9 @@
 
 namespace agent::plugins {
 
-// Parse the /alpha/billing/credits response body into an AllowanceSnapshot.
+// Parse the /alpha/billing/credits response body into an WalletSnapshot.
 // Public so tests can call it with a fixture without touching the network.
-std::optional<AllowanceSnapshot> parse_commandcode_credits(const std::string& body);
+std::optional<WalletSnapshot> parse_commandcode_credits(const std::string& body);
 
 class CommandcodePlugin : public IPlugin {
 public:

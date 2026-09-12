@@ -195,21 +195,53 @@ struct HostServices {
 };
 
 // ---------------------------------------------------------------------------
-// Wallets
+// Wallet (the active provider's account state)
 // ---------------------------------------------------------------------------
 
-// A provider's account balance, for the status bar. A plugin supplies only the
-// fetch; the runtime owns when to poll, how to cache it, and how it renders, so
-// every provider's readout behaves the same and no provider hand-rolls a poll
-// loop and a cache.
+// One metered window: a rolling 5-hour session, a weekly cap, a monthly credit
+// pool, a per-model quota - any limit with a reset. `percent_used` is 0-100
+// (-1 = unknown). `remaining` and `entitlement` are counts or credits
+// (-1 = not applicable). `resets_at` is ISO 8601 or empty.
+struct WalletWindow {
+    std::string label;
+    double percent_used = -1;
+    std::string resets_at;
+    double remaining = -1;
+    double entitlement = -1;
+};
+
+// What a provider reports about the account behind the active key: a plan
+// name, the windows the provider meters, an optional prepaid balance, and the
+// unit/currency the numbers are in. Every field is optional because providers
+// answer the question "what is left?" in different shapes - a prepaid balance,
+// a set of quota windows, or both.
 //
-// The fetch returns the amount in the display currency, or nullopt when there
-// is nothing honest to report (no token configured, endpoint unreachable,
-// rejected key). Returning nullopt is normal, not an error: the bar shows the
-// unavailable state.
+// One snapshot type for one question. It used to be two mechanisms (a bare
+// `optional<double>` "wallet" and a richer "allowance") that differed only in
+// how much of this struct they filled; two registries, two flags, two status
+// segments and two command pairs maintained for one concept is the
+// inconsistency this type exists to prevent.
+struct WalletSnapshot {
+    std::string plan;
+    std::vector<WalletWindow> windows;
+    std::optional<double> credits_balance;
+    std::string unit;
+    std::string currency;
+
+    // The common case: a provider that knows a balance and nothing else.
+    static WalletSnapshot of_balance(double amount, std::string currency = "$");
+};
+
+// A provider supplies only the fetch; the runtime owns when to poll, how to
+// cache it, and how it renders, so every provider's readout behaves the same
+// and no provider hand-rolls a poll loop and a cache.
+//
+// The fetch returns the snapshot, or nullopt when there is nothing honest to
+// report (no token configured, endpoint unreachable, rejected key). Returning
+// nullopt is normal, not an error: the bar shows the unavailable state.
 class WalletRegistry {
 public:
-    using Fetch = std::function<std::optional<double>(const Config&)>;
+    using Fetch = std::function<std::optional<WalletSnapshot>(const Config&)>;
 
     Contribution add(const std::string& owner, Fetch fetch);
 
@@ -221,48 +253,6 @@ public:
 
 private:
     std::vector<std::pair<std::string, Fetch>> entries_; // owner -> fetch
-};
-
-// ---------------------------------------------------------------------------
-// Allowance (subscription/quota windows)
-// ---------------------------------------------------------------------------
-
-// One usage window: a rolling 5-hour session, a weekly cap, a monthly credit
-// pool, a per-model quota — any metered limit with a reset. `percent_used` is
-// 0–100 (-1 = unknown). `remaining` and `entitlement` are counts or credits
-// (-1 = not applicable). `resets_at` is ISO 8601 or empty.
-struct AllowanceWindow {
-    std::string label;
-    double percent_used = -1;
-    std::string resets_at;
-    double remaining = -1;
-    double entitlement = -1;
-};
-
-// The full allowance picture for a provider: a plan name, the windows the
-// provider reports, an optional prepaid credit balance, and the unit/currency
-// the numbers are in.
-struct AllowanceSnapshot {
-    std::string plan;
-    std::vector<AllowanceWindow> windows;
-    std::optional<double> credits_balance;
-    std::string unit;
-    std::string currency;
-};
-
-// Same shape as WalletRegistry: a provider supplies a fetch, the runtime owns
-// polling, caching, and rendering.
-class AllowanceRegistry {
-public:
-    using Fetch = std::function<std::optional<AllowanceSnapshot>(const Config&)>;
-
-    Contribution add(const std::string& owner, Fetch fetch);
-    const Fetch* find(const std::string& owner) const;
-    std::vector<ExtensionItem> items() const;
-    std::size_t size() const noexcept { return entries_.size(); }
-
-private:
-    std::vector<std::pair<std::string, Fetch>> entries_;
 };
 
 // ---------------------------------------------------------------------------
@@ -314,7 +304,7 @@ private:
 class PluginServices {
 public:
     PluginServices(ToolRegistry& tools, PromptRegistry& prompts, StatusRegistry& status,
-                   PanelRegistry& panels, WalletRegistry& wallets, AllowanceRegistry& allowances,
+                   PanelRegistry& panels, WalletRegistry& wallets,
                    EventBus& events) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
@@ -322,7 +312,6 @@ public:
     StatusRegistry& status() noexcept { return *status_; }
     PanelRegistry& panels() noexcept { return *panels_; }
     WalletRegistry& wallets() noexcept { return *wallets_; }
-    AllowanceRegistry& allowances() noexcept { return *allowances_; }
     EventBus& events() noexcept { return *events_; }
 
     // The plugin whose capabilities are being installed right now. The runtime
@@ -346,7 +335,6 @@ private:
     StatusRegistry* status_;
     PanelRegistry* panels_;
     WalletRegistry* wallets_;
-    AllowanceRegistry* allowances_;
     EventBus* events_;
     std::string owner_;
 };
@@ -473,19 +461,6 @@ public:
 
 private:
     WalletRegistry::Fetch fetch_;
-};
-
-// Contributes an allowance fetch: the plugin supplies the fetch, the runtime
-// owns polling, caching, and rendering. Same pattern as WalletCapability.
-class AllowanceCapability : public Capability {
-public:
-    explicit AllowanceCapability(AllowanceRegistry::Fetch fetch);
-    std::string name() const override { return "allowance"; }
-    CapabilityKind kind() const override { return CapabilityKind::Allowance; }
-    InstallResult install(PluginServices& services) override;
-
-private:
-    AllowanceRegistry::Fetch fetch_;
 };
 
 // Contributes a full-screen panel.

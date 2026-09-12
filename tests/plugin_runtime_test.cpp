@@ -109,13 +109,13 @@ public:
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
         caps.push_back(std::make_unique<WalletCapability>(
-            [amount = amount_](const Config& cfg) -> std::optional<double> {
+            [amount = amount_](const Config& cfg) -> std::optional<WalletSnapshot> {
                 ++fetches;
                 last_provider = cfg.provider_name;
                 last_key = cfg.api_key;
                 if (cfg.api_key.empty())
                     return std::nullopt;
-                return amount;
+                return WalletSnapshot::of_balance(amount);
             }));
         return caps;
     }
@@ -145,10 +145,10 @@ public:
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
         caps.push_back(std::make_unique<WalletCapability>(
-            [done = done_](const Config&) -> std::optional<double> {
+            [done = done_](const Config&) -> std::optional<WalletSnapshot> {
                 std::this_thread::sleep_for(std::chrono::milliseconds(120));
                 done->store(true);
-                return 7.0;
+                return WalletSnapshot::of_balance(7.0);
             }));
         return caps;
     }
@@ -643,7 +643,7 @@ TEST(runtime_wallet_reads_the_config_attached_after_start) {
     ASSERT_TRUE(view.supported);
     ASSERT_TRUE(view.ready);
     ASSERT_FALSE(view.failed);
-    ASSERT_EQ(view.amount, 42.5);
+    ASSERT_EQ(*view.snapshot.credits_balance, 42.5);
 }
 
 TEST(wallet_registry_installs_and_unwinds) {
@@ -652,12 +652,13 @@ TEST(wallet_registry_installs_and_unwinds) {
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
-    AllowanceRegistry allowances;
     EventBus bus;
-    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
+    PluginServices services(tools, prompts, status, panels, wallets, bus);
     services.set_owner("acme");
 
-    WalletCapability cap([](const Config&) -> std::optional<double> { return 7.0; });
+    WalletCapability cap([](const Config&) -> std::optional<WalletSnapshot> {
+        return WalletSnapshot::of_balance(7.0);
+    });
     InstallResult r = cap.install(services);
     ASSERT_TRUE(r.ok);
     ASSERT_TRUE(r.contribution.kind == CapabilityKind::Wallet);
@@ -900,7 +901,7 @@ TEST(runtime_wallet_result_from_a_previous_provider_is_not_shown) {
     runtime.attach_config(a);
     runtime.perform_wallet_refresh();
     ASSERT_TRUE(runtime.wallet().ready);
-    ASSERT_EQ(runtime.wallet().amount, 10.0);
+    ASSERT_EQ(*runtime.wallet().snapshot.credits_balance, 10.0);
 
     // Switch: probe_b declares a wallet too, but nothing has been fetched for
     // it yet, so the readout must be "not fetched" rather than probe_a's 10.0.
@@ -917,7 +918,7 @@ TEST(runtime_wallet_result_from_a_previous_provider_is_not_shown) {
     runtime.perform_wallet_refresh();
     const auto fresh = runtime.wallet();
     ASSERT_TRUE(fresh.ready);
-    ASSERT_EQ(fresh.amount, 20.0);
+    ASSERT_EQ(*fresh.snapshot.credits_balance, 20.0);
 }
 
 TEST(runtime_find_returns_null_for_unknown_plugins) {
@@ -1018,72 +1019,33 @@ TEST(runtime_shutdown_deactivates_everything) {
 }
 
 // ---------------------------------------------------------------------------
-// Allowance capability tests
+// A provider that meters quota windows and reports no balance: the other shape
+// of the same capability.
 // ---------------------------------------------------------------------------
 
-class AllowanceProbePlugin : public IPlugin {
+class QuotaProbePlugin : public IPlugin {
 public:
-    static AllowanceSnapshot fixed_snapshot;
+    static WalletSnapshot fixed_snapshot;
 
-    std::string id() const override { return "allowanceprobe"; }
+    std::string id() const override { return "quotaprobe"; }
     std::string version() const override { return "1.0.0"; }
-    std::string name() const override { return "Allowance probe"; }
+    std::string name() const override { return "Quota probe"; }
 
     bool initialize(const PluginContext&) override { return true; }
     void shutdown() override {}
 
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
-        caps.push_back(std::make_unique<AllowanceCapability>(
-            [](const Config&) -> std::optional<AllowanceSnapshot> { return fixed_snapshot; }));
+        caps.push_back(std::make_unique<WalletCapability>(
+            [](const Config&) -> std::optional<WalletSnapshot> { return fixed_snapshot; }));
         return caps;
     }
 };
 
-AllowanceSnapshot AllowanceProbePlugin::fixed_snapshot;
+WalletSnapshot QuotaProbePlugin::fixed_snapshot;
 
-TEST(allowance_registry_installs_and_unwinds) {
-    ToolRegistry tools;
-    PromptRegistry prompts;
-    StatusRegistry status;
-    PanelRegistry panels;
-    WalletRegistry wallets;
-    AllowanceRegistry allowances;
-    EventBus bus;
-    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
-    services.set_owner("acme");
 
-    AllowanceCapability cap([](const Config&) -> std::optional<AllowanceSnapshot> {
-        AllowanceSnapshot s;
-        s.plan = "Pro";
-        return s;
-    });
-    InstallResult r = cap.install(services);
-    ASSERT_TRUE(r.ok);
-    ASSERT_TRUE(r.contribution.kind == CapabilityKind::Allowance);
-    ASSERT(allowances.find("acme") != nullptr);
 
-    r.contribution.remove();
-    ASSERT_TRUE(allowances.find("acme") == nullptr);
-    ASSERT_EQ(allowances.size(), 0u);
-}
-
-TEST(allowance_registry_replaces_existing_for_same_owner) {
-    AllowanceRegistry allowances;
-    allowances.add("acme", [](const Config&) { return std::nullopt; });
-    ASSERT_EQ(allowances.size(), 1u);
-    allowances.add("acme", [](const Config&) { return std::nullopt; });
-    ASSERT_EQ(allowances.size(), 1u);
-}
-
-TEST(allowance_registry_items_reports_kind_and_owner) {
-    AllowanceRegistry allowances;
-    allowances.add("acme", [](const Config&) { return std::nullopt; });
-    auto items = allowances.items();
-    ASSERT_EQ(items.size(), 1u);
-    ASSERT_TRUE(items[0].kind == CapabilityKind::Allowance);
-    ASSERT_EQ(items[0].owner, std::string("acme"));
-}
 
 TEST(opencode_go_usage_parser_parses_three_windows) {
     const std::string body = R"({
@@ -1185,107 +1147,138 @@ TEST(deepseek_balance_parser_rejects_malformed) {
     ASSERT_EQ(plugins::parse_deepseek_balance(R"({"balance_infos":[]})"), -1.0);
 }
 
-TEST(allowance_segment_shows_closest_window) {
-    ScratchConfig scratch("allowance_closest");
+TEST(wallet_segment_shows_closest_window) {
+    ScratchConfig scratch("wallet_closest");
     Fixture f;
-    AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
-    AllowanceProbePlugin::fixed_snapshot.plan = "Go";
-    AllowanceProbePlugin::fixed_snapshot.unit = "percent";
-    AllowanceWindow w5h;
+    QuotaProbePlugin::fixed_snapshot = WalletSnapshot{};
+    QuotaProbePlugin::fixed_snapshot.plan = "Go";
+    QuotaProbePlugin::fixed_snapshot.unit = "percent";
+    WalletWindow w5h;
     w5h.label = "5h";
     w5h.percent_used = 80.0;
-    AllowanceWindow w7d;
+    WalletWindow w7d;
     w7d.label = "7d";
     w7d.percent_used = 30.0;
-    AllowanceWindow wM;
+    WalletWindow wM;
     wM.label = "monthly";
     wM.percent_used = 20.0;
-    AllowanceProbePlugin::fixed_snapshot.windows = {w5h, w7d, wM};
+    QuotaProbePlugin::fixed_snapshot.windows = {w5h, w7d, wM};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add(std::make_shared<AllowanceProbePlugin>());
+    runtime.add(std::make_shared<QuotaProbePlugin>());
     runtime.start();
     Config live;
-    live.provider_name = "allowanceprobe";
+    live.provider_name = "quotaprobe";
     live.api_key = "key";
     runtime.attach_config(live);
-    runtime.perform_allowance_refresh();
+    runtime.perform_wallet_refresh();
 
-    const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
+    const auto find_wallet = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance")
+            if (s.id == "wallet")
                 return s;
         return std::nullopt;
     };
-    auto seg = find_allowance();
+    auto seg = find_wallet();
     ASSERT(seg.has_value());
     ASSERT(seg->text.find("80%") != std::string::npos);
     ASSERT(seg->text.find("5h") != std::string::npos);
     ASSERT(seg->tone == StatusTone::Warn);
 }
 
-TEST(allowance_segment_breaks_ties_by_shortest_label) {
-    ScratchConfig scratch("allowance_tie");
+TEST(wallet_segment_breaks_ties_by_shortest_label) {
+    ScratchConfig scratch("wallet_tie");
     Fixture f;
-    AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
-    AllowanceWindow w5h;
+    QuotaProbePlugin::fixed_snapshot = WalletSnapshot{};
+    WalletWindow w5h;
     w5h.label = "5h";
     w5h.percent_used = 50.0;
-    AllowanceWindow w7d;
+    WalletWindow w7d;
     w7d.label = "7d";
     w7d.percent_used = 50.0;
-    AllowanceProbePlugin::fixed_snapshot.windows = {w7d, w5h};
+    QuotaProbePlugin::fixed_snapshot.windows = {w7d, w5h};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add(std::make_shared<AllowanceProbePlugin>());
+    runtime.add(std::make_shared<QuotaProbePlugin>());
     runtime.start();
     Config live;
-    live.provider_name = "allowanceprobe";
+    live.provider_name = "quotaprobe";
     live.api_key = "key";
     runtime.attach_config(live);
-    runtime.perform_allowance_refresh();
+    runtime.perform_wallet_refresh();
 
-    const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
+    const auto find_wallet = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance")
+            if (s.id == "wallet")
                 return s;
         return std::nullopt;
     };
-    auto seg = find_allowance();
+    auto seg = find_wallet();
     ASSERT(seg.has_value());
     ASSERT(seg->text.find("5h") != std::string::npos);
 }
 
-TEST(allowance_segment_hides_when_disabled) {
-    ScratchConfig scratch("allowance_hide");
+TEST(wallet_segment_hides_when_disabled) {
+    ScratchConfig scratch("wallet_hide");
     Fixture f;
-    AllowanceProbePlugin::fixed_snapshot = AllowanceSnapshot{};
-    AllowanceWindow w;
+    QuotaProbePlugin::fixed_snapshot = WalletSnapshot{};
+    WalletWindow w;
     w.label = "5h";
     w.percent_used = 50.0;
-    AllowanceProbePlugin::fixed_snapshot.windows = {w};
+    QuotaProbePlugin::fixed_snapshot.windows = {w};
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add(std::make_shared<AllowanceProbePlugin>());
+    runtime.add(std::make_shared<QuotaProbePlugin>());
     runtime.start();
     Config live;
-    live.provider_name = "allowanceprobe";
+    live.provider_name = "quotaprobe";
     live.api_key = "key";
-    live.allowance_enabled = false;
+    live.wallet_enabled = false;
     runtime.attach_config(live);
-    runtime.perform_allowance_refresh();
+    runtime.perform_wallet_refresh();
 
-    const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
+    const auto find_wallet = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance")
+            if (s.id == "wallet")
                 return s;
         return std::nullopt;
     };
-    ASSERT_FALSE(find_allowance().has_value());
+    ASSERT_FALSE(find_wallet().has_value());
 }
 
-TEST(allowance_segment_shows_dash_for_unsupported_provider) {
-    ScratchConfig scratch("allowance_dash");
+// The rule for a provider that reports both, in one place: the balance answers
+// "what is left?" most directly, so it wins on the bar; the windows are still
+// there for `/get provider wallet`.
+TEST(wallet_segment_prefers_the_balance_over_windows) {
+    ScratchConfig scratch("wallet_balance_wins");
+    Fixture f;
+    QuotaProbePlugin::fixed_snapshot = WalletSnapshot{};
+    WalletWindow w;
+    w.label = "5h";
+    w.percent_used = 90.0;
+    QuotaProbePlugin::fixed_snapshot.windows = {w};
+    QuotaProbePlugin::fixed_snapshot.credits_balance = 12.5;
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<QuotaProbePlugin>());
+    runtime.start();
+    Config live;
+    live.provider_name = "quotaprobe";
+    live.api_key = "key";
+    runtime.attach_config(live);
+    runtime.perform_wallet_refresh();
+
+    for (const auto& s : runtime.status().render(StatusSnapshot{})) {
+        if (s.id != "wallet") continue;
+        ASSERT(s.text.find("12.50") != std::string::npos);
+        ASSERT(s.text.find("90%") == std::string::npos);
+        return;
+    }
+    ASSERT(false);
+}
+
+TEST(wallet_segment_shows_dash_for_unsupported_provider) {
+    ScratchConfig scratch("wallet_dash");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.start();
@@ -1293,13 +1286,13 @@ TEST(allowance_segment_shows_dash_for_unsupported_provider) {
     live.provider_name = "custom";
     runtime.attach_config(live);
 
-    const auto find_allowance = [&runtime]() -> std::optional<StatusSegment> {
+    const auto find_wallet = [&runtime]() -> std::optional<StatusSegment> {
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "allowance")
+            if (s.id == "wallet")
                 return s;
         return std::nullopt;
     };
-    auto seg = find_allowance();
+    auto seg = find_wallet();
     ASSERT(seg.has_value());
     ASSERT(seg->text.find('-') != std::string::npos);
 }
@@ -1384,13 +1377,3 @@ TEST(start_ignores_persisted_state_when_told_to) {
     ASSERT_FALSE((bool)hosted.tools.find("search"));
 }
 
-TEST(disabling_allowance_plugin_unwinds_contribution) {
-    ScratchConfig scratch("allowance_unwind");
-    Fixture f;
-    PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add(std::make_shared<AllowanceProbePlugin>());
-    runtime.start();
-    ASSERT(runtime.allowances().find("allowanceprobe") != nullptr);
-    ASSERT_TRUE(runtime.set_state("allowanceprobe", false));
-    ASSERT(runtime.allowances().find("allowanceprobe") == nullptr);
-}

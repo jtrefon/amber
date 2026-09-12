@@ -15,9 +15,9 @@
 
 namespace agent::plugins {
 
-// Parse the Go usage response body into an AllowanceSnapshot. Public so tests
+// Parse the Go usage response body into an WalletSnapshot. Public so tests
 // can call it with a fixture without touching the network.
-std::optional<AllowanceSnapshot> parse_opencode_go_usage(const std::string& body);
+std::optional<WalletSnapshot> parse_opencode_go_usage(const std::string& body);
 
 class OpencodeGoPlugin : public IPlugin {
 public:

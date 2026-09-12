@@ -130,7 +130,7 @@ public:
         bool supported = false;
         bool ready = false;  // a fetch produced a value
         bool failed = false; // the last fetch did not
-        double amount = 0.0;
+        WalletSnapshot snapshot;
         std::string holder; // provider id, for the command output
     };
 
@@ -146,13 +146,14 @@ public:
     // the new provider.
     struct WalletState {
         std::atomic<bool> inflight{false};
-        std::atomic<bool> has_value{false}; // the ticket answered with an amount
+        std::atomic<bool> has_value{false}; // the ticket answered with a value
         std::atomic<bool> failed{false};
-        std::atomic<double> amount{0.0};
         std::atomic<long long> active_ticket{0};
         std::atomic<long long> result_ticket{0};
         std::atomic<long long> last_ms{0};
         std::string provider; // the provider the active ticket fetches for
+        WalletSnapshot snapshot; // written by the worker under mutex
+        mutable std::mutex mutex;
     };
 
     WalletView wallet() const;
@@ -167,37 +168,6 @@ public:
     // responsive (it performs the plugin's I/O).
     void perform_wallet_refresh();
 
-    // --- Allowance (the active provider's subscription/quota windows) ------
-
-    struct AllowanceView {
-        bool enabled = true;
-        bool supported = false;
-        bool ready = false;
-        bool failed = false;
-        AllowanceSnapshot snapshot;
-        std::string holder;
-    };
-
-    // State shared with an in-flight allowance fetch, same pattern as
-    // WalletState: the worker writes only the atomics, the snapshot is copied
-    // on the host thread before the fetch starts.
-    struct AllowanceState {
-        std::atomic<bool> inflight{false};
-        std::atomic<bool> has_value{false};
-        std::atomic<bool> failed{false};
-        std::atomic<long long> active_ticket{0};
-        std::atomic<long long> result_ticket{0};
-        std::atomic<long long> last_ms{0};
-        std::string provider;
-        AllowanceSnapshot snapshot; // written by the worker under mutex
-        mutable std::mutex mutex;
-    };
-
-    AllowanceView allowance() const;
-    bool allowance_enabled() const;
-    void request_allowance_refresh() noexcept;
-    void perform_allowance_refresh();
-
     // --- Registries (hosts pull from these) --------------------------------
 
     PromptRegistry& prompts() noexcept { return prompts_; }
@@ -206,8 +176,6 @@ public:
     const PanelRegistry& panels() const noexcept { return panels_; }
     WalletRegistry& wallets() noexcept { return wallets_; }
     const WalletRegistry& wallets() const noexcept { return wallets_; }
-    AllowanceRegistry& allowances() noexcept { return allowances_; }
-    const AllowanceRegistry& allowances() const noexcept { return allowances_; }
     EventBus& events() noexcept { return bus_; }
 
     // Contributions across every registry, for the console.
@@ -236,12 +204,6 @@ private:
     // outlives this runtime.
     static void run_wallet_fetch(const std::shared_ptr<WalletState>& state, long long ticket,
                                  const WalletRegistry::Fetch& fetch, const Config& cfg);
-    // Allowance refresh helpers, same structure as the wallet ones. The readout
-    // itself is declared by install_core_ui, with the rest of the core UI.
-    void maybe_refresh_allowance();
-    void schedule_allowance_fetch();
-    static void run_allowance_fetch(const std::shared_ptr<AllowanceState>& state, long long ticket,
-                                    const AllowanceRegistry::Fetch& fetch, const Config& cfg);
 
     // Install the harness's own UI - the status-bar segments, the wallet
     // readout and the registry console - through the same declare-and-install
@@ -265,11 +227,6 @@ private:
     // counter below are host-thread-only.
     std::shared_ptr<WalletState> wallet_state_ = std::make_shared<WalletState>();
     long long wallet_ticket_ = 0; // host thread only
-    AllowanceRegistry allowances_;
-    Subscription allowance_turn_sub_;
-    std::atomic<bool> allowance_dirty_{false};
-    std::shared_ptr<AllowanceState> allowance_state_ = std::make_shared<AllowanceState>();
-    long long allowance_ticket_ = 0;
     PluginLedger ledger_;
     PluginRegistry registry_;
     std::unique_ptr<PluginServices> services_;

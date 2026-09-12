@@ -67,7 +67,7 @@ bool write_enabled(const std::string& id, bool enabled) {
 PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace)
     : config_(std::move(config)), workspace_(&workspace) {
     services_ = std::make_unique<PluginServices>(tools, prompts_, status_, panels_, wallets_,
-                                                 allowances_, bus_);
+                                                 bus_);
     context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());
@@ -77,8 +77,6 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace
     // something.
     wallet_turn_sub_ = Events(bus_).subscribe<TurnEndedEvent>(
         [this](const TurnEndedEvent&) { request_wallet_refresh(); });
-    allowance_turn_sub_ = Events(bus_).subscribe<TurnEndedEvent>(
-        [this](const TurnEndedEvent&) { request_allowance_refresh(); });
 
     // Every readout is core, so every provider renders through one path: a
     // plugin supplies a fetch, never a poll loop, a cache and a segment.
@@ -130,7 +128,6 @@ void PluginRuntime::attach_config(const Config& config) {
     // now rather than waiting for the first turn to end. A fresh session should
     // show a balance, not a placeholder.
     request_wallet_refresh();
-    request_allowance_refresh();
 }
 
 void PluginRuntime::attach_host_services(const HostServices& host) noexcept {
@@ -153,7 +150,6 @@ void PluginRuntime::tick() {
         }
     }
     maybe_refresh_wallet();
-    maybe_refresh_allowance();
 }
 
 // --- Wallet ---------------------------------------------------------------
@@ -197,7 +193,10 @@ PluginRuntime::WalletView PluginRuntime::wallet() const {
     const bool has_value = state.has_value.load();
     view.failed = answered && state.failed.load();
     view.ready = answered && has_value;
-    view.amount = state.amount.load();
+    if (view.ready) {
+        std::scoped_lock lock(state.mutex);
+        view.snapshot = state.snapshot;
+    }
     return view;
 }
 
@@ -207,7 +206,7 @@ void PluginRuntime::request_wallet_refresh() noexcept {
 
 void PluginRuntime::run_wallet_fetch(const std::shared_ptr<WalletState>& state, long long ticket,
                                      const WalletRegistry::Fetch& fetch, const Config& cfg) {
-    std::optional<double> value;
+    std::optional<WalletSnapshot> value;
     try {
         value = fetch(cfg);
     } catch (...) {
@@ -215,8 +214,10 @@ void PluginRuntime::run_wallet_fetch(const std::shared_ptr<WalletState>& state, 
         // refresh, never a crashed host.
         value = std::nullopt;
     }
-    if (value)
-        state->amount.store(*value);
+    if (value) {
+        std::scoped_lock lock(state->mutex);
+        state->snapshot = std::move(*value);
+    }
     state->has_value.store(value.has_value());
     state->failed.store(!value.has_value());
     state->result_ticket.store(ticket);
@@ -281,7 +282,6 @@ void PluginRuntime::perform_wallet_refresh() {
 
 namespace {
 
-constexpr long long kAllowanceRefreshFloorMs = 10LL * 1000;
 
 // Select the window closest to exhaustion: highest percent_used, ties broken
 // by shortest duration (5h beats 7d beats monthly). Returns nullptr when no
@@ -296,8 +296,8 @@ int window_duration_rank(const std::string& label) {
     return 3; // monthly and everything else is longest
 }
 
-const AllowanceWindow* closest_window(const std::vector<AllowanceWindow>& ws) {
-    const AllowanceWindow* best = nullptr;
+const WalletWindow* closest_window(const std::vector<WalletWindow>& ws) {
+    const WalletWindow* best = nullptr;
     for (const auto& w : ws) {
         if (w.percent_used < 0)
             continue;
@@ -311,12 +311,39 @@ const AllowanceWindow* closest_window(const std::vector<AllowanceWindow>& ws) {
 
 } // namespace
 
+namespace {
+
+// The bar's answer to "what is left?": the balance when the provider reports
+// one, otherwise the window closest to its reset. Wordless, as the bar is.
+StatusText wallet_status_text(const WalletSnapshot& snapshot) {
+    if (snapshot.credits_balance) {
+        const std::string& unit = snapshot.currency.empty() ? std::string("$") : snapshot.currency;
+        char buf[48];
+        std::snprintf(buf, sizeof(buf), "  %s%.2f", unit.c_str(), *snapshot.credits_balance);
+        return StatusText{buf, StatusTone::Dim};
+    }
+    const WalletWindow* w = closest_window(snapshot.windows);
+    if (!w) return StatusText{"  -", StatusTone::Dim};
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "  %d%%·%s", static_cast<int>(w->percent_used),
+                  w->label.c_str());
+    const StatusTone tone = w->percent_used >= 70.0 ? StatusTone::Warn : StatusTone::Dim;
+    return StatusText{buf, tone};
+}
+
+} // namespace
+
 void PluginRuntime::install_core_ui() {
     std::vector<std::unique_ptr<Capability>> declared = core_status_capabilities();
 
     // The wallet readout is core, so every provider renders through one path: a
     // plugin supplies a fetch, never a poll loop, a cache and a segment. Highest
     // drop priority, because a balance is the least load-bearing fact on the bar.
+    //
+    // One readout for one question ("what is left?"). A prepaid balance answers
+    // it most directly, so it wins; a provider that meters windows instead gets
+    // its closest-expiring window, which is the number a user acts on. Width is
+    // the constraint here - `/get provider wallet` carries the whole picture.
     declared.push_back(std::make_unique<StatusSegmentCapability>(
         "wallet", /*priority=*/800, /*drop_priority=*/9,
         [this](const StatusSnapshot&) -> StatusText {
@@ -328,30 +355,7 @@ void PluginRuntime::install_core_ui() {
             // distinguishes the two.
             if (!view.supported || view.failed || !view.ready)
                 return StatusText{"  -", StatusTone::Dim};
-            char buf[32];
-            std::snprintf(buf, sizeof(buf), "  $%.2f", view.amount);
-            return StatusText{buf, StatusTone::Dim};
-        }));
-
-    // The allowance readout is core for the same reason, one step lower: a
-    // provider supplies a fetch and the runtime owns polling, caching and the
-    // segment.
-    declared.push_back(std::make_unique<StatusSegmentCapability>(
-        "allowance", /*priority=*/790, /*drop_priority=*/8,
-        [this](const StatusSnapshot&) -> StatusText {
-            if (!allowance_enabled())
-                return StatusText{};
-            const AllowanceView view = allowance();
-            if (!view.supported || view.failed || !view.ready)
-                return StatusText{"  -", StatusTone::Dim};
-            const AllowanceWindow* w = closest_window(view.snapshot.windows);
-            if (!w)
-                return StatusText{"  -", StatusTone::Dim};
-            char buf[48];
-            std::snprintf(buf, sizeof(buf), "  %d%%·%s", static_cast<int>(w->percent_used),
-                          w->label.c_str());
-            const StatusTone tone = w->percent_used >= 70.0 ? StatusTone::Warn : StatusTone::Dim;
-            return StatusText{buf, tone};
+            return wallet_status_text(view.snapshot);
         }));
 
     // Installed before any plugin can contribute a panel, so "open the panel
@@ -388,125 +392,6 @@ void PluginRuntime::maybe_refresh_wallet() {
     schedule_wallet_fetch();
 }
 
-// --- Allowance ------------------------------------------------------------
-
-bool PluginRuntime::allowance_enabled() const {
-    return active_config().allowance_enabled;
-}
-
-PluginRuntime::AllowanceView PluginRuntime::allowance() const {
-    const Config& cfg = active_config();
-    AllowanceView view;
-    view.enabled = cfg.allowance_enabled;
-    view.holder = cfg.provider_name;
-    view.supported = allowances_.find(cfg.provider_name) != nullptr;
-
-    const AllowanceState& state = *allowance_state_;
-    const bool belongs = state.provider == cfg.provider_name;
-    const long long active = state.active_ticket.load();
-    const bool answered = belongs && active != 0 && state.result_ticket.load() == active;
-    view.failed = answered && state.failed.load();
-    view.ready = answered && state.has_value.load();
-    if (view.ready) {
-        std::scoped_lock lock(state.mutex);
-        view.snapshot = state.snapshot;
-    }
-    return view;
-}
-
-void PluginRuntime::request_allowance_refresh() noexcept {
-    allowance_dirty_.store(true);
-}
-
-void PluginRuntime::run_allowance_fetch(const std::shared_ptr<AllowanceState>& state,
-                                        long long ticket, const AllowanceRegistry::Fetch& fetch,
-                                        const Config& cfg) {
-    std::optional<AllowanceSnapshot> value;
-    try {
-        value = fetch(cfg);
-    } catch (...) {
-        value = std::nullopt;
-    }
-    {
-        std::scoped_lock lock(state->mutex);
-        if (value)
-            state->snapshot = *value;
-        else
-            state->snapshot = AllowanceSnapshot{};
-    }
-    state->has_value.store(value.has_value());
-    state->failed.store(!value.has_value());
-    state->result_ticket.store(ticket);
-    state->inflight.store(false);
-}
-
-void PluginRuntime::schedule_allowance_fetch() {
-    const Config cfg = active_config();
-    const std::string provider = cfg.provider_name;
-    const auto state = allowance_state_;
-    const long long ticket = ++allowance_ticket_;
-
-    state->provider = provider;
-    state->active_ticket.store(ticket);
-    state->last_ms.store(steady_now_ms());
-
-    const AllowanceRegistry::Fetch* fetch = allowances_.find(provider);
-    if (!fetch) {
-        state->has_value.store(false);
-        state->failed.store(false);
-        state->result_ticket.store(ticket);
-        state->inflight.store(false);
-        return;
-    }
-
-    state->inflight.store(true);
-    AllowanceRegistry::Fetch work = *fetch;
-    std::thread([state, ticket, work = std::move(work), cfg] {
-        run_allowance_fetch(state, ticket, work, cfg);
-    }).detach();
-}
-
-void PluginRuntime::perform_allowance_refresh() {
-    const Config cfg = active_config();
-    const std::string provider = cfg.provider_name;
-    const auto state = allowance_state_;
-    const long long ticket = ++allowance_ticket_;
-
-    state->provider = provider;
-    state->active_ticket.store(ticket);
-    state->last_ms.store(steady_now_ms());
-
-    const AllowanceRegistry::Fetch* fetch = allowances_.find(provider);
-    if (!fetch) {
-        state->has_value.store(false);
-        state->failed.store(false);
-        state->result_ticket.store(ticket);
-        state->inflight.store(false);
-        return;
-    }
-    state->inflight.store(true);
-    run_allowance_fetch(state, ticket, *fetch, cfg);
-}
-
-void PluginRuntime::maybe_refresh_allowance() {
-    if (!allowance_dirty_.exchange(false))
-        return;
-    if (allowance_state_->inflight.load()) {
-        allowance_dirty_.store(true);
-        return;
-    }
-    if (steady_now_ms() - allowance_state_->last_ms.load() < kAllowanceRefreshFloorMs) {
-        allowance_dirty_.store(true);
-        return;
-    }
-    schedule_allowance_fetch();
-}
-
-IPlugin* PluginRuntime::find(const std::string& id) const noexcept {
-    auto it = plugins_.find(id);
-    return it == plugins_.end() ? nullptr : it->second.plugin.get();
-}
-
 void PluginRuntime::start(bool use_persisted_state) {
     for (const auto& [id, entry] : plugins_) {
         if (registry_.state(id) == PluginRegistry::State::Active)
@@ -541,6 +426,11 @@ std::vector<PluginRuntime::PluginStatus> PluginRuntime::list() const {
         out.push_back(std::move(status));
     }
     return out;
+}
+
+IPlugin* PluginRuntime::find(const std::string& id) const noexcept {
+    auto it = plugins_.find(id);
+    return it == plugins_.end() ? nullptr : it->second.plugin.get();
 }
 
 bool PluginRuntime::has(const std::string& id) const {

@@ -307,9 +307,8 @@ struct TestHarness {
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
-    AllowanceRegistry allowances;
     EventBus bus;
-    PluginServices services{tools, prompts, status, panels, wallets, allowances, bus};
+    PluginServices services{tools, prompts, status, panels, wallets, bus};
 };
 
 } // namespace
