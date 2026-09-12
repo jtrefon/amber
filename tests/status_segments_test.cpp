@@ -40,10 +40,9 @@ StatusRegistry core_registry() {
     PromptRegistry prompts;
     PanelRegistry panels;
     WalletRegistry wallets;
-    AllowanceRegistry allowances;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services(tools, prompts, registry, panels, wallets, allowances, bus, commands);
+    PluginServices services(tools, prompts, registry, panels, wallets, bus, commands);
     services.set_owner("core");
     for (auto& capability : core_status_capabilities()) {
         InstallResult r = capability->install(services);
@@ -322,10 +321,9 @@ TEST(panel_capability_installs_and_unwinds) {
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
-    AllowanceRegistry allowances;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus, commands);
+    PluginServices services(tools, prompts, status, panels, wallets, bus, commands);
     services.set_owner("gemini");
 
     PanelCapability cap(PanelSpec{
@@ -483,10 +481,9 @@ TEST(status_segment_capability_installs_and_unwinds) {
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
-    AllowanceRegistry allowances;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus, commands);
+    PluginServices services(tools, prompts, status, panels, wallets, bus, commands);
     services.set_owner("gemini");
 
     StatusSegmentCapability cap("balance", 850, 4, [](const StatusSnapshot&) {

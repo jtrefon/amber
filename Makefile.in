@@ -138,7 +138,8 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/runner.o \
              $(BUILD_DIR)/bench/probe.o
 BENCH_MAIN = $(BUILD_DIR)/bench/main.o
-TUI_OBJS  = $(BUILD_DIR)/tui/tui.o \
+TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
+             $(BUILD_DIR)/tui/tui.o \
              $(BUILD_DIR)/tui/tui_render.o \
              $(BUILD_DIR)/tui/tui_input.o \
              $(BUILD_DIR)/tui/tui_session.o \
@@ -182,6 +183,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/dialect_anthropic_test.o \
                $(BUILD_DIR)/tests/dialect_gemini_test.o \
                $(BUILD_DIR)/tests/toolset_audit_test.o \
+               $(BUILD_DIR)/tests/ui_services_test.o \
                $(BUILD_DIR)/tests/skill_file_test.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \
                $(BUILD_DIR)/tests/mcp_transport_test.o \

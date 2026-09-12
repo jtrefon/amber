@@ -14,6 +14,7 @@
 #include "rich.h"
 #include "setting_registry.h"
 #include "agent_event.h"
+#include "tui_ui_services.h"
 #include "event_router.h"
 #include "window_manager.h"
 #include "render_engine.h"
@@ -86,6 +87,18 @@ public:
     // request (401/403 or keyless provider switch).
     std::string prompt_api_key(const std::string& reason);
 
+    // ---- plugin user-interaction port (§8) -------------------------------
+    // The port's TUI implementation needs three things from the host: a way to
+    // block a plugin's thread on a question answered by the UI thread, a way to
+    // show a notification, and a way to schedule work onto the UI thread.
+    // These are that surface, kept on the host side of the interface.
+    AskAnswer request_ask(const std::shared_ptr<AgentEvent>& ev);
+    void notify_from_plugin(agent::UiLevel level, const std::string& message);
+    void post_to_ui_thread(std::function<void()> work);
+    // Run whatever plugins scheduled on the UI thread. Called once per tick,
+    // before the bar renders, so a posted snapshot is what the segment reads.
+    void drain_ui_posts();
+
 private:
     // ---- event machinery (owned by EventRouter) --------------------------
     bool drain_events();
@@ -96,6 +109,11 @@ private:
     void compress_worker(Window& my_win, size_t window_id);
     AgentEvent run_compression(Window& my_win, size_t window_id);
     std::unique_ptr<EventRouter> router_;
+    // Posted work from plugins, drained on the tick like the other queues.
+    std::mutex ui_post_mtx_;
+    std::vector<std::function<void()>> ui_post_;
+    // The port itself, handed to the runtime so plugins can ask the user.
+    std::unique_ptr<TuiUiServices> ui_services_;
     std::string running_tool_;
     std::string running_tool_desc_;
     bool compressing_ = false;  // context compression in flight (working verb)
