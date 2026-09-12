@@ -132,8 +132,8 @@ all layers (spec, implementation, strategy), prioritised by phase.
 |------|--------|
 | `plugins/plugin-framework.md` | Harness extension engine (design record, implemented through PF-4): three-mechanism model (registries/events/host services), typed capabilities + ledger, typed events over `EventBus` with fire sites and performance invariants, prompt blocks, status segments, panels, provider/wallet/allowance capabilities, threading contract, deferred register |
 | `plugins/developer-guide.md` | How to build amber plugins: quickstart, tier decision tree, availability table (the single status surface), core plugin anatomy, capability catalogue with code, typed event catalogue, provider path, external quick start, review checklist |
-| `plugins/README.md` | External plugin protocol (shipping): JSON-RPC wire contract, manifest.json, `PluginManager`, tool registration, `/plugin` admin, shipped external plugins (sysinfo, cdp) |
-| `../plugin-framework-tracker.md` | Plugin framework tracker: phases PF-1..PF-6, decision log (D1..D16), deferred register, risks, definition of done |
+| `plugins/README.md` | External plugin protocol (shipping): JSON-RPC wire contract, manifest.json, `PluginManager`, tool registration, `/get`/`/set plugin` administration, shipped external plugins (sysinfo, cdp) |
+| `../plugin-framework-tracker.md` | Plugin framework tracker: phases PF-1..PF-6, decision log (D1..D23), deferred register, risks, definition of done |
 
 ## Memory / Experience
 
