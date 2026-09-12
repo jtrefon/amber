@@ -87,6 +87,31 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-09-12 — The toolset audit (§5.2): roles as capability data
+
+Branch `refactor/toolset-audit`, stacked on the flag retirement.
+
+- `ToolMeta` gains a `role` beside its `verb`, and `ToolCapability` declares one
+  `Meta` record per tool instead of a bare verb map — so what a tool *is* and
+  what it *does* are stated once, together, on the capability.
+- `audit_toolset` (`lib/toolset_audit.cpp`) reports two shapes: a **deficiency**
+  (a required role no enabled tool fills — required is `{Read}`) and an
+  **ambiguity** (two tools in one role whose descriptions overlap by Jaccard
+  ≥ 0.6 on significant words, so the model cannot tell them apart).
+- `PluginRuntime::audit()` computes it on demand, never cached, so it cannot
+  describe a configuration that has moved on. The TUI reports the findings after
+  every enable/disable, next to the line that says what the toggle removed: that
+  line says what left, the audit says what it costs.
+- A warning, never a gate (D24): a hard lock would forbid the
+  two-search-implementations comparison this domain exists to enable.
+- **Evidence:** 732 tests; `audit_the_shipped_tool_set_is_clean` is the
+  acceptance test — the set amber ships must not trip its own audit, and every
+  shipped tool declares a role (one that does not is invisible to the audit).
+  `runtime_audit_follows_the_enabled_toolset` proves the live path: disabling
+  `tool_read` produces exactly one deficiency, re-enabling clears it. Hermetic
+  bench unchanged at 8/8.
+
+
 ### 2026-09-12 — The tool flags retire; plugin state is the only control (§5.3)
 
 Branch `refactor/retire-tool-flags`, stacked on the tools-domain work.

@@ -218,11 +218,15 @@ candidate behaviours:
 - *Warn on deficiency* — after any change, audit the resulting toolset and warn
   when a **required** capability is now missing (no read tool at all, i.e. the
   "empty toolbox" finding already open in the tracker). **Recommended.**
+  Implemented as `audit_toolset` in `lib/toolset_audit.cpp`; the required list
+  is `{Read}` — a harness that cannot bring back content cannot answer a
+  question about the workspace at all, and adding to the list is a statement
+  about what amber *is*, not a preference.
 - *Warn on ambiguity* — warn when two enabled tools share a category *and*
   have descriptions that do not distinguish them, since that is what actually
   confuses a model. Cheap, and it targets the real symptom.
 
-**RESOLVED: deficiency and ambiguity warnings; no hard lock.** A lock would
+**RESOLVED (implemented): deficiency and ambiguity warnings; no hard lock.** A lock would
 forbid the two-search-implementations comparison this work exists to enable, and
 two similar tools is a description problem the bench can measure, not a
 permissions problem. If a hard gate is ever wanted it belongs in CI/bench as

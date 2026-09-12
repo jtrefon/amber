@@ -5,6 +5,25 @@
 
 namespace agent {
 
+namespace {
+
+constexpr const char* kRoleNames[] = {"other", "read", "write", "search",
+                                      "execute", "plan", "delegate"};
+
+} // namespace
+
+std::string to_string(ToolRole role) {
+    const auto i = static_cast<std::size_t>(role);
+    return i < std::size(kRoleNames) ? kRoleNames[i] : "other";
+}
+
+ToolRole parse_tool_role(const std::string& name) {
+    for (std::size_t i = 0; i < std::size(kRoleNames); ++i) {
+        if (name == kRoleNames[i]) return static_cast<ToolRole>(i);
+    }
+    return ToolRole::Other;
+}
+
 void ToolRegistry::register_tool(std::unique_ptr<Tool> tool, std::string owner, ToolMeta meta) {
     std::scoped_lock lk(mtx_);
     // Idempotent by name: re-registration (a second Agent, a skills

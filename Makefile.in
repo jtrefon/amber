@@ -34,6 +34,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/http_transport.o \
             $(BUILD_DIR)/lib/model_probe.o \
             $(BUILD_DIR)/lib/registry.o \
+              $(BUILD_DIR)/lib/toolset_audit.o \
             $(BUILD_DIR)/lib/prompt.o \
             $(BUILD_DIR)/lib/conversation_log.o \
             $(BUILD_DIR)/lib/agent.o \
@@ -180,6 +181,7 @@ TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/dialect_anthropic_test.o \
                $(BUILD_DIR)/tests/dialect_gemini_test.o \
+               $(BUILD_DIR)/tests/toolset_audit_test.o \
                $(BUILD_DIR)/tests/skill_file_test.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \
                $(BUILD_DIR)/tests/mcp_transport_test.o \
