@@ -1,17 +1,17 @@
-# Comprehensive Clean-Up & Clean Architecture Proposal — 2026-08-27
+# Comprehensive Clean-Up & Clean Architecture Proposal, 2026-08-27
 
-- **Status:** Draft — awaiting sign-off
+- **Status:** Draft, awaiting sign-off
 - **Branch:** `fix/clean-architecture-v1` (proposed)
 - **Author:** Muse Spark (audit 2026-08-27, 4 parallel explorers + manual verification)
 - **Target:** Zero technical debt (pre-alpha baseline for beta)
-- **Constraints:** Pre-alpha — security deferred (`lib/workspace.cpp:61` lexical confine, `tools/bash_tool.cpp:27` dangerous list, `tools/search_tool.cpp:83` fallback parked); no `llama-turboq` service changes; `main` now green `33075234503` after `7a0e69d`
+- **Constraints:** Pre-alpha, security deferred (`lib/workspace.cpp:61` lexical confine, `tools/bash_tool.cpp:27` dangerous list, `tools/search_tool.cpp:83` fallback parked); no `llama-turboq` service changes; `main` now green `33075234503` after `7a0e69d`
 - **References:** `AGENTS.md` (Build & verify, Engineering principles, Prompting philosophy), `docs/issues.md`, `docs/fix-tracker.md`, `docs/architecture.md`, `completions.json:794`, `tests/build_hygiene.sh:126`
 
 ---
 
 ## 1. Executive Summary
 
-The codebase is **architecturally sound** — hexagonal boundaries hold (`lib/` → `tui/` no reverse dep), DIP via `Tool`/`SearchBackend`/`LLMClient`/`AgentHooks` ports, factories own `unique_ptr`, Strategy/Registry/Observer applied correctly.  CI is green again (`check` + `lint` + `build-and-test` g++/clang++).
+The codebase is **architecturally sound**: hexagonal boundaries hold (`lib/` → `tui/` no reverse dep), DIP via `Tool`/`SearchBackend`/`LLMClient`/`AgentHooks` ports, factories own `unique_ptr`, Strategy/Registry/Observer applied correctly.  CI is green again (`check` + `lint` + `build-and-test` g++/clang++).
 
 Remaining debt is **hygiene and size**, not direction.  The single blocker `B1` (generated `Makefile` 406 vs `Makefile.in` 394) and `P5` audit drift `2308→2295` are fixed in `7a0e69d`.  What remains is:
 
@@ -23,7 +23,7 @@ Remaining debt is **hygiene and size**, not direction.  The single blocker `B1` 
 - a masking fallback in `PluginRegistry` (`lib/plugin_registry.cpp:24`) + `Capability void*` type erasure,
 - thin hygiene gaps (`.clang-tidy` narrow filter, stale `compile_flags.txt`, hardcoded mock ports `8911`, test monolith `tests/run_tests.cpp:4451`).
 
-No speculative generality needs new code — the Capability/EventBus types are deliberately over-declared for plugin v2 phases.  The proposal pays down the 9 open items in **4 phases, 9 FIXes**, each Red→Green per `AGENTS.md`, Boy Scout for method-size, no bulk rewrite.
+No speculative generality needs new code, the Capability/EventBus types are deliberately over-declared for plugin v2 phases.  The proposal pays down the 9 open items in **4 phases, 9 FIXes**, each Red→Green per `AGENTS.md`, Boy Scout for method-size, no bulk rewrite.
 
 **Done when:** `make clean && make && make test && make lint && make analyze` zero warnings on both compilers, `make check` P5 green, `Tui` header <200, `JsonMemoryStore` <150, `EventBus::fire` deadlock-free, slash tree sole source, no new SOLID violation.
 
@@ -40,9 +40,9 @@ No speculative generality needs new code — the Capability/EventBus types are d
 | Strategy | `SearchBackend` `grep` vs `semantic` via `mode` arg `tools/search_tool.cpp:107`, swap only `embed()` | Strategy |
 | Observer | `AgentHooks` `std::function` lambdas + `EventBus::subscribe/intercept` `include/agent/event_bus.h:67`, `bench/recorder.cpp` | Observer, Pub/Sub |
 | RAII | No raw `new/delete` except `lib/job.cpp:21` private-ctor `unique_ptr<Job>(new Job)` (documented); `HeaderList::~HeaderList` `lib/http_transport.cpp:89`, `Job::reader_` joined in `~Job()` `lib/job.cpp:52` | RAII, Rule of Zero |
-| Error handling | `Tool::execute() const` never throws (`tools/*.cpp` 0 throws), `dispatch.cpp:234` try/catch → `ToolResult{false}`; library throws typed `ApiError/CancelledError` `include/agent/llm.h:60` | — |
+| Error handling | `Tool::execute() const` never throws (`tools/*.cpp` 0 throws), `dispatch.cpp:234` try/catch → `ToolResult{false}`; library throws typed `ApiError/CancelledError` `include/agent/llm.h:60` | - |
 | Context stack | `include/agent/context.h:172` pure stack `push:60/pop:72/clear:93/get_all:84` with FNV-1a `verify_chain()`, spec invariant 7 via snapshot `lib/agent.cpp:387` | Memento |
-| Build hygiene | `Makefile.in:394` → `Makefile` via `configure`, `-MMD -MP` deps, `make check` P1-P4 green | — |
+| Build hygiene | `Makefile.in:394` → `Makefile` via `configure`, `-MMD -MP` deps, `make check` P1-P4 green | - |
 
 ### 2.2 Debt inventory (verified by file:line)
 
@@ -51,15 +51,15 @@ No speculative generality needs new code — the Capability/EventBus types are d
 | **N1** | ~~Critical~~ Done | `Makefile:406` vs `Makefile.in:394`, `lib/event_bus.cpp:1`, `tui/session_browser_core.*:1` | Build determinism | Fresh checkout lost 9 objects after `./configure`; `SessionBrowser` + `EventBus`/`PluginRegistry` untracked | **Done `7a0e69d`** |
 | **N2** | ~~High~~ Done | `AGENTS.md:428` / `tui/tui_input.cpp:2295` vs 2308 | Hygiene P5 | `make check` failed on every `push` | **Done `7a0e69d`** |
 | **N3** | High | `tui/tui.h:46` 443 lines → `class Tui:46-439` 394; `tui/tui.cpp:750` `run:394` | SRP, God Class, `>200` | 7 reasons to change (ncurses, windows, threads, rendering, git, sessions, feeds); merge conflicts, velocity | Open |
-| **N4** | High | `lib/agent.cpp:811` (`chat_once:227:116`, `ensure_system_prompt:123:78`, `run:686:71`); `tui/tui_input.cpp:941:318` (`register_builtin_actions`); `lib/compressor_parser.cpp:58:91`; `tool_call_parser.cpp:111:150`; `config.cpp:27:110`; etc — every `lib/*.cpp` | Clean Code `<10` method, minimal branching | Untestable branches, copy-paste fixes; CI does not gate size (review-only) | Open |
+| **N4** | High | `lib/agent.cpp:811` (`chat_once:227:116`, `ensure_system_prompt:123:78`, `run:686:71`); `tui/tui_input.cpp:941:318` (`register_builtin_actions`); `lib/compressor_parser.cpp:58:91`; `tool_call_parser.cpp:111:150`; `config.cpp:27:110`; etc, every `lib/*.cpp` | Clean Code `<10` method, minimal branching | Untestable branches, copy-paste fixes; CI does not gate size (review-only) | Open |
 | **N5** | High | `lib/memory_store.cpp:115` 287 lines (`JsonMemoryStore:115-401`); `save:329:27` `std::system("mkdir -p "+dir)` | SRP, `>200` class, DRY, command injection (deferred) | Single class = scoring + persistence + evidence + migration; `system` leaks to hermetic tests | Open |
-| **N6** | Medium | `lib/event_bus.cpp:22` `fire:23-37` holds `scoped_lock` while invoking | Concurrency, ISP | Handler that `subscribe/unsubscribe/fire` deadlocks; 13 event types declared `event_bus.h:67`, only `MetricsPlugin` uses it today — will be P1 when `TUIRender` fires | Open |
-| **N7** | Medium | `lib/plugin_registry.cpp:24` `activate` static `s_bus/s_tools` fallback + `context:78` same; `include/agent/plugin_v2.h:46` `Capability void* impl` | DIP, OCP, YAGNI | Masks uninitialized `ctx_` (plugin sees dummy `~/.amber`), `void*` anticipates 8 capability types but only `Tool`/`Hook` wired | Open |
-| **N8** | Medium | `tui/tui_input.cpp:199` `rfind("policy ")`, `245` `rfind("mcp ")`, `298` `rfind("rule")` | Hard rule `completions.json` sole source | `handle_slash:1263` tree-walk is exemplary, but these bare-namespace fallbacks duplicate `refresh_policy_feed:402` leaves (`core.config.set.policy.rule.<tool>`) and `mcp_completion_subtree` — spec `no dead legacy dispatch` | Open |
+| **N6** | Medium | `lib/event_bus.cpp:22` `fire:23-37` holds `scoped_lock` while invoking | Concurrency, ISP | Handler that `subscribe/unsubscribe/fire` deadlocks; 13 event types declared `event_bus.h:67`, only `MetricsPlugin` uses it today, will be P1 when `TUIRender` fires | Open |
+| **N7** | Medium | `lib/plugin_registry.cpp:24` `activate` static `s_bus/s_tools` fallback + `context:78` same; `include/agent/plugin_core.h:46` `Capability void* impl` | DIP, OCP, YAGNI | Masks uninitialized `ctx_` (plugin sees dummy `~/.amber`), `void*` anticipates 8 capability types but only `Tool`/`Hook` wired | Open |
+| **N8** | Medium | `tui/tui_input.cpp:199` `rfind("policy ")`, `245` `rfind("mcp ")`, `298` `rfind("rule")` | Hard rule `completions.json` sole source | `handle_slash:1263` tree-walk is exemplary, but these bare-namespace fallbacks duplicate `refresh_policy_feed:402` leaves (`core.config.set.policy.rule.<tool>`) and `mcp_completion_subtree`, spec `no dead legacy dispatch` | Open |
 | **N9** | Medium | `lib/agent.cpp:811` file, `lib/plugin.cpp:585` (discovery+handshake+tool+install), `tui/tui_input.cpp:2295`, `lib/compressor_apply.cpp:350` | File SRP | Audit claims `agent.cpp 473→200` resolved, regrouped to 811; `plugin.cpp` 585 mixes 4 lifecycles | Open |
 | **N10** | Medium | `.clang-tidy:HeaderFilterRegex 'include/agent/.*\.h'`, `compile_flags.txt:13` hardcodes `/usr/include/c++/15`, `AGENTS.md` table exempt `tui_render:716` but not `tui.h` | Hygiene | Lint hides TUI/tools warnings; editor false diagnostics; table inconsistency | Open |
 | **N11** | Low | `tests/run_tests.cpp:4451` 209 `TEST`s (`tests/*.cpp` 13.6k, 658 `TEST`s), mock SSE `127.0.0.1:8911-8920` hardcoded `tests/run_tests.cpp:891x` | Test hygiene, DRY | Monolith slows CI; parallel `make -j` port collision; `shell_quote` duplicated `grep_backend.cpp:68` vs `semantic_index.cpp:77` | Open |
-| **PARKED** | — | `lib/workspace.cpp:61` lexical `is_within`, `tools/search_tool.cpp:83` fallback, `tools/bash_tool.cpp:27` prefix-only `is_dangerous_shell`, `tools/write_tool.cpp:61` no `requires_approval` | Protection Proxy | Intentionally deferred pre-alpha per owner (not in scope) | Parked |
+| **PARKED** | - | `lib/workspace.cpp:61` lexical `is_within`, `tools/search_tool.cpp:83` fallback, `tools/bash_tool.cpp:27` prefix-only `is_dangerous_shell`, `tools/write_tool.cpp:61` no `requires_approval` | Protection Proxy | Intentionally deferred pre-alpha per owner (not in scope) | Parked |
 
 Size totals for reference (verified `wc -l`): `lib/*.cpp+*.h` 9955, `tui/*.cpp` ~7000, `tests/*.cpp` 13643, `include/agent/*.h` 4118.
 
@@ -94,7 +94,7 @@ Size totals for reference (verified `wc -l`): `lib/*.cpp+*.h` 9955, `tui/*.cpp` 
 
 ## 4. Target Architecture
 
-### 4.1 Layering (hexagonal — unchanged, enforced)
+### 4.1 Layering (hexagonal, unchanged, enforced)
 
 ```
 Domain core  lib/ + include/agent/   ports: Tool, SearchBackend, LLMClient, AgentHooks, Workspace, MemoryStore, Compression*, EventBus, IPlugin
@@ -104,19 +104,19 @@ Wiring       lib/tools_default.cpp:30 register_default_tools; tui/tui_main.cpp:1
 
 `lib/` never `#includes "tui/"` or `src/` (checked `grep 0`); hosts communicate only via `AgentHooks` `include/agent/agent.h:55`.
 
-### 4.2 Command surface (JSON-driven, already DONE — keep)
+### 4.2 Command surface (JSON-driven, already DONE, keep)
 
 `completions.json:794` single source: `{help, man, action, children}`.  `SettingRegistry::complete(ns)` returns direct children 1:1 drawer/completion; `handle_slash:1263` walks `action`; feeds `refresh_model_list` / `refresh_policy_feed:402` / `refresh_job_feed` / `mcp_completion_subtree` merge via `merge_completions_json` deep merge (`setting_registry.cpp:239`).  No hardcoded slash paths, no `complete_arg` lambdas.
 
 ### 4.3 Proposed decompositions
 
-#### Phase A — Concurrency & Capability foundation (isolated, no UI)
+#### Phase A, Concurrency & Capability foundation (isolated, no UI)
 
-- **EventBus `lib/event_bus.cpp:22`** — `fire()` snapshots `matched` interceptors+observers under `mtx_`, releases, then iterates reverse (interceptors) / forward (observers).  No lock during handler.  Fixes deadlock without changing `EventType` set.
-- **PluginRegistry `lib/plugin_registry.cpp:24`** — `activate`/`context` `assert(ctx_)` or `return false` + explicit `set_context` at `Tui`/`bench` bootstrap; remove static `s_bus/s_tools/s_cfg` dummies that mask wiring bugs.  `Capability` stays `void*` for now (no new consumer) but add `// TODO Phase 5: std::variant<ToolCap,HookCap…>` comment; do not introduce `std::variant` until `Provider`/`Memory` wire-up (YAGNI).
-- **MemoryStore `lib/memory_store.cpp:115`** — extract `memory_scoring.cpp` (`compute_relevance:24`, `compute_freshness:34`, `compute_score:42`), `memory_persistence.cpp` (`load:309`, `save:329` → `fs::create_directories`, `hash_content:18`, `memory_to_json/json_to_memory`), leave `JsonMemoryStore` façade <150 lines (`upsert`, `top_*`, `decay_all`, `deprecate_one:372`).  `save` `system("mkdir -p")` removed.
+- **EventBus `lib/event_bus.cpp:22`**: `fire()` snapshots `matched` interceptors+observers under `mtx_`, releases, then iterates reverse (interceptors) / forward (observers).  No lock during handler.  Fixes deadlock without changing `EventType` set.
+- **PluginRegistry `lib/plugin_registry.cpp:24`**: `activate`/`context` `assert(ctx_)` or `return false` + explicit `set_context` at `Tui`/`bench` bootstrap; remove static `s_bus/s_tools/s_cfg` dummies that mask wiring bugs.  `Capability` stays `void*` for now (no new consumer) but add `// TODO Phase 5: std::variant<ToolCap,HookCap…>` comment; do not introduce `std::variant` until `Provider`/`Memory` wire-up (YAGNI).
+- **MemoryStore `lib/memory_store.cpp:115`**: extract `memory_scoring.cpp` (`compute_relevance:24`, `compute_freshness:34`, `compute_score:42`), `memory_persistence.cpp` (`load:309`, `save:329` → `fs::create_directories`, `hash_content:18`, `memory_to_json/json_to_memory`), leave `JsonMemoryStore` façade <150 lines (`upsert`, `top_*`, `decay_all`, `deprecate_one:372`).  `save` `system("mkdir -p")` removed.
 
-#### Phase B — TUI God Class → Facade
+#### Phase B, TUI God Class → Facade
 
 ` tui/tui.h:46 ` 394-line `class Tui` owns 7 responsibilities.  Split into `Tui` **Facade** (≈80 lines: owns components, `run()` 394→ `poll_signals` + `process_input` + `idle_tick` <15 each, wiring via ctor injection) plus owned components each <200/10:
 
@@ -131,16 +131,16 @@ Wiring       lib/tools_default.cpp:30 register_default_tools; tui/tui_main.cpp:1
 
 All components depend on `Config&`, `ToolRegistry&`, `JobService&` etc via ctor (DIP); `Tui` owns them as `unique_ptr`.  No change to `tui/tui.cpp:78-137` ncurses lifecycle ordering (`join` before `endwin` before `save_window_sessions`).
 
-#### Phase C — Slash & Hygiene
+#### Phase C, Slash & Hygiene
 
 - Delete residual `rfind` branches `tui/tui_input.cpp:199,245,298` (bare-namespace usage page stays as `core.config.set.policy` leaf `register_action` at `tui/tui_input.cpp:1113`; `get.mcp`/`learn` via tree leaves).  `handle_slash` remains sole dispatch.
 - Broaden `.clang-tidy` `HeaderFilterRegex` to `include/agent/.*\.h|tui/.*\.h` (or at least `|tui/.*` for `textutil` etc) and regenerate `compile_flags.txt` from `configure` (`-I` from `PROJECT_CPPFLAGS` + `CURL_CFLAGS`/`NCURSES_CFLAGS`) so editor diagnostics match CI `LINT_CXXFLAGS`.
 - `tests/build_hygiene.sh:126` already green for P5; add SB check: `artifacts` add `session_browser_test`, `-include` check `SB_TEST_OBJ`, `plugins/metrics/*.o` clean entry (already in `Makefile.in:409`).
 
-#### Phase D — Test & File hygiene (parallel, Boy Scout)
+#### Phase D, Test & File hygiene (parallel, Boy Scout)
 
-- `tests/run_tests.cpp:4451` — split by area into `tests/config_test.cpp`, `tests/compressor_test.cpp`, `tests/registry_test.cpp` etc; add to `UNITTEST_OBJ` `Makefile.in:138`.  Keep 658 `TEST`s, hermetic `FakeLLMClient` `tests/fake_llm.h:92` + `spawn_mock_sse` 8911→ ephemeral `bind 0 + getsockname` to avoid parallel collision (`mcp_transport_test.cpp` already does).
-- `lib/agent.cpp:811` + `lib/plugin.cpp:585` file SRP — not urgent pre-alpha (header classes still <200); treat as `agent_system_prompt.cpp` / `plugin_discovery.cpp` extraction when file exceeds ~500 lines, opportunistic.
+- `tests/run_tests.cpp:4451`, split by area into `tests/config_test.cpp`, `tests/compressor_test.cpp`, `tests/registry_test.cpp` etc; add to `UNITTEST_OBJ` `Makefile.in:138`.  Keep 658 `TEST`s, hermetic `FakeLLMClient` `tests/fake_llm.h:92` + `spawn_mock_sse` 8911→ ephemeral `bind 0 + getsockname` to avoid parallel collision (`mcp_transport_test.cpp` already does).
+- `lib/agent.cpp:811` + `lib/plugin.cpp:585` file SRP, not urgent pre-alpha (header classes still <200); treat as `agent_system_prompt.cpp` / `plugin_discovery.cpp` extraction when file exceeds ~500 lines, opportunistic.
 - `tools/search/grep_backend.cpp:68` `shell_quote` duplicated `semantic_index.cpp:77` → move to `include/agent/semantic_helpers.h:35`.
 
 No new files need copyright/SPDX header (`AGENTS.md`).
@@ -151,9 +151,9 @@ No new files need copyright/SPDX header (`AGENTS.md`).
 
 | Phase | FIX ID | Scope | Depends | Effort | Gate |
 |-------|--------|-------|---------|--------|------|
-| **0** | `FIX-016` | Pipeline unblock (done `7a0e69d`) — `AGENTS.md` audit + `Makefile.in` drift + untracked plugin v2 | — | S | `check`+`lint` green ✅ |
+| **0** | `FIX-016` | Pipeline unblock (done `7a0e69d`), `AGENTS.md` audit + `Makefile.in` drift + untracked plugin v2 | - | S | `check`+`lint` green ✅ |
 | **1** | `FIX-017` | `EventBus::fire` snapshot (deadlock) | 0 | S (2h) | `event_bus_test.cpp:130` 8 tests + `gh run` green |
-| **2** | `FIX-018` | `PluginRegistry` assert + remove static fallback | 0 | S (1h) | `plugin_v2_test.cpp:197` 17 + manual `ctx_==nullptr` assert |
+| **2** | `FIX-018` | `PluginRegistry` assert + remove static fallback | 0 | S (1h) | `plugin_core_test.cpp:197` 17 + manual `ctx_==nullptr` assert |
 | **3** | `FIX-019` | `JsonMemoryStore` split + `fs::create_directories` | 0 | M (4h) | `memory_store` tests, class `JsonMemoryStore` <150, no `system()` |
 | **4** | `FIX-020` | Slash residuals `rfind` removal | 2 | S (2h) | `completions_test:37`, `e2e_test:26` green, no `rfind("policy` in `tui/*.cpp` |
 | **5** | `FIX-021` | `FeedManager` extraction (first Tui split) | 0 | M (6h) | `Tui` header `tui.h` 394→~280, `feed_manager.h` <100, feeds still tree-driven |
@@ -204,7 +204,7 @@ Pattern: Pub/Sub snapshot (defensive copy).  No API break.
 lib/memory_store.cpp          451 → façade  ~140 (JsonMemoryStore <150)
 lib/memory_scoring.cpp        new  ~60  (compute_relevance/freshness/score)
 lib/memory_persistence.cpp    new  ~90  (load/save/seed_from_legacy, fs::create_directories)
-include/agent/memory_store_detail.h (optional) — json helpers
+include/agent/memory_store_detail.h (optional), json helpers
 ```
 
 Save:
@@ -218,11 +218,11 @@ bool JsonMemoryStore::save(const std::string& path) const {
 }
 ```
 
-Remove `std::system`.  DRY: `upsert` memory vs skill share `hash_content` path — keep as is (YAGNI to template further).
+Remove `std::system`.  DRY: `upsert` memory vs skill share `hash_content` path, keep as is (YAGNI to template further).
 
 ### FIX-020 Slash residuals
 
-Delete `tui/tui_input.cpp:199` `if (arg.rfind("policy ",0)==0)` usage page — keep `register_action("core.config.set.policy", ... cmd_set)` at `1113` as branch handler (already does `usage`); similarly `tui/tui_input.cpp:245,253` `mcp` split and `298` `rule` fallback.  After, `grep -rn 'rfind("policy\|rfind("mcp\|rfind("rule' tui/` → 0.  Tree walk supplies `get.policy.rule.<tool>` leaves.
+Delete `tui/tui_input.cpp:199` `if (arg.rfind("policy ",0)==0)` usage page, keep `register_action("core.config.set.policy", ... cmd_set)` at `1113` as branch handler (already does `usage`); similarly `tui/tui_input.cpp:245,253` `mcp` split and `298` `rule` fallback.  After, `grep -rn 'rfind("policy\|rfind("mcp\|rfind("rule' tui/` → 0.  Tree walk supplies `get.policy.rule.<tool>` leaves.
 
 ### FIX-021 FeedManager
 
@@ -257,7 +257,7 @@ Per-FIX extra:
 - FIX-017: `event_bus_test` new `fire_reentrancy` RED then GREEN.
 - FIX-019: `grep -c 'class JsonMemoryStore' lib/memory_store.cpp:115` definition <150 lines (`awk` count).
 - FIX-021-023: `wc -l tui/tui.h` 443→<320→<200 staged; `Tui::run` 394→<60 line count via `awk '/^void Tui::run/,/^}/' tui/tui.cpp`.
-- Bench `bench/runner.cpp:193` unchanged; `bash_cd_prefix` KPI untouched (prompt fix not in scope — left for `BENCH.md`).
+- Bench `bench/runner.cpp:193` unchanged; `bash_cd_prefix` KPI untouched (prompt fix not in scope, left for `BENCH.md`).
 
 Hermetic: `LLMClient::parse_models` for `run_tests`, `FakeClient` `bench/fake.h:51` for bench; no `:8081` live call in unit suite.
 
@@ -265,12 +265,12 @@ Hermetic: `LLMClient::parse_models` for `run_tests`, `FakeClient` `bench/fake.h:
 
 ## 8. Best Practices Enforced by This Proposal
 
-- **Size limits enforced by review, not compiler** — `tests/build_hygiene.sh` P5 hard-fails drift; method 10-line via human review + incremental extraction ( Boy Scout rule: leave file shorter than found).
-- **No speculative branches** — if a phase's consumer doesn't exist (e.g. `Capability` `Provider` type), keep `void*` with comment; introduce `std::variant` only when `ProviderService` wiring lands.
-- **DRY** — `default_excluded_dirs()`, `shell_quote` single source, `memory_scoring` single source.
-- **KISS** — snapshot is 10 lines, not a lock-free queue; `fs::create_directories` not a custom `mkdir` loop.
-- **Isolation** — each phase touches ≤3 files in one layer; `lib/` never depends on `tui/`.
-- **Documentation** — every split updates `AGENTS.md` audit table and `docs/issues.md` Current Open row; commit message scopes (`tui:`, `fix:`, `refactor:`) imperative.
+- **Size limits enforced by review, not compiler**: `tests/build_hygiene.sh` P5 hard-fails drift; method 10-line via human review + incremental extraction ( Boy Scout rule: leave file shorter than found).
+- **No speculative branches**: if a phase's consumer doesn't exist (e.g. `Capability` `Provider` type), keep `void*` with comment; introduce `std::variant` only when `ProviderService` wiring lands.
+- **DRY**: `default_excluded_dirs()`, `shell_quote` single source, `memory_scoring` single source.
+- **KISS**: snapshot is 10 lines, not a lock-free queue; `fs::create_directories` not a custom `mkdir` loop.
+- **Isolation**: each phase touches ≤3 files in one layer; `lib/` never depends on `tui/`.
+- **Documentation**: every split updates `AGENTS.md` audit table and `docs/issues.md` Current Open row; commit message scopes (`tui:`, `fix:`, `refactor:`) imperative.
 
 ---
 
@@ -279,7 +279,7 @@ Hermetic: `LLMClient::parse_models` for `run_tests`, `FakeClient` `bench/fake.h:
 | Risk | Mitigation |
 |------|------------|
 | `Tui` split causes rebase pain (394-line header) | Phase 5-7 sequential, one header churn per PR; keep `tui/tui.h` splits as pure moves (no logic change) first commit, behavior second |
-| `EventBus` snapshot copies `std::function` (cost) | 13 types, <10 handlers each — copy <1µs; measure via `bench` if spike |
+| `EventBus` snapshot copies `std::function` (cost) | 13 types, <10 handlers each, copy <1µs; measure via `bench` if spike |
 | `JsonMemoryStore` split breaks `.amber/experience.json` migration | Keep `seed_from_legacy:418` in persistence; round-trip test `tests/run_tests.cpp` `json_to_memory` unchanged |
 | `make lint` broadened to `tui/` surfaces existing warnings | Gate on *new* warnings only; fix incrementally per phase (do not batch) |
 | Test split breaks `make test` parallelism (port 8911) | Switch to ephemeral port in same PR as split; run `make test -j` locally |
@@ -296,7 +296,7 @@ Hermetic: `LLMClient::parse_models` for `run_tests`, `FakeClient` `bench/fake.h:
 
 ---
 
-## 11. Appendix — File:Line Index for Reviewers
+## 11. Appendix, File:Line Index for Reviewers
 
 ```
 AGENTS.md:428                         audit table
@@ -305,7 +305,7 @@ include/agent/context.h:172           Context pure stack
 include/agent/event_bus.h:67          EventBus ports
 lib/event_bus.cpp:22                  fire deadlock
 lib/plugin_registry.cpp:24            static fallback
-include/agent/plugin_v2.h:46          Capability void*
+include/agent/plugin_core.h:46          Capability void*
 lib/memory_store.cpp:115,329          JsonMemoryStore class + system()
 tui/tui.h:46 443 lines                God Class
 tui/tui.cpp:750 run:394              run monolith
@@ -317,5 +317,5 @@ tests/build_hygiene.sh:126           P5
 compile_flags.txt:13                  stale
 ```
 
-Spec credit: `docs/spec/plugins/plugin-framework-v2.md:704`, developer guide `441`, `docs/architecture.md:258`, `AGENTS.md` Engineering principles (SOLID/KISS/DRY/YAGNI/size limits/hexagonal).
+Spec credit: `docs/spec/plugins/plugin-framework.md:704`, developer guide `441`, `docs/architecture.md:258`, `AGENTS.md` Engineering principles (SOLID/KISS/DRY/YAGNI/size limits/hexagonal).
 

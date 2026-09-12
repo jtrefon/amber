@@ -1671,6 +1671,9 @@ void SlashDispatcher::set_plugin(const std::string& id, bool on) {
     // so there is no "no tools at all" state to warn about.)
     tui_.append_line(P_STATUS, "plugin " + id + (on ? " on" : " off") +
                                    (on ? "" : removed_summary(before.contributions)));
+    // A plugin may contribute a slash-command namespace: rebuild the tree so
+    // its commands appear or disappear immediately, with no restart.
+    refresh_completions();
 }
 
 void SlashDispatcher::cmd_provider_delete(const std::string& name) {

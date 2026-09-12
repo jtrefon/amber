@@ -1,5 +1,5 @@
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 #include "agent/plugin_registry.h"
 #include "test_util.h"
 #include <memory>
@@ -46,14 +46,14 @@ public:
 
 } // namespace
 
-TEST(plugin_v2_interface_identity) {
+TEST(plugin_core_interface_identity) {
     StubPlugin p("myplugin", "2.1.0");
     ASSERT_EQ(p.id(), "myplugin");
     ASSERT_EQ(p.version(), "2.1.0");
     ASSERT_EQ(p.name(), "Stub myplugin");
 }
 
-TEST(plugin_v2_initialize_returns_bool) {
+TEST(plugin_core_initialize_returns_bool) {
     StubPlugin p("ok", "1.0.0");
     EventBus bus;
     ToolRegistry tools;
@@ -64,7 +64,7 @@ TEST(plugin_v2_initialize_returns_bool) {
     ASSERT_TRUE(p.initialized_);
 }
 
-TEST(plugin_v2_initialize_failure) {
+TEST(plugin_core_initialize_failure) {
     FailingPlugin p;
     EventBus bus;
     ToolRegistry tools;
@@ -74,7 +74,7 @@ TEST(plugin_v2_initialize_failure) {
     ASSERT_FALSE(p.initialize(ctx));
 }
 
-TEST(plugin_v2_capabilities_empty_by_default) {
+TEST(plugin_core_capabilities_empty_by_default) {
     StubPlugin p("empty", "1.0.0");
     ASSERT_TRUE(p.capabilities().empty());
 }

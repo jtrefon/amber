@@ -9,7 +9,7 @@
 // balance_infos[] with total_balance, granted_balance, topped_up_balance,
 // and currency.
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <string>
 #include <vector>

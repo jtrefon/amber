@@ -45,12 +45,27 @@ CI runs the same steps on `g++` and `clang++`.
   lives in `tui/` and depends on the library through `AgentHooks`, never the
   reverse.
 - Do not add comments that merely restate the code.
-- Every new source file must carry the SPDX header:
+- New source files carry no copyright or SPDX header, keep the first line
+  functional, matching the rest of the tree.
 
-  ```cpp
-  // SPDX-License-Identifier: Apache-2.0
-  // Copyright 2026 Jacek Trefon (www.trefon.com)
-  ```
+## Writing a plugin
+
+amber is extensible through a plugin framework. Two tiers exist, pick
+deliberately:
+
+- **Core plugin**: C++17, compiled into amber. Can contribute tools, LLM
+  providers, prompt blocks, status segments, panels, wallets and allowances, and
+  subscribe to typed events.
+- **External plugin**: a separate executable speaking JSON-RPC over stdio.
+  Tools only, but crash-isolated and language-agnostic.
+
+Start with the **plugin developer guide**:
+[`docs/spec/plugins/developer-guide.md`](docs/spec/plugins/developer-guide.md).
+It has a quickstart, a tier decision tree, the capability catalogue, and the
+availability table that is the single status surface for what ships today. A
+complete, compiled, tested example lives in
+[`examples/plugin_hello/`](examples/plugin_hello/), exercised by
+`tests/example_plugin_test.cpp`.
 
 ## Submitting changes
 
@@ -76,6 +91,9 @@ Release with:
 
 - `amber-<version>-linux-x86_64.tar.gz` (+ `.sha256`)
 - `amber_<version>_amd64.deb` (+ `.sha256`)
+- `amber_<version>.x86_64.rpm` (+ `.sha256`)
+- `amber-<version>-darwin-arm64.tar.gz` (+ `.sha256`), macOS Apple Silicon
+- the optional CDP browser plugin packages (`.deb` / `.rpm`)
 - auto-generated release notes
 
 Tags containing a hyphen (e.g. `v0.1.0-rc.1`) are marked as pre-releases.
@@ -84,5 +102,7 @@ backward-compatible features, major for breaking changes.
 
 ## Reporting bugs and requesting features
 
-Use the GitHub issue templates. For security issues, please see the security
-notes in the README rather than filing a public issue.
+Use the [report page](https://jtrefon.github.io/amber/report/) or open an issue
+directly, the [issue forms](.github/ISSUE_TEMPLATE/) pre-fill the details we
+need. For security issues, please see the security notes in the README rather
+than filing a public issue.

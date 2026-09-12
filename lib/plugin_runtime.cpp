@@ -4,7 +4,7 @@
 #include "agent/dialect.h"
 #include "agent/plugin_console.h"
 #include "agent/plugins_bundled.h"
-#include "agent/plugin_v1_adapter.h"
+#include "agent/plugin_external_adapter.h"
 
 #include <chrono>
 #include <filesystem>
@@ -67,7 +67,7 @@ bool write_enabled(const std::string& id, bool enabled) {
 PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace)
     : config_(std::move(config)), workspace_(&workspace) {
     services_ = std::make_unique<PluginServices>(tools, prompts_, status_, panels_, wallets_,
-                                                 allowances_, bus_);
+                                                 allowances_, bus_, commands_);
     context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());

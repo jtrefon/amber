@@ -6,7 +6,7 @@
 
 Two goals, one architectural stance:
 
-1. **Protect the `Context` deque design as inviolable** — the sealed-message,
+1. **Protect the `Context` deque design as inviolable**: the sealed-message,
    hash-chained, `push`/`pop`/`clear`/`get_all`-only stack that made the agent
    stable. No in-structure locking, no copy-returning `get_all()`, no mutable
    handle. Document why, so it is never "simplified" away again.
@@ -26,7 +26,7 @@ content-identity mechanism.
 
 ---
 
-## Part 1 — The inviolable Context contract
+## Part 1, The inviolable Context contract
 
 ### Why the deque design exists (do not regress this)
 
@@ -35,11 +35,11 @@ stack-like, immutable-by-design architecture is what made the agent stable:
 every mutator collapsed onto the single `push`/`pop`/`clear` API and was then
 eliminated. The design gives **integrity by construction**:
 
-- Messages are **sealed on push** — no caller ever holds a mutable handle.
-- `get_all()` returns a **`const std::deque<Message>&`** — read-only view.
+- Messages are **sealed on push**: no caller ever holds a mutable handle.
+- `get_all()` returns a **`const std::deque<Message>&`**: read-only view.
 - The FNV-1a hash chain (`get_all()` asserts `verify_chain()`) is the tripwire
   that catches any future in-place mutation.
-- Compression and rebuild happen only via **full `clear()` + `push()` cycles** —
+- Compression and rebuild happen only via **full `clear()` + `push()` cycles**,
   never in-place edits.
 
 ### Hard rules (enforced in review, documented here as law)
@@ -57,7 +57,7 @@ eliminated. The design gives **integrity by construction**:
 
 ### The single-mutator invariant
 
-The `Agent` (or a dedicated owner thread driving it — see Part 2) is the **sole
+The `Agent` (or a dedicated owner thread driving it, see Part 2) is the **sole
 mutator** of its `context_`. Concretely:
 
 - The agent loop, compression, session load, and `/clear` all mutate `context_`
@@ -68,22 +68,23 @@ mutator** of its `context_`. Concretely:
 
 ---
 
-## Part 2 — Context owner thread + event-driven progress
+## Part 2, Context owner thread + event-driven progress
 
 ### Today's gap
 
 - `Agent` owns `context_` but is invoked **synchronously** from the TUI router
-  thread (`agent_worker`). Compression also runs on that same thread — so the
+  thread (`agent_worker`). Compression also runs on that same thread, so the
   UI is blocked during a (potentially 2-LLM-call) compression.
 - `ContextEventSource` fires `(token_count, message_count)` on every
   push/pop/clear and the TUI already subscribes (`tui.cpp:285`). But because
   mutation happens on the router thread (shared with UI event handling), the
   event stream is not a reliable progress source.
-- The v2 `EventBus` (13 typed events) exists but is largely unwired.
+- The plugin framework's typed `EventBus` (11 event payloads) exists; at the
+time of writing it was largely unwired.
 
 ### Target model
 
-Introduce a **context owner thread** — the single thread that may mutate a given
+Introduce a **context owner thread**: the single thread that may mutate a given
 `Context`. The agent loop and all compression run **on this thread**. The TUI
 and other consumers never touch `context_`; they subscribe to events.
 
@@ -109,7 +110,7 @@ Key properties:
 2. **The owner thread publishes events** on every mutation
    (`ContextEventSource`) and on lifecycle transitions (`EventBus`:
    `AgentTurnStart/End`, `ToolCallBefore/After`, `CompressionTriggered`, …).
-3. **The TUI renders from events** — a smooth progress counter (tokens/messages
+3. **The TUI renders from events**: a smooth progress counter (tokens/messages
    decreasing during compression) without ever touching the deque.
 4. **Session persistence** takes a snapshot via a thread-safe request/response
    to the owner (or reads a snapshot the owner publishes after each mutation),
@@ -119,12 +120,12 @@ Key properties:
 
 New/formalized events (extend `ContextEventSource` payloads and/or `EventBus`):
 
-- `ContextMutated(tokens, msgs)` — after every push/pop/clear (exists today).
-- `CompressionStarted(tokens_before, msgs_before)` — owner begins compression.
-- `CompressionProgress(phase, tokens_remaining, msgs_remaining)` — emitted as
+- `ContextMutated(tokens, msgs)`, after every push/pop/clear (exists today).
+- `CompressionStarted(tokens_before, msgs_before)`, owner begins compression.
+- `CompressionProgress(phase, tokens_remaining, msgs_remaining)`, emitted as
   the old chain is consumed / new chain assembled.
-- `CompressionFinished(tokens_after, msgs_after, result)` — swap complete.
-- `CompressionFailed(error)` — pipeline aborted, context untouched.
+- `CompressionFinished(tokens_after, msgs_after, result)`, swap complete.
+- `CompressionFailed(error)`, pipeline aborted, context untouched.
 
 The TUI's context gauge becomes a pure subscriber: it shows `tokens_after`
 after a `CompressionFinished`, and a monotonic decrease during
@@ -132,7 +133,7 @@ after a `CompressionFinished`, and a monotonic decrease during
 
 ---
 
-## Part 3 — Compression: pure copy-based pipeline, event-driven progress
+## Part 3, Compression: pure copy-based pipeline, event-driven progress
 
 ### The KV-reuse mechanism (implemented, not push/pop)
 
@@ -141,7 +142,7 @@ mutating the live deque:
 
 - The classify request = `[post-collapse history] + [classify prompt]`.
 - The extract request = `[same post-collapse history] + [classify prompt] +
-  [classify response] + [extract prompt]` — the extract call's prefix is
+  [classify response] + [extract prompt]`, the extract call's prefix is
   byte-identical to the classify call's, so the server extends the first call's
   KV cache (no full prefill between them).
 - The pipeline is **pure**: it reads the live context into a working copy
@@ -156,12 +157,12 @@ cannot leave a partial request on the stack.
 
 ### Where the parallelism actually is
 
-The two compression LLM calls are **inherently serial** — the extract step
-depends on the classify response — so "classify LLM ∥ assemble" is not safely
+The two compression LLM calls are **inherently serial**: the extract step
+depends on the classify response, so "classify LLM ∥ assemble" is not safely
 achievable. The parallelism that matters is structural:
 
 1. **Compression runs on a background worker** (`Tui::compress_worker`), never
-   on the UI thread — the interface stays responsive for the whole pipeline.
+   on the UI thread, the interface stays responsive for the whole pipeline.
 2. **The UI is event-driven.** `CompressionObserver` fires per-phase events
    (`on_compress_start`, `on_loop_collapse`, `on_llm_request_sent`,
    `on_llm_reply_received`, `on_parse_result`, `on_apply_result`,
@@ -185,12 +186,12 @@ atomic clear()+push(new chain) ─► CompressResult ─► gauge = tokens_after
 ### What the new chain contains
 
 1. **System prompt** (index 0, always preserved).
-2. **Compressed-context archive message** — the summary JSON block
+2. **Compressed-context archive message**: the summary JSON block
    (`{"type":"compressed_context","archive":[{turns,summary}],...}`), which is
    updated/accumulated across compressions.
-3. **Kept-early messages** — the classifier's `core` turns from before the
+3. **Kept-early messages**: the classifier's `core` turns from before the
    recent window that are still relevant (decisions, current-task facts).
-4. **Recent tail** — the last two user turns and everything after them,
+4. **Recent tail**: the last two user turns and everything after them,
    verbatim (existing safety net; the active task is never dropped).
 5. **Memories/skills** extracted by the second LLM call are applied to the
    store (existing `apply_compression_result`).
@@ -201,7 +202,7 @@ classifier.
 ### Single-owner threading rules
 
 1. The agent/compress worker is the only mutator of `context_` (Part 1 rule 2).
-2. The pipeline operates only on the immutable copy — it never calls
+2. The pipeline operates only on the immutable copy, it never calls
    push/pop/clear on the live context.
 3. The UI never snapshots a context the worker is mid-mutation on: manual
    `save_session()` defers while `busy()`; `autosave` fires only on quiescent
@@ -218,9 +219,9 @@ chain.
 
 ---
 
-## Part 4 — Scope of work (proposed implementation order)
+## Part 4, Scope of work (proposed implementation order)
 
-### Phase 1 — Lock in the pure copy-based pipeline (KV reuse verified)
+### Phase 1, Lock in the pure copy-based pipeline (KV reuse verified)
 
 The pipeline's KV-reuse mechanism is **content-identical prefixes on a pure
 copy**, not live-context push/pop:
@@ -228,7 +229,7 @@ copy**, not live-context push/pop:
 - The extract request replays the classify request as a prefix, so the second
   LLM call extends the first's KV cache (no full prefill between them).
 - The pipeline reads the live context into a working copy and never mutates
-  the deque — invariant 7 (failed compression leaves context untouched) holds
+  the deque, invariant 7 (failed compression leaves context untouched) holds
   by construction, and message indices stay aligned between the classify
   request and the apply pass.
 
@@ -241,31 +242,31 @@ copy**, not live-context push/pop:
 - [x] Update `docs/spec/compression/compression-pipeline.md` to describe the
       content-identity mechanism instead of the stale push/pop description.
 
-### Phase 2 — Context owner thread + event-driven progress
+### Phase 2, Context owner thread + event-driven progress
 
-- [x] Make `ctx_used_` (`tui/tui.h`) an `std::atomic<long>` — the gauge is
+- [x] Make `ctx_used_` (`tui/tui.h`) an `std::atomic<long>`, the gauge is
       written by the agent/compress worker and read by the UI thread.
 - [x] Guard manual `save_session()` against snapshotting a context the worker
       is mid-mutation on (defer when `busy()`); `autosave` (on_done) and
       shutdown saves are quiescent-safe by construction.
 - [x] Document the single-owner rule at the `snapshot()`/autosave call sites.
 
-### Phase 3 — Parallel two-thread compression
+### Phase 3, Parallel two-thread compression
 
 The two compression LLM calls are **inherently serial** (extract depends on
 the classify response), so the user's envisioned "LLM call ∥ tree-shake"
 parallelism is not safely achievable. The honest delivery:
 
 - [x] Compression already runs on a background worker (`Tui::compress_worker`),
-      so the UI thread stays responsive — no blocking prefill stall.
+      so the UI thread stays responsive, no blocking prefill stall.
 - [x] Add `CompressionObserver::on_progress(tokens, msgs)`, fired after
       collapse/prune and after apply+headroom, and forward it through
-      `CompressionReporter` to the host — the context gauge now ticks downward
+      `CompressionReporter` to the host, the context gauge now ticks downward
       through the pipeline instead of only jumping at the swap.
 - [x] Verify the pipeline is pure (works on a copy; the live deque is touched
       only by the final `clear()`+`push()` on success).
 
-### Phase 4 — Documentation & regression locks
+### Phase 4, Documentation & regression locks
 
 - [x] AGENTS.md "Context stack architecture": add the single-owner rule (never
       a mutex / copy-returning `get_all()`), the pure-copy compression note,
@@ -277,8 +278,8 @@ parallelism is not safely achievable. The honest delivery:
 
 ## Out of scope (deferred)
 
-- Wire the full v2 `EventBus` lifecycle (AgentTurnStart/End etc.) into the
-  agent loop — only the compression progress events are in scope here.
+- Wire the full plugin-framework `EventBus` lifecycle (AgentTurnStart/End etc.) into the
+  agent loop, only the compression progress events are in scope here.
 - Bench/plugin work (already lowest priority).
 - Slash-command work (already fixed).
 

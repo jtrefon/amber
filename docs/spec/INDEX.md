@@ -8,10 +8,10 @@ wrong.
 
 | Step | Document | Purpose |
 |------|----------|---------|
-| 1 | `VISION.md` | **Why** — inspiration, north star, the spirit. Never changes. |
-| 2 | `MISSION.md` | **What and when** — priority ladder, feature filter, phasing, gap register, user promise. |
-| 3 | `ux-policy.md` | **How the interface works** — 1:1 mapping, autosuggest, `?`-at-depth, readline, widget policy, habit loops. |
-| 4 | Individual specs | **Contracts** — invariants, scenarios, error states, cross-references. |
+| 1 | `VISION.md` | **Why**: inspiration, north star, the spirit. Never changes. |
+| 2 | `MISSION.md` | **What and when**: priority ladder, feature filter, phasing, gap register, user promise. |
+| 3 | `ux-policy.md` | **How the interface works**: 1:1 mapping, autosuggest, `?`-at-depth, readline, widget policy, habit loops. |
+| 4 | Individual specs | **Contracts**: invariants, scenarios, error states, cross-references. |
 
 ## Gap register
 
@@ -35,12 +35,12 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | File | Covers |
 |------|--------|
 | `tools/read-tool.md` | Read: path resolution, confinement, pagination, error envelope |
-| `tools/write-tool.md` | Write: overwrite safety, content validation, sequential edits (edit functionality is part of WriteTool — no separate edit tool) |
+| `tools/write-tool.md` | Write: overwrite safety, content validation, sequential edits (edit functionality is part of WriteTool, no separate edit tool) |
 | `tools/bash-tool.md` | Bash: timeout, output cap, approval gate, cancellation, signal handling |
 | `tools/search-tool.md` | Search: mode dispatch (grep/semantic), result formatting |
 | `tools/process-tools.md` | ProcessStart/Read/Stop: lifecycle, buffering, cancel |
 
-## TUI — Layout & Rendering
+## TUI, Layout & Rendering
 
 | File | Covers |
 |------|--------|
@@ -48,7 +48,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `tui/event-loop.md` | 20 fps loop, AgentEvent queue drain, ncurses getch/timeout |
 | `tui/scroll-system.md` | Scrollback buffer, viewport, page-up/down, search-in-scroll, cursor tracking |
 
-## TUI — Input System
+## TUI, Input System
 
 | File | Covers |
 |------|--------|
@@ -57,7 +57,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `tui/input-system/nested-commands.md` | Full command tree: settings, provider/model/session/job CRUD, file browsing (`/files`), system operations (`/system exec|rmdir|mv|cp|ps|kill|df|uptime`), `config` key-chain. Shortcut alias scheme with design rules. Tree model: `CommandNode` with `ArgSpec`/`FlagSpec`, depth-aware walk, Cisco `/no` prefix |
 | `tui/input-system/contextual-help.md` | `?` at any depth replaces `/help`. Scales to infinite key-chain nesting. Full info_dialog: description, args, types, choices, ranges, current values, flags, related commands. `?` stripped on dismiss. |
 
-## TUI — Widgets
+## TUI, Widgets
 
 | File | Covers |
 |------|--------|
@@ -126,14 +126,14 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `mcp/mcp-ui.md` | `/mcp` + `/prompt` commands, dynamic prompt subtree, `mcp.*` get/set keys, status bar, CLI flags |
 | `mcp/mcp-security.md` | Trust model: untrusted-by-default servers, approval gate, read-mode policy, output caps, cancellation, no server-initiated capabilities |
 
-## Plugins (Framework v2)
+## Plugins
 
 | File | Covers |
 |------|--------|
-| `plugins/plugin-framework-v2.md` | Harness extension engine (agreed design, phased build): three-mechanism model (registries/events/host services), typed capabilities + ledger, typed events over `EventBus` with fire sites and performance invariants, prompt blocks, status segments, panels, provider capability, threading contract, deferred register |
-| `plugins/developer-guide.md` | How to build amber plugins: availability table (what ships vs target), core plugin anatomy, capability catalogue with code, event catalogue, host services, provider path, external v1 quick start, review checklist |
-| `plugins/README.md` | v1 plugin spec (shipping): JSON-RPC protocol, manifest.json, `PluginManager`, tool registration, `/plugin` admin, bundled plugins (sysinfo, cdp) |
-| `../plugin-framework-tracker.md` | Plugin framework tracker: phases PF-1..PF-5, decision log (D1..D14), availability table, deferred register, risks, definition of done |
+| `plugins/plugin-framework.md` | Harness extension engine (design record, implemented through PF-4): three-mechanism model (registries/events/host services), typed capabilities + ledger, typed events over `EventBus` with fire sites and performance invariants, prompt blocks, status segments, panels, provider/wallet/allowance capabilities, threading contract, deferred register |
+| `plugins/developer-guide.md` | How to build amber plugins: quickstart, tier decision tree, availability table (the single status surface), core plugin anatomy, capability catalogue with code, typed event catalogue, provider path, external quick start, review checklist |
+| `plugins/README.md` | External plugin protocol (shipping): JSON-RPC wire contract, manifest.json, `PluginManager`, tool registration, `/plugin` admin, shipped external plugins (sysinfo, cdp) |
+| `../plugin-framework-tracker.md` | Plugin framework tracker: phases PF-1..PF-6, decision log (D1..D16), deferred register, risks, definition of done |
 
 ## Memory / Experience
 
@@ -176,7 +176,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 
 | File | Covers |
 |------|--------|
-| `benchmark/MISSION.md` | The benchmark's mission and vision: why it exists, the dimensions map, the model-library strategy, definitions of done — the reference and baseline for the harness |
+| `benchmark/MISSION.md` | The benchmark's mission and vision: why it exists, the dimensions map, the model-library strategy, definitions of done, the reference and baseline for the harness |
 | `benchmark/kpi-framework.md` | Harness architecture: scenario schema, runner lifecycle, static-template engine, hermetic fake, phasing |
 | `benchmark/corpus.md` | Scenario taxonomy: 9 suites, scenario ladder (agent failures, terminal, tools, prompt, coding, refactor, skills, mcp, compression), P1 scope |
 | `benchmark/kpi-catalog.md` | Every measurable indicator: correctness, efficiency, robustness, resources, judgment-metric proxies |

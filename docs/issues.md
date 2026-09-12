@@ -1,9 +1,9 @@
-# amber — Issues Register
+# amber, Issues Register
 
 - **Status:** ✅ Historical all resolved; 🆕 Current open section below
 - **Last updated:** 2026-07-31
 - **Owner:** Jacek Trefon
-- **Tolerance:** Zero technical debt — every issue must be refactored, not patched
+- **Tolerance:** Zero technical debt, every issue must be refactored, not patched
 
 > **⚠ Historical record only.** The Classification Key and severity sections
 > below document *resolved* items. Current open work is tracked in the
@@ -16,44 +16,44 @@
 > closed 2026-08-01 (action-driven dispatch, dynamic MCP reflection,
 > retired orphaned completion/ lib, 0-turn gates, skills archive
 > installer). I-15 (JSON-driven command engine, zero hardcoded
-> completion) registered and closed 2026-08-02 — see fix-tracker FIX-015.
+> completion) registered and closed 2026-08-02, see fix-tracker FIX-015.
 > Register is fully resolved.
 
-## 🆕 Current Open Issues — 2026-08-27 Clean Architecture Audit (N1..N11)
+## 🆕 Current Open Issues, 2026-08-27 Clean Architecture Audit (N1..N11)
 
-Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes `FIX-017..025`, 4 phases, `main` green `33075234503` after `7a0e69d`.
+Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md`, 9 FIXes `FIX-017..025`, 4 phases, `main` green `33075234503` after `7a0e69d`.
 
 | ID | Sev | Issue | Status | FIX |
 |----|-----|-------|--------|-----|
-| N1 | 🔴 Critical | **Build drift `Makefile.in:394` vs `Makefile:406` — 9 objects only in generated `Makefile` ( `lib/event_bus.o:lib/event_bus.cpp:57`, `lib/plugin_registry.o:lib/plugin_registry.cpp:87`, `plugins/metrics/metrics_plugin.o:plugins/metrics/metrics_plugin.cpp:51`, `tui/session_browser_core.o:tui/session_browser_core.cpp:145`, `tests/event_bus_test.o`, `tests/plugin_v2_test.o`, `tests/metrics_plugin_test.o`, `SB_TEST_OBJ` + `session_browser_test` + `completions_test:command_line.o` ) — fresh `./configure` lost them; `tui/tui.h:10` `plugin_registry.h` committed but headers `include/agent/event_bus.h:67`, `plugin_registry.h:74`, `plugin_v2.h:58` untracked → `lint` `file not found` | **Done `7a0e69d`** — `Makefile.in` synced, headers tracked, `AGENTS.md:428` / `P5` fixed | FIX-016 |
-| N2 | 🟡 Medium | **Audit table drift `AGENTS.md:428` `tui/tui_input.cpp` 2308 vs `wc -l:2295`** — `make check` P5 `tests/build_hygiene.sh:110` failed every push | **Done `7a0e69d`** — 2308→2295 | FIX-016 |
-| N3 | 🟠 High | **God Class `tui/tui.h:46` 394 lines** (`tui/tui.h:46-439` 394, `tui/tui.cpp:750` `run` 394) — 7 responsibilities (ncurses, windows, threads, rendering, git, sessions, feeds); `register_builtin_actions:941` 318 lines | 🔓 Open — `FIX-021..023` Facade → `WindowManager`/`EventRouter`/`RenderEngine`/`FeedManager`/`SessionController` (each <200/10) | FIX-021-023 |
-| N4 | 🟠 High | **Systemic `>10`-line methods** — every `lib/*.cpp` (`agent.cpp:227` `chat_once 116`, `123` `ensure_system_prompt 78`, `686` `run 71`; `compressor_parser.cpp:58:91`; `tool_call_parser.cpp:111:150`; `config.cpp:27:110` etc), `tui/tui_input.cpp:941` 318 | 🔓 Open — Boy Scout helper extraction per PR (no bulk) | FIX (Boy Scout) |
-| N5 | 🟠 High | **`JsonMemoryStore` `lib/memory_store.cpp:115` 287 lines** (`115-401`) + `save:329` `std::system("mkdir -p "+dir)` — scoring + persistence + evidence + migration in one class | 🔓 Open — `FIX-019` split `memory_scoring.cpp`/`memory_persistence.cpp`, `JsonMemoryStore<150`, `fs::create_directories` | FIX-019 |
-| N6 | 🟡 Medium | **`EventBus::fire` `lib/event_bus.cpp:22` holds `scoped_lock:23` while invoking** — re-entrancy `subscribe/unsubscribe/fire` deadlocks; 13 types `include/agent/event_bus.h:67` declared, only `MetricsPlugin` uses | 🔓 Open — `FIX-017` snapshot under lock | FIX-017 |
-| N7 | 🟡 Medium | **`PluginRegistry` `lib/plugin_registry.cpp:24` static `s_bus/s_tools` fallback masks `ctx_==nullptr`; `Capability void* impl` `include/agent/plugin_v2.h:46`** anticipates 8 types, only `Tool`/`Hook` wired | 🔓 Open — `FIX-018` `assert(ctx_)` + comment `void*`→`variant` deferred (YAGNI) | FIX-018 |
-| N8 | 🟡 Medium | **Residual hard-rule escapes `tui/tui_input.cpp:199` `rfind("policy ")`, `245` `rfind("mcp ")`, `298` `rfind("rule")`** — duplicate `refresh_policy_feed:402` leaves (`core.config.set.policy.rule.<tool>`) + `mcp_completion_subtree` (`completions.json:794` sole source) | 🔓 Open — `FIX-020` delete branches | FIX-020 |
-| N9 | 🟡 Medium | **File-level SRP `lib/agent.cpp:811`, `lib/plugin.cpp:585`** vs header classes <200 (header `Agent:89` 197) — audit claims 473→200 resolved, regrouped | 🔓 Open — defer to opportunistic split when >500 (tracked) | — |
-| N10 | 🟡 Medium | **Hygiene `.clang-tidy:HeaderFilterRegex 'include/agent/.*\.h'` hides TUI; `compile_flags.txt:13` hardcodes `/usr/include/c++/15`; missing `SB_TEST_OBJ` P2/P3 checks** | 🔓 Open — `FIX-024` broaden filter, generate `compile_flags.txt` from `configure`, add `session_browser_test` to `build_hygiene.sh` | FIX-024 |
-| N11 | 🔵 Low | **Test monolith `tests/run_tests.cpp:4451` 209 `TEST`s (13.6k, 658 `TEST`s) + mock SSE `127.0.0.1:8911-8920` hardcoded + `shell_quote` dup `grep_backend.cpp:68` vs `semantic_index.cpp:77`** | 🔓 Open — `FIX-025` split by area + ephemeral `bind 0+getsockname` + dedup to `semantic_helpers.h:35` | FIX-025 |
+| N1 | 🔴 Critical | **Build drift `Makefile.in:394` vs `Makefile:406`, 9 objects only in generated `Makefile` ( `lib/event_bus.o:lib/event_bus.cpp:57`, `lib/plugin_registry.o:lib/plugin_registry.cpp:87`, `plugins/metrics/metrics_plugin.o:plugins/metrics/metrics_plugin.cpp:51`, `tui/session_browser_core.o:tui/session_browser_core.cpp:145`, `tests/event_bus_test.o`, `tests/plugin_core_test.o`, `tests/metrics_plugin_test.o`, `SB_TEST_OBJ` + `session_browser_test` + `completions_test:command_line.o` ), fresh `./configure` lost them; `tui/tui.h:10` `plugin_registry.h` committed but headers `include/agent/event_bus.h:67`, `plugin_registry.h:74`, `plugin_core.h:58` untracked → `lint` `file not found` | **Done `7a0e69d`**: `Makefile.in` synced, headers tracked, `AGENTS.md:428` / `P5` fixed | FIX-016 |
+| N2 | 🟡 Medium | **Audit table drift `AGENTS.md:428` `tui/tui_input.cpp` 2308 vs `wc -l:2295`**: `make check` P5 `tests/build_hygiene.sh:110` failed every push | **Done `7a0e69d`**: 2308→2295 | FIX-016 |
+| N3 | 🟠 High | **God Class `tui/tui.h:46` 394 lines** (`tui/tui.h:46-439` 394, `tui/tui.cpp:750` `run` 394), 7 responsibilities (ncurses, windows, threads, rendering, git, sessions, feeds); `register_builtin_actions:941` 318 lines | 🔓 Open, `FIX-021..023` Facade → `WindowManager`/`EventRouter`/`RenderEngine`/`FeedManager`/`SessionController` (each <200/10) | FIX-021-023 |
+| N4 | 🟠 High | **Systemic `>10`-line methods**: every `lib/*.cpp` (`agent.cpp:227` `chat_once 116`, `123` `ensure_system_prompt 78`, `686` `run 71`; `compressor_parser.cpp:58:91`; `tool_call_parser.cpp:111:150`; `config.cpp:27:110` etc), `tui/tui_input.cpp:941` 318 | 🔓 Open, Boy Scout helper extraction per PR (no bulk) | FIX (Boy Scout) |
+| N5 | 🟠 High | **`JsonMemoryStore` `lib/memory_store.cpp:115` 287 lines** (`115-401`) + `save:329` `std::system("mkdir -p "+dir)`, scoring + persistence + evidence + migration in one class | 🔓 Open, `FIX-019` split `memory_scoring.cpp`/`memory_persistence.cpp`, `JsonMemoryStore<150`, `fs::create_directories` | FIX-019 |
+| N6 | 🟡 Medium | **`EventBus::fire` `lib/event_bus.cpp:22` holds `scoped_lock:23` while invoking**: re-entrancy `subscribe/unsubscribe/fire` deadlocks; 13 types `include/agent/event_bus.h:67` declared, only `MetricsPlugin` uses | 🔓 Open, `FIX-017` snapshot under lock | FIX-017 |
+| N7 | 🟡 Medium | **`PluginRegistry` `lib/plugin_registry.cpp:24` static `s_bus/s_tools` fallback masks `ctx_==nullptr`; `Capability void* impl` `include/agent/plugin_core.h:46`** anticipates 8 types, only `Tool`/`Hook` wired | 🔓 Open, `FIX-018` `assert(ctx_)` + comment `void*`→`variant` deferred (YAGNI) | FIX-018 |
+| N8 | 🟡 Medium | **Residual hard-rule escapes `tui/tui_input.cpp:199` `rfind("policy ")`, `245` `rfind("mcp ")`, `298` `rfind("rule")`**: duplicate `refresh_policy_feed:402` leaves (`core.config.set.policy.rule.<tool>`) + `mcp_completion_subtree` (`completions.json:794` sole source) | 🔓 Open, `FIX-020` delete branches | FIX-020 |
+| N9 | 🟡 Medium | **File-level SRP `lib/agent.cpp:811`, `lib/plugin.cpp:585`** vs header classes <200 (header `Agent:89` 197), audit claims 473→200 resolved, regrouped | 🔓 Open, defer to opportunistic split when >500 (tracked) | - |
+| N10 | 🟡 Medium | **Hygiene `.clang-tidy:HeaderFilterRegex 'include/agent/.*\.h'` hides TUI; `compile_flags.txt:13` hardcodes `/usr/include/c++/15`; missing `SB_TEST_OBJ` P2/P3 checks** | 🔓 Open, `FIX-024` broaden filter, generate `compile_flags.txt` from `configure`, add `session_browser_test` to `build_hygiene.sh` | FIX-024 |
+| N11 | 🔵 Low | **Test monolith `tests/run_tests.cpp:4451` 209 `TEST`s (13.6k, 658 `TEST`s) + mock SSE `127.0.0.1:8911-8920` hardcoded + `shell_quote` dup `grep_backend.cpp:68` vs `semantic_index.cpp:77`** | 🔓 Open, `FIX-025` split by area + ephemeral `bind 0+getsockname` + dedup to `semantic_helpers.h:35` | FIX-025 |
 
- PARKED pre-alpha: `lib/workspace.cpp:61` lexical `is_within`, `tools/search_tool.cpp:83` fallback, `tools/bash_tool.cpp:27` prefix-only list, `tools/write_tool.cpp:61` no `requires_approval` — security deferred per owner.
+ PARKED pre-alpha: `lib/workspace.cpp:61` lexical `is_within`, `tools/search_tool.cpp:83` fallback, `tools/bash_tool.cpp:27` prefix-only list, `tools/write_tool.cpp:61` no `requires_approval`, security deferred per owner.
 
-## 🆕 Current Open Issues (historical — see N1..N11 above)
+## 🆕 Current Open Issues (historical, see N1..N11 above)
 
 | ID | Sev | Issue | Status |
 |----|-----|-------|--------|
 | I-1 | 🟠 High | Tool prompt over-enforcement: `prompts/tools.md` + tool descriptions lectured the agent ("Prefer search…", "do not enumerate", "Use this for ALL file operations"). Editorial pass: envelope + parameter tables kept verbatim; imperatives rewritten as factual capability reference; new "Working style" section with soft, adaptable suggestions. | ✅ Done |
-| I-2 | 🟠 High | Search exclusion overreach: `.git`/`.amber`/`third_party` excluded unconditionally — vendored code was unsearchable even with an explicit `path`. Now default-only: an explicit path inside an excluded dir drops that exclusion. | ✅ Done |
+| I-2 | 🟠 High | Search exclusion overreach: `.git`/`.amber`/`third_party` excluded unconditionally, vendored code was unsearchable even with an explicit `path`. Now default-only: an explicit path inside an excluded dir drops that exclusion. | ✅ Done |
 | I-3 | 🟡 Medium | Search exclusion policy duplicated (grep backend flags + semantic index `find` predicates). Now one shared definition: `default_excluded_dirs()` in `include/agent/search_backend.h`. | ✅ Done |
 | I-9 | 🟡 Medium | No environment grounding: the agent didn't know its OS/distro, user, cwd, resources, or installed tools. New `EnvironmentInfo` probe + `render_environment_card()` (lib/environment.cpp), injected into the system prompt at session start (stable KV prefix). | ✅ Done |
-| I-4 | 🟡 Medium | Confirmation probe doubles LLM round trips (generation + probe per turn). **Closed as by design**: the probe is the guard that keeps the agent in the agentic loop — it prevents loop dropout and task abandonment, so the per-turn cost is intentional. Do NOT remove; re-evaluate only with an alternative loop-stability mechanism in place. | ✅ By design |
-| I-5 | 🟡 Medium | **Command-namespace architecture — DONE (review correction 2026-07-31)**: the JSON tree system is fully implemented, tested, and deployed. **All residuals closed 2026-08-01:** ① action-driven dispatch — `handle_slash` walks the tree tokens and resolves the deepest node's `action` to a registered handler; per-action handlers replaced the hand-rolled `/set`, `/job`, `/mcp` splitting; dispatch/completion/help all derive from one structure; e2e slash suite stays green. ② orphaned `completion/` library retired (superseded by SettingRegistry+CommandLine). ③ live MCP tools reflect into the tree on connect/disconnect (`mcp_completion_subtree`, union child merges). | ✅ Done |
-| I-15 | 🟡 Medium | **JSON-driven command engine — zero hardcoded completion (registered 2026-08-02)**: completions.json is the single source of command structure; four escapes remained (dynamic values via C++ `complete_arg` lambdas, `cmd_get_model` verb parsing, `/set policy rule` arg-parsing, compensation hacks in `update_completions`/`draw_drawer`) and two registry defects blocked the target (get/set namespace collision in `index_node`, tree-clobbering `merge_completions_json`). **Done 2026-08-02 (fix-tracker FIX-015)**: leaves-as-values with generated actions (MCP pattern), feeds for models/policy-rules/jobs, full-path registry keys, deep merge; policy (permission) system unchanged but surfaced in the tree; `?` popup and aliases unchanged. | ✅ Done |
+| I-4 | 🟡 Medium | Confirmation probe doubles LLM round trips (generation + probe per turn). **Closed as by design**: the probe is the guard that keeps the agent in the agentic loop, it prevents loop dropout and task abandonment, so the per-turn cost is intentional. Do NOT remove; re-evaluate only with an alternative loop-stability mechanism in place. | ✅ By design |
+| I-5 | 🟡 Medium | **Command-namespace architecture, DONE (review correction 2026-07-31)**: the JSON tree system is fully implemented, tested, and deployed. **All residuals closed 2026-08-01:** ① action-driven dispatch, `handle_slash` walks the tree tokens and resolves the deepest node's `action` to a registered handler; per-action handlers replaced the hand-rolled `/set`, `/job`, `/mcp` splitting; dispatch/completion/help all derive from one structure; e2e slash suite stays green. ② orphaned `completion/` library retired (superseded by SettingRegistry+CommandLine). ③ live MCP tools reflect into the tree on connect/disconnect (`mcp_completion_subtree`, union child merges). | ✅ Done |
+| I-15 | 🟡 Medium | **JSON-driven command engine, zero hardcoded completion (registered 2026-08-02)**: completions.json is the single source of command structure; four escapes remained (dynamic values via C++ `complete_arg` lambdas, `cmd_get_model` verb parsing, `/set policy rule` arg-parsing, compensation hacks in `update_completions`/`draw_drawer`) and two registry defects blocked the target (get/set namespace collision in `index_node`, tree-clobbering `merge_completions_json`). **Done 2026-08-02 (fix-tracker FIX-015)**: leaves-as-values with generated actions (MCP pattern), feeds for models/policy-rules/jobs, full-path registry keys, deep merge; policy (permission) system unchanged but surfaced in the tree; `?` popup and aliases unchanged. | ✅ Done |
 | I-6 | 🔵 Low | Repo hygiene: in-tree test binaries (`command_line_test`, `completions_test`, `e2e_test`, `run_*` debug variants) were tracked in git. Untracked via `git rm --cached` and added to `.gitignore`; build targets unaffected. | ✅ Done |
 | I-7 | 🔵 Low | Config trap: `compression_min_turns` / `cooldown_turns = 0` silently keep defaults instead of disabling. Fixed 2026-08-01: explicit-flag semantics (`*_explicit` set on load/TUI-set); explicit 0 disables the gates; unset keeps pipeline defaults; TUI allows 0 with "(0 = disabled)" usage. | ✅ Done |
-| I-8 | 🔵 Low | Skills marketplace installer. **Fixed 2026-08-01:** `/set skills install <path|url>` + `/set skills uninstall <name>` via the shared archive engine (`lib/archive_util.{h,cpp}` extracted from the plugin installer — DRY); validates SKILL.md + frontmatter + kebab name, stages to the global skills dir, refreshes the catalog; completions.json documents the verbs. Central repo index deferred (token-free static JSON index design stands). | ✅ Done |
-| I-10 | 🔴 Critical | Deployment: prompts/ + completions.json were project-linked (`resolve_data_path` CWD/binary-dir only; `make install` shipped no data files) — packaged app could not bootstrap. Fixed: ordered candidate search (CWD → binary → workspace → XDG/`~/.local/share` → `/usr/local/share` → `/usr/share/amber`), `make install` ships `prompts/`, `completions.json`, bundled plugins to `$(datadir)/amber`; release matrix now builds deb + rpm + separate `amber-plugin-cdp` packages and runs an installed-package bootstrap smoke in CI. | ✅ Done |
+| I-8 | 🔵 Low | Skills marketplace installer. **Fixed 2026-08-01:** `/set skills install <path|url>` + `/set skills uninstall <name>` via the shared archive engine (`lib/archive_util.{h,cpp}` extracted from the plugin installer, DRY); validates SKILL.md + frontmatter + kebab name, stages to the global skills dir, refreshes the catalog; completions.json documents the verbs. Central repo index deferred (token-free static JSON index design stands). | ✅ Done |
+| I-10 | 🔴 Critical | Deployment: prompts/ + completions.json were project-linked (`resolve_data_path` CWD/binary-dir only; `make install` shipped no data files), packaged app could not bootstrap. Fixed: ordered candidate search (CWD → binary → workspace → XDG/`~/.local/share` → `/usr/local/share` → `/usr/share/amber`), `make install` ships `prompts/`, `completions.json`, bundled plugins to `$(datadir)/amber`; release matrix now builds deb + rpm + separate `amber-plugin-cdp` packages and runs an installed-package bootstrap smoke in CI. | ✅ Done |
 | I-11 | 🟠 High | No fail-fast: TUI booted, then threw mid-session on missing system.md; tools.md/completions.json failures were silent. Fixed: `missing_bootstrap_files()` validator runs pre-UI in both hosts (stderr lists each missing file + searched locations, exit 2); runtime throw kept as backstop. | ✅ Done |
 | I-12 | 🟠 High | Plugin framework: plugins as separate executables (stdio JSON-RPC protocol v1, versioned handshake), manifest.json (completion subtree + tool defs + advertisement + metadata), `PluginManager` (discover/spawn/handshake/register as `plugin_<id>_<name>`, install from archive local/URL, state persistence), completion merge into the command tree, tool-prompt advertisement section. `/plugin` admin (list/status/enable/disable/get/set/info/install/uninstall). Bundled `sysinfo` plugin (mem/cpu/partitions/net); `cdp` plugin (Chrome DevTools Protocol: targets/navigate/eval/url/click/type/screenshot/snapshot) shipped as its own package. Spec: docs/spec/plugins/README.md. | ✅ Done |
 | I-13 | 🟡 Medium | completions.json lagged the TUI command set (no mcp/skills/git/prompt). Fixed: `mcp`, `prompt`, `plugin`, `sessions` top-level namespaces + `skills` under set/get, each with help/man/action + tests. Residual: dynamic reflection of live `mcp.<server>.<tool>` leaves (uses the I-12 merge mechanism). | ✅ Partly |
@@ -74,7 +74,7 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 
 ## 🔴 Critical
 
-### C1 — Detached thread use-after-free in chat_once extraction
+### C1, Detached thread use-after-free in chat_once extraction
 
 | Field | Value |
 |---|---|
@@ -84,9 +84,9 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Why it exists** | The extraction is fire-and-forget for UX (don't block the reply), but ownership was not tracked. |
 | **Impact** | Non-deterministic crashes on agent shutdown, especially in the TUI where `Tui` is destroyed on `/quit`. |
 | **Scope** | Single method, but affects the entire Agent lifetime. |
-| **Fix class** | **Refactor** — replace `detach()` with a tracked future or a work queue with cancellation. |
+| **Fix class** | **Refactor**: replace `detach()` with a tracked future or a work queue with cancellation. |
 
-### C2 — HTTP transport depends on tool-cancel globals (hexagonal boundary violation)
+### C2, HTTP transport depends on tool-cancel globals (hexagonal boundary violation)
 
 | Field | Value |
 |---|---|
@@ -95,14 +95,14 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Root cause** | The cancel-check callback (`cancel_check_cb`) calls a free function whose atomics live in a tool adapter (`tools/bash_tool.cpp`). The core library depends on an adapter layer. |
 | **Why it exists** | The cancel mechanism was added post-hoc to unblock streaming, and the atomics were colocated with the only consumer (bash tool) for convenience. |
 | **Impact** | If tools are ever conditionally compiled or replaced, the core will not link. Also prevents multiple Agent instances from having independent cancel state. |
-| **Scope** | Two files, but architectural — touches `http_transport.cpp`, `http_transport.h`, `tools.h`, `bash_tool.cpp`. |
-| **Fix class** | **Refactor** — move cancel atomics into the core under a dedicated port (`CancellationToken`), inject at the boundary. |
+| **Scope** | Two files, but architectural, touches `http_transport.cpp`, `http_transport.h`, `tools.h`, `bash_tool.cpp`. |
+| **Fix class** | **Refactor**: move cancel atomics into the core under a dedicated port (`CancellationToken`), inject at the boundary. |
 
 ---
 
 ## 🟠 High
 
-### H1 — Agent::run() violates SRP and size limit
+### H1, Agent::run() violates SRP and size limit
 
 | Field | Value |
 |---|---|
@@ -112,9 +112,9 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Why it exists** | The run loop grew organically as detection heuristics and recovery mechanisms were added. Previous decomposition of `agent.cpp` (473→200 lines) missed the run loop body itself. |
 | **Impact** | Every new detection feature or recovery heuristic inflates this method further. Untestable at the unit level (too many paths). Breaches documented contract. |
 | **Scope** | Single method; refactoring does not change public API. |
-| **Fix class** | **Refactor** — extract each responsibility into a named private method. The loop body should become a sequence of calls, readable at the 5-line level. |
+| **Fix class** | **Refactor**: extract each responsibility into a named private method. The loop body should become a sequence of calls, readable at the 5-line level. |
 
-### H2 — Agent::compress_now() violates SRP and size limit
+### H2, Agent::compress_now() violates SRP and size limit
 
 | Field | Value |
 |---|---|
@@ -123,10 +123,10 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Responsibilities** | 1) Snapshot state, 2) Collapse loops, 3) Build + append compression request, 4) Call LLM, 5) Parse response, 6) Build per-turn tags, 7) Apply classification, 8) Apply memory/skill ops, 9) Status reporting. |
 | **Why it exists** | The compression pipeline was added as a single monolithic method for simplicity; later steps (memory ops, status) were appended rather than extracted. |
 | **Impact** | Unreadable, untestable in isolation. Duplicates logic from `CompressionPipeline::compress()` in `compressor.cpp` (the same steps exist in both places). |
-| **Scope** | Single method. The `CompressionPipeline` class in `compressor.cpp` already implements a similar pipeline — this is a DRY violation. |
-| **Fix class** | **Refactor** — reuse `CompressionPipeline::compress()` instead of duplicating the pipeline in `Agent`. Extract status reporting into a callback or decorator. |
+| **Scope** | Single method. The `CompressionPipeline` class in `compressor.cpp` already implements a similar pipeline, this is a DRY violation. |
+| **Fix class** | **Refactor**: reuse `CompressionPipeline::compress()` instead of duplicating the pipeline in `Agent`. Extract status reporting into a callback or decorator. |
 
-### H3 — Tool cancel is module-level global state
+### H3, Tool cancel is module-level global state
 
 | Field | Value |
 |---|---|
@@ -136,9 +136,9 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Why it exists** | Quick way to make the HTTP transport poll a cancel flag without invasive API changes. |
 | **Impact** | 1) Two `Agent` instances interfere with each other's cancellation. 2) Race between `clear_tool_cancel()` and a new request starting. 3) Cannot test cancellation without global state reset. |
 | **Scope** | Affects `tools.h`, `bash_tool.cpp`, `http_transport.cpp`, and any tool that checks cancellation. |
-| **Fix class** | **Refactor** — replace globals with an injected `CancellationToken` (shared `std::atomic<bool>` owned by the host). |
+| **Fix class** | **Refactor**: replace globals with an injected `CancellationToken` (shared `std::atomic<bool>` owned by the host). |
 
-### H4 — Tools compiled into libagent.a (build-layer boundary blur)
+### H4, Tools compiled into libagent.a (build-layer boundary blur)
 
 | Field | Value |
 |---|---|
@@ -148,13 +148,13 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Why it exists** | Simpler build: one static library, both CLI and TUI link it. The AGENTS.md describes tools as an adapter layer but the build artefact disagrees. |
 | **Impact** | Cannot conditionally omit tools (e.g. no bash in CI). Every tool change triggers full library relink. New tools require editing `Makefile.in` in two places. |
 | **Scope** | Build system only. No source change. |
-| **Fix class** | **Refactor** — split `libagent.a` into `libagent_core.a` (lib/) + `libagent_tools.a` (tools/), or build tools as a separate archive that both binaries link. |
+| **Fix class** | **Refactor**: split `libagent.a` into `libagent_core.a` (lib/) + `libagent_tools.a` (tools/), or build tools as a separate archive that both binaries link. |
 
 ---
 
 ## 🟡 Medium
 
-### M1 — Tests include TUI headers (boundary violation)
+### M1, Tests include TUI headers (boundary violation)
 
 | Field | Value |
 |---|---|
@@ -164,9 +164,9 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Why it exists** | These utilities were originally in `tui/` but need tests; rather than duplicate or extract them, the test file includes them directly. |
 | **Impact** | TUI changes break core tests. The hexagonal boundary is pierced: the test suite (which should test core + adapters independently) cross-contaminates layers. |
 | **Scope** | Test suite restructuring. No production code change. |
-| **Fix class** | **Refactor** — extract UI-agnostic utilities (textutil, rich, palette) into the core library, or split the test suite into `tests/core/` and `tests/tui/`. |
+| **Fix class** | **Refactor**: extract UI-agnostic utilities (textutil, rich, palette) into the core library, or split the test suite into `tests/core/` and `tests/tui/`. |
 
-### M2 — No TDD/Red-Green policy in AGENTS.md
+### M2, No TDD/Red-Green policy in AGENTS.md
 
 | Field | Value |
 |---|---|
@@ -175,9 +175,9 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Why it exists** | The engineering principles section was written before the TDD policy was established. |
 | **Impact** | Developers may write code before tests. Bug fixes may not be preceded by a failing test. |
 | **Scope** | Documentation only. |
-| **Fix class** | **Add** — Insert a "TDD / Red-Green-Refactor" section in AGENTS.md. |
+| **Fix class** | **Add**: Insert a "TDD / Red-Green-Refactor" section in AGENTS.md. |
 
-### M3 — No code review process in AGENTS.md
+### M3, No code review process in AGENTS.md
 
 | Field | Value |
 |---|---|
@@ -185,9 +185,9 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Gap** | No documented review requirements |
 | **Impact** | Inconsistent review depth. Architectural regressions may pass review. |
 | **Scope** | Documentation only. |
-| **Fix class** | **Add** — Document review checklist and process. |
+| **Fix class** | **Add**: Document review checklist and process. |
 
-### M4 — No error handling convention in AGENTS.md
+### M4, No error handling convention in AGENTS.md
 
 | Field | Value |
 |---|---|
@@ -195,20 +195,20 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Gap** | No guidance on throw vs ToolResult vs error code |
 | **Impact** | Inconsistent error patterns across the codebase. Some errors throw, some return `ToolResult{false,...}`, some silently swallow. |
 | **Scope** | Documentation + minor code audit. |
-| **Fix class** | **Add + Audit** — Document the convention, then audit 5-10 error sites for consistency. |
+| **Fix class** | **Add + Audit**: Document the convention, then audit 5-10 error sites for consistency. |
 
-### M5 — Heavy include chain in dispatch.h
+### M5, Heavy include chain in dispatch.h
 
 | Field | Value |
 |---|---|
 | **File** | `include/agent/dispatch.h:10` |
 | **Detail** | `#include "agent/agent.h"` pulls in `config.h`, `registry.h`, `llm.h`, `conversation_log.h`, `compressor.h`, `experience.h` |
-| **Why it exists** | `dispatch.h` needs `json`, `Message`, `AgentHooks`, `ToolResult` — but these are all transitively available through the heavy `agent.h` umbrella. |
+| **Why it exists** | `dispatch.h` needs `json`, `Message`, `AgentHooks`, `ToolResult`, but these are all transitively available through the heavy `agent.h` umbrella. |
 | **Impact** | Recompilation of `dispatch.cpp` and all its consumers when any unrelated header changes. ~500ms added to incremental builds. |
 | **Scope** | Single header. |
-| **Fix class** | **Refactor** — forward-declare what can be forwarded, include only what is directly needed (`nlohmann/json.hpp`, `string`, `vector`). |
+| **Fix class** | **Refactor**: forward-declare what can be forwarded, include only what is directly needed (`nlohmann/json.hpp`, `string`, `vector`). |
 
-### M6 — Naive memory extraction heuristic in chat_once
+### M6, Naive memory extraction heuristic in chat_once
 
 | Field | Value |
 |---|---|
@@ -217,13 +217,13 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Why it exists** | Full LLM-based extraction (in `compress_now()`) is too slow for every turn. The heuristic was added as a lightweight approximation. |
 | **Impact** | Low-quality memories: arbitrary length thresholds capture command output and configuration noise, not genuine knowledge. |
 | **Scope** | Can be improved without API change. |
-| **Fix class** | **Refactor** — either remove the heuristic extraction or make it opt-in with a quality gate. |
+| **Fix class** | **Refactor**: either remove the heuristic extraction or make it opt-in with a quality gate. |
 
 ---
 
 ## 🔵 Low
 
-### L1 — Missing noexcept on accessors and pure functions
+### L1, Missing noexcept on accessors and pure functions
 
 | Where | Examples |
 |---|---|
@@ -231,26 +231,26 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | `Tool::is_read_only()` | Should be `noexcept` |
 | `Tool::requires_approval()` | Should be `noexcept` |
 | `SearchBackend::name()` | Should be `noexcept` |
-| ~~`Config::api_url()`~~ | Retired — URL building moved to `Dialect` (FIX-028) |
+| ~~`Config::api_url()`~~ | Retired, URL building moved to `Dialect` (FIX-028) |
 | Various getters | ~20 methods that never throw |
 
 **Scope:** ~20 trivial sites. Fix opportunistically alongside other refactors.
 
-### L2 — SessionStore::list() uses POSIX opendir directly
+### L2, SessionStore::list() uses POSIX opendir directly
 
 | File | `lib/session.cpp:206-228` |
 |---|---|
 | **Detail** | `::opendir` / `::readdir` / `::closedir` for directory scanning. Self-acknowledged in AGENTS.md. |
 | **Fix class** | Extract an `fs::list_json_files(dir)` helper using `std::filesystem::directory_iterator`. |
 
-### L3 — Config is a concrete struct (not abstracted)
+### L3, Config is a concrete struct (not abstracted)
 
 | File | `include/agent/config.h:21` |
 |---|---|
 | **Detail** | Config is a plain struct. No interface means no alternative implementations (env-file, config-server, DB-backed). Acceptable for current scope but precludes extension without modification (OCP violation). |
 | **Fix class** | Extract a `ConfigSource` interface when a second source type is needed. Not a priority now. |
 
-### L4 — Workspace uses function-local static for root
+### L4, Workspace uses function-local static for root
 
 | File | `lib/workspace.cpp:15-18` |
 |---|---|
@@ -258,18 +258,18 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md` — 9 FIXes 
 | **Impact** | Tests must be sequenced carefully. `set_root()` in one test leaks into the next. |
 | **Fix class** | Make Workspace instance-based (instead of all-static) or add test-only reset. |
 
-### L5 — Custom test framework lacks fixtures, matchers, parameterisation
+### L5, Custom test framework lacks fixtures, matchers, parameterisation
 
 | File | `tests/test_util.h` (93 lines) |
 |---|---|
 | **Detail** | Minimal harness: `TEST(name)`, `ASSERT(cond)`, `ASSERT_EQ(a,b)`. No `EXPECT_THROW`, `CONTAINS`, setup/teardown, or test filtering. |
 | **Fix class** | Gradual enhancement. Acceptable for current project size. |
 
-### L6 — 5 undocumented design patterns in active use
+### L6, 5 undocumented design patterns in active use
 
 | Pattern | Location | Missing from AGENTS.md |
 |---|---|---|
-| Observer | `AgentHooks` via `std::function` | Listed as "Template Method / Hook" — Observer is more precise |
+| Observer | `AgentHooks` via `std::function` | Listed as "Template Method / Hook", Observer is more precise |
 | Command | `ProcessStartTool` / `ReadTool` / `StopTool` | Not listed |
 | Protection Proxy | `Workspace::confine()` | Not listed |
 | Null Object | `Agent::silent_hooks()` | Not listed |
@@ -309,7 +309,7 @@ were applied across 11 PRs and 3 documentation updates:
 | M3 | No code review process | Added review checklist to AGENTS.md | docs |
 | M4 | No error handling convention | Added error handling section to AGENTS.md | docs |
 | M5 | Heavy include chain in `dispatch.h` | Replaced with forward declarations | #10 |
-| M6 | Naive memory extraction heuristic | Removed — LLM-based extraction in `compress_now()` is correct path | #11 |
+| M6 | Naive memory extraction heuristic | Removed, LLM-based extraction in `compress_now()` is correct path | #11 |
 
 ### 🔵 Low
 
@@ -317,9 +317,9 @@ were applied across 11 PRs and 3 documentation updates:
 |----|-------|-----|----|
 | L1 | Missing `noexcept` | Added to all Tool/SearchBackend/Config/Registry accessors | #11 |
 | L2 | POSIX `opendir` in SessionStore | Replaced with `std::filesystem::directory_iterator` | #11 |
-| L3 | Config is concrete struct | Acknowledged — not a priority | — |
+| L3 | Config is concrete struct | Acknowledged, not a priority | - |
 | L4 | Workspace uses static root | Added `reset_root()` for test isolation | #11 |
-| L5 | Test framework lacks fixtures | Acknowledged — acceptable for current scope | — |
+| L5 | Test framework lacks fixtures | Acknowledged, acceptable for current scope | - |
 | L6 | 5 undocumented design patterns | Added to AGENTS.md (Observer, Command, Proxy, Null Object, Memento) | docs |
 
 ### Pre-existing refactors (verified)

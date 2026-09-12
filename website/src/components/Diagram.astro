@@ -1,0 +1,31 @@
+---
+import { diagrams, diagramCatalog, type DiagramName } from '../data/diagrams';
+
+interface Props {
+  name: DiagramName;
+  caption?: string;
+}
+
+const { name, caption } = Astro.props;
+const source = diagrams[name];
+// Captions live in the catalog so a diagram is described in exactly one place;
+// a page only overrides when it needs different wording in context.
+const resolved = caption ?? diagramCatalog.find((entry) => entry.name === name)?.caption;
+---
+
+<figure class="diagram">
+  <pre class="mermaid">{source}</pre>
+  {resolved && <figcaption>{resolved}</figcaption>}
+</figure>
+
+<noscript>
+  <style>
+    .diagram .mermaid:not([data-processed]) { visibility: visible; }
+  </style>
+</noscript>
+
+<script>
+  import { observeDiagrams } from '../diagrams/theme';
+
+  observeDiagrams();
+</script>

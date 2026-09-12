@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
+import Diagram from '../components/Diagram.astro';
 ---
 
 <BaseLayout title="Manual" description="amber manual: the full slash-command reference, configuration, and environment variables">
@@ -160,6 +161,12 @@ import NavBar from '../components/NavBar.astro';
           <tr><td>/set detection loop / duplicate</td><td>Tool-loop and duplicate call detection</td></tr>
         </tbody>
       </table>
+      <Diagram
+        name="promptAssembly"
+      />
+      <Diagram
+        name="memoryExtraction"
+      />
     </section>
 
     <hr class="divider" />

@@ -1,13 +1,13 @@
 ## Spec: Provider Dialects (wire protocols)
 
 ### Purpose
-Isolate everything that differs between LLM provider wire protocols — endpoints,
+Isolate everything that differs between LLM provider wire protocols, endpoints,
 auth headers, request body shape, buffered response parsing, streamed decoding,
-model listing, usage mapping, and error classification — behind one port.
+model listing, usage mapping, and error classification, behind one port.
 The transport, agent loop, and UIs speak only the internal message model;
 adding a provider protocol is a new `Dialect` implementation plus one row in
 the registry. OpenAI-compatible endpoints (llama.cpp, vLLM, Ollama, OpenRouter,
-kilocode, …) need no code at all — they are config-only under the `openai`
+kilocode, …) need no code at all, they are config-only under the `openai`
 dialect.
 
 ### Ownership
@@ -40,7 +40,7 @@ dialect.
 1. Flavor resolves **exactly once** per client construction
    (`make_dialect(cfg.flavor)`); no downstream code branches on flavor or
    provider names.
-2. Unknown flavors fall back to `"openai"` — a typo never breaks a session.
+2. Unknown flavors fall back to `"openai"`, a typo never breaks a session.
 3. Tool calls normalize to the internal shape
    (`{id, type:"function", function:{name, arguments}}`, arguments as a JSON
    *string*) at the dialect edge, for buffered and streamed responses alike.
@@ -70,7 +70,7 @@ dialect.
 
 - **Given**: A new `Dialect` implementation
 - **Input**: `register_dialect("x", factory)` then `make_dialect("x")`
-- **Expected**: The registered dialect is returned — the extension point a
+- **Expected**: The registered dialect is returned, the extension point a
   future plugin `Provider` capability uses.
 - **Regression guard**: `dialect_registry_accepts_new_factories` test.
 
@@ -106,7 +106,7 @@ dialect.
 
 - **Given**: A non-2xx response
 - **Input**: `is_retryable(status, body)`
-- **Expected**: Transient failures (429, 5xx — including Anthropic's 529
+- **Expected**: Transient failures (429, 5xx, including Anthropic's 529
   overloaded; openai's empty-SSE-stream 400) are retryable; genuine rejections
   (JSON error 400, 401/403) are not.
 - **Regression guard**: `http_error_empty_stream_400_is_retryable`,
@@ -117,7 +117,7 @@ dialect.
 - **Given**: A 400 whose body names the server's real context window
 - **Input**: `context_overflow_hint(body)`
 - **Expected**: The enforced window (e.g. `"n_ctx is 2048"` → 2048,
-  `"… 213456 tokens > 200000 maximum"` → 200000), or 0 when unknown — never a
+  `"… 213456 tokens > 200000 maximum"` → 200000), or 0 when unknown, never a
   guess. The transport stores it and the client surfaces it through
   `learned_context_size()` even though the request threw.
 - **Regression guard**: `dialect_context_overflow_hint_patterns`,
@@ -131,8 +131,8 @@ dialect.
 - **Depends on**: `llm-client/http-transport.md` (curl mechanics),
   `llm-client/streaming.md` (framing contract), `llm-client/model-probe.md`
   (listing consumers)
-- **Depended on by**: `plugins/plugin-framework-v2.md` (the `Provider` plugin
-  capability registers a dialect factory — PF-2 in
+- **Depended on by**: `plugins/plugin-framework.md` (the `Provider` plugin
+  capability registers a dialect factory, PF-2 in
   `docs/plugin-framework-tracker.md`), provider selection
   (`ProviderCapabilities::flavor`)
 - **Test coverage**: `tests/dialect_anthropic_test.cpp` (DL-01..07 protocol),
@@ -142,4 +142,4 @@ dialect.
 
 | Date | Reason |
 |------|--------|
-| 2026-09-09 | Initial spec (FIX-027..032 — dialect seam, capability wiring, Anthropic proof, learned-window fix) |
+| 2026-09-09 | Initial spec (FIX-027..032, dialect seam, capability wiring, Anthropic proof, learned-window fix) |

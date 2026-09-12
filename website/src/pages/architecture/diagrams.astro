@@ -1,0 +1,118 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import NavBar from '../../components/NavBar.astro';
+import Diagram from '../../components/Diagram.astro';
+import { diagrams, diagramCatalog, type DiagramName } from '../../data/diagrams';
+
+// Build-time guard: the catalog doubles as this page's index, so a diagram
+// added to `diagrams` without a catalog entry would silently vanish here.
+const cataloged = new Set(diagramCatalog.map((entry) => entry.name));
+const missing = (Object.keys(diagrams) as DiagramName[]).filter((name) => !cataloged.has(name));
+if (missing.length) {
+  throw new Error(`diagram(s) missing from diagramCatalog: ${missing.join(', ')}`);
+}
+
+// Preserve catalog order: sections appear in the order they are first used.
+const sections: { title: string; entries: typeof diagramCatalog }[] = [];
+for (const entry of diagramCatalog) {
+  const section = sections.find((s) => s.title === entry.section);
+  if (section) section.entries.push(entry);
+  else sections.push({ title: entry.section, entries: [entry] });
+}
+---
+
+<BaseLayout
+  title="Diagrams"
+  description="Every amber architecture diagram and flowchart in one place: the microkernel, plugin ledger, command tree, agent loop, compression pipeline, MCP and more."
+>
+  <NavBar />
+  <main>
+    <h1>Diagrams</h1>
+
+    <p class="gallery-lead">
+      The same diagrams that illustrate the architecture pages, collected here
+      so a single URL shows the whole system. Each one is authored as text in
+      <code>src/data/diagrams.ts</code> and rendered in the browser, no
+      exported images, so they stay diffable and cannot rot.
+    </p>
+
+    <nav class="gallery-index">
+      {sections.map((section) => (
+        <div class="gallery-index-group">
+          <span class="gallery-index-title">{section.title}</span>
+          <ul>
+            {section.entries.map((entry) => (
+              <li><a href={`#${entry.name}`}>{entry.title}</a></li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </nav>
+
+    {sections.map((section) => (
+      <section class="section">
+        <h2>{section.title}</h2>
+        {section.entries.map((entry) => (
+          <article class="diagram-entry" id={entry.name}>
+            <h3>{entry.title}</h3>
+            <Diagram name={entry.name} />
+          </article>
+        ))}
+      </section>
+    ))}
+  </main>
+</BaseLayout>
+
+<style>
+  .gallery-lead {
+    color: var(--text-dim);
+    margin-bottom: 24px;
+  }
+
+  .gallery-index {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px 24px;
+  }
+
+  .gallery-index-title {
+    display: block;
+    color: var(--amber-bright);
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    text-shadow: 0 0 6px var(--glow-soft);
+  }
+
+  .gallery-index ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .gallery-index li {
+    padding: 2px 0;
+    font-size: 13px;
+  }
+
+  .gallery-index li a::before {
+    content: '> ';
+    color: var(--amber-dim);
+  }
+
+  .diagram-entry {
+    margin-top: 28px;
+    scroll-margin-top: 16px;
+  }
+
+  .diagram-entry:first-of-type {
+    margin-top: 16px;
+  }
+
+  .diagram-entry h3 {
+    margin: 0 0 4px;
+  }
+</style>

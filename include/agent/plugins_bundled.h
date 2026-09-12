@@ -5,7 +5,7 @@
 // Keeping registration in a single place is what makes the shipped set
 // enumerable - the runtime, the console, and the tracker all read from here.
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <memory>
 #include <vector>

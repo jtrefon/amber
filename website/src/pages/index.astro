@@ -2,11 +2,12 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 import AsciiHero from '../components/AsciiHero.astro';
-import TerminalWindow from '../components/TerminalWindow.astro';
+import Diagram from '../components/Diagram.astro';
+import { site } from '../data/site';
 
 const terminalSession = `$ ./amber
 ───────────────────────────────────────────────────────────────
- amber 0.3.1  |  Apache 2.0  |  C++17  |  ncurses
+ amber ${site.version}  |  ${site.license}  |  C++17  |  ncurses
 ───────────────────────────────────────────────────────────────
 
 [system] Loading configuration...
@@ -37,90 +38,173 @@ amber ~ $ Search for TODO comments in src/
 amber ~ $ █`;
 ---
 
-<BaseLayout title="amber" description="an AI agent harness for Linux servers, built in C++ with bare-metal performance">
+<BaseLayout title={site.title} description={site.description}>
   <NavBar />
   <main>
     <AsciiHero />
 
     <hr class="divider-thick" />
 
-    <!-- Live Terminal Session -->
+    <!-- What Amber is -->
     <section class="section">
-      <h2>See It In Action</h2>
+      <h2>What is Amber?</h2>
       <p>
-        amber runs directly in your terminal. Watch tool calls, compression status,
-        and approval dialogs in real time.
+        Amber is a native C++17 AI agent runtime and CLI harness for building
+        and running tool-using agents.
       </p>
-
-      <TerminalWindow title="amber, jack@server ~" content={terminalSession} />
+      <p>
+        Its core is deliberately extensible: providers, tools and UI
+        capabilities use the same plugin architecture, allowing Amber to grow
+        without hardcoding every integration into the runtime.
+      </p>
+      <p>
+        Use the interactive terminal UI, run the headless CLI in automation, or
+        embed the native runtime in another C++ project.
+      </p>
     </section>
 
     <hr class="divider" />
 
-    <!-- Why C++? Section -->
+    <!-- What Amber can do -->
     <section class="section">
-      <h2>Why C++?</h2>
-      <p>
-        Not a Python wrapper around OpenAI's API. Not a Node.js script. Not a React frontend
-        with a Flask backend. This is compiled C++17 with libcurl, ncurses, and zero Python
-        dependency. Bare-metal performance for an agent that runs shell commands, reads files,
-        and talks to LLMs, all in one process.
-      </p>
-      <div class="terminal">
-        <pre>┌─ libagent_core.a ──────────────────────────────────────────┐
-│  Agent loop · LLM client · Tool registry · Compression    │
-│  Context integrity (FNV-1a hash chain) · MCP transport     │
-└───────────────────────────────────────────────────────────┘
-         │              │              │
-    ┌────▼─────┐  ┌────▼─────┐  ┌────▼─────┐
-    │ amber    │  │amber-cli │  │amber-bench│
-    │ (TUI)    │  │(headless)│  │(KPI harness)│
-    └──────────┘  └──────────┘  └──────────┘</pre>
+      <h2>What Amber can do</h2>
+      <div class="cap-grid">
+        <div class="cap">
+          <h3>Work with code and files</h3>
+          <ul>
+            <li>Read and modify files</li>
+            <li>Search project trees</li>
+            <li>Semantic / local search</li>
+            <li>Work inside a confined workspace</li>
+          </ul>
+        </div>
+        <div class="cap">
+          <h3>Execute and automate</h3>
+          <ul>
+            <li>Run shell commands</li>
+            <li>Track jobs</li>
+            <li>Apply approval gates to side-effecting operations</li>
+            <li>Run headless from scripts and automation</li>
+          </ul>
+        </div>
+        <div class="cap">
+          <h3>Connect</h3>
+          <ul>
+            <li>Multiple LLM / provider implementations</li>
+            <li>MCP servers</li>
+            <li>Provider-specific dialects</li>
+            <li>Extensible provider plugins</li>
+          </ul>
+        </div>
+        <div class="cap">
+          <h3>Delegate</h3>
+          <ul>
+            <li>Sub-agents</li>
+            <li>Parallel / serial delegation</li>
+            <li>Shared runtime infrastructure</li>
+          </ul>
+        </div>
+        <div class="cap">
+          <h3>Manage long-running sessions</h3>
+          <ul>
+            <li>Context compression</li>
+            <li>Memory / skill mechanisms</li>
+            <li>Context integrity protections</li>
+            <li>Runtime telemetry</li>
+          </ul>
+        </div>
+        <div class="cap">
+          <h3>Extend</h3>
+          <ul>
+            <li>Plugin / capability architecture</li>
+            <li>Provider capabilities</li>
+            <li>Tool capabilities</li>
+            <li>UI / status / panel capabilities</li>
+          </ul>
+        </div>
       </div>
     </section>
 
     <hr class="divider" />
 
-    <!-- Four parts -->
+    <!-- Everything is a capability -->
     <section class="section">
-      <h2>One Harness, Four Parts</h2>
+      <h2>Everything is a capability</h2>
       <p>
-        amber is not a monolith. The core is a portable library, and the three
-        clients are thin shells over it. Use the whole stack, or embed just the
-        library in your own project.
+        Amber's core does not need to know every provider, tool or extension
+        that exists. Capabilities are contributed through the plugin
+        architecture and installed by the runtime. Providers, tools and UI
+        extensions use the same underlying mechanism, so new integrations do
+        not require special cases throughout the agent core.
       </p>
+      <p>
+        Plugins can be enabled, disabled and unwound cleanly, with
+        contributions tracked by owner.
+      </p>
+      <p>
+        <a class="cta-link" href="/plugins">Build a plugin →</a>
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Why C++ -->
+    <section class="section">
+      <h2>Why C++?</h2>
+      <p>
+        Amber is compiled C++17 from the runtime up. The agent loop, context
+        management, tools, plugin system and clients share the same native
+        core.
+      </p>
+      <p>
+        The result is a small, explicit runtime with no Python or Node
+        dependency, while the core remains usable as a library rather than
+        being tied to a single interface.
+      </p>
+      <Diagram
+        name="runtimeOverview"
+      />
+    </section>
+
+    <hr class="divider" />
+
+    <!-- One runtime, multiple clients -->
+    <section class="section">
+      <h2>One runtime, multiple clients</h2>
       <div class="four-parts">
         <div class="part">
-          <h3>libagent_core.a</h3>
-          <p class="part-tag">the engine, as a library</p>
+          <h3>libagent / core runtime</h3>
+          <p class="part-tag">the engine</p>
           <p>
-            Agent loop, LLM client, tool registry, compression pipeline, MCP
-            transport, hash-chained context. Link it into your own C++ project:
-            your harness, your tools, your rules.
+            Native agent runtime containing the agent loop, context, tools,
+            plugin runtime and supporting infrastructure. It can be linked
+            into another C++ application rather than requiring the interactive
+            Amber client.
+          </p>
+        </div>
+        <div class="part">
+          <h3>amber</h3>
+          <p class="part-tag">interactive terminal UI</p>
+          <p>
+            The primary interactive client with the retro IRC/BitchX-inspired
+            multi-window interface, sessions, slash commands, jobs, plugin
+            controls, approval dialogs and runtime telemetry.
           </p>
         </div>
         <div class="part">
           <h3>amber-cli</h3>
           <p class="part-tag">headless agent</p>
           <p>
-            For workflows, cron jobs, CI pipelines, and scheduled routing.
-            Pipe input in, get answers out, no TTY required.
+            For scripts, CI, automation, scheduled jobs and environments where
+            an interactive TTY is unnecessary.
           </p>
         </div>
         <div class="part">
           <h3>amber-bench</h3>
-          <p class="part-tag">benchmark &amp; KPI harness</p>
+          <p class="part-tag">evaluation harness</p>
           <p>
-            31 scenarios, oracle scoring, hermetic mode that runs without any
-            model. Prove harness changes with numbers, not anecdotes.
-          </p>
-        </div>
-        <div class="part">
-          <h3>amber</h3>
-          <p class="part-tag">the interactive TUI</p>
-          <p>
-            The flagship: IRC-style windows, slash commands, jobs, sessions,
-            approval dialogs, compression telemetry, all in one terminal.
+            Runs repeatable scenarios against the same agent engine and
+            produces measurable results using scenario / oracle scoring.
           </p>
         </div>
       </div>
@@ -128,94 +212,172 @@ amber ~ $ █`;
 
     <hr class="divider" />
 
-    <!-- Features -->
+    <!-- Multi-provider -->
     <section class="section">
-      <h2>Architecture</h2>
-      <ul class="feature-list">
-        <li>Compression pipeline, classify-then-extract with memory/skill ops, live UI progress</li>
-        <li>Context integrity, FNV-1a hash chain seals every message, catches in-place mutations</li>
-        <li>Security model, workspace confinement, approval gating, process isolation</li>
-        <li>Real benchmarking, amber-bench with KPI aggregation across 31 scenarios</li>
-        <li>MCP integration, stdio and HTTP transports, ServerManager for lifecycle</li>
-        <li>Sub-agent architecture, parallel/serial mode with cache-friendly prefix optimization</li>
-      </ul>
-    </section>
-
-    <hr class="divider" />
-
-    <!-- Benchmarks preview -->
-    <section class="section">
-      <h2>Benchmarks</h2>
-      <p>One harness, 31 scenarios, 9 models, scored, not claimed. Every model runs the same engine.</p>
-      <table class="bench-table">
-        <thead>
-          <tr>
-            <th>Model</th>
-            <th>Score</th>
-            <th>Pass</th>
-            <th>Tools</th>
-            <th>Redun</th>
-            <th>Steps</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Qwen3.6-27B dense</td>
-            <td><strong>910</strong></td>
-            <td>24/25</td>
-            <td>104</td>
-            <td>10</td>
-            <td>115</td>
-          </tr>
-          <tr>
-            <td>gemma4-31b</td>
-            <td><strong>903</strong></td>
-            <td>24/25</td>
-            <td>103</td>
-            <td>4</td>
-            <td>127</td>
-          </tr>
-          <tr>
-            <td>Qwen3.6-27B MTP</td>
-            <td><strong>901</strong></td>
-            <td>24/25</td>
-            <td>104</td>
-            <td>11</td>
-            <td>117</td>
-          </tr>
-        </tbody>
-      </table>
-      <p>A 27B model beating a 550B Nemotron by 104 points. <a href="/benchmarks">Full results and methodology →</a></p>
-    </section>
-
-    <hr class="divider" />
-
-    <!-- Quick Start -->
-    <section class="section">
-      <h2>Get Amber</h2>
+      <h2>Bring your model. Keep the runtime.</h2>
       <p>
-        Prebuilt binaries for Debian/Ubuntu, Fedora/RHEL, and every other
-        distro. No compiler required.
+        Amber separates the agent runtime from the model provider. Provider
+        integrations live behind the same plugin architecture, allowing the
+        harness to work with different vendors and OpenAI-compatible endpoints
+        without changing the agent loop.
       </p>
-      <div class="terminal">
-        <pre># Debian / Ubuntu
-sudo dpkg -i amber_0.3.1_amd64.deb
-amber
+      <p class="provider-note">
+        Bundled provider plugins: Anthropic, Gemini, OpenRouter, DeepSeek,
+        KiloCode, OpenCode, CommandCode, Custom, and OpenAI-compatible
+        endpoints.
+      </p>
+    </section>
 
-# Fedora / RHEL
-sudo rpm -i amber_0.3.1.x86_64.rpm
-amber</pre>
+    <hr class="divider" />
+
+    <!-- MCP and sub-agents -->
+    <section class="section">
+      <div class="cap-grid">
+        <div class="cap">
+          <h3>MCP</h3>
+          <p>
+            Connect Amber to MCP servers over the supported transports and
+            extend the agent with external tools and services.
+          </p>
+        </div>
+        <div class="cap">
+          <h3>Sub-agents</h3>
+          <p>
+            Delegate work to sub-agents through the same runtime, with support
+            for serial and parallel execution.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Security -->
+    <section class="section">
+      <h2>Agents should not get a blank cheque</h2>
+      <p>
+        Amber treats model output as untrusted input. Filesystem operations are
+        confined to the workspace, side-effecting operations can require
+        approval, shell execution is gated, and jobs are isolated and bounded.
+      </p>
+      <p>
+        The goal is not to pretend an agent is safe by default. The goal is to
+        make its trust boundaries explicit.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Benchmarks -->
+    <section class="section">
+      <h2>Measure the harness, not the demo</h2>
+      <p>
+        Amber includes its own benchmark and evaluation harness so changes to
+        the runtime can be tested against repeatable scenarios rather than
+        judged from a few impressive demos.
+      </p>
+      <p>
+        <a class="cta-link" href="/benchmarks">Full results and methodology →</a>
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Platforms -->
+    <section class="section">
+      <h2>Where it runs</h2>
+      <div class="cap-grid">
+        <div class="cap">
+          <h3>macOS</h3>
+          <p>Apple Silicon binaries available. Install via Homebrew.</p>
+          <div class="terminal">
+            <pre>brew install jtrefon/homebrew-amber/amber-agent</pre>
+          </div>
+        </div>
+        <div class="cap">
+          <h3>Linux</h3>
+          <p>Prebuilt Linux binaries and build-from-source options.</p>
+          <div class="terminal">
+            <pre># .deb / .rpm / tarball
+# or build from source:
+git clone https://github.com/jtrefon/amber
+cd amber && make</pre>
+          </div>
+        </div>
       </div>
       <p>
-        <a class="cta-link" href="/download">Download binaries →</a>
-        &nbsp;or&nbsp;
-        <a href="/install">build from source</a>
+        <a class="cta-link" href="/download">Get Amber →</a>
+        &nbsp;·&nbsp;
+        <a href="/install">Build from source</a>
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Final invitation -->
+    <section class="section">
+      <h2>Try it. Break it. Contribute.</h2>
+      <p>
+        Amber is open source ({site.license}) and currently beta. The project
+        is ready for people to try, inspect and contribute to.
+      </p>
+      <div class="cta-row">
+        <a href="/download" class="cta-link">./try</a>
+        <a href={site.repo} target="_blank" rel="noopener" class="cta-link">github.com/jtrefon/amber</a>
+      </div>
+      <p class="report-line">
+        Found something broken, or have an idea?
+        <a href={site.issues.newBug} target="_blank" rel="noopener">Report a bug</a>
+        &nbsp;·&nbsp;
+        <a href={site.issues.newFeature} target="_blank" rel="noopener">Request a feature</a>
+        &nbsp;·&nbsp;
+        <a href="/report">All the ways to contribute</a>
       </p>
     </section>
   </main>
 </BaseLayout>
 
 <style>
+  .cap-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+  }
+
+  .cap {
+    border: 1px solid #33260e;
+    background: #0a0700;
+    padding: 16px;
+  }
+
+  .cap h3 {
+    color: #ffcf4d;
+    font-size: 0.95em;
+    margin: 0 0 10px;
+    text-shadow: 0 0 8px rgba(255, 176, 0, 0.45);
+  }
+
+  .cap ul {
+    color: #9a7c47;
+    font-size: 13px;
+    line-height: 1.7;
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  .cap p {
+    color: #9a7c47;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .cap .terminal {
+    margin-top: 10px;
+    font-size: 12px;
+  }
+
   .four-parts {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -250,7 +412,26 @@ amber</pre>
     line-height: 1.6;
   }
 
+  .provider-note {
+    color: #6b4f1f;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .cta-row {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
   .cta-link {
     font-weight: bold;
+    font-size: 14px;
+  }
+
+  .report-line {
+    margin-top: 20px;
+    font-size: 13px;
+    color: #9a7c47;
   }
 </style>

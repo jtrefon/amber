@@ -1,0 +1,297 @@
+---
+import PluginDocsLayout from '../../layouts/PluginDocsLayout.astro';
+import Diagram from '../../components/Diagram.astro';
+
+const toolIface = `class Tool {
+public:
+    virtual std::string name() const noexcept = 0;
+    virtual std::string description() const noexcept = 0;
+    virtual json parameters_schema() const = 0;   // OpenAI "parameters" object
+
+    virtual bool requires_approval(const json& args) const noexcept { return false; }
+    virtual bool is_read_only() const noexcept { return false; }
+    virtual std::string summarize(const json& args) const { return name(); }
+
+    virtual ToolResult execute(const json& arguments) const = 0;
+};`;
+
+const toolCap = `class GreetTool : public agent::Tool {
+public:
+    std::string name() const noexcept override { return "greet"; }
+    std::string description() const noexcept override { return "Greet someone by name."; }
+
+    agent::json parameters_schema() const override {
+        return agent::json{
+            {"type", "object"},
+            {"properties", {{"name", {{"type", "string"}}}}},
+            {"required", agent::json::array({"name"})}};
+    }
+
+    agent::ToolResult execute(const agent::json& args) const override {
+        return {true, "Hello, " + args.value("name", "world") + "!", "", agent::json{}};
+    }
+};
+
+// In capabilities():
+caps.push_back(std::make_unique<agent::ToolCapability>(
+    "greet", [](agent::PluginServices&) {
+        std::vector<std::unique_ptr<agent::Tool>> tools;
+        tools.push_back(std::make_unique<GreetTool>());
+        return tools;
+    }));`;
+
+const toolFactory = `// A tool that needs a host service is built by a factory.
+caps.push_back(std::make_unique<agent::ToolCapability>(
+    "task", [](agent::PluginServices& svc) {
+        std::vector<std::unique_ptr<agent::Tool>> tools;
+        if (!svc.host || !svc.host->subagents)
+            return tools;   // decline: nothing to bind to
+        tools.push_back(std::make_unique<TaskTool>(*svc.host->subagents));
+        return tools;
+    }));`;
+
+const promptBlock = `class ProjectFactsBlock : public agent::PromptBlockCapability {
+public:
+    ProjectFactsBlock() : PromptBlockCapability("project_facts", /*priority=*/400,
+        [this] { return has_changed() ? "Project facts: ..." : ""; }) {}
+};`;
+
+const statusSegment = `class BalanceSegment : public agent::StatusSegmentCapability {
+public:
+    BalanceSegment()
+        : StatusSegmentCapability("kilocode_balance", /*priority=*/500,
+                                  /*drop_priority=*/10,
+              [this](const agent::StatusSnapshot&) {
+                  return agent::StatusText{
+                      balance_ < 0 ? "" : "$" + fmt(balance_),
+                      agent::StatusTone::Good};
+              }) {}
+};`;
+
+const statusSnapshot = `struct StatusSnapshot {
+    int window_index, window_count;
+    std::string model, reasoning_effort;
+    AgentMode mode;
+    bool scroll_mode;
+    long latency_ms, prompt_tokens, completion_tokens;
+    double tps;
+    int running_jobs, job_seconds_left;
+    std::string running_tool;
+    std::vector<StatusMcpServer> mcp_servers;
+};
+
+enum class StatusTone { Dim, Good, Warn, Crit, Accent, Banner };`;
+
+const panel = `agent::PanelSpec spec;
+spec.id = "gemini_models";
+spec.title = "Gemini models";
+spec.lines = [this](int width) { return model_lines(width); };  // pure, per repaint
+spec.on_key = [](int key) { return key == 'r'; };               // optional
+caps.push_back(std::make_unique<agent::PanelCapability>(std::move(spec)));`;
+
+const command = `agent::CommandSpec spec;
+spec.root = "hello";
+spec.help = "Say hello";
+spec.man  = "Usage: /hello greet <name>";
+spec.subtree = agent::json::parse(R"({
+    "greet": {"help": "Greet someone by name"}
+})");
+spec.handlers["greet"] = [](const std::string& arg) {
+    return "Hello, " + (arg.empty() ? std::string("world") : arg) + "!";
+};
+caps.push_back(std::make_unique<agent::CommandCapability>(std::move(spec)));`;
+
+const provider = `agent::ProviderCapability::Preset preset;
+preset.name = "gemini";
+preset.api_base = "https://generativelanguage.googleapis.com";
+preset.default_model = "gemini-2.5-pro";
+preset.requires_key = true;
+
+caps.push_back(std::make_unique<agent::ProviderCapability>(
+    "gemini",                              // flavor (wire protocol)
+    [] { return make_gemini_dialect(); },  // dialect factory; {} for shared openai
+    std::vector<agent::ProviderCapability::Preset>{preset}));`;
+
+const wallet = `caps.push_back(std::make_unique<agent::WalletCapability>(
+    [](const agent::Config& cfg) -> std::optional<double> {
+        if (cfg.api_key.empty()) return std::nullopt;      // nothing to fetch with
+        const auto body = agent::http_get_with_bearer(url, cfg.api_key);
+        if (!body) return std::nullopt;                    // failed: claim nothing
+        const double amount = parse_balance(*body);
+        return amount < 0 ? std::nullopt : std::optional<double>(amount);
+    }));`;
+
+const allowance = `caps.push_back(std::make_unique<agent::AllowanceCapability>(
+    [](const agent::Config& cfg) -> std::optional<agent::AllowanceSnapshot> {
+        if (cfg.api_key.empty()) return std::nullopt;
+        const auto body = agent::http_get_with_bearer(url, cfg.api_key);
+        if (!body) return std::nullopt;
+        return parse_usage(*body);
+    }));`;
+
+const allowanceSnapshot = `struct AllowanceWindow {
+    std::string label;        // "5h", "7d", "monthly"
+    double percent_used = -1; // 0-100, -1 = unknown
+    std::string resets_at;    // ISO 8601 or empty
+    double remaining = -1;    // count or credits, -1 = n/a
+    double entitlement = -1;
+};
+
+struct AllowanceSnapshot {
+    std::string plan;
+    std::vector<AllowanceWindow> windows;
+    std::optional<double> credits_balance;
+    std::string unit, currency;
+};`;
+---
+
+<PluginDocsLayout
+  title="Capabilities"
+  description="Reference for every amber plugin capability: tools, prompts, status, panels, commands, providers, wallets and allowances."
+  current="capabilities"
+>
+  <h1>Capabilities</h1>
+
+  <p>
+    One capability = one contribution. <code>kind()</code> tells the runtime
+    which registry installs it; <code>install()</code> returns a handle the
+    ledger keeps. There are eight kinds, each with a concrete base class in
+    <code>include/agent/extensions.h</code>.
+  </p>
+
+  <h2>Tool</h2>
+  <p>
+    The same path amber's own tools take, the built-in read/write/search/bash
+    set arrives through <code>ToolCapability</code>, so the path cannot rot.
+  </p>
+  <div class="terminal"><pre>{toolIface}</pre></div>
+  <div class="terminal"><pre>{toolCap}</pre></div>
+  <p>
+    Give it a <strong>factory</strong> when the tool needs harness services at
+    construction. Returning an empty list <em>declines</em>, the tool is simply
+    absent and the plugin stays active:
+  </p>
+  <div class="terminal"><pre>{toolFactory}</pre></div>
+  <ul class="feature-list">
+    <li>Return errors as <code>{'ToolResult{false, "", error}'}</code>: never throw.</li>
+    <li>Returning several tools from one factory makes them one contribution: one ledger entry, removed together.</li>
+    <li>Tool ownership is recorded by the registry, so a plugin can never remove another plugin's tool.</li>
+  </ul>
+
+  <h2>Prompt block</h2>
+  <p>
+    A block of text appended to the prompt as its own system message, on the
+    <strong>prompt copy</strong>: the sealed <code>Context</code> is never
+    mutated. Ordered by <code>(priority, registration)</code>; core blocks use
+    100/200/300.
+  </p>
+  <div class="terminal"><pre>{promptBlock}</pre></div>
+  <p>
+    <strong>Determinism matters.</strong> A block whose content changes every
+    turn invalidates the server's KV prefix from its position onward. Keep
+    volatile content at a high priority (near the tail), or cache until the fact
+    it reports actually changed.
+  </p>
+
+  <h2>Status segment</h2>
+  <p>
+    One segment of the status bar. Segments are composed by
+    <code>StatusRegistry</code> in <code>(priority, registration)</code> order;
+    <code>drop_priority</code> decides what disappears first when the bar is too
+    narrow.
+  </p>
+  <div class="terminal"><pre>{statusSegment}</pre></div>
+  <p>
+    The render callable runs <strong>inside frame composition on the UI thread</strong>:
+    pure, fast, no I/O, no locks. Update the value from an event handler, and
+    let <code>tick()</code> do time-driven work.
+  </p>
+  <div class="terminal"><pre>{statusSnapshot}</pre></div>
+
+  <h2>Panel</h2>
+  <p>
+    A full-screen view. The host owns placement, framing, scrolling and key
+    routing; a panel only produces text and optionally consumes keys while
+    focused.
+  </p>
+  <div class="terminal"><pre>{panel}</pre></div>
+  <p>
+    <code>lines(width)</code> is called on every repaint, keep it pure and
+    fast. There is deliberately no global key interception.
+  </p>
+
+  <h2>Command</h2>
+  <p>
+    A slash-command namespace: a root, its help/man, the child nodes
+    (completions.json shape), and one handler per executable leaf. The host
+    merges the subtree into the command tree and binds each leaf to its handler.
+  </p>
+  <div class="terminal"><pre>{command}</pre></div>
+  <ul class="feature-list">
+    <li>The handler returns the text to display; the host prints it. That keeps the plugin UI-free, no <code>tui/</code> includes.</li>
+    <li><code>handlers</code> is keyed by the leaf's <strong>dotted path</strong> relative to the root (<code>"greet"</code>, <code>"config.set"</code>). A leaf with no handler stays inert.</li>
+    <li>You never name an action string, the host derives it (<code>plugin.&lt;id&gt;.&lt;path&gt;</code>), so a plugin command cannot collide with a core one.</li>
+    <li>Toggling the plugin rebuilds the tree immediately: commands appear or disappear with no restart.</li>
+    <li>The <strong>TUI</strong> owns the slash engine; the headless CLI has no command tree, so this is TUI-only today.</li>
+  </ul>
+  <p>
+    The bundled <code>plugins/hello/</code> is the worked example,
+    <code>/hello greet amber</code> returns <code>Hello, amber!</code>.
+  </p>
+  <Diagram
+    name="pluginCommandBinding"
+  />
+
+  <h2>Provider</h2>
+  <p>
+    Contributes an LLM provider: its presets, and optionally the wire protocol
+    they speak. A provider that speaks a shared protocol (an OpenAI-compatible
+    gateway) passes <strong>no dialect factory</strong>: it contributes presets
+    and leaves the shared protocol alone, so switching it off cannot take the
+    shared protocol down with it.
+  </p>
+  <div class="terminal"><pre>{provider}</pre></div>
+  <p>
+    Everything wire-specific belongs in the <code>Dialect</code>, not in the
+    plugin's plumbing, and a provider plugin must not open its own HTTP client.
+    Full walkthrough: <a href="/plugins/providers">Providers</a>.
+  </p>
+
+  <h2>Wallet</h2>
+  <p>
+    A provider's account balance. Supply only the <em>fetch</em>; the runtime
+    owns when to poll, how to cache, and how to render, so every provider's
+    readout behaves identically and no plugin carries a poll loop.
+  </p>
+  <div class="terminal"><pre>{wallet}</pre></div>
+  <p>
+    Return the amount, or <code>std::nullopt</code> when there is nothing honest
+    to report. <code>nullopt</code> is normal, the bar shows <code>-</code>.
+    Never invent a value. The fetch runs off the UI thread at most once per turn
+    boundary.
+  </p>
+
+  <h2>Allowance</h2>
+  <p>
+    Subscription or quota windows (rolling 5-hour sessions, weekly caps, monthly
+    credits). Same model as the wallet: the plugin supplies the fetch, the
+    runtime owns polling, caching and rendering.
+  </p>
+  <div class="terminal"><pre>{allowance}</pre></div>
+  <div class="terminal"><pre>{allowanceSnapshot}</pre></div>
+  <p>
+    The bar shows the <strong>closest affecting window</strong>: the highest
+    <code>percent_used</code>, ties broken by the shortest label. Return
+    <code>nullopt</code> on any failure; the bar shows <code>-</code>, never a
+    fake zero.
+  </p>
+
+  <h2>Not extension points</h2>
+  <p>
+    Per-plugin settings and log sinks were removed or deferred, they had no
+    producer and no consumer. There is no <code>SettingCapability</code> or
+    <code>LogSink</code> in the tree, and host services to the user are not
+    implemented yet. Events are subscribed directly (see
+    <a href="/plugins/events">Events</a>).
+  </p>
+</PluginDocsLayout>

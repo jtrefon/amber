@@ -1,12 +1,14 @@
-amber: an AI agent harness for Linux servers
+amber: a native C++ AI agent runtime and CLI harness
 
-amber is a free-software agent runtime that exposes a small set of
-pre-defined tools (read with pagination, patch-style write, a search
-tool that starts as a grep wrapper and can grow into indexed / semantic
-search, and an approval-gated bash tool for running shell commands) to an
-OpenAI-compatible LLM API. System and tool descriptions are
-written as Markdown prompts. The request is routed to the LLM, which may
-invoke tools; results are fed back until the agent terminates.
+Amber is an open-source C++17 AI agent runtime and CLI harness with an
+extensible plugin architecture, multi-provider support, MCP, sub-agents and
+terminal clients for Linux and macOS.
+
+The core is deliberately extensible: providers, tools and UI capabilities
+use the same plugin architecture, allowing Amber to grow without hardcoding
+every integration into the runtime. Use the interactive terminal UI, run the
+headless CLI in automation, or embed the native runtime in another C++
+project.
 
 Install (macOS):
 
@@ -21,14 +23,14 @@ Install (macOS):
   Both install the prebuilt `amber` (TUI), `amber-cli` (headless CLI) and
   `amber-bench` (benchmark harness) binaries with no compilation. Because
   amber ships as a Homebrew formula, there is no Gatekeeper prompt and no
-  Apple Developer certificate needed. (Intel Macs are supported from
-  v0.5.0 onward; Apple Silicon works today.)
+  Apple Developer certificate needed. Apple Silicon only, Intel macOS
+  builds are no longer distributed.
 
   Note: an unrelated project named `amber` (a Crystal web framework) is in
-  homebrew-core, so always use the full name above — never bare
+  homebrew-core, so always use the full name above, never bare
   `brew install amber`.
 
-  Linux users build from source — see "Building" below.
+  Linux users build from source, see "Building" below.
 
 Build requirements:
   - A C++17 compiler (g++ or clang++)
@@ -39,12 +41,12 @@ Build requirements:
   - nlohmann/json is vendored under include/ (no separate install needed)
 
 Layout:
-  lib/        libagent_core.a + libagent_tools.a — harness core (LLM client,
+  lib/        libagent_core.a + libagent_tools.a, harness core (LLM client,
               tool registry, agent loop, prompt/markdown loader, built-in
               tools). No UI dependency.
-  src/        amber-cli — headless CLI client linking libagent.
-  tui/        amber — ncurses TUI client linking libagent.
-  bench/      amber-bench — benchmark & KPI harness (scenarios, oracle scoring,
+  src/        amber-cli, headless CLI client linking libagent.
+  tui/        amber, ncurses TUI client linking libagent.
+  bench/      amber-bench, benchmark & KPI harness (scenarios, oracle scoring,
               static templates). Observer over AgentHooks; no engine changes.
   tools/      the pre-defined tools: read (paginated), write (patch-style),
               search (pluggable backend: grep or local semantic index),

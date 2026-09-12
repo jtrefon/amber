@@ -1,0 +1,106 @@
+---
+import PluginDocsLayout from '../../layouts/PluginDocsLayout.astro';
+import Diagram from '../../components/Diagram.astro';
+
+const testShape = `// tests/example_plugin_test.cpp, the reference test for the hello plugin.
+TEST(example_hello_plugin_contributes_and_unwinds_a_tool) {
+    ScratchConfig scratch("hello");       // redirects XDG_CONFIG_HOME
+    Fixture f;                            // ToolRegistry + Config + Workspace
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<examples::HelloPlugin>());
+
+    ASSERT_FALSE((bool)f.tools.find("greet"));   // registered, not started
+
+    runtime.start();
+    ASSERT_TRUE(runtime.status("hello").enabled);
+    auto tool = f.tools.find("greet");
+    ASSERT_TRUE((bool)tool);
+    ASSERT_EQ(tool->execute(json{{"name", "amber"}}).output,
+              std::string("Hello, amber!"));
+
+    ASSERT_TRUE(runtime.set_state("hello", false));   // disable
+    ASSERT_FALSE((bool)f.tools.find("greet"));        // ledger unwound
+}`;
+
+const gates = `make clean && make && make test && make lint && make analyze && make check`;
+
+const checklist = `- [ ] Plugin depends only on the public plugin API, no tui/ includes.
+- [ ] Every contribution goes through a capability; nothing registered
+      in initialize outside the ledger.
+- [ ] Render callables are pure; no I/O, no blocking, no mutation.
+- [ ] No blocking in event handlers.
+- [ ] Tests: contribution, removal, and one hermetic end-to-end path.
+- [ ] The availability table is updated if a capability's status changed.
+- [ ] Zero new clang-tidy/cppcheck findings; class <= 200 lines,
+      method <= 10 lines.`;
+---
+
+<PluginDocsLayout
+  title="Testing & review"
+  description="How to test an amber plugin hermetically and the checklist a plugin PR is reviewed against."
+  current="testing"
+>
+  <h1>Testing &amp; review</h1>
+
+  <p>
+    Every contribution lands with a failing test first (red), then the
+    implementation (green), then a PR that keeps the gates green on both
+    <code>g++</code> and <code>clang++</code>.
+  </p>
+
+  <h2>The four test layers</h2>
+  <ul class="feature-list">
+    <li><strong>Unit</strong>: capabilities against a fake <code>PluginServices</code>; assert what you contribute and that removal is total.</li>
+    <li><strong>Hermetic integration</strong>: register your plugin in a <code>PluginRuntime</code>, drive a turn with the fake LLM client (<code>tests/fake_llm.h</code>), assert observable effects. <strong>No network, ever.</strong></li>
+    <li><strong>Dialect tests</strong> (providers), pure body/parse/stream fixtures, mirroring <code>tests/dialect_gemini_test.cpp</code>.</li>
+    <li><strong>Regression</strong>: <code>make test</code>; your contributions must not leak into other tests. The ledger test exists to catch exactly this.</li>
+  </ul>
+  <Diagram
+    name="testLayers"
+  />
+
+  <h2>Redirection and hermeticity</h2>
+  <p>
+    Plugin state is persisted under <code>~/.config/amber/plugins/&lt;id&gt;/</code>.
+    A test that activates a plugin must redirect <code>XDG_CONFIG_HOME</code> to
+    a scratch directory so it never touches the developer's real config. The
+    reference test does this with a small RAII guard.
+  </p>
+
+  <h2>The reference test</h2>
+  <div class="terminal"><pre>{testShape}</pre></div>
+  <p>
+    This is the shape to copy: register, assert nothing is installed, start,
+    assert the contribution is live, disable, assert it is gone. It is compiled
+    from <code>examples/plugin_hello/</code> by <code>make test</code>, so it
+    cannot rot.
+  </p>
+
+  <h2>Doc-as-test</h2>
+  <p>
+    <code>tests/plugin_docs_test.cpp</code> asserts that every
+    <code>CapabilityKind</code>, every event payload struct, and every bundled
+    plugin id is documented in the developer guide. Add a capability or an event
+    without updating the guide and the suite fails, documentation drift is
+    caught in CI, not in review.
+  </p>
+
+  <h2>The gates</h2>
+  <div class="terminal"><pre>{gates}</pre></div>
+  <ul class="feature-list">
+    <li><code>make test</code>: the unit suite (hermetic).</li>
+    <li><code>make check</code>: build-hygiene invariants.</li>
+    <li><code>make lint</code>: clang-tidy; <code>make analyze</code>: cppcheck. Both must be clean.</li>
+  </ul>
+
+  <h2>Review checklist</h2>
+  <div class="terminal"><pre>{checklist}</pre></div>
+
+  <h2>Prove the seam held</h2>
+  <p>
+    A provider or tool plugin's diff must not touch
+    <code>lib/http_transport.cpp</code>, the agent loop, or the TUI. If it does,
+    the framework, not your plugin, is missing an extension point. Say so in
+    the PR instead of working around it.
+  </p>
+</PluginDocsLayout>

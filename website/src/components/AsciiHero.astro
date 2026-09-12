@@ -1,5 +1,6 @@
 ---
 import asciiArt from '../data/ascii-hero.html?raw';
+import { site } from '../data/site';
 ---
 
 <div class="ascii-hero">
@@ -9,16 +10,26 @@ import asciiArt from '../data/ascii-hero.html?raw';
   </div>
 
   <h1 class="tagline">
-    an AI agent harness for Linux servers<span class="cursor">█</span>
+    a native C++ AI agent runtime and CLI harness<span class="cursor">█</span>
   </h1>
   <p class="pitch">
-    The only C++17 agent harness in the field, compiled, not scripted.<br />
-    One binary, no Python, no Node, no accounts, no telemetry.<br />
-    A BitchX-inspired TUI, real benchmarks, compression that works.
+    Built as a native C++17 runtime, not a collection of scripts around an API.<br />
+    Extensible providers, tools and capabilities through one plugin architecture.<br />
+    Interactive TUI or headless CLI, running on Linux and macOS.
   </p>
   <div class="cta-row">
-    <a href="/download" class="cta">./download</a>
-    <a href="https://github.com/jtrefon/amber" target="_blank" rel="noopener" class="cta outline">github.com/jtrefon/amber</a>
+    <a href="/download" class="cta">./try</a>
+    <a href={site.repo} target="_blank" rel="noopener" class="cta outline">github.com/jtrefon/amber</a>
+    <a href="/architecture" class="cta outline">./architecture</a>
+  </div>
+
+  <div class="beta-notice">
+    <p class="beta-label">Beta</p>
+    <p class="beta-text">
+      Amber is usable today, but still evolving. If you try it, feedback is
+      genuinely useful, especially things that feel confusing, incomplete or
+      broken.
+    </p>
   </div>
 </div>
 
@@ -130,5 +141,32 @@ import asciiArt from '../data/ascii-hero.html?raw';
     border-color: #ffb000;
     color: #ffb000;
     text-shadow: 0 0 6px rgba(255, 176, 0, 0.5);
+  }
+
+  .beta-notice {
+    margin: 32px auto 0;
+    max-width: 560px;
+    border: 1px solid #33260e;
+    background: #0a0700;
+    padding: 16px 24px;
+    text-align: left;
+  }
+
+  .beta-label {
+    color: #ffb000;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.4);
+  }
+
+  .beta-text {
+    color: #9a7c47;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 0;
   }
 </style>

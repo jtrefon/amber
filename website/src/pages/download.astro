@@ -1,52 +1,112 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
+import { site } from '../data/site';
+
+const v = site.version;
+const dl = `https://github.com/jtrefon/amber/releases/download/v${v}`;
 ---
 
-<BaseLayout title="Download" description="Download amber: Debian/Ubuntu .deb, Fedora/RHEL .rpm, or the static tarball. Binaries, not a build.">
+<BaseLayout title="Get Amber" description={`Download amber ${v} for macOS (Apple Silicon) and Linux, or install via Homebrew. Prebuilt binaries, no compiler required.`}>
   <NavBar />
   <main>
-    <h1>Download</h1>
+    <h1>Get Amber</h1>
 
     <section class="section">
       <p>
-        Prebuilt binaries for Linux x86_64. No compiler, no runtime, no interpreter.
-        Latest release: <strong>v0.3.1</strong>. Packages are built by the release
+        Latest release: <strong>v{v}</strong>. Packages are built by the release
         pipeline and checksummed (SHA-256).
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>macOS, Apple Silicon</h2>
+      <p>
+        Prebuilt darwin-arm64 tarball. Apple Silicon only, Intel macOS builds
+        are no longer distributed.
+      </p>
+      <div class="download-grid">
+        <div class="download-card">
+          <h3>Homebrew (recommended)</h3>
+          <p class="pkg-name">jtrefon/homebrew-amber/amber-agent</p>
+          <div class="terminal">
+            <pre>brew install jtrefon/homebrew-amber/amber-agent</pre>
+          </div>
+          <p class="card-note">
+            Installs <code>amber</code> (TUI), <code>amber-cli</code> (headless)
+            and <code>amber-bench</code> (benchmark harness) with no
+            compilation. Because amber ships as a Homebrew formula, there is no
+            Gatekeeper prompt and no Apple Developer certificate needed.
+          </p>
+          <p class="card-note">
+            An unrelated project named <code>amber</code> (a Crystal web
+            framework) is in homebrew-core, so always use the full name above,
+            never bare <code>brew install amber</code>.
+          </p>
+        </div>
+
+        <div class="download-card">
+          <h3>Tarball (arm64)</h3>
+          <p class="pkg-name">amber-{v}-darwin-arm64.tar.gz</p>
+          <a class="download-btn" href={`${dl}/amber-${v}-darwin-arm64.tar.gz`} rel="noopener">download tarball</a>
+          <div class="terminal">
+            <pre>tar -xzf amber-{v}-darwin-arm64.tar.gz
+sudo tar -C / -xzf amber-{v}-darwin-arm64.tar.gz
+amber</pre>
+          </div>
+          <p class="card-note">
+            The staged install tree: binaries, portable libraries, headers, and
+            runtime data.
+          </p>
+        </div>
+      </div>
+      <p>
+        Checksum: <a href={`${dl}/amber-${v}-darwin-arm64.tar.gz.sha256`} rel="noopener">.tar.gz sha256</a>.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Linux</h2>
+      <p>
+        Prebuilt binaries for x86_64. No compiler, no runtime, no interpreter.
       </p>
       <div class="download-grid">
         <div class="download-card">
           <h3>Debian / Ubuntu</h3>
-          <p class="pkg-name">amber_0.3.1_amd64.deb</p>
-          <a class="download-btn" href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber_0.3.1_amd64.deb" rel="noopener">download .deb</a>
+          <p class="pkg-name">amber_{v}_amd64.deb</p>
+          <a class="download-btn" href={`${dl}/amber_${v}_amd64.deb`} rel="noopener">download .deb</a>
           <div class="terminal">
-            <pre>sudo dpkg -i amber_0.3.1_amd64.deb
+            <pre>sudo dpkg -i amber_{v}_amd64.deb
 amber</pre>
           </div>
         </div>
 
         <div class="download-card">
           <h3>Fedora / RHEL</h3>
-          <p class="pkg-name">amber_0.3.1.x86_64.rpm</p>
-          <a class="download-btn" href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber_0.3.1.x86_64.rpm" rel="noopener">download .rpm</a>
+          <p class="pkg-name">amber_{v}.x86_64.rpm</p>
+          <a class="download-btn" href={`${dl}/amber_${v}.x86_64.rpm`} rel="noopener">download .rpm</a>
           <div class="terminal">
-            <pre>sudo rpm -i amber_0.3.1.x86_64.rpm
+            <pre>sudo rpm -i amber_{v}.x86_64.rpm
 amber</pre>
           </div>
         </div>
 
         <div class="download-card">
           <h3>Any distro (tarball)</h3>
-          <p class="pkg-name">amber-0.3.1-linux-x86_64.tar.gz</p>
-          <a class="download-btn" href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-0.3.1-linux-x86_64.tar.gz" rel="noopener">download tarball</a>
+          <p class="pkg-name">amber-{v}-linux-x86_64.tar.gz</p>
+          <a class="download-btn" href={`${dl}/amber-${v}-linux-x86_64.tar.gz`} rel="noopener">download tarball</a>
           <div class="terminal">
-            <pre>sudo tar -xzf amber-0.3.1-linux-x86_64.tar.gz -C /
+            <pre>sudo tar -xzf amber-{v}-linux-x86_64.tar.gz -C /
 amber</pre>
           </div>
           <p class="card-note">
-            Prebuilt binaries for every other distro. The tarball is the staged
-            install tree: binaries, the portable libraries, headers, and runtime
-            data, extracted straight to <code>/</code>.
+            The tarball is the staged install tree: binaries, the portable
+            libraries, headers, and runtime data, extracted straight to
+            <code>/</code>.
           </p>
         </div>
 
@@ -60,18 +120,24 @@ makepkg -si</pre>
           </div>
           <p class="card-note">
             pacman package, built locally with makepkg (runs the unit suite in
-            check()). Not on the AUR yet; the PKGBUILD is the standard way in.
+            check()).
           </p>
         </div>
       </div>
       <p>
-        Checksums: <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber_0.3.1_amd64.deb.sha256" rel="noopener">.deb sha256</a>,
-        <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber_0.3.1.x86_64.rpm.sha256" rel="noopener">.rpm sha256</a>,
-        <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-0.3.1-linux-x86_64.tar.gz.sha256" rel="noopener">.tar.gz sha256</a>.
+        Checksums: <a href={`${dl}/amber_${v}_amd64.deb.sha256`} rel="noopener">.deb sha256</a>,
+        <a href={`${dl}/amber_${v}.x86_64.rpm.sha256`} rel="noopener">.rpm sha256</a>,
+        <a href={`${dl}/amber-${v}-linux-x86_64.tar.gz.sha256`} rel="noopener">.tar.gz sha256</a>.
       </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Build from source</h2>
       <p>
-        Newer versions: <a href="https://github.com/jtrefon/amber/releases" rel="noopener">all releases on GitHub</a>.
-        Prefer to build? <a href="/install">Build from source</a>.
+        Prefer to build? See the <a href="/install">install guide</a> for
+        prerequisites and build instructions for macOS and Linux.
       </p>
     </section>
 
@@ -84,10 +150,10 @@ makepkg -si</pre>
         (prompts, command tree, completions) under <code>/usr/share/amber</code>:
       </p>
       <ul class="feature-list">
-        <li><strong>amber</strong> - the interactive TUI (ncurses, BitchX-style)</li>
-        <li><strong>amber-cli</strong> - the headless agent for scripts, cron, CI</li>
-        <li><strong>libagent_core.a + libagent_tools.a</strong> - the portable agent engine, as static libraries</li>
-        <li><strong>include/agent/*</strong> - the library headers, for embedding amber in your own C++ project</li>
+        <li><strong>amber</strong>: the interactive TUI (ncurses, BitchX-style)</li>
+        <li><strong>amber-cli</strong>: the headless agent for scripts, cron, CI</li>
+        <li><strong>libagent_core.a + libagent_tools.a</strong>: the portable agent engine, as static libraries</li>
+        <li><strong>include/agent/*</strong>: the library headers, for embedding amber in your own C++ project</li>
       </ul>
       <p>
         <code>amber-bench</code>, the benchmark and KPI harness, is a development
@@ -104,11 +170,21 @@ makepkg -si</pre>
         Optional Chrome DevTools Protocol plugin for browser automation:
       </p>
       <div class="terminal">
-        <pre>sudo dpkg -i amber-plugin-cdp_0.3.1_amd64.deb</pre>
+        <pre>sudo dpkg -i amber-plugin-cdp_{v}_amd64.deb</pre>
       </div>
       <p>
-        <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-plugin-cdp_0.3.1_amd64.deb" rel="noopener">download .deb</a> ·
-        <a href="https://github.com/jtrefon/amber/releases/download/v0.3.1/amber-plugin-cdp_0.3.1.x86_64.rpm" rel="noopener">download .rpm</a>
+        <a href={`${dl}/amber-plugin-cdp_${v}_amd64.deb`} rel="noopener">download .deb</a> ·
+        <a href={`${dl}/amber-plugin-cdp_${v}.x86_64.rpm`} rel="noopener">download .rpm</a>
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>GitHub releases</h2>
+      <p>
+        For all releases, checksums, and the full artifact list:
+        <a href="https://github.com/jtrefon/amber/releases" rel="noopener">github.com/jtrefon/amber/releases</a>
       </p>
     </section>
   </main>

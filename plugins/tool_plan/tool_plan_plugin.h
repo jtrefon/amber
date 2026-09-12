@@ -2,7 +2,7 @@
 #define AGENT_PLUGINS_TOOL_TOOL_PLAN_H
 
 #include "agent/extensions.h"
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 
 #include <memory>
 #include <string>

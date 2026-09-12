@@ -1,15 +1,15 @@
-## Spec: Prompt Assembly — injected blocks
+## Spec: Prompt Assembly, injected blocks
 
 ### Purpose
 
 Define what the model receives as *instructions* on every request: the base
 system prompt, the blocks the harness injects for the turn (retrieved memories,
-skill metadata, session brief), and the blocks plugins contribute — where each
+skill metadata, session brief), and the blocks plugins contribute, where each
 one sits, in what order, and why.
 
 The rule this spec exists to enforce: **an injected block is assembled after the
 compression gate, never before it.** The compression rebuild replaces the prompt
-copy, so anything injected earlier is discarded. That is not hypothetical — it
+copy, so anything injected earlier is discarded. That is not hypothetical, it
 silently dropped retrieved memories on every compressing turn, which is exactly
 when a long session needs them.
 
@@ -80,7 +80,7 @@ pass so the model sees a single coherent sequence.
 
 - **Given**: the same agent, with a gate that never fires
 - **Input**: one turn
-- **Expected**: the memory text reaches the model — the fix for [PA-01] must not
+- **Expected**: the memory text reaches the model, the fix for [PA-01] must not
   cost anything on the ordinary path
 - **Regression guard**: `agent_injects_in_memory_blocks_without_compression`
 
@@ -99,7 +99,7 @@ pass so the model sees a single coherent sequence.
 - **Given**: the same agent, memory + brief + plugin block
 - **Input**: one turn with no compression
 - **Expected**: the prompt is byte-for-byte what it was before this spec's
-  implementation — the fix's blast radius is compressing turns only
+  implementation, the fix's blast radius is compressing turns only
 - **Regression guard**: verified by comparing dumped prompts across the change
   (recorded in `docs/plugin-framework-tracker.md`); the ordering test pins the
   shape going forward
@@ -111,7 +111,7 @@ pass so the model sees a single coherent sequence.
 - **Depends on**: `context/context-ownership-and-parallel-compression.md` (the
   sealed stack and the prompt-copy rule), `compression/compression-pipeline.md`
   (the rebuild this spec orders around)
-- **Depended on by**: `plugins/plugin-framework-v2.md` (plugin prompt blocks),
+- **Depended on by**: `plugins/plugin-framework.md` (plugin prompt blocks),
   `agent-loop/core-loop.md` (`chat_once` as a step of the turn)
 - **Test coverage**: `tests/agent_loop_test.cpp` (PA-01..03),
   `tests/agent_events_test.cpp` (plugin block rendering)
@@ -120,4 +120,4 @@ pass so the model sees a single coherent sequence.
 
 | Date | Reason |
 |------|--------|
-| 2026-09-11 | Initial spec — single assembly point after the compression gate; documents the memory-block regression and why core blocks are not registry entries |
+| 2026-09-11 | Initial spec, single assembly point after the compression gate; documents the memory-block regression and why core blocks are not registry entries |

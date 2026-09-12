@@ -1,8 +1,15 @@
 #include "slash_dispatcher.h"
+#include "plugin_commands.h"
 #include "tui.h"
 
 #include <agent/data_path.h>
 #include <agent/mcp_tools.h>
+
+#include <nlohmann/json.hpp>
+
+#include <functional>
+#include <string>
+#include <vector>
 
 namespace tui {
 
@@ -28,6 +35,17 @@ void SlashDispatcher::refresh_completions() {
         if (p.state == agent::PluginState::Enabled)
             tui_.settings_.merge_completions_json(p.manifest.completion);
     tui_.settings_.merge_completions_json(agent::mcp_completion_subtree(tui_.reg_));
+
+    // Plugin command namespaces: merge each contribution and bind its
+    // executable leaves into the action registry. The binding resolves the
+    // handler from the live registry at dispatch time, so a disable/re-enable
+    // always uses the current handler.
+    install_plugin_commands(
+        [this]() -> const std::vector<agent::CommandRegistry::Entry>& {
+            return tui_.plugin_runtime_.commands().all();
+        },
+        tui_.settings_, action_registry_,
+        [this](const std::string& text) { tui_.append_line(P_STATUS, text); });
 }
 
 void SlashDispatcher::request_quit() { tui_.quit_ = true; }

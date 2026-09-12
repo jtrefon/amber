@@ -2,7 +2,7 @@
 #ifndef AGENT_PLUGINS_METRICS_H
 #define AGENT_PLUGINS_METRICS_H
 
-#include "agent/plugin_v2.h"
+#include "agent/plugin_core.h"
 #include <atomic>
 #include <chrono>
 

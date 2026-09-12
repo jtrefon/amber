@@ -1,0 +1,123 @@
+name: Bug report
+description: Report a problem so we can fix it
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please search the
+        [existing issues](https://github.com/jtrefon/amber/issues) first.
+        your problem may already be tracked.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened. Include error output or a screenshot if relevant.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      description: Where are you running amber?
+      options:
+        - macOS (Apple Silicon)
+        - Linux (x86_64)
+        - Other / unsupported
+    validations:
+      required: true
+
+  - type: input
+    id: os_detail
+    attributes:
+      label: OS version / distro
+      placeholder: e.g. macOS 15.3, Ubuntu 24.04, Fedora 41
+    validations:
+      required: false
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal (and multiplexer)
+      placeholder: e.g. Ghostty, iTerm2, tmux, PuTTY
+    validations:
+      required: false
+
+  - type: input
+    id: install_method
+    attributes:
+      label: How did you install amber?
+      placeholder: e.g. Homebrew, .deb, .rpm, tarball, built from source
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: amber version
+      description: Run `amber --version`, or the version shown in the status bar.
+      placeholder: e.g. 0.4.13
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit (if built from source)
+      placeholder: git rev-parse --short HEAD
+    validations:
+      required: false
+
+  - type: input
+    id: compiler
+    attributes:
+      label: Compiler and version (if built from source)
+      placeholder: g++ --version / clang++ --version
+    validations:
+      required: false
+
+  - type: input
+    id: model
+    attributes:
+      label: LLM server / model
+      placeholder: e.g. local llama-turboq / Qwopus-27B, OpenRouter / …
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help, such as logs, config, or related issues.
+    validations:
+      required: false

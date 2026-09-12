@@ -45,8 +45,9 @@ void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todo
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
+    CommandRegistry commands;
     PluginServices services(reg, prompts ? *prompts : scratch_prompts, status, panels, wallets,
-                            allowances, events);
+                            allowances, events, commands);
     services.config = &cfg;
     services.host = &host;
 
