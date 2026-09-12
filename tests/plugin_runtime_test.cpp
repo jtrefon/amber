@@ -1455,6 +1455,22 @@ TEST(runtime_command_contribution_is_listed_and_removed) {
         ASSERT_FALSE(c.kind == CapabilityKind::Command);
 }
 
+// A tool-contributing plugin survives a disable/re-enable cycle: install is
+// replayed on activation, so the factory must run again.
+TEST(runtime_tool_capability_returns_after_reenable) {
+    ScratchConfig scratch("tool-reenable");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<NamedToolPlugin>("alpha", "alpha_tool"));
+    runtime.start();
+
+    ASSERT_TRUE((bool)f.tools.find("alpha_tool"));
+    ASSERT_TRUE(runtime.set_state("alpha", false));
+    ASSERT_FALSE((bool)f.tools.find("alpha_tool"));
+    ASSERT_TRUE(runtime.set_state("alpha", true));
+    ASSERT_TRUE((bool)f.tools.find("alpha_tool"));
+}
+
 TEST(bundled_hello_plugin_contributes_the_hello_command) {
     ScratchConfig scratch("hello-command");
     Fixture f;
@@ -1467,4 +1483,13 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     ASSERT_EQ(runtime.commands().all()[0].spec.root, std::string("hello"));
     ASSERT_EQ(runtime.commands().all()[0].spec.handlers.at("greet")("amber"),
               std::string("Hello, amber!"));
+
+    // A command-contributing plugin survives a disable/re-enable cycle: the
+    // capability must come back with the same binding.
+    ASSERT_TRUE(runtime.set_state("hello", false));
+    ASSERT_FALSE(runtime.status("hello").enabled);
+    ASSERT_EQ(runtime.commands().size(), 0u);
+    ASSERT_TRUE(runtime.set_state("hello", true));
+    ASSERT_TRUE(runtime.status("hello").enabled);
+    ASSERT_EQ(runtime.commands().size(), 1u);
 }
