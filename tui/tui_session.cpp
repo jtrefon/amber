@@ -48,7 +48,7 @@ void SessionController::restore_message_lines(const agent::Message& m,
             RestoredCall c = std::move(pending.front());
             pending.erase(pending.begin());
             rich::Line ln = tool_display::result_line(c.name, c.args, true,
-                                                      m.content, "");
+                                                      m.content, "", tui_.reg_);
             rich::Run ts;
             ts.text = Tui::timestamp();
             ts.pair = P_REASONING;

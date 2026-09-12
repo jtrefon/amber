@@ -265,11 +265,20 @@ PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts, Sta
 // Capabilities
 // ---------------------------------------------------------------------------
 
-ToolCapability::ToolCapability(std::string name, std::unique_ptr<Tool> tool)
-    : name_(std::move(name)), tool_(std::move(tool)) {}
+namespace {
 
-ToolCapability::ToolCapability(std::string name, Factory factory)
-    : name_(std::move(name)), factory_(std::move(factory)) {}
+ToolMeta meta_for_tool(const ToolCapability::Verbs& verbs, const std::string& tool_name) {
+    const auto it = verbs.find(tool_name);
+    return ToolMeta{it == verbs.end() ? std::string{} : it->second};
+}
+
+} // namespace
+
+ToolCapability::ToolCapability(std::string name, std::unique_ptr<Tool> tool, Verbs verbs)
+    : name_(std::move(name)), verbs_(std::move(verbs)), tool_(std::move(tool)) {}
+
+ToolCapability::ToolCapability(std::string name, Factory factory, Verbs verbs)
+    : name_(std::move(name)), verbs_(std::move(verbs)), factory_(std::move(factory)) {}
 
 InstallResult ToolCapability::install(PluginServices& services) {
     InstallResult r;
@@ -300,7 +309,9 @@ InstallResult ToolCapability::install(PluginServices& services) {
         if (!tool)
             continue;
         registered.push_back(tool->name());
-        registry->register_tool(std::move(tool), owner);
+        // The meta travels with the registration, so the UI reads the verb the
+        // plugin declared instead of keeping its own name→verb table.
+        registry->register_tool(std::move(tool), owner, meta_for_tool(verbs_, registered.back()));
     }
     if (registered.empty()) {
         r.declined = true;

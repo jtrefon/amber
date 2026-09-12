@@ -342,10 +342,37 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
     std::remove(p2.c_str());
 }
 
-// The balance readout belongs to the provider plugin that offers it: the
-// plugin resolves its own token (explicit override, else the gateway key when
-// its provider is active) and reports only what it can honestly show. Core
-// code has no idea the provider exists.
+// Each tool declares the word the status bar shows while it runs, in the
+// contribution that installs it. The display falls back to a generic word when
+// one is missing, so a forgotten verb is invisible at runtime — which is
+// exactly why it is asserted here against the real set.
+TEST(core_tools_declare_their_display_verbs) {
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  /*enable_plan_tool=*/true);
+
+    ASSERT_EQ(reg.meta_for("read").verb, std::string("reading"));
+    ASSERT_EQ(reg.meta_for("write").verb, std::string("writing"));
+    ASSERT_EQ(reg.meta_for("search").verb, std::string("searching"));
+    ASSERT_EQ(reg.meta_for("bash").verb, std::string("hacking"));
+    ASSERT_EQ(reg.meta_for("todowrite").verb, std::string("planning"));
+
+    // The process set shares one contribution but names each tool.
+    ASSERT_EQ(reg.meta_for("process_start").verb, std::string("spawning"));
+    ASSERT_EQ(reg.meta_for("process_read").verb, std::string("reading"));
+    ASSERT_EQ(reg.meta_for("process_stop").verb, std::string("stopping"));
+
+    // Unknown tools are not an error: the display falls back, the registry
+    // reports nothing rather than inventing a word.
+    ASSERT(reg.meta_for("nonexistent").verb.empty());
+}
+
+// The balance readout belongs to the provider plugin that offers it: the core
+// code has no idea the provider exists. The plugin resolves its own token
+// (explicit override, else the gateway key when its provider is active) and
+// reports only what it can honestly show.
 TEST(kilocode_plugin_resolves_its_own_balance_token) {
     agent::Config cfg;
 
