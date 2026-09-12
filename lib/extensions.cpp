@@ -68,12 +68,13 @@ std::vector<ExtensionItem> PromptRegistry::items() const {
 // ---------------------------------------------------------------------------
 
 Contribution StatusRegistry::add(const std::string& owner, const std::string& id, int priority,
-                                 int drop_priority, Render render) {
+                                 int drop_priority, Render render, StatusAlign align) {
     Entry entry;
     entry.owner = owner;
     entry.id = id;
     entry.priority = priority;
     entry.drop_priority = drop_priority;
+    entry.align = align;
     entry.seq = next_seq_++;
     entry.render = std::move(render);
     entries_.push_back(std::move(entry));
@@ -105,7 +106,8 @@ std::vector<StatusSegment> StatusRegistry::render(const StatusSnapshot& snapshot
         StatusText text = entry.render(snapshot);
         if (text.text.empty())
             continue; // a segment may decline to appear
-        out.push_back({entry.id, std::move(text.text), text.tone, entry.drop_priority});
+        out.push_back(
+            {entry.id, std::move(text.text), text.tone, entry.drop_priority, entry.align});
     }
     return out;
 }
@@ -398,8 +400,8 @@ InstallResult ProviderCapability::install(PluginServices& services) {
 }
 
 StatusSegmentCapability::StatusSegmentCapability(std::string id, int priority, int drop_priority,
-                                                 StatusRegistry::Render render)
-    : id_(std::move(id)), priority_(priority), drop_priority_(drop_priority),
+                                                 StatusRegistry::Render render, StatusAlign align)
+    : id_(std::move(id)), priority_(priority), drop_priority_(drop_priority), align_(align),
       render_(std::move(render)) {}
 
 InstallResult StatusSegmentCapability::install(PluginServices& services) {
@@ -409,7 +411,8 @@ InstallResult StatusSegmentCapability::install(PluginServices& services) {
         return r;
     }
     r.contribution =
-        services.status().add(services.owner(), id_, priority_, drop_priority_, render_);
+        services.status().add(services.owner(), id_, priority_, drop_priority_, render_,
+                              align_);
     r.ok = true;
     return r;
 }

@@ -83,6 +83,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/plugin_console.o \
               $(BUILD_DIR)/lib/http_get.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
+              $(BUILD_DIR)/plugins/clock/clock_plugin.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
               $(BUILD_DIR)/plugins/tool_search/tool_search_plugin.o \
               $(BUILD_DIR)/plugins/tool_read/tool_read_plugin.o \
@@ -183,6 +184,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/dialect_anthropic_test.o \
                $(BUILD_DIR)/tests/dialect_gemini_test.o \
                $(BUILD_DIR)/tests/toolset_audit_test.o \
+               $(BUILD_DIR)/tests/clock_plugin_test.o \
                $(BUILD_DIR)/tests/ui_services_test.o \
                $(BUILD_DIR)/tests/skill_file_test.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \

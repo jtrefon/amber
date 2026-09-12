@@ -221,21 +221,44 @@ underlying fact changes.
 ### Status segment
 
 ```cpp
-class BalanceSegment : public agent::StatusSegmentCapability {
-public:
-    std::string id() const override { return "kilocode_balance"; }
-    int priority() const override { return 500; }
-    int drop_priority() const override { return 10; }  // higher drops last
-
-    std::string text(const agent::StatusSnapshot&) const override {
-        return balance_ < 0 ? "" : "$" + fmt(balance_);
-    }
-};
+caps.push_back(std::make_unique<agent::StatusSegmentCapability>(
+    "balance", /*priority=*/500, /*drop_priority=*/10,
+    [](const agent::StatusSnapshot&) -> agent::StatusText {
+        return {" $12.50", agent::StatusTone::Dim};
+    }));
 ```
+
+The bar is composed from these, never from a hardcoded list. A segment declares
+three things and nothing else:
+
+- **priority** — its order within its zone (lower first).
+- **drop_priority** — higher goes first when the bar is too narrow; `0` means
+  "not worth hiding".
+- **alignment** — which edge it attaches to.
+
+```cpp
+// The right edge, against it (highest priority in the right zone).
+caps.push_back(std::make_unique<agent::StatusSegmentCapability>(
+    "clock", /*priority=*/1000, /*drop_priority=*/0,
+    [](const agent::StatusSnapshot&) -> agent::StatusText {
+        return {now_string(), agent::StatusTone::Dim};
+    },
+    agent::StatusAlign::Right));
+```
+
+A segment never addresses a column. It declares the edge and its order within
+that edge, and the host owns the arithmetic — which is what lets a plugin put
+something at the right end of the bar without knowing how wide the bar is or
+what else is on it. Two zones exist because the bar has two edges; there is no
+third to declare. The right zone is reserved from what is *registered*, so
+switching the clock off gives its columns back to the left side rather than
+leaving a gap.
 
 Render callables run **inside frame composition on the UI thread**: fast, pure
 reads, no I/O, no locks, no mutation. Update the value from an event handler and
-publish the UI-visible snapshot with `post_to_ui` if needed.
+publish the UI-visible snapshot with `post_to_ui` if needed. A segment that
+renders wall-clock time relies on the host repainting on its own second (the TUI
+does) — not on scheduling anything itself.
 
 ### Panel
 
