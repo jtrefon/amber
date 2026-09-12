@@ -76,6 +76,28 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-09-12 — The tool flags retire; plugin state is the only control (§5.3)
+
+Branch `refactor/retire-tool-flags`, stacked on the tools-domain work.
+
+- `Config::plan_tool` / `Config::task_tool`, their `AMBER_*` env vars and the
+  config-file keys are deleted, along with the two trailing `bool` parameters of
+  `register_default_tools`. `plugins/tool_plan` and `plugins/tool_task` no
+  longer read config: presence is plugin state, switched with
+  `/set plugin tool_plan off`.
+- `prompts/tools_planning.md` becomes `prompts/tools/plan.md`, contributed by
+  the plan tool as its own `System` block (`tool_doc_priority::kPlan`). The
+  prose now travels with the tool, which is what the whole split was for.
+- **One deliberate behaviour change:** the plan and task tools ship *enabled*,
+  like every other bundled tool plugin (D15). Before, both were off unless a
+  flag was set. A user who wants the old shape switches the plugin off.
+- The bench's per-scenario `task_tool` opt-in is gone; a scenario that scripts
+  sub-agent replies is a scenario that delegates, and that is now the only
+  signal it needs.
+- **Evidence:** hermetic scorecard unchanged at 871.25/1000, 8/8 scenarios
+  (`bench/results/tools-domain-flags-retired.txt` vs the baseline). 723 tests.
+
+
 ### 2026-09-12 — The bench runs the plugin runtime (tools spec §3.6)
 
 Branch `docs/tools-domain`. The harness now measures what a user runs, and a

@@ -180,10 +180,6 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
         cfg.model = "fake";
     }
 
-    // Scenario-level opt-in: a delegation scenario may enable the task tool
-    // even when the default config keeps it out of the schema.
-    cfg.task_tool = cfg.task_tool || s.task_tool;
-
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
@@ -289,7 +285,10 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
             r.completion_tokens = e.value("completion_tokens", 0L);
             script->push_back(std::move(r));
         }
-        if (s.task_tool) {
+        // A scenario that scripts sub-agent replies is a scenario that
+        // delegates; that is now the only signal, since the tool's presence is
+        // plugin state rather than a per-scenario switch.
+        if (!s.subagent_replies.empty()) {
             auto sub_scripts = std::make_shared<std::vector<std::deque<BenchReply>>>();
             for (const auto& ss : s.subagent_replies) {
                 std::deque<BenchReply> dq;

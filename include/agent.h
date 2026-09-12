@@ -40,9 +40,8 @@ class PromptRegistry;
 // together; a bare test can leave it null and get the tools alone.
 void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todos,
                             const CancellationToken& cancel_token = {},
-                            bool enable_plan_tool = false,
                             SubAgentExecutor& subagents = g_empty_subagents,
-                            bool enable_task_tool = false, PromptRegistry* prompts = nullptr);
+                            PromptRegistry* prompts = nullptr);
 } // namespace agent
 
 #endif // AGENT_AGENT_H_ALL

@@ -70,7 +70,6 @@
     "max_steps": 30,
     "max_wall_ms": 600000
   },
-  "task_tool": true,
   "subagent_replies": [
     [
       {

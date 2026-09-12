@@ -350,8 +350,7 @@ TEST(tool_plugins_declare_their_display_verbs) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  /*enable_plan_tool=*/true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{});
 
     ASSERT_EQ(reg.meta_for("read").verb, std::string("reading"));
     ASSERT_EQ(reg.meta_for("write").verb, std::string("writing"));
@@ -762,7 +761,7 @@ TEST(registry_register_and_find) {
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
-    ASSERT_EQ(r.snapshot_tools().size(), 7u);
+    ASSERT_EQ(r.snapshot_tools().size(), 9u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -1075,7 +1074,7 @@ TEST(dialect_openai_builds_tool_payload) {
         agent::make_dialect("openai")->build_chat_body(cfg, msgs, r.snapshot_tools(), false);
     const agent::json& s = body["tools"];
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 7u);
+    ASSERT_EQ(s.size(), 9u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");
@@ -5420,20 +5419,16 @@ TEST(todowrite_tool_rejects_invalid_status) {
     ASSERT_FALSE(r2.ok);
 }
 
-TEST(todowrite_off_by_default_not_registered) {
+// The plan and task tools ship enabled like every other bundled tool plugin;
+// what used to be a config flag is now plugin state, switched with
+// `/set plugin tool_plan off`.
+TEST(todowrite_and_task_ship_with_the_default_tool_set) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(reg, jobs, todos);
-    ASSERT(reg.find("todowrite") == nullptr);
-}
-
-TEST(todowrite_registered_when_enabled) {
-    agent::ToolRegistry reg;
-    agent::JobService jobs;
-    agent::TodoStore todos;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{});
     ASSERT(reg.find("todowrite") != nullptr);
+    ASSERT(reg.find("task") != nullptr);
 }
 
 TEST(compression_gate_large_window_fires_at_threshold_fraction) {

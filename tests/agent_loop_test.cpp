@@ -986,7 +986,7 @@ TEST(agent_loop_todowrite_state_persists) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{});
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_tool_call(
@@ -1204,8 +1204,7 @@ TEST(agent_loop_subagent_focused_task) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
-                                  true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     // Parent turn 1: delegate. Then the sub-agent's turns: read, report,
     // probe-confirm; the parent then chats "done" and probe-confirms "yes".
@@ -1249,8 +1248,7 @@ TEST(agent_loop_subagent_iteration_cap) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
-                                  true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "never stop"}});
     for (int i = 0; i < 200; ++i)
@@ -1289,8 +1287,7 @@ TEST(agent_loop_subagent_serial_mode) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
-                                  true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     // One reply issuing BOTH task calls; the shared script serves both
     // sub-agents in order (serialized), then the parent finishes.
@@ -1346,8 +1343,7 @@ TEST(agent_loop_subagent_parallel_mode) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
-                                  true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
     // The parent's own script: two task calls then finish.
     auto parent_script = std::make_shared<std::deque<agent_test::FakeReply>>();
     agent_test::FakeReply two_calls;
@@ -1401,8 +1397,7 @@ TEST(agent_loop_subagent_nesting_guard) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
-                                  true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "go"}});
     push_tool_call(script, "task", {{"prompt", "nested"}});
@@ -1440,8 +1435,7 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
-                                  true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "reply ok"}});
     push_text(script, "ok");   // the sub-agent's reply
@@ -1803,8 +1797,7 @@ TEST(tool_doc_blocks_reproduce_the_prompt_they_replaced) {
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
     agent::PromptRegistry prompts;
-    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, /*enable_plan_tool=*/true,
-                                  subagents, /*enable_task_tool=*/true, &prompts);
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents, &prompts);
 
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();

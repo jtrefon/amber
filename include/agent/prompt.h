@@ -28,6 +28,7 @@ inline constexpr int kRead = 510;
 inline constexpr int kWrite = 520;
 inline constexpr int kBash = 530;
 inline constexpr int kProcess = 540;
+inline constexpr int kPlan = 550;
 } // namespace tool_doc_priority
 
 // Render the tool advertising section: a Markdown block listing each tool's
