@@ -67,16 +67,20 @@ std::string panel_view(const agent::PanelRegistry& panels, const std::string& st
     // The frame is drawn per panel (the title changes when cycling), so the
     // dialog is constructed inside the loop. `specs` is a local copy and never
     // changes here, so the loop only has to watch for the user closing it.
+    // The footer depends only on how many panels there are, so it is built once
+    // instead of on every keypress.
+    std::vector<FooterKey> footer;
+    if (specs.size() > 1)
+        footer.push_back({"Tab", "next panel"});
+    footer.push_back({"Up/Down", "scroll"});
+    footer.push_back({"Esc/q", "close"});
+
     bool done = false;
     while (!done) {
         const agent::PanelSpec& spec = specs[static_cast<std::size_t>(index)];
 
         Dialog dlg(dh, dw, spec.title.empty() ? spec.id : spec.title);
-        dlg.set_footer(specs.size() > 1
-                           ? std::vector<FooterKey>{{"Tab", "next panel"},
-                                                    {"Up/Down", "scroll"},
-                                                    {"Esc/q", "close"}}
-                           : std::vector<FooterKey>{{"Up/Down", "scroll"}, {"Esc/q", "close"}});
+        dlg.set_footer(footer);
         WINDOW* content = dlg.win();
         WINDOW* body = derwin(content, dh - 4, dw - 4, 2, 2);
         keypad(content, TRUE);

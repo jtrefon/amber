@@ -32,10 +32,22 @@ StatusSnapshot base_snapshot() {
     return s;
 }
 
-// Register the core segments once per test into a fresh registry.
+// Install the core segments once per test into a fresh registry, the way the
+// runtime does: through the capability path, so the test exercises what ships.
 StatusRegistry core_registry() {
     StatusRegistry registry;
-    register_core_status_segments(registry);
+    ToolRegistry tools;
+    PromptRegistry prompts;
+    PanelRegistry panels;
+    WalletRegistry wallets;
+    AllowanceRegistry allowances;
+    EventBus bus;
+    PluginServices services(tools, prompts, registry, panels, wallets, allowances, bus);
+    services.set_owner("core");
+    for (auto& capability : core_status_capabilities()) {
+        InstallResult r = capability->install(services);
+        ASSERT(r.ok);
+    }
     return registry;
 }
 
@@ -306,14 +318,12 @@ TEST(panel_registry_removal_takes_only_that_panel) {
 TEST(panel_capability_installs_and_unwinds) {
     ToolRegistry tools;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
-    PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets, allowances, settings, bus);
+    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
     services.set_owner("gemini");
 
     PanelCapability cap(PanelSpec{
@@ -468,14 +478,12 @@ TEST(plugin_console_makes_undeclared_metadata_visible) {
 TEST(status_segment_capability_installs_and_unwinds) {
     ToolRegistry tools;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
-    PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services(tools, prompts, commands, status, panels, wallets, allowances, settings, bus);
+    PluginServices services(tools, prompts, status, panels, wallets, allowances, bus);
     services.set_owner("gemini");
 
     StatusSegmentCapability cap("balance", 850, 4, [](const StatusSnapshot&) {

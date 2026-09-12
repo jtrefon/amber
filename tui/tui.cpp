@@ -859,6 +859,7 @@ void Tui::refresh_plugin_feed() {
 void Tui::cmd_model_set(const std::string& arg) { slash_dispatcher_->cmd_model_set(arg); }
 void Tui::cmd_provider(const std::string& arg) { slash_dispatcher_->cmd_provider(arg); }
 void Tui::show_plugin(const std::string& id) { slash_dispatcher_->show_plugin(id); }
+void Tui::set_plugin(const std::string& id, bool on) { slash_dispatcher_->set_plugin(id, on); }
 void Tui::open_panels(const std::string& id) {
     const std::string shown = panel_view(plugin_runtime_.panels(), id);
     if (shown.empty()) {

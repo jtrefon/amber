@@ -8,16 +8,12 @@ const char* capability_kind_name(CapabilityKind kind) {
     switch (kind) {
     case CapabilityKind::Tool:
         return "tool";
-    case CapabilityKind::Command:
-        return "command";
     case CapabilityKind::PromptBlock:
         return "prompt";
     case CapabilityKind::StatusSegment:
         return "segment";
     case CapabilityKind::Panel:
         return "panel";
-    case CapabilityKind::Setting:
-        return "setting";
     case CapabilityKind::Provider:
         return "provider";
     case CapabilityKind::Wallet:
@@ -124,14 +120,14 @@ std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime) {
     return lines;
 }
 
-void register_console_panel(PanelRegistry& panels, const PluginRuntime& runtime) {
+PanelSpec console_panel_spec(const PluginRuntime& runtime) {
     PanelSpec spec;
     spec.id = "plugins";
     spec.title = "Plugin registry";
     // Reads the runtime on every repaint, so the view is never stale: a
     // toggle elsewhere shows up the next time it is drawn.
     spec.lines = [&runtime](int) { return plugin_console_lines(runtime); };
-    panels.add("", std::move(spec));
+    return spec;
 }
 
 } // namespace agent

@@ -1,29 +1,45 @@
-
 #include "agent/registry.h"
+
+#include <algorithm>
+#include <iterator>
 
 namespace agent {
 
-void ToolRegistry::register_tool(std::unique_ptr<Tool> tool) {
+void ToolRegistry::register_tool(std::unique_ptr<Tool> tool, std::string owner) {
     std::scoped_lock lk(mtx_);
     // Idempotent by name: re-registration (a second Agent, a skills
     // re-discovery) replaces the earlier instance instead of duplicating
     // it — duplicate names in the tools[] schema are rejected by strict
-    // servers ("Tool names must be unique").
+    // servers ("Tool names must be unique"). The replacement takes over the
+    // registration entirely, owner included, so a plugin whose name was
+    // superseded owns nothing it did not put there.
     std::shared_ptr<Tool> owned(std::move(tool));
     const std::string name = owned->name();
-    for (auto& t : tools_) {
-        if (t->name() == name) {
-            t = std::move(owned);
+    for (auto& entry : tools_) {
+        if (entry.tool->name() == name) {
+            entry.tool = std::move(owned);
+            entry.owner = std::move(owner);
             return;
         }
     }
-    tools_.push_back(std::move(owned));
+    tools_.push_back(Entry{std::move(owned), std::move(owner)});
 }
 
 bool ToolRegistry::remove_tool(const std::string& name) {
     std::scoped_lock lk(mtx_);
     for (auto it = tools_.begin(); it != tools_.end(); ++it) {
-        if ((*it)->name() == name) {
+        if (it->tool->name() == name) {
+            tools_.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ToolRegistry::remove_owned_tool(const std::string& name, const std::string& owner) {
+    std::scoped_lock lk(mtx_);
+    for (auto it = tools_.begin(); it != tools_.end(); ++it) {
+        if (it->tool->name() == name && it->owner == owner) {
             tools_.erase(it);
             return true;
         }
@@ -33,8 +49,9 @@ bool ToolRegistry::remove_tool(const std::string& name) {
 
 std::shared_ptr<Tool> ToolRegistry::find(const std::string& name) const {
     std::scoped_lock lk(mtx_);
-    for (const auto& t : tools_)
-        if (t->name() == name) return t;
+    for (const auto& entry : tools_)
+        if (entry.tool->name() == name)
+            return entry.tool;
     return nullptr;
 }
 
@@ -45,21 +62,21 @@ bool ToolRegistry::empty() const {
 
 size_t ToolRegistry::unregister_tools_with_prefix(const std::string& prefix) {
     std::scoped_lock lk(mtx_);
-    size_t removed = 0;
-    for (auto it = tools_.begin(); it != tools_.end();) {
-        if ((*it)->name().rfind(prefix, 0) == 0) {
-            it = tools_.erase(it);
-            ++removed;
-        } else {
-            ++it;
-        }
-    }
+    const auto first = std::remove_if(tools_.begin(), tools_.end(), [&prefix](const Entry& e) {
+        return e.tool->name().rfind(prefix, 0) == 0;
+    });
+    const auto removed = static_cast<size_t>(std::distance(first, tools_.end()));
+    tools_.erase(first, tools_.end());
     return removed;
 }
 
 std::vector<std::shared_ptr<Tool>> ToolRegistry::snapshot_tools() const {
     std::scoped_lock lk(mtx_);
-    return tools_;
+    std::vector<std::shared_ptr<Tool>> snapshot;
+    snapshot.reserve(tools_.size());
+    for (const auto& entry : tools_)
+        snapshot.push_back(entry.tool);
+    return snapshot;
 }
 
 } // namespace agent

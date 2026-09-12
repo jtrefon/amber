@@ -29,8 +29,9 @@ const char* capability_kind_name(CapabilityKind kind);
 // writes nothing.
 std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime);
 
-// Register the console panel. Called by the runtime itself.
-void register_console_panel(PanelRegistry& panels, const PluginRuntime& runtime);
+// The console panel, as a spec the runtime installs like any other panel
+// contribution. Called by the runtime itself, not by a plugin.
+PanelSpec console_panel_spec(const PluginRuntime& runtime);
 
 } // namespace agent
 

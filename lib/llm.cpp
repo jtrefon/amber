@@ -36,22 +36,29 @@ private:
     int& learned_;
 };
 
+// Resolve the wire protocol: an explicit dialect wins, otherwise the configured
+// flavor picks one. A flavor whose provider plugin is switched off refuses here,
+// loudly — the silent openai fallback is right for a typo in a provider file and
+// wrong for this, where the endpoint and key are configured and the request
+// would quietly speak the wrong protocol.
+//
+// This runs before the member is initialised, precisely so the check does not
+// have to look at the constructor's parameter after it has been moved from.
+std::unique_ptr<Dialect> resolve_dialect(const Config& cfg,
+                                         std::unique_ptr<Dialect> explicit_dialect) {
+    if (explicit_dialect) return explicit_dialect;
+    const std::string reason = flavor_unavailable_reason(cfg.flavor);
+    if (!reason.empty()) throw std::runtime_error(reason);
+    return make_dialect(cfg.flavor);
+}
+
 } // namespace
 
 HttpLLMClient::HttpLLMClient(Config cfg)
     : HttpLLMClient(std::move(cfg), nullptr) {}
 
 HttpLLMClient::HttpLLMClient(Config cfg, std::unique_ptr<Dialect> dialect)
-    : cfg_(std::move(cfg)),
-      dialect_(dialect ? std::move(dialect) : make_dialect(cfg_.flavor)) {
-    // A flavor whose provider plugin is switched off must fail here, loudly.
-    // The silent fallback to openai is right for a typo in a provider file and
-    // wrong for this: the endpoint is configured, the key is configured, and
-    // the request would quietly speak the wrong protocol.
-    if (!dialect) {
-        const std::string reason = flavor_unavailable_reason(cfg_.flavor);
-        if (!reason.empty()) throw std::runtime_error(reason);
-    }
+    : cfg_(std::move(cfg)), dialect_(resolve_dialect(cfg_, std::move(dialect))) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 

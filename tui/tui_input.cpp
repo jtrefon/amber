@@ -1621,6 +1621,58 @@ void SlashDispatcher::show_plugin(const std::string& id) {
     }
 }
 
+namespace {
+
+// " (removed 9 tool, 1 segment)" — what a disable actually took away, grouped
+// by capability kind so the count is legible at a glance.
+std::string removed_summary(const std::vector<agent::ExtensionItem>& items) {
+    if (items.empty())
+        return " (contributed nothing)";
+    std::vector<std::pair<std::string, int>> counts;
+    for (const auto& item : items) {
+        const std::string kind = agent::capability_kind_name(item.kind);
+        auto it = std::find_if(counts.begin(), counts.end(),
+                               [&kind](const auto& c) { return c.first == kind; });
+        if (it == counts.end())
+            counts.emplace_back(kind, 1);
+        else
+            ++it->second;
+    }
+    std::string out = " (removed ";
+    for (std::size_t i = 0; i < counts.size(); ++i) {
+        if (i)
+            out += ", ";
+        out += std::to_string(counts[i].second) + " " + counts[i].first;
+    }
+    return out + ")";
+}
+
+} // namespace
+
+void SlashDispatcher::set_plugin(const std::string& id, bool on) {
+    if (!tui_.plugin_runtime_.has(id)) {
+        tui_.append_line(P_STATUS, "unknown plugin: " + id);
+        return;
+    }
+    const auto before = tui_.plugin_runtime_.status(id);
+    if (before.enabled == on) {
+        tui_.append_line(P_STATUS, "plugin " + id + (on ? " is already on" : " is already off"));
+        return;
+    }
+    if (!tui_.plugin_runtime_.set_state(id, on)) {
+        tui_.append_line(P_STATUS,
+                         "plugin " + id + (on ? ": could not enable" : ": could not disable"));
+        return;
+    }
+    // Say what a disable took away: losing the core tool set leaves an agent
+    // that can read skills but cannot touch the filesystem, and that is worth
+    // seeing at the moment it happens rather than when the next turn stalls.
+    // (The registry is never empty: the agent always registers the skill tools,
+    // so there is no "no tools at all" state to warn about.)
+    tui_.append_line(P_STATUS, "plugin " + id + (on ? " on" : " off") +
+                                   (on ? "" : removed_summary(before.contributions)));
+}
+
 void SlashDispatcher::cmd_provider_delete(const std::string& name) {
     if (name.empty()) { tui_.append_line(P_STATUS, "usage: /provider delete <name>"); return; }
     tui_.providers_->remove(name);

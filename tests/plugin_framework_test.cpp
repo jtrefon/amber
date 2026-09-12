@@ -153,7 +153,7 @@ TEST(ledger_unwinds_in_reverse_order) {
     PluginLedger ledger;
     std::vector<std::string> removed;
     ledger.record("plug", make_contribution(CapabilityKind::Tool, "a", removed));
-    ledger.record("plug", make_contribution(CapabilityKind::Command, "b", removed));
+    ledger.record("plug", make_contribution(CapabilityKind::Panel, "b", removed));
     ledger.record("plug", make_contribution(CapabilityKind::PromptBlock, "c", removed));
 
     ASSERT_EQ(ledger.size("plug"), 3u);
@@ -210,7 +210,7 @@ TEST(ledger_unwind_unknown_plugin_is_noop) {
 TEST(ledger_ignores_empty_removal_handles) {
     PluginLedger ledger;
     Contribution hollow;
-    hollow.kind = CapabilityKind::Setting;
+    hollow.kind = CapabilityKind::Wallet;
     hollow.name = "no-op";
     ledger.record("plug", hollow);
     ledger.unwind("plug");
@@ -221,7 +221,7 @@ TEST(ledger_reports_owners_and_contributions) {
     PluginLedger ledger;
     std::vector<std::string> removals;
     ledger.record("alpha", make_contribution(CapabilityKind::Tool, "a", removals));
-    ledger.record("beta", make_contribution(CapabilityKind::Command, "b", removals));
+    ledger.record("beta", make_contribution(CapabilityKind::Panel, "b", removals));
 
     std::vector<std::string> owners = ledger.owners();
     std::sort(owners.begin(), owners.end());
@@ -268,7 +268,7 @@ public:
 class FailingCapability : public Capability {
 public:
     std::string name() const override { return "broken"; }
-    CapabilityKind kind() const override { return CapabilityKind::Command; }
+    CapabilityKind kind() const override { return CapabilityKind::Panel; }
     InstallResult install(PluginServices&) override {
         InstallResult r;
         r.ok = false;
@@ -304,14 +304,12 @@ private:
 struct TestHarness {
     ToolRegistry tools;
     PromptRegistry prompts;
-    CommandRegistry commands;
     StatusRegistry status;
     PanelRegistry panels;
     WalletRegistry wallets;
     AllowanceRegistry allowances;
-    PluginSettingsStore settings;
     EventBus bus;
-    PluginServices services{tools, prompts, commands, status, panels, wallets, allowances, settings, bus};
+    PluginServices services{tools, prompts, status, panels, wallets, allowances, bus};
 };
 
 } // namespace
@@ -374,50 +372,6 @@ TEST(prompt_registry_removal_takes_only_that_block) {
     ASSERT_EQ(prompts.size(), 0u);
 }
 
-TEST(command_registry_dispatches_registered_leaf) {
-    CommandRegistry commands;
-    std::string seen;
-    CommandRegistry::Handler handler = [&](const std::string& arg) { seen = arg; };
-    auto contribution =
-        commands.add("plug", "hello", R"({"greet":{"help":"x"}})", {{"greet", handler}});
-
-    ASSERT(commands.dispatch("hello", "greet", "world"));
-    ASSERT_EQ(seen, std::string("world"));
-    // Unknown paths and unknown roots are reported, never silently ignored.
-    ASSERT_FALSE(commands.dispatch("hello", "nope", ""));
-    ASSERT_FALSE(commands.dispatch("other", "greet", ""));
-
-    contribution.remove();
-    ASSERT_FALSE(commands.dispatch("hello", "greet", ""));
-    ASSERT_EQ(commands.size(), 0u);
-}
-
-TEST(settings_store_round_trips_per_owner) {
-    PluginSettingsStore settings;
-    settings.set("alpha", "level", "3");
-    settings.set("beta", "level", "9");
-
-    ASSERT_EQ(settings.get("alpha", "level"), std::string("3"));
-    ASSERT_EQ(settings.get("beta", "level"), std::string("9"));
-    ASSERT_EQ(settings.get("alpha", "missing"), std::string(""));
-    ASSERT_EQ(settings.get("nobody", "level"), std::string(""));
-    ASSERT_TRUE(settings.has("alpha"));
-    ASSERT_FALSE(settings.has("nobody"));
-}
-
-TEST(settings_store_can_declare_unset_keys) {
-    PluginSettingsStore settings;
-    settings.declare("alpha", "endpoint", "where to connect");
-    auto items = settings.items();
-    ASSERT_EQ(items.size(), 1u);
-    ASSERT_EQ(items[0].owner, std::string("alpha"));
-    ASSERT_EQ(items[0].name, std::string("endpoint"));
-    ASSERT_EQ(items[0].detail, std::string("where to connect"));
-
-    settings.undeclare("alpha", "endpoint");
-    ASSERT_TRUE(settings.items().empty());
-}
-
 TEST(tool_capability_registers_and_removes_exactly_its_tool) {
     TestHarness h;
     h.tools.register_tool(std::make_unique<SilentTool>("host.tool"));
@@ -434,15 +388,97 @@ TEST(tool_capability_registers_and_removes_exactly_its_tool) {
     ASSERT((bool)h.tools.find("host.tool"));
 }
 
-TEST(command_capability_tags_its_owner) {
+// A tool capability's factory receives the harness services, because a tool is
+// not pure data: the bash tool needs the job service, todowrite needs the todo
+// store, task needs the sub-agent executor. That injection is what lets core
+// tools become plugin contributions.
+TEST(tool_capability_factory_receives_host_services) {
     TestHarness h;
+    agent::HostServices host;
+    h.services.host = &host;
+
+    bool saw_services = false;
+    ToolCapability cap(
+        "greet", [&saw_services](PluginServices& services) -> std::vector<std::unique_ptr<Tool>> {
+            saw_services = services.host != nullptr;
+            std::vector<std::unique_ptr<Tool>> tools;
+            tools.push_back(std::make_unique<SilentTool>("plugin.greet"));
+            return tools;
+        });
+
     h.services.set_owner("plug");
-    CommandCapability cap("hello", "{}", {});
     InstallResult r = cap.install(h.services);
     ASSERT_TRUE(r.ok);
+    ASSERT_TRUE(saw_services);
+    ASSERT((bool)h.tools.find("plugin.greet"));
+}
 
-    auto items = h.commands.items();
-    ASSERT_EQ(items.size(), 1u);
-    ASSERT_EQ(items[0].owner, std::string("plug"));
-    ASSERT(r.contribution.remove != nullptr);
+// A factory that declines (returns nothing) is a capability that did not
+// install, not a crash: a plugin can gate a tool on configuration.
+TEST(tool_capability_factory_may_decline) {
+    TestHarness h;
+    ToolCapability cap("optional",
+                       [](PluginServices&) -> std::vector<std::unique_ptr<Tool>> { return {}; });
+    h.services.set_owner("plug");
+    InstallResult r = cap.install(h.services);
+    ASSERT_FALSE(r.ok);
+    ASSERT_TRUE(r.declined);
+    ASSERT_EQ(h.tools.snapshot_tools().size(), 0u);
+}
+
+// Names may collide. Two plugins can contribute a tool under the same name, and
+// the later registration wins — a plugin overriding a host tool is a feature,
+// not an accident. What must never happen is one plugin's unwinding reaching
+// across owners and taking another plugin's tool with it: the ledger's contract
+// is "removes exactly what this plugin added".
+TEST(tool_capability_unwind_cannot_remove_another_plugins_tool) {
+    TestHarness h;
+
+    ToolCapability alpha("shared", std::make_unique<SilentTool>("shared.tool"));
+    h.services.set_owner("alpha");
+    InstallResult a = alpha.install(h.services);
+    ASSERT_TRUE(a.ok);
+
+    ToolCapability beta("shared", std::make_unique<SilentTool>("shared.tool"));
+    h.services.set_owner("beta");
+    InstallResult b = beta.install(h.services);
+    ASSERT_TRUE(b.ok);
+
+    // beta's instance replaced alpha's under the same name: the registered tool
+    // belongs to beta now, and alpha's contribution is already superseded.
+    ASSERT_TRUE((bool)h.tools.find("shared.tool"));
+
+    // Unwinding alpha must not remove beta's tool.
+    a.contribution.remove();
+    ASSERT_TRUE((bool)h.tools.find("shared.tool"));
+
+    // Unwinding beta removes its own.
+    b.contribution.remove();
+    ASSERT_FALSE((bool)h.tools.find("shared.tool"));
+}
+
+// Several tools from one capability go away together: the ledger records a
+// single contribution, so its removal must undo all of them. (The process
+// tools are the reason this exists.)
+TEST(tool_capability_installs_and_removes_a_group) {
+    TestHarness h;
+    h.tools.register_tool(std::make_unique<SilentTool>("host.tool"));
+
+    ToolCapability cap("process", [](PluginServices&) {
+        std::vector<std::unique_ptr<Tool>> tools;
+        tools.push_back(std::make_unique<SilentTool>("process_start"));
+        tools.push_back(std::make_unique<SilentTool>("process_read"));
+        tools.push_back(std::make_unique<SilentTool>("process_stop"));
+        return tools;
+    });
+    h.services.set_owner("plug");
+    InstallResult r = cap.install(h.services);
+    ASSERT_TRUE(r.ok);
+    ASSERT_EQ(h.tools.snapshot_tools().size(), 4u);
+
+    r.contribution.remove();
+    ASSERT((bool)h.tools.find("host.tool"));
+    ASSERT_FALSE((bool)h.tools.find("process_start"));
+    ASSERT_FALSE((bool)h.tools.find("process_read"));
+    ASSERT_FALSE((bool)h.tools.find("process_stop"));
 }
