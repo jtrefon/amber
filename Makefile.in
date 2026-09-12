@@ -258,6 +258,39 @@ lint:
 	 if [ $$rc -ne 0 ]; then echo "clang-tidy reported findings"; exit 1; fi; \
 	 echo "  clean"
 
+# Incremental lint: only analyze .cpp files changed since BASE.
+# Falls back to full lint if .clang-tidy or any header changed (headers
+# affect all TUs — we can't cheaply compute the include graph).
+# Usage: make lint-changed BASE=origin/main
+# No C++ changes → exits 0 immediately.
+lint-changed:
+	@echo "clang-tidy (incremental, base=$(BASE))..."
+	@hdr_changed=$$(git diff --name-only $(BASE)...HEAD -- '*.h' '*.hpp' 2>/dev/null | grep -v third_party || true); \
+	 cfg_changed=$$(git diff --name-only $(BASE)...HEAD -- '.clang-tidy' 2>/dev/null || true); \
+	 if [ -n "$$hdr_changed" ] || [ -n "$$cfg_changed" ]; then \
+	   echo "  header or .clang-tidy changed — full lint"; \
+	   $(MAKE) --no-print-directory lint; \
+	   exit $$?; \
+	 fi; \
+	 changed=$$(git diff --name-only $(BASE)...HEAD -- '*.cpp' 2>/dev/null | grep -v third_party || true); \
+	 if [ -z "$$changed" ]; then echo "  no C++ changes, skipping"; exit 0; fi; \
+	 echo "  changed files:"; echo "$$changed" | sed 's/^/    /'; \
+	 if [ -f compile_commands.json ]; then export CTIDY_FLAGS="-p compile_commands.json"; else export CTIDY_FLAGS="-- $(LINT_CXXFLAGS)"; fi; \
+	 printf '%s\0' $$changed | \
+	 xargs -0 -P$(NPROC) sh -c ' \
+	    for src do \
+	      out=$$(clang-tidy -quiet $$CTIDY_FLAGS "$$src" 2>&1); \
+	      if [ -n "$$out" ]; then \
+	        echo "$$out" | grep -v "^Suppressed\|^Use -header-filter\|warnings generated" || true; \
+	        if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter\|warnings generated"; then \
+	          exit 1; \
+	        fi; \
+	      fi; \
+	    done' _; \
+	 rc=$$?; \
+	 if [ $$rc -ne 0 ]; then echo "clang-tidy reported findings"; exit 1; fi; \
+	 echo "  clean"
+
 # cppcheck: a second, independent static analyzer for defense-in-depth. Runs
 # in parallel and ignores the vendored nlohmann/json header (known-good, slow to
 # parse). Slower than lint; run explicitly rather than on every build.
