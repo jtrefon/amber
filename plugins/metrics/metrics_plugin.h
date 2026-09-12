@@ -11,7 +11,7 @@ namespace agent::plugins {
 class MetricsPlugin : public IPlugin {
 public:
     std::string id() const override { return "metrics"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Metrics"; }
     std::string description() const override {
         return "Counts turns, tool calls and turn duration.";

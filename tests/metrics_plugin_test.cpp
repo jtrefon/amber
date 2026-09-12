@@ -10,7 +10,7 @@ using namespace agent::plugins;
 TEST(metrics_plugin_identity) {
     MetricsPlugin p;
     ASSERT_EQ(p.id(), "metrics");
-    ASSERT_EQ(p.version(), "1.0.0");
+    ASSERT_EQ(p.version(), "0.4.0");
     ASSERT_EQ(p.name(), "Metrics");
 }
 

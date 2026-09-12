@@ -114,7 +114,7 @@ std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime) {
     }
 
     lines.emplace_back();
-    lines.emplace_back("toggle a plugin with /set plugin <id> on|off");
+    lines.emplace_back("toggle a plugin with /set plugin on|off <id>");
     return lines;
 }
 

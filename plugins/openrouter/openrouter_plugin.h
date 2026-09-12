@@ -30,7 +30,7 @@ std::optional<double> parse_openrouter_key(const std::string& body);
 class OpenRouterPlugin : public IPlugin {
 public:
     std::string id() const override { return "openrouter"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "OpenRouter provider"; }
     std::string description() const override {
         return "OpenRouter router, with this key's remaining allowance.";

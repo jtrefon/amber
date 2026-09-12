@@ -364,7 +364,7 @@ TEST(console_panel_lists_plugins_and_their_contributions) {
     // kilocode contributes a wallet (its fetch), not a bespoke bar segment:
     // the readout itself is core, so every provider renders the same way.
     ASSERT(text.find("wallet:kilocode") != std::string::npos);
-    ASSERT(text.find("/set plugin") != std::string::npos);
+    ASSERT(text.find("/set plugin on|off <id>") != std::string::npos);
 
     // Grouped by category, so a long list is scanned by heading rather than
     // read line by line. Providers come first, by design.

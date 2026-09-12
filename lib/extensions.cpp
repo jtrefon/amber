@@ -275,22 +275,18 @@ ToolMeta meta_for_tool(const ToolCapability::Meta& declared, const std::string& 
 
 } // namespace
 
-ToolCapability::ToolCapability(std::string name, std::unique_ptr<Tool> tool, Meta meta)
-    : name_(std::move(name)), meta_(std::move(meta)), tool_(std::move(tool)) {}
-
 ToolCapability::ToolCapability(std::string name, Factory factory, Meta meta)
     : name_(std::move(name)), meta_(std::move(meta)), factory_(std::move(factory)) {}
 
 InstallResult ToolCapability::install(PluginServices& services) {
     InstallResult r;
-    // The factory form builds against the harness services; the direct form was
-    // already built by the plugin.
-    std::vector<std::unique_ptr<Tool>> tools;
-    if (tool_) {
-        tools.push_back(std::move(tool_));
-    } else if (factory_) {
-        tools = factory_(services);
+    if (!factory_) {
+        r.error = "tool capability '" + name_ + "' has no factory";
+        return r;
     }
+    // The factory runs on every activation: install must be repeatable, because
+    // disabling and re-enabling a plugin replays its declared capabilities.
+    std::vector<std::unique_ptr<Tool>> tools = factory_(services);
     if (tools.empty()) {
         // The factory returned nothing: the tool is gated off, not broken. The
         // plugin stays active with one fewer contribution.
@@ -423,7 +419,7 @@ InstallResult WalletCapability::install(PluginServices& services) {
         return r;
     }
     const std::string owner = services.owner();
-    r.contribution = services.wallets().add(owner, std::move(fetch_));
+    r.contribution = services.wallets().add(owner, fetch_);
     r.ok = true;
     return r;
 }
@@ -437,7 +433,7 @@ InstallResult PanelCapability::install(PluginServices& services) {
         r.error = "panel capability needs an id and a renderer";
         return r;
     }
-    r.contribution = services.panels().add(services.owner(), std::move(spec_));
+    r.contribution = services.panels().add(services.owner(), spec_);
     r.ok = true;
     return r;
 }
@@ -450,7 +446,8 @@ InstallResult CommandCapability::install(PluginServices& services) {
         r.error = "command capability needs a root and an object subtree";
         return r;
     }
-    r.contribution = services.commands().add(services.owner(), std::move(spec_));
+    // Copied, not moved: the capability is installed again on re-activation.
+    r.contribution = services.commands().add(services.owner(), spec_);
     r.ok = true;
     return r;
 }

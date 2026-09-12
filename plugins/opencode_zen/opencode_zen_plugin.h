@@ -17,7 +17,7 @@ namespace agent::plugins {
 class OpencodeZenPlugin : public IPlugin {
 public:
     std::string id() const override { return "opencode_zen"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "OpenCode Zen provider"; }
     std::string description() const override {
         return "OpenCode Zen gateway (OpenAI-compatible models).";

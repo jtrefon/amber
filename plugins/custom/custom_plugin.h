@@ -22,7 +22,7 @@ namespace agent::plugins {
 class CustomPlugin : public IPlugin {
 public:
     std::string id() const override { return "custom"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Custom endpoint provider"; }
     std::string description() const override {
         return "Your own OpenAI-compatible endpoint, configured by file.";

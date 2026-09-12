@@ -211,6 +211,10 @@ void PluginManager::discover(const std::vector<std::string>& dirs) {
         for (const auto& dir : list_subdirs(root)) {
             std::string id = dir.substr(dir.find_last_of('/') + 1);
             if (find(id)) continue;
+            // A plugin install carries a manifest; the v2 host keeps per-plugin
+            // state (plugin.conf) under the same root, so a manifest-less
+            // directory is state, not an install.
+            if (access((dir + "/manifest.json").c_str(), F_OK) != 0) continue;
             PluginInfo info;
             info.id = id;
             info.dir = dir;

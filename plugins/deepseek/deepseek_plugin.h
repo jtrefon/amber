@@ -23,7 +23,7 @@ double parse_deepseek_balance(const std::string& body);
 class DeepseekPlugin : public IPlugin {
 public:
     std::string id() const override { return "deepseek"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "DeepSeek provider"; }
     std::string description() const override {
         return "DeepSeek direct API, with prepaid balance as the wallet.";

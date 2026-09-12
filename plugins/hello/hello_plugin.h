@@ -19,7 +19,7 @@ namespace agent::plugins {
 class HelloPlugin : public IPlugin {
 public:
     std::string id() const override { return "hello"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Hello"; }
     std::string description() const override {
         return "Example slash command: /hello greet <name>.";

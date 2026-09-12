@@ -71,7 +71,7 @@ bug.
 | Typed event subscription | ✅ Available | `Events`, §3 |
 | Prompt block contribution | ✅ Available | `PromptBlockCapability` |
 | External plugins under the unified registry | ✅ Available | `ExternalPluginAdapter` |
-| `/get plugin`, `/set plugin <id> on\|off` | ✅ Available | single write path |
+| `/get plugin`, `/set plugin on\|off <id>` | ✅ Available | single write path |
 | Provider contribution (dialect + presets) | ✅ Available | `ProviderCapability` |
 | Status segment contribution | ✅ Available | `StatusSegmentCapability` |
 | Panel contribution + registry console | ✅ Available | `PanelCapability` |
@@ -171,9 +171,10 @@ empty list declines.
 
 ### Tool
 
-A tool is contributed with `ToolCapability`. Give it a factory when the tool
-needs harness services at construction, the core tool set does, because bash
-binds to the job service and todowrite to the todo store.
+A tool is contributed with `ToolCapability`, always through a factory that
+receives the harness services: the core tool set does so because bash binds to
+the job service and todowrite to the todo store, and the factory runs again on
+every activation, so disabling and re-enabling a plugin brings its tools back.
 
 ```cpp
 std::vector<std::unique_ptr<agent::Capability>> GreetPlugin::capabilities() {
@@ -390,13 +391,19 @@ tree, not through a config file edit:
 | Command | Effect |
 |---|---|
 | `/get plugin list` | Every plugin with tier, state, and what it contributes |
-| `/get plugin <id>` | Detail: version, capabilities, state source |
-| `/set plugin <id> off` \| `on` | Enable/disable; applies immediately and persists |
-| `/set plugin <id> <key>=<value>` | Per-plugin settings |
+| `/get plugin info <id>` | Detail: version, capabilities, state source, manifest (external) |
+| `/set plugin on <id>` \| `off <id>` | Enable/disable; applies immediately and persists |
+| `/set plugin settings <id> <key>=<value>` | External plugin settings |
+
+The ids are values under the verb (`get.plugin.info.<id>`, `set.plugin.on.<id>`),
+so `/get plugin` and `/set plugin` keep showing commands, never a list of every
+registered plugin.
 
 State lives in `~/.config/amber/plugins/<id>/plugin.conf`. Your plugin does not
 read or write that file, the runtime does, and a disabled plugin is never
-initialized.
+initialized. That root is shared with external plugin installs, so a directory
+there counts as a plugin only when it carries a `manifest.json`: the host's
+state directories (`plugin.conf` alone) are not discovered as broken plugins.
 
 When a plugin contributes providers, toggling it re-publishes the provider feed:
 its providers appear in `/get provider list` and the completion drawer when on,
@@ -556,7 +563,7 @@ Methods: `initialize`, `tool.call`, `shutdown` (others return
 {"id": 2, "result": {"ok": true, "output": "Hello, world!", "meta": {}}}
 ```
 
-Manage with `/plugin list|status|enable|disable|install|uninstall`. Tools appear
+Manage with `/get plugin list|info` and `/set plugin on|off|install|uninstall`. Tools appear
 to the agent as `plugin_<id>_<name>`; the agent prompt advertises them when the
 plugin is enabled.
 

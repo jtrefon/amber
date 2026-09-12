@@ -36,7 +36,7 @@ double fetch_kilocode_balance(const std::string& token);
 class KilocodePlugin : public IPlugin {
 public:
     std::string id() const override { return "kilocode"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Kilocode provider"; }
     std::string description() const override {
         return "Kilo gateway, with its account balance as the wallet.";

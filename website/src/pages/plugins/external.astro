@@ -100,8 +100,8 @@ const protocolDir = `${site.repo}/blob/main/docs/spec/plugins/README.md`;
       <tr><td><code>protocol_version</code></td><td>yes</td><td>Integer. The harness rejects a mismatch (<em>incompatible</em>).</td></tr>
       <tr><td><code>description</code></td><td>yes</td><td>Prompt advertisement: how/when to use the tools, rendered while enabled.</td></tr>
       <tr><td><code>main</code></td><td>yes</td><td>Executable path relative to the plugin directory.</td></tr>
-      <tr><td><code>author</code> / <code>url</code> / <code>license</code></td><td>no</td><td>Attribution, shown by <code>/plugin info</code>.</td></tr>
-      <tr><td><code>settings</code></td><td>no</td><td>Default key/value settings; overridden via <code>/plugin set</code>.</td></tr>
+      <tr><td><code>author</code> / <code>url</code> / <code>license</code></td><td>no</td><td>Attribution, shown by <code>/get plugin info &lt;id&gt;</code>.</td></tr>
+      <tr><td><code>settings</code></td><td>no</td><td>Default key/value settings; overridden via <code>/set plugin settings &lt;id&gt; &lt;key&gt;=&lt;value&gt;</code>.</td></tr>
       <tr><td><code>completion</code></td><td>no</td><td>A completions.json subtree merged into the command tree on enable.</td></tr>
       <tr><td><code>tools</code></td><td>no</td><td>Tool definitions, registered as <code>plugin_&lt;id&gt;_&lt;name&gt;</code>.</td></tr>
     </tbody>
@@ -138,18 +138,20 @@ const protocolDir = `${site.repo}/blob/main/docs/spec/plugins/README.md`;
   </p>
 
   <h2>Administration</h2>
-  <div class="terminal"><pre>{`/plugin list | status <id> | enable <id> | disable <id> | get <id> [key]
-/plugin set <id> <key>=<value> | info <id> | install <path|url> | uninstall <id>`}</pre></div>
+  <div class="terminal"><pre>{`/get plugin list | info <id> | settings <id> [key]
+/set plugin on <id> | off <id> | install <path|url> | uninstall <id>
+/set plugin settings <id> <key>=<value>`}</pre></div>
   <p>
     <code>install</code> takes a tar.gz (local path or http(s) URL) containing
     <code>manifest.json</code> and the executable; it is validated and staged to
-    <code>~/.config/amber/plugins/&lt;id&gt;/</code>. System-shipped plugins
+    <code>~/.config/amber/plugins/&lt;id&gt;/</code>, left disabled until
+    <code>/set plugin on &lt;id&gt;</code>. System-shipped plugins
     cannot be uninstalled.
   </p>
 
   <h2>Security</h2>
   <ul class="feature-list">
-    <li>Plugin code is <strong>untrusted</strong> but runs with the user's privileges, like the harness. Install only plugins you trust; <code>/plugin info</code> shows author/url/license before enabling.</li>
+    <li>Plugin code is <strong>untrusted</strong> but runs with the user's privileges, like the harness. Install only plugins you trust; <code>/get plugin info &lt;id&gt;</code> shows author/url/license before enabling.</li>
     <li>All path arguments pass through workspace confinement before the plugin sees them.</li>
     <li>Output is capped at 64&nbsp;KiB per tool result.</li>
     <li>Tools are namespaced <code>plugin_&lt;id&gt;_&lt;name&gt;</code>, so approval rules can target them by name.</li>

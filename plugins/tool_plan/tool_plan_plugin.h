@@ -18,7 +18,7 @@ std::vector<std::unique_ptr<Capability>> make_plan_tool_capabilities();
 class ToolPlanPlugin : public IPlugin {
 public:
     std::string id() const override { return "tool_plan"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Plan tool"; }
     std::string description() const override {
         return "The todowrite tool, for plans the model keeps visible to itself.";
