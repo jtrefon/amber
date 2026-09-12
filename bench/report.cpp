@@ -502,9 +502,9 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports, const Ru
                "|---|---|---|---|---|\n";
         for (const auto& p : plan_mix) {
             const int act = actual_mix[p.first];
-            const double eff = act > 0 ? (100.0 * p.second / act) : 0.0;
+            const double tool_eff = act > 0 ? (100.0 * p.second / act) : 0.0;
             out << "| " << p.first << " | " << p.second << " | " << act << " | " << (act - p.second)
-                << " | " << static_cast<int>(eff > 100.0 ? 100.0 : eff) << " |\n";
+                << " | " << static_cast<int>(tool_eff > 100.0 ? 100.0 : tool_eff) << " |\n";
         }
         for (const auto& a : actual_mix) {
             if (plan_mix.count(a.first))
