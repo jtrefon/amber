@@ -10,6 +10,7 @@
 #include "tui/action_registry.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
+#include "tui/reasoning_block.h"
 #include "tui/rich.h"
 #include "tui/markdown.h"
 #include "tui/tool_display.h"
@@ -1607,4 +1608,43 @@ TEST(window_feed_lists_open_windows) {
     // /window set <Tab> should list 1, 2, 3 for 3 windows.
     // Will be wired when refresh_window_feed is implemented.
     ASSERT_TRUE(true);
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning view: the live thinking block. A tool-calling turn reasons once per
+// LLM round-trip, so every episode must stream in dim text and then fold to its
+// own summary line — the log stays readable without losing the trace.
+// ---------------------------------------------------------------------------
+
+TEST(reasoning_block_folds_each_episode) {
+    tui::ReasoningBlock block;
+    block.append("plan ");
+    block.append("the answer");
+    ASSERT_TRUE(block.active());
+    ASSERT_EQ(block.fold(), "[thought for 3 words]");
+    ASSERT_FALSE(block.active());
+
+    // The next round-trip (after tool calls) must open a fresh episode.
+    block.append("check the tool result");
+    ASSERT_TRUE(block.active());
+    ASSERT_EQ(block.fold(), "[thought for 4 words]");
+}
+
+TEST(reasoning_block_fold_is_idempotent) {
+    tui::ReasoningBlock block;
+    block.append("one two");
+    ASSERT_EQ(block.fold(), "[thought for 2 words]");
+    // Already folded: a repeated fold must not print a second summary line.
+    ASSERT_EQ(block.fold(), "");
+    ASSERT_TRUE(block.buffer.empty());
+}
+
+TEST(reasoning_block_starts_a_new_episode_after_each_fold) {
+    tui::ReasoningBlock block;
+    block.append("first thought");
+    ASSERT_EQ(block.fold(), "[thought for 2 words]");
+    block.append("second thought");
+    ASSERT_TRUE(block.active());
+    ASSERT_EQ(block.fold(), "[thought for 2 words]");
+    ASSERT_TRUE(block.buffer.empty());
 }

@@ -28,14 +28,14 @@ int RenderEngine::lines_per_page() const { return chat_height(); }
 
 std::vector<rich::Line> RenderEngine::build_view_without_working(const Window& w) const {
     std::vector<rich::Line> view = w.lines;
-    if (show_reasoning_ && !w.reason_folded && !w.reason_buf.empty()) {
+    if (show_reasoning_ && w.reason.active()) {
         rich::Line label;
         rich::Run r0; r0.pair = P_REASONING; r0.dim = true;
         r0.text = "thinking...";
         label.runs.push_back(r0);
         view.push_back(label);
         rich::Line body;
-        rich::Run r1; r1.pair = P_REASONING; r1.dim = true; r1.text = w.reason_buf;
+        rich::Run r1; r1.pair = P_REASONING; r1.dim = true; r1.text = w.reason.buffer;
         body.runs.push_back(r1);
         for (auto& l : rich::wrap(body, width())) view.push_back(std::move(l));
         if (!w.stream_buf.empty())
@@ -56,7 +56,7 @@ std::vector<rich::Line> RenderEngine::build_view_without_working(const Window& w
             append_rich_to(view, w.stream_buf, w.stream_color, width());
         }
     }
-    bool live = tui_.router_->busy() && (!w.stream_buf.empty() || !w.reason_buf.empty());
+    bool live = tui_.router_->busy() && (!w.stream_buf.empty() || !w.reason.buffer.empty());
     if (live) {
         if (view.empty() || !view.back().runs.empty())
             view.push_back(rich::Line{});

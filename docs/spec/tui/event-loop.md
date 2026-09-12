@@ -55,8 +55,16 @@ terminal, and manage the command drawer, input line, and status bar.
 
 - **Given**: Window has 10 committed lines, 3 reasoning tokens, 5 stream tokens
 - **Input**: `draw()` called during streaming
-- **Expected**: `view` assembled as: `win().lines` (10) + wrapped reason lines (if `show_reasoning` and `!reason_folded`) + stream lines (rendered via `md::render()` if `markdown_on`). Canvas receives `view.is_code = false`, `view.heading = 0` for all non-markdown lines.
+- **Expected**: `view` assembled as: `win().lines` (10) + wrapped reason lines (if `show_reasoning` and the live reasoning block is active) + stream lines (rendered via `md::render()` if `markdown_on`). Canvas receives `view.is_code = false`, `view.heading = 0` for all non-markdown lines.
 - **On failure**: Stream buffer or reasoning lines missing from view.
+
+**Reasoning episodes.** A tool-calling turn reasons once per LLM round-trip, so the live block
+is per round-trip, not per user turn. When the answer (or the next tool call) starts, the block
+folds to a dim `[thought for N words]` line appended to the scrollback; the next round-trip's
+deltas open a fresh block. Every episode is streamed and leaves its own one-line trace, so
+reasoning after a tool call is not swallowed by the earlier fold. With `show_reasoning` off,
+deltas are not tracked at all: no live text and no summary line.
+(`tui/reasoning_block.{h,cpp}`, `EventRouter::on_reasoning`, `Tui::fold_reasoning`.)
 
 #### [EL-04] User types printable character
 
