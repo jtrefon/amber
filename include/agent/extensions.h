@@ -12,6 +12,7 @@
 #include "agent/config.h"
 #include "agent/event_bus.h"
 #include "agent/plugin_capability.h"
+#include "agent/ui_services.h"
 #include "agent/providers.h"
 #include "agent/registry.h"
 #include "agent/tool.h"
@@ -368,6 +369,11 @@ public:
     // The host's live configuration. Null before the host attaches one (tests
     // and headless hosts that do not need it).
     const Config* config = nullptr;
+
+    // The user-interaction port. Never null: an unattached host leaves the
+    // fail-closed null implementation in place, so a capability can ask
+    // without checking first (see ui_services.h).
+    UiServices* ui = &null_ui_services();
 
     // Host-owned services a capability may need to build what it contributes.
     // Null until the host attaches them; a capability that needs none ignores

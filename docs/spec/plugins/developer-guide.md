@@ -75,9 +75,9 @@ bug.
 | Provider contribution (dialect + presets) | ✅ Available | `ProviderCapability` |
 | Status segment contribution | ✅ Available | `StatusSegmentCapability` |
 | Panel contribution + registry console | ✅ Available | `PanelCapability` |
-| Wallet / allowance readout | ✅ Available | `WalletCapability`, `AllowanceCapability` |
+| Wallet readout | ✅ Available | `WalletCapability` |
 | Command contribution (slash namespace) | ✅ Available | `CommandCapability` |
-| Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`) | – | Not available, no consumer yet (tracker PF-3.3) |
+| Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`) | ✅ Available | `PluginServices::ui` |
 | Per-plugin settings | – | Not available, use `~/.config/amber/plugins/<id>/plugin.conf` |
 | Log sinks | – | Deferred (no consumer) |
 | `PluginLoaded` / `PluginUnloaded` events | – | Declared in `events.h`, never published |
@@ -468,25 +468,25 @@ What you can rely on:
 
 ---
 
-## 4. Host services (talking to the user), not yet available
+## 4. Host services (talking to the user)
 
 The agreed contract is a `PluginServices`-hosted UI service:
 
 ```cpp
-std::string key = svc.ui().ask_secret({"Gemini API key", "Paste the key"});
-int choice = svc.ui().choose({"Pick a model", model_ids});
-bool ok = svc.ui().confirm({"Overwrite the config?", "This cannot be undone"});
-svc.ui().notify(agent::Level::Info, "Balance refreshed");
-svc.ui().post_to_ui([this] { snapshot_ = build_snapshot(); });
+// In a capability factory (or anywhere you hold a PluginServices&):
+std::string key = services.ui->ask_secret({"Gemini API key", "Paste the key", ""});
+int choice = services.ui->choose({"Pick a model", model_ids, 0});
+bool ok = services.ui->confirm({"Overwrite the config?", "This cannot be undone"});
+services.ui->notify(agent::UiLevel::Info, "Balance refreshed");
+services.ui->post_to_ui([this] { snapshot_ = build_snapshot(); });
 ```
 
-**This is not implemented.** `PluginServices` exposes no `ui()`, and
-`HostServices` currently carries only jobs, todos, sub-agents and the cancel
-token. Do not build against it, it is tracked as PF-3.3. If you need user
-input today, expose it through a tool or a command and say so in your PR.
-
-`post_to_ui` in particular does not exist; cross-thread UI updates currently go
-through the host's own tick/render path.
+- Calls are blocking on *your* thread; the host shows the UI on its own thread
+  and returns the answer. In a non-interactive CLI run they fail closed, the
+  same way the bash tool's approval does.
+- Use `post_to_ui` for anything the render callables will read: that is the
+  sanctioned cross-thread update path.
+- Never assume a terminal. Your plugin must work in the headless CLI.
 
 ---
 

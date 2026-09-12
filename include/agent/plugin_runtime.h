@@ -70,6 +70,11 @@ public:
     // start(), like the config.
     void attach_host_services(const HostServices& host) noexcept;
 
+    // Attach the host's user-interaction port. Until this is called, a plugin's
+    // questions fail closed (NullUiServices); a host that cannot ask a user
+    // simply never calls it. Not owned: the host outlives the runtime.
+    void attach_ui_services(UiServices* ui) noexcept;
+
     // --- Lifecycle ---------------------------------------------------------
 
     // Activate every plugin whose persisted state says it is on. Called once
@@ -237,6 +242,7 @@ private:
     Config config_; // fallback until the host attaches its own
     const Config* live_config_ = nullptr;
     HostServices host_services_; // pointers set by the host, which owns them
+    UiServices* ui_services_ = &null_ui_services();
     const Workspace* workspace_;
 
     struct Entry {

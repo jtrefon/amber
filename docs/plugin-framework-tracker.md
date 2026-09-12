@@ -87,6 +87,41 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-09-12 — Host services land, with a consumer (finding 2 resolved)
+
+Branch `refactor/host-services`, stacked on the wallet unification.
+
+- **Named `UiServices`, not `HostServices`.** The spec called it `HostServices`,
+  which already names the *harness* services a tool binds to (jobs, todos,
+  subagents, cancel token). Those are inert; these are user-mediated, they can
+  block, and they can fail closed. Two different things, two names — and the
+  guide already called this one `ui()`.
+- **The port:** `ask_text`, `ask_secret`, `choose`, `confirm`, `notify`,
+  `post_to_ui` (`include/agent/ui_services.h`), reached from a capability as
+  `services.ui->…`. `PluginServices::ui` is **never null**: an unattached host
+  leaves `NullUiServices` in place, so no plugin ever writes a null check to
+  reach a safe default — and the safe default is "no", never a guessed yes.
+- **Both hosts implement it.** The TUI posts an `AgentEvent::Ask` into the same
+  queue the approval and API-key asks use, blocks the plugin's thread on a
+  promise, and resolves it on the UI thread with `form_edit` / `menu_select` /
+  `ConfirmPanel` — including the modal-deferral queue and the shutdown sweep
+  that answers every blocked question so teardown cannot deadlock. `post_to_ui`
+  work is drained on the tick, before the bar renders. The CLI prompts on a TTY
+  and fails closed without one, the same contract as the bash approval gate.
+- **Threading, stated once:** `ask_*`/`choose`/`confirm` are called from the
+  plugin's thread and answered by the host's UI thread; `notify`/`post_to_ui`
+  are callable from any thread and queued.
+- **Tests (the spec's `host_services_*` guard):** the null implementation fails
+  closed; the plugin-facing default is null-safe; a plugin that asks during
+  install receives the answer, with the host seeing the exact title and prompt;
+  an unattached host still answers instead of leaving the plugin blocked.
+  734 tests green, `make test` exit 0.
+- **Found by static analysis while here:** `cppcheck` caught a dangling
+  reference in the wallet bar rendering (`const std::string& unit = cond ?
+  std::string("$") : snapshot.currency;` — binding to a temporary). Fixed by
+  taking the value. It is the kind of bug a test would only catch by luck.
+
+
 ### 2026-09-12 — One wallet: the duplication finding (3) resolved
 
 Branch `refactor/one-wallet`, stacked on the toolset audit.
@@ -1051,7 +1086,7 @@ What a plugin author can rely on today. Update with every landed task.
 | OpenCode Zen provider (presets only) | ✅ | PF-3.5 |
 | CommandCode provider (presets + wallet) | ✅ | PF-3.5 |
 | DeepSeek provider (presets + wallet) | ✅ | PF-3.5 |
-| Host services (ask/choose/confirm/notify) | ⏳ | PF-3.3 |
+| Host services — `UiServices` ask/ask_secret/choose/confirm/notify/post_to_ui | ✅ | 2026-09-12 |
 | Log sinks | – | Deferred (no consumer) |
 | Theme, key interception, geometry, hot reload | – | Deferred Register |
 | External (process) tier | – | PF-6 (deferred, shaped for) |
