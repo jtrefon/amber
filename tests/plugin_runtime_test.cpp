@@ -358,6 +358,37 @@ TEST(runtime_tool_plugin_state_controls_the_plan_and_task_tools) {
     ASSERT_TRUE((bool)f.tools.find("task"));
 }
 
+// The audit answers the question a toggle raises: what can the harness no
+// longer do? Computed from the live registry, so it can never describe a
+// configuration that has moved on.
+TEST(runtime_audit_follows_the_enabled_toolset) {
+    ScratchConfig scratch("audit");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    // The shipped set is complete: nothing to warn about.
+    ASSERT_TRUE(runtime.audit().empty());
+
+    // Take away the only tool that can read, and the audit says so.
+    ASSERT_TRUE(runtime.set_state("tool_read", false));
+    auto findings = runtime.audit();
+    ASSERT_EQ(findings.size(), 1u);
+    ASSERT_TRUE(findings[0].kind == AuditFinding::Kind::Deficiency);
+    ASSERT(findings[0].message.find("read") != std::string::npos);
+
+    // Restoring it clears the warning - on demand means never stale.
+    ASSERT_TRUE(runtime.set_state("tool_read", true));
+    ASSERT_TRUE(runtime.audit().empty());
+}
+
 TEST(runtime_disable_unwinds_every_contribution) {
     ScratchConfig scratch("disable");
     Fixture f;

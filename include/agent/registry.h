@@ -2,6 +2,7 @@
 #ifndef AGENT_REGISTRY_H
 #define AGENT_REGISTRY_H
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -11,15 +12,38 @@
 
 namespace agent {
 
+// What a tool does, in the harness's vocabulary. Coarser than the tool's own
+// behaviour and deliberately so: it is what the audit reasons about, not what
+// the tool implements. A tool that only fits its own description is `Other`,
+// which is a complete answer - an audit cannot reason about a category nobody
+// else shares.
+enum class ToolRole : std::uint8_t {
+    Other,
+    Read,      // brings workspace content back
+    Write,     // changes workspace content
+    Search,    // locates content across the workspace
+    Execute,   // runs a process or command
+    Plan,      // records intent for the session
+    Delegate,  // hands work to a sub-agent
+};
+
+std::string to_string(ToolRole role);
+// Parse a role name ("read"); unknown yields Other.
+ToolRole parse_tool_role(const std::string& name);
+
 // Harness-facing metadata about a tool, kept beside it in the registry rather
-// than on the Tool port: this is presentation vocabulary the harness owns
-// ("searching", "planning"), not behaviour the tool performs. A tool that
-// describes its own *invocation* does that through Tool::summarize(args); this
-// is only what a status line needs when it does not know the tool.
+// than on the Tool port: this is vocabulary the harness owns ("searching",
+// "search"), not behaviour the tool performs. A tool that describes its own
+// *invocation* does that through Tool::summarize(args); this is what a status
+// line needs when it does not know the tool, and what the toolset audit uses to
+// see the shape of the whole set.
 struct ToolMeta {
     // Gerund shown while the tool runs. Empty falls back to a generic word, so
     // a tool that declares nothing still renders — never a blank.
     std::string verb;
+    // What the tool does. Used to tell whether the enabled set can still do
+    // the work at all, and to find two tools competing for the same job.
+    ToolRole role = ToolRole::Other;
 };
 
 // Owns the set of available tools and their metadata. The wire payload the
