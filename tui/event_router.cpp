@@ -306,7 +306,7 @@ void EventRouter::on_tool_call(Window* w, const AgentEvent& ev) {
     if (!w) return;
     tui_.running_tool_ = ev.tool_name;
     tui_.running_tool_desc_ = tool_display::describe_tool_call(
-        ev.tool_name, ev.tool_args);
+        ev.tool_name, ev.tool_args, tui_.reg_);
     tui_.render_engine_->mark_working();
     tui_.flush_stream(*w);
     // One "open" line per advertised call, animated together: round
@@ -316,8 +316,8 @@ void EventRouter::on_tool_call(Window* w, const AgentEvent& ev) {
     pt.name = ev.tool_name;
     pt.fingerprint = ev.tool_args.dump();
     pt.frame = 0;
-    pt.tail = " " + tool_display::describe_tool_call(ev.tool_name,
-                                                     ev.tool_args);
+    pt.tail = " " + tool_display::describe_tool_call(ev.tool_name, ev.tool_args,
+                                                     tui_.reg_);
     const char* frame = text::glyph::spinner_round(0);
     pt.window_id = ev.window_id;
     pt.index = tui_.append_line_to(*w, P_STATUS,
@@ -332,7 +332,7 @@ void EventRouter::on_tool_result(Window* w, const AgentEvent& ev) {
     // closed IN PLACE on the open line (single line per tool call).
     rich::Line summary = tool_display::result_line(
         ev.tool_name, ev.tool_args, ev.tool_result.ok,
-        ev.tool_result.output, ev.tool_result.error);
+        ev.tool_result.output, ev.tool_result.error, tui_.reg_);
     // Match the pending line for this call (same window + name + args, FIFO).
     size_t match = find_pending_tool(ev.window_id, ev.tool_name,
                                      ev.tool_args.dump());

@@ -45,52 +45,50 @@ inline constexpr int kPluginBlock = 1000;    // tail: contributed by plugins
 
 // Coarse activity state for a status-bar connection indicator.
 enum class RunState : std::uint8_t {
-    Idle,        // waiting, no request in flight
-    Waiting,     // request sent, awaiting first byte
-    Thinking,    // reasoning tokens arriving
-    Streaming,   // answer tokens arriving
-    Tooling,     // executing a tool call
-    Error        // last request failed
+    Idle,      // waiting, no request in flight
+    Waiting,   // request sent, awaiting first byte
+    Thinking,  // reasoning tokens arriving
+    Streaming, // answer tokens arriving
+    Tooling,   // executing a tool call
+    Error      // last request failed
 };
 
 // The host's answer when the agent asks permission to run an approval-gated
 // tool (e.g. the shell tool). AllowSession grants the tool for the rest of the
 // conversation; AlwaysAllow/AlwaysDeny persist to the policy store.
 enum class Approval : std::uint8_t {
-    Deny,           // reject this invocation only
-    AllowOnce,      // permit just this one call (no state change)
-    AllowSession,   // permit for the rest of this conversation
-    AlwaysAllow,    // persist — never ask again for this tool
-    AlwaysDeny      // persist — always block this tool
+    Deny,         // reject this invocation only
+    AllowOnce,    // permit just this one call (no state change)
+    AllowSession, // permit for the rest of this conversation
+    AlwaysAllow,  // persist — never ask again for this tool
+    AlwaysDeny    // persist — always block this tool
 };
 
 // Builds an LLM client for a given Config. The default factory wires the real
 // HttpLLMClient; tests inject a factory returning a fake so runtime config
 // changes (Agent::set_model) stay observable and network-free.
-using LLMClientFactory =
-    std::function<std::unique_ptr<LLMClient>(const Config&)>;
+using LLMClientFactory = std::function<std::unique_ptr<LLMClient>(const Config&)>;
 
 // A hook invoked on each significant event so UIs can render progress without
 // the library knowing about them. The default no-op is used by headless runs.
 struct AgentHooks {
-    std::function<void(const std::string&)> on_assistant;   // final text msg
-    std::function<void(const std::string&)> on_token;       // streamed text delta
-    std::function<void(const std::string&)> on_reasoning;   // streamed thinking delta
+    std::function<void(const std::string&)> on_assistant; // final text msg
+    std::function<void(const std::string&)> on_token;     // streamed text delta
+    std::function<void(const std::string&)> on_reasoning; // streamed thinking delta
     std::function<void(const std::string&, const json&)> on_tool_call;
     // (name, result, args) — args are the original tool-call arguments so
     // hosts can describe what was actually run.
-    std::function<void(const std::string&, const ToolResult&, const json&)>
-        on_tool_result;
+    std::function<void(const std::string&, const ToolResult&, const json&)> on_tool_result;
     std::function<void(const std::string&)> on_status;
-    std::function<void(RunState)> on_state;                 // activity transitions
-    std::function<void(const Stats&)> on_stats;             // per-request telemetry
+    std::function<void(RunState)> on_state;     // activity transitions
+    std::function<void(const Stats&)> on_stats; // per-request telemetry
 
     // Consulted before running a tool whose requires_approval() is true. Given
     // the tool name and a human-readable summary of the action, returns the
     // host's decision. If unset, approval-gated tools are DENIED by default
     // (fail-safe: a headless run never executes shell commands unattended).
-    std::function<Approval(const std::string& tool, const json& args,
-                           const std::string& summary)> on_approval;
+    std::function<Approval(const std::string& tool, const json& args, const std::string& summary)>
+        on_approval;
 
     // Ask the host for an API key/token for the active provider. `reason` is
     // human-readable ("provider 'kilocode' requires an API key", "API key
@@ -106,8 +104,6 @@ struct AgentHooks {
     // mirror the agent's internals to the screen without the core knowing
     // about rendering. The default no-op is used by headless runs.
     std::function<void(const std::string&)> on_debug;
-
-
 };
 
 // The core agent loop. Given an initial user prompt it drives the conversation:
@@ -121,10 +117,8 @@ public:
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
           std::unique_ptr<MemoryStore> memory_store = {},
-          std::unique_ptr<MemoryRetriever> retriever = {},
-          std::unique_ptr<LLMClient> client = {},
-          LLMClientFactory client_factory = {},
-          bool register_skills = true);
+          std::unique_ptr<MemoryRetriever> retriever = {}, std::unique_ptr<LLMClient> client = {},
+          LLMClientFactory client_factory = {}, bool register_skills = true);
     // The agent registers its skill tools (read_skill/list_skills/write_skill)
     // into the shared registry, bound to its own SkillCatalog. Hosts that
     // construct short-lived agents sharing a parent's registry (sub-agents)
@@ -154,8 +148,7 @@ public:
     // Run the compression pipeline (gate already decided). Rebuilds the
     // context only on success — a failed pipeline leaves the context
     // untouched (spec invariant 7). Optionally fills `out` with stats.
-    bool run_compression(std::function<void()> progress_cb,
-                         CompressionResult* out);
+    bool run_compression(std::function<void()> progress_cb, CompressionResult* out);
 
     // Internal metadata — never sent to the LLM.  Persisted alongside
     // history_ in the session file for future internal use.
@@ -176,18 +169,20 @@ public:
     // compression gate unless the user set context_size explicitly.
     void set_model(const std::string& model, int window = 0);
     void set_reasoning_effort(const std::string& effort);
-    void set_connection(const std::string& api_base,
-                        const std::string& api_key, const std::string& model);
+    void set_connection(const std::string& api_base, const std::string& api_key,
+                        const std::string& model);
 
     void set_compression_threshold(double t) {
         cfg_.compression_threshold = t;
         cfg_.compression_threshold_explicit = true;
-        if (gate_) gate_->set_threshold(t);
+        if (gate_)
+            gate_->set_threshold(t);
     }
     void set_compression_min_turns(int n) {
         cfg_.compression_min_turns = n;
         cfg_.compression_min_turns_explicit = true;
-        if (gate_) gate_->set_min_turns(n);
+        if (gate_)
+            gate_->set_min_turns(n);
     }
     void set_compression_target_pct(int pct) {
         cfg_.compression_target_pct = pct;
@@ -219,9 +214,7 @@ public:
 
     // Attach the contribution registries. Optional, like the bus: with none
     // attached the agent builds its prompt from the core blocks alone.
-    void set_prompt_registry(PromptRegistry& prompts) noexcept {
-        prompt_registry_ = &prompts;
-    }
+    void set_prompt_registry(PromptRegistry& prompts) noexcept { prompt_registry_ = &prompts; }
 
     // The session's experience store (nullptr when experience is disabled).
     // Read-only use by the UI; mutation goes through learn_forget/learn_pin
@@ -276,18 +269,15 @@ private:
     // Dispatch tool calls with loop detection. Returns true if the loop
     // should continue (tool calls were present and handled). Sets final_reply
     // on hard stop.
-    bool dispatch_with_loop_detection(const json& tool_calls,
-                                      const std::string& content,
-                                      FailStreak& fail_streak,
-                                      int& loop_count,
-                                      std::string& last_loop_key,
-                                      int& tool_recovery_attempts,
+    bool dispatch_with_loop_detection(const json& tool_calls, const std::string& content,
+                                      FailStreak& fail_streak, int& loop_count,
+                                      std::string& last_loop_key, int& tool_recovery_attempts,
                                       std::string& final_reply);
 
     // Detect repeated text replies. Returns true if a hard text loop was
     // detected and final_reply was set.
-    bool detect_text_loop(const std::string& content, int& text_loop_count,
-                          std::string& last_text, std::string& final_reply);
+    bool detect_text_loop(const std::string& content, int& text_loop_count, std::string& last_text,
+                          std::string& final_reply);
 
     // Run confirm_turn and either break with the final reply or continue.
     std::string try_confirm(const std::string& candidate,
@@ -300,8 +290,8 @@ private:
     // retry loop repairs the request once (drop tools on template-parser
     // rejection, swap to a server-known model on name rejection). `strict`
     // makes internal exchanges rethrow instead of faking a reply.
-    Message chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools,
-                               const char* stage, bool display, bool strict);
+    Message chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools, const char* stage,
+                               bool display, bool strict);
 
     // Push a generated reply into context, log, and fire context event.
     void push_reply(Message reply);
@@ -333,17 +323,16 @@ private:
 
     // Publish a typed event when a bus is attached. No bus, or no subscriber
     // for this payload type, means the call compiles down to a null check.
-    template <class E>
-    void publish_event(E& event) {
-        if (!event_bus_) return;
+    template <class E> void publish_event(E& event) {
+        if (!event_bus_)
+            return;
         Events(*event_bus_).publish(event);
     }
 
     // Announce a message that has just been sealed into the context.
     void publish_message_added(const Message& msg);
     // Announce a request failure the loop is about to repair or surface.
-    void publish_error(const std::string& kind, const std::string& message,
-                       bool retryable = false);
+    void publish_error(const std::string& kind, const std::string& message, bool retryable = false);
 
     // Per-model probed windows (model id -> context), fed by /set model.
     std::map<std::string, int> model_windows_;
@@ -356,7 +345,7 @@ private:
     ConversationLog log_;
     Context context_;
     ContextEventSource context_events_;
-    std::set<std::string> session_approved_;  // tools granted for the session
+    std::set<std::string> session_approved_; // tools granted for the session
     std::unique_ptr<CompressionStrategy> compression_;
     std::unique_ptr<CompressionGate> gate_;
     std::unique_ptr<MemoryStore> memory_store_;
@@ -367,6 +356,10 @@ private:
     PolicyStore policy_;
     EventBus* event_bus_ = nullptr;
     PromptRegistry* prompt_registry_ = nullptr;
+    // The system prompt is derived, not stored: its inputs include the tool
+    // registry and the plugin prompt blocks, and a toggle changes both.
+    std::string render_system_prompt() const;
+    void push_system_prompt(std::string system);
     size_t turn_counter_ = 0;
     CompressionResult last_compression_;
 };

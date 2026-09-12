@@ -4,6 +4,8 @@
 // Scenarios map to docs/spec/llm-client/agent-loop-reliability.md [AL-xx].
 
 #include <chrono>
+#include <fstream>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <thread>
@@ -12,6 +14,8 @@
 
 #include "agent.h"
 #include "agent/tools.h"
+#include "agent/plugins_bundled.h"
+#include "agent/plugin_runtime.h"
 #include "agent/todo.h"
 #include "agent/session_brief.h"
 #include "fake_llm.h"
@@ -37,8 +41,7 @@ agent::Config loop_cfg() {
 // side-effecting tools (write create, task, plugin) without a real UI.
 agent::AgentHooks auto_approve_hooks() {
     agent::AgentHooks h;
-    h.on_approval = [](const std::string&, const agent::json&,
-                       const std::string&) {
+    h.on_approval = [](const std::string&, const agent::json&, const std::string&) {
         return agent::Approval::AllowOnce;
     };
     return h;
@@ -58,23 +61,20 @@ void push_text(const std::shared_ptr<std::deque<agent_test::FakeReply>>& script,
 }
 
 void push_tool_call(const std::shared_ptr<std::deque<agent_test::FakeReply>>& script,
-                    const std::string& fn, const json& args,
-                    const std::string& id = "call_1") {
+                    const std::string& fn, const json& args, const std::string& id = "call_1") {
     agent_test::FakeReply r;
-    r.tool_calls = json::array(
-        {{{"id", id},
-          {"type", "function"},
-          {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
+    r.tool_calls = json::array({{{"id", id},
+                                 {"type", "function"},
+                                 {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
     script->push_back(std::move(r));
 }
 
-void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn,
-                    const json& args, const std::string& id = "call_1") {
+void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn, const json& args,
+                    const std::string& id = "call_1") {
     agent_test::FakeReply r;
-    r.tool_calls = json::array(
-        {{{"id", id},
-          {"type", "function"},
-          {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
+    r.tool_calls = json::array({{{"id", id},
+                                 {"type", "function"},
+                                 {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
     fake.script.push_back(std::move(r));
 }
 
@@ -93,7 +93,7 @@ TEST(agent_loop_plain_reply) {
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "hello there");
-    ASSERT_EQ(raw->chat_calls, 2);  // generation + confirmation probe
+    ASSERT_EQ(raw->chat_calls, 2); // generation + confirmation probe
     // Context: system, user, assistant, probe prompt, probe ack.
     const auto& ctx = ag.context().get_all();
     ASSERT_EQ(ctx.size(), 5u);
@@ -101,7 +101,8 @@ TEST(agent_loop_plain_reply) {
     ASSERT(ctx[0].content.find("## Environment") != std::string::npos);
     bool saw_user = false;
     for (const auto& m : ctx)
-        if (m.role == "user" && m.content == "hi") saw_user = true;
+        if (m.role == "user" && m.content == "hi")
+            saw_user = true;
     ASSERT(saw_user);
 }
 
@@ -124,15 +125,15 @@ TEST(agent_loop_tool_roundtrip) {
     const auto& ctx = ag.context().get_all();
     bool saw_tool_result = false;
     for (const auto& m : ctx)
-        if (m.role == "tool" &&
-            m.content.find("Makefile") != std::string::npos)
+        if (m.role == "tool" && m.content.find("Makefile") != std::string::npos)
             saw_tool_result = true;
     ASSERT(saw_tool_result);
     // Second request carries the tool message back to the model.
     ASSERT(raw->requests.size() >= 2u);
     bool fed_back = false;
     for (const auto& m : raw->requests[1])
-        if (m.role == "tool") fed_back = true;
+        if (m.role == "tool")
+            fed_back = true;
     ASSERT(fed_back);
 }
 
@@ -157,8 +158,7 @@ TEST(agent_loop_confirmation_dispatches_tools) {
     const auto& ctx = ag.context().get_all();
     bool saw_tool_result = false;
     for (const auto& m : ctx)
-        if (m.role == "tool" &&
-            m.content.find("Makefile") != std::string::npos)
+        if (m.role == "tool" && m.content.find("Makefile") != std::string::npos)
             saw_tool_result = true;
     ASSERT(saw_tool_result);
     ASSERT(raw->chat_calls == 4);
@@ -179,7 +179,7 @@ TEST(agent_loop_max_tool_iterations) {
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("read many files");
-    ASSERT_FALSE(reply.empty());  // graceful fallback, not a crash
+    ASSERT_FALSE(reply.empty()); // graceful fallback, not a crash
     ASSERT_EQ(raw->chat_calls, 3);
     ASSERT(raw->requests.size() == 3u);
 }
@@ -196,26 +196,24 @@ TEST(agent_loop_text_loop_detection) {
     bool steered = false;
     agent::AgentHooks hooks;
     hooks.on_status = [&](const std::string& s) {
-        if (s.find("text loop") != std::string::npos) steered = true;
+        if (s.find("text loop") != std::string::npos)
+            steered = true;
     };
     // Six repeats of "foo", each followed by a probe that dispatches a tool
     // (so the confirmation never accepts). The steer fires at repeat 2; the
     // hard stop at repeat 6 (the steer no longer resets the counter).
-    const char* paths[] = {"Makefile",      "Makefile.in", "lib/llm.cpp",
-                           "lib/agent.cpp", "tests/run_tests.cpp",
-                           "include/agent/agent.h"};
+    const char* paths[] = {"Makefile",      "Makefile.in",         "lib/llm.cpp",
+                           "lib/agent.cpp", "tests/run_tests.cpp", "include/agent/agent.h"};
     for (int i = 0; i < 6; ++i) {
         push_text(*fake, "foo");
-        push_tool_call(*fake, "read", {{"path", paths[i]}},
-                       "probe_" + std::to_string(i));
+        push_tool_call(*fake, "read", {{"path", paths[i]}}, "probe_" + std::to_string(i));
     }
-    agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {},
-                    std::move(fake));
+    agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("do the thing");
     ASSERT(steered);
     ASSERT(reply.find("loop detected") != std::string::npos);
-    ASSERT_EQ(raw->chat_calls, 11);  // 6th repeat hard-stops before its probe
+    ASSERT_EQ(raw->chat_calls, 11); // 6th repeat hard-stops before its probe
 }
 
 // [AL-06] The compression gate fires once the cooldown window passes; the
@@ -240,17 +238,16 @@ TEST(agent_loop_compression_trigger) {
     // The compression turn: 1) classify, 2) extract, 3) generation, 4) probe.
     {
         agent_test::FakeReply r;
-        r.content =
-            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
-            R"("memories":[],"skills":[]})";
+        r.content = R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+                    R"("memories":[],"skills":[]})";
         fake->script.push_back(std::move(r));
     }
     push_text(*fake, R"({"memories":[],"skills":[]})");
     push_text(*fake, "hello after compression");
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    {}, {}, std::move(fake));
-    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    for (int i = 0; i < 21; ++i)
+        ag.run("warm " + std::to_string(i));
 
     std::string big_prompt(8000, 'x');
     std::string reply = ag.run(big_prompt);
@@ -259,8 +256,7 @@ TEST(agent_loop_compression_trigger) {
     bool saw_compression = false;
     for (const auto& req : raw->requests)
         for (const auto& m : req)
-            if (m.content.find("CLASSIFICATION of every older turn range") !=
-                std::string::npos)
+            if (m.content.find("CLASSIFICATION of every older turn range") != std::string::npos)
                 saw_compression = true;
     ASSERT(saw_compression);
     // Hash chain intact after the clear+push rebuild.
@@ -277,7 +273,7 @@ TEST(agent_loop_learned_window_clamps_gate) {
     };
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
-    cfg.context_size = 262144;  // configured from model metadata (trained)
+    cfg.context_size = 262144; // configured from model metadata (trained)
     cfg.compression_threshold = 0.7;
     cfg.compression_min_turns = 2;
     agent::ToolRegistry reg;
@@ -300,25 +296,23 @@ TEST(agent_loop_learned_window_clamps_gate) {
     }
     {
         agent_test::FakeReply r;
-        r.content =
-            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
-            R"("memories":[],"skills":[]})";
+        r.content = R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+                    R"("memories":[],"skills":[]})";
         fake->script.push_back(std::move(r));
     }
     push_text(*fake, R"({"memories":[],"skills":[]})");
     push_text(*fake, "compressed after learned clamp");
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    {}, {}, std::move(fake));
-    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    for (int i = 0; i < 21; ++i)
+        ag.run("warm " + std::to_string(i));
 
     std::string reply = ag.run("next");
     ASSERT_EQ(reply, "compressed after learned clamp");
     bool saw_compression = false;
     for (const auto& req : raw->requests)
         for (const auto& m : req)
-            if (m.content.find("CLASSIFICATION of every older turn range") !=
-                std::string::npos)
+            if (m.content.find("CLASSIFICATION of every older turn range") != std::string::npos)
                 saw_compression = true;
     ASSERT(saw_compression);
 }
@@ -336,9 +330,8 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
         R"("memories":[],"skills":[]})";
     fake->script.push_back(std::move(classify));
     agent_test::FakeReply extract;
-    extract.content =
-        R"({"memories":[{"name":"fact-1","content":"a fact","action":"upsert"}],)"
-        R"("skills":[]})";
+    extract.content = R"({"memories":[{"name":"fact-1","content":"a fact","action":"upsert"}],)"
+                      R"("skills":[]})";
     fake->script.push_back(std::move(extract));
     agent::Context ctx;
     agent::Message sys;
@@ -358,7 +351,7 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
     // The pipeline is pure — it reads the context and works on a copy, so
     // the live context is untouched by the classify/extract calls.
     ASSERT_EQ(ctx.size(), 2);
-    (void)ctx.get_all();  // hash chain intact
+    (void)ctx.get_all(); // hash chain intact
 }
 
 // KV-reuse guarantee: the compression pipeline makes TWO LLM calls
@@ -438,8 +431,7 @@ TEST(compression_pipeline_failure_returns_history_unchanged) {
     user.content = "search for x";
     ctx.push(std::move(user));
     for (int i = 0; i < 3; ++i) {
-        ctx.push(agent_test::tool_call_msg(
-            "search", json{{"pattern", "x"}}));
+        ctx.push(agent_test::tool_call_msg("search", json{{"pattern", "x"}}));
         agent::Message res;
         res.role = "tool";
         res.name = "search";
@@ -472,15 +464,20 @@ TEST(compression_failure_reports_real_error_not_no_compressor) {
     agent_test::FakeReply err;
     err.error = "simulated server failure";
     fake->script.push_back(std::move(err));
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
     std::vector<agent::Message> msgs;
-    agent::Message sys; sys.role = "system"; sys.content = "Amber";
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
     msgs.push_back(std::move(sys));
     for (int i = 0; i < 6; ++i) {
-        agent::Message u; u.role = "user"; u.content = "q" + std::to_string(i);
+        agent::Message u;
+        u.role = "user";
+        u.content = "q" + std::to_string(i);
         msgs.push_back(std::move(u));
-        agent::Message m; m.role = "assistant"; m.content = "a" + std::to_string(i);
+        agent::Message m;
+        m.role = "assistant";
+        m.content = "a" + std::to_string(i);
         msgs.push_back(std::move(m));
     }
     ag.set_context(std::move(msgs));
@@ -510,36 +507,39 @@ TEST(compression_target_budget_enforced) {
     // but the guard + classifier would still keep a large tail; the budget
     // pass must archive down to ~10% regardless.
     agent_test::FakeReply classify;
-    classify.content =
-        R"({"summary":"Working on feature X.","classification":)"
-        R"([{"turns":"1-50","tag":"context","summary":"old work"},)"
-        R"({"turns":"51-80","tag":"core","summary":""}],"memories":[],"skills":[]})";
+    classify.content = R"({"summary":"Working on feature X.","classification":)"
+                       R"([{"turns":"1-50","tag":"context","summary":"old work"},)"
+                       R"({"turns":"51-80","tag":"core","summary":""}],"memories":[],"skills":[]})";
     fake->script.push_back(std::move(classify));
     agent_test::FakeReply extract;
     extract.content = R"({"memories":[],"skills":[]})";
     fake->script.push_back(std::move(extract));
 
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {},
-                    std::move(fake));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {}, std::move(fake));
     // Seed a large context (~200k estimated tokens).
     std::vector<agent::Message> msgs;
-    agent::Message sys; sys.role = "system";
+    agent::Message sys;
+    sys.role = "system";
     sys.content = "You are Amber. " + std::string(4000, 's');
     msgs.push_back(std::move(sys));
     for (int i = 0; i < 60; ++i) {
-        agent::Message u; u.role = "user";
+        agent::Message u;
+        u.role = "user";
         u.content = "prompt " + std::to_string(i) + " " + std::string(2000, 'u');
         msgs.push_back(std::move(u));
-        agent::Message a; a.role = "assistant";
+        agent::Message a;
+        a.role = "assistant";
         a.content = "answer " + std::to_string(i) + " " + std::string(2000, 'a');
         msgs.push_back(std::move(a));
-        agent::Message t; t.role = "tool"; t.name = "bash";
+        agent::Message t;
+        t.role = "tool";
+        t.name = "bash";
         t.content = "huge tool output " + std::string(4000, 'x');
         msgs.push_back(std::move(t));
     }
     ag.set_context(std::move(msgs));
     size_t before_tokens = ag.context().token_count();
-    ASSERT(before_tokens > 100000u);  // genuinely large
+    ASSERT(before_tokens > 100000u); // genuinely large
 
     auto r = ag.compress_now();
     ASSERT(r.error.empty());
@@ -572,19 +572,26 @@ TEST(compression_keep_last_prompts_and_prune_tail) {
     extract.content = R"({"memories":[],"skills":[]})";
     fake->script.push_back(std::move(extract));
 
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {},
-                    std::move(fake));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {}, std::move(fake));
     std::vector<agent::Message> msgs;
-    agent::Message sys; sys.role = "system"; sys.content = "You are Amber.";
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "You are Amber.";
     msgs.push_back(std::move(sys));
     // 12 user turns; last 2 carry huge tool outputs that must be pruned.
     for (int i = 0; i < 12; ++i) {
-        agent::Message u; u.role = "user"; u.content = "prompt " + std::to_string(i);
+        agent::Message u;
+        u.role = "user";
+        u.content = "prompt " + std::to_string(i);
         msgs.push_back(std::move(u));
-        agent::Message a; a.role = "assistant"; a.content = "answer " + std::to_string(i);
+        agent::Message a;
+        a.role = "assistant";
+        a.content = "answer " + std::to_string(i);
         msgs.push_back(std::move(a));
-        agent::Message t; t.role = "tool"; t.name = "bash";
-        t.content = std::string(5000, 'z');  // bulky — should be pruned even in tail
+        agent::Message t;
+        t.role = "tool";
+        t.name = "bash";
+        t.content = std::string(5000, 'z'); // bulky — should be pruned even in tail
         msgs.push_back(std::move(t));
     }
     ag.set_context(std::move(msgs));
@@ -595,16 +602,19 @@ TEST(compression_keep_last_prompts_and_prune_tail) {
     auto ctx = ag.context().get_all();
     int last_user_seen = -1;
     for (size_t i = 0; i < ctx.size(); ++i)
-        if (ctx[i].role == "user") last_user_seen = static_cast<int>(i);
+        if (ctx[i].role == "user")
+            last_user_seen = static_cast<int>(i);
     // The final compressed context ends with the last user prompt's turn.
     bool found_last = false;
     for (const auto& m : ctx)
-        if (m.role == "user" && m.content == "prompt 11") found_last = true;
+        if (m.role == "user" && m.content == "prompt 11")
+            found_last = true;
     ASSERT(found_last);
     // Bulky tool outputs anywhere (incl. the recent tail) are placeholder'd.
     bool saw_huge = false;
     for (const auto& m : ctx)
-        if (m.role == "tool" && m.content.size() > 1000) saw_huge = true;
+        if (m.role == "tool" && m.content.size() > 1000)
+            saw_huge = true;
     ASSERT(!saw_huge);
     (void)last_user_seen;
 }
@@ -627,40 +637,48 @@ TEST(compression_strips_reasoning_and_ignores_probes) {
     agent_test::FakeReply extract;
     extract.content = R"({"memories":[],"skills":[]})";
     fake->script.push_back(std::move(extract));
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {},
-                    std::move(fake));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {}, std::move(fake));
 
     std::vector<agent::Message> msgs;
-    agent::Message sys; sys.role = "system"; sys.content = "You are Amber.";
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "You are Amber.";
     msgs.push_back(std::move(sys));
     // 6 REAL prompts, each followed by a confirmation probe + a bulky
     // reasoning assistant turn. Fewer real prompts than keep_last_prompts(10)
     // would protect everything if probes counted as users.
     for (int i = 0; i < 6; ++i) {
-        agent::Message u; u.role = "user"; u.content = "real prompt " + std::to_string(i);
+        agent::Message u;
+        u.role = "user";
+        u.content = "real prompt " + std::to_string(i);
         msgs.push_back(std::move(u));
-        agent::Message probe; probe.role = "user";
-        probe.content = "Are you finished? If you need more information or analysis, use tools now.";
+        agent::Message probe;
+        probe.role = "user";
+        probe.content =
+            "Are you finished? If you need more information or analysis, use tools now.";
         msgs.push_back(std::move(probe));
-        agent::Message a; a.role = "assistant";
+        agent::Message a;
+        a.role = "assistant";
         a.content = "answer " + std::to_string(i);
-        a.reasoning = std::string(9000, 'r');  // thinking bloat
+        a.reasoning = std::string(9000, 'r'); // thinking bloat
         msgs.push_back(std::move(a));
     }
     ag.set_context(std::move(msgs));
     size_t before = ag.context().token_count();
-    ASSERT(before > 10000u);  // reasoning inflates the count
+    ASSERT(before > 10000u); // reasoning inflates the count
 
     auto r = ag.compress_now();
     ASSERT(r.error.empty());
     auto ctx = ag.context().get_all();
     // No reasoning survives compression.
     for (const auto& m : ctx)
-        if (m.role == "assistant") ASSERT(m.reasoning.empty());
+        if (m.role == "assistant")
+            ASSERT(m.reasoning.empty());
     // The last real prompt survives (probes did not push it out of the guard).
     bool found_last = false;
     for (const auto& m : ctx)
-        if (m.role == "user" && m.content == "real prompt 5") found_last = true;
+        if (m.role == "user" && m.content == "real prompt 5")
+            found_last = true;
     ASSERT(found_last);
     // Dramatically smaller.
     size_t after = ag.context().token_count();
@@ -688,8 +706,6 @@ TEST(agent_loop_hash_chain_intact) {
     ASSERT(raw->chat_calls >= 4);
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Retry policy ([AL-07]..[AL-10]): the fake throws retryable/non-retryable
 // ApiErrors; chat_with_retry applies backoff, then the loop degrades.
@@ -716,7 +732,7 @@ TEST(agent_loop_retry_then_success) {
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "ok after retries");
-    ASSERT_EQ(raw->chat_calls, 4);  // 3 attempts + confirmation probe
+    ASSERT_EQ(raw->chat_calls, 4); // 3 attempts + confirmation probe
 }
 
 // [AL-08] A non-retryable error fails fast (single attempt).
@@ -735,7 +751,7 @@ TEST(agent_loop_non_retryable_fails_fast) {
 
     std::string reply = ag.run("hi");
     ASSERT(reply.find("error during") != std::string::npos);
-    ASSERT_EQ(raw->chat_calls, 2);  // 1 attempt + probe; no retries
+    ASSERT_EQ(raw->chat_calls, 2); // 1 attempt + probe; no retries
 }
 
 // [AL-09] Retries exhausted -> graceful error reply, conversation intact.
@@ -756,12 +772,13 @@ TEST(agent_loop_retries_exhausted) {
 
     std::string reply = ag.run("hi");
     ASSERT(reply.find("error during") != std::string::npos);
-    ASSERT_EQ(raw->chat_calls, 4);  // 3 attempts + probe
+    ASSERT_EQ(raw->chat_calls, 4); // 3 attempts + probe
     // The user prompt is preserved for a manual retry.
     const auto& ctx = ag.context().get_all();
     bool saw_user = false;
     for (const auto& m : ctx)
-        if (m.role == "user" && m.content == "hi") saw_user = true;
+        if (m.role == "user" && m.content == "hi")
+            saw_user = true;
     ASSERT(saw_user);
 }
 
@@ -802,7 +819,7 @@ TEST(agent_loop_cancel_during_backoff) {
 TEST(agent_loop_unknown_context_never_auto_fires) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
-    cfg.context_size = 0;  // server never reported n_ctx
+    cfg.context_size = 0; // server never reported n_ctx
     cfg.compression_threshold = 0.1;
     cfg.compression_threshold_explicit = true;
     cfg.compression_min_turns = 2;
@@ -818,9 +835,9 @@ TEST(agent_loop_unknown_context_never_auto_fires) {
         push_text(*fake, "done");
     }
     push_text(*fake, "direct reply");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    {}, {}, std::move(fake));
-    for (int i = 0; i < 5; ++i) ag.run("warm " + std::to_string(i));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    for (int i = 0; i < 5; ++i)
+        ag.run("warm " + std::to_string(i));
 
     std::string big_prompt(8000, 'x');
     std::string reply = ag.run(big_prompt);
@@ -828,8 +845,7 @@ TEST(agent_loop_unknown_context_never_auto_fires) {
     bool saw_compression = false;
     for (const auto& req : raw->requests)
         for (const auto& m : req)
-            if (m.content.find("CLASSIFICATION of every older turn range") !=
-                std::string::npos)
+            if (m.content.find("CLASSIFICATION of every older turn range") != std::string::npos)
                 saw_compression = true;
     ASSERT_FALSE(saw_compression);
     (void)ag.context().get_all();
@@ -920,10 +936,9 @@ TEST(agent_loop_attribute_xml_tool_call_executes) {
     reg.register_tool(agent::make_read_tool());
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply r;
-    r.content =
-        "Let me check.\n"
-        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
-        "</parameter>\n</function>\n</tool_call>";
+    r.content = "Let me check.\n"
+                "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+                "</parameter>\n</function>\n</tool_call>";
     fake->script.push_back(std::move(r));
     push_text(*fake, "done reading");
     push_text(*fake, "done");
@@ -933,8 +948,7 @@ TEST(agent_loop_attribute_xml_tool_call_executes) {
     const auto& ctx = ag.context().get_all();
     bool saw_tool_result = false;
     for (const auto& m : ctx)
-        if (m.role == "tool" &&
-            m.content.find("Makefile") != std::string::npos)
+        if (m.role == "tool" && m.content.find("Makefile") != std::string::npos)
             saw_tool_result = true;
     ASSERT(saw_tool_result);
 }
@@ -950,17 +964,14 @@ TEST(agent_xml_tool_call_fires_hook_once) {
     reg.register_tool(agent::make_read_tool());
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply r;
-    r.content =
-        "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
-        "</parameter>\n</function>\n</tool_call>";
+    r.content = "<tool_call>\n<function=read>\n<parameter=path>\nMakefile\n"
+                "</parameter>\n</function>\n</tool_call>";
     fake->script.push_back(std::move(r));
     push_text(*fake, "done reading");
     push_text(*fake, "done");
     int tool_call_hook_count = 0;
     agent::AgentHooks hooks;
-    hooks.on_tool_call = [&](const std::string&, const agent::json&) {
-        ++tool_call_hook_count;
-    };
+    hooks.on_tool_call = [&](const std::string&, const agent::json&) { ++tool_call_hook_count; };
     agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(fake));
     ag.run("read the Makefile");
     ASSERT_EQ(tool_call_hook_count, 1);
@@ -975,18 +986,16 @@ TEST(agent_loop_todowrite_state_persists) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, true);
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
+    push_tool_call(
+        *fake, "todowrite",
+        {{"todos", {{{"id", "p1"}, {"text", "fix parsing"}, {"status", "in_progress"}}}}});
     push_tool_call(*fake, "todowrite",
-                   {{"todos", {{{"id", "p1"}, {"text", "fix parsing"},
-                                {"status", "in_progress"}}}}});
-    push_tool_call(*fake, "todowrite",
-                   {{"todos", {{{"id", "p1"}, {"text", "fix parsing"},
-                                {"status", "completed"}},
-                               {{"id", "p2"}, {"text", "write tests"},
-                                {"status", "pending"}}}}});
+                   {{"todos",
+                     {{{"id", "p1"}, {"text", "fix parsing"}, {"status", "completed"}},
+                      {{"id", "p2"}, {"text", "write tests"}, {"status", "pending"}}}}});
     push_text(*fake, "done");
     push_text(*fake, "yes");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
@@ -1010,11 +1019,8 @@ TEST(agent_loop_tool_envelope_lean) {
     reg.register_tool(agent::make_write_tool());
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent::json edits = agent::json::array(
-        {{{"old", ""},
-          {"new",
-           std::string(300, 'L')}}});  // > 120 chars -> args must not echo
-    push_tool_call(*fake, "write",
-                   {{"path", "bench_envelope_test.txt"}, {"edits", edits}});
+        {{{"old", ""}, {"new", std::string(300, 'L')}}}); // > 120 chars -> args must not echo
+    push_tool_call(*fake, "write", {{"path", "bench_envelope_test.txt"}, {"edits", edits}});
     push_text(*fake, "done writing");
     push_text(*fake, "done");
     agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(fake));
@@ -1024,7 +1030,8 @@ TEST(agent_loop_tool_envelope_lean) {
     const auto& ctx = ag.context().get_all();
     bool saw_lean = false;
     for (const auto& m : ctx) {
-        if (m.role != "tool") continue;
+        if (m.role != "tool")
+            continue;
         ASSERT(m.content.find("[tool=write status=ok") != std::string::npos);
         ASSERT(m.content.find("args=") == std::string::npos);
         ASSERT(m.content.find("[end]") != std::string::npos);
@@ -1050,7 +1057,8 @@ TEST(agent_loop_tool_envelope_small_args_echoed) {
     const auto& ctx = ag.context().get_all();
     bool saw_echo = false;
     for (const auto& m : ctx) {
-        if (m.role != "tool") continue;
+        if (m.role != "tool")
+            continue;
         ASSERT(m.content.find("[tool=read args={\"path\":\"Makefile\"}") != std::string::npos);
         saw_echo = true;
     }
@@ -1089,7 +1097,8 @@ public:
         if (track) {
             const int a = ++track->active;
             int p = track->peak.load();
-            while (a > p && !track->peak.compare_exchange_weak(p, a)) {}
+            while (a > p && !track->peak.compare_exchange_weak(p, a)) {
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(15));
             --track->active;
         }
@@ -1112,11 +1121,10 @@ public:
         return m;
     }
 
-    agent::Message chat_stream(
-        const std::vector<agent::Message>&,
-        const std::vector<std::shared_ptr<agent::Tool>>&,
-        const std::function<void(const agent::StreamChunk&)>&,
-        agent::Stats* stats = nullptr) override {
+    agent::Message chat_stream(const std::vector<agent::Message>&,
+                               const std::vector<std::shared_ptr<agent::Tool>>&,
+                               const std::function<void(const agent::StreamChunk&)>&,
+                               agent::Stats* stats = nullptr) override {
         return chat({}, {}, stats);
     }
 };
@@ -1178,7 +1186,7 @@ TEST(agent_loop_auth_401_declined_key_degrades) {
     agent::AgentHooks hooks;
     hooks.on_api_key = [&prompted](const std::string&) {
         prompted = true;
-        return std::string();   // user cancelled
+        return std::string(); // user cancelled
     };
     agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, {}, factory);
 
@@ -1196,8 +1204,8 @@ TEST(agent_loop_subagent_focused_task) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
+                                  true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     // Parent turn 1: delegate. Then the sub-agent's turns: read, report,
     // probe-confirm; the parent then chats "done" and probe-confirms "yes".
@@ -1225,8 +1233,7 @@ TEST(agent_loop_subagent_focused_task) {
     // The task result (the sub-agent's report) must be fed back to the parent.
     bool saw_report = false;
     for (const auto& m : ag.context().get_all())
-        if (m.role == "tool" &&
-            m.content.find("sub-agent report") != std::string::npos)
+        if (m.role == "tool" && m.content.find("sub-agent report") != std::string::npos)
             saw_report = true;
     ASSERT(saw_report);
 }
@@ -1237,13 +1244,13 @@ TEST(agent_loop_subagent_focused_task) {
 TEST(agent_loop_subagent_iteration_cap) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
-    cfg.max_tool_iterations = 25;  // bound the parent's churn too
+    cfg.max_tool_iterations = 25; // bound the parent's churn too
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
+                                  true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "never stop"}});
     for (int i = 0; i < 200; ++i)
@@ -1266,11 +1273,10 @@ TEST(agent_loop_subagent_iteration_cap) {
     // never consuming the script's 200 reads.
     bool sub_hit_cap = false;
     for (const auto& m : ag.context().get_all())
-        if (m.role == "tool" &&
-            m.content.find("agent stopped") != std::string::npos)
+        if (m.role == "tool" && m.content.find("agent stopped") != std::string::npos)
             sub_hit_cap = true;
     ASSERT(sub_hit_cap);
-    ASSERT(script->size() > 150u);  // ~20 sub iterations consumed, not 200
+    ASSERT(script->size() > 150u); // ~20 sub iterations consumed, not 200
     ASSERT(reply.find("stopped") != std::string::npos);
 }
 
@@ -1283,19 +1289,19 @@ TEST(agent_loop_subagent_serial_mode) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
+                                  true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     // One reply issuing BOTH task calls; the shared script serves both
     // sub-agents in order (serialized), then the parent finishes.
     agent_test::FakeReply two_calls;
-    two_calls.tool_calls = json::array(
-        {{{"id", "call_1"},
-          {"type", "function"},
-          {"function", {{"name", "task"}, {"arguments", R"({"prompt":"first"})"}}}},
-         {{"id", "call_2"},
-          {"type", "function"},
-          {"function", {{"name", "task"}, {"arguments", R"({"prompt":"second"})"}}}}});
+    two_calls.tool_calls =
+        json::array({{{"id", "call_1"},
+                      {"type", "function"},
+                      {"function", {{"name", "task"}, {"arguments", R"({"prompt":"first"})"}}}},
+                     {{"id", "call_2"},
+                      {"type", "function"},
+                      {"function", {{"name", "task"}, {"arguments", R"({"prompt":"second"})"}}}}});
     script->push_back(std::move(two_calls));
     push_text(script, "report one");
     push_text(script, "done");
@@ -1320,10 +1326,11 @@ TEST(agent_loop_subagent_serial_mode) {
     agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::string reply = ag.run("delegate two tasks");
     ASSERT_EQ(reply, "done");
-    ASSERT_EQ(track->peak.load(), 1);  // never overlapped
+    ASSERT_EQ(track->peak.load(), 1); // never overlapped
     bool saw_one = false, saw_two = false;
     for (const auto& m : ag.context().get_all()) {
-        if (m.role != "tool") continue;
+        if (m.role != "tool")
+            continue;
         saw_one |= m.content.find("report one") != std::string::npos;
         saw_two |= m.content.find("report two") != std::string::npos;
     }
@@ -1339,24 +1346,25 @@ TEST(agent_loop_subagent_parallel_mode) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
+                                  true);
     // The parent's own script: two task calls then finish.
     auto parent_script = std::make_shared<std::deque<agent_test::FakeReply>>();
     agent_test::FakeReply two_calls;
-    two_calls.tool_calls = json::array(
-        {{{"id", "call_1"},
-          {"type", "function"},
-          {"function", {{"name", "task"}, {"arguments", R"({"prompt":"first"})"}}}},
-         {{"id", "call_2"},
-          {"type", "function"},
-          {"function", {{"name", "task"}, {"arguments", R"({"prompt":"second"})"}}}}});
+    two_calls.tool_calls =
+        json::array({{{"id", "call_1"},
+                      {"type", "function"},
+                      {"function", {{"name", "task"}, {"arguments", R"({"prompt":"first"})"}}}},
+                     {{"id", "call_2"},
+                      {"type", "function"},
+                      {"function", {{"name", "task"}, {"arguments", R"({"prompt":"second"})"}}}}});
     parent_script->push_back(std::move(two_calls));
     push_text(parent_script, "done");
     push_text(parent_script, "yes");
 
     // Each sub-agent gets its own one-round script.
-    auto scripts = std::make_shared<std::vector<std::shared_ptr<std::deque<agent_test::FakeReply>>>>();
+    auto scripts =
+        std::make_shared<std::vector<std::shared_ptr<std::deque<agent_test::FakeReply>>>>();
     for (int i = 0; i < 2; ++i) {
         auto sub_script = std::make_shared<std::deque<agent_test::FakeReply>>();
         push_text(sub_script, "sub report " + std::to_string(i + 1));
@@ -1382,7 +1390,7 @@ TEST(agent_loop_subagent_parallel_mode) {
     agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::string reply = ag.run("delegate two tasks");
     ASSERT_EQ(reply, "done");
-    ASSERT_EQ(track->peak.load(), 2);  // overlapped
+    ASSERT_EQ(track->peak.load(), 2); // overlapped
 }
 
 // The task tool refuses to nest: a sub-agent cannot spawn its own task.
@@ -1393,8 +1401,8 @@ TEST(agent_loop_subagent_nesting_guard) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
+                                  true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "go"}});
     push_tool_call(script, "task", {{"prompt", "nested"}});
@@ -1432,14 +1440,14 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor executor;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, executor, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, false, executor,
+                                  true);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
     push_tool_call(script, "task", {{"prompt", "reply ok"}});
-    push_text(script, "ok");          // the sub-agent's reply
-    push_text(script, "done");        // the parent's reply
-    push_text(script, "done");        // parent probe
-    push_text(script, "yes");         // probe confirmation
+    push_text(script, "ok");   // the sub-agent's reply
+    push_text(script, "done"); // the parent's reply
+    push_text(script, "done"); // parent probe
+    push_text(script, "yes");  // probe confirmation
 
     auto parent = std::make_unique<SharedScriptFake>();
     parent->script = script;
@@ -1452,7 +1460,7 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
 
     agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
     std::shared_ptr<agent::Tool> before = reg.find("read_skill");
-    ASSERT(before != nullptr);  // the parent registers its skill tools
+    ASSERT(before != nullptr); // the parent registers its skill tools
 
     std::string reply = ag.run("delegate");
     ASSERT_EQ(reply, "done");
@@ -1487,8 +1495,7 @@ TEST(agent_loop_cancel_does_not_fabricate_message) {
     canceller.join();
 
     for (const auto& m : ag.context().get_all())
-        ASSERT(m.content.find("[error during generation") ==
-               std::string::npos);
+        ASSERT(m.content.find("[error during generation") == std::string::npos);
     (void)reply;
 }
 
@@ -1523,23 +1530,22 @@ TEST(session_brief_extracted_on_compression) {
     // The compression turn: 1) classify, 2) extract (with brief), 3) gen, 4) probe.
     {
         agent_test::FakeReply r;
-        r.content =
-            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
-            R"("memories":[],"skills":[],"brief":{)"
-            R"("intent":"fix parser crash","direction":"add null check",)"
-            R"("done":["found bug"],"next":"write test",)"
-            R"("avoid":["rewrite parser"]}})";
+        r.content = R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+                    R"("memories":[],"skills":[],"brief":{)"
+                    R"("intent":"fix parser crash","direction":"add null check",)"
+                    R"("done":["found bug"],"next":"write test",)"
+                    R"("avoid":["rewrite parser"]}})";
         fake->script.push_back(std::move(r));
     }
     push_text(*fake, R"({"memories":[],"skills":[],"brief":{)"
-                    R"("intent":"fix parser crash","direction":"add null check",)"
-                    R"("done":["found bug"],"next":"write test",)"
-                    R"("avoid":["rewrite parser"]}})");
+                     R"("intent":"fix parser crash","direction":"add null check",)"
+                     R"("done":["found bug"],"next":"write test",)"
+                     R"("avoid":["rewrite parser"]}})");
     push_text(*fake, "hello after compression");
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    {}, {}, std::move(fake));
-    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    for (int i = 0; i < 21; ++i)
+        ag.run("warm " + std::to_string(i));
 
     std::string big_prompt(16000, 'x');
     ag.run(big_prompt);
@@ -1578,22 +1584,20 @@ TEST(session_brief_survives_compression) {
     // seeded one.
     {
         agent_test::FakeReply r;
-        r.content =
-            R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
-            R"("memories":[],"skills":[],"brief":{)"
-            R"("intent":"refined intent","direction":"refined direction",)"
-            R"("done":["step1"],"next":"refined next",)"
-            R"("avoid":["dead end A"]}})";
+        r.content = R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
+                    R"("memories":[],"skills":[],"brief":{)"
+                    R"("intent":"refined intent","direction":"refined direction",)"
+                    R"("done":["step1"],"next":"refined next",)"
+                    R"("avoid":["dead end A"]}})";
         fake->script.push_back(std::move(r));
     }
     push_text(*fake, R"({"memories":[],"skills":[],"brief":{)"
-                    R"("intent":"refined intent","direction":"refined direction",)"
-                    R"("done":["step1"],"next":"refined next",)"
-                    R"("avoid":["dead end A"]}})");
+                     R"("intent":"refined intent","direction":"refined direction",)"
+                     R"("done":["step1"],"next":"refined next",)"
+                     R"("avoid":["dead end A"]}})");
     push_text(*fake, "after");
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
 
     // Seed the brief store before compression fires.
     auto* brief_store = ag.session_brief_store();
@@ -1604,7 +1608,8 @@ TEST(session_brief_survives_compression) {
     seed.next = "seeded next";
     brief_store->merge(seed);
 
-    for (int i = 0; i < 21; ++i) ag.run("warm " + std::to_string(i));
+    for (int i = 0; i < 21; ++i)
+        ag.run("warm " + std::to_string(i));
     std::string big_prompt(16000, 'x');
     ag.run(big_prompt);
 
@@ -1653,13 +1658,13 @@ public:
 // accident.
 class SystemOnlyCompressor : public agent::CompressionStrategy {
 public:
-    std::vector<agent::Message> compress(agent::Context& context,
-                                        const agent::CompressionConfig&, agent::LLMClient&,
-                                        agent::CompressionObserver* = nullptr,
-                                        agent::CompressionResponse* = nullptr) override {
+    std::vector<agent::Message> compress(agent::Context& context, const agent::CompressionConfig&,
+                                         agent::LLMClient&, agent::CompressionObserver* = nullptr,
+                                         agent::CompressionResponse* = nullptr) override {
         std::vector<agent::Message> out;
         for (const auto& m : context.get_all())
-            if (m.role == "system") out.push_back(m);
+            if (m.role == "system")
+                out.push_back(m);
         if (out.empty()) {
             agent::Message sys;
             sys.role = "system";
@@ -1690,7 +1695,8 @@ struct MemoryFixture {
 bool request_contains(const agent_test::FakeLLMClient& fake, const std::string& needle) {
     for (const auto& req : fake.requests)
         for (const auto& m : req)
-            if (m.content.find(needle) != std::string::npos) return true;
+            if (m.content.find(needle) != std::string::npos)
+                return true;
     return false;
 }
 
@@ -1710,8 +1716,8 @@ TEST(agent_keeps_injected_blocks_when_compression_fires) {
 
     auto gate = std::make_unique<AlwaysCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    std::move(mem.store), std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
+                    std::move(retriever), std::move(fake));
 
     ag.run("how do I build this?");
 
@@ -1735,13 +1741,215 @@ TEST(agent_injects_in_memory_blocks_without_compression) {
 
     auto gate = std::make_unique<NeverCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    std::move(mem.store), std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
+                    std::move(retriever), std::move(fake));
 
     ag.run("how do I build this?");
 
     // The control case: this holds today, and must keep holding.
     ASSERT(request_contains(*raw, "the build system is make"));
+}
+
+// A System block is part of the system prompt itself, not a message after it:
+// tool documentation describes the harness, so it belongs in the stable prefix
+// the server caches rather than at the end of the conversation.
+TEST(agent_places_system_blocks_inside_the_system_prompt) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "done");
+
+    agent::PromptRegistry prompts;
+    prompts.add(
+        "tool_search", "search_doc", 500,
+        [] { return std::string("## search\n\nSYSTEM-BLOCK-MARKER"); },
+        agent::PromptPlacement::System);
+
+    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    ag.set_prompt_registry(prompts);
+    ag.run("go");
+
+    ASSERT(!raw->requests.empty());
+    const auto& req = raw->requests.front();
+    ASSERT(!req.empty());
+    ASSERT_EQ(req.front().role, std::string("system"));
+    // In the system message itself: tool documentation describes the harness,
+    // so it belongs in the stable prefix, next to the schema it documents.
+    ASSERT(req.front().content.find("SYSTEM-BLOCK-MARKER") != std::string::npos);
+    // Not smuggled in as a later system message.
+    for (std::size_t i = 1; i < req.size(); ++i)
+        ASSERT(req[i].content.find("SYSTEM-BLOCK-MARKER") == std::string::npos);
+}
+
+// The tools prompt is now assembled from the cross-tool part of tools.md plus
+// one System block per tool plugin. That split is only safe if it is invisible:
+// the assembled section must be exactly the text that was there before, byte
+// for byte. The fixture is that text, captured at the moment of the split, so
+// this fails the day a section moves, reorders, or loses a blank line.
+TEST(tool_doc_blocks_reproduce_the_prompt_they_replaced) {
+    std::ifstream in("tests/fixtures/tools_prompt_at_migration.md");
+    std::stringstream fixture_stream;
+    fixture_stream << in.rdbuf();
+    const std::string fixture = fixture_stream.str();
+    ASSERT(!fixture.empty());
+
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::PromptRegistry prompts;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, /*enable_plan_tool=*/true,
+                                  subagents, /*enable_task_tool=*/true, &prompts);
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    ag.set_prompt_registry(prompts);
+    ag.run("go");
+
+    ASSERT(!raw->requests.empty());
+    const std::string& system = raw->requests.front().front().content;
+
+    // Trailing whitespace is the one thing the assembler normalises; content,
+    // order and blank lines are not its to change.
+    std::string expected = fixture;
+    while (!expected.empty() && expected.back() == '\n')
+        expected.pop_back();
+    ASSERT(system.find(expected) != std::string::npos);
+
+    // The seams: each section present once, in reading order.
+    const std::size_t search = system.find("\n## search\n");
+    const std::size_t read = system.find("\n## read\n");
+    const std::size_t bash = system.find("\n## bash\n");
+    const std::size_t process = system.find("\n## process_start\n");
+    ASSERT(search != std::string::npos && read != std::string::npos);
+    ASSERT(bash != std::string::npos && process != std::string::npos);
+    ASSERT(search < read && read < bash && bash < process);
+    ASSERT(system.rfind("\n## search\n") == search); // exactly one
+}
+
+// Switching a tool plugin off takes its documentation with it, in the same
+// session: the schema follows at once, and prose describing a tool the model
+// cannot call is worse than no prose at all.
+TEST(disabling_a_tool_plugin_removes_its_documentation) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::HostServices host{&jobs, &todos, &subagents, &cfg.cancel_token};
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(reg, cfg, ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "one");
+    push_text(*fake, "two");
+    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    ag.set_prompt_registry(runtime.prompts());
+    ag.run("go");
+
+    ASSERT((bool)reg.find("search"));
+    ASSERT(raw->requests.back().front().content.find("\n## search\n") != std::string::npos);
+
+    ASSERT_TRUE(runtime.set_state("tool_search", false));
+    ag.run("again");
+
+    const std::string& system = raw->requests.back().front().content;
+    ASSERT(system.find("\n## search\n") == std::string::npos);
+    // Only that section went: its neighbours are still documented, so this is a
+    // targeted removal and not a rebuild that lost text.
+    ASSERT(system.find("\n## read\n") != std::string::npos);
+    ASSERT(system.find("\n## bash\n") != std::string::npos);
+    ASSERT_FALSE((bool)reg.find("search"));
+}
+
+// Toggling a tool plugin changes the schema at once, so the documentation must
+// follow it in the same session. This is the invariant §3.4 of the tools spec
+// exists for: the model is never told about a tool it cannot call.
+TEST(agent_rebuilds_the_system_prompt_when_a_contribution_goes_away) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (const char* reply : {"one", "two", "three"})
+        push_text(*fake, reply);
+
+    agent::PromptRegistry prompts;
+    auto doc = prompts.add(
+        "tool_search", "search_doc", 500, [] { return std::string("SEARCH-DOC-MARKER"); },
+        agent::PromptPlacement::System);
+
+    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    ag.set_prompt_registry(prompts);
+    ag.run("first");
+
+    ASSERT(raw->requests.size() >= 1u);
+    ASSERT(raw->requests.back().front().content.find("SEARCH-DOC-MARKER") != std::string::npos);
+
+    // A further turn with nothing changed leaves the prompt alone: still one
+    // system message, still carrying the doc.
+    ag.run("second");
+    auto system_messages = [&ag] {
+        std::size_t n = 0;
+        for (const auto& m : ag.context().get_all())
+            if (m.role == "system")
+                ++n;
+        return n;
+    };
+    ASSERT_EQ(system_messages(), 1u);
+
+    // The plugin goes away: schema and prose leave together, and the rebuild
+    // replaces the system message rather than adding another.
+    doc.remove();
+    ag.run("third");
+    ASSERT_EQ(system_messages(), 1u);
+
+    const auto& req = raw->requests.back();
+    ASSERT(req.front().role == std::string("system"));
+    ASSERT(req.front().content.find("SEARCH-DOC-MARKER") == std::string::npos);
+    // The conversation survived the rebuild.
+    bool saw_first_turn = false;
+    for (const auto& m : req)
+        if (m.role == "user" && m.content == "first")
+            saw_first_turn = true;
+    ASSERT(saw_first_turn);
+}
+
+// The tail default is unchanged: a block with no declared placement still ends
+// up after the conversation, which is what every existing contributor expects.
+TEST(agent_keeps_tail_placement_as_the_default) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "done");
+
+    agent::PromptRegistry prompts;
+    prompts.add("plug", "note", 1000, [] { return std::string("TAIL NOTE"); });
+
+    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    ag.set_prompt_registry(prompts);
+    ag.run("go");
+
+    ASSERT(!raw->requests.empty());
+    const auto& req = raw->requests.front();
+    ASSERT_EQ(req.back().content, std::string("TAIL NOTE"));
+    ASSERT(req.front().content.find("TAIL NOTE") == std::string::npos);
 }
 
 TEST(agent_orders_injected_blocks_as_documented) {
@@ -1813,8 +2021,8 @@ TEST(agent_places_injected_blocks_after_the_system_prompt) {
 
     auto gate = std::make_unique<AlwaysCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate),
-                    std::move(mem.store), std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
+                    std::move(retriever), std::move(fake));
 
     ag.run("how do I build this?");
 
@@ -1830,7 +2038,8 @@ TEST(agent_places_injected_blocks_after_the_system_prompt) {
             memory_before_conversation = true;
             break;
         }
-        if (m.role == "user") break; // reached the conversation without seeing it
+        if (m.role == "user")
+            break; // reached the conversation without seeing it
     }
     ASSERT(memory_before_conversation);
 }

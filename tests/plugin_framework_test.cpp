@@ -347,6 +347,31 @@ TEST(prompt_registry_orders_by_priority_then_registration) {
     ASSERT_EQ(rendered[2], std::string("C"));
 }
 
+// Placement is a property of the block, and rendering one region never returns
+// another's text. Tool documentation declares System so it stays in the stable
+// prefix; a block that changes per turn belongs in the tail.
+TEST(prompt_registry_partitions_blocks_by_placement) {
+    PromptRegistry prompts;
+    prompts.add("plug", "doc", 100, [] { return std::string("DOC"); }, PromptPlacement::System);
+    prompts.add("plug", "mem", 100, [] { return std::string("MEM"); }, PromptPlacement::Head);
+    prompts.add("plug", "tail", 100, [] { return std::string("TAIL"); });
+    prompts.add("plug", "doc2", 200, [] { return std::string("DOC2"); }, PromptPlacement::System);
+
+    auto system = prompts.render_all(PromptPlacement::System);
+    ASSERT_EQ(system.size(), 2u);
+    ASSERT_EQ(system[0], std::string("DOC"));
+    ASSERT_EQ(system[1], std::string("DOC2"));
+
+    auto head = prompts.render_all(PromptPlacement::Head);
+    ASSERT_EQ(head.size(), 1u);
+    ASSERT_EQ(head[0], std::string("MEM"));
+
+    // Either region with no blocks is empty rather than a default.
+    ASSERT_TRUE(prompts.render_all(PromptPlacement::Tail).size() == 1u);
+    prompts.render_all(PromptPlacement::Head);
+    ASSERT_EQ(prompts.size(), 4u);
+}
+
 TEST(prompt_registry_skips_empty_blocks) {
     PromptRegistry prompts;
     prompts.add("plug", "silent", 100, [] { return std::string(); });

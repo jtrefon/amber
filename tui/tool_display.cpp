@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "agent/registry.h"
 #include "agent/statusbar.h"
 #include "agent/workspace.h"
 #include "tui/textutil.h"
@@ -15,6 +16,8 @@ namespace {
 
 constexpr size_t kCommandCap = 160;
 constexpr size_t kTaskCap = 40;
+// A tool's own summary gets the same room as a command line.
+constexpr size_t kSummaryCap = 160;
 
 // Tool args may carry absolute workspace paths; relativize them for display
 // so a status line stays short enough to render on a single row.
@@ -22,24 +25,9 @@ std::string display_path(const std::string& p) {
     return agent::Workspace::relative(p);
 }
 
-// Tool name -> working-indicator verb, in declaration order.
-constexpr std::pair<const char*, const char*> kToolVerbs[] = {
-    {"bash", "hacking"},
-    {"list_skills", "consulting"},
-    {"process_read", "reading"},
-    {"process_start", "spawning"},
-    {"process_stop", "stopping"},
-    {"read", "reading"},
-    {"read_skill", "consulting"},
-    {"search", "searching"},
-    {"task", "delegating"},
-    {"todowrite", "planning"},
-    {"write", "writing"},
-    {"write_skill", "authoring"},
-};
-
 std::string truncate(const std::string& s, size_t cap) {
-    if (s.size() <= cap) return s;
+    if (s.size() <= cap)
+        return s;
     return s.substr(0, cap - 1) + "\u2026";
 }
 
@@ -51,41 +39,61 @@ std::string arg(const agent::json& args, const char* key) {
 
 } // namespace
 
-std::string activity_verb(bool compressing, agent::RunState state,
-                          const std::string& running_tool) {
-    if (compressing) return "compressing";
+std::string activity_verb(bool compressing, agent::RunState state, const std::string& running_tool,
+                          const agent::ToolRegistry& registry) {
+    if (compressing)
+        return "compressing";
     if (!running_tool.empty()) {
-        for (const auto& [name, verb] : kToolVerbs)
-            if (running_tool == name) return verb;
-        if (running_tool.rfind("mcp_", 0) == 0) return "calling";
+        // The tool owns its word (declared with its registration); a tool that
+        // declared none still gets MCP's convention or the generic fallback.
+        std::string verb = registry.meta_for(running_tool).verb;
+        if (!verb.empty())
+            return verb;
+        if (running_tool.rfind("mcp_", 0) == 0)
+            return "calling";
         return "working";
     }
     switch (state) {
-        case agent::RunState::Thinking:  return "thinking";
-        case agent::RunState::Streaming: return "talking";
-        case agent::RunState::Waiting:   return "waiting";
-        case agent::RunState::Error:     return "retrying";
-        default:                         return "working";
+    case agent::RunState::Thinking:
+        return "thinking";
+    case agent::RunState::Streaming:
+        return "talking";
+    case agent::RunState::Waiting:
+        return "waiting";
+    case agent::RunState::Error:
+        return "retrying";
+    default:
+        return "working";
     }
 }
 
-std::string describe_tool_call(const std::string& name,
-                               const agent::json& args) {
+std::string describe_tool_call(const std::string& name, const agent::json& args,
+                               const agent::ToolRegistry& registry) {
     if (name == "bash") {
         // The command IS the story — no tool name, full params and paths.
         std::string cmd = arg(args, "command");
-        if (!cmd.empty()) return truncate(cmd, kCommandCap);
+        if (!cmd.empty())
+            return truncate(cmd, kCommandCap);
     } else if (name == "read" || name == "write") {
         std::string path = arg(args, "path");
-        if (!path.empty()) return name + " " + display_path(path);
+        if (!path.empty())
+            return name + " " + display_path(path);
     } else if (name == "search") {
         std::string pattern = arg(args, "pattern");
         if (!pattern.empty()) {
             std::string path = arg(args, "path");
             return path.empty() ? "search " + pattern
-                                : "search " + pattern + " in " +
-                                      display_path(path);
+                                : "search " + pattern + " in " + display_path(path);
         }
+    }
+    // A tool that describes its own invocation does it better than we can —
+    // and it is the only thing that CAN, for a tool we have never heard of.
+    // The four shapes above keep their bespoke rendering: they are terser than
+    // the tool's own wording, which is written for approval prompts.
+    if (auto tool = registry.find(name)) {
+        const std::string summary = tool->summarize(args);
+        if (!summary.empty() && summary != name)
+            return truncate(summary, kSummaryCap);
     }
     // Generic fallback: name + truncated raw args (unchanged behaviour).
     std::string d = name;
@@ -118,13 +126,12 @@ std::string elapsed_label(size_t secs) {
     else if (secs < 3600)
         std::snprintf(b, sizeof(b), "%zum %02zus", secs / 60, secs % 60);
     else
-        std::snprintf(b, sizeof(b), "%zuh %02zum", secs / 3600,
-                      (secs % 3600) / 60);
+        std::snprintf(b, sizeof(b), "%zuh %02zum", secs / 3600, (secs % 3600) / 60);
     return b;
 }
 
-std::string working_label(const std::string& frame, const std::string& verb,
-                          size_t elapsed_secs, const std::string& task) {
+std::string working_label(const std::string& frame, const std::string& verb, size_t elapsed_secs,
+                          const std::string& task) {
     std::string out = frame + " " + verb + " " + elapsed_label(elapsed_secs);
     if (!task.empty())
         out += " \u00b7 " + truncate(task, kTaskCap);
@@ -135,26 +142,27 @@ std::string reasoning_badge(const std::string& effort) {
     return agent::bar::reasoning_badge(effort);
 }
 
-rich::Line result_line(const std::string& name, const agent::json& args,
-                       bool ok, const std::string& output,
-                       const std::string& error) {
+rich::Line result_line(const std::string& name, const agent::json& args, bool ok,
+                       const std::string& output, const std::string& error,
+                       const agent::ToolRegistry& registry) {
     rich::Line ln;
     rich::Run icon;
     icon.pair = ok ? P_GIT_PLUS : P_GIT_MINUS;
     icon.text = ok ? text::glyph::check() : text::glyph::cross();
     rich::Run rest;
     rest.pair = P_STATUS;
-    rest.text = " " + describe_tool_call(name, args) + "  " +
-                text::glyph::arrow() + " ";
+    rest.text = " " + describe_tool_call(name, args, registry) + "  " + text::glyph::arrow() + " ";
     if (!ok) {
         rest.text += "error: " + error;
     } else {
         int lines = 1;
         for (char c : output)
-            if (c == '\n') ++lines;
+            if (c == '\n')
+                ++lines;
         std::string preview = output;
         size_t nl = preview.find('\n');
-        if (nl != std::string::npos) preview.resize(nl);
+        if (nl != std::string::npos)
+            preview.resize(nl);
         if (preview.size() > 60) {
             preview.resize(57);
             preview += "...";

@@ -1,0 +1,13 @@
+amber-bench run run-1789215865229121137 [hermetic, default, fake]
+engine 0.4.13 @ 1789215865229122128
+plugins: 17 registered, all on
+model score: 871.25/1000  (single-run: no CI)
+PASS  f-01-redundant-call-elimination (agent-failures)  score=86 d3 bullseye=1 steps=4 cd=0 wasted=1 wall=38ms retries=0 recoveries=0
+PASS  f-02-mistake-then-recover (agent-failures)  score=90 d3 bullseye=1 steps=3 cd=0 wasted=1 wall=27ms retries=0 recoveries=0
+PASS  f-03-mid-stream-dropout (agent-failures)  score=91 d4 bullseye=1 steps=2 cd=0 wasted=0 wall=1018ms retries=1 recoveries=0
+PASS  f-04-parallel-vs-sequential (agent-failures)  score=100 d3 bullseye=1 steps=2 cd=0 wasted=0 wall=28ms retries=0 recoveries=0
+PASS  f-06-empty-reply-recovery (agent-failures)  score=97 d4 bullseye=1 steps=2 cd=0 wasted=0 wall=17ms retries=0 recoveries=0
+PASS  f-07-tool-denied-grace (agent-failures)  score=85 d3 bullseye=1 steps=3 cd=0 wasted=1 wall=18ms retries=0 recoveries=0
+PASS  k-01-compression-stress (compression)  score=59 d4 bullseye=1 steps=5 cd=0 wasted=3 wall=47ms retries=0 recoveries=0
+PASS  d-01-two-area-survey (delegate)  score=90 d4 bullseye=1 steps=3 cd=0 wasted=0 wall=6ms retries=0 recoveries=0
+8/8 scenarios passed

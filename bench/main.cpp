@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -46,12 +47,12 @@ void print_usage(const char* prog) {
               << "  -h, --help       show this help\n";
 }
 
-std::vector<bench::Scenario> discover_scenarios(const std::string& suite,
-                                                const std::string& name) {
+std::vector<bench::Scenario> discover_scenarios(const std::string& suite, const std::string& name) {
     std::vector<bench::Scenario> out;
     const fs::path root = fs::current_path() / "bench" / "scenarios";
     if (!fs::is_directory(root)) {
-        std::cerr << "error: no bench/scenarios directory in " << fs::current_path().string() << "\n";
+        std::cerr << "error: no bench/scenarios directory in " << fs::current_path().string()
+                  << "\n";
         return out;
     }
     std::vector<fs::path> files;
@@ -71,15 +72,18 @@ std::vector<bench::Scenario> discover_scenarios(const std::string& suite,
             std::cerr << "warning: " << f.string() << ": " << err << "\n";
             continue;
         }
-        if (!suite.empty() && s->suite != suite) continue;
-        if (!name.empty() && s->name != name) continue;
+        if (!suite.empty() && s->suite != suite)
+            continue;
+        if (!name.empty() && s->name != name)
+            continue;
         out.push_back(std::move(*s));
     }
     return out;
 }
 
 void apply_profile(bench::RunOptions& opts, const std::string& profile) {
-    if (profile.empty()) return;
+    if (profile.empty())
+        return;
     std::ifstream f("bench/profiles.json");
     if (!f) {
         std::cerr << "error: bench/profiles.json not found\n";
@@ -97,7 +101,8 @@ void apply_profile(bench::RunOptions& opts, const std::string& profile) {
         return;
     }
     const agent::json& p = j[profile];
-    if (p.contains("model") && p["model"].is_string()) opts.model = p["model"].get<std::string>();
+    if (p.contains("model") && p["model"].is_string())
+        opts.model = p["model"].get<std::string>();
     if (p.contains("temperature") && p["temperature"].is_number())
         opts.temperature = p["temperature"].get<double>();
     if (p.contains("thinking") && p["thinking"].is_string())
@@ -108,30 +113,34 @@ void apply_profile(bench::RunOptions& opts, const std::string& profile) {
 
 std::string run_id() {
     std::string id = "run-";
-    id += std::to_string(static_cast<long long>(
-        std::chrono::system_clock::now().time_since_epoch().count()));
+    id += std::to_string(
+        static_cast<long long>(std::chrono::system_clock::now().time_since_epoch().count()));
     return id;
 }
 
-int cmd_run(const std::vector<std::string>& args, bool live,
-            const std::string& suite, const std::string& name,
-            const std::string& profile, const std::string& model,
+int cmd_run(const std::vector<std::string>& args, bool live, const std::string& suite,
+            const std::string& name, const std::string& profile, const std::string& model,
             double temperature, int repeat, const std::string& out_file,
-            const std::string& debug_dir, const std::string& category) {
+            const std::string& debug_dir, const std::string& category, const std::string& disable) {
     (void)args;
-    if (!category.empty() && category != "model" && category != "harness" &&
-        category != "both") {
+    if (!category.empty() && category != "model" && category != "harness" && category != "both") {
         std::cerr << "error: unknown category \"" << category
                   << "\" (expected model | harness | both)\n";
         return 1;
     }
-    const bool want_model =
-        category.empty() || category == "model" || category == "both";
-    const bool want_harness =
-        category == "harness" || category == "both";
+    const bool want_model = category.empty() || category == "model" || category == "both";
+    const bool want_harness = category == "harness" || category == "both";
 
     if (!want_harness) {
         bench::RunOptions opts;
+        {
+            std::stringstream ids(disable);
+            std::string id;
+            while (std::getline(ids, id, ',')) {
+                if (!id.empty())
+                    opts.disable_plugins.push_back(id);
+            }
+        }
         opts.live = live;
         opts.repeat = repeat;
         opts.model = model;
@@ -150,14 +159,14 @@ int cmd_run(const std::vector<std::string>& args, bool live,
         meta.mode = live ? "live" : "hermetic";
         meta.profile = profile;
         meta.model = opts.model;
-        if (meta.model.empty()) meta.model = live ? "config" : "fake";
+        if (meta.model.empty())
+            meta.model = live ? "config" : "fake";
         meta.engine_version = agent::kVersion;
-        meta.timestamp = std::to_string(static_cast<long long>(
-            std::chrono::system_clock::now().time_since_epoch().count()));
+        meta.timestamp = std::to_string(
+            static_cast<long long>(std::chrono::system_clock::now().time_since_epoch().count()));
         meta.reasoning = opts.thinking.empty() ? "auto" : opts.thinking;
 
-        std::vector<bench::ScenarioReport> reports =
-            bench::run_scenarios(scenarios, opts, meta);
+        std::vector<bench::ScenarioReport> reports = bench::run_scenarios(scenarios, opts, meta);
         std::cout << bench::render_text(reports, meta);
 
         if (!out_file.empty()) {
@@ -173,18 +182,16 @@ int cmd_run(const std::vector<std::string>& args, bool live,
         const bench::HarnessScorecard sc = bench::aggregate_probes(probes);
         std::cout << "## Harness scorecard\n\n";
         for (const auto& fam : bench::required_probe_families()) {
-            std::cout << "  " << fam << " "
-                      << sc.families.at(fam).first << "/"
+            std::cout << "  " << fam << " " << sc.families.at(fam).first << "/"
                       << sc.families.at(fam).second << "\n";
         }
-        std::cout << "\n  integrity " << sc.integrity << " ("
-                  << sc.passed << "/" << sc.total << ")\n\n";
+        std::cout << "\n  integrity " << sc.integrity << " (" << sc.passed << "/" << sc.total
+                  << ")\n\n";
         for (const auto& p : probes) {
-            std::cout << (p.passed ? "[ PASS ] " : "[ FAIL ] ")
-                      << p.family << "/" << p.name << "\n";
+            std::cout << (p.passed ? "[ PASS ] " : "[ FAIL ] ") << p.family << "/" << p.name
+                      << "\n";
             if (!p.passed)
-                std::cout << "          expected=" << p.expected
-                          << " detail=" << p.detail << "\n";
+                std::cout << "          expected=" << p.expected << " detail=" << p.detail << "\n";
         }
         if (!out_file.empty()) {
             agent::json out;
@@ -193,8 +200,7 @@ int cmd_run(const std::vector<std::string>& args, bool live,
             out["harness_total"] = sc.total;
             agent::json fam;
             for (const auto& f : sc.families)
-                fam[f.first] = {{"passed", f.second.first},
-                                {"total", f.second.second}};
+                fam[f.first] = {{"passed", f.second.first}, {"total", f.second.second}};
             out["harness_families"] = fam;
             agent::json plist = agent::json::array();
             for (const auto& p : probes) {
@@ -229,16 +235,16 @@ int cmd_run(const std::vector<std::string>& args, bool live,
     meta.mode = live ? "live" : "hermetic";
     meta.profile = profile;
     meta.model = opts.model;
-    if (meta.model.empty()) meta.model = live ? "config" : "fake";
+    if (meta.model.empty())
+        meta.model = live ? "config" : "fake";
     meta.engine_version = agent::kVersion;
-    meta.timestamp = std::to_string(static_cast<long long>(
-        std::chrono::system_clock::now().time_since_epoch().count()));
+    meta.timestamp = std::to_string(
+        static_cast<long long>(std::chrono::system_clock::now().time_since_epoch().count()));
     meta.reasoning = opts.thinking.empty() ? "auto" : opts.thinking;
 
     int rc = 0;
     if (!scenarios.empty()) {
-        std::vector<bench::ScenarioReport> reports =
-            bench::run_scenarios(scenarios, opts, meta);
+        std::vector<bench::ScenarioReport> reports = bench::run_scenarios(scenarios, opts, meta);
         std::cout << bench::render_text(reports, meta);
     } else {
         std::cerr << "warning: no scenarios match; harness axis only\n";
@@ -248,20 +254,18 @@ int cmd_run(const std::vector<std::string>& args, bool live,
     const bench::HarnessScorecard sc = bench::aggregate_probes(probes);
     std::cout << "\n## Harness scorecard\n\n";
     for (const auto& fam : bench::required_probe_families()) {
-        std::cout << "  " << fam << " "
-                  << sc.families.at(fam).first << "/"
+        std::cout << "  " << fam << " " << sc.families.at(fam).first << "/"
                   << sc.families.at(fam).second << "\n";
     }
-    std::cout << "\n  integrity " << sc.integrity << " ("
-              << sc.passed << "/" << sc.total << ")\n\n";
+    std::cout << "\n  integrity " << sc.integrity << " (" << sc.passed << "/" << sc.total
+              << ")\n\n";
     for (const auto& p : probes) {
-        std::cout << (p.passed ? "[ PASS ] " : "[ FAIL ] ")
-                  << p.family << "/" << p.name << "\n";
+        std::cout << (p.passed ? "[ PASS ] " : "[ FAIL ] ") << p.family << "/" << p.name << "\n";
         if (!p.passed)
-            std::cout << "          expected=" << p.expected
-                      << " detail=" << p.detail << "\n";
+            std::cout << "          expected=" << p.expected << " detail=" << p.detail << "\n";
     }
-    if (sc.passed != sc.total) rc = 1;
+    if (sc.passed != sc.total)
+        rc = 1;
 
     if (!out_file.empty()) {
         agent::json out;
@@ -270,8 +274,7 @@ int cmd_run(const std::vector<std::string>& args, bool live,
         out["harness_total"] = sc.total;
         agent::json fam;
         for (const auto& f : sc.families)
-            fam[f.first] = {{"passed", f.second.first},
-                            {"total", f.second.second}};
+            fam[f.first] = {{"passed", f.second.first}, {"total", f.second.second}};
         out["harness_families"] = fam;
         std::ofstream fout(out_file);
         fout << out.dump(2);
@@ -282,10 +285,10 @@ int cmd_run(const std::vector<std::string>& args, bool live,
 int cmd_list(const std::string& suite) {
     auto scenarios = discover_scenarios(suite, "");
     for (const auto& s : scenarios) {
-        std::cout << s.suite << "/" << s.name
-                  << (s.hermetic_only ? " [hermetic]" : "")
+        std::cout << s.suite << "/" << s.name << (s.hermetic_only ? " [hermetic]" : "")
                   << (s.template_dir.empty() ? "" : " [template]") << "\n";
-        if (!s.description.empty()) std::cout << "    " << s.description << "\n";
+        if (!s.description.empty())
+            std::cout << "    " << s.description << "\n";
     }
     return 0;
 }
@@ -304,19 +307,17 @@ int cmd_validate(const std::string& name) {
     const fs::path tpl = fs::current_path() / "bench" / "scenarios" / s.template_dir;
     std::string err;
     bench::TemplateResult r =
-        bench::run_template(tpl.string(), (tpl / "reference").string(),
-                            "g++", err);
-    std::cout << "template " << s.name << ": "
-              << r.tests_passed << "/" << r.tests_total << " hidden tests pass"
-              << (r.compile_ok ? "" : " (compile failed)") << "\n";
-    if (!err.empty()) std::cerr << "error: " << err << "\n";
+        bench::run_template(tpl.string(), (tpl / "reference").string(), "g++", err);
+    std::cout << "template " << s.name << ": " << r.tests_passed << "/" << r.tests_total
+              << " hidden tests pass" << (r.compile_ok ? "" : " (compile failed)") << "\n";
+    if (!err.empty())
+        std::cerr << "error: " << err << "\n";
     return (r.compile_ok && r.tests_passed == r.tests_total) ? 0 : 1;
 }
 
 namespace {
 // Load and decode one stored report file; nullopt with a message on failure.
-std::optional<agent::json> load_report_json(const std::string& file,
-                                            std::string& err) {
+std::optional<agent::json> load_report_json(const std::string& file, std::string& err) {
     std::ifstream f(file);
     if (!f) {
         err = "cannot open " + file;
@@ -341,8 +342,7 @@ bool parse_report_file(const std::string& file, bench::RunMeta& meta,
     }
     try {
         if (!bench::parse_report_json(*j, meta, reports)) {
-            std::cerr << "error: " << file
-                      << " is not an amber-bench report\n";
+            std::cerr << "error: " << file << " is not an amber-bench report\n";
             return false;
         }
     } catch (const std::exception& e) {
@@ -352,8 +352,7 @@ bool parse_report_file(const std::string& file, bench::RunMeta& meta,
     return true;
 }
 
-int cmd_report(const std::vector<std::string>& files,
-               const std::string& format) {
+int cmd_report(const std::vector<std::string>& files, const std::string& format) {
     if (files.empty()) {
         std::cerr << "error: report needs at least one results file\n";
         return 1;
@@ -362,7 +361,8 @@ int cmd_report(const std::vector<std::string>& files,
     for (const auto& f : files) {
         bench::RunMeta meta;
         std::vector<bench::ScenarioReport> reports;
-        if (!parse_report_file(f, meta, reports)) return 1;
+        if (!parse_report_file(f, meta, reports))
+            return 1;
         runs.emplace_back(std::move(meta), std::move(reports));
     }
     if (format == "markdown") {
@@ -387,12 +387,16 @@ int cmd_delta(const std::vector<std::string>& files) {
     }
     bench::RunMeta m1, m2;
     std::vector<bench::ScenarioReport> r1, r2;
-    if (!parse_report_file(files[0], m1, r1)) return 1;
-    if (!parse_report_file(files[1], m2, r2)) return 1;
+    if (!parse_report_file(files[0], m1, r1))
+        return 1;
+    if (!parse_report_file(files[1], m2, r2))
+        return 1;
 
     std::map<std::string, const bench::ScenarioReport*> a, b;
-    for (const auto& r : r1) a[r.name] = &r;
-    for (const auto& r : r2) b[r.name] = &r;
+    for (const auto& r : r1)
+        a[r.name] = &r;
+    for (const auto& r : r2)
+        b[r.name] = &r;
 
     std::cout << "# Delta: " << files[0] << " -> " << files[1] << "\n\n";
     double total_a = 0, total_b = 0;
@@ -403,7 +407,8 @@ int cmd_delta(const std::vector<std::string>& files) {
     std::cout << std::string(78, '-') << "\n";
     for (const auto& [name, ra] : a) {
         const auto it = b.find(name);
-        if (it == b.end()) continue;
+        if (it == b.end())
+            continue;
         const auto& rb = *it->second;
         const double da = ra->score.total, db = rb.score.total;
         total_a += da;
@@ -414,20 +419,22 @@ int cmd_delta(const std::vector<std::string>& files) {
         const int dSteps = rb.kpi.steps - ra->kpi.steps;
         const double dscore = db - da;
         std::string verdict = "same";
-        if (dscore > 1.0) verdict = "WIN";
-        else if (dscore < -1.0) verdict = "LOSE";
-        if (dscore > 1.0) ++win;
-        else if (dscore < -1.0) ++lose;
-        else ++stagnate;
-        printf("%-30s %6.1f %6.1f %+6.1f %+7d %+7d %+5d %+7d  %s\n",
-               name.c_str(), da, db, dscore, dWasted, dRed, dFail, dSteps,
-               verdict.c_str());
+        if (dscore > 1.0)
+            verdict = "WIN";
+        else if (dscore < -1.0)
+            verdict = "LOSE";
+        if (dscore > 1.0)
+            ++win;
+        else if (dscore < -1.0)
+            ++lose;
+        else
+            ++stagnate;
+        printf("%-30s %6.1f %6.1f %+6.1f %+7d %+7d %+5d %+7d  %s\n", name.c_str(), da, db, dscore,
+               dWasted, dRed, dFail, dSteps, verdict.c_str());
     }
     std::cout << std::string(78, '-') << "\n";
-    printf("%-30s %6.1f %6.1f %+6.1f\n", "TOTAL", total_a, total_b,
-           total_b - total_a);
-    std::cout << "\nwin " << win << " | lose " << lose << " | same "
-              << stagnate << "\n";
+    printf("%-30s %6.1f %6.1f %+6.1f\n", "TOTAL", total_a, total_b, total_b - total_a);
+    std::cout << "\nwin " << win << " | lose " << lose << " | same " << stagnate << "\n";
     return 0;
 }
 
@@ -442,7 +449,8 @@ int cmd_calibrate(const std::vector<std::string>& files) {
     for (const auto& f : files) {
         bench::RunMeta meta;
         std::vector<bench::ScenarioReport> reports;
-        if (!parse_report_file(f, meta, reports)) return 1;
+        if (!parse_report_file(f, meta, reports))
+            return 1;
         runs.emplace_back(std::move(meta), std::move(reports));
     }
     if (runs.empty()) {
@@ -451,30 +459,25 @@ int cmd_calibrate(const std::vector<std::string>& files) {
     }
     std::vector<std::vector<bench::ScenarioReport>> population;
     population.reserve(runs.size());
-    for (const auto& run : runs) population.push_back(run.second);
+    for (const auto& run : runs)
+        population.push_back(run.second);
 
     size_t reference = 0;
     for (size_t i = 1; i < runs.size(); ++i)
         if (bench::run_score(runs[i].second) > bench::run_score(runs[reference].second))
             reference = i;
 
-    std::cout << "# Calibration (reference: " << runs[reference].first.model
-              << ")\n\n";
+    std::cout << "# Calibration (reference: " << runs[reference].first.model << ")\n\n";
     for (const auto& run : runs)
         std::cout << "- " << run.first.model << ": "
-                  << static_cast<int>(bench::run_score(run.second) * 10.0)
-                  << "/1000\n";
+                  << static_cast<int>(bench::run_score(run.second) * 10.0) << "/1000\n";
     std::cout << "\nanchor deviation: "
-              << static_cast<int>(
-                     bench::reference_anchor_deviation(population, reference) *
-                     10.0)
+              << static_cast<int>(bench::reference_anchor_deviation(population, reference) * 10.0)
               << " pts from 500\n";
-    std::cout << "headroom: "
-              << static_cast<int>(bench::headroom(population) * 10.0)
+    std::cout << "headroom: " << static_cast<int>(bench::headroom(population) * 10.0)
               << " pts above the best model\n";
     std::cout << "\nsuggested difficulties (per scenario, by name):\n";
-    const std::vector<int> d =
-        bench::suggest_difficulties(population, reference);
+    const std::vector<int> d = bench::suggest_difficulties(population, reference);
     const auto& ref_reports = runs[reference].second;
     for (size_t i = 0; i < d.size() && i < ref_reports.size(); ++i)
         std::cout << "- " << ref_reports[i].name << ": " << d[i] << "\n";
@@ -493,48 +496,73 @@ int main(int argc, char** argv) {
     std::string suite, name, profile, model, out_file, format = "text";
     std::string category;
     std::string opts_debug_dir;
+    std::string disable;
     double temperature = -1;
     int repeat = 1;
     std::vector<std::string> rest;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&](const char* def) -> std::string {
-            if (i + 1 < argc) return argv[++i];
+            if (i + 1 < argc)
+                return argv[++i];
             return def;
         };
-        if (a == "--live") live = true;
-        else if (a == "--suite") suite = next("");
-        else if (a == "--scenario") name = next("");
-        else if (a == "--profile") profile = next("");
-        else if (a == "--model") model = next("");
-        else if (a == "--temperature") temperature = std::atof(next("0").c_str());
-        else if (a == "--repeat") repeat = std::atoi(next("1").c_str());
-        else if (a == "--debug") opts_debug_dir = next("");
-        else if (a == "--out") out_file = next("");
-        else if (a == "--format") format = next("text");
-        else if (a == "--cat" || a == "--category") category = next("both");
-        else if (a == "-h" || a == "--help") { print_usage(argv[0]); return 0; }
-        else rest.push_back(a);
+        if (a == "--live")
+            live = true;
+        else if (a == "--suite")
+            suite = next("");
+        else if (a == "--scenario")
+            name = next("");
+        else if (a == "--profile")
+            profile = next("");
+        else if (a == "--model")
+            model = next("");
+        else if (a == "--temperature")
+            temperature = std::atof(next("0").c_str());
+        else if (a == "--repeat")
+            repeat = std::atoi(next("1").c_str());
+        else if (a == "--debug")
+            opts_debug_dir = next("");
+        else if (a == "--disable")
+            disable = next("");
+        else if (a == "--out")
+            out_file = next("");
+        else if (a == "--format")
+            format = next("text");
+        else if (a == "--cat" || a == "--category")
+            category = next("both");
+        else if (a == "-h" || a == "--help") {
+            print_usage(argv[0]);
+            return 0;
+        } else
+            rest.push_back(a);
     }
 
     try {
-        if (cmd == "list") return cmd_list(suite);
+        if (cmd == "list")
+            return cmd_list(suite);
         if (cmd == "run") {
-            if (!rest.empty()) name = rest[0];
-            return cmd_run(rest, live, suite, name, profile, model, temperature,
-                           repeat, out_file, opts_debug_dir, category);        }
+            if (!rest.empty())
+                name = rest[0];
+            return cmd_run(rest, live, suite, name, profile, model, temperature, repeat, out_file,
+                           opts_debug_dir, category, disable);
+        }
         if (cmd == "validate-template" && !rest.empty())
             return cmd_validate(rest[0]);
-        if (cmd == "report") return cmd_report(rest, format);
-        if (cmd == "delta") return cmd_delta(rest);
+        if (cmd == "report")
+            return cmd_report(rest, format);
+        if (cmd == "delta")
+            return cmd_delta(rest);
         if (cmd == "scorecard" && !rest.empty()) {
             bench::RunMeta meta;
             std::vector<bench::ScenarioReport> reports;
-            if (!parse_report_file(rest[0], meta, reports)) return 1;
+            if (!parse_report_file(rest[0], meta, reports))
+                return 1;
             std::cout << bench::render_scorecard(reports, meta);
             return 0;
         }
-        if (cmd == "calibrate" && !rest.empty()) return cmd_calibrate(rest);
+        if (cmd == "calibrate" && !rest.empty())
+            return cmd_calibrate(rest);
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";
         return 1;

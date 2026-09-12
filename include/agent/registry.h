@@ -11,6 +11,17 @@
 
 namespace agent {
 
+// Harness-facing metadata about a tool, kept beside it in the registry rather
+// than on the Tool port: this is presentation vocabulary the harness owns
+// ("searching", "planning"), not behaviour the tool performs. A tool that
+// describes its own *invocation* does that through Tool::summarize(args); this
+// is only what a status line needs when it does not know the tool.
+struct ToolMeta {
+    // Gerund shown while the tool runs. Empty falls back to a generic word, so
+    // a tool that declares nothing still renders — never a blank.
+    std::string verb;
+};
+
 // Owns the set of available tools and their metadata. The wire payload the
 // model receives (tools[] in a provider's shape) is built by the resolved
 // Dialect from these tools — see `docs/spec/llm-client/dialect.md`.
@@ -31,10 +42,17 @@ public:
     // plugin's removal can only ever reach its own tools, even when two plugins
     // contribute the same name (the later registration replaces the earlier
     // one, and the replacement carries its own owner).
-    void register_tool(std::unique_ptr<Tool> tool, std::string owner = {});
+    void register_tool(std::unique_ptr<Tool> tool, std::string owner = {}, ToolMeta meta = {});
     // Shared lease: the caller keeps the tool alive across a concurrent
     // unregister/replacement (dispatch holds the lease through execute()).
     std::shared_ptr<Tool> find(const std::string& name) const;
+
+    // The metadata recorded for `name`; default-constructed when the tool is
+    // unknown or declared none. The UI calls this instead of keeping its own
+    // name→verb table, which is how a plugin-contributed tool used to render
+    // generically.
+    ToolMeta meta_for(const std::string& name) const;
+
     bool empty() const;
 
     // Snapshot of the owned tools, consistent under the registry lock.
@@ -58,6 +76,7 @@ private:
     struct Entry {
         std::shared_ptr<Tool> tool;
         std::string owner;
+        ToolMeta meta;
     };
 
     mutable std::mutex mtx_;
