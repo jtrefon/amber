@@ -507,13 +507,14 @@ IPlugin* PluginRuntime::find(const std::string& id) const noexcept {
     return it == plugins_.end() ? nullptr : it->second.plugin.get();
 }
 
-void PluginRuntime::start() {
+void PluginRuntime::start(bool use_persisted_state) {
     for (const auto& [id, entry] : plugins_) {
         if (registry_.state(id) == PluginRegistry::State::Active)
             continue;
-        if (read_enabled(id, /*default_value=*/entry.bundled)) {
+        const bool on =
+            use_persisted_state ? read_enabled(id, /*default_value=*/entry.bundled) : entry.bundled;
+        if (on)
             activate(id);
-        }
     }
 }
 
@@ -558,6 +559,12 @@ bool PluginRuntime::set_state(const std::string& id, bool on) {
     if (!has(id))
         return false;
     if (!write_enabled(id, on))
+        return false;
+    return apply_state(id, on);
+}
+
+bool PluginRuntime::apply_state(const std::string& id, bool on) {
+    if (!has(id))
         return false;
     return on ? activate(id) : (deactivate(id), true);
 }

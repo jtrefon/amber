@@ -1,0 +1,118 @@
+# Harness Scorecard — qwen38-27b (run run-1786958863247268904)
+
+model score: 629/1000  pass: 30/49
+
+## 1. Dimensions (run-wide, 49 scenarios)
+
+### Loop control
+  breakouts fired:          0/49 runs (loop detection broke an identical-call loop)
+  hard stops:               0
+  recoveries (any kind):    0  | steers: 0  | steers effective: 0
+  retries:                  6
+  verdict:                  no loop events observed — the engine never had to intervene (or loop detection is off in live mode)
+
+### Tool economy
+  total tool calls:         158  | steps: 175 (mean 3.57143/scenario)
+  wasted (off-plan):        104 (2.12245/scenario)
+  redundant (identical):    5
+  tool failures:            10
+  tool denied:              3
+  mean bullseye:            0.765306
+  verdict:                  wasted calls dominate — the model surveys/repeats instead of executing (tool economy is the primary loss)
+
+### Planning & adherence
+  replan_adapted runs:      6/49
+  dependency violations:    1
+  mean plan_adherence:      0.632653
+  verdict:                  dependency-order violations detected — planning skips required reads before writes
+
+### Performance
+  mean wall:                51407 ms/scenario
+  mean tps:                 -1
+  hard stops:               0
+
+## 2. Per-suite
+
+suite                       scen  pass  mean  wasted  redund  fail  wall_ms
+--------------------------------------------------------------------------
+coding                           5     0     23        8        0     1   135461
+delegate                         1     0      0        0        0     0        0
+headroom                         2     0      0        0        0     0        0
+loop-live                        6     1     15        1        0     0    11091
+prompt                           5     5     95        1        1     0    17234
+refactor                         4     4     75       26        1     3    92620
+repo                             2     2     80       15        1     1    74140
+review-arch                      2     1     71        5        0     0    78485
+review-clean                     2     1     71        5        0     0    56226
+review-datastructures            2     1     64        6        0     0    44840
+review-patterns                  2     2     83        4        0     0    49476
+review-quality                   2     2     80        5        0     0    67368
+review-refactor                  2     1     68        5        0     0    74396
+terminal                         6     5     90        0        0     0    22413
+tools                            6     5     77       23        2     5    49019
+
+## 3. Failed scenarios (why, and which dimension)
+
+### c-01-fizzbuzz  (score 60, coding)
+  failure: final answer failed scenario checks
+  failure: wall-clock budget exceeded
+  steps=7 calls=8 wasted=7 redundant=0 tool_failures=1 denied=1 replan=adapted
+  trace: read[ok] bash[error:command exited with status 2] bash[ok] read[ok] read[ok] write[ok] bash[ok] bash[denied:denied by user: bash was not approved.]
+
+### c-02-sorting-multi  (score 59, coding)
+  failure: final answer failed scenario checks
+  failure: wall-clock budget exceeded
+  failure: hidden tests failed
+  failure: artifact behavior differs from reference
+  steps=2 calls=2 wasted=1 redundant=0 tool_failures=0 denied=0
+  trace: read[ok] bash[ok]
+
+### c-03-ring-buffer  (score 0, coding)
+  failure: agent run threw: chat probe failed: curl error: Could not connect to server
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### c-04-lcs  (score 0, coding)
+  failure: agent run threw: chat probe failed: curl error: Could not connect to server
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### c-05-graph-bfs  (score 0, coding)
+  failure: agent run threw: chat probe failed: curl error: Could not connect to server
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### d-01-two-area-survey  (score 0, delegate)
+  failure: agent run threw: chat probe failed: curl error: Could not connect to server
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### h-01-context-retention  (score 0, headroom)
+  failure: agent run threw: chat probe failed: curl error: Could not connect to server
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### h-02-multi-file-consistency  (score 0, headroom)
+  failure: agent run threw: chat probe failed: HTTP 503 from LLM server: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### l-loop-repeat  (score 0, loop-live)
+  failure: agent run threw: chat probe failed: HTTP 503 from LLM server: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### l-loop-termination  (score 0, loop-live)
+  failure: agent run threw: chat probe failed: HTTP 503 from LLM server: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### l-output-interpretation  (score 0, loop-live)
+  failure: agent run threw: chat probe failed: HTTP 503 from LLM server: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### l-plan-adherence  (score 0, loop-live)
+  failure: agent run threw: chat probe failed: HTTP 503 from LLM server: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}
+  steps=0 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+  ... 7 more failures; run `amber-bench report` for full details
+## 4. Signals (what to fix next)
+
+- **Tool economy**: 104 wasted calls (2/scenario). The model surveys or repeats instead of executing. Candidates: tool-selection steering in the prompt, or the agentic-efficiency weighting.
+- **Redundancy**: 5 identical calls repeated. Duplicate-call detection is worth enabling in live mode.
+- **Tool failures**: 10 failed calls. Check the per-call `tool_details` error text for the dominant failure reason.
+- **Dependency violations**: 1 runs wrote before reading the dependency. Planning adherence needs prompt-level ordering guidance.
+- **Loop detection never fired**: no breakouts observed. Verify `detection_loop` is enabled in live mode — the hermetic probes prove the engine CAN break loops; the live config may have it off.
+

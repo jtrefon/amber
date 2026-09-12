@@ -23,17 +23,18 @@ double run_score(const std::vector<ScenarioReport>& reports) noexcept {
 
 namespace {
 // Per scenario name: the totals across the models that ran it.
-std::map<std::string, std::vector<double>> scenario_totals(
-    const std::vector<std::vector<ScenarioReport>>& population) {
+std::map<std::string, std::vector<double>>
+scenario_totals(const std::vector<std::vector<ScenarioReport>>& population) {
     std::map<std::string, std::vector<double>> totals;
     for (const auto& run : population)
-        for (const auto& r : run) totals[r.name].push_back(r.score.total);
+        for (const auto& r : run)
+            totals[r.name].push_back(r.score.total);
     return totals;
 }
 } // namespace
 
-std::map<std::string, double> discrimination_weights(
-    const std::vector<std::vector<ScenarioReport>>& population) noexcept {
+std::map<std::string, double>
+discrimination_weights(const std::vector<std::vector<ScenarioReport>>& population) noexcept {
     std::map<std::string, double> weights;
     const auto totals = scenario_totals(population);
     for (const auto& [name, scores] : totals)
@@ -41,15 +42,16 @@ std::map<std::string, double> discrimination_weights(
     return weights;
 }
 
-double run_score_discriminative(
-    const std::vector<ScenarioReport>& reports,
-    const std::map<std::string, double>& weights) noexcept {
-    if (weights.empty()) return run_score(reports);
+double run_score_discriminative(const std::vector<ScenarioReport>& reports,
+                                const std::map<std::string, double>& weights) noexcept {
+    if (weights.empty())
+        return run_score(reports);
     double weighted = 0.0;
     double weight_sum = 0.0;
     for (const auto& r : reports) {
         const auto it = weights.find(r.name);
-        if (it == weights.end()) continue;  // unknown scenario: no signal
+        if (it == weights.end())
+            continue; // unknown scenario: no signal
         const double w = it->second * static_cast<double>(r.difficulty);
         weighted += w * r.score.total;
         weight_sum += w;
@@ -58,32 +60,34 @@ double run_score_discriminative(
 }
 
 double median(std::vector<double> values) noexcept {
-    if (values.empty()) return 0.0;
+    if (values.empty())
+        return 0.0;
     std::sort(values.begin(), values.end());
     const size_t n = values.size();
-    return n % 2 == 1
-               ? values[n / 2]
-               : (values[(n / 2) - 1] + values[n / 2]) / 2.0;
+    return n % 2 == 1 ? values[n / 2] : (values[(n / 2) - 1] + values[n / 2]) / 2.0;
 }
 
 double stddev(const std::vector<double>& values) noexcept {
-    if (values.size() < 2) return 0.0;
-    const double mean =
-        std::accumulate(values.begin(), values.end(), 0.0) / values.size();
+    if (values.size() < 2)
+        return 0.0;
+    const double mean = std::accumulate(values.begin(), values.end(), 0.0) / values.size();
     double sq = 0.0;
-    for (const double v : values) sq += (v - mean) * (v - mean);
+    for (const double v : values)
+        sq += (v - mean) * (v - mean);
     return std::sqrt(sq / (values.size() - 1));
 }
 
 namespace {
 // Run whose total sits closest to the median — the representative report.
-size_t median_representative(const std::vector<ScenarioReport>& runs,
-                             double score_median) {
+size_t median_representative(const std::vector<ScenarioReport>& runs, double score_median) {
     size_t best = 0;
     auto closest = std::numeric_limits<double>::max();
     for (size_t i = 0; i < runs.size(); ++i) {
         const double d = std::abs(runs[i].score.total - score_median);
-        if (d < closest) { closest = d; best = i; }
+        if (d < closest) {
+            closest = d;
+            best = i;
+        }
     }
     return best;
 }
@@ -101,11 +105,13 @@ void copy_representative_details(ScenarioReport& agg, const ScenarioReport& rep)
 } // namespace
 
 ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
-    if (runs.empty()) return {};
+    if (runs.empty())
+        return {};
     ScenarioReport agg = runs.front();
     agg.repeat_n = static_cast<int>(runs.size());
     agg.repeat_scores.clear();
-    for (const auto& r : runs) agg.repeat_scores.push_back(r.score.total);
+    for (const auto& r : runs)
+        agg.repeat_scores.push_back(r.score.total);
     if (runs.size() == 1) {
         // Single runs still carry the metadata: median = the score itself.
         agg.score_median = agg.score.total;
@@ -113,8 +119,7 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
     }
     agg.score_median = median(agg.repeat_scores);
     agg.score_stddev = stddev(agg.repeat_scores);
-    copy_representative_details(agg,
-                                runs[median_representative(runs, agg.score_median)]);
+    copy_representative_details(agg, runs[median_representative(runs, agg.score_median)]);
     // The canonical score IS the median; the representative run only carries
     // the detail fields (kpi/agentic/tool_calls).
     agg.score.total = agg.score_median;
@@ -131,9 +136,8 @@ uint32_t lcg(uint32_t& state) noexcept {
 // One bootstrap iteration: resample each scenario's repeat_scores, take the
 // per-scenario median, and return the (discrimination x difficulty) weighted
 // model score. An empty weight map reproduces the plain difficulty weighting.
-double bootstrap_weighted_score(
-    const std::vector<ScenarioReport>& reports, uint32_t& rng,
-    const std::map<std::string, double>& weights) noexcept {
+double bootstrap_weighted_score(const std::vector<ScenarioReport>& reports, uint32_t& rng,
+                                const std::map<std::string, double>& weights) noexcept {
     double weighted = 0.0;
     double weight = 0.0;
     for (const auto& r : reports) {
@@ -144,7 +148,8 @@ double bootstrap_weighted_score(
             sample.push_back(pool[lcg(rng) % pool.size()]);
         auto w = static_cast<double>(r.difficulty);
         const auto it = weights.find(r.name);
-        if (it != weights.end()) w *= it->second;
+        if (it != weights.end())
+            w *= it->second;
         weighted += w * median(std::move(sample));
         weight += w;
     }
@@ -161,7 +166,8 @@ double bootstrap_weighted_score(
 double model_score_ci(const std::vector<ScenarioReport>& reports,
                       const std::map<std::string, double>& weights) noexcept {
     for (const auto& r : reports)
-        if (r.repeat_n < 2 || r.repeat_scores.size() < 2) return -1.0;
+        if (r.repeat_n < 2 || r.repeat_scores.size() < 2)
+            return -1.0;
     uint32_t rng = 0xC0FFEEu;
     std::vector<double> boot;
     boot.reserve(200);
@@ -170,8 +176,7 @@ double model_score_ci(const std::vector<ScenarioReport>& reports,
     return 1.96 * stddev(boot);
 }
 
-bool resolvable(double ci_a, double score_a, double ci_b,
-                double score_b) noexcept {
+bool resolvable(double ci_a, double score_a, double ci_b, double score_b) noexcept {
     const double gap = std::abs(score_a - score_b);
     // ci_a/ci_b are already 95% intervals; the combined interval of the
     // difference is their root-sum-square (independent runs).
@@ -179,14 +184,36 @@ bool resolvable(double ci_a, double score_a, double ci_b,
     return gap > combined;
 }
 
-std::string render_text(const std::vector<ScenarioReport>& reports,
-                        const RunMeta& meta) {
+namespace {
+
+// One line saying which plugins produced the run. A result with no plugin list
+// says so rather than implying a default set: either it predates the field or
+// the run never got as far as recording it, and both mean the same thing here.
+std::string plugins_line(const RunMeta& meta) {
+    if (meta.plugins.empty())
+        return "plugins: not recorded\n";
+    std::string off;
+    for (const auto& p : meta.plugins) {
+        if (!p.enabled) {
+            if (!off.empty())
+                off += ", ";
+            off += p.id;
+        }
+    }
+    std::string line = "plugins: " + std::to_string(meta.plugins.size()) + " registered";
+    line += off.empty() ? ", all on" : ", off: " + off;
+    return line + "\n";
+}
+
+} // namespace
+
+std::string render_text(const std::vector<ScenarioReport>& reports, const RunMeta& meta) {
     std::ostringstream out;
     out << "amber-bench run " << meta.run_id << " [" << meta.mode << ", "
-        << (meta.profile.empty() ? "default" : meta.profile) << ", "
-        << meta.model << "]\n";
+        << (meta.profile.empty() ? "default" : meta.profile) << ", " << meta.model << "]\n";
     out << "engine " << meta.engine_version << " @ " << meta.timestamp << "\n";
-    const double ci = model_score_ci(reports);  // difficulty-weighted for single runs
+    out << plugins_line(meta);
+    const double ci = model_score_ci(reports); // difficulty-weighted for single runs
     out << "model score: " << (run_score(reports) * 10.0) << "/1000";
     if (ci > 0.0) {
         std::ostringstream ci_s;
@@ -199,7 +226,8 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
     int passed = 0;
     for (const auto& r : reports) {
         const char* verdict = r.kpi.success ? "PASS" : "FAIL";
-        if (r.kpi.success) ++passed;
+        if (r.kpi.success)
+            ++passed;
         out << verdict << "  " << r.name << " (" << r.suite << ")"
             << "  score=" << static_cast<int>(r.score.total)
             << (r.repeat_n > 1
@@ -226,7 +254,8 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
         }
         out << "\n";
         if (!r.failures.empty()) {
-            for (const auto& f : r.failures) out << "    - " << f << "\n";
+            for (const auto& f : r.failures)
+                out << "    - " << f << "\n";
             const size_t cap = std::min<size_t>(r.tool_calls.size(), 12);
             for (size_t i = 0; i < cap; ++i) {
                 const auto& tc = r.tool_calls[i];
@@ -254,8 +283,7 @@ std::string render_text(const std::vector<ScenarioReport>& reports,
     return out.str();
 }
 
-std::string render_json(const std::vector<ScenarioReport>& reports,
-                        const RunMeta& meta) {
+std::string render_json(const std::vector<ScenarioReport>& reports, const RunMeta& meta) {
     agent::json out = agent::json::object();
     out["run_id"] = meta.run_id;
     out["mode"] = meta.mode;
@@ -264,6 +292,17 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
     out["engine_version"] = meta.engine_version;
     out["timestamp"] = meta.timestamp;
     out["reasoning"] = meta.reasoning;
+    // Which plugins produced this run. Absent from older results, which is
+    // itself information: they predate plugin state being recorded.
+    agent::json plugs = agent::json::array();
+    for (const auto& p : meta.plugins) {
+        agent::json jp = agent::json::object();
+        jp["id"] = p.id;
+        jp["enabled"] = p.enabled;
+        jp["tier"] = p.tier;
+        plugs.push_back(std::move(jp));
+    }
+    out["plugins"] = std::move(plugs);
     agent::json arr = agent::json::array();
     for (const auto& r : reports) {
         agent::json j = agent::json::object();
@@ -275,7 +314,8 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
         j["repeat_n"] = r.repeat_n;
         j["score_median"] = r.score_median;
         j["score_stddev"] = r.score_stddev;
-        if (!r.repeat_scores.empty()) j["repeat_scores"] = r.repeat_scores;
+        if (!r.repeat_scores.empty())
+            j["repeat_scores"] = r.repeat_scores;
         j["score_correctness"] = r.score.correctness;
         j["score_efficiency"] = r.score.efficiency;
         j["score_robustness"] = r.score.robustness;
@@ -363,22 +403,19 @@ std::string render_json(const std::vector<ScenarioReport>& reports,
     return out.dump(2) + "\n";
 }
 
-std::string render_markdown(const std::vector<ScenarioReport>& reports,
-                            const RunMeta& meta) {
+std::string render_markdown(const std::vector<ScenarioReport>& reports, const RunMeta& meta) {
     std::ostringstream out;
     out << "## " << meta.model << "\n\n";
-    out << "- run: `" << meta.run_id << "` [" << meta.mode << ", engine "
-        << meta.engine_version << ", reasoning "
-        << (meta.reasoning.empty() ? "default" : meta.reasoning) << "]\n";
-    out << "- **model score: " << static_cast<int>(run_score(reports) * 10.0)
-        << "/1000** (" << reports.size() << " scenarios)\n\n";
+    out << "- run: `" << meta.run_id << "` [" << meta.mode << ", engine " << meta.engine_version
+        << ", reasoning " << (meta.reasoning.empty() ? "default" : meta.reasoning) << "]\n";
+    out << "- **model score: " << static_cast<int>(run_score(reports) * 10.0) << "/1000** ("
+        << reports.size() << " scenarios)\n\n";
     out << "| scenario | d | score | bullseye | steps | wasted | wall (s) "
            "| artifact |\n";
     out << "|---|---|---|---|---|---|---|---|\n";
     for (const auto& r : reports) {
-        out << "| " << r.name << " | " << r.difficulty << " | "
-            << static_cast<int>(r.score.total) << " | " << r.kpi.bullseye
-            << " | " << r.kpi.steps << " | " << r.kpi.wasted << " | "
+        out << "| " << r.name << " | " << r.difficulty << " | " << static_cast<int>(r.score.total)
+            << " | " << r.kpi.bullseye << " | " << r.kpi.steps << " | " << r.kpi.wasted << " | "
             << (r.kpi.wall_ms / 1000.0) << " | ";
         if (r.templated)
             out << r.kpi.artifact_score;
@@ -389,17 +426,19 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
     out << "\n### Failures\n\n";
     bool any = false;
     for (const auto& r : reports) {
-        if (r.kpi.success) continue;
+        if (r.kpi.success)
+            continue;
         any = true;
-        out << "- **" << r.name << "** (" << static_cast<int>(r.score.total)
-            << "/100): ";
+        out << "- **" << r.name << "** (" << static_cast<int>(r.score.total) << "/100): ";
         for (size_t i = 0; i < r.failures.size(); ++i) {
-            if (i) out << "; ";
+            if (i)
+                out << "; ";
             out << r.failures[i];
         }
         out << "\n";
     }
-    if (!any) out << "none\n";
+    if (!any)
+        out << "none\n";
 
     out << "\n### Agentic profile\n\n";
     int tot_tools = 0, tot_fail = 0, tot_denied = 0, tot_red = 0, tot_retr = 0;
@@ -425,7 +464,8 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
     out << "| tool calls | " << tot_tools << " | "
         << (n ? (tot_tools / static_cast<double>(n)) : 0.0) << " |\n";
     int tot_cd = 0;
-    for (const auto& r : reports) tot_cd += r.kpi.bash_cd_prefix;
+    for (const auto& r : reports)
+        tot_cd += r.kpi.bash_cd_prefix;
     out << "| bash cd-prefix calls | " << tot_cd << " | "
         << (n ? (tot_cd / static_cast<double>(n)) : 0.0) << " |\n";
     out << "| tool failures | " << tot_fail << " | "
@@ -445,13 +485,10 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
         out << "| optimal tool calls (sum) | " << plan_total << " |\n";
         out << "| actual tool calls | " << tot_tools << " |\n";
         out << "| total deviation (extra calls) | " << dev_total << " |\n";
-        const double eff = tot_tools > 0
-                               ? (100.0 * plan_total / tot_tools)
-                               : 0.0;
-        out << "| plan efficiency | " << static_cast<int>(eff > 100.0 ? 100.0 : eff)
+        const double eff = tot_tools > 0 ? (100.0 * plan_total / tot_tools) : 0.0;
+        out << "| plan efficiency | " << static_cast<int>(eff > 100.0 ? 100.0 : eff) << "/100 |\n";
+        out << "| agentic score (mean plan adherence) | " << static_cast<int>(ag_sum / ag_n)
             << "/100 |\n";
-        out << "| agentic score (mean plan adherence) | "
-            << static_cast<int>(ag_sum / ag_n) << "/100 |\n";
 
         std::map<std::string, int> plan_mix, actual_mix;
         for (const auto& r : reports) {
@@ -466,14 +503,13 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
         for (const auto& p : plan_mix) {
             const int act = actual_mix[p.first];
             const double eff = act > 0 ? (100.0 * p.second / act) : 0.0;
-            out << "| " << p.first << " | " << p.second << " | " << act
-                << " | " << (act - p.second) << " | "
-                << static_cast<int>(eff > 100.0 ? 100.0 : eff) << " |\n";
+            out << "| " << p.first << " | " << p.second << " | " << act << " | " << (act - p.second)
+                << " | " << static_cast<int>(eff > 100.0 ? 100.0 : eff) << " |\n";
         }
         for (const auto& a : actual_mix) {
-            if (plan_mix.count(a.first)) continue;
-            out << "| " << a.first << " | 0 | " << a.second << " | "
-                << a.second << " | 0 |\n";
+            if (plan_mix.count(a.first))
+                continue;
+            out << "| " << a.first << " | 0 | " << a.second << " | " << a.second << " | 0 |\n";
         }
     }
     return out.str();
@@ -481,16 +517,17 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports,
 
 std::string render_markdown_comparison(
     const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs) {
-    if (runs.empty()) return "";
+    if (runs.empty())
+        return "";
     std::ostringstream out;
     out << "# Benchmark: harness score by model\n\n";
     // With a population of models, score by discrimination: participation
     // trophies weigh ~0 and separators dominate the deltas (BENCH-02).
     std::vector<std::vector<ScenarioReport>> population;
     population.reserve(runs.size());
-    for (const auto& run : runs) population.push_back(run.second);
-    const std::map<std::string, double> weights =
-        discrimination_weights(population);
+    for (const auto& run : runs)
+        population.push_back(run.second);
+    const std::map<std::string, double> weights = discrimination_weights(population);
     auto score_of = [&](const std::vector<ScenarioReport>& rep) {
         return run_score_discriminative(rep, weights);
     };
@@ -499,8 +536,8 @@ std::string render_markdown_comparison(
     };
     for (const auto& run : runs) {
         const double ci = ci_of(run.second);
-        out << "- **" << run.first.model << "**: "
-            << static_cast<int>(score_of(run.second) * 10.0) << "/1000";
+        out << "- **" << run.first.model << "**: " << static_cast<int>(score_of(run.second) * 10.0)
+            << "/1000";
         if (ci > 0.0) {
             std::ostringstream ci_s;
             ci_s << std::fixed << std::setprecision(1) << (ci * 10.0);
@@ -522,13 +559,10 @@ std::string render_markdown_comparison(
                 if (ca < 0.0 || cb < 0.0)
                     verdict = "insufficient repeat data (run --repeat)";
                 else
-                    verdict = resolvable(ca, sa, cb, sb)
-                                  ? "**resolvable**"
-                                  : "within noise";
-                out << "- " << runs[i].first.model << " vs "
-                    << runs[j].first.model << ": Δ="
-                    << static_cast<int>(std::abs(sa - sb) * 10.0)
-                    << " → " << verdict << "\n";
+                    verdict = resolvable(ca, sa, cb, sb) ? "**resolvable**" : "within noise";
+                out << "- " << runs[i].first.model << " vs " << runs[j].first.model
+                    << ": Δ=" << static_cast<int>(std::abs(sa - sb) * 10.0) << " → " << verdict
+                    << "\n";
             }
     }
 
@@ -555,35 +589,36 @@ std::string render_markdown_comparison(
         if (ag_n > 0) {
             int pt = 0, at = 0;
             for (const auto& r : run.second) {
-                if (!r.agentic.has_plan) continue;
+                if (!r.agentic.has_plan)
+                    continue;
                 pt += r.agentic.plan_tools;
                 at += r.kpi.tool_calls;
             }
             plan_pct = at > 0 ? (100.0 * pt / at) : 0.0;
-            if (plan_pct > 100.0) plan_pct = 100.0;
+            if (plan_pct > 100.0)
+                plan_pct = 100.0;
         }
         const int fail_pct = tools > 0 ? (100 * fail / tools) : 0;
         const int red_pct = tools > 0 ? (100 * red / tools) : 0;
-        out << "| " << run.first.model << " | "
-            << static_cast<int>(score_of(run.second) * 10.0) << " | "
-            << (ag_n ? static_cast<int>(ag_sum / ag_n) : 0) << " | "
-            << static_cast<int>(plan_pct) << " | " << tools
-            << " | " << fail_pct << " | " << red_pct << " | "
-            << steps << " | " << (wall / 1000.0) << " |\n";
+        out << "| " << run.first.model << " | " << static_cast<int>(score_of(run.second) * 10.0)
+            << " | " << (ag_n ? static_cast<int>(ag_sum / ag_n) : 0) << " | "
+            << static_cast<int>(plan_pct) << " | " << tools << " | " << fail_pct << " | " << red_pct
+            << " | " << steps << " | " << (wall / 1000.0) << " |\n";
     }
 
     out << "\n| scenario |";
-    for (const auto& run : runs) out << " " << run.first.model << " |";
+    for (const auto& run : runs)
+        out << " " << run.first.model << " |";
     out << "\n|---|";
-    for (size_t i = 0; i < runs.size(); ++i) out << "---|";
+    for (size_t i = 0; i < runs.size(); ++i)
+        out << "---|";
     out << "\n";
     const size_t n = runs[0].second.size();
     for (size_t i = 0; i < n; ++i) {
         out << "| " << runs[0].second[i].name << " |";
         for (const auto& run : runs) {
             if (i < run.second.size())
-                out << " " << static_cast<int>(run.second[i].score.total)
-                    << " |";
+                out << " " << static_cast<int>(run.second[i].score.total) << " |";
             else
                 out << " - |";
         }
@@ -596,9 +631,9 @@ std::string render_markdown_comparison(
     return out.str();
 }
 
-bool parse_report_json(const agent::json& j, RunMeta& meta,
-                       std::vector<ScenarioReport>& reports) {
-    if (!j.contains("scenarios") || !j["scenarios"].is_array()) return false;
+bool parse_report_json(const agent::json& j, RunMeta& meta, std::vector<ScenarioReport>& reports) {
+    if (!j.contains("scenarios") || !j["scenarios"].is_array())
+        return false;
     meta.run_id = j.value("run_id", "");
     meta.mode = j.value("mode", "");
     meta.profile = j.value("profile", "");
@@ -606,6 +641,15 @@ bool parse_report_json(const agent::json& j, RunMeta& meta,
     meta.engine_version = j.value("engine_version", "");
     meta.timestamp = j.value("timestamp", "");
     meta.reasoning = j.value("reasoning", "");
+    if (j.contains("plugins")) {
+        for (const auto& jp : j["plugins"]) {
+            PluginRecord p;
+            p.id = jp.value("id", "");
+            p.enabled = jp.value("enabled", false);
+            p.tier = jp.value("tier", "");
+            meta.plugins.push_back(std::move(p));
+        }
+    }
     for (const auto& e : j["scenarios"]) {
         ScenarioReport rep;
         rep.name = e.value("name", "");
@@ -637,7 +681,8 @@ bool parse_report_json(const agent::json& j, RunMeta& meta,
         rep.score_stddev = e.value("score_stddev", 0.0);
         if (e.contains("repeat_scores") && e["repeat_scores"].is_array())
             for (const auto& v : e["repeat_scores"])
-                if (v.is_number()) rep.repeat_scores.push_back(v.get<double>());
+                if (v.is_number())
+                    rep.repeat_scores.push_back(v.get<double>());
         rep.templated = e.value("templated", false);
         rep.agentic.has_plan = e.value("agentic_has_plan", false);
         rep.agentic.plan_tools = e.value("agentic_plan_tools", 0);
@@ -645,25 +690,22 @@ bool parse_report_json(const agent::json& j, RunMeta& meta,
         rep.agentic.plan_ratio = e.value("agentic_ratio", 0.0);
         rep.agentic.efficiency_pct = e.value("agentic_efficiency_pct", 0.0);
         rep.agentic.score = e.value("agentic_score", 0.0);
-        if (e.contains("agentic_plan_by_tool") &&
-            e["agentic_plan_by_tool"].is_object())
-            for (auto it = e["agentic_plan_by_tool"].begin();
-                 it != e["agentic_plan_by_tool"].end(); ++it)
+        if (e.contains("agentic_plan_by_tool") && e["agentic_plan_by_tool"].is_object())
+            for (auto it = e["agentic_plan_by_tool"].begin(); it != e["agentic_plan_by_tool"].end();
+                 ++it)
                 if (it.value().is_number_integer())
-                    rep.agentic.plan_by_tool[it.key()] =
-                        it.value().get<int>();
-        if (e.contains("agentic_actual_by_tool") &&
-            e["agentic_actual_by_tool"].is_object())
+                    rep.agentic.plan_by_tool[it.key()] = it.value().get<int>();
+        if (e.contains("agentic_actual_by_tool") && e["agentic_actual_by_tool"].is_object())
             for (auto it = e["agentic_actual_by_tool"].begin();
                  it != e["agentic_actual_by_tool"].end(); ++it)
                 if (it.value().is_number_integer())
-                    rep.agentic.actual_by_tool[it.key()] =
-                        it.value().get<int>();
+                    rep.agentic.actual_by_tool[it.key()] = it.value().get<int>();
         // Failures + per-call telemetry must survive the round trip, or a
         // stored report cannot be diagnosed (the scorecard's section 3).
         if (e.contains("failures") && e["failures"].is_array())
             for (const auto& f : e["failures"])
-                if (f.is_string()) rep.failures.push_back(f.get<std::string>());
+                if (f.is_string())
+                    rep.failures.push_back(f.get<std::string>());
         if (e.contains("tool_details") && e["tool_details"].is_array()) {
             for (const auto& d : e["tool_details"]) {
                 ScenarioReport::ToolDetail td;
@@ -682,18 +724,18 @@ bool parse_report_json(const agent::json& j, RunMeta& meta,
     return true;
 }
 
-double reference_score(
-    const std::vector<std::vector<ScenarioReport>>& population,
-    size_t reference) noexcept {
-    if (reference >= population.size()) return 0.0;
+double reference_score(const std::vector<std::vector<ScenarioReport>>& population,
+                       size_t reference) noexcept {
+    if (reference >= population.size())
+        return 0.0;
     return run_score(population[reference]);
 }
 
-std::vector<double> anchor_weights(
-    const std::vector<std::vector<ScenarioReport>>& population,
-    size_t reference, double target) noexcept {
+std::vector<double> anchor_weights(const std::vector<std::vector<ScenarioReport>>& population,
+                                   size_t reference, double target) noexcept {
     std::vector<double> w;
-    if (reference >= population.size()) return w;
+    if (reference >= population.size())
+        return w;
     for (const auto& r : population[reference]) {
         const double s = r.score.total;
         if (std::abs(s - target) < 0.001) {
@@ -701,16 +743,17 @@ std::vector<double> anchor_weights(
             continue;
         }
         double a = target / std::abs(s - target);
-        if (a < 0.25) a = 0.25;
-        if (a > 200.0) a = 200.0;
+        if (a < 0.25)
+            a = 0.25;
+        if (a > 200.0)
+            a = 200.0;
         w.push_back(a);
     }
     return w;
 }
 
-std::vector<int> suggest_difficulties(
-    const std::vector<std::vector<ScenarioReport>>& population,
-    size_t reference, double target) noexcept {
+std::vector<int> suggest_difficulties(const std::vector<std::vector<ScenarioReport>>& population,
+                                      size_t reference, double target) noexcept {
     const std::vector<double> w = anchor_weights(population, reference, target);
     std::vector<int> out;
     out.reserve(w.size());
@@ -718,25 +761,26 @@ std::vector<int> suggest_difficulties(
         // Map the continuous weight onto the 1..6 ladder, monotonic in the
         // reference score (solved well -> low weight -> low difficulty).
         int d = static_cast<int>(std::lround(6.0 * a / (a + 1.0)));
-        if (d < 1) d = 1;
-        if (d > 6) d = 6;
+        if (d < 1)
+            d = 1;
+        if (d > 6)
+            d = 6;
         out.push_back(d);
     }
     return out;
 }
 
-double reference_anchor_deviation(
-    const std::vector<std::vector<ScenarioReport>>& population,
-    size_t reference, double target) noexcept {
+double reference_anchor_deviation(const std::vector<std::vector<ScenarioReport>>& population,
+                                  size_t reference, double target) noexcept {
     return std::abs(reference_score(population, reference) - target);
 }
 
-double headroom(
-    const std::vector<std::vector<ScenarioReport>>& population) noexcept {
+double headroom(const std::vector<std::vector<ScenarioReport>>& population) noexcept {
     double best = 0.0;
     for (const auto& run : population) {
         const double s = run_score(run);
-        if (s > best) best = s;
+        if (s > best)
+            best = s;
     }
     return 100.0 - best;
 }
@@ -771,7 +815,8 @@ struct RunAgg {
 void agg_add(RunAgg& a, const ScenarioReport& r) {
     ++a.n;
     a.score_sum += r.score.total;
-    if (r.failures.empty()) ++a.pass;
+    if (r.failures.empty())
+        ++a.pass;
     a.wasted += r.kpi.wasted;
     a.redundant += r.kpi.redundant;
     a.failures += r.kpi.tool_failures;
@@ -779,11 +824,16 @@ void agg_add(RunAgg& a, const ScenarioReport& r) {
     a.retries += r.kpi.retries;
     a.recoveries += r.kpi.recoveries;
     a.steers += r.kpi.steers;
-    if (r.kpi.hard_stop) ++a.hard_stops;
-    if (r.replan_adapted) ++a.replans;
-    if (r.dependency_violation) ++a.dep_violations;
-    if (r.breakout_latency > 0) ++a.breakouts;
-    if (r.steer_effective) ++a.steers_effective;
+    if (r.kpi.hard_stop)
+        ++a.hard_stops;
+    if (r.replan_adapted)
+        ++a.replans;
+    if (r.dependency_violation)
+        ++a.dep_violations;
+    if (r.breakout_latency > 0)
+        ++a.breakouts;
+    if (r.steer_effective)
+        ++a.steers_effective;
     a.calls += r.kpi.tool_calls;
     a.steps += r.kpi.steps;
     a.bullseye_sum += r.kpi.bullseye;
@@ -797,27 +847,27 @@ void agg_add(RunAgg& a, const ScenarioReport& r) {
 
 } // namespace
 
-std::string render_scorecard(const std::vector<ScenarioReport>& reports,
-                             const RunMeta& meta) {
+std::string render_scorecard(const std::vector<ScenarioReport>& reports, const RunMeta& meta) {
     std::ostringstream out;
     const int total = static_cast<int>(reports.size());
     int passed = 0;
     for (const auto& r : reports)
-        if (r.failures.empty()) ++passed;
+        if (r.failures.empty())
+            ++passed;
     const double score = run_score(reports) * 10.0;
 
-    out << "# Harness Scorecard — " << meta.model << " (run "
-        << meta.run_id << ")\n\n";
+    out << "# Harness Scorecard — " << meta.model << " (run " << meta.run_id << ")\n\n";
     out << "model score: " << static_cast<int>(score) << "/1000"
-        << "  pass: " << passed << "/" << total << "\n\n";
+        << "  pass: " << passed << "/" << total << "\n";
+    out << plugins_line(meta) << "\n";
 
     // ------------------------------------------------------------------
     // 1. Dimension aggregates with verdicts
     // ------------------------------------------------------------------
     RunAgg a;
-    for (const auto& r : reports) agg_add(a, r);
-    const double per_scenario =
-        a.n > 0 ? static_cast<double>(a.steps) / a.n : 0.0;
+    for (const auto& r : reports)
+        agg_add(a, r);
+    const double per_scenario = a.n > 0 ? static_cast<double>(a.steps) / a.n : 0.0;
 
     out << "## 1. Dimensions (run-wide, " << a.n << " scenarios)\n\n";
 
@@ -826,8 +876,7 @@ std::string render_scorecard(const std::vector<ScenarioReport>& reports,
     out << "  breakouts fired:          " << a.breakouts << "/" << a.n
         << " runs (loop detection broke an identical-call loop)\n";
     out << "  hard stops:               " << a.hard_stops << "\n";
-    out << "  recoveries (any kind):    " << a.recoveries
-        << "  | steers: " << a.steers
+    out << "  recoveries (any kind):    " << a.recoveries << "  | steers: " << a.steers
         << "  | steers effective: " << a.steers_effective << "\n";
     out << "  retries:                  " << a.retries << "\n";
     out << "  verdict:                  "
@@ -839,62 +888,53 @@ std::string render_scorecard(const std::vector<ScenarioReport>& reports,
 
     // Tool economy dimension.
     out << "### Tool economy\n";
-    out << "  total tool calls:         " << a.calls
-        << "  | steps: " << a.steps
-        << " (mean " << per_scenario << "/scenario)\n";
+    out << "  total tool calls:         " << a.calls << "  | steps: " << a.steps << " (mean "
+        << per_scenario << "/scenario)\n";
     out << "  wasted (off-plan):        " << a.wasted << " ("
-        << (a.n > 0 ? static_cast<double>(a.wasted) / a.n : 0.0)
-        << "/scenario)\n";
+        << (a.n > 0 ? static_cast<double>(a.wasted) / a.n : 0.0) << "/scenario)\n";
     out << "  redundant (identical):    " << a.redundant << "\n";
     out << "  tool failures:            " << a.failures << "\n";
     out << "  tool denied:              " << a.denied << "\n";
-    out << "  mean bullseye:            "
-        << (a.n > 0 ? a.bullseye_sum / a.n : 0.0) << "\n";
+    out << "  mean bullseye:            " << (a.n > 0 ? a.bullseye_sum / a.n : 0.0) << "\n";
     out << "  verdict:                  "
-        << (a.wasted > a.calls / 3
-                ? "wasted calls dominate — the model surveys/repeats "
-                  "instead of executing (tool economy is the primary loss)"
-                : "tool economy within reason; failures/waste are localized")
+        << (a.wasted > a.calls / 3 ? "wasted calls dominate — the model surveys/repeats "
+                                     "instead of executing (tool economy is the primary loss)"
+                                   : "tool economy within reason; failures/waste are localized")
         << "\n\n";
 
     // Planning dimension.
     out << "### Planning & adherence\n";
     out << "  replan_adapted runs:      " << a.replans << "/" << a.n << "\n";
     out << "  dependency violations:    " << a.dep_violations << "\n";
-    out << "  mean plan_adherence:      "
-        << (a.n > 0 ? a.adherence_sum / a.n : 0.0) << "\n";
+    out << "  mean plan_adherence:      " << (a.n > 0 ? a.adherence_sum / a.n : 0.0) << "\n";
     out << "  verdict:                  "
-        << (a.dep_violations > 0
-                ? "dependency-order violations detected — planning skips "
-                  "required reads before writes"
-                : "no dependency violations; adherence is order-clean")
+        << (a.dep_violations > 0 ? "dependency-order violations detected — planning skips "
+                                   "required reads before writes"
+                                 : "no dependency violations; adherence is order-clean")
         << "\n\n";
 
     // Performance dimension.
     out << "### Performance\n";
-    out << "  mean wall:                " << (a.n > 0 ? a.wall_sum / a.n : 0)
-        << " ms/scenario\n";
-    out << "  mean tps:                 "
-        << (a.tps_n > 0 ? a.tps_sum / a.tps_n : -1.0) << "\n";
+    out << "  mean wall:                " << (a.n > 0 ? a.wall_sum / a.n : 0) << " ms/scenario\n";
+    out << "  mean tps:                 " << (a.tps_n > 0 ? a.tps_sum / a.tps_n : -1.0) << "\n";
     out << "  hard stops:               " << a.hard_stops << "\n\n";
 
     // ------------------------------------------------------------------
     // 2. Per-suite matrix
     // ------------------------------------------------------------------
     std::map<std::string, RunAgg> by_suite;
-    for (const auto& r : reports) agg_add(by_suite[r.suite], r);
+    for (const auto& r : reports)
+        agg_add(by_suite[r.suite], r);
     out << "## 2. Per-suite\n\n";
     out << "suite                       scen  pass  mean  wasted  redund  "
            "fail  wall_ms\n";
     out << std::string(74, '-') << "\n";
     for (const auto& [suite, sa] : by_suite) {
         const double mean = sa.n > 0 ? sa.score_sum / sa.n : 0.0;
-        out << std::left << std::setw(28) << suite << std::right
-            << std::setw(6) << sa.n << std::setw(6) << sa.pass
-            << std::setw(7) << static_cast<int>(mean) << std::setw(9)
-            << sa.wasted << std::setw(9) << sa.redundant << std::setw(6)
-            << sa.failures << std::setw(9)
-            << (sa.n > 0 ? sa.wall_sum / sa.n : 0) << "\n";
+        out << std::left << std::setw(28) << suite << std::right << std::setw(6) << sa.n
+            << std::setw(6) << sa.pass << std::setw(7) << static_cast<int>(mean) << std::setw(9)
+            << sa.wasted << std::setw(9) << sa.redundant << std::setw(6) << sa.failures
+            << std::setw(9) << (sa.n > 0 ? sa.wall_sum / sa.n : 0) << "\n";
     }
     out << "\n";
 
@@ -904,48 +944,52 @@ std::string render_scorecard(const std::vector<ScenarioReport>& reports,
     out << "## 3. Failed scenarios (why, and which dimension)\n\n";
     int shown = 0;
     for (const auto& r : reports) {
-        if (r.failures.empty()) continue;
+        if (r.failures.empty())
+            continue;
         if (++shown > 12) {
             out << "  ... " << (passed < total ? total - passed - 12 : 0)
                 << " more failures; run `amber-bench report` for full "
                    "details\n";
             break;
         }
-        out << "### " << r.name << "  (score " << static_cast<int>(r.score.total)
-            << ", " << r.suite << ")\n";
-        for (const auto& f : r.failures) out << "  failure: " << f << "\n";
-        out << "  steps=" << r.kpi.steps
-            << " calls=" << r.kpi.tool_calls
-            << " wasted=" << r.kpi.wasted
-            << " redundant=" << r.kpi.redundant
-            << " tool_failures=" << r.kpi.tool_failures
-            << " denied=" << r.kpi.tool_denied;
-        if (r.kpi.hard_stop) out << " HARD_STOP";
-        if (r.replan_adapted) out << " replan=adapted";
-        if (r.dependency_violation) out << " DEP_VIOLATION";
+        out << "### " << r.name << "  (score " << static_cast<int>(r.score.total) << ", " << r.suite
+            << ")\n";
+        for (const auto& f : r.failures)
+            out << "  failure: " << f << "\n";
+        out << "  steps=" << r.kpi.steps << " calls=" << r.kpi.tool_calls
+            << " wasted=" << r.kpi.wasted << " redundant=" << r.kpi.redundant
+            << " tool_failures=" << r.kpi.tool_failures << " denied=" << r.kpi.tool_denied;
+        if (r.kpi.hard_stop)
+            out << " HARD_STOP";
+        if (r.replan_adapted)
+            out << " replan=adapted";
+        if (r.dependency_violation)
+            out << " DEP_VIOLATION";
         if (r.breakout_latency > 0)
             out << " breakout@" << r.breakout_latency;
-        if (r.steer_effective) out << " steer=effective";
+        if (r.steer_effective)
+            out << " steer=effective";
         out << "\n";
         // The tool trace: what actually executed.
         if (!r.tool_details.empty()) {
             out << "  trace:";
             for (const auto& d : r.tool_details)
-                out << " " << d.name << "[" << d.status
-                    << (d.error.empty() ? "" : ":" + d.error) << "]";
+                out << " " << d.name << "[" << d.status << (d.error.empty() ? "" : ":" + d.error)
+                    << "]";
             out << "\n";
         }
         out << "\n";
     }
-    if (shown == 0) out << "  no failures — clean run\n";
+    if (shown == 0)
+        out << "  no failures — clean run\n";
 
     // ------------------------------------------------------------------
     // 4. Signals
     // ------------------------------------------------------------------
     out << "## 4. Signals (what to fix next)\n\n";
     if (a.wasted > 0)
-        out << "- **Tool economy**: " << a.wasted
-            << " wasted calls (" << (a.n > 0 ? a.wasted / a.n : 0)
+        out << "- **Tool economy**: " << a.wasted << " wasted calls ("
+            << (a.n > 0 ? a.wasted / a.n : 0)
             << "/scenario). The model surveys or repeats instead of "
                "executing. Candidates: tool-selection steering in the "
                "prompt, or the agentic-efficiency weighting.\n";

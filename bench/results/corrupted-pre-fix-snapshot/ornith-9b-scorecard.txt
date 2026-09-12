@@ -1,0 +1,134 @@
+# Harness Scorecard — ornith-9b (Ornith-1.0-9B) (run run-1786610915874440596)
+
+model score: 716/1000  pass: 27/49
+
+## 1. Dimensions (run-wide, 49 scenarios)
+
+### Loop control
+  breakouts fired:          0/49 runs (loop detection broke an identical-call loop)
+  hard stops:               0
+  recoveries (any kind):    0  | steers: 0  | steers effective: 0
+  retries:                  4
+  verdict:                  no loop events observed — the engine never had to intervene (or loop detection is off in live mode)
+
+### Tool economy
+  total tool calls:         329  | steps: 308 (mean 6.28571/scenario)
+  wasted (off-plan):        271 (5.53061/scenario)
+  redundant (identical):    122
+  tool failures:            62
+  tool denied:              0
+  mean bullseye:            0.912245
+  verdict:                  wasted calls dominate — the model surveys/repeats instead of executing (tool economy is the primary loss)
+
+### Planning & adherence
+  replan_adapted runs:      11/49
+  dependency violations:    3
+  mean plan_adherence:      0.790816
+  verdict:                  dependency-order violations detected — planning skips required reads before writes
+
+### Performance
+  mean wall:                66110 ms/scenario
+  mean tps:                 -1
+  hard stops:               0
+
+## 2. Per-suite
+
+suite                       scen  pass  mean  wasted  redund  fail  wall_ms
+--------------------------------------------------------------------------
+coding                           5     1     50       88       42    24   248535
+delegate                         1     1    100        0        0     0    30250
+headroom                         2     1     72       11        5     4    17508
+loop-live                        6     4     80        5        0     0     6645
+prompt                           5     3     77        5        0     0     5767
+refactor                         4     1     56       72       36     6   202073
+repo                             2     0     55       52       31    17   143340
+review-arch                      2     0     58        6        0     4   179597
+review-clean                     2     0     60        1        0     0     7762
+review-datastructures            2     2     94        1        0     0     7565
+review-patterns                  2     1     71        2        0     0    10538
+review-quality                   2     2     90        2        0     0    10728
+review-refactor                  2     1     78        2        0     1    93162
+terminal                         6     6     99        0        0     0     5123
+tools                            6     4     71       24        8     6    19719
+
+## 3. Failed scenarios (why, and which dimension)
+
+### c-01-fizzbuzz  (score 55, coding)
+  failure: final answer failed scenario checks
+  steps=20 calls=22 wasted=21 redundant=9 tool_failures=10 denied=0 replan=adapted
+  trace: read[ok] bash[ok] read[ok] read[ok] write[ok] read[ok] read[ok] bash[error:command exited with status 1] bash[ok] bash[error:command exited with status 1] bash[ok] bash[error:command exited with status 1] bash[ok] bash[error:command exited with status 1] bash[ok] bash[error:command exited with status 1] bash[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1]
+
+### c-02-sorting-multi  (score 55, coding)
+  failure: final answer failed scenario checks
+  failure: wall-clock budget exceeded
+  steps=20 calls=23 wasted=22 redundant=14 tool_failures=6 denied=0
+  trace: read[ok] bash[ok] read[ok] read[ok] write[ok] write[error:edit 0 not applied: 'old' not found] read[ok] read[ok] bash[error:command exited with status 1] read[ok] write[ok] read[ok] bash[error:command exited with status 1] read[ok] read[ok] bash[ok] read[ok] read[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[error:command exited with status 1] read[ok] read[ok]
+
+### c-03-ring-buffer  (score 33, coding)
+  failure: final answer failed scenario checks
+  failure: wall-clock budget exceeded
+  failure: artifact failed to compile
+  failure: hidden tests failed
+  failure: artifact behavior differs from reference
+  steps=11 calls=12 wasted=11 redundant=7 tool_failures=0 denied=0
+  trace: read[ok] read[ok] write[ok] write[ok] write[ok] read[ok] read[ok] write[ok] write[ok] read[ok] read[ok] read[ok]
+
+### c-04-lcs  (score 55, coding)
+  failure: final answer failed scenario checks
+  steps=20 calls=25 wasted=24 redundant=12 tool_failures=6 denied=0 replan=adapted
+  trace: read[ok] bash[ok] read[ok] read[ok] write[ok] bash[error:command exited with status 1] bash[ok] bash[ok] read[ok] read[ok] bash[error:command exited with status 1] read[ok] read[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[ok] read[ok] read[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[ok] bash[ok] bash[ok] bash[ok] bash[ok]
+
+### h-02-multi-file-consistency  (score 47, headroom)
+  failure: final answer failed scenario checks
+  steps=12 calls=15 wasted=11 redundant=5 tool_failures=4 denied=0 replan=adapted DEP_VIOLATION
+  trace: bash[ok] bash[ok] read[ok] read[ok] read[ok] write[ok] write[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[ok] bash[error:command exited with status 1] read[ok] read[ok] read[ok] bash[error:command exited with status 1]
+
+### l-loop-repeat  (score 59, loop-live)
+  failure: oracle not matched: 0/1 steps (bullseye 0)
+  steps=2 calls=1 wasted=1 redundant=0 tool_failures=0 denied=0
+  trace: bash[ok]
+
+### l-plan-design  (score 60, loop-live)
+  failure: oracle not matched: 0/2 steps (bullseye 0)
+  steps=2 calls=1 wasted=1 redundant=0 tool_failures=0 denied=0
+  trace: bash[ok]
+
+### p-03-verify-after-action  (score 38, prompt)
+  failure: oracle not matched: 0/2 steps (bullseye 0)
+  steps=5 calls=4 wasted=4 redundant=0 tool_failures=0 denied=0
+  trace: bash[ok] bash[ok] bash[ok] read[ok]
+
+### p-05-multi-constraint  (score 60, prompt)
+  failure: final answer failed scenario checks
+  steps=1 calls=0 wasted=0 redundant=0 tool_failures=0 denied=0
+
+### r-02-polymorphism-over-switch  (score 55, refactor)
+  failure: final answer failed scenario checks
+  steps=20 calls=29 wasted=28 redundant=18 tool_failures=4 denied=0 replan=adapted
+  trace: read[ok] read[ok] read[ok] bash[ok] write[ok] bash[ok] read[ok] read[ok] bash[ok] bash[ok] read[ok] read[ok] write[error:edit 0 not applied: 'old' not found] bash[ok] read[ok] read[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[ok] read[ok] write[error:edit 0 not applied: 'old' not found] read[ok] read[ok] read[ok] read[ok] read[ok] read[ok] read[ok] read[ok]
+
+### r-03-adapter  (score 43, refactor)
+  failure: final answer failed scenario checks
+  failure: wall-clock budget exceeded
+  failure: artifact failed to compile
+  failure: hidden tests failed
+  failure: artifact behavior differs from reference
+  steps=16 calls=22 wasted=21 redundant=6 tool_failures=2 denied=0 replan=adapted
+  trace: read[ok] read[ok] read[ok] read[ok] write[ok] write[ok] bash[error:command exited with status 1] bash[error:command exited with status 1] bash[ok] write[ok] read[ok] read[ok] write[ok] write[ok] read[ok] read[ok] read[ok] write[ok] read[ok] read[ok] read[ok] write[ok]
+
+### r-04-strategy  (score 43, refactor)
+  failure: artifact failed to compile
+  failure: hidden tests failed
+  failure: artifact behavior differs from reference
+  steps=16 calls=20 wasted=19 redundant=11 tool_failures=0 denied=0
+  trace: read[ok] bash[ok] read[ok] read[ok] write[ok] write[ok] read[ok] read[ok] read[ok] read[ok] write[ok] bash[ok] read[ok] read[ok] read[ok] write[ok] read[ok] read[ok] read[ok] bash[ok]
+
+  ... 10 more failures; run `amber-bench report` for full details
+## 4. Signals (what to fix next)
+
+- **Tool economy**: 271 wasted calls (5/scenario). The model surveys or repeats instead of executing. Candidates: tool-selection steering in the prompt, or the agentic-efficiency weighting.
+- **Redundancy**: 122 identical calls repeated. Duplicate-call detection is worth enabling in live mode.
+- **Tool failures**: 62 failed calls. Check the per-call `tool_details` error text for the dominant failure reason.
+- **Dependency violations**: 3 runs wrote before reading the dependency. Planning adherence needs prompt-level ordering guidance.
+- **Loop detection never fired**: no breakouts observed. Verify `detection_loop` is enabled in live mode — the hermetic probes prove the engine CAN break loops; the live config may have it off.
+

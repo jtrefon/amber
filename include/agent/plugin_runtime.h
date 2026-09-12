@@ -73,7 +73,13 @@ public:
 
     // Activate every plugin whose persisted state says it is on. Called once
     // by the host after registration. Idempotent.
-    void start();
+    //
+    // `use_persisted_state` false starts from the declared defaults instead -
+    // every bundled plugin on, nothing read from the user's configuration. A
+    // harness measures the shipped configuration; one machine's saved
+    // preferences are not part of it, and a result that silently depended on
+    // them would not be reproducible anywhere else.
+    void start(bool use_persisted_state = true);
 
     // Stop every active plugin and unwind its contributions. Idempotent.
     void shutdown();
@@ -105,6 +111,13 @@ public:
     // The single write path. Persists first, then applies, so a failed
     // activation does not leave a plugin recorded as on.
     bool set_state(const std::string& id, bool on);
+
+    // Apply a state without persisting it. For a run that must not touch the
+    // user's saved configuration: the benchmark harness switches a plugin off
+    // to measure the difference, and that experiment is not a preference.
+    // Installation and unwinding go through the same ledger either way - only
+    // the persistence differs.
+    bool apply_state(const std::string& id, bool on);
 
     // --- Wallet (the active provider's balance) ----------------------------
 

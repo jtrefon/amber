@@ -15,6 +15,8 @@
 #include "agent/compressor.h"
 #include "agent/data_path.h"
 #include "agent/experience.h"
+#include "agent/plugin_runtime.h"
+#include "agent/plugins_bundled.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
 #include "bench/fake.h"
@@ -33,27 +35,28 @@ namespace {
 using agent::json;
 
 long now_ms() noexcept {
-    return static_cast<long>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
+    return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now().time_since_epoch())
+                                 .count());
 }
 
 void write_setup_files(const fs::path& ws, const json& setup) {
-    if (!setup.contains("files") || !setup["files"].is_object()) return;
+    if (!setup.contains("files") || !setup["files"].is_object())
+        return;
     for (auto it = setup["files"].begin(); it != setup["files"].end(); ++it) {
         fs::path p = ws / it.key();
         fs::create_directories(p.parent_path());
         std::ofstream f(p);
-        f << (it.value().is_string() ? it.value().get<std::string>()
-                                     : it.value().dump());
+        f << (it.value().is_string() ? it.value().get<std::string>() : it.value().dump());
     }
 }
 
 void run_setup_shell(const fs::path& ws, const json& setup) {
-    if (!setup.contains("shell") || !setup["shell"].is_array()) return;
+    if (!setup.contains("shell") || !setup["shell"].is_array())
+        return;
     for (const auto& c : setup["shell"]) {
-        if (!c.is_string()) continue;
+        if (!c.is_string())
+            continue;
         const std::string cmd = "cd \"" + ws.string() + "\" && " + c.get<std::string>();
         const int rc = std::system(cmd.c_str());
         (void)rc;
@@ -69,16 +72,14 @@ void copy_skeleton(const fs::path& template_dir, const fs::path& ws) {
                 fs::create_directories(ws / rel);
             } else if (e.is_regular_file()) {
                 fs::create_directories((ws / rel).parent_path());
-                fs::copy_file(e.path(), ws / rel,
-                              fs::copy_options::overwrite_existing);
+                fs::copy_file(e.path(), ws / rel, fs::copy_options::overwrite_existing);
             }
         }
     }
     // Task documents at the template root (TASK.md) are part of the contract.
     for (const auto& e : fs::directory_iterator(template_dir)) {
         if (e.is_regular_file() && e.path().extension() == ".md") {
-            fs::copy_file(e.path(), ws / e.path().filename(),
-                          fs::copy_options::overwrite_existing);
+            fs::copy_file(e.path(), ws / e.path().filename(), fs::copy_options::overwrite_existing);
         }
     }
 }
@@ -106,8 +107,7 @@ struct CwdGuard {
 // scenarios in a serial run (and into the harness probes), pointing at a
 // workspace that is removed at teardown.
 struct WorkspaceGuard {
-    explicit WorkspaceGuard(const fs::path& dir)
-        : saved_(agent::Workspace::root()) {
+    explicit WorkspaceGuard(const fs::path& dir) : saved_(agent::Workspace::root()) {
         agent::Workspace::set_root(dir.string());
     }
     ~WorkspaceGuard() { agent::Workspace::set_root(saved_); }
@@ -116,9 +116,8 @@ struct WorkspaceGuard {
 
 } // namespace
 
-ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
-                                const RunMeta& meta, std::string& err) {
-    (void)meta;
+ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMeta& meta,
+                                std::string& err) {
     ScenarioReport rep;
     rep.name = s.name;
     rep.suite = s.suite;
@@ -128,17 +127,14 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         return rep;
     }
 
-    const fs::path ws = fs::temp_directory_path() /
-                        ("amber_bench_ws_" + s.name + "_" +
-                         std::to_string(static_cast<long>(::getpid())));
+    const fs::path ws = fs::temp_directory_path() / ("amber_bench_ws_" + s.name + "_" +
+                                                     std::to_string(static_cast<long>(::getpid())));
     fs::remove_all(ws);
     fs::create_directories(ws);
     WorkspaceGuard ws_guard(ws);
 
     const fs::path tpl_abs =
-        s.template_dir.empty()
-            ? fs::path()
-            : fs::absolute(template_root() / s.template_dir);
+        s.template_dir.empty() ? fs::path() : fs::absolute(template_root() / s.template_dir);
 
     write_setup_files(ws, s.setup);
     run_setup_shell(ws, s.setup);
@@ -148,21 +144,23 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     agent::Config cfg;
     if (opts.live) {
         std::ifstream def("amber.conf");
-        if (def) cfg.load("amber.conf");
+        if (def)
+            cfg.load("amber.conf");
         cfg.apply_environment();
         if (!opts.model.empty()) {
             cfg.model = opts.model;
             cfg.model_explicit = true;
         }
-        if (opts.temperature >= 0) cfg.temperature = opts.temperature;
-        if (!opts.thinking.empty()) cfg.thinking = opts.thinking;
-        if (opts.thinking_budget >= 0) cfg.thinking_budget = opts.thinking_budget;
+        if (opts.temperature >= 0)
+            cfg.temperature = opts.temperature;
+        if (!opts.thinking.empty())
+            cfg.thinking = opts.thinking;
+        if (opts.thinking_budget >= 0)
+            cfg.thinking_budget = opts.thinking_budget;
         if (cfg.system_prompt_path.empty())
-            cfg.system_prompt_path =
-                agent::resolve_data_path("prompts/system.md", nullptr);
+            cfg.system_prompt_path = agent::resolve_data_path("prompts/system.md", nullptr);
         if (cfg.tools_prompt_path.empty())
-            cfg.tools_prompt_path =
-                agent::resolve_data_path("prompts/tools.md", nullptr);
+            cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", nullptr);
         // Mirror the CLI (src/main.cpp): fill model/context from the server
         // when the user did not set them explicitly.
         agent::apply_server_autodetect(cfg);
@@ -172,11 +170,10 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         cfg.model = "fake";
         cfg.detection_loop = s.detection_loop;
         cfg.detection_duplicate = s.detection_duplicate;
-        cfg.system_prompt_path =
-            agent::resolve_data_path("prompts/system.md", nullptr);
-        cfg.tools_prompt_path =
-            agent::resolve_data_path("prompts/tools.md", nullptr);
-        if (fs::is_regular_file("amber.conf")) cfg.load("amber.conf");
+        cfg.system_prompt_path = agent::resolve_data_path("prompts/system.md", nullptr);
+        cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", nullptr);
+        if (fs::is_regular_file("amber.conf"))
+            cfg.load("amber.conf");
         // Re-assert hermetic defaults that amber.conf may have clobbered.
         cfg.stream = s.stream;
         cfg.context_size = 4096;
@@ -191,8 +188,45 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
-    agent::register_default_tools(registry, jobs, todos, cfg.cancel_token,
-                        cfg.plan_tool, subagents, cfg.task_tool);
+    // The tools arrive through the plugin runtime, exactly as they do in every
+    // host: the harness measures what a user runs, not a parallel installation
+    // path. Plugin state comes with it, which is what makes "run the suite with
+    // tool_search off" a real experiment rather than a cosmetic flag.
+    agent::HostServices host_services{&jobs, &todos, &subagents, &cfg.cancel_token};
+    agent::Workspace workspace;
+    agent::PluginRuntime plugins(registry, cfg, workspace);
+    plugins.add_bundled();
+    plugins.attach_host_services(host_services);
+    plugins.attach_config(cfg);
+    for (const auto& id : opts.disable_plugins) {
+        if (!plugins.has(id)) {
+            // A typo must not produce a run that quietly measured the default
+            // configuration instead of the one that was asked for.
+            err = "unknown plugin: " + id;
+            return {};
+        }
+    }
+    // The shipped configuration, not this machine's saved plugin state: a
+    // result has to mean the same thing on the next machine that runs it.
+    plugins.start(/*use_persisted_state=*/false);
+    // Disables come after activation, the same order a user's toggle has, and
+    // the only order in which they survive: activating a plugin is what turns
+    // it on, so a disable applied before it would simply be undone.
+    for (const auto& id : opts.disable_plugins) {
+        // Applied, not persisted: a measurement is not a preference.
+        plugins.apply_state(id, false);
+    }
+    if (registry.empty()) {
+        err = "no tools were installed - the plugin set is broken";
+        return {};
+    }
+    if (meta.plugins.empty()) {
+        // Recorded once per run, because the plugin set follows from the run
+        // options: two scorecards are only comparable when they say which
+        // plugins produced them.
+        for (const auto& status : plugins.list())
+            meta.plugins.push_back({status.id, status.enabled, status.tier});
+    }
     subagents.set_config(cfg);
     // Single-GPU constraint: the local inference service has ONE slot, and
     // concurrent requests pay a long prefill penalty. Bench runs must never
@@ -222,14 +256,12 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     auto compressor = agent::make_compressor(comp_cfg);
     auto exp_cfg = agent::load_experience_config(cfg);
     auto mem_store = agent::make_memory_store(exp_cfg);
-    auto retriever =
-        std::make_unique<agent::MemoryRetriever>(*mem_store);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem_store);
 
     Recorder recorder;
     agent::AgentHooks hooks = recorder.hooks();
-    hooks.on_approval =
-        [](const std::string& tool, const agent::json&,
-           const std::string&) -> agent::Approval {
+    hooks.on_approval = [](const std::string& tool, const agent::json&,
+                           const std::string&) -> agent::Approval {
         return tool.rfind("process_", 0) == 0 ? agent::Approval::AllowSession
                                               : agent::Approval::Deny;
     };
@@ -243,10 +275,12 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         // and never touch the network.
         auto script = std::make_shared<std::deque<BenchReply>>();
         for (const auto& e : s.fake_replies) {
-            if (!e.is_object()) continue;
+            if (!e.is_object())
+                continue;
             BenchReply r;
             r.content = e.value("content", "");
-            if (e.contains("tool_calls")) r.tool_calls = e["tool_calls"];
+            if (e.contains("tool_calls"))
+                r.tool_calls = e["tool_calls"];
             r.error = e.value("error", "");
             r.retryable = e.value("retryable", true);
             r.latency_ms = e.value("latency_ms", 0L);
@@ -256,28 +290,28 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
             script->push_back(std::move(r));
         }
         if (s.task_tool) {
-            auto sub_scripts =
-                std::make_shared<std::vector<std::deque<BenchReply>>>();
+            auto sub_scripts = std::make_shared<std::vector<std::deque<BenchReply>>>();
             for (const auto& ss : s.subagent_replies) {
                 std::deque<BenchReply> dq;
                 for (const auto& e : ss) {
-                    if (!e.is_object()) continue;
+                    if (!e.is_object())
+                        continue;
                     BenchReply r;
                     r.content = e.value("content", "");
-                    if (e.contains("tool_calls")) r.tool_calls = e["tool_calls"];
+                    if (e.contains("tool_calls"))
+                        r.tool_calls = e["tool_calls"];
                     dq.push_back(std::move(r));
                 }
                 sub_scripts->push_back(std::move(dq));
             }
             auto counter = std::make_shared<std::atomic<size_t>>(0);
-            subagents.set_factory(
-                [sub_scripts, counter](const agent::Config&) {
-                    auto f = std::make_unique<FakeClient>();
-                    const size_t i = (*counter)++;
-                    if (i < sub_scripts->size())
-                        f->script = (*sub_scripts)[i];
-                    return std::unique_ptr<agent::LLMClient>(std::move(f));
-                });
+            subagents.set_factory([sub_scripts, counter](const agent::Config&) {
+                auto f = std::make_unique<FakeClient>();
+                const size_t i = (*counter)++;
+                if (i < sub_scripts->size())
+                    f->script = (*sub_scripts)[i];
+                return std::unique_ptr<agent::LLMClient>(std::move(f));
+            });
         }
         auto fake = std::make_unique<FakeClient>();
         fake->script = *script;
@@ -295,10 +329,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         if (!cfg.tools_prompt_path.empty())
             cfg.tools_prompt_path = fs::absolute(cfg.tools_prompt_path).string();
         CwdGuard cwd(ws);
-        agent::Agent agent(cfg, registry, hooks,
-                           std::move(compressor), std::move(gate),
-                           std::move(mem_store), std::move(retriever),
-                           std::move(client));
+        agent::Agent agent(cfg, registry, hooks, std::move(compressor), std::move(gate),
+                           std::move(mem_store), std::move(retriever), std::move(client));
         agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
         t0 = now_ms();
         final_text = agent.run(s.prompt);
@@ -317,7 +349,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     if (!s.template_dir.empty()) {
         std::string terr;
         tmpl = run_template(tpl_abs.string(), ws.string(), "g++", terr);
-        if (!terr.empty()) rep.failures.emplace_back("template: " + terr);
+        if (!terr.empty())
+            rep.failures.emplace_back("template: " + terr);
     }
 
     long bullseye_at = wall_ms;
@@ -325,17 +358,18 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         const size_t last = oracle.matched_call_indexes.back();
         if (last < recorder.stream().calls.size()) {
             const long t = recorder.stream().calls[last].t_ms - t0;
-            if (t > 0) bullseye_at = t;
+            if (t > 0)
+                bullseye_at = t;
         }
     }
 
-    Kpi kpi = compute_kpi(recorder.stream(), oracle, meter, tmpl,
-                          s.prompt_checks, final_text, wall_ms, bullseye_at);
+    Kpi kpi = compute_kpi(recorder.stream(), oracle, meter, tmpl, s.prompt_checks, final_text,
+                          wall_ms, bullseye_at);
     const bool checks_ok = checks_pass(s.checks, final_text);
-    if (!checks_ok) kpi.success = false;
+    if (!checks_ok)
+        kpi.success = false;
     if (!s.template_dir.empty() &&
-        (!kpi.compile_ok || kpi.artifact_score != 1.0 ||
-         !kpi.behavior_equivalent))
+        (!kpi.compile_ok || kpi.artifact_score != 1.0 || !kpi.behavior_equivalent))
         kpi.success = false;
     kpi.success = kpi_success(kpi, s);
     rep.kpi = kpi;
@@ -346,8 +380,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
 
     int forbidden = 0;
     for (const auto& c : recorder.stream().calls)
-        if (std::find(s.forbidden_tools.begin(), s.forbidden_tools.end(),
-                      c.name) != s.forbidden_tools.end())
+        if (std::find(s.forbidden_tools.begin(), s.forbidden_tools.end(), c.name) !=
+            s.forbidden_tools.end())
             ++forbidden;
     const double checks_ratio = adherence(s.checks, final_text);
     // Agentic plan adherence measures the model's tool economy; computed in
@@ -356,8 +390,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
     rep.agentic = compute_agentic(recorder.stream(), kpi, s);
     // A scenario without an oracle or optimal_plan has no economy baseline;
     // feed the neutral score rather than dragging the total by 0.20.
-    const double agentic_score =
-        rep.agentic.has_plan ? rep.agentic.score : 100.0;
+    const double agentic_score = rep.agentic.has_plan ? rep.agentic.score : 100.0;
     rep.score = compute_score(kpi, s, checks_ratio, forbidden, agentic_score);
 
     for (const auto& c : recorder.stream().calls) {
@@ -366,8 +399,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
             args.resize(157);
             args += "...";
         }
-        rep.tool_calls.emplace_back(c.name + " [" + c.status + "]",
-                                    args);
+        rep.tool_calls.emplace_back(c.name + " [" + c.status + "]", args);
     }
     // Per-call telemetry (BENCH-11): pair each recorded call with its result
     // detail (status, error text, timeout/denied, duration) so a stored run
@@ -386,7 +418,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
             d.denied = t.denied;
             d.timeout = t.timeout;
             d.duration_ms = t.duration_ms;
-            if (t.timeout) d.status = "timeout";
+            if (t.timeout)
+                d.status = "timeout";
         }
         rep.tool_details.push_back(std::move(d));
     }
@@ -399,24 +432,28 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         std::vector<int> per_step;
         for (const auto& c : r_calls) {
             if (c.step != last) {
-                if (cur > max_in_step) max_in_step = cur;
-                if (cur > 0) per_step.push_back(cur);
+                if (cur > max_in_step)
+                    max_in_step = cur;
+                if (cur > 0)
+                    per_step.push_back(cur);
                 cur = 0;
                 last = c.step;
             }
             ++cur;
         }
-        if (cur > max_in_step) max_in_step = cur;
-        if (cur > 0) per_step.push_back(cur);
+        if (cur > max_in_step)
+            max_in_step = cur;
+        if (cur > 0)
+            per_step.push_back(cur);
         rep.max_calls_per_step = max_in_step;
         // calls_per_step distribution: mean + p95 (BENCH-11).
         if (!per_step.empty()) {
             double sum = 0.0;
-            for (int v : per_step) sum += v;
+            for (int v : per_step)
+                sum += v;
             rep.calls_per_step_mean = sum / static_cast<double>(per_step.size());
             std::sort(per_step.begin(), per_step.end());
-            const auto idx =
-                static_cast<size_t>(0.95 * static_cast<double>(per_step.size() - 1));
+            const auto idx = static_cast<size_t>(0.95 * static_cast<double>(per_step.size() - 1));
             rep.calls_per_step_p95 = static_cast<double>(per_step[idx]);
         }
     }
@@ -430,14 +467,14 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         if (oracle.total_steps > 0 && !idxs.empty()) {
             size_t ordered = 1;
             for (size_t i = 1; i < idxs.size(); ++i)
-                if (idxs[i] > idxs[i - 1]) ++ordered;
+                if (idxs[i] > idxs[i - 1])
+                    ++ordered;
             rep.plan_adherence_ratio =
                 static_cast<double>(ordered) / static_cast<double>(idxs.size());
         }
         // Replan: a failure followed by a different (non-failing) call.
         for (size_t i = 0; i + 1 < r_tools.size(); ++i) {
-            if (!r_tools[i].ok && r_tools[i + 1].ok &&
-                r_tools[i].name == r_tools[i + 1].name) {
+            if (!r_tools[i].ok && r_tools[i + 1].ok && r_tools[i].name == r_tools[i + 1].name) {
                 rep.replan_adapted = true;
                 break;
             }
@@ -448,7 +485,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
         // while the task requires that order (write-before-read).
         if (oracle.total_steps > 0) {
             for (size_t i = 1; i < idxs.size(); ++i)
-                if (idxs[i] < idxs[i - 1]) rep.dependency_violation = true;
+                if (idxs[i] < idxs[i - 1])
+                    rep.dependency_violation = true;
             if (!r_calls.empty() && !s.oracle.empty()) {
                 const std::string& first = r_calls[0].name;
                 const std::string& expected = s.oracle[0].tool;
@@ -471,14 +509,14 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
 
     if (!oracle.success) {
         std::ostringstream msg;
-        msg << "oracle not matched: " << oracle.matched_steps << "/"
-            << oracle.total_steps << " steps (bullseye "
-            << oracle.bullseye << ")";
+        msg << "oracle not matched: " << oracle.matched_steps << "/" << oracle.total_steps
+            << " steps (bullseye " << oracle.bullseye << ")";
         rep.failures.emplace_back(msg.str());
     }
     if (!checks_ok)
         rep.failures.emplace_back("final answer failed scenario checks");
-    if (kpi.hard_stop) rep.failures.emplace_back("agent hard-stopped (loop)");
+    if (kpi.hard_stop)
+        rep.failures.emplace_back("agent hard-stopped (loop)");
     if (s.max_steps > 0 && kpi.steps > s.max_steps)
         rep.failures.emplace_back("step budget exceeded");
     if (s.max_wall_ms > 0 && kpi.wall_ms > s.max_wall_ms)
@@ -497,16 +535,26 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts,
 }
 
 std::vector<ScenarioReport> run_scenarios(const std::vector<Scenario>& scenarios,
-                                          const RunOptions& opts,
-                                          const RunMeta& meta) {
+                                          const RunOptions& opts, RunMeta& meta) {
     std::vector<ScenarioReport> out;
     for (const auto& s : scenarios) {
-        if (s.hermetic_only && opts.live) continue;
-        if (!opts.live && s.fake_replies.empty()) continue;
+        if (s.hermetic_only && opts.live)
+            continue;
+        if (!opts.live && s.fake_replies.empty())
+            continue;
         std::string err;
         std::vector<ScenarioReport> runs;
         for (int i = 0; i < std::max(1, opts.repeat); ++i) {
             ScenarioReport rep = run_one_scenario(s, opts, meta, err);
+            if (rep.name.empty()) {
+                // The scenario could not be set up. Name it and carry the
+                // reason, so a run that measured nothing says what it was and
+                // why - an anonymous zero would be worse than useless.
+                rep.name = s.name;
+                rep.suite = s.suite;
+                if (!err.empty())
+                    rep.failures.emplace_back(err);
+            }
             runs.emplace_back(std::move(rep));
         }
         // With --repeat N the report is the median run plus the population

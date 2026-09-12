@@ -1,0 +1,88 @@
+# Harness Scorecard — qwen35-dense (Qwen3.6-27B) (run run-1786605404109290877)
+
+model score: 816/1000  pass: 44/49
+
+## 1. Dimensions (run-wide, 49 scenarios)
+
+### Loop control
+  breakouts fired:          0/49 runs (loop detection broke an identical-call loop)
+  hard stops:               0
+  recoveries (any kind):    0  | steers: 0  | steers effective: 0
+  retries:                  0
+  verdict:                  no loop events observed — the engine never had to intervene (or loop detection is off in live mode)
+
+### Tool economy
+  total tool calls:         212  | steps: 224 (mean 4.57143/scenario)
+  wasted (off-plan):        146 (2.97959/scenario)
+  redundant (identical):    12
+  tool failures:            8
+  tool denied:              0
+  mean bullseye:            0.969388
+  verdict:                  wasted calls dominate — the model surveys/repeats instead of executing (tool economy is the primary loss)
+
+### Planning & adherence
+  replan_adapted runs:      5/49
+  dependency violations:    2
+  mean plan_adherence:      0.831633
+  verdict:                  dependency-order violations detected — planning skips required reads before writes
+
+### Performance
+  mean wall:                37315 ms/scenario
+  mean tps:                 -1
+  hard stops:               0
+
+## 2. Per-suite
+
+suite                       scen  pass  mean  wasted  redund  fail  wall_ms
+--------------------------------------------------------------------------
+coding                           5     5     75       41        3     1    72031
+delegate                         1     1    100        0        0     0    70637
+headroom                         2     2     77        9        0     0    48085
+loop-live                        6     5     89        2        0     0    13995
+prompt                           5     5     97        1        0     0    13781
+refactor                         4     4     62       39        8     4    90208
+repo                             2     2     80       18        0     1    63578
+review-arch                      2     1     71        4        0     0    45603
+review-clean                     2     1     71        4        0     0    32173
+review-datastructures            2     2     83        4        0     0    30668
+review-patterns                  2     2     80        5        0     0    32584
+review-quality                   2     2     84        4        0     0    28875
+review-refactor                  2     1     71        4        0     0    38212
+terminal                         6     6     99        0        0     0    14108
+tools                            6     5     81       11        1     2    26619
+
+## 3. Failed scenarios (why, and which dimension)
+
+### l-plan-design  (score 54, loop-live)
+  failure: oracle not matched: 0/2 steps (bullseye 0)
+  steps=3 calls=2 wasted=2 redundant=0 tool_failures=0 denied=0
+  trace: bash[ok] bash[ok]
+
+### arch-02-clean-control  (score 60, review-arch)
+  failure: final answer failed scenario checks
+  steps=3 calls=3 wasted=2 redundant=0 tool_failures=0 denied=0
+  trace: search[ok] bash[ok] read[ok]
+
+### clean-02-clean-control  (score 60, review-clean)
+  failure: final answer failed scenario checks
+  steps=3 calls=3 wasted=2 redundant=0 tool_failures=0 denied=0
+  trace: search[ok] bash[ok] read[ok]
+
+### refac-01-long-method  (score 60, review-refactor)
+  failure: final answer failed scenario checks
+  steps=3 calls=3 wasted=2 redundant=0 tool_failures=0 denied=0
+  trace: search[ok] bash[ok] read[ok]
+
+### t-03-write-vs-rewrite  (score 60, tools)
+  failure: oracle not matched: 1/2 steps (bullseye 0.5)
+  steps=2 calls=1 wasted=0 redundant=0 tool_failures=0 denied=0 DEP_VIOLATION
+  trace: write[ok]
+
+## 4. Signals (what to fix next)
+
+- **Tool economy**: 146 wasted calls (2/scenario). The model surveys or repeats instead of executing. Candidates: tool-selection steering in the prompt, or the agentic-efficiency weighting.
+- **Redundancy**: 12 identical calls repeated. Duplicate-call detection is worth enabling in live mode.
+- **Tool failures**: 8 failed calls. Check the per-call `tool_details` error text for the dominant failure reason.
+- **Dependency violations**: 2 runs wrote before reading the dependency. Planning adherence needs prompt-level ordering guidance.
+- **Loop detection never fired**: no breakouts observed. Verify `detection_loop` is enabled in live mode — the hermetic probes prove the engine CAN break loops; the live config may have it off.
+

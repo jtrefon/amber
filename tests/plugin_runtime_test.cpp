@@ -1293,6 +1293,67 @@ TEST(bundled_plugins_include_new_providers) {
     ASSERT(has("deepseek"));
 }
 
+// The benchmark harness switches plugins off to measure the difference. That
+// experiment must not become the user's saved preference, and it must not read
+// one either: a result that depended on this machine's plugin state would not
+// be reproducible on any other.
+TEST(apply_state_changes_the_toolset_without_writing_state) {
+    ScratchConfig scratch("apply_state");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start(/*use_persisted_state=*/false);
+
+    ASSERT_TRUE((bool)f.tools.find("search"));
+    ASSERT_TRUE(runtime.apply_state("tool_search", false));
+    ASSERT_FALSE((bool)f.tools.find("search"));
+
+    // Nothing was persisted: the file is what a user's toggle would write, and
+    // this was not a toggle.
+    ASSERT_FALSE(fs::exists(agent::global_config_dir() + "/plugins/tool_search/plugin.conf"));
+
+    ASSERT_TRUE(runtime.apply_state("tool_search", true));
+    ASSERT_TRUE((bool)f.tools.find("search"));
+}
+
+TEST(start_ignores_persisted_state_when_told_to) {
+    ScratchConfig scratch("start_defaults");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    // A saved preference that says "off", as a previous session would leave.
+    {
+        PluginRuntime writer(f.tools, f.cfg, f.ws);
+        writer.add_bundled();
+        ASSERT_TRUE(writer.set_state("tool_search", false));
+        ASSERT_FALSE((bool)f.tools.find("search"));
+    }
+
+    // The harness starts from the shipped configuration regardless.
+    Fixture fresh;
+    PluginRuntime bench(fresh.tools, f.cfg, fresh.ws);
+    bench.attach_host_services(host);
+    bench.add_bundled();
+    bench.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE((bool)fresh.tools.find("search"));
+
+    // A host still honours what the user chose.
+    Fixture hosted;
+    PluginRuntime host_rt(hosted.tools, f.cfg, hosted.ws);
+    host_rt.attach_host_services(host);
+    host_rt.add_bundled();
+    host_rt.start();
+    ASSERT_FALSE((bool)hosted.tools.find("search"));
+}
+
 TEST(disabling_allowance_plugin_unwinds_contribution) {
     ScratchConfig scratch("allowance_unwind");
     Fixture f;

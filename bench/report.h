@@ -12,14 +12,24 @@
 
 namespace bench {
 
+// One plugin as the run saw it. Recorded per run because plugin state decides
+// which tools exist and what the prompt says: without it, a result produced
+// with `search` switched off is indistinguishable from one without.
+struct PluginRecord {
+    std::string id;
+    bool enabled = false;
+    std::string tier; // "bundled" | "external"
+};
+
 struct RunMeta {
     std::string run_id;
-    std::string mode;         // "hermetic" | "live"
+    std::string mode; // "hermetic" | "live"
     std::string profile;
     std::string model;
-    std::string reasoning;    // "on" | "off" | "auto" (cfg.thinking)
+    std::string reasoning; // "on" | "off" | "auto" (cfg.thinking)
     std::string engine_version;
     std::string timestamp;
+    std::vector<PluginRecord> plugins;
 };
 
 struct ScenarioReport {
@@ -29,15 +39,15 @@ struct ScenarioReport {
     Score score;
     Agentic agentic;
     int difficulty = 3;
-    std::string reasoning;               // cfg.thinking at run time (live)
-    std::string final_text;              // the agent's final answer
-    std::vector<std::pair<std::string, std::string>> tool_calls;  // name, args
+    std::string reasoning;                                       // cfg.thinking at run time (live)
+    std::string final_text;                                      // the agent's final answer
+    std::vector<std::pair<std::string, std::string>> tool_calls; // name, args
     // Per-call telemetry (BENCH-11): the post-mortem story for every
     // executed call — status, error text, timeout/denied flags, duration.
     struct ToolDetail {
         std::string name;
         std::string args;
-        std::string status;     // ok | error | denied | timeout
+        std::string status; // ok | error | denied | timeout
         std::string error;
         bool denied = false;
         bool timeout = false;
@@ -49,16 +59,16 @@ struct ScenarioReport {
     int total_steps = 0;
     // Plan metrics (BENCH-09): adherence to the oracle in dependency order,
     // adaptation after a failure, and dependency-order violations.
-    double plan_adherence_ratio = 0.0;   // oracle steps matched in order / total
-    bool replan_adapted = false;         // a different call followed a failure
-    bool dependency_violation = false;   // ordered oracle steps matched out of order
+    double plan_adherence_ratio = 0.0; // oracle steps matched in order / total
+    bool replan_adapted = false;       // a different call followed a failure
+    bool dependency_violation = false; // ordered oracle steps matched out of order
     // Loop-control metrics: how fast a loop broke, and whether steering worked.
-    int breakout_latency = 0;            // steps until loop detection fired (0 = none)
-    bool steer_effective = false;        // received a steer AND completed
+    int breakout_latency = 0;     // steps until loop detection fired (0 = none)
+    bool steer_effective = false; // received a steer AND completed
     // calls_per_step distribution: mean + p95 (max is max_calls_per_step).
     double calls_per_step_mean = 0.0;
     double calls_per_step_p95 = 0.0;
-    bool templated = false;              // static-template scenario
+    bool templated = false; // static-template scenario
     std::vector<std::string> failures;
 
     // Repeat aggregation (BENCH-01): when a scenario ran N times, the report
@@ -82,15 +92,14 @@ double run_score(const std::vector<ScenarioReport>& reports) noexcept;
 // Population = the per-model runs fed to a comparison (vector of runs, each
 // a vector of ScenarioReport). Weights are KEYED BY SCENARIO NAME — a
 // reordered or incomplete run still aligns correctly.
-std::map<std::string, double> discrimination_weights(
-    const std::vector<std::vector<ScenarioReport>>& population) noexcept;
+std::map<std::string, double>
+discrimination_weights(const std::vector<std::vector<ScenarioReport>>& population) noexcept;
 
 // Difficulty x discrimination weighted score. A scenario missing from the
 // weight map contributes nothing (weight 0). An empty map falls back to the
 // plain difficulty-weighted score (single-file runs have no population).
-double run_score_discriminative(
-    const std::vector<ScenarioReport>& reports,
-    const std::map<std::string, double>& weights) noexcept;
+double run_score_discriminative(const std::vector<ScenarioReport>& reports,
+                                const std::map<std::string, double>& weights) noexcept;
 
 // 95% CI for the median-of-medians model score under the given weights
 // (bootstrap of the weighted score). With an empty weight map this is the
@@ -115,8 +124,7 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs);
 
 // The resolution rule: two models differ meaningfully only when their score
 // gap exceeds the combined confidence interval.
-bool resolvable(double ci_a, double score_a, double ci_b,
-                double score_b) noexcept;
+bool resolvable(double ci_a, double score_a, double ci_b, double score_b) noexcept;
 
 // BENCH-03 — reference-anchored calibration (the headroom contract).
 // The reference model (index into the population) must land at the anchor
@@ -126,45 +134,36 @@ bool resolvable(double ci_a, double score_a, double ci_b,
 // tuned by the maintainer from the suggestions.
 
 // The reference's plain difficulty-weighted score.
-double reference_score(
-    const std::vector<std::vector<ScenarioReport>>& population,
-    size_t reference) noexcept;
+double reference_score(const std::vector<std::vector<ScenarioReport>>& population,
+                       size_t reference) noexcept;
 
 // Continuous per-scenario weights centering the reference exactly at the
 // anchor for a balanced population (w = target / |score - target|, clamped).
-std::vector<double> anchor_weights(
-    const std::vector<std::vector<ScenarioReport>>& population,
-    size_t reference, double target = 50.0) noexcept;
+std::vector<double> anchor_weights(const std::vector<std::vector<ScenarioReport>>& population,
+                                   size_t reference, double target = 50.0) noexcept;
 
 // Integer difficulty suggestions in [1, 6], monotonic in the reference score;
 // applying them never worsens the anchor deviation.
-std::vector<int> suggest_difficulties(
-    const std::vector<std::vector<ScenarioReport>>& population,
-    size_t reference, double target = 50.0) noexcept;
+std::vector<int> suggest_difficulties(const std::vector<std::vector<ScenarioReport>>& population,
+                                      size_t reference, double target = 50.0) noexcept;
 
 // |reference_score - target|.
-double reference_anchor_deviation(
-    const std::vector<std::vector<ScenarioReport>>& population,
-    size_t reference, double target = 50.0) noexcept;
+double reference_anchor_deviation(const std::vector<std::vector<ScenarioReport>>& population,
+                                  size_t reference, double target = 50.0) noexcept;
 
 // 100 - best model score in the population: the chart must have a top.
-double headroom(
-    const std::vector<std::vector<ScenarioReport>>& population) noexcept;
+double headroom(const std::vector<std::vector<ScenarioReport>>& population) noexcept;
 
-std::string render_text(const std::vector<ScenarioReport>& reports,
-                        const RunMeta& meta);
+std::string render_text(const std::vector<ScenarioReport>& reports, const RunMeta& meta);
 
-std::string render_json(const std::vector<ScenarioReport>& reports,
-                        const RunMeta& meta);
+std::string render_json(const std::vector<ScenarioReport>& reports, const RunMeta& meta);
 
 // Rehydrate a stored JSON report (render_json output) into reports + meta.
 // Legacy files without the repeat fields default score_median to score.
-bool parse_report_json(const agent::json& j, RunMeta& meta,
-                       std::vector<ScenarioReport>& reports);
+bool parse_report_json(const agent::json& j, RunMeta& meta, std::vector<ScenarioReport>& reports);
 
 // Markdown report: score table + failure details (for BENCHMARK.md).
-std::string render_markdown(const std::vector<ScenarioReport>& reports,
-                            const RunMeta& meta);
+std::string render_markdown(const std::vector<ScenarioReport>& reports, const RunMeta& meta);
 
 // Markdown comparison of multiple model runs: scenario × model score matrix
 // followed by per-model detail sections.
@@ -174,8 +173,7 @@ std::string render_markdown_comparison(
 // Full diagnostic scorecard: dimension-by-dimension KPI aggregates with
 // verdicts, per-suite matrix, per-failed-scenario diagnosis, and run-wide
 // signals — the "where is the harness failing, and how" view.
-std::string render_scorecard(const std::vector<ScenarioReport>& reports,
-                             const RunMeta& meta);
+std::string render_scorecard(const std::vector<ScenarioReport>& reports, const RunMeta& meta);
 
 } // namespace bench
 
