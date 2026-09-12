@@ -75,6 +75,67 @@ measured against. Re-verify rather than trust it if the tree has moved.
 ## Progress Log
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
+
+### 2026-09-12 — The bench runs the plugin runtime (tools spec §3.6)
+
+Branch `docs/tools-domain`. The harness now measures what a user runs, and a
+result says what produced it.
+
+- `bench/runner.cpp` builds the runtime every host builds (`add_bundled`,
+  attach host services + config, `start`) instead of calling
+  `register_default_tools` directly. That also restored the tool documentation
+  the tool split had silently removed from bench prompts.
+- `RunMeta` carries the plugin set; serialized, parsed back (the round-trip
+  rule in `bench/report.cpp`), and printed in the text and scorecard headers.
+  Older results say "plugins: not recorded" rather than implying a default.
+- `--disable ID[,ID]` switches plugins off for one run. An unknown id fails
+  loudly, and the failure names the scenario and the reason.
+- **Two invariants keep a run independent of other people's state:**
+  `PluginRuntime::apply_state` applies without persisting (a measurement is not
+  a preference, so no bench run writes the user's `plugin.conf`), and
+  `PluginRuntime::start(false)` ignores persisted state entirely. The second was
+  found the hard way: this machine's saved state had `anthropic` and
+  `tool_search` off, and the first bench runs reported a configuration nobody
+  chose.
+- Baseline artifact: `bench/results/tools-domain-hermetic-baseline.{txt,json}`
+  — 8/8 hermetic scenarios, 17 plugins, all on. This is the "before" for the
+  flag retirement (§5.3), whose prompt change (the plan tool's documentation
+  moves into its plugin) needs the comparison.
+
+724 tests pass, `make check` clean.
+
+
+### 2026-09-12 — One plugin per tool, and the prompt travels with the tool
+
+Branch `docs/tools-domain`. The tools domain now has the granularity the spec
+asked for, and the model-facing documentation can no longer disagree with the
+tool schema.
+
+- **Split (§3.1):** `tool_search`, `tool_read`, `tool_write`, `tool_bash`,
+  `tool_process`, `tool_plan`, `tool_task`; `plugins/core_tools` deleted.
+  `register_default_tools` installs the same per-tool definitions for hosts
+  with no runtime, and now takes the prompt registry so a tool and its prose
+  arrive together on both paths.
+- **Prompt blocks gained a placement (§3.4):** `System` (the stable prefix,
+  where tool documentation belongs), `Head`, `Tail` (default, so no existing
+  contributor moved). Without this, per-tool documentation would have landed
+  *after the conversation* — a behaviour change on every request, and the wrong
+  place for capability instructions.
+- **The system prompt is no longer sealed (staleness fix):** it is re-derived
+  per turn and rebuilt only when the text changed, so a plugin toggle changes
+  schema and prose in the same action. A prior external review flagged this
+  class of bug ("the model's tool documentation can become stale"); it is now
+  closed for tools and covered by `disabling_a_tool_plugin_removes_its_documentation`.
+- **Tested invariants:** the assembled prompt is byte-identical to the pre-split
+  text (`tests/fixtures/tools_prompt_at_migration.md`), section order included;
+  disabling `tool_search` removes exactly its section and its schema.
+- **Deliberately not done, in the spec's §8:** the `plan_tool`/`task_tool` flag
+  deletion (needs §3.6 first, or the bench loses its per-scenario switch), the
+  skill tools (need catalog ownership to move out of `Agent`), the bench plugin
+  state (§3.6) and the audit (§5.2).
+
+Suite 722 passed, `make check` clean.
+
 cover.
 
 ### 2026-09-11 — Fix: tool ownership is recorded, so unwinding cannot cross plugins
@@ -515,6 +576,40 @@ not already cover (a provider plugin's own setup wizard, an interactive
 model picker). The implementation shape is already specified in the spec §8
 and reuses the existing modal + promise pattern, so nothing is lost by
 waiting for the caller.
+
+**(3) Wallet and Allowance are two mechanisms for one concept — NEW, needs a
+decision.** Found while consolidating, not from a failure: nothing is broken,
+but the same idea now exists twice, which is the inconsistency this project
+keeps having to unpick later.
+
+- **The evidence.** `WalletRegistry` (`include/agent/extensions.h:193`) and
+  `AllowanceRegistry` (`:238`) have the same contract — `Fetch`,
+  `add(owner, fetch)`, `find(owner)`, `items()`, `size()` — and the allowance
+  header says so in as many words: *"Same shape as WalletRegistry"*. Both are
+  runtime-owned (polling, caching, rendering). The duplication reaches the
+  surfaces: two config flags (`wallet_enabled`, `allowance_enabled`), two
+  status segments (`wallet` priority 800 / drop 9, `allowance` 790 / drop 8 —
+  **both can render side by side**), and two command pairs
+  (`/get|/set provider wallet` and `/get|/set provider allowance`).
+- **They are not even different concepts.** `AllowanceSnapshot`
+  (`plan`, `windows[]`, `credits_balance`, `unit`, `currency`) is a strict
+  **superset** of the wallet's `optional<double>` — the wallet's value is
+  `credits_balance` with the extra fields unset.
+- **The cost.** Four providers split across the two: kilocode and openrouter
+  declare wallets, commandcode and opencode_go declare allowances. A user asks
+  one question ("what is left?") and learns two surfaces; the next provider
+  author must pick one and can only guess; and the two paths will drift, since
+  they are already separate code.
+- **Recommendation.** One mechanism, one registry, one flag, one segment, one
+  command pair, with the richer snapshot as the type (nothing is lost — the
+  wallet's number is the snapshot's `credits_balance`). Keep the bar readout
+  wordless (`$13.22`) as specified; let the command surface carry
+  plan/windows/credits. Which word survives is a single coin-flip worth making
+  once rather than twice; the mechanism should not be named differently from
+  the surface it backs.
+- **Trigger:** it is a decision, not a discovery — the change itself is
+  mechanical (delete one registry, retarget two plugins, fold one flag and one
+  segment). It should happen before more providers are written on top of it.
 
 ### 2026-09-10 — PF-3.2: panels and the registry console
 

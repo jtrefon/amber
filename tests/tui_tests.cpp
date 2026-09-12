@@ -79,7 +79,7 @@ TEST(textutil_utf8_len_and_display_cols) {
     ASSERT_EQ(tui::text::utf8_len(ascii, 0), (size_t)1);
     ASSERT_EQ(tui::text::display_cols(ascii), 5);
 
-    std::string emoji = "a\xF0\x9F\x98\x80z";  // a + U+1F600 + z
+    std::string emoji = "a\xF0\x9F\x98\x80z"; // a + U+1F600 + z
     ASSERT_EQ(tui::text::utf8_len(emoji, 1), (size_t)4);
     ASSERT_EQ(tui::text::display_cols(emoji), 3);
 
@@ -120,12 +120,16 @@ TEST(textutil_to_wide_decodes_codepoints) {
 
 TEST(rich_wrap_splits_long_line_and_keeps_runs) {
     tui::rich::Line l;
-    tui::rich::Run r; r.pair = 3; r.bold = true; r.text = "the quick brown fox";
+    tui::rich::Run r;
+    r.pair = 3;
+    r.bold = true;
+    r.text = "the quick brown fox";
     l.runs.push_back(r);
     auto w = tui::rich::wrap(l, 9);
     // Greedy wrap: "the quick" (9) and "brown fox" (9) each fill the width.
     ASSERT_EQ(w.size(), (size_t)2);
-    for (auto& x : w) ASSERT_EQ(x.runs.size(), (size_t)1);
+    for (auto& x : w)
+        ASSERT_EQ(x.runs.size(), (size_t)1);
     ASSERT_EQ(w[0].runs[0].pair, 3);
     ASSERT_TRUE(w[0].runs[0].bold);
     ASSERT_EQ(w[0].runs[0].text, "the quick");
@@ -134,7 +138,8 @@ TEST(rich_wrap_splits_long_line_and_keeps_runs) {
 TEST(rich_wrap_preserves_multibyte_width) {
     // Two emoji, each display-width 2, fit exactly in a width-4 line.
     tui::rich::Line l;
-    tui::rich::Run r; r.text = "\xF0\x9F\x98\x80\xF0\x9F\x98\x80";
+    tui::rich::Run r;
+    r.text = "\xF0\x9F\x98\x80\xF0\x9F\x98\x80";
     l.runs.push_back(r);
     auto w = tui::rich::wrap(l, 4);
     ASSERT_EQ(w.size(), (size_t)1);
@@ -144,7 +149,8 @@ TEST(rich_wrap_preserves_multibyte_width) {
 TEST(rich_wrap_forces_break_on_overlong_word) {
     // A single word wider than the column must be broken across lines.
     tui::rich::Line l;
-    tui::rich::Run r; r.text = "abcdefghij";  // 10 cols
+    tui::rich::Run r;
+    r.text = "abcdefghij"; // 10 cols
     l.runs.push_back(r);
     auto w = tui::rich::wrap(l, 4);
     ASSERT_EQ(w.size(), (size_t)3);
@@ -165,8 +171,10 @@ TEST(markdown_renders_heading_bold_and_inline_code) {
     bool saw_bold = false, saw_code = false;
     for (auto& l : ls)
         for (auto& r : l.runs) {
-            if (r.bold) saw_bold = true;
-            if (r.pair == tui::md::Style{}.code_pair) saw_code = true;
+            if (r.bold)
+                saw_bold = true;
+            if (r.pair == tui::md::Style{}.code_pair)
+                saw_code = true;
         }
     ASSERT_TRUE(saw_bold);
     ASSERT_TRUE(saw_code);
@@ -191,8 +199,10 @@ TEST(markdown_highlight_colors_fenced_code) {
     // keyword "int", number "1", comment "// c" on distinct pairs.
     int saw_num = 0, saw_cmt = 0;
     for (auto& r : ls[0].runs) {
-        if (r.text == "1") ++saw_num;
-        if (r.text.find("//") != std::string::npos) ++saw_cmt;
+        if (r.text == "1")
+            ++saw_num;
+        if (r.text.find("//") != std::string::npos)
+            ++saw_cmt;
     }
     ASSERT_EQ(saw_num, 1);
     ASSERT_EQ(saw_cmt, 1);
@@ -210,27 +220,35 @@ TEST(markdown_renders_aligned_table_and_skips_divider) {
             ASSERT_TRUE(r.text.find("|------") == std::string::npos);
     // Header row cell text is "Name", body cells "Alice"/"Bob".
     std::string head;
-    for (auto& r : ls[1].runs) head += r.text;
+    for (auto& r : ls[1].runs)
+        head += r.text;
     ASSERT_TRUE(head.find("Name") != std::string::npos);
     std::string row2;
-    for (auto& r : ls[3].runs) row2 += r.text;
+    for (auto& r : ls[3].runs)
+        row2 += r.text;
     ASSERT_TRUE(row2.find("Alice") != std::string::npos);
     // Outer frame must be present.
     std::string top;
-    for (auto& r : ls[0].runs) top += r.text;
+    for (auto& r : ls[0].runs)
+        top += r.text;
     ASSERT_TRUE(top.find("┌") != std::string::npos);
     std::string bot;
-    for (auto& r : ls[5].runs) bot += r.text;
+    for (auto& r : ls[5].runs)
+        bot += r.text;
     ASSERT_TRUE(bot.find("└") != std::string::npos);
     // All table rows have the same display width (global column widths).
     int w0 = -1;
-    for (auto& l : ls) if (l.is_table) {
-        std::string t;
-        for (auto& r : l.runs) t += r.text;
-        int w = tui::text::display_cols(t);
-        if (w0 < 0) w0 = w;
-        else ASSERT_EQ(w, w0);
-    }
+    for (auto& l : ls)
+        if (l.is_table) {
+            std::string t;
+            for (auto& r : l.runs)
+                t += r.text;
+            int w = tui::text::display_cols(t);
+            if (w0 < 0)
+                w0 = w;
+            else
+                ASSERT_EQ(w, w0);
+        }
 }
 
 TEST(markdown_renders_table_without_leading_blank_line) {
@@ -238,15 +256,15 @@ TEST(markdown_renders_table_without_leading_blank_line) {
     // preceding prose and the header row. md4c needs that blank line to detect
     // a table; the renderer must insert it so the table does not collapse into a
     // single literal paragraph of pipe characters.
-    std::string md =
-        "Summary of Priority\n"
-        "| Priority | # | Issue |\n"
-        "|----------|---|-------|\n"
-        "| High | 1 | foo |\n";
+    std::string md = "Summary of Priority\n"
+                     "| Priority | # | Issue |\n"
+                     "|----------|---|-------|\n"
+                     "| High | 1 | foo |\n";
     auto ls = tui::md::render(md, tui::md::Style{});
     std::string all;
     for (auto& l : ls)
-        for (auto& r : l.runs) all += r.text;
+        for (auto& r : l.runs)
+            all += r.text;
     // The collapsed artifact would contain the raw pipe sequence verbatim.
     ASSERT_TRUE(all.find("| Priority | # | Issue | |---") == std::string::npos);
     // A proper table exposes the header cell text and the box-drawn divider.
@@ -259,14 +277,14 @@ TEST(markdown_repairs_table_missing_delimiter_row) {
     // Without it md4c sees no table and the rows collapse into one garbage
     // line of pipe characters. The renderer must synthesize the delimiter so
     // the table renders with a header separator and all body rows.
-    std::string md =
-        "| A | B |\n"
-        "| 1 | 2 |\n"
-        "| 3 | 4 |\n";
+    std::string md = "| A | B |\n"
+                     "| 1 | 2 |\n"
+                     "| 3 | 4 |\n";
     auto ls = tui::md::render(md, tui::md::Style{});
     std::string all;
     for (auto& l : ls)
-        for (auto& r : l.runs) all += r.text;
+        for (auto& r : l.runs)
+            all += r.text;
     // The collapsed artifact would keep the raw rows glued together.
     ASSERT_TRUE(all.find("| A | B | | 1 | 2 |") == std::string::npos);
     // Header + box separator + both body rows must be present.
@@ -281,11 +299,10 @@ TEST(table_lines_survive_rewrap_without_reflow) {
     // column padding. They must pass through rich::rewrap_all verbatim —
     // never word-wrapped as prose (which would collapse padding and split
     // rows across physical lines).
-    std::string md =
-        "| Name | Age |\n"
-        "|------|-----|\n"
-        "| Alice | 30 |\n"
-        "| Bob | 7 |\n";
+    std::string md = "| Name | Age |\n"
+                     "|------|-----|\n"
+                     "| Alice | 30 |\n"
+                     "| Bob | 7 |\n";
     auto lines = tui::md::render(md, tui::md::Style{});
     auto wrapped = tui::rich::rewrap_all(lines, /*width=*/80);
     // The number of logical lines must be unchanged (no row split).
@@ -293,25 +310,23 @@ TEST(table_lines_survive_rewrap_without_reflow) {
     // Every table line must retain its box-drawing glyphs and padding.
     for (size_t i = 0; i < lines.size(); ++i) {
         std::string text;
-        for (auto& r : wrapped[i].runs) text += r.text;
+        for (auto& r : wrapped[i].runs)
+            text += r.text;
         if (wrapped[i].is_table) {
-            bool has_box = text.find("│") != std::string::npos ||
-                           text.find("├") != std::string::npos ||
-                           text.find("┤") != std::string::npos ||
-                           text.find("┼") != std::string::npos ||
-                           text.find("─") != std::string::npos ||
-                           text.find("┌") != std::string::npos ||
-                           text.find("└") != std::string::npos ||
-                           text.find('|') != std::string::npos ||
-                           text.find('+') != std::string::npos ||
-                           text.find('-') != std::string::npos;
+            bool has_box =
+                text.find("│") != std::string::npos || text.find("├") != std::string::npos ||
+                text.find("┤") != std::string::npos || text.find("┼") != std::string::npos ||
+                text.find("─") != std::string::npos || text.find("┌") != std::string::npos ||
+                text.find("└") != std::string::npos || text.find('|') != std::string::npos ||
+                text.find('+') != std::string::npos || text.find('-') != std::string::npos;
             ASSERT_TRUE(has_box);
         }
     }
     // Column alignment: "Alice" row (index 3: top, header, sep, alice) must
     // have padding spaces after "Alice" (global width).
     std::string alice_row;
-    for (auto& r : wrapped[3].runs) alice_row += r.text;
+    for (auto& r : wrapped[3].runs)
+        alice_row += r.text;
     ASSERT_TRUE(alice_row.find("Alice ") != std::string::npos);
 }
 
@@ -323,10 +338,14 @@ TEST(markdown_table_global_widths_and_frame) {
     // top, header, sep, body, bottom, blank = 6
     ASSERT_EQ(ls.size(), (size_t)6);
     std::string top, bot, hdr, body;
-    for (auto& r : ls[0].runs) top += r.text;
-    for (auto& r : ls[1].runs) hdr += r.text;
-    for (auto& r : ls[3].runs) body += r.text;
-    for (auto& r : ls[4].runs) bot += r.text;
+    for (auto& r : ls[0].runs)
+        top += r.text;
+    for (auto& r : ls[1].runs)
+        hdr += r.text;
+    for (auto& r : ls[3].runs)
+        body += r.text;
+    for (auto& r : ls[4].runs)
+        bot += r.text;
     ASSERT_TRUE(top.find("┌") != std::string::npos);
     ASSERT_TRUE(top.find("┐") != std::string::npos);
     ASSERT_TRUE(bot.find("└") != std::string::npos);
@@ -344,15 +363,15 @@ TEST(markdown_table_global_widths_and_frame) {
 
 TEST(markdown_table_alignment) {
     // TR-05: left/center/right delimiter markers affect padding.
-    std::string md =
-        "| Left | Center | Right |\n"
-        "|:-----|:------:|------:|\n"
-        "| a | b | c |\n";
+    std::string md = "| Left | Center | Right |\n"
+                     "|:-----|:------:|------:|\n"
+                     "| a | b | c |\n";
     auto ls = tui::md::render(md, tui::md::Style{});
     // top, header, sep, body, bottom, blank
     ASSERT_EQ(ls.size(), (size_t)6);
     std::string body;
-    for (auto& r : ls[3].runs) body += r.text;
+    for (auto& r : ls[3].runs)
+        body += r.text;
     // Left-aligned "a" should have trailing spaces before the next bar.
     ASSERT_TRUE(body.find("a ") != std::string::npos);
     // Right-aligned "c" should have leading spaces (pad before c).
@@ -372,23 +391,25 @@ TEST(markdown_splits_embedded_separator_rule) {
     // Regression: a model sometimes glues a fake rule (long run of box-drawing
     // dashes) onto the end of a code line. It must be split onto its own line
     // and rendered as a clean horizontal rule, not literal garbage.
-    std::string md =
-        "Fix: use mvwaddnstr(w, 1, s.c_str(), aw);"
-        "──────────────────────────────────────────────────────────────"
-        "\n\nNext section.";
+    std::string md = "Fix: use mvwaddnstr(w, 1, s.c_str(), aw);"
+                     "──────────────────────────────────────────────────────────────"
+                     "\n\nNext section.";
     auto ls = tui::md::render(md, tui::md::Style{});
     bool saw_hr = false;
     std::string body;
     for (auto& l : ls) {
-        if (l.is_hr) saw_hr = true;
-        for (auto& r : l.runs) body += r.text;
+        if (l.is_hr)
+            saw_hr = true;
+        for (auto& r : l.runs)
+            body += r.text;
     }
     ASSERT_TRUE(saw_hr);
     // The code text must appear exactly once (no duplication from the split).
     int count = 0;
     size_t pos = 0;
     while ((pos = body.find("mvwaddnstr", pos)) != std::string::npos) {
-        ++count; pos += 10;
+        ++count;
+        pos += 10;
     }
     ASSERT_EQ(count, 1);
 }
@@ -397,7 +418,8 @@ TEST(markdown_trims_heading_whitespace) {
     auto ls = tui::md::render("##   Spaced heading   \nbody", tui::md::Style{});
     ASSERT_FALSE(ls.empty());
     std::string h;
-    for (auto& r : ls[0].runs) h += r.text;
+    for (auto& r : ls[0].runs)
+        h += r.text;
     ASSERT_EQ(h, "Spaced heading");
 }
 
@@ -409,13 +431,19 @@ TEST(markdown_bare_hash_markers_do_not_crash) {
     auto b = tui::md::render("###", tui::md::Style{});
     auto c = tui::md::render(">", tui::md::Style{});
     auto d = tui::md::render("-", tui::md::Style{});
-    (void)a; (void)b; (void)c; (void)d;  // must not throw
+    (void)a;
+    (void)b;
+    (void)c;
+    (void)d; // must not throw
     auto ls = tui::md::render("# Title\n## Sub\n### Deep\nbody", tui::md::Style{});
     ASSERT_EQ(ls.size(), (size_t)4);
     std::string h0, h1, h2;
-    for (auto& r : ls[0].runs) h0 += r.text;
-    for (auto& r : ls[1].runs) h1 += r.text;
-    for (auto& r : ls[2].runs) h2 += r.text;
+    for (auto& r : ls[0].runs)
+        h0 += r.text;
+    for (auto& r : ls[1].runs)
+        h1 += r.text;
+    for (auto& r : ls[2].runs)
+        h2 += r.text;
     ASSERT_EQ(h0, "Title");
     ASSERT_EQ(h1, "Sub");
     ASSERT_EQ(h2, "Deep");
@@ -427,7 +455,8 @@ TEST(markdown_ordered_list_numbers_sequentially) {
     std::vector<std::string> lines;
     for (auto& l : ls) {
         std::string t;
-        for (auto& r : l.runs) t += r.text;
+        for (auto& r : l.runs)
+            t += r.text;
         lines.push_back(t);
     }
     ASSERT_TRUE(lines.size() >= 3);
@@ -441,7 +470,8 @@ TEST(markdown_nested_list_items_separate) {
     std::vector<std::string> lines;
     for (auto& l : ls) {
         std::string t;
-        for (auto& r : l.runs) t += r.text;
+        for (auto& r : l.runs)
+            t += r.text;
         lines.push_back(t);
     }
     // Three distinct bullet lines (nested ones indented further).
@@ -458,7 +488,8 @@ TEST(markdown_blockquote_each_line_quoted) {
     ASSERT_EQ(ls.size(), (size_t)2);
     for (auto& l : ls) {
         std::string t;
-        for (auto& r : l.runs) t += r.text;
+        for (auto& r : l.runs)
+            t += r.text;
         ASSERT_TRUE(t.find('>') == 0);
     }
 }
@@ -467,7 +498,8 @@ TEST(markdown_task_list_items_render) {
     auto ls = tui::md::render("- [x] done\n- [ ] todo", tui::md::Style{});
     std::string all;
     for (auto& l : ls)
-        for (auto& r : l.runs) all += r.text;
+        for (auto& r : l.runs)
+            all += r.text;
     ASSERT_TRUE(all.find("done") != std::string::npos);
     ASSERT_TRUE(all.find("todo") != std::string::npos);
 }
@@ -478,10 +510,34 @@ TEST(markdown_task_list_items_render) {
 
 static std::vector<tui::palette::Command> palette_fixture() {
     return {
-        {"help", "core.help", {"?", "h"}, "[command]", "list commands",},
-        {"window", "core.window", {"win", "w"}, "new|close", "manage windows",},
-        {"save", "core.session.save", {}, "", "persist conversation",},
-        {"quit", "core.quit", {"exit", "q"}, "", "exit",},
+        {
+            "help",
+            "core.help",
+            {"?", "h"},
+            "[command]",
+            "list commands",
+        },
+        {
+            "window",
+            "core.window",
+            {"win", "w"},
+            "new|close",
+            "manage windows",
+        },
+        {
+            "save",
+            "core.session.save",
+            {},
+            "",
+            "persist conversation",
+        },
+        {
+            "quit",
+            "core.quit",
+            {"exit", "q"},
+            "",
+            "exit",
+        },
     };
 }
 
@@ -498,10 +554,10 @@ TEST(palette_token_and_arg_detection) {
 
 TEST(palette_filter_matches_name_and_alias) {
     auto cmds = palette_fixture();
-    ASSERT_EQ(tui::palette::filter(cmds, "").size(), (size_t)4);   // all
-    ASSERT_EQ(tui::palette::filter(cmds, "w").size(), (size_t)1);  // window
+    ASSERT_EQ(tui::palette::filter(cmds, "").size(), (size_t)4);  // all
+    ASSERT_EQ(tui::palette::filter(cmds, "w").size(), (size_t)1); // window
     ASSERT_EQ(tui::palette::filter(cmds, "win").front()->name, "window");
-    ASSERT_EQ(tui::palette::filter(cmds, "q").front()->name, "quit");  // alias
+    ASSERT_EQ(tui::palette::filter(cmds, "q").front()->name, "quit"); // alias
     ASSERT_TRUE(tui::palette::filter(cmds, "zzz").empty());
 }
 
@@ -512,16 +568,18 @@ TEST(palette_find_by_name_or_alias) {
     ASSERT_TRUE(tui::palette::find(cmds, "nope") == nullptr);
 }
 
-
 TEST(palette_usage_and_common_prefix) {
-    tui::palette::Command c{"window", "core.window", {}, "new|close", "manage",};
+    tui::palette::Command c{
+        "window", "core.window", {}, "new|close", "manage",
+    };
     ASSERT_EQ(tui::palette::usage(c), "/window new|close");
-    tui::palette::Command bare{"save", "core.session.save", {}, "", "persist",};
+    tui::palette::Command bare{
+        "save", "core.session.save", {}, "", "persist",
+    };
     ASSERT_EQ(tui::palette::usage(bare), "/save");
     ASSERT_EQ(tui::palette::common_prefix({"send", "set", "sever"}), "se");
     ASSERT_EQ(tui::palette::common_prefix({}), "");
 }
-
 
 TEST(git_prompt_no_diff) {
     std::string r = tui::text::git_prompt("myproject", "main", 0, 0);
@@ -539,7 +597,6 @@ TEST(git_prompt_no_diff) {
     ASSERT(r.find('-') == std::string::npos);
 }
 
-
 TEST(git_prompt_with_diff) {
     std::string r = tui::text::git_prompt("proj", "feature/x", 3, 1);
     ASSERT(r.find("proj") != std::string::npos);
@@ -548,24 +605,20 @@ TEST(git_prompt_with_diff) {
     ASSERT(r.find("-1") != std::string::npos);
 }
 
-
 TEST(git_prompt_insertions_only) {
     std::string r = tui::text::git_prompt("x", "fix", 5, 0);
     ASSERT(r.find("+5") != std::string::npos);
 }
-
 
 TEST(git_prompt_deletions_only) {
     std::string r = tui::text::git_prompt("x", "fix", 0, 2);
     ASSERT(r.find("-2") != std::string::npos);
 }
 
-
 TEST(git_prompt_empty_project) {
     std::string r = tui::text::git_prompt("", "main", 0, 0);
     ASSERT(r.find("main") != std::string::npos);
 }
-
 
 TEST(col_to_byte_ascii) {
     // "hello" = 5 bytes, 5 columns
@@ -575,16 +628,14 @@ TEST(col_to_byte_ascii) {
     ASSERT_EQ(tui::text::col_to_byte("hello", 99), (size_t)5);
 }
 
-
 TEST(col_to_byte_utf8) {
     // "┌ a" = ┌(3 bytes,1 col) + space(1 byte,1 col) + a(1 byte,1 col)
     std::string s = "\u250c a";
-    ASSERT_EQ(tui::text::col_to_byte(s, 0), (size_t)0);   // col 0 → byte 0
-    ASSERT_EQ(tui::text::col_to_byte(s, 1), (size_t)3);   // col 1 → byte 3 (past ┌)
-    ASSERT_EQ(tui::text::col_to_byte(s, 2), (size_t)4);   // col 2 → byte 4 (past space)
-    ASSERT_EQ(tui::text::col_to_byte(s, 3), (size_t)5);   // col 3 → byte 5 (past 'a')
+    ASSERT_EQ(tui::text::col_to_byte(s, 0), (size_t)0); // col 0 → byte 0
+    ASSERT_EQ(tui::text::col_to_byte(s, 1), (size_t)3); // col 1 → byte 3 (past ┌)
+    ASSERT_EQ(tui::text::col_to_byte(s, 2), (size_t)4); // col 2 → byte 4 (past space)
+    ASSERT_EQ(tui::text::col_to_byte(s, 3), (size_t)5); // col 3 → byte 5 (past 'a')
 }
-
 
 TEST(col_to_byte_git_prompt) {
     std::string p = tui::text::git_prompt("proj", "fix", 3, 1);
@@ -595,7 +646,6 @@ TEST(col_to_byte_git_prompt) {
     int total = tui::text::display_cols(p);
     ASSERT(tui::text::col_to_byte(p, total) <= p.size());
 }
-
 
 TEST(textutil_spinner_frames) {
     // The round spinner cycle; the ASCII fallback must also yield a full
@@ -611,14 +661,10 @@ TEST(textutil_spinner_frames) {
 TEST(action_registry_idempotent_register) {
     tui::ActionRegistry reg;
     std::vector<std::string> calls;
-    reg.register_action("core.test.a", [&](const std::string&) {
-        calls.emplace_back("first");
-    });
+    reg.register_action("core.test.a", [&](const std::string&) { calls.emplace_back("first"); });
     // Re-registering the same key (a feed refresh while the handler runs)
     // must NOT replace the live lambda.
-    reg.register_action("core.test.a", [&](const std::string&) {
-        calls.emplace_back("second");
-    });
+    reg.register_action("core.test.a", [&](const std::string&) { calls.emplace_back("second"); });
     ASSERT(reg.has("core.test.a"));
     ASSERT(reg.dispatch("core.test.a", "x"));
     ASSERT_EQ(calls.size(), 1u);
@@ -643,84 +689,132 @@ tui::rich::Line ts_line(const std::string& body) {
     return ln;
 }
 
+// The display reads a tool's verb and its self-description from the registry.
+// These fakes stand in for the real tools so the display logic can be tested
+// without building the whole core set; that the *real* tools declare their
+// words is asserted against register_default_tools in run_tests.cpp.
+class NamedTool : public agent::Tool {
+public:
+    NamedTool(std::string name, std::string summary)
+        : name_(std::move(name)), summary_(std::move(summary)) {}
+    std::string name() const noexcept override { return name_; }
+    std::string description() const noexcept override { return name_; }
+    agent::json parameters_schema() const override { return agent::json::object(); }
+    std::string summarize(const agent::json& args) const override {
+        return summary_.empty() ? name_ : summary_ + " " + args.dump();
+    }
+    agent::ToolResult execute(const agent::json&) const override { return {}; }
+
+private:
+    std::string name_;
+    std::string summary_;
+};
+
+// The registry is not movable (it guards its entries with a mutex), so it is
+// built in place rather than returned from a lambda.
+struct DisplayRegistry {
+    agent::ToolRegistry reg;
+    DisplayRegistry() {
+        const auto add = [this](const char* name, const char* verb) {
+            reg.register_tool(std::make_unique<NamedTool>(name, ""), "core_tools",
+                              agent::ToolMeta{verb});
+        };
+        add("read", "reading");
+        add("write", "writing");
+        add("search", "searching");
+        add("bash", "hacking");
+        add("process_start", "spawning");
+        add("process_read", "reading");
+        add("process_stop", "stopping");
+        add("todowrite", "planning");
+        add("task", "delegating");
+    }
+};
+
+agent::ToolRegistry& display_registry() {
+    static DisplayRegistry holder;
+    return holder.reg;
+}
+
+// Thin wrappers so the tests below read as before: they exercise the display
+// logic, not the registry plumbing.
+std::string describe(const std::string& name, const agent::json& args) {
+    return tui::tool_display::describe_tool_call(name, args, display_registry());
+}
+
+std::string verb(bool compressing, agent::RunState state, const std::string& tool) {
+    return tui::tool_display::activity_verb(compressing, state, tool, display_registry());
+}
+
 } // namespace
 
 TEST(tool_display_bash_shows_command_not_name) {
-    std::string d = tui::tool_display::describe_tool_call(
-        "bash", agent::json{{"command", "grep -rn CancellationToken src/ include/"}});
+    std::string d =
+        describe("bash", agent::json{{"command", "grep -rn CancellationToken src/ include/"}});
     ASSERT(d.find("bash") == std::string::npos);
-    ASSERT(d.find("grep -rn CancellationToken src/ include/") !=
-           std::string::npos);
+    ASSERT(d.find("grep -rn CancellationToken src/ include/") != std::string::npos);
 }
 
 TEST(tool_display_bash_long_command_truncated) {
     std::string long_cmd(300, 'x');
-    std::string d = tui::tool_display::describe_tool_call(
-        "bash", agent::json{{"command", long_cmd}});
+    std::string d = describe("bash", agent::json{{"command", long_cmd}});
     ASSERT(d.size() < long_cmd.size());
     ASSERT(d.find("…") != std::string::npos);
 }
 
 TEST(tool_display_read_shows_path) {
-    std::string d = tui::tool_display::describe_tool_call(
-        "read", agent::json{{"path", "include/agent/config.h"}});
+    std::string d = describe("read", agent::json{{"path", "include/agent/config.h"}});
     ASSERT_EQ(d, "read include/agent/config.h");
 }
 
 TEST(tool_display_write_shows_path) {
-    std::string d = tui::tool_display::describe_tool_call(
-        "write", agent::json{{"path", "lib/compressor.cpp"},
-                             {"edits", agent::json::array()}});
+    std::string d = describe(
+        "write", agent::json{{"path", "lib/compressor.cpp"}, {"edits", agent::json::array()}});
     ASSERT_EQ(d, "write lib/compressor.cpp");
 }
 
 TEST(tool_display_search_shows_pattern_and_path) {
-    std::string d = tui::tool_display::describe_tool_call(
-        "search", agent::json{{"pattern", "CancellationToken"},
-                              {"path", "src/"}});
+    std::string d =
+        describe("search", agent::json{{"pattern", "CancellationToken"}, {"path", "src/"}});
     ASSERT_EQ(d, "search CancellationToken in src/");
-    std::string d2 = tui::tool_display::describe_tool_call(
-        "search", agent::json{{"pattern", "foo"}});
+    std::string d2 = describe("search", agent::json{{"pattern", "foo"}});
     ASSERT_EQ(d2, "search foo");
 }
 
 TEST(tool_display_read_relativizes_workspace_path) {
     agent::Workspace::set_root("/tmp/amber_td_ws88");
-    std::string d = tui::tool_display::describe_tool_call(
-        "read", agent::json{{"path", "/tmp/amber_td_ws88/include/agent/config.h"}});
+    std::string d =
+        describe("read", agent::json{{"path", "/tmp/amber_td_ws88/include/agent/config.h"}});
     ASSERT_EQ(d, "read include/agent/config.h");
     agent::Workspace::set_root(".");
 }
 
 TEST(tool_display_write_relativizes_workspace_path) {
     agent::Workspace::set_root("/tmp/amber_td_ws88");
-    std::string d = tui::tool_display::describe_tool_call(
-        "write", agent::json{{"path", "/tmp/amber_td_ws88/lib/compressor.cpp"}});
+    std::string d =
+        describe("write", agent::json{{"path", "/tmp/amber_td_ws88/lib/compressor.cpp"}});
     ASSERT_EQ(d, "write lib/compressor.cpp");
     agent::Workspace::set_root(".");
 }
 
 TEST(tool_display_search_relativizes_path_in_clause) {
     agent::Workspace::set_root("/tmp/amber_td_ws88");
-    std::string d = tui::tool_display::describe_tool_call(
-        "search", agent::json{{"pattern", "CancellationToken"},
-                              {"path", "/tmp/amber_td_ws88/src/"}});
+    std::string d = describe("search", agent::json{{"pattern", "CancellationToken"},
+                                                   {"path", "/tmp/amber_td_ws88/src/"}});
     ASSERT_EQ(d, "search CancellationToken in src/");
     agent::Workspace::set_root(".");
 }
 
 TEST(tool_display_keeps_outside_absolute_path) {
     agent::Workspace::set_root("/tmp/amber_td_ws88");
-    std::string d = tui::tool_display::describe_tool_call(
-        "read", agent::json{{"path", "/etc/hosts"}});
+    std::string d = describe("read", agent::json{{"path", "/etc/hosts"}});
     ASSERT_EQ(d, "read /etc/hosts");
     agent::Workspace::set_root(".");
 }
 
 TEST(tool_display_relative_input_unchanged) {
     agent::Workspace::set_root("/tmp/amber_td_ws88");
-    std::string d = tui::tool_display::describe_tool_call(
-        "read", agent::json{{"path", "include/agent/config.h"}});
+    std::string d = describe("read", agent::json{{"path", "include/agent/config.h"}});
     ASSERT_EQ(d, "read include/agent/config.h");
     agent::Workspace::set_root(".");
 }
@@ -728,28 +822,25 @@ TEST(tool_display_relative_input_unchanged) {
 TEST(tool_display_result_line_relativizes) {
     agent::Workspace::set_root("/tmp/amber_td_ws88");
     auto ln = tui::tool_display::result_line(
-        "read",
-        agent::json{{"path", "/tmp/amber_td_ws88/include/agent/config.h"}},
-        true, "line one\nline two\n", "");
+        "read", agent::json{{"path", "/tmp/amber_td_ws88/include/agent/config.h"}}, true,
+        "line one\nline two\n", "", display_registry());
     std::string text;
-    for (const auto& r : ln.runs) text += r.text;
+    for (const auto& r : ln.runs)
+        text += r.text;
     ASSERT(text.find("read include/agent/config.h") != std::string::npos);
     ASSERT(text.find("/tmp/amber_td_ws88") == std::string::npos);
     agent::Workspace::set_root(".");
 }
 
 TEST(tool_display_unknown_tool_falls_back) {
-    std::string d = tui::tool_display::describe_tool_call(
-        "todowrite", agent::json{{"task", "x"}});
+    std::string d = describe("todowrite", agent::json{{"task", "x"}});
     ASSERT(d.find("todowrite") == 0);
     ASSERT(!d.empty());
 }
 
 TEST(tool_display_empty_args_safe) {
-    ASSERT(!tui::tool_display::describe_tool_call("bash", agent::json::object())
-                .empty());
-    ASSERT(!tui::tool_display::describe_tool_call("bash", agent::json::array())
-                .empty());
+    ASSERT(!describe("bash", agent::json::object()).empty());
+    ASSERT(!describe("bash", agent::json::array()).empty());
 }
 
 TEST(tool_display_close_keeps_timestamp) {
@@ -785,8 +876,8 @@ TEST(tool_display_working_label) {
 }
 
 TEST(tool_display_working_label_with_task) {
-    std::string w = tui::tool_display::working_label(
-        "◐", "searching", 12, "grep -rn CancellationToken src/");
+    std::string w =
+        tui::tool_display::working_label("◐", "searching", 12, "grep -rn CancellationToken src/");
     ASSERT(w.find("◐") == 0);
     ASSERT(w.find("searching") != std::string::npos);
     ASSERT(w.find("12s") != std::string::npos);
@@ -810,65 +901,48 @@ TEST(tool_display_working_label_task_omitted_when_empty) {
 
 TEST(tool_display_activity_verb_waiting_state_with_tool_uses_tool_verb) {
     // Reported bug: a tool executing under RunState::Waiting read "waiting".
-    std::string v = tui::tool_display::activity_verb(
-        false, agent::RunState::Waiting, "read");
+    std::string v = verb(false, agent::RunState::Waiting, "read");
     ASSERT_EQ(v, "reading");
 }
 
 TEST(tool_display_activity_verb_idle_with_tool_uses_tool_verb) {
-    std::string v = tui::tool_display::activity_verb(
-        false, agent::RunState::Idle, "search");
+    std::string v = verb(false, agent::RunState::Idle, "search");
     ASSERT_EQ(v, "searching");
 }
 
 TEST(tool_display_activity_verb_bash_is_hacking) {
-    std::string v = tui::tool_display::activity_verb(
-        false, agent::RunState::Idle, "bash");
+    std::string v = verb(false, agent::RunState::Idle, "bash");
     ASSERT_EQ(v, "hacking");
 }
 
 TEST(tool_display_activity_verb_write_is_writing) {
-    std::string v = tui::tool_display::activity_verb(
-        false, agent::RunState::Idle, "write");
+    std::string v = verb(false, agent::RunState::Idle, "write");
     ASSERT_EQ(v, "writing");
 }
 
 TEST(tool_display_activity_verb_waiting_reserved_when_no_tool) {
-    std::string v = tui::tool_display::activity_verb(
-        false, agent::RunState::Waiting, "");
+    std::string v = verb(false, agent::RunState::Waiting, "");
     ASSERT_EQ(v, "waiting");
 }
 
 TEST(tool_display_activity_verb_state_words_without_tool) {
-    ASSERT_EQ(tui::tool_display::activity_verb(
-                  false, agent::RunState::Thinking, ""),
-              "thinking");
-    ASSERT_EQ(tui::tool_display::activity_verb(
-                  false, agent::RunState::Streaming, ""),
-              "talking");
-    ASSERT_EQ(tui::tool_display::activity_verb(
-                  false, agent::RunState::Error, ""),
-              "retrying");
+    ASSERT_EQ(verb(false, agent::RunState::Thinking, ""), "thinking");
+    ASSERT_EQ(verb(false, agent::RunState::Streaming, ""), "talking");
+    ASSERT_EQ(verb(false, agent::RunState::Error, ""), "retrying");
 }
 
 TEST(tool_display_activity_verb_compressing_wins) {
-    std::string v = tui::tool_display::activity_verb(
-        true, agent::RunState::Streaming, "read");
+    std::string v = verb(true, agent::RunState::Streaming, "read");
     ASSERT_EQ(v, "compressing");
 }
 
 TEST(tool_display_activity_verb_unknown_tool_is_working) {
-    ASSERT_EQ(tui::tool_display::activity_verb(
-                  false, agent::RunState::Idle, ""),
-              "working");
-    ASSERT_EQ(tui::tool_display::activity_verb(
-                  false, agent::RunState::Idle, "frobnicate"),
-              "working");
+    ASSERT_EQ(verb(false, agent::RunState::Idle, ""), "working");
+    ASSERT_EQ(verb(false, agent::RunState::Idle, "frobnicate"), "working");
 }
 
 TEST(tool_display_activity_verb_mcp_prefix_calls) {
-    std::string v = tui::tool_display::activity_verb(
-        false, agent::RunState::Idle, "mcp_files_read");
+    std::string v = verb(false, agent::RunState::Idle, "mcp_files_read");
     ASSERT_EQ(v, "calling");
 }
 
@@ -887,8 +961,7 @@ TEST(scroll_dispatch_non_wheel_is_zero) {
     // produces a scroll delta, so prompt-history Up/Down is unaffected.
     ASSERT_EQ(tui::scroll_dispatch::wheel_delta(0), 0);
     ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON1_PRESSED), 0);
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED |
-                                                BUTTON5_PRESSED), 0);
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED | BUTTON5_PRESSED), 0);
 }
 
 TEST(scroll_dispatch_clamp_bounds) {
@@ -912,16 +985,16 @@ namespace {
 
 std::string join_runs(const tui::rich::Line& ln) {
     std::string out;
-    for (const auto& r : ln.runs) out += r.text;
+    for (const auto& r : ln.runs)
+        out += r.text;
     return out;
 }
 
 } // namespace
 
 TEST(tool_display_result_line_shows_command) {
-    auto ln = tui::tool_display::result_line(
-        "bash", agent::json{{"command", "grep -rn Foo src/"}}, true,
-        "line1\nline2\n", "");
+    auto ln = tui::tool_display::result_line("bash", agent::json{{"command", "grep -rn Foo src/"}},
+                                             true, "line1\nline2\n", "", display_registry());
     std::string t = join_runs(ln);
     ASSERT(t.find("grep -rn Foo src/") != std::string::npos);
     ASSERT(t.find("bash") == std::string::npos);
@@ -933,9 +1006,9 @@ TEST(tool_display_result_line_shows_command) {
 }
 
 TEST(tool_display_result_line_error_path) {
-    auto ln = tui::tool_display::result_line(
-        "read", agent::json{{"path", "include/agent/config.h"}}, false, "",
-        "permission denied");
+    auto ln =
+        tui::tool_display::result_line("read", agent::json{{"path", "include/agent/config.h"}},
+                                       false, "", "permission denied", display_registry());
     std::string t = join_runs(ln);
     ASSERT(t.find("read include/agent/config.h") != std::string::npos);
     ASSERT(t.find("error: permission denied") != std::string::npos);
@@ -944,14 +1017,40 @@ TEST(tool_display_result_line_error_path) {
 
 TEST(tool_display_result_line_preview_truncated) {
     std::string big(200, 'x');
-    auto ln = tui::tool_display::result_line(
-        "bash", agent::json{{"command", "ls"}}, true, big, "");
+    auto ln = tui::tool_display::result_line("bash", agent::json{{"command", "ls"}}, true, big, "",
+                                             display_registry());
     ASSERT(join_runs(ln).find("...") != std::string::npos);
 }
 
+// A tool the harness has never heard of is no longer second-class: it declares
+// its own word, and it describes its own invocation instead of the scrollback
+// dumping raw JSON at the reader.
+TEST(tool_display_uses_a_plugin_tools_own_meta) {
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<NamedTool>("plugin_cdp_navigate", "navigate"), "cdp",
+                      agent::ToolMeta{"browsing"});
+
+    ASSERT_EQ(
+        tui::tool_display::activity_verb(false, agent::RunState::Idle, "plugin_cdp_navigate", reg),
+        "browsing");
+
+    const std::string d = tui::tool_display::describe_tool_call(
+        "plugin_cdp_navigate", agent::json{{"url", "https://example.com"}}, reg);
+    ASSERT(d.find("navigate") != std::string::npos);
+    ASSERT(d.find("https://example.com") != std::string::npos);
+}
+
+// A tool that declares no word is not an error and must not render blank.
+TEST(tool_display_falls_back_when_a_tool_declares_no_verb) {
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<NamedTool>("plugin_x_y", ""), "x");
+    ASSERT_EQ(tui::tool_display::activity_verb(false, agent::RunState::Idle, "plugin_x_y", reg),
+              "working");
+}
+
 TEST(tool_display_result_line_shows_lines_tail) {
-    auto ln = tui::tool_display::result_line(
-        "bash", agent::json{{"command", "ls -la"}}, true, "a\nb\nc\n", "");
+    auto ln = tui::tool_display::result_line("bash", agent::json{{"command", "ls -la"}}, true,
+                                             "a\nb\nc\n", "", display_registry());
     std::string t = join_runs(ln);
     ASSERT(t.find("ls -la") != std::string::npos);
     ASSERT(t.find("4 lines") != std::string::npos);
@@ -970,7 +1069,7 @@ tui::ApprovalModel make_model(int timeout_sec, int default_idx) {
 } // namespace
 
 TEST(approval_timeout_auto_denies) {
-    auto m = make_model(2, 0);  // 2s timeout, default selection AllowOnce
+    auto m = make_model(2, 0); // 2s timeout, default selection AllowOnce
     fake_now = 2.0;
     m.poll();
     ASSERT(m.timed_out());
@@ -991,7 +1090,7 @@ TEST(approval_verdict_mapping) {
     ASSERT(m.resolve(1) == agent::Approval::AllowSession);
     ASSERT(m.resolve(2) == agent::Approval::AlwaysAllow);
     ASSERT(m.resolve(3) == agent::Approval::AlwaysDeny);
-    ASSERT(m.resolve(-1) == agent::Approval::Deny);  // Esc / cancel
+    ASSERT(m.resolve(-1) == agent::Approval::Deny); // Esc / cancel
 }
 
 TEST(approval_selection_clamps) {
@@ -1116,7 +1215,7 @@ TEST(route_event_survives_window_erase) {
     tui::Window* stamped = windows[2].get();
     tui::AgentEvent ev;
     ev.window_id = 12;
-    windows.erase(windows.begin());  // close window 0
+    windows.erase(windows.begin()); // close window 0
     ASSERT(route_event(windows, ev, 0) == stamped);
 }
 
@@ -1125,8 +1224,7 @@ TEST(deny_all_pending_approvals_resolves_all) {
     for (int i = 0; i < 3; ++i) {
         tui::AgentEvent ev;
         ev.type = tui::AgentEvent::Approval;
-        ev.approval_promise =
-            std::make_shared<std::promise<agent::Approval>>();
+        ev.approval_promise = std::make_shared<std::promise<agent::Approval>>();
         q.push(std::move(ev));
     }
     std::vector<std::future<agent::Approval>> futures;
@@ -1152,7 +1250,7 @@ TEST(tui01_wrap_counts_display_cols_for_wide_chars) {
     setlocale(LC_ALL, "en_US.UTF-8");
     // Each CJK char is 2 display columns. Wrap at 4 columns should
     // fit 2 CJK chars per line (4 cols), not 4 (which would be 8 cols).
-    std::string cjk = "\u4e2d\u6587\u6d4b\u8bd5";  // 中文测试
+    std::string cjk = "\u4e2d\u6587\u6d4b\u8bd5"; // 中文测试
     auto lines = tui::text::wrap(cjk, 4);
     ASSERT_FALSE(lines.empty());
     for (const auto& l : lines)
@@ -1165,7 +1263,7 @@ TEST(tui01_wrap_counts_display_cols_for_wide_chars) {
 // ---------------------------------------------------------------------------
 TEST(tui01_col_to_byte_wide_char_boundary) {
     setlocale(LC_ALL, "en_US.UTF-8");
-    std::string s = "ab\u4e2d\u6587";  // ab中文
+    std::string s = "ab\u4e2d\u6587"; // ab中文
     // display_cols: a=1, b=1, 中=2, 文=2 → total 6
     ASSERT_EQ(tui::text::display_cols(s), 6);
     // col 2 is the start of 中 (byte offset 2)
@@ -1202,7 +1300,8 @@ struct MockWindowOpsPort : public tui::WindowOpsPort {
 // Load keybindings.json from the repo root for KeyBinder tests.
 nlohmann::json load_test_keybindings() {
     std::ifstream f("keybindings.json");
-    if (!f.is_open()) f.open("tui/../keybindings.json");
+    if (!f.is_open())
+        f.open("tui/../keybindings.json");
     nlohmann::json j;
     f >> j;
     return j;

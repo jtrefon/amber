@@ -83,7 +83,14 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/http_get.o \
               $(BUILD_DIR)/lib/plugin_registry.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
-              $(BUILD_DIR)/plugins/core_tools/core_tools_plugin.o \
+              $(BUILD_DIR)/plugins/tool_search/tool_search_plugin.o \
+              $(BUILD_DIR)/plugins/tool_read/tool_read_plugin.o \
+              $(BUILD_DIR)/plugins/tool_write/tool_write_plugin.o \
+              $(BUILD_DIR)/plugins/tool_bash/tool_bash_plugin.o \
+              $(BUILD_DIR)/plugins/tool_process/tool_process_plugin.o \
+              $(BUILD_DIR)/plugins/tool_plan/tool_plan_plugin.o \
+              $(BUILD_DIR)/plugins/tool_task/tool_task_plugin.o \
+              $(BUILD_DIR)/lib/tool_prompt.o \
               $(BUILD_DIR)/plugins/custom/custom_plugin.o \
               $(BUILD_DIR)/plugins/gemini/gemini_plugin.o \
               $(BUILD_DIR)/plugins/kilocode/kilocode_plugin.o \
@@ -212,6 +219,11 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench check test lint analyze duplicates clean install uninstall
 
+# `make` builds everything. Stated explicitly so a target declared above `all`
+# (the lint recipes are) cannot quietly become the default goal: when that
+# happened, bare `make` — which CI's build jobs run — stopped building.
+.DEFAULT_GOAL := all
+
 # Lint sources: every project translation unit, third_party and tests
 # excluded. Tests use harness macros (TEST, ASSERT_EQ) that trigger
 # clang-tidy noise without surfacing real bugs; tests are covered by
@@ -246,7 +258,7 @@ lint:
 	 printf '%s\0' $(LINT_SRCS) | \
 	 xargs -0 -P$(NPROC) sh -c ' \
 	    for src do \
-	      out=$$(clang-tidy -quiet $$CTIDY_FLAGS "$$src" 2>&1); \
+	      out=$$(clang-tidy -quiet "$$src" $$CTIDY_FLAGS 2>&1); \
 	      if [ -n "$$out" ]; then \
 	        echo "$$out" | grep -v "^Suppressed\|^Use -header-filter\|warnings generated" || true; \
 	        if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter\|warnings generated"; then \
@@ -279,7 +291,7 @@ lint-changed:
 	 printf '%s\0' $$changed | \
 	 xargs -0 -P$(NPROC) sh -c ' \
 	    for src do \
-	      out=$$(clang-tidy -quiet $$CTIDY_FLAGS "$$src" 2>&1); \
+	      out=$$(clang-tidy -quiet "$$src" $$CTIDY_FLAGS 2>&1); \
 	      if [ -n "$$out" ]; then \
 	        echo "$$out" | grep -v "^Suppressed\|^Use -header-filter\|warnings generated" || true; \
 	        if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter\|warnings generated"; then \
@@ -504,6 +516,8 @@ install: all
 	install -m 644 $(SRC_DIR)/include/agent/*.h $(DESTDIR)$(includedir)/agent/
 	install -d $(DESTDIR)$(datadir)/prompts
 	install -m 644 prompts/*.md $(DESTDIR)$(datadir)/prompts/
+	install -d $(DESTDIR)$(datadir)/prompts/tools
+	install -m 644 prompts/tools/*.md $(DESTDIR)$(datadir)/prompts/tools/
 	install -m 644 completions.json $(DESTDIR)$(datadir)/
 	install -d $(DESTDIR)$(datadir)/plugins/sysinfo
 	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(datadir)/plugins/sysinfo/

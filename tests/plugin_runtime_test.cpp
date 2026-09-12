@@ -306,7 +306,7 @@ TEST(explicit_dialect_overrides_a_disabled_flavor) {
     ASSERT_FALSE(refused_with_explicit);
 }
 
-TEST(runtime_core_tools_plugin_is_active_on_a_default_config) {
+TEST(runtime_tool_plugins_are_active_on_a_default_config) {
     // Regression: the core tool set is a plugin now, so a default config (plan
     // and task tools off) must still leave the harness with its read/write/
     // search/bash/process tools. A declining gated capability previously failed
@@ -323,7 +323,8 @@ TEST(runtime_core_tools_plugin_is_active_on_a_default_config) {
     runtime.add_bundled();
     runtime.start();
 
-    ASSERT_TRUE(runtime.status("core_tools").enabled);
+    ASSERT_TRUE(runtime.status("tool_read").enabled);
+    ASSERT_TRUE(runtime.status("tool_search").enabled);
     ASSERT_TRUE((bool)f.tools.find("read"));
     ASSERT_TRUE((bool)f.tools.find("write"));
     ASSERT_TRUE((bool)f.tools.find("search"));
@@ -334,7 +335,7 @@ TEST(runtime_core_tools_plugin_is_active_on_a_default_config) {
     ASSERT_FALSE((bool)f.tools.find("task"));
 }
 
-TEST(runtime_core_tools_plugin_installs_gated_tools_when_enabled) {
+TEST(runtime_tool_plugins_install_gated_tools_when_enabled) {
     ScratchConfig scratch("coretools-gated");
     Fixture f;
     f.cfg.plan_tool = true;
@@ -352,9 +353,10 @@ TEST(runtime_core_tools_plugin_installs_gated_tools_when_enabled) {
     ASSERT_TRUE((bool)f.tools.find("todowrite"));
     ASSERT_TRUE((bool)f.tools.find("task"));
 
-    // Disabling the plugin takes the whole set back out, gated tools included.
-    ASSERT_TRUE(runtime.set_state("core_tools", false));
-    ASSERT_EQ(f.tools.snapshot_tools().size(), 0u);
+    // Disabling the plugin takes its tool back out, and only its tool.
+    ASSERT_TRUE(runtime.set_state("tool_plan", false));
+    ASSERT_FALSE((bool)f.tools.find("todowrite"));
+    ASSERT_TRUE((bool)f.tools.find("task"));
 }
 
 TEST(runtime_disable_unwinds_every_contribution) {
@@ -1289,6 +1291,67 @@ TEST(bundled_plugins_include_new_providers) {
     ASSERT(has("opencode_zen"));
     ASSERT(has("commandcode"));
     ASSERT(has("deepseek"));
+}
+
+// The benchmark harness switches plugins off to measure the difference. That
+// experiment must not become the user's saved preference, and it must not read
+// one either: a result that depended on this machine's plugin state would not
+// be reproducible on any other.
+TEST(apply_state_changes_the_toolset_without_writing_state) {
+    ScratchConfig scratch("apply_state");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start(/*use_persisted_state=*/false);
+
+    ASSERT_TRUE((bool)f.tools.find("search"));
+    ASSERT_TRUE(runtime.apply_state("tool_search", false));
+    ASSERT_FALSE((bool)f.tools.find("search"));
+
+    // Nothing was persisted: the file is what a user's toggle would write, and
+    // this was not a toggle.
+    ASSERT_FALSE(fs::exists(agent::global_config_dir() + "/plugins/tool_search/plugin.conf"));
+
+    ASSERT_TRUE(runtime.apply_state("tool_search", true));
+    ASSERT_TRUE((bool)f.tools.find("search"));
+}
+
+TEST(start_ignores_persisted_state_when_told_to) {
+    ScratchConfig scratch("start_defaults");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    // A saved preference that says "off", as a previous session would leave.
+    {
+        PluginRuntime writer(f.tools, f.cfg, f.ws);
+        writer.add_bundled();
+        ASSERT_TRUE(writer.set_state("tool_search", false));
+        ASSERT_FALSE((bool)f.tools.find("search"));
+    }
+
+    // The harness starts from the shipped configuration regardless.
+    Fixture fresh;
+    PluginRuntime bench(fresh.tools, f.cfg, fresh.ws);
+    bench.attach_host_services(host);
+    bench.add_bundled();
+    bench.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE((bool)fresh.tools.find("search"));
+
+    // A host still honours what the user chose.
+    Fixture hosted;
+    PluginRuntime host_rt(hosted.tools, f.cfg, hosted.ws);
+    host_rt.attach_host_services(host);
+    host_rt.add_bundled();
+    host_rt.start();
+    ASSERT_FALSE((bool)hosted.tools.find("search"));
 }
 
 TEST(disabling_allowance_plugin_unwinds_contribution) {

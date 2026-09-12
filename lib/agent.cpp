@@ -21,16 +21,16 @@ namespace agent {
 
 namespace {
 
-// Locate an optional prompt file: next to the binary first (works when the
-// process CWD differs, e.g. the benchmark runner's workspace), then
-// CWD-relative (dev runs from the repo root).
-std::string optional_prompt(const char* name) {
-    const std::string dir = exe_dir();
-    if (!dir.empty()) {
-        const std::string p = dir + "/" + name;
-        if (file_exists(p)) return p;
-    }
-    return name;
+// Append a Markdown section to the system prompt. Files carry a trailing
+// newline and the separator is two of them, so the section is trimmed before it
+// is joined - otherwise every boundary gains a blank line and the prompt drifts
+// from what the files say.
+void append_section(std::string& system, const std::string& text) {
+    const std::size_t end = text.find_last_not_of('\n');
+    if (end == std::string::npos)
+        return;
+    system += "\n\n";
+    system.append(text, 0, end + 1);
 }
 
 // Helper: publish context-change event to all subscribers.
@@ -47,8 +47,7 @@ void Agent::publish_message_added(const Message& msg) {
     publish_event(added);
 }
 
-void Agent::publish_error(const std::string& kind, const std::string& message,
-                          bool retryable) {
+void Agent::publish_error(const std::string& kind, const std::string& message, bool retryable) {
     ErrorRaisedEvent raised;
     raised.kind = kind;
     raised.message = message;
@@ -60,29 +59,21 @@ namespace {
 
 // Build an LLM client for `cfg` through the injected factory, falling back
 // to the real HttpLLMClient when no factory was provided.
-std::unique_ptr<LLMClient> make_client(const Config& cfg,
-                                       const LLMClientFactory& factory) {
+std::unique_ptr<LLMClient> make_client(const Config& cfg, const LLMClientFactory& factory) {
     return factory ? factory(cfg) : std::make_unique<HttpLLMClient>(cfg);
 }
 
 } // namespace
 
 Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
-             std::unique_ptr<CompressionStrategy> compressor,
-             std::unique_ptr<CompressionGate> gate,
-             std::unique_ptr<MemoryStore> memory_store,
-             std::unique_ptr<MemoryRetriever> retriever,
-             std::unique_ptr<LLMClient> client,
-             LLMClientFactory client_factory,
+             std::unique_ptr<CompressionStrategy> compressor, std::unique_ptr<CompressionGate> gate,
+             std::unique_ptr<MemoryStore> memory_store, std::unique_ptr<MemoryRetriever> retriever,
+             std::unique_ptr<LLMClient> client, LLMClientFactory client_factory,
              bool register_skills)
-    : cfg_(std::move(cfg)), registry_(registry),
-      client_factory_(std::move(client_factory)),
-      client_(nullptr),
-      hooks_(std::move(hooks))
-    , compression_(std::move(compressor))
-    , gate_(std::move(gate))
-    , memory_store_(std::move(memory_store))
-    , retriever_(std::move(retriever)) {
+    : cfg_(std::move(cfg)), registry_(registry), client_factory_(std::move(client_factory)),
+      client_(nullptr), hooks_(std::move(hooks)), compression_(std::move(compressor)),
+      gate_(std::move(gate)), memory_store_(std::move(memory_store)),
+      retriever_(std::move(retriever)) {
     if (client)
         client_ = std::move(client);
     else
@@ -95,13 +86,15 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
         learned.assign(top.begin(), top.end());
     }
     skills_->discover(learned);
-    if (register_skills) register_skill_tools(registry_, *skills_);
+    if (register_skills)
+        register_skill_tools(registry_, *skills_);
 }
 
 void Agent::set_model(const std::string& model, int window) {
     cfg_.model = model;
     cfg_.model_explicit = true;
-    if (window > 0) model_windows_[model] = window;
+    if (window > 0)
+        model_windows_[model] = window;
     client_ = make_client(cfg_, client_factory_);
 }
 
@@ -118,8 +111,7 @@ void Agent::resolve_window() {
     }
     if (client_) {
         const int learned = client_->learned_context_size();
-        if (learned > 0 &&
-            (cfg_.context_size == 0 || learned < cfg_.context_size))
+        if (learned > 0 && (cfg_.context_size == 0 || learned < cfg_.context_size))
             cfg_.context_size = learned;
     }
 }
@@ -129,11 +121,11 @@ void Agent::set_reasoning_effort(const std::string& effort) {
     client_ = make_client(cfg_, client_factory_);
 }
 
-void Agent::set_connection(const std::string& api_base,
-                           const std::string& api_key,
+void Agent::set_connection(const std::string& api_base, const std::string& api_key,
                            const std::string& model) {
     cfg_.api_base = api_base;
-    if (!api_key.empty()) cfg_.api_key = api_key;
+    if (!api_key.empty())
+        cfg_.api_key = api_key;
     if (!model.empty()) {
         cfg_.model = model;
         cfg_.model_explicit = true;
@@ -141,9 +133,7 @@ void Agent::set_connection(const std::string& api_base,
     client_ = make_client(cfg_, client_factory_);
 }
 
-void Agent::ensure_system_prompt() {
-    if (!context_.empty()) return;
-
+std::string Agent::render_system_prompt() const {
     std::string system = load_prompt(cfg_.system_prompt_path);
     if (system.empty())
         throw std::runtime_error("system prompt file not found or empty: " +
@@ -152,21 +142,30 @@ void Agent::ensure_system_prompt() {
     // once at session start, so the agent can act in its environment without
     // probing. Session-fixed, so the KV prefix stays stable.
     std::string env_card = render_environment_card(probe_environment());
-    if (!env_card.empty()) system += "\n\n" + env_card;
+    if (!env_card.empty())
+        system += "\n\n" + env_card;
     if (!cfg_.tools_prompt_path.empty()) {
         std::string tools = load_prompt(cfg_.tools_prompt_path);
         if (tools.empty())
             throw std::runtime_error("tools prompt file not found or empty: " +
                                      cfg_.tools_prompt_path);
-        system += "\n\n" + tools;
+        append_section(system, tools);
     } else if (!registry_.empty()) {
-        system += "\n\n" + render_tools_markdown(registry_);
+        append_section(system, render_tools_markdown(registry_));
+    }
+    // Tool documentation contributed as System blocks lands here, immediately
+    // after the tools prompt it belongs to. This is what keeps a tool's schema
+    // and its prose in agreement: disabling a tool plugin removes both.
+    if (prompt_registry_) {
+        for (auto& text : prompt_registry_->render_all(PromptPlacement::System))
+            append_section(system, text);
     }
     // Plugins: enabled plugin tools (registered as plugin_<id>_<name>) get
     // their own reference section so the agent knows they exist and how to
     // use them without touching the static tools.md.
     std::string plugins = plugin_tools_advertisement(registry_);
-    if (!plugins.empty()) system += "\n\n" + plugins;
+    if (!plugins.empty())
+        system += "\n\n" + plugins;
 
     switch (cfg_.mode) {
     case agent::AgentMode::Read:
@@ -192,8 +191,7 @@ void Agent::ensure_system_prompt() {
     }
 
     // Optional git workflow prompt
-    std::string git_path = cfg_.git_prompt_path.empty()
-        ? "prompts/git.md" : cfg_.git_prompt_path;
+    std::string git_path = cfg_.git_prompt_path.empty() ? "prompts/git.md" : cfg_.git_prompt_path;
     std::string git = load_prompt(git_path);
     if (!git.empty())
         system += "\n\n" + git;
@@ -201,25 +199,50 @@ void Agent::ensure_system_prompt() {
     // Optional skills prompt (discovery block, authoring rule, trust boundary).
     // Resolved via the binary dir so the sections load regardless of CWD
     // (the benchmark runner runs with the workspace as CWD).
-    std::string skills = load_prompt(optional_prompt("prompts/skills.md"));
+    std::string skills = load_optional_prompt("prompts/skills.md");
     if (!skills.empty())
         system += "\n\n" + skills;
 
     // Optional MCP prompt (untrusted-server posture, user-only prompts).
-    std::string mcp = load_prompt(optional_prompt("prompts/mcp.md"));
+    std::string mcp = load_optional_prompt("prompts/mcp.md");
     if (!mcp.empty())
         system += "\n\n" + mcp;
 
     // Optional planning-tool prompt — only when the todowrite tool is enabled.
     if (cfg_.plan_tool) {
-        std::string plan =
-            load_prompt(optional_prompt("prompts/tools_planning.md"));
-        if (!plan.empty()) system += "\n\n" + plan;
+        std::string plan = load_optional_prompt("prompts/tools_planning.md");
+        if (!plan.empty())
+            system += "\n\n" + plan;
     }
 
+    return system;
+}
+
+void Agent::ensure_system_prompt() {
+    std::string system = render_system_prompt();
+    if (context_.empty()) {
+        push_system_prompt(std::move(system));
+        return;
+    }
+    // The prompt's inputs can change mid-session: a plugin toggle changes which
+    // tools exist, and the schema follows at once. The prose has to follow too,
+    // or the model is told about a tool it cannot call. Rebuilding costs the KV
+    // prefix only when the text actually changed.
+    const auto& first = context_.get_all().front();
+    if (first.role != "system" || first.content == system)
+        return;
+    const auto rest = context_.get_all();
+    context_.clear();
+    push_system_prompt(std::move(system));
+    for (std::size_t i = 1; i < rest.size(); ++i)
+        context_.push(rest[i]);
+    emit_context_event(context_events_, context_);
+}
+
+void Agent::push_system_prompt(std::string system) {
     Message sys_msg;
     sys_msg.role = "system";
-    sys_msg.content = system;
+    sys_msg.content = std::move(system);
     context_.push(std::move(sys_msg));
     emit_context_event(context_events_, context_);
     publish_message_added(context_.get_all().back());
@@ -253,8 +276,10 @@ void Agent::set_context(std::vector<Message> messages) {
 Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display) {
     Message reply;
     Stats stats;
-    if (hooks_.on_debug) hooks_.on_debug("chat: request");
-    if (hooks_.on_state) hooks_.on_state(RunState::Waiting);
+    if (hooks_.on_debug)
+        hooks_.on_debug("chat: request");
+    if (hooks_.on_state)
+        hooks_.on_state(RunState::Waiting);
 
     // Build prompt from the immutable context stack (copy for augmentation).
     auto prompt_msgs = context_.get_all();
@@ -270,10 +295,8 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
             double tokens = 0, budget = 0, threshold = 0;
             gate_->last_decision(tokens, budget, threshold);
             if (hooks_.on_debug) {
-                hooks_.on_debug("gate: tokens=" +
-                                std::to_string(static_cast<long>(tokens)) +
-                                " window=" +
-                                std::to_string(static_cast<long>(budget)) +
+                hooks_.on_debug("gate: tokens=" + std::to_string(static_cast<long>(tokens)) +
+                                " window=" + std::to_string(static_cast<long>(budget)) +
                                 " threshold=" + std::to_string(threshold));
             }
             // Structured replacement for the on_status prose a UI had to
@@ -301,23 +324,31 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
 
     const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
-        reply = client_->chat_stream(prompt_copy, tools,
+        reply = client_->chat_stream(
+            prompt_copy, tools,
             [&h](const StreamChunk& ch) {
-                if (ch.done) return;
+                if (ch.done)
+                    return;
                 if (!ch.reasoning.empty()) {
-                    if (h.on_state) h.on_state(RunState::Thinking);
-                    if (h.on_reasoning) h.on_reasoning(ch.reasoning);
+                    if (h.on_state)
+                        h.on_state(RunState::Thinking);
+                    if (h.on_reasoning)
+                        h.on_reasoning(ch.reasoning);
                 }
                 if (!ch.delta.empty()) {
-                    if (h.on_state) h.on_state(RunState::Streaming);
-                    if (h.on_token) h.on_token(ch.delta);
+                    if (h.on_state)
+                        h.on_state(RunState::Streaming);
+                    if (h.on_token)
+                        h.on_token(ch.delta);
                 }
-            }, &stats);
+            },
+            &stats);
     } else {
         reply = client_->chat(prompt_copy, tools, &stats);
     }
     if (stats.valid) {
-        if (hooks_.on_stats) hooks_.on_stats(stats);
+        if (hooks_.on_stats)
+            hooks_.on_stats(stats);
         if (stats.prompt_tokens > 0)
             cfg_.prompt_tokens_used = stats.prompt_tokens;
     }
@@ -358,11 +389,11 @@ void Agent::push_reply(Message reply) {
 }
 
 bool Agent::extract_embedded_tool_calls(Message& reply) const {
-    if (!(reply.tool_calls.is_null() || reply.tool_calls.empty()) ||
-        reply.content.empty())
+    if (!(reply.tool_calls.is_null() || reply.tool_calls.empty()) || reply.content.empty())
         return false;
     auto extracted = extract_tool_calls_from_text(reply.content);
-    if (extracted.is_null() || extracted.empty()) return false;
+    if (extracted.is_null() || extracted.empty())
+        return false;
     reply.tool_calls = std::move(extracted);
     reply.reasoning.clear();
     reply.content.clear();
@@ -378,20 +409,21 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     return r;
 }
 
-bool Agent::run_compression(std::function<void()> progress_cb,
-                            CompressionResult* out) {
+bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult* out) {
     // Snapshot BEFORE compression — immutable, never mutate live stack.
     if (!compression_) {
         CompressionResult r;
         r.error = "no compressor configured";
-        if (out) *out = std::move(r);
+        if (out)
+            *out = std::move(r);
         return false;
     }
     if (context_.size() < 2) {
         CompressionResult r;
         r.messages_before = context_.size();
         r.error = "conversation too short to compress";
-        if (out) *out = std::move(r);
+        if (out)
+            *out = std::move(r);
         return false;
     }
     auto before = context_.get_all();
@@ -410,15 +442,15 @@ bool Agent::run_compression(std::function<void()> progress_cb,
     // only place the live context changes, and only on success.
     auto cc = load_compression_config(cfg_);
     CompressionResponse cr;
-    auto compressed = compression_->compress(context_, cc, *client_,
-                                              &reporter, &cr);
+    auto compressed = compression_->compress(context_, cc, *client_, &reporter, &cr);
 
     // Cooldown applies to the attempt, not just the success: a failing
     // classifier must not re-fire the pipeline on every following turn and
     // burn two LLM calls each time — the gate stays silent for the cooldown
     // window and retries later. (Gate may be null when the host built the
     // agent with a compressor but no gate — direct pipeline use.)
-    if (gate_) gate_->set_last_compress_turn(turn_counter_);
+    if (gate_)
+        gate_->set_last_compress_turn(turn_counter_);
 
     // Spec invariant 7: a failed compression leaves the context untouched.
     // Report the real error — a failure here must not masquerade as "no
@@ -433,7 +465,8 @@ bool Agent::run_compression(std::function<void()> progress_cb,
         finished.tokens_after = tokens_before;
         publish_event(finished);
         publish_error("compression", cr.error);
-        if (out) *out = std::move(r);
+        if (out)
+            *out = std::move(r);
         return false;
     }
 
@@ -463,9 +496,15 @@ bool Agent::run_compression(std::function<void()> progress_cb,
     // Populate segment counts from the classification response.
     for (const auto& seg : cr.segments) {
         switch (seg.tag) {
-            case Classification::core:    ++r.core_count; break;
-            case Classification::context: ++r.context_count; break;
-            case Classification::prune:   ++r.prune_count; break;
+        case Classification::core:
+            ++r.core_count;
+            break;
+        case Classification::context:
+            ++r.context_count;
+            break;
+        case Classification::prune:
+            ++r.prune_count;
+            break;
         }
     }
 
@@ -474,7 +513,8 @@ bool Agent::run_compression(std::function<void()> progress_cb,
     finished.success = true;
     finished.tokens_after = r.tokens_after;
     publish_event(finished);
-    if (out) *out = std::move(r);
+    if (out)
+        *out = std::move(r);
     return true;
 }
 
@@ -482,9 +522,8 @@ std::string Agent::confirm_turn(const std::string& candidate,
                                 const std::vector<std::shared_ptr<Tool>>& tools) {
     Message done_msg;
     done_msg.role = "user";
-    done_msg.content =
-        "Are you finished? If you need more information or analysis, "
-        "use tools now. Otherwise reply with \"done.\"";
+    done_msg.content = "Are you finished? If you need more information or analysis, "
+                       "use tools now. Otherwise reply with \"done.\"";
     context_.push(std::move(done_msg));
     emit_context_event(context_events_, context_);
 
@@ -500,15 +539,15 @@ std::string Agent::confirm_turn(const std::string& candidate,
     emit_context_event(context_events_, context_);
 
     if (!check_tool_calls.is_null() && !check_tool_calls.empty()) {
-        bool any_ran = dispatch_tool_calls(check_tool_calls, cfg_, registry_,
-                                           hooks_, log_, session_approved_,
-                                           &policy_, event_bus_, &context_);
+        bool any_ran = dispatch_tool_calls(check_tool_calls, cfg_, registry_, hooks_, log_,
+                                           session_approved_, &policy_, event_bus_, &context_);
         if (!any_ran) {
             // Scan from the back for the last tool result; if it was denied
             // the loop is broken.
             const auto& all = context_.get_all();
             for (auto it = all.rbegin(); it != all.rend(); ++it) {
-                if (it->role != "tool") continue;
+                if (it->role != "tool")
+                    continue;
                 if (it->content.find("status=denied") != std::string::npos)
                     return candidate;
                 break;
@@ -520,14 +559,12 @@ std::string Agent::confirm_turn(const std::string& candidate,
     auto is_confirmation = [](const std::string& s) -> bool {
         std::string flat;
         for (char c : s) {
-            char lc = static_cast<char>(std::tolower(
-                static_cast<unsigned char>(c)));
+            char lc = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             if (lc != ' ' && lc != '.' && lc != '!' && lc != '\n' && lc != '\r')
                 flat += lc;
         }
-        return flat == "done" || flat == "yes" || flat == "ok" ||
-               flat == "finished" || flat == "looksgood" ||
-               flat == "complete" || flat == "alldone";
+        return flat == "done" || flat == "yes" || flat == "ok" || flat == "finished" ||
+               flat == "looksgood" || flat == "complete" || flat == "alldone";
     };
 
     if (is_confirmation(check_content) || check_content.empty())
@@ -541,7 +578,8 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
         // when the user never configured log_path. Per-session file under
         // the workspace's .amber dir; {ts} expands to the session id.
         std::string path = cfg_.log_path;
-        if (path.empty()) path = Workspace::local_dir() + "/logs/{ts}.jsonl";
+        if (path.empty())
+            path = Workspace::local_dir() + "/logs/{ts}.jsonl";
         log_.open(path);
     }
     log_.event("user", {{"content", prompt}, {"model", cfg_.model}});
@@ -553,29 +591,31 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
     publish_message_added(context_.get_all().back());
 }
 
-bool Agent::dispatch_with_loop_detection(
-    const json& tool_calls, const std::string& content,
-    FailStreak& fail_streak,
-    int& loop_count, std::string& last_loop_key,
-    int& tool_recovery_attempts, std::string& final_reply) {
+bool Agent::dispatch_with_loop_detection(const json& tool_calls, const std::string& content,
+                                         FailStreak& fail_streak, int& loop_count,
+                                         std::string& last_loop_key, int& tool_recovery_attempts,
+                                         std::string& final_reply) {
     if (tool_calls.is_null() || tool_calls.empty())
         return false;
 
     if (hooks_.on_assistant && !content.empty())
         hooks_.on_assistant(content);
-    if (hooks_.on_state) hooks_.on_state(RunState::Tooling);
+    if (hooks_.on_state)
+        hooks_.on_state(RunState::Tooling);
     if (hooks_.on_debug)
-        hooks_.on_debug("dispatching " + std::to_string(tool_calls.size()) +
-                        " tool call(s)");
+        hooks_.on_debug("dispatching " + std::to_string(tool_calls.size()) + " tool call(s)");
 
-    bool ok = dispatch_tool_calls(tool_calls, cfg_, registry_,
-                                  hooks_, log_, session_approved_,
+    bool ok = dispatch_tool_calls(tool_calls, cfg_, registry_, hooks_, log_, session_approved_,
                                   &policy_, event_bus_, &context_);
 
     if (cfg_.detection_loop) {
         std::string cur = fingerprint_tool_calls(tool_calls);
-        if (!cur.empty() && cur == last_loop_key) ++loop_count;
-        else { loop_count = 0; last_loop_key = cur; }
+        if (!cur.empty() && cur == last_loop_key)
+            ++loop_count;
+        else {
+            loop_count = 0;
+            last_loop_key = cur;
+        }
         if (loop_count >= 3) {
             if (hooks_.on_status)
                 hooks_.on_status("loop detected: breaking tool loop");
@@ -602,16 +642,17 @@ bool Agent::dispatch_with_loop_detection(
 }
 
 bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
-                              std::string& last_text, std::string& final_reply) {
-    if (!cfg_.detection_loop) return false;
+                             std::string& last_text, std::string& final_reply) {
+    if (!cfg_.detection_loop)
+        return false;
     if (content == last_text && !content.empty()) {
         ++text_loop_count;
         if (text_loop_count == 2) {
             Message steer;
             steer.role = "user";
             steer.content = "You are repeating the same response. "
-                "If you are done, say \"done.\" If you need more "
-                "information, use a tool. Do not repeat yourself.";
+                            "If you are done, say \"done.\" If you need more "
+                            "information, use a tool. Do not repeat yourself.";
             context_.push(std::move(steer));
             emit_context_event(context_events_, context_);
             if (hooks_.on_status)
@@ -623,7 +664,8 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
             log_.event("error", {{"reason", "text_loop_unrecoverable"}});
             final_reply = "[loop detected: the model repeated itself "
                           "and did not recover. Please rephrase your request.]";
-            if (hooks_.on_assistant) hooks_.on_assistant(final_reply);
+            if (hooks_.on_assistant)
+                hooks_.on_assistant(final_reply);
             return true;
         }
     } else {
@@ -634,10 +676,12 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
 }
 
 std::string Agent::try_confirm(const std::string& candidate,
-                                const std::vector<std::shared_ptr<Tool>>& tools) {
+                               const std::vector<std::shared_ptr<Tool>>& tools) {
     std::string accepted = confirm_turn(candidate, tools);
-    if (accepted.empty()) return {};
-    if (hooks_.on_assistant) hooks_.on_assistant(accepted);
+    if (accepted.empty())
+        return {};
+    if (hooks_.on_assistant)
+        hooks_.on_assistant(accepted);
     log_.event("assistant", {{"content", accepted}});
     return accepted;
 }
@@ -655,21 +699,16 @@ std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
 // `display` controls whether the exchange paints into the scrollback;
 // `strict` makes internal exchanges rethrow instead of faking a reply.
 Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools,
-                                  const char* stage, bool display,
-                                  bool strict) {
-    auto chat = [this, &tools, display]() {
-        return chat_once(tools, display);
-    };
-    auto chat_no_tools = [this, display]() {
-        return chat_once({}, display);
-    };
-    ChatAdapter adapt =
-        [this, stage, &tools, &chat_no_tools, display](const std::string& err)
-        -> std::function<Message()> {
+                                  const char* stage, bool display, bool strict) {
+    auto chat = [this, &tools, display]() { return chat_once(tools, display); };
+    auto chat_no_tools = [this, display]() { return chat_once({}, display); };
+    ChatAdapter adapt = [this, stage, &tools, &chat_no_tools,
+                         display](const std::string& err) -> std::function<Message()> {
         switch (classify_request_failure(err)) {
         case RequestFailure::TemplateParser:
             publish_error("template_parser", err);
-            if (!tools.empty()) return chat_no_tools;
+            if (!tools.empty())
+                return chat_no_tools;
             break;
         case RequestFailure::ModelName: {
             publish_error("model_name", err);
@@ -678,11 +717,8 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
                 set_model(models[0]);
                 if (hooks_.on_status)
                     hooks_.on_status("server rejected model \"" + cfg_.model +
-                                     "\" - retrying with \"" + models[0] +
-                                     "\"");
-                return [this, &tools, display]() {
-                    return chat_once(tools, display);
-                };
+                                     "\" - retrying with \"" + models[0] + "\"");
+                return [this, &tools, display]() { return chat_once(tools, display); };
             }
             break;
         }
@@ -692,21 +728,19 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
             // retry. The host persists the key to the provider config; when
             // no key is provided (hook unset or user cancelled) no repair
             // applies and the turn degrades as before.
-            if (!hooks_.on_api_key) break;
-            std::string reason = "API key for provider '" +
-                                 cfg_.provider_name +
-                                 "' was rejected (HTTP 401/403)";
+            if (!hooks_.on_api_key)
+                break;
+            std::string reason =
+                "API key for provider '" + cfg_.provider_name + "' was rejected (HTTP 401/403)";
             if (hooks_.on_status)
                 hooks_.on_status(reason + " - requesting a new key");
             std::string key = hooks_.on_api_key(reason);
-            if (key.empty()) break;
+            if (key.empty())
+                break;
             if (hooks_.on_debug)
-                hooks_.on_debug("auth: key updated, retrying " +
-                                std::string(stage));
+                hooks_.on_debug("auth: key updated, retrying " + std::string(stage));
             set_connection(cfg_.api_base, key, cfg_.model);
-            return [this, &tools, display]() {
-                return chat_once(tools, display);
-            };
+            return [this, &tools, display]() { return chat_once(tools, display); };
         }
         default:
             break;
@@ -715,10 +749,8 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
     };
     try {
         if (strict)
-            return chat_with_retry_strict(hooks_, log_, chat, stage,
-                                          cfg_.cancel_token, 3, adapt);
-        return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3,
-                               adapt);
+            return chat_with_retry_strict(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
+        return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
     } catch (const std::exception& e) {
         const auto* api = dynamic_cast<const ApiError*>(&e);
         publish_error("transport", e.what(), api ? api->retryable : false);
@@ -730,7 +762,8 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
 // substitution — the stop was deliberate) and skips any further work.
 std::string Agent::finish_turn_cancelled() {
     log_.event("turn_end", {{"reason", "cancelled"}});
-    if (hooks_.on_state) hooks_.on_state(RunState::Idle);
+    if (hooks_.on_state)
+        hooks_.on_state(RunState::Idle);
     TurnEndedEvent ended;
     ended.cancelled = true;
     publish_event(ended);
@@ -741,10 +774,12 @@ std::string Agent::finish_turn(std::string final_reply) {
     if (final_reply.empty()) {
         final_reply = empty_turn_reply(context_.get_all());
         log_.event("error", {{"reason", final_reply.find("tool calls") != std::string::npos
-                                          ? "empty_after_tools" : "empty_reply"}});
+                                            ? "empty_after_tools"
+                                            : "empty_reply"}});
     }
     log_.event("turn_end", {{"content", final_reply}});
-    if (hooks_.on_state) hooks_.on_state(RunState::Idle);
+    if (hooks_.on_state)
+        hooks_.on_state(RunState::Idle);
     TurnEndedEvent ended;
     publish_event(ended);
     return final_reply;
@@ -765,7 +800,10 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
     if (retriever_) {
         std::string user_msg;
         for (const auto& m : prompt_copy)
-            if (m.role == "user") { user_msg = m.content; break; }
+            if (m.role == "user") {
+                user_msg = m.content;
+                break;
+            }
         std::string suffix = retriever_->build_system_prompt_suffix(user_msg, 500);
         if (!suffix.empty())
             head.push_back({prompt_priority::kMemory, seq++, std::move(suffix)});
@@ -777,7 +815,8 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
         auto discovery = skills_->discovery_block();
         if (!discovery.empty()) {
             std::string text = "Available skills (activate with read_skill):\n";
-            for (const auto& line : discovery) text += line + "\n";
+            for (const auto& line : discovery)
+                text += line + "\n";
             head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
         }
         for (const auto& act : skills_->activated_skills())
@@ -794,10 +833,15 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
     }
 
     // Plugin blocks come from the shared registry, which has already ordered
-    // them by (priority, registration). They follow the core blocks, as they
-    // always have; equal priority plus increasing seq preserves that order.
+    // them by (priority, registration), and each declares its own placement:
+    // Head blocks read as instructions for this request, Tail blocks follow the
+    // conversation. System blocks are not here at all - they are part of the
+    // system prompt itself (ensure_system_prompt), because that is the stable
+    // prefix and rewriting it per turn would cost the cache.
     if (prompt_registry_) {
-        for (auto& text : prompt_registry_->render_all())
+        for (auto& text : prompt_registry_->render_all(PromptPlacement::Head))
+            head.push_back({prompt_priority::kPluginBlock, seq++, std::move(text)});
+        for (auto& text : prompt_registry_->render_all(PromptPlacement::Tail))
             tail.push_back({prompt_priority::kPluginBlock, seq++, std::move(text)});
     }
 
@@ -810,14 +854,16 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
     // Head: immediately after the system prompt, so they read as instructions.
     std::size_t pos = 0;
     for (std::size_t i = 0; i < prompt_copy.size(); ++i) {
-        if (prompt_copy[i].role == "system") { pos = i + 1; break; }
+        if (prompt_copy[i].role == "system") {
+            pos = i + 1;
+            break;
+        }
     }
     for (auto& block : head) {
         Message msg;
         msg.role = "system";
         msg.content = std::move(block.text);
-        prompt_copy.insert(prompt_copy.begin() + static_cast<std::ptrdiff_t>(pos),
-                           std::move(msg));
+        prompt_copy.insert(prompt_copy.begin() + static_cast<std::ptrdiff_t>(pos), std::move(msg));
         ++pos;
     }
     // Tail: after the conversation.
@@ -845,8 +891,8 @@ std::string Agent::run(const std::string& user_prompt) {
     std::string last_loop_key, last_text, final_reply;
     const auto loop_t0 = std::chrono::steady_clock::now();
     const auto deadline = cfg_.max_wall_ms > 0
-        ? loop_t0 + std::chrono::milliseconds(cfg_.max_wall_ms)
-        : std::chrono::steady_clock::time_point::max();
+                              ? loop_t0 + std::chrono::milliseconds(cfg_.max_wall_ms)
+                              : std::chrono::steady_clock::time_point::max();
 
     for (int iter = 0; iter < cfg_.max_tool_iterations; ++iter) {
         // Wall-clock budget: the engine enforces max_wall_ms, not just the
@@ -855,9 +901,8 @@ std::string Agent::run(const std::string& user_prompt) {
             if (hooks_.on_status)
                 hooks_.on_status("wall-clock budget exceeded, stopping");
             log_.event("error", {{"reason", "wall_clock_exceeded"}});
-            final_reply =
-                "[stopped: wall-clock budget exceeded; simplify the task "
-                "or retry]";
+            final_reply = "[stopped: wall-clock budget exceeded; simplify the task "
+                          "or retry]";
             break;
         }
         // Cancellation ends the turn cleanly: no fabricated error message,
@@ -891,45 +936,54 @@ std::string Agent::run(const std::string& user_prompt) {
         push_reply(std::move(reply));
 
         if (!tc.is_null() && !tc.empty() &&
-            dispatch_with_loop_detection(tc, content, fail_streak, loop_count,
-                                          last_loop_key, tool_recovery_attempts,
-                                          final_reply)) {
-            if (!final_reply.empty()) break;
+            dispatch_with_loop_detection(tc, content, fail_streak, loop_count, last_loop_key,
+                                         tool_recovery_attempts, final_reply)) {
+            if (!final_reply.empty())
+                break;
             continue;
         }
         if (detect_text_loop(content, text_loop_count, last_text, final_reply))
             break;
 
         std::string accepted = try_confirm(content, tools);
-        if (!accepted.empty()) { final_reply = accepted; break; }
+        if (!accepted.empty()) {
+            final_reply = accepted;
+            break;
+        }
     }
     return finish_turn(std::move(final_reply));
 }
 
 void Agent::apply_compression_result(const CompressionResponse& cr) {
-    if (!memory_store_ || experience_cfg_.store_path.empty()) return;
-    if (cr.memory_ops.empty() && cr.skill_ops.empty()) return;
+    if (!memory_store_ || experience_cfg_.store_path.empty())
+        return;
+    if (cr.memory_ops.empty() && cr.skill_ops.empty())
+        return;
 
     memory_store_->set_current_turn(turn_counter_);
 
     // Apply memory ops
     size_t mem_up = 0, mem_dep = 0;
     for (const auto& op : cr.memory_ops) {
-        if (op.action == "deprecate") ++mem_dep; else ++mem_up;
+        if (op.action == "deprecate")
+            ++mem_dep;
+        else
+            ++mem_up;
     }
     std::vector<ExtractionItem> items;
     if (!cr.memory_ops.empty())
-        apply_memory_ops(*memory_store_, cr.memory_ops,
-                         experience_cfg_.store_path, &items);
+        apply_memory_ops(*memory_store_, cr.memory_ops, experience_cfg_.store_path, &items);
 
     // Apply skill ops
     size_t sk_up = 0, sk_dep = 0;
     for (const auto& op : cr.skill_ops) {
-        if (op.action == "deprecate") ++sk_dep; else ++sk_up;
+        if (op.action == "deprecate")
+            ++sk_dep;
+        else
+            ++sk_up;
     }
     if (!cr.skill_ops.empty())
-        apply_skill_ops(*memory_store_, cr.skill_ops,
-                        experience_cfg_.store_path, &items);
+        apply_skill_ops(*memory_store_, cr.skill_ops, experience_cfg_.store_path, &items);
 
     // Decay and persist
     size_t before_decay = memory_store_->store_size();
@@ -940,27 +994,34 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
     if (hooks_.on_status) {
         size_t pruned = (before_decay > after_decay) ? before_decay - after_decay : 0;
         if (pruned > 0)
-            hooks_.on_status("decay: " + std::to_string(pruned) + " items evicted ("
-                             + std::to_string(before_decay) + " → "
-                             + std::to_string(after_decay) + " total)");
+            hooks_.on_status("decay: " + std::to_string(pruned) + " items evicted (" +
+                             std::to_string(before_decay) + " → " + std::to_string(after_decay) +
+                             " total)");
     }
 
     // Log what happened
     auto log_status = [&](const std::string& msg) {
-        if (hooks_.on_status) hooks_.on_status(msg);
+        if (hooks_.on_status)
+            hooks_.on_status(msg);
     };
     std::string summary;
-    if (mem_up) summary += std::to_string(mem_up) + " memories upserted";
-    if (mem_dep) summary += (summary.empty() ? "" : ", ") + std::to_string(mem_dep) + " deprecated";
-    if (sk_up) summary += (summary.empty() ? "" : ", ") + std::to_string(sk_up) + " skills upserted";
-    if (sk_dep) summary += (summary.empty() ? "" : ", ") + std::to_string(sk_dep) + " deprecated";
-    if (!summary.empty()) log_status("extraction: " + summary);
+    if (mem_up)
+        summary += std::to_string(mem_up) + " memories upserted";
+    if (mem_dep)
+        summary += (summary.empty() ? "" : ", ") + std::to_string(mem_dep) + " deprecated";
+    if (sk_up)
+        summary += (summary.empty() ? "" : ", ") + std::to_string(sk_up) + " skills upserted";
+    if (sk_dep)
+        summary += (summary.empty() ? "" : ", ") + std::to_string(sk_dep) + " deprecated";
+    if (!summary.empty())
+        log_status("extraction: " + summary);
     size_t st = memory_store_->store_size();
     log_status("memory store: " + std::to_string(st) + " total (memories + skills)");
 }
 
 void Agent::apply_brief(const CompressionResponse& cr) {
-    if (!cr.brief) return;
+    if (!cr.brief)
+        return;
     brief_store_.merge(*cr.brief);
     if (hooks_.on_status && !brief_store_.empty())
         hooks_.on_status("session brief: updated (intent/direction/done/next/avoid)");

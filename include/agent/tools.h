@@ -31,6 +31,11 @@ std::unique_ptr<Tool> make_bash_tool(JobService* jobs = nullptr,
 // JobService so model-started jobs are visible and killable from the host.
 std::vector<std::unique_ptr<Tool>> make_process_tools(JobService& jobs);
 
+// A capability factory returns a list; most tools are one. Empty in, empty out,
+// so a factory that declines still reads as "no tools" rather than a null
+// entry.
+std::vector<std::unique_ptr<Tool>> wrap_tool(std::unique_ptr<Tool> tool);
+
 // Skill tools bind to the session SkillCatalog, which they need for lookup,
 // body caching/activation, and re-scan on authoring.
 std::unique_ptr<Tool> make_read_skill_tool(SkillCatalog& catalog);

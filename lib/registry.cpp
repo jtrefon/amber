@@ -5,7 +5,7 @@
 
 namespace agent {
 
-void ToolRegistry::register_tool(std::unique_ptr<Tool> tool, std::string owner) {
+void ToolRegistry::register_tool(std::unique_ptr<Tool> tool, std::string owner, ToolMeta meta) {
     std::scoped_lock lk(mtx_);
     // Idempotent by name: re-registration (a second Agent, a skills
     // re-discovery) replaces the earlier instance instead of duplicating
@@ -19,10 +19,20 @@ void ToolRegistry::register_tool(std::unique_ptr<Tool> tool, std::string owner) 
         if (entry.tool->name() == name) {
             entry.tool = std::move(owned);
             entry.owner = std::move(owner);
+            entry.meta = std::move(meta);
             return;
         }
     }
-    tools_.push_back(Entry{std::move(owned), std::move(owner)});
+    tools_.push_back(Entry{std::move(owned), std::move(owner), std::move(meta)});
+}
+
+ToolMeta ToolRegistry::meta_for(const std::string& name) const {
+    std::scoped_lock lk(mtx_);
+    for (const auto& entry : tools_) {
+        if (entry.tool->name() == name)
+            return entry.meta;
+    }
+    return {};
 }
 
 bool ToolRegistry::remove_tool(const std::string& name) {

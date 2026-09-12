@@ -113,7 +113,8 @@ std::string RenderEngine::activity_verb() const {
         const auto& pending = tui_.router_->pending_tools();
         if (!pending.empty()) tool = pending.front().name;
     }
-    return tool_display::activity_verb(tui_.compressing_, tui_.state_, tool);
+    return tool_display::activity_verb(tui_.compressing_, tui_.state_, tool,
+                                       tui_.reg_);
 }
 
 int RenderEngine::max_scroll(const Window& w) const {

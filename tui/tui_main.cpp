@@ -165,7 +165,7 @@ int main(int argc, char** argv) {
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
     // Tools (including the core set) are plugin contributions now: the
-    // core_tools plugin builds them from the host services attached below.
+    // tool plugins build them from the host services attached below.
     subagents.set_config(cfg);
     subagents.set_parallel(cfg.subagent_parallel);
     subagents.set_max(cfg.subagent_max);
@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
     agent::PluginRuntime plugin_runtime(registry, cfg, workspace);
     plugin_runtime.add_bundled();
     plugin_runtime.add_external(plugins);
-    // The core_tools plugin constructs the built-in tools from these host
+    // The tool plugins construct the built-in tools from these host
     // services, so they must be attached before activation. Activation itself
     // happens in the Tui constructor, which is where the live config lands.
     agent::HostServices host_services{&jobs, &todos, &subagents, &cfg.cancel_token};

@@ -12,11 +12,12 @@ namespace agent {
 // ---------------------------------------------------------------------------
 
 Contribution PromptRegistry::add(const std::string& owner, const std::string& id, int priority,
-                                 Render render) {
+                                 Render render, PromptPlacement placement) {
     Block block;
     block.owner = owner;
     block.id = id;
     block.priority = priority;
+    block.placement = placement;
     block.seq = next_seq_++;
     block.render = std::move(render);
     blocks_.push_back(std::move(block));
@@ -40,10 +41,10 @@ Contribution PromptRegistry::add(const std::string& owner, const std::string& id
     return c;
 }
 
-std::vector<std::string> PromptRegistry::render_all() const {
+std::vector<std::string> PromptRegistry::render_all(PromptPlacement placement) const {
     std::vector<std::string> out;
     for (const auto& block : blocks_) {
-        if (!block.render)
+        if (block.placement != placement || !block.render)
             continue;
         std::string text = block.render();
         if (!text.empty())
@@ -265,11 +266,20 @@ PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts, Sta
 // Capabilities
 // ---------------------------------------------------------------------------
 
-ToolCapability::ToolCapability(std::string name, std::unique_ptr<Tool> tool)
-    : name_(std::move(name)), tool_(std::move(tool)) {}
+namespace {
 
-ToolCapability::ToolCapability(std::string name, Factory factory)
-    : name_(std::move(name)), factory_(std::move(factory)) {}
+ToolMeta meta_for_tool(const ToolCapability::Verbs& verbs, const std::string& tool_name) {
+    const auto it = verbs.find(tool_name);
+    return ToolMeta{it == verbs.end() ? std::string{} : it->second};
+}
+
+} // namespace
+
+ToolCapability::ToolCapability(std::string name, std::unique_ptr<Tool> tool, Verbs verbs)
+    : name_(std::move(name)), verbs_(std::move(verbs)), tool_(std::move(tool)) {}
+
+ToolCapability::ToolCapability(std::string name, Factory factory, Verbs verbs)
+    : name_(std::move(name)), verbs_(std::move(verbs)), factory_(std::move(factory)) {}
 
 InstallResult ToolCapability::install(PluginServices& services) {
     InstallResult r;
@@ -300,7 +310,9 @@ InstallResult ToolCapability::install(PluginServices& services) {
         if (!tool)
             continue;
         registered.push_back(tool->name());
-        registry->register_tool(std::move(tool), owner);
+        // The meta travels with the registration, so the UI reads the verb the
+        // plugin declared instead of keeping its own name→verb table.
+        registry->register_tool(std::move(tool), owner, meta_for_tool(verbs_, registered.back()));
     }
     if (registered.empty()) {
         r.declined = true;
@@ -322,8 +334,9 @@ InstallResult ToolCapability::install(PluginServices& services) {
 }
 
 PromptBlockCapability::PromptBlockCapability(std::string id, int priority,
-                                             PromptRegistry::Render render)
-    : id_(std::move(id)), priority_(priority), render_(std::move(render)) {}
+                                             PromptRegistry::Render render,
+                                             PromptPlacement placement)
+    : id_(std::move(id)), priority_(priority), render_(std::move(render)), placement_(placement) {}
 
 InstallResult PromptBlockCapability::install(PluginServices& services) {
     InstallResult r;
@@ -331,7 +344,7 @@ InstallResult PromptBlockCapability::install(PluginServices& services) {
         r.error = "prompt block '" + id_ + "' has no renderer";
         return r;
     }
-    r.contribution = services.prompts().add(services.owner(), id_, priority_, render_);
+    r.contribution = services.prompts().add(services.owner(), id_, priority_, render_, placement_);
     r.ok = true;
     return r;
 }

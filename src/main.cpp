@@ -237,7 +237,7 @@ int main(int argc, char** argv) {
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
     // Tools (including the core set) are plugin contributions now: the
-    // core_tools plugin builds them from the host services below.
+    // tool plugins build them from the host services below.
     subagents.set_config(cfg);
     subagents.set_parallel(cfg.subagent_parallel);
     subagents.set_max(cfg.subagent_max);
@@ -370,7 +370,7 @@ int main(int argc, char** argv) {
     agent::PluginRuntime plugin_runtime(registry, cfg, workspace);
     plugin_runtime.add_bundled();
     plugin_runtime.add_external(plugins);
-    // Attach before activating: the core_tools plugin constructs the tools from
+    // Attach before activating: the tool plugins construct their tools from
     // these services, and every plugin reads the live config, which is the one
     // the whole run uses.
     agent::HostServices host_services{&jobs, &todos, &subagents, &cfg.cancel_token};
@@ -383,7 +383,7 @@ int main(int argc, char** argv) {
         // leave the agent with no tools at all. --no-plugins is meant to skip
         // the plugin tier, not to strip the harness of its built-ins.
         agent::register_default_tools(registry, jobs, todos, cfg.cancel_token, cfg.plan_tool,
-                                      subagents, cfg.task_tool);
+                                      subagents, cfg.task_tool, &plugin_runtime.prompts());
     }
 
     try {
