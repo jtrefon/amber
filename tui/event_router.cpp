@@ -334,8 +334,8 @@ void EventRouter::resolve_api_key(const AgentEvent& ev) {
 
 void EventRouter::on_reasoning(Window* w, const AgentEvent& ev) {
     if (!w) return;
-    w->reason_buf += ev.text;
-    if (!w->reason_folded && tui_.render_engine_->show_reasoning())
+    w->reason.append(ev.text);
+    if (w->reason.active() && tui_.render_engine_->show_reasoning())
         w->scroll_top = tui_.render_engine_->max_scroll(*w);
 }
 
@@ -343,7 +343,7 @@ void EventRouter::on_reasoning(Window* w, const AgentEvent& ev) {
 void EventRouter::on_token(Window* w, const AgentEvent& ev) {
     if (!w) return;
     tui_.render_engine_->clear_working();  // output is displaying — row retires
-    if (!w->reason_folded && !w->reason_buf.empty())
+    if (w->reason.active())
         tui_.fold_reasoning(*w);
     w->stream_color = P_ASSISTANT;
     w->stream_buf += ev.text;

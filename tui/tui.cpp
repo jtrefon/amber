@@ -249,8 +249,7 @@ void Tui::send_async(const std::string& raw_prompt) {
     append_line(P_USER, "> " + raw_prompt);
 
     auto& w = win();
-    w.reason_buf.clear();
-    w.reason_folded = false;
+    w.reason.begin();
     render_engine_->set_show_reasoning(cfg_.show_reasoning);
     w.stream_ts = timestamp();
 

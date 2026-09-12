@@ -40,18 +40,12 @@ std::string mode_name(agent::AgentMode m) {
 } // namespace
 
 void Tui::fold_reasoning(Window& w) {
-    if (w.reason_folded) return;
-    w.reason_folded = true;
-    if (w.reason_buf.empty()) return;
-    size_t words = 1;
-    for (char ch : w.reason_buf) if (ch == ' ') ++words;
-    append_line_to(w, P_REASONING,
-                   "[thought for " + std::to_string(words) + " words]");
-    w.reason_buf.clear();
+    std::string summary = w.reason.fold();
+    if (!summary.empty()) append_line_to(w, P_REASONING, summary);
 }
 
 void Tui::flush_stream(Window& w) {
-    if (!w.reason_folded && !w.reason_buf.empty()) fold_reasoning(w);
+    if (w.reason.active()) fold_reasoning(w);
     if (w.stream_buf.empty()) return;
     // Commit the streamed reply through the Markdown renderer so headings,
     // code fences, lists, etc. survive into the scrollback (the live preview
@@ -884,8 +878,7 @@ void SlashDispatcher::register_builtin_actions() {
         }
         tui_.win().stream_buf.clear();
         tui_.win().stream_ts.clear();
-        tui_.win().reason_buf.clear();
-        tui_.win().reason_folded = false;
+        tui_.win().reason.begin();
         tui_.win().scroll_top = 0;
         tui_.ctx_used_.store(-1);
         tui_.ctx_estimate_ = 0;
