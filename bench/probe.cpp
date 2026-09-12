@@ -61,10 +61,9 @@ const char* kToolCallsSse =
 
 // The Hermes-style content that Qwen2.5-Coder emits (the 32B regression):
 // a bare JSON tool call in plain content text with no XML wrapper.
-const char* kBareJsonContent =
-    "Let's read the task file.\n"
-    "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
-    "I'll then write the solution.";
+const char* kBareJsonContent = "Let's read the task file.\n"
+                               "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
+                               "I'll then write the solution.";
 
 } // namespace
 
@@ -105,12 +104,11 @@ bool parse_probe_tool_calls_roundtrip(ProbeResult& r) {
 
 bool parse_probe_reasoning_segmentation(ProbeResult& r) {
     // Inline <think> spans must be segmented out of the visible content.
-    const char* sse =
-        "data: {\"choices\":[{\"delta\":{\"content\":\"<think>\"}}]}\n\n"
-        "data: {\"choices\":[{\"delta\":{\"content\":\"reasoning\"}}]}\n\n"
-        "data: {\"choices\":[{\"delta\":{\"content\":\"</think>\"}}]}\n\n"
-        "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n"
-        "data: [DONE]\n\n";
+    const char* sse = "data: {\"choices\":[{\"delta\":{\"content\":\"<think>\"}}]}\n\n"
+                      "data: {\"choices\":[{\"delta\":{\"content\":\"reasoning\"}}]}\n\n"
+                      "data: {\"choices\":[{\"delta\":{\"content\":\"</think>\"}}]}\n\n"
+                      "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n"
+                      "data: [DONE]\n\n";
     agent::Message m;
     auto sink = [](const agent::StreamChunk&) {};
     auto p = agent::make_dialect("openai")->make_decoder(m, sink, "");
@@ -158,9 +156,8 @@ bool extract_probe_bare_json(ProbeResult& r) {
 
 bool extract_probe_tool_call_xml(ProbeResult& r) {
     // <tool_call><name>X</name><arguments>...</arguments></tool_call>
-    const std::string text =
-        "<tool_call><name>bash</name><arguments>{\"command\":\"ls\"}"
-        "</arguments></tool_call>";
+    const std::string text = "<tool_call><name>bash</name><arguments>{\"command\":\"ls\"}"
+                             "</arguments></tool_call>";
     const auto calls = agent::extract_tool_calls_from_text(text);
     r.expected = R"(1 call: bash with args {"command":"ls"})";
     if (calls.is_null() || calls.size() != 1u) {
@@ -195,9 +192,8 @@ bool extract_probe_tools_wrapper(ProbeResult& r) {
 }
 
 bool extract_probe_attribute_style(ProbeResult& r) {
-    const std::string text =
-        "<tool_call>\n<function=bash>\n<parameter=command>\nfind . -type f\n"
-        "</parameter>\n</function>\n</tool_call>";
+    const std::string text = "<tool_call>\n<function=bash>\n<parameter=command>\nfind . -type f\n"
+                             "</parameter>\n</function>\n</tool_call>";
     const auto calls = agent::extract_tool_calls_from_text(text);
     r.expected = "1 call: bash with command 'find . -type f'";
     if (calls.is_null() || calls.size() != 1u) {
@@ -213,18 +209,15 @@ bool extract_probe_attribute_style(ProbeResult& r) {
 }
 
 bool extract_probe_multiple_calls(ProbeResult& r) {
-    const std::string text =
-        "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
-        "{\"name\": \"write\", \"arguments\": {\"path\": \"fizzbuzz.cpp\"}}";
+    const std::string text = "{\"name\": \"read\", \"arguments\": {\"path\": \"TASK.md\"}}\n"
+                             "{\"name\": \"write\", \"arguments\": {\"path\": \"fizzbuzz.cpp\"}}";
     const auto calls = agent::extract_tool_calls_from_text(text);
     r.expected = "2 calls: read, write in order";
     if (calls.is_null() || calls.size() != 2u) {
-        r.detail = "expected 2 calls, got " +
-                   std::to_string(calls.is_null() ? 0 : calls.size());
+        r.detail = "expected 2 calls, got " + std::to_string(calls.is_null() ? 0 : calls.size());
         return false;
     }
-    if (calls[0]["function"]["name"] != "read" ||
-        calls[1]["function"]["name"] != "write") {
+    if (calls[0]["function"]["name"] != "read" || calls[1]["function"]["name"] != "write") {
         r.detail = "wrong call order";
         return false;
     }
@@ -234,8 +227,7 @@ bool extract_probe_multiple_calls(ProbeResult& r) {
 
 bool extract_probe_no_false_positive(ProbeResult& r) {
     // Prose that merely mentions JSON must not be extracted as a tool call.
-    const std::string text =
-        R"(The config is {"mode": "strict"} and the docs say otherwise.)";
+    const std::string text = R"(The config is {"mode": "strict"} and the docs say otherwise.)";
     const auto calls = agent::extract_tool_calls_from_text(text);
     r.expected = "no extraction";
     if (!calls.is_null() && !calls.empty()) {
@@ -261,7 +253,7 @@ bool context_probe_chain_survives(ProbeResult& r) {
     sys.role = "system";
     sys.content = "system prompt";
     ctx.push(std::move(sys));
-    ctx.get_all();  // chain assert
+    ctx.get_all(); // chain assert
 
     for (const char* role : {"user", "assistant", "user", "assistant"}) {
         agent::Message m;
@@ -275,14 +267,14 @@ bool context_probe_chain_survives(ProbeResult& r) {
         r.detail = "pop not LIFO";
         return false;
     }
-    ctx.get_all();  // chain must survive pop
+    ctx.get_all(); // chain must survive pop
     ctx.clear();
-    ctx.get_all();  // chain must survive clear
+    ctx.get_all(); // chain must survive clear
     agent::Message fresh;
     fresh.role = "user";
     fresh.content = "fresh";
     ctx.push(std::move(fresh));
-    ctx.get_all();  // chain must survive rebuild
+    ctx.get_all(); // chain must survive rebuild
     r.detail = r.expected;
     return true;
 }
@@ -312,8 +304,9 @@ bool context_probe_compression_rebuild(ProbeResult& r) {
     // Simulate the compression output: a rebuilt (possibly reduced) list.
     auto rebuilt = ctx.get_all();
     ctx.clear();
-    for (auto& m : rebuilt) ctx.push(std::move(m));
-    ctx.get_all();  // chain must survive the rebuild
+    for (auto& m : rebuilt)
+        ctx.push(std::move(m));
+    ctx.get_all(); // chain must survive the rebuild
 
     const auto& final = ctx.get_all();
     if (final.size() != 4u) {
@@ -404,19 +397,16 @@ bool envelope_probe_status_classification(ProbeResult& r) {
     timeout.error = "timed out";
 
     const std::string f_ok = format_tool_envelope("read", {{"path", "a.txt"}}, ok);
-    const std::string f_err =
-        format_tool_envelope("read", {{"path", "a.txt"}}, err);
-    const std::string f_den =
-        format_tool_envelope("read", {{"path", "a.txt"}}, denied);
-    const std::string f_to =
-        format_tool_envelope("read", {{"path", "a.txt"}}, timeout);
+    const std::string f_err = format_tool_envelope("read", {{"path", "a.txt"}}, err);
+    const std::string f_den = format_tool_envelope("read", {{"path", "a.txt"}}, denied);
+    const std::string f_to = format_tool_envelope("read", {{"path", "a.txt"}}, timeout);
 
     if (f_ok.find("status=ok") == std::string::npos ||
         f_err.find("status=error") == std::string::npos ||
         f_den.find("status=denied") == std::string::npos ||
         f_to.find("status=timeout") == std::string::npos) {
-        r.detail = "status not classified: " + f_ok + " || " + f_err + " || " +
-                   f_den + " || " + f_to;
+        r.detail =
+            "status not classified: " + f_ok + " || " + f_err + " || " + f_den + " || " + f_to;
         return false;
     }
     r.detail = r.expected;
@@ -437,15 +427,12 @@ agent::json scripted_bash(const char* id, const char* command) {
     agent::json tc;
     tc["id"] = "c1";
     tc["type"] = "function";
-    tc["function"] = {{"name", "bash"},
-                      {"arguments",
-                       agent::json::object({{"command", command}})}};
+    tc["function"] = {{"name", "bash"}, {"arguments", agent::json::object({{"command", command}})}};
     return agent::json::object({{"tool_calls", agent::json::array({tc})}});
 }
 
 // Run a scripted scenario and return the report (or empty failure).
-bool run_loop_scenario(Scenario s, ScenarioReport& rep, std::string& err,
-                       ProbeResult& r) {
+bool run_loop_scenario(Scenario s, ScenarioReport& rep, std::string& err, ProbeResult& r) {
     s.suite = "harness";
     s.max_wall_ms = 60000;
     RunOptions opts;
@@ -479,7 +466,8 @@ bool loop_probe_done_flag(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.hard_stop) {
         r.detail = "hard_stop despite a done signal";
         return false;
@@ -489,12 +477,11 @@ bool loop_probe_done_flag(ProbeResult& r) {
         return false;
     }
     if (rep.kpi.tool_calls != 1) {
-        r.detail = "expected exactly 1 executed tool call, got " +
-                   std::to_string(rep.kpi.tool_calls);
+        r.detail =
+            "expected exactly 1 executed tool call, got " + std::to_string(rep.kpi.tool_calls);
         return false;
     }
-    r.detail = "terminated after " + std::to_string(rep.kpi.steps) +
-               " steps; 1 tool call";
+    r.detail = "terminated after " + std::to_string(rep.kpi.steps) + " steps; 1 tool call";
     return true;
 }
 
@@ -521,18 +508,17 @@ bool loop_probe_continue_flag(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.tool_calls != 3) {
-        r.detail = "expected 3 tool calls, got " +
-                   std::to_string(rep.kpi.tool_calls);
+        r.detail = "expected 3 tool calls, got " + std::to_string(rep.kpi.tool_calls);
         return false;
     }
     if (rep.kpi.hard_stop || rep.kpi.recoveries != 0) {
         r.detail = "loop wrongly terminated early";
         return false;
     }
-    r.detail = "ran " + std::to_string(rep.kpi.steps) +
-               " steps across 3 tool turns";
+    r.detail = "ran " + std::to_string(rep.kpi.steps) + " steps across 3 tool turns";
     return true;
 }
 
@@ -551,10 +537,11 @@ bool loop_probe_infinite_breakout(ProbeResult& r) {
         s.fake_replies.push_back(scripted_bash("c1", "echo x"));
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.steps >= 6) {
-        r.detail = "loop not broken: ran " + std::to_string(rep.kpi.steps) +
-                   " steps of an identical call";
+        r.detail =
+            "loop not broken: ran " + std::to_string(rep.kpi.steps) + " steps of an identical call";
         return false;
     }
     if (rep.kpi.recoveries == 0) {
@@ -590,7 +577,8 @@ bool loop_probe_text_repeat(ProbeResult& r) {
     }
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.recoveries == 0) {
         r.detail = "no steer recorded for repeated text";
         return false;
@@ -599,8 +587,7 @@ bool loop_probe_text_repeat(ProbeResult& r) {
         r.detail = "unexpected hard stop";
         return false;
     }
-    r.detail = "steered after " + std::to_string(rep.kpi.steps) +
-               " steps; loop contained";
+    r.detail = "steered after " + std::to_string(rep.kpi.steps) + " steps; loop contained";
     return true;
 }
 
@@ -635,18 +622,17 @@ bool loop_probe_fail_streak(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.recoveries == 0) {
         r.detail = "no recovery steer recorded for failing calls";
         return false;
     }
     if (rep.kpi.tool_failures < 3) {
-        r.detail = "expected >=3 tool failures, got " +
-                   std::to_string(rep.kpi.tool_failures);
+        r.detail = "expected >=3 tool failures, got " + std::to_string(rep.kpi.tool_failures);
         return false;
     }
-    r.detail = "steered after " + std::to_string(rep.kpi.tool_failures) +
-               " failures";
+    r.detail = "steered after " + std::to_string(rep.kpi.tool_failures) + " failures";
     return true;
 }
 
@@ -668,14 +654,14 @@ bool loop_probe_no_false_positive(ProbeResult& r) {
     s.fake_replies.push_back(agent::json::object({{"content", "done"}}));
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.recoveries != 0 || rep.kpi.hard_stop) {
         r.detail = "distinct calls wrongly flagged as a loop";
         return false;
     }
     if (rep.kpi.tool_calls != 4) {
-        r.detail = "expected 4 tool calls, got " +
-                   std::to_string(rep.kpi.tool_calls);
+        r.detail = "expected 4 tool calls, got " + std::to_string(rep.kpi.tool_calls);
         return false;
     }
     r.detail = "4 distinct calls ran without flagging";
@@ -698,14 +684,15 @@ bool loop_probe_hard_stop_honesty(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.steps > s.max_steps + 1) {
-        r.detail = "exceeded budget: " + std::to_string(rep.kpi.steps) +
-                   " steps (max " + std::to_string(s.max_steps) + ")";
+        r.detail = "exceeded budget: " + std::to_string(rep.kpi.steps) + " steps (max " +
+                   std::to_string(s.max_steps) + ")";
         return false;
     }
-    r.detail = "stopped at " + std::to_string(rep.kpi.steps) +
-               " steps (budget " + std::to_string(s.max_steps) + ")";
+    r.detail = "stopped at " + std::to_string(rep.kpi.steps) + " steps (budget " +
+               std::to_string(s.max_steps) + ")";
     return true;
 }
 
@@ -719,8 +706,7 @@ bool loop_probe_plan_adherence(ProbeResult& r) {
     s.prompt = "Read a.txt then update b.txt from it.";
     s.max_steps = 8;
     s.setup = agent::json::object({
-        {"files",
-         agent::json::object({{"a.txt", "needle"}, {"b.txt", "old"}})},
+        {"files", agent::json::object({{"a.txt", "needle"}, {"b.txt", "old"}})},
     });
     // The scripted plan: read a.txt, then write b.txt. The write's content
     // references the read's output, so order matters.
@@ -736,10 +722,10 @@ bool loop_probe_plan_adherence(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     // The executed call order must be read-then-write.
-    if (rep.tool_calls.size() != 2 ||
-        rep.tool_calls[0].first.find("read") == std::string::npos ||
+    if (rep.tool_calls.size() != 2 || rep.tool_calls[0].first.find("read") == std::string::npos ||
         rep.tool_calls[1].first.find("write") == std::string::npos) {
         r.detail = "execution order violated the plan dependency";
         return false;
@@ -774,7 +760,8 @@ bool loop_probe_plan_design(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     // The agentic plan machinery must record the declared plan and the
     // executed tool mix matching it.
     if (!rep.agentic.has_plan) {
@@ -786,8 +773,7 @@ bool loop_probe_plan_design(ProbeResult& r) {
                    " (expected ~1.0 for a matching tool mix)";
         return false;
     }
-    r.detail = "plan tool mix matched (ratio " +
-               std::to_string(rep.agentic.plan_ratio) + ")";
+    r.detail = "plan tool mix matched (ratio " + std::to_string(rep.agentic.plan_ratio) + ")";
     return true;
 }
 
@@ -818,7 +804,8 @@ bool loop_probe_replan_adapt(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.tool_failures == 0) {
         r.detail = "expected the first read to fail";
         return false;
@@ -845,12 +832,10 @@ bool loop_probe_dependency_order(ProbeResult& r) {
     s.prompt = "Update b.txt from a.txt.";
     s.max_steps = 8;
     s.setup = agent::json::object({
-        {"files",
-         agent::json::object({{"a.txt", "needle"}, {"b.txt", "old"}})},
+        {"files", agent::json::object({{"a.txt", "needle"}, {"b.txt", "old"}})},
     });
     // The oracle is ORDERED: read a.txt must precede the write of b.txt.
-    s.oracle = {{"read", {{"path", "a.txt"}}},
-                {"write", {{"path", "b.txt"}}}};
+    s.oracle = {{"read", {{"path", "a.txt"}}}, {"write", {{"path", "b.txt"}}}};
     s.fake_replies = agent::json::parse(R"([
         {"tool_calls": [{"id": "c1", "type": "function",
                          "function": {"name": "write",
@@ -863,7 +848,8 @@ bool loop_probe_dependency_order(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     // The ordered oracle must flag the write-before-read.
     if (rep.kpi.bullseye >= 0.99) {
         r.detail = "ordered oracle accepted write-before-read";
@@ -873,8 +859,7 @@ bool loop_probe_dependency_order(ProbeResult& r) {
         r.detail = "dependency violation not flagged";
         return false;
     }
-    r.detail = "write-before-read flagged (bullseye " +
-               std::to_string(rep.kpi.bullseye) + ")";
+    r.detail = "write-before-read flagged (bullseye " + std::to_string(rep.kpi.bullseye) + ")";
     return true;
 }
 
@@ -912,8 +897,8 @@ bool budget_probe_max_steps_enforced(ProbeResult& r) {
         return false;
     }
     if (rep.kpi.steps > s.max_steps + 1) {
-        r.detail = "ran " + std::to_string(rep.kpi.steps) +
-                   " steps, budget " + std::to_string(s.max_steps);
+        r.detail = "ran " + std::to_string(rep.kpi.steps) + " steps, budget " +
+                   std::to_string(s.max_steps);
         return false;
     }
     r.detail = "stopped at " + std::to_string(rep.kpi.steps) + " steps";
@@ -937,11 +922,9 @@ bool budget_probe_wall_clock(ProbeResult& r) {
         agent::json tc;
         tc["id"] = "c1";
         tc["type"] = "function";
-        tc["function"] = {{"name", "bash"},
-                          {"arguments", {{"command", "true"}}}};
+        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "true"}}}};
         s.fake_replies.push_back(
-            agent::json::object({{"tool_calls", agent::json::array({tc})},
-                                 {"latency_ms", 1500}}));
+            agent::json::object({{"tool_calls", agent::json::array({tc})}, {"latency_ms", 1500}}));
     }
     RunOptions opts;
     RunMeta meta;
@@ -955,17 +938,16 @@ bool budget_probe_wall_clock(ProbeResult& r) {
     }
     // The wall budget (4s) is far below the scripted total (~30s).
     if (rep.kpi.wall_ms > s.max_wall_ms + 2000) {
-        r.detail = "wall budget ignored: " + std::to_string(rep.kpi.wall_ms) +
-                   "ms vs budget " + std::to_string(s.max_wall_ms) + "ms";
+        r.detail = "wall budget ignored: " + std::to_string(rep.kpi.wall_ms) + "ms vs budget " +
+                   std::to_string(s.max_wall_ms) + "ms";
         return false;
     }
     if (rep.kpi.steps >= 10) {
-        r.detail = "ran too long: " + std::to_string(rep.kpi.steps) +
-                   " steps past the wall budget";
+        r.detail = "ran too long: " + std::to_string(rep.kpi.steps) + " steps past the wall budget";
         return false;
     }
-    r.detail = "cut off at " + std::to_string(rep.kpi.wall_ms) +
-               "ms / " + std::to_string(rep.kpi.steps) + " steps";
+    r.detail = "cut off at " + std::to_string(rep.kpi.wall_ms) + "ms / " +
+               std::to_string(rep.kpi.steps) + " steps";
     return true;
 }
 
@@ -983,26 +965,22 @@ bool confinement_probe_escapes_rejected(ProbeResult& r) {
     // tool spawns with Workspace::root()) are not left pointing at a deleted
     // temp directory.
     const std::string prior = agent::Workspace::root();
-    const std::string root = fs::temp_directory_path() / "amber_probe_ws" /
-                             std::to_string(::getpid());
+    const std::string root =
+        fs::temp_directory_path() / "amber_probe_ws" / std::to_string(::getpid());
     fs::create_directories(root);
     agent::Workspace::set_root(root);
 
     std::string resolved, error;
     const bool legal = agent::Workspace::confine("a.txt", resolved, error);
     const bool up = agent::Workspace::confine("../escape.txt", resolved, error);
-    const bool abs =
-        agent::Workspace::confine("/etc/passwd", resolved, error);
-    const bool deep =
-        agent::Workspace::confine("../../deep/x", resolved, error);
+    const bool abs = agent::Workspace::confine("/etc/passwd", resolved, error);
+    const bool deep = agent::Workspace::confine("../../deep/x", resolved, error);
 
     fs::remove_all(root);
     agent::Workspace::set_root(prior);
     if (!legal || up || abs || deep) {
-        r.detail = std::string("legal=") + (legal ? "t" : "f") +
-                   " ../=" + (up ? "t" : "f") +
-                   " abs=" + (abs ? "t" : "f") +
-                   " deep=" + (deep ? "t" : "f");
+        r.detail = std::string("legal=") + (legal ? "t" : "f") + " ../=" + (up ? "t" : "f") +
+                   " abs=" + (abs ? "t" : "f") + " deep=" + (deep ? "t" : "f");
         return false;
     }
     r.detail = r.expected;
@@ -1026,8 +1004,7 @@ bool oracle_probe_scenario_self_validation(ProbeResult& r) {
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
     agent::ToolRegistry reg;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
-                                  false, subagents, true);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, subagents);
 
     const fs::path root = fs::current_path() / "bench" / "scenarios";
     if (!fs::is_directory(root)) {
@@ -1036,9 +1013,11 @@ bool oracle_probe_scenario_self_validation(ProbeResult& r) {
     }
     int checked = 0;
     for (const auto& e : fs::recursive_directory_iterator(root)) {
-        if (!e.is_regular_file() || e.path().extension() != ".json") continue;
+        if (!e.is_regular_file() || e.path().extension() != ".json")
+            continue;
         const fs::path rel = fs::relative(e.path(), root);
-        if (std::distance(rel.begin(), rel.end()) != 2) continue;  // template dir
+        if (std::distance(rel.begin(), rel.end()) != 2)
+            continue; // template dir
         std::string err;
         auto s = load_scenario(e.path().string(), err);
         if (!s) {
@@ -1047,8 +1026,8 @@ bool oracle_probe_scenario_self_validation(ProbeResult& r) {
         }
         for (const auto& step : s->oracle) {
             if (!reg.find(step.tool)) {
-                r.detail = e.path().filename().string() + ": oracle tool '" +
-                           step.tool + "' not registered";
+                r.detail = e.path().filename().string() + ": oracle tool '" + step.tool +
+                           "' not registered";
                 return false;
             }
         }
@@ -1084,16 +1063,13 @@ bool dispatch_probe_roundtrip(ProbeResult& r) {
     agent::json tc;
     tc["id"] = "c1";
     tc["type"] = "function";
-    tc["function"] = {{"name", "bash"},
-                      {"arguments", {{"command", "echo hello"}}}};
+    tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo hello"}}}};
     calls.push_back(tc);
 
     agent::AgentHooks hooks;
-    hooks.on_tool_result = [](const std::string&, const agent::ToolResult&,
-                              const agent::json&) {};
-    const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, nullptr,
-                                               &dctx);
+    hooks.on_tool_result = [](const std::string&, const agent::ToolResult&, const agent::json&) {};
+    const bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1130,16 +1106,14 @@ bool dispatch_probe_parallel(ProbeResult& r) {
         agent::json tc;
         tc["id"] = "cA";
         tc["type"] = "function";
-        tc["function"] = {{"name", "bash"},
-                          {"arguments", {{"command", "echo AAA"}}}};
+        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo AAA"}}}};
         calls.push_back(tc);
     }
     {
         agent::json tc;
         tc["id"] = "cB";
         tc["type"] = "function";
-        tc["function"] = {{"name", "bash"},
-                          {"arguments", {{"command", "echo BBB"}}}};
+        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo BBB"}}}};
         calls.push_back(tc);
     }
 
@@ -1147,30 +1121,27 @@ bool dispatch_probe_parallel(ProbeResult& r) {
     // the tool name, not the call id, so key by the command we sent).
     std::map<std::string, std::string> paired;
     agent::AgentHooks hooks;
-    hooks.on_tool_call = [&paired](const std::string&,
-                                   const agent::json& args) {
+    hooks.on_tool_call = [&paired](const std::string&, const agent::json& args) {
         paired[args.value("command", "")] = "";
     };
-    hooks.on_tool_result =
-        [&paired](const std::string&, const agent::ToolResult& res,
-                  const agent::json&) {
-            // Pair by the pending call's command, matched via output content.
-            if (res.output.find("AAA") != std::string::npos)
-                paired["echo AAA"] = res.output;
-            if (res.output.find("BBB") != std::string::npos)
-                paired["echo BBB"] = res.output;
-        };
-    const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, nullptr,
-                                               &dctx);
+    hooks.on_tool_result = [&paired](const std::string&, const agent::ToolResult& res,
+                                     const agent::json&) {
+        // Pair by the pending call's command, matched via output content.
+        if (res.output.find("AAA") != std::string::npos)
+            paired["echo AAA"] = res.output;
+        if (res.output.find("BBB") != std::string::npos)
+            paired["echo BBB"] = res.output;
+    };
+    const bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
     }
     if (paired["echo AAA"].find("AAA") == std::string::npos ||
         paired["echo BBB"].find("BBB") == std::string::npos) {
-        r.detail = "results cross-paired or lost: A='" + paired["echo AAA"] +
-                   "' B='" + paired["echo BBB"] + "'";
+        r.detail = "results cross-paired or lost: A='" + paired["echo AAA"] + "' B='" +
+                   paired["echo BBB"] + "'";
         return false;
     }
     r.detail = "two calls executed, results paired correctly";
@@ -1194,36 +1165,31 @@ bool dispatch_probe_out_of_order(ProbeResult& r) {
         agent::json tc;
         tc["id"] = "cSlow";
         tc["type"] = "function";
-        tc["function"] = {{"name", "bash"},
-                          {"arguments", {{"command", "sleep 0.3; echo SLOW"}}}};
+        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "sleep 0.3; echo SLOW"}}}};
         calls.push_back(tc);
     }
     {
         agent::json tc;
         tc["id"] = "cFast";
         tc["type"] = "function";
-        tc["function"] = {{"name", "bash"},
-                          {"arguments", {{"command", "echo FAST"}}}};
+        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo FAST"}}}};
         calls.push_back(tc);
     }
 
     std::map<std::string, std::string> paired;
     agent::AgentHooks hooks;
-    hooks.on_tool_call = [&paired](const std::string&,
-                                   const agent::json& args) {
+    hooks.on_tool_call = [&paired](const std::string&, const agent::json& args) {
         paired[args.value("command", "")] = "";
     };
-    hooks.on_tool_result =
-        [&paired](const std::string&, const agent::ToolResult& res,
-                  const agent::json&) {
-            if (res.output.find("SLOW") != std::string::npos)
-                paired["sleep 0.3; echo SLOW"] = res.output;
-            if (res.output.find("FAST") != std::string::npos)
-                paired["echo FAST"] = res.output;
-        };
-    const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, nullptr,
-                                               &dctx);
+    hooks.on_tool_result = [&paired](const std::string&, const agent::ToolResult& res,
+                                     const agent::json&) {
+        if (res.output.find("SLOW") != std::string::npos)
+            paired["sleep 0.3; echo SLOW"] = res.output;
+        if (res.output.find("FAST") != std::string::npos)
+            paired["echo FAST"] = res.output;
+    };
+    const bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1304,16 +1270,15 @@ bool recovery_probe_nonretryable(ProbeResult& r) {
     ScenarioReport rep = run_one_scenario(s, opts, meta, err);
     // The run may end in failure — but it must END (steps bounded, no spin).
     if (rep.kpi.retries >= 5) {
-        r.detail = "non-retryable error was retried " +
-                   std::to_string(rep.kpi.retries) + " times";
+        r.detail = "non-retryable error was retried " + std::to_string(rep.kpi.retries) + " times";
         return false;
     }
     if (rep.kpi.steps >= 8) {
         r.detail = "run spun: " + std::to_string(rep.kpi.steps) + " steps";
         return false;
     }
-    r.detail = "run ended at " + std::to_string(rep.kpi.steps) +
-               " steps, retries " + std::to_string(rep.kpi.retries);
+    r.detail = "run ended at " + std::to_string(rep.kpi.steps) + " steps, retries " +
+               std::to_string(rep.kpi.retries);
     return true;
 }
 
@@ -1329,9 +1294,7 @@ bool recovery_probe_dropout(ProbeResult& r) {
     s.max_wall_ms = 30000;
     s.stream = true;
     s.fake_replies = agent::json::array({
-        agent::json::object({{"content", "part"},
-                             {"drop_after_chunks", 2},
-                             {"retryable", true}}),
+        agent::json::object({{"content", "part"}, {"drop_after_chunks", 2}, {"retryable", true}}),
         agent::json::object({{"content", "done"}}),
     });
     RunOptions opts;
@@ -1352,8 +1315,7 @@ bool recovery_probe_dropout(ProbeResult& r) {
         r.detail = "dropout was not retried";
         return false;
     }
-    r.detail = "recovered after " + std::to_string(rep.kpi.retries) +
-               " retries, completed";
+    r.detail = "recovered after " + std::to_string(rep.kpi.retries) + " retries, completed";
     return true;
 }
 
@@ -1371,9 +1333,8 @@ bool recovery_probe_4xx(ProbeResult& r) {
     // The server rejects the tool grammar ("Unable to generate parser for
     // this template"); the repair drops tools and retries.
     s.fake_replies = agent::json::array({
-        agent::json::object({{"error",
-                              "Unable to generate parser for this template"},
-                             {"retryable", false}}),
+        agent::json::object(
+            {{"error", "Unable to generate parser for this template"}, {"retryable", false}}),
         agent::json::object({{"content", "done"}}),
     });
     RunOptions opts;
@@ -1386,8 +1347,7 @@ bool recovery_probe_4xx(ProbeResult& r) {
         r.detail = "4xx produced no repair (recoveries=0)";
         return false;
     }
-    r.detail = "4xx repaired and retried (recoveries " +
-               std::to_string(rep.kpi.recoveries) + ")";
+    r.detail = "4xx repaired and retried (recoveries " + std::to_string(rep.kpi.recoveries) + ")";
     return true;
 }
 
@@ -1423,10 +1383,10 @@ bool fidelity_probe_misuse_wrong_tool(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.tool_calls != 1) {
-        r.detail = "expected 1 executed call, got " +
-                   std::to_string(rep.kpi.tool_calls);
+        r.detail = "expected 1 executed call, got " + std::to_string(rep.kpi.tool_calls);
         return false;
     }
     // The oracle step (read) must NOT be matched by the bash call.
@@ -1455,20 +1415,16 @@ bool fidelity_probe_params_value(ProbeResult& r) {
     agent::json tc;
     tc["id"] = "c1";
     tc["type"] = "function";
-    tc["function"] = {{"name", "bash"},
-                      {"arguments",
-                       {{"command", "echo hello-world-42"}}}};
+    tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo hello-world-42"}}}};
     calls.push_back(tc);
 
     agent::AgentHooks hooks;
     std::string got_args;
-    hooks.on_tool_call = [&got_args](const std::string&,
-                                     const agent::json& args) {
+    hooks.on_tool_call = [&got_args](const std::string&, const agent::json& args) {
         got_args = args.dump();
     };
-    const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, nullptr,
-                                               &dctx);
+    const bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1498,13 +1454,13 @@ bool fidelity_probe_unknown_tool(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.hard_stop) {
         r.detail = "unknown tool caused a hard stop";
         return false;
     }
-    r.detail = "unknown tool denied; loop continued (steps " +
-               std::to_string(rep.kpi.steps) + ")";
+    r.detail = "unknown tool denied; loop continued (steps " + std::to_string(rep.kpi.steps) + ")";
     return true;
 }
 
@@ -1526,13 +1482,14 @@ bool fidelity_probe_malformed_args(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.kpi.hard_stop) {
         r.detail = "malformed args caused a hard stop";
         return false;
     }
-    r.detail = "malformed args handled; loop continued (steps " +
-               std::to_string(rep.kpi.steps) + ")";
+    r.detail =
+        "malformed args handled; loop continued (steps " + std::to_string(rep.kpi.steps) + ")";
     return true;
 }
 
@@ -1549,8 +1506,7 @@ bool fidelity_probe_arg_shapes(ProbeResult& r) {
 
     int dispatched = 0;
     agent::AgentHooks hooks;
-    hooks.on_tool_call = [&dispatched](const std::string&,
-                                       const agent::json&) { ++dispatched; };
+    hooks.on_tool_call = [&dispatched](const std::string&, const agent::json&) { ++dispatched; };
 
     // Object-typed arguments.
     {
@@ -1559,11 +1515,10 @@ bool fidelity_probe_arg_shapes(ProbeResult& r) {
         agent::json tc;
         tc["id"] = "c1";
         tc["type"] = "function";
-        tc["function"] = {{"name", "bash"},
-                          {"arguments", {{"command", "echo a"}}}};
+        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo a"}}}};
         calls.push_back(tc);
-        if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved,
-                                        nullptr, nullptr, &dctx)) {
+        if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
+                                        &dctx)) {
             r.detail = "object-typed arguments failed";
             return false;
         }
@@ -1575,18 +1530,16 @@ bool fidelity_probe_arg_shapes(ProbeResult& r) {
         agent::json tc;
         tc["id"] = "c2";
         tc["type"] = "function";
-        tc["function"] = {{"name", "bash"},
-                          {"arguments", R"({"command":"echo b"})"}};
+        tc["function"] = {{"name", "bash"}, {"arguments", R"({"command":"echo b"})"}};
         calls.push_back(tc);
-        if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved,
-                                        nullptr, nullptr, &dctx)) {
+        if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
+                                        &dctx)) {
             r.detail = "string-typed arguments failed";
             return false;
         }
     }
     if (dispatched != 2) {
-        r.detail = "expected 2 dispatches, got " +
-                   std::to_string(dispatched);
+        r.detail = "expected 2 dispatches, got " + std::to_string(dispatched);
         return false;
     }
     r.detail = "object and string argument shapes both dispatched";
@@ -1627,17 +1580,16 @@ bool output_probe_acts_on_content(ProbeResult& r) {
     ])");
     ScenarioReport rep;
     std::string err;
-    if (!run_loop_scenario(s, rep, err, r)) return false;
+    if (!run_loop_scenario(s, rep, err, r))
+        return false;
     if (rep.tool_calls.size() != 2) {
-        r.detail = "expected 2 executed calls, got " +
-                   std::to_string(rep.tool_calls.size());
+        r.detail = "expected 2 executed calls, got " + std::to_string(rep.tool_calls.size());
         return false;
     }
     // The second call must reference the content read in the first.
     const auto& second = rep.tool_calls[1].second;
     if (second.find("needle") == std::string::npos) {
-        r.detail = "second call does not reference the read content: " +
-                   second;
+        r.detail = "second call does not reference the read content: " + second;
         return false;
     }
     r.detail = "read output fed the next call";
@@ -1660,37 +1612,29 @@ bool output_probe_truncation(ProbeResult& r) {
     tc["id"] = "c1";
     tc["type"] = "function";
     tc["function"] = {{"name", "bash"},
-                      {"arguments",
-                       {{"command", "head -c 200000 /dev/zero | tr '\\0' 'x'"}}}};
+                      {"arguments", {{"command", "head -c 200000 /dev/zero | tr '\\0' 'x'"}}}};
     calls.push_back(tc);
 
     agent::AgentHooks hooks;
     agent::ToolResult captured;
-    hooks.on_tool_result = [&captured](const std::string&,
-                                       const agent::ToolResult& res,
-                                       const agent::json&) {
-        captured = res;
-    };
-    const bool ok = agent::dispatch_tool_calls(calls, cfg, reg, hooks, log,
-                                               approved, nullptr, nullptr,
-                                               &dctx);
+    hooks.on_tool_result = [&captured](const std::string&, const agent::ToolResult& res,
+                                       const agent::json&) { captured = res; };
+    const bool ok =
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
     }
     // The cap is 64 KiB of tool output plus a short truncation marker.
     if (captured.output.size() > (64 * 1024) + 128) {
-        r.detail = "output not capped: " +
-                   std::to_string(captured.output.size()) + " bytes";
+        r.detail = "output not capped: " + std::to_string(captured.output.size()) + " bytes";
         return false;
     }
     if (captured.output.find("[output truncated") == std::string::npos) {
-        r.detail = "no truncation marker: " +
-                   std::to_string(captured.output.size()) + " bytes";
+        r.detail = "no truncation marker: " + std::to_string(captured.output.size()) + " bytes";
         return false;
     }
-    r.detail = "output capped at " +
-               std::to_string(captured.output.size()) + " bytes";
+    r.detail = "output capped at " + std::to_string(captured.output.size()) + " bytes";
     return true;
 }
 
@@ -1702,8 +1646,7 @@ bool output_probe_envelope_ext(ProbeResult& r) {
     res.ok = false;
     res.error = "file not found: /nope";
     res.meta = {{"code", 2}};
-    const std::string env =
-        format_tool_envelope("read", {{"path", "/nope"}}, res);
+    const std::string env = format_tool_envelope("read", {{"path", "/nope"}}, res);
     if (env.find("ERROR: file not found: /nope") == std::string::npos) {
         r.detail = "error text lost: " + env;
         return false;
@@ -1739,12 +1682,9 @@ struct ProbeRegistrar {
         add("extract", "extract_multiple_calls", extract_probe_multiple_calls);
         add("extract", "extract_no_false_positive", extract_probe_no_false_positive);
         add("context", "context_chain_survives", context_probe_chain_survives);
-        add("context", "context_compression_rebuild",
-            context_probe_compression_rebuild);
-        add("context", "context_token_fidelity",
-            context_probe_token_fidelity);
-        add("envelope", "envelope_status_classification",
-            envelope_probe_status_classification);
+        add("context", "context_compression_rebuild", context_probe_compression_rebuild);
+        add("context", "context_token_fidelity", context_probe_token_fidelity);
+        add("envelope", "envelope_status_classification", envelope_probe_status_classification);
         add("budget", "budget_max_steps_enforced", budget_probe_max_steps_enforced);
         add("budget", "budget_wall_clock", budget_probe_wall_clock);
         add("loop", "loop_done_flag", loop_probe_done_flag);
@@ -1758,8 +1698,7 @@ struct ProbeRegistrar {
         add("loop", "loop_plan_design", loop_probe_plan_design);
         add("loop", "loop_replan_adapt", loop_probe_replan_adapt);
         add("loop", "loop_dependency_order", loop_probe_dependency_order);
-        add("fidelity", "fidelity_misuse_wrong_tool",
-            fidelity_probe_misuse_wrong_tool);
+        add("fidelity", "fidelity_misuse_wrong_tool", fidelity_probe_misuse_wrong_tool);
         add("fidelity", "fidelity_params_value", fidelity_probe_params_value);
         add("fidelity", "fidelity_unknown_tool", fidelity_probe_unknown_tool);
         add("fidelity", "fidelity_malformed_args", fidelity_probe_malformed_args);
@@ -1767,15 +1706,12 @@ struct ProbeRegistrar {
         add("output", "output_acts_on_content", output_probe_acts_on_content);
         add("output", "output_truncation", output_probe_truncation);
         add("output", "output_envelope_ext", output_probe_envelope_ext);
-        add("confinement", "confinement_escapes_rejected",
-            confinement_probe_escapes_rejected);
-        add("oracle", "oracle_scenario_self_validation",
-            oracle_probe_scenario_self_validation);
+        add("confinement", "confinement_escapes_rejected", confinement_probe_escapes_rejected);
+        add("oracle", "oracle_scenario_self_validation", oracle_probe_scenario_self_validation);
         add("dispatch", "dispatch_roundtrip", dispatch_probe_roundtrip);
         add("dispatch", "dispatch_parallel", dispatch_probe_parallel);
         add("dispatch", "dispatch_out_of_order", dispatch_probe_out_of_order);
-        add("recovery", "recovery_retryable_recovers",
-            recovery_probe_retryable_recovers);
+        add("recovery", "recovery_retryable_recovers", recovery_probe_retryable_recovers);
         add("recovery", "recovery_nonretryable", recovery_probe_nonretryable);
         add("recovery", "recovery_dropout", recovery_probe_dropout);
         add("recovery", "recovery_4xx", recovery_probe_4xx);
@@ -1800,8 +1736,7 @@ Registry& registry() {
 }
 } // namespace
 
-void register_probe(ProbeResult result,
-                    const std::function<bool(ProbeResult&)>& run) {
+void register_probe(ProbeResult result, const std::function<bool(ProbeResult&)>& run) {
     registry().probes.push_back({std::move(result), run});
 }
 
@@ -1825,12 +1760,11 @@ std::vector<ProbeResult> run_all_probes() {
     return out;
 }
 
-double HarnessScorecard::family_integrity(const std::string& family) const
-    noexcept {
+double HarnessScorecard::family_integrity(const std::string& family) const noexcept {
     const auto it = families.find(family);
-    if (it == families.end() || it->second.second == 0) return 0.0;
-    return static_cast<double>(it->second.first) /
-           static_cast<double>(it->second.second);
+    if (it == families.end() || it->second.second == 0)
+        return 0.0;
+    return static_cast<double>(it->second.first) / static_cast<double>(it->second.second);
 }
 
 HarnessScorecard aggregate_probes(const std::vector<ProbeResult>& probes) {
@@ -1838,13 +1772,14 @@ HarnessScorecard aggregate_probes(const std::vector<ProbeResult>& probes) {
     sc.probes = probes;
     for (const auto& p : probes) {
         ++sc.total;
-        if (p.passed) ++sc.passed;
+        if (p.passed)
+            ++sc.passed;
         auto& f = sc.families[p.family];
         ++f.second;
-        if (p.passed) ++f.first;
+        if (p.passed)
+            ++f.first;
     }
-    sc.integrity = sc.total > 0 ? static_cast<double>(sc.passed) / sc.total
-                                : 0.0;
+    sc.integrity = sc.total > 0 ? static_cast<double>(sc.passed) / sc.total : 0.0;
     return sc;
 }
 

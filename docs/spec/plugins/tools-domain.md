@@ -272,11 +272,18 @@ Implemented (branch `docs/tools-domain`):
 
 Left, with the reason it is not done yet:
 
-- **§5.3 (delete `plan_tool`/`task_tool`)** — still outstanding; the flags gate
-  the two tool plugins, so plugin state and config are two controls for one thing. Deleting
-  them costs the bench its per-scenario `task_tool` switch
-  (`bench/scenario.h`), so §3.6 has to land first or the bench loses a control
-  rather than trading it for a better one.
+- **§5.3 (delete `plan_tool`/`task_tool`)** — **done**. The two config keys,
+  their env vars, and the two trailing `bool` parameters of
+  `register_default_tools` are gone; `plugins/tool_plan` and
+  `plugins/tool_task` contribute unconditionally, so plugin state is the only
+  control. `prompts/tools_planning.md` moved to `prompts/tools/plan.md` and is
+  contributed as the plan tool's own `System` block (`tool_doc_priority::kPlan`)
+  — it now travels with the tool it describes. Consequence, deliberate: the
+  plan and task tools ship enabled like every other bundled tool plugin, so the
+  harness and every session gain them unless the plugin is switched off.
+  Evidence: hermetic scorecard unchanged (871.25/1000, 8/8) against
+  `bench/results/tools-domain-hermetic-baseline.txt` — the prompt move and the
+  wider tool set move no hermetic scenario.
 - **§5.4 (skill tools)** — `read_skill`/`list_skills`/`write_skill` bind to the
   session `SkillCatalog`, which the `Agent` owns and creates. Moving them means
   moving catalog ownership to the host so a plugin can receive it, which is a

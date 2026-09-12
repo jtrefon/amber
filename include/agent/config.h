@@ -24,11 +24,11 @@ struct Config {
     // "openai" covers every OpenAI-compatible endpoint.
     std::string flavor = "openai";
     std::string api_base = "http://localhost:8000/v1";
-    std::string api_key;                 // required for managed providers
+    std::string api_key; // required for managed providers
     std::string model = "gpt-4o-mini";
-    std::string system_prompt_path;      // markdown file
-    std::string tools_prompt_path;       // markdown file advertising tools
-    std::string git_prompt_path;         // markdown file for git workflow
+    std::string system_prompt_path; // markdown file
+    std::string tools_prompt_path;  // markdown file advertising tools
+    std::string git_prompt_path;    // markdown file for git workflow
 
     // Explicit override for a provider's balance readout, read by the provider
     // plugin that offers one (kilocode's account token, for instance). Empty
@@ -41,14 +41,12 @@ struct Config {
     bool wallet_enabled = true;
     bool allowance_enabled = true;
     int max_tool_iterations = 100;
-    long max_wall_ms = 0;        // 0 = unlimited; loop deadline (engine-enforced)
+    long max_wall_ms = 0; // 0 = unlimited; loop deadline (engine-enforced)
     double temperature = 0.2;
     size_t max_tokens = 16384;
-    bool stream = true;                  // use SSE streaming when supported
-    bool plan_tool = false;              // register todowrite tool + prompt (env AMBER_PLAN_TOOL)
-    bool task_tool = false;              // register the task tool (env AMBER_TASK_TOOL)
-    bool subagent_parallel = true;       // sub-agents run concurrently (env AMBER_SUBAGENT_PARALLEL)
-    int subagent_max = 4;                // max concurrent sub-agents (env AMBER_SUBAGENT_MAX)
+    bool stream = true;            // use SSE streaming when supported
+    bool subagent_parallel = true; // sub-agents run concurrently (env AMBER_SUBAGENT_PARALLEL)
+    int subagent_max = 4;          // max concurrent sub-agents (env AMBER_SUBAGENT_MAX)
 
     // Agent mode: controls tool availability and approval policy.
     //   read  — only observation tools (search, grep, read); writes disallowed
@@ -67,7 +65,7 @@ struct Config {
     std::string thinking = "auto";
     // Soft cap on thinking tokens; <=0 means "unset" (no thinking_budget sent).
     int thinking_budget = -1;
-    bool show_reasoning = true;          // render thinking live in the UI
+    bool show_reasoning = true; // render thinking live in the UI
 
     // Model context window (n_ctx) in tokens. Used by UIs to render a
     // context-usage gauge (prompt_tokens vs this). Auto-detected from the
@@ -167,7 +165,6 @@ struct Config {
     // skips that key with its default, never the whole file).
     std::vector<std::string> warnings;
     void apply_environment();
-
 
     // Persist the LLM provider settings (api_base, api_key, model) to a global
     // config file. Provider settings live globally because they are not project-
