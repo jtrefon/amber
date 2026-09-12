@@ -16,7 +16,7 @@ std::vector<std::unique_ptr<Capability>> make_plan_tool_capabilities() {
                 return {};
             return wrap_tool(make_todowrite_tool(*services.host->todos));
         },
-        ToolCapability::Verbs{{{"todowrite", "planning"}}}));
+        ToolCapability::Meta{{{"todowrite", {"planning", ToolRole::Plan}}}}));
     // The prose that describes the tool travels with it: switching this plugin
     // off removes the tool and the text that would have taught the model to use
     // it, in one movement.

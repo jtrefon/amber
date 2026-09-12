@@ -268,18 +268,18 @@ PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts, Sta
 
 namespace {
 
-ToolMeta meta_for_tool(const ToolCapability::Verbs& verbs, const std::string& tool_name) {
-    const auto it = verbs.find(tool_name);
-    return ToolMeta{it == verbs.end() ? std::string{} : it->second};
+ToolMeta meta_for_tool(const ToolCapability::Meta& declared, const std::string& tool_name) {
+    const auto it = declared.find(tool_name);
+    return it == declared.end() ? ToolMeta{} : it->second;
 }
 
 } // namespace
 
-ToolCapability::ToolCapability(std::string name, std::unique_ptr<Tool> tool, Verbs verbs)
-    : name_(std::move(name)), verbs_(std::move(verbs)), tool_(std::move(tool)) {}
+ToolCapability::ToolCapability(std::string name, std::unique_ptr<Tool> tool, Meta meta)
+    : name_(std::move(name)), meta_(std::move(meta)), tool_(std::move(tool)) {}
 
-ToolCapability::ToolCapability(std::string name, Factory factory, Verbs verbs)
-    : name_(std::move(name)), verbs_(std::move(verbs)), factory_(std::move(factory)) {}
+ToolCapability::ToolCapability(std::string name, Factory factory, Meta meta)
+    : name_(std::move(name)), meta_(std::move(meta)), factory_(std::move(factory)) {}
 
 InstallResult ToolCapability::install(PluginServices& services) {
     InstallResult r;
@@ -312,7 +312,8 @@ InstallResult ToolCapability::install(PluginServices& services) {
         registered.push_back(tool->name());
         // The meta travels with the registration, so the UI reads the verb the
         // plugin declared instead of keeping its own name→verb table.
-        registry->register_tool(std::move(tool), owner, meta_for_tool(verbs_, registered.back()));
+        registry->register_tool(std::move(tool), owner,
+                                    meta_for_tool(meta_, registered.back()));
     }
     if (registered.empty()) {
         r.declined = true;

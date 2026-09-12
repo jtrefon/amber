@@ -1671,6 +1671,17 @@ void SlashDispatcher::set_plugin(const std::string& id, bool on) {
     // so there is no "no tools at all" state to warn about.)
     tui_.append_line(P_STATUS, "plugin " + id + (on ? " on" : " off") +
                                    (on ? "" : removed_summary(before.contributions)));
+    // What that change means for the set as a whole: a capability the harness
+    // assumes is now unperformable, or two tools competing for one job. The
+    // line above says what left; this says what it costs.
+    report_toolset_audit();
+}
+
+void SlashDispatcher::report_toolset_audit() {
+    for (const auto& finding : tui_.plugin_runtime_.audit()) {
+        tui_.append_line(P_STATUS, "warning (" + agent::to_string(finding.kind) +
+                                       "): " + finding.message);
+    }
 }
 
 void SlashDispatcher::cmd_provider_delete(const std::string& name) {

@@ -371,21 +371,22 @@ class ToolCapability : public Capability {
 public:
     using Factory = std::function<std::vector<std::unique_ptr<Tool>>(PluginServices&)>;
 
-    // Display verbs keyed by tool name. A capability contributing one tool
-    // writes one entry; the process set names each of its three. A tool left
-    // out falls back to a generic word, so nothing renders blank — and a plugin
-    // that declares no verbs at all is still valid.
-    using Verbs = std::map<std::string, std::string>;
+    // What each contributed tool is and does, keyed by tool name. One entry per
+    // tool: the verb renders a status line, the role lets the audit see the
+    // shape of the enabled set. A tool left out falls back to a generic word
+    // and the Other role, so a plugin that declares nothing is still valid - it
+    // is simply invisible to the audit.
+    using Meta = std::map<std::string, ToolMeta>;
 
-    ToolCapability(std::string name, std::unique_ptr<Tool> tool, Verbs verbs = {});
-    ToolCapability(std::string name, Factory factory, Verbs verbs = {});
+    ToolCapability(std::string name, std::unique_ptr<Tool> tool, Meta meta = {});
+    ToolCapability(std::string name, Factory factory, Meta meta = {});
     std::string name() const override { return name_; }
     CapabilityKind kind() const override { return CapabilityKind::Tool; }
     InstallResult install(PluginServices& services) override;
 
 private:
     std::string name_;
-    Verbs verbs_;
+    Meta meta_;
     std::unique_ptr<Tool> tool_; // exactly one of these is set
     Factory factory_;
 };

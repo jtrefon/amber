@@ -20,6 +20,7 @@
 #include "agent/plugin_capability.h"
 #include "agent/plugin_registry.h"
 #include "agent/registry.h"
+#include "agent/toolset_audit.h"
 #include "agent/workspace.h"
 
 #include <atomic>
@@ -211,6 +212,12 @@ public:
 
     // Contributions across every registry, for the console.
     std::vector<ExtensionItem> contributions() const;
+
+    // Audit the enabled toolset against the current plugin state. Computed on
+    // demand, so it can never describe a configuration that has moved on; the
+    // caller shows the findings after a change (spec §5.2). Empty means the
+    // set is complete enough and its tools are distinguishable.
+    std::vector<AuditFinding> audit() const;
 
 private:
     // Install one plugin's declared capabilities, recording each in the ledger.
