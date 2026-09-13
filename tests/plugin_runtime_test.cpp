@@ -6,6 +6,7 @@
 #include "agent.h"
 #include "agent/dialect.h"
 #include "agent/extensions.h"
+#include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
 #include "agent/plugins_bundled.h"
 #include "agent/tools.h"
@@ -1492,4 +1493,22 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     ASSERT_TRUE(runtime.set_state("hello", true));
     ASSERT_TRUE(runtime.status("hello").enabled);
     ASSERT_EQ(runtime.commands().size(), 1u);
+}
+
+// The registry console groups contributions by kind, so every kind needs a
+// name: an unnamed one renders as "?" and the contribution reads as a typo.
+TEST(capability_kind_name_covers_every_kind) {
+    const std::vector<CapabilityKind> kinds = {
+        CapabilityKind::Tool,    CapabilityKind::PromptBlock,   CapabilityKind::StatusSegment,
+        CapabilityKind::Panel,   CapabilityKind::Provider,      CapabilityKind::Wallet,
+        CapabilityKind::Command, CapabilityKind::SearchBackend,
+    };
+    for (const auto kind : kinds) {
+        const std::string name = capability_kind_name(kind);
+        ASSERT_FALSE(name.empty());
+        ASSERT(name != "?");
+    }
+    ASSERT_EQ(std::string(capability_kind_name(CapabilityKind::Command)), std::string("command"));
+    ASSERT_EQ(std::string(capability_kind_name(CapabilityKind::SearchBackend)),
+              std::string("search"));
 }
