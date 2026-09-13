@@ -142,11 +142,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Configure
-        run: ./configure
-
       - name: Duplicate detection
-        run: make duplicates
+        # No configure/install-deps needed: the detector is pure python3.
+        run: python3 tools/duplicate_detector.py --min-lines=6 lib tools tui tests src
 
   # ---------------------------------------------------------------------------
   # Complexity — informational, no fail (CCN>15 or length>50 via lizard).
