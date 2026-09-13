@@ -654,7 +654,9 @@ TEST(wallet_registry_installs_and_unwinds) {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services(tools, prompts, status, panels, wallets, bus, commands);
+    auto search_backends = std::make_shared<SearchBackendRegistry>();
+    PluginServices services(tools, prompts, status, panels, wallets, search_backends, bus,
+                            commands);
     services.set_owner("acme");
 
     WalletCapability cap([](const Config&) -> std::optional<WalletSnapshot> {

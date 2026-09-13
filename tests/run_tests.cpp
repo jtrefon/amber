@@ -1429,7 +1429,7 @@ TEST(sec03_search_tool_clamps_max) {
     // SearchTool must clamp max to a reasonable upper bound so a model
     // cannot request an unbounded result set.
     agent::Workspace::set_root("/tmp");
-    auto tool = agent::make_search_tool();
+    auto tool = agent::make_search_tool(agent::builtin_search_backend_provider());
     // A huge max must not crash or produce an unbounded query.
     auto r = tool->execute({{"pattern", "x"}, {"max", 999999999}});
     ASSERT_TRUE(r.ok); // it runs, just clamped
@@ -1439,7 +1439,7 @@ TEST(sec03_search_tool_clamps_max) {
 TEST(search_tool_mode_switch) {
     std::string dir = make_search_tree();
     agent::Workspace::set_root(dir);
-    auto tool = agent::make_search_tool();
+    auto tool = agent::make_search_tool(agent::builtin_search_backend_provider());
 
     auto g = tool->execute({{"pattern", "register_default_tools"},
                             {"path", dir},
@@ -4717,7 +4717,7 @@ TEST(search_excludes_are_removable) {
 TEST(search_tool_explicit_path_inside_excluded) {
     std::string dir = make_exclusion_tree();
     agent::Workspace::set_root(dir);
-    auto tool = agent::make_search_tool();
+    auto tool = agent::make_search_tool(agent::builtin_search_backend_provider());
 
     auto default_run = tool->execute({{"pattern", "the_marker_symbol"}, {"glob", "*.cpp"}});
     ASSERT_TRUE(default_run.ok);
@@ -4739,7 +4739,7 @@ TEST(search_tool_rejects_out_of_workspace_path) {
     run_cmd("rm -rf " + outside + " && mkdir -p " + outside);
     std::ofstream(outside + "/secret.txt") << "needle_secret_marker\n";
 
-    auto tool = agent::make_search_tool();
+    auto tool = agent::make_search_tool(agent::builtin_search_backend_provider());
     auto r = tool->execute({{"pattern", "needle_secret_marker"}, {"path", outside}});
     ASSERT_FALSE(r.ok);
     ASSERT(r.error.find("workspace") != std::string::npos);

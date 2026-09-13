@@ -67,7 +67,7 @@ bool write_enabled(const std::string& id, bool enabled) {
 PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace)
     : config_(std::move(config)), workspace_(&workspace) {
     services_ = std::make_unique<PluginServices>(tools, prompts_, status_, panels_, wallets_,
-                                                 bus_, commands_);
+                                                 search_backends_, bus_, commands_);
     context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());
@@ -97,13 +97,18 @@ bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
     entry.plugin = std::move(plugin);
     entry.bundled = bundled;
     // Declarations are a property of the plugin, not of its activation: a
-    // plugin that ships switched off still declares the protocol it would
-    // provide, so a provider file pointing at that flavor reports "the plugin
-    // is disabled" rather than silently speaking another wire protocol.
+    // plugin that ships switched off still declares what it would provide, so a
+    // provider file pointing at that flavor - or a search `mode` naming that
+    // backend - reports "the plugin is disabled" rather than silently falling
+    // back or reading as unknown.
     entry.declared = entry.plugin->capabilities();
     for (const auto& capability : entry.declared) {
-        if (capability && capability->kind() == CapabilityKind::Provider)
+        if (!capability)
+            continue;
+        if (capability->kind() == CapabilityKind::Provider)
             declare_flavor(capability->name(), id);
+        else if (capability->kind() == CapabilityKind::SearchBackend)
+            search_backends_->declare(capability->name(), id);
     }
     plugins_[id] = std::move(entry);
     registry_.register_plugin(plugins_[id].plugin);

@@ -172,6 +172,124 @@ std::vector<ExtensionItem> WalletRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
+// SearchBackendRegistry
+// ---------------------------------------------------------------------------
+
+Contribution SearchBackendRegistry::add(const std::string& owner, const std::string& mode,
+                                        Factory factory) {
+    std::scoped_lock lock(mutex_);
+    Entry entry;
+    entry.owner = owner;
+    entry.factory = std::move(factory);
+    entry.seq = next_seq_++;
+    entries_[mode] = std::move(entry);
+    // A live mode cannot be "unavailable": re-registering (a plugin re-enabled)
+    // clears the mark, exactly as register_dialect does for flavors.
+    unavailable_.erase(mode);
+
+    Contribution c;
+    c.kind = CapabilityKind::SearchBackend;
+    c.name = mode;
+    c.remove = [this, mode, owner] { remove_owned(mode, owner); };
+    return c;
+}
+
+void SearchBackendRegistry::declare(const std::string& mode, const std::string& owner) {
+    if (mode.empty() || owner.empty())
+        return;
+    std::scoped_lock lock(mutex_);
+    if (entries_.count(mode))
+        return; // someone provides it right now
+    unavailable_[mode] = owner;
+}
+
+void SearchBackendRegistry::remove_owned(const std::string& mode, const std::string& owner) {
+    std::scoped_lock lock(mutex_);
+    auto it = entries_.find(mode);
+    // Only the owner's own entry goes: a mode another plugin has taken over
+    // stays with its new owner (the ledger's contract, identity-scoped).
+    if (it == entries_.end() || it->second.owner != owner)
+        return;
+    entries_.erase(it);
+    if (!owner.empty())
+        unavailable_[mode] = owner; // known, but switched off
+}
+
+std::unique_ptr<SearchBackend> SearchBackendRegistry::create(const std::string& mode) const {
+    Factory factory;
+    {
+        std::scoped_lock lock(mutex_);
+        auto it = entries_.find(mode);
+        if (it == entries_.end())
+            return nullptr;
+        factory = it->second.factory;
+    }
+    return factory ? factory() : nullptr;
+}
+
+std::vector<std::string> SearchBackendRegistry::available() const {
+    std::scoped_lock lock(mutex_);
+    std::vector<std::string> modes;
+    modes.reserve(entries_.size());
+    for (const auto& [mode, _] : entries_)
+        modes.push_back(mode);
+    return modes;
+}
+
+std::string SearchBackendRegistry::unavailable_reason(const std::string& mode) const {
+    std::scoped_lock lock(mutex_);
+    if (entries_.count(mode))
+        return {}; // currently provided
+    auto it = unavailable_.find(mode);
+    if (it == unavailable_.end())
+        return {}; // nobody provides it: unknown, not disabled
+    return "search mode '" + mode + "' is provided by plugin '" + it->second +
+           "', which is disabled - enable it with /set plugin " + it->second + " on";
+}
+
+std::vector<ExtensionItem> SearchBackendRegistry::items() const {
+    std::scoped_lock lock(mutex_);
+    std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
+    for (const auto& [mode, entry] : entries_)
+        out.push_back({CapabilityKind::SearchBackend, entry.owner, mode, "search backend"});
+    return out;
+}
+
+std::size_t SearchBackendRegistry::size() const noexcept {
+    std::scoped_lock lock(mutex_);
+    return entries_.size();
+}
+
+SearchBackendProvider
+make_search_backend_provider(const std::shared_ptr<SearchBackendRegistry>& registry) {
+    SearchBackendProvider provider;
+    // Both callables capture the shared_ptr, so whatever holds the provider
+    // keeps the table alive (see search_backend.h).
+    provider.modes = [registry] { return registry->available(); };
+    provider.resolve = [registry](const std::string& mode) {
+        SearchBackendLookup lookup;
+        if (auto backend = registry->create(mode)) {
+            lookup.backend = std::move(backend);
+            return lookup;
+        }
+        const std::string disabled = registry->unavailable_reason(mode);
+        if (!disabled.empty()) {
+            lookup.error = disabled;
+            return lookup;
+        }
+        std::string enabled;
+        for (const auto& m : registry->available())
+            enabled += (enabled.empty() ? "" : ", ") + m;
+        lookup.error = enabled.empty()
+                           ? "no search backend is enabled (requested mode: '" + mode + "')"
+                           : "unknown search mode '" + mode + "' (enabled: " + enabled + ")";
+        return lookup;
+    };
+    return provider;
+}
+
+// ---------------------------------------------------------------------------
 // PanelRegistry
 // ---------------------------------------------------------------------------
 
@@ -260,9 +378,14 @@ std::vector<ExtensionItem> CommandRegistry::items() const {
 
 PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts, StatusRegistry& status,
                                PanelRegistry& panels, WalletRegistry& wallets,
+                               std::shared_ptr<SearchBackendRegistry> search_backends,
                                EventBus& events, CommandRegistry& commands) noexcept
     : tools_(&tools), prompts_(&prompts), status_(&status), panels_(&panels), wallets_(&wallets),
-      events_(&events), commands_(&commands) {}
+      search_backends_(std::move(search_backends)), events_(&events), commands_(&commands) {}
+
+SearchBackendProvider PluginServices::search_backend_provider() const {
+    return make_search_backend_provider(search_backends_);
+}
 
 // ---------------------------------------------------------------------------
 // Capabilities
@@ -423,6 +546,21 @@ InstallResult WalletCapability::install(PluginServices& services) {
     }
     const std::string owner = services.owner();
     r.contribution = services.wallets().add(owner, fetch_);
+    r.ok = true;
+    return r;
+}
+
+SearchBackendCapability::SearchBackendCapability(std::string mode, Factory factory)
+    : mode_(std::move(mode)), factory_(std::move(factory)) {}
+
+InstallResult SearchBackendCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (mode_.empty() || !factory_) {
+        r.error = "search backend capability needs a mode and a factory";
+        return r;
+    }
+    // Copied, not moved: install is replayed on re-activation.
+    r.contribution = services.search_backends().add(services.owner(), mode_, factory_);
     r.ok = true;
     return r;
 }

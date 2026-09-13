@@ -8,6 +8,7 @@
 #include "agent/tool.h"
 #include "agent/process.h"
 #include "agent/registry.h"
+#include "agent/search_backend.h"
 
 namespace agent {
 
@@ -20,7 +21,11 @@ class SubAgentExecutor;  // task tool binds to the host-owned sub-agent executor
 // into libagent. Kept as factories so the registry owns unique instances.
 std::unique_ptr<Tool> make_read_tool();
 std::unique_ptr<Tool> make_write_tool();
-std::unique_ptr<Tool> make_search_tool();
+// The search tool resolves `mode` through the provider handed in at
+// construction: a hosted session passes the runtime's live registry, a bare
+// host the built-in pair (search_backend.h), so the tool never holds a raw
+// registry pointer and names no backend itself.
+std::unique_ptr<Tool> make_search_tool(SearchBackendProvider provider);
 std::unique_ptr<Tool> make_todowrite_tool(TodoStore& todos);
 std::unique_ptr<Tool> make_task_tool(SubAgentExecutor& executor,
                                      ToolRegistry& registry);

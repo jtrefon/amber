@@ -87,6 +87,51 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-09-13 — Search backends are plugin capabilities (the tools domain closes)
+
+Branch `feat/search-backends-as-plugins`.
+
+- **The last static-init registry in the tools area is gone.** The old
+  `SearchBackendRegistry` was a process-global singleton
+  (`tools/search/backend_registry.cpp`) that grep and semantic registered into at
+  static initialization, with a hardcoded factory fallback and a hardcoded mode
+  list in the tool schema. It is now an owner-tagged contribution registry
+  declared with the others (`include/agent/extensions.h`, implemented in
+  `lib/extensions.cpp`), and the singleton file is deleted.
+- **`SearchBackendCapability`**: a plugin contributes a mode name and a factory.
+  The tool resolves `mode` through a `SearchBackendProvider`
+  (`include/agent/search_backend.h`) whose callables capture a `shared_ptr` to
+  the table, so a constructed tool can never outlive its backends.
+  `make_search_tool(provider)` takes the provider explicitly — no default, every
+  construction says where backends come from.
+- **Known-but-disabled follows the flavor rule (D19).** `PluginRuntime::add`
+  declares each plugin's modes, activation installs them, and owner-checked
+  unwinding marks them unavailable: a `mode` whose plugin is off fails naming the
+  plugin and `/set plugin search_grep on`, and a mode nobody provides fails with
+  the enabled list. No silent fallback — the old spec's "grep fallback" invariant
+  is deleted along with the code that would have needed it.
+- **The schema lists live modes.** `parameters_schema()` is rebuilt per request,
+  so disabling a backend updates the model-facing documentation in the same
+  action. `prompts/tools/search.md`'s mode row is backend-generic now (the mode
+  list lives in the schema), and the prompt fixture
+  (`tests/fixtures/tools_prompt_at_migration.md`) follows.
+- **Bundled plugins:** `plugins/search_grep/` and `plugins/search_semantic/`,
+  one per backend, independently switchable — `/set plugin search_semantic off`
+  is now a real experiment rather than a dead end. Both are registered in
+  `make_bundled_plugins()`; a host with no runtime gets the same definitions
+  through `register_default_tools` / `builtin_search_backend_provider()` (one
+  definition, two install paths).
+- **Tests:** `tests/search_backends_test.cpp` (10) — registry install/unwind,
+  owner-scoped removal (a mode taken over by another plugin survives its old
+  owner's unwind), declared-but-disabled, unknown mode, provider-driven tool
+  resolution, disabled-mode and no-backend errors, the live schema list, a
+  runtime toggle, and the bundled pair. Four `make_search_tool()` call sites in
+  `run_tests.cpp` moved onto an explicit `builtin_search_backend_provider()`.
+- **Verification:** 764 tests green (was 753); `make test` exit 0; `make lint`,
+  `make analyze` and `make check` clean; hermetic bench unchanged (see
+  `bench/results/`). No plugin can leave a backend behind: the ledger unwinds
+  what the capability installed, by owner.
+
 ### 2026-09-12 — The clock is a plugin, and the bar has zones
 
 The clock was core UI: `draw_status_bar` built `[%H:%M:%S]` itself and reserved
@@ -1121,6 +1166,7 @@ What a plugin author can rely on today. Update with every landed task.
 | Panel contribution + registry console | ✅ | PF-3.2 |
 | Plugin description + category (grouped registry list) | ✅ | PF-1 |
 | Wallet contribution — balance and/or quota windows (fetch only; polling + rendering core) | ✅ | PF-3.4, unified 2026-09-12 |
+| Search backend contribution — one plugin per mode, resolved live by the tool | ✅ | 2026-09-13 |
 | `/get provider wallet`, `/set provider wallet on\|off` | ✅ | PF-3.4 |
 | OpenCode Go provider (presets + wallet) | ✅ | PF-3.5 |
 | OpenCode Zen provider (presets only) | ✅ | PF-3.5 |
