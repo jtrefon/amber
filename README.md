@@ -1,5 +1,14 @@
 amber: a native C++ AI agent runtime and CLI harness
 
+[![CI](https://github.com/jtrefon/amber/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jtrefon/amber/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/jtrefon/amber/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/jtrefon/amber/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/jtrefon/amber)](https://github.com/jtrefon/amber/releases)
+[![License](https://img.shields.io/github/license/jtrefon/amber)](LICENSE)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C)](https://en.cppreference.com/w/cpp/17)
+[![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](https://github.com/jtrefon/amber/releases)
+[![Coverage](https://codecov.io/gh/jtrefon/amber/graph/badge.svg)](https://codecov.io/gh/jtrefon/amber)
+[![Homebrew](https://img.shields.io/badge/brew-jtrefon%2Famber%2Famber--agent-FBB040?logo=homebrew)](https://github.com/jtrefon/homebrew-amber)
+
 Amber is an open-source C++17 AI agent runtime and CLI harness with an
 extensible plugin architecture, multi-provider support, MCP, sub-agents and
 terminal clients for Linux and macOS.
