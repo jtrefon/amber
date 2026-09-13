@@ -202,7 +202,7 @@ std::vector<RenderEngine::Seg> RenderEngine::bar_segments() const {
     for (auto& segment :
          tui_.plugin_runtime_.status().render(build_status_snapshot())) {
         segs.push_back({std::move(segment.text), tone_pair(segment.tone),
-                        segment.drop_priority});
+                        segment.drop_priority, segment.align});
     }
     return segs;
 }
@@ -271,13 +271,10 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     int w = width();
     int y = height() - 2;
 
-    std::time_t t = std::time(nullptr);
-    std::tm tm{};
-    localtime_r(&t, &tm);
-    char clk[16];
-    std::strftime(clk, sizeof(clk), "[%H:%M:%S]", &tm);
-    std::string clock = clk;
-    int clock_w = display_cols(clock);
+    // The clock used to be built here and its width reserved before the bar
+    // knew what else it held. It is a right-aligned segment now (the clock
+    // plugin), so this function lays out registered segments and owns no
+    // readout of its own: it does not know a clock exists.
 
     constexpr int kIW = 12;
     int activity_w = kIW + 1;
@@ -287,6 +284,9 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     attroff(COLOR_PAIR(P_BANNER));
 
     std::vector<Seg> segs = bar_segments();
+    std::vector<Seg> left_zone, right_zone;
+    for (auto& s : segs)
+        (s.align == agent::StatusAlign::Right ? right_zone : left_zone).push_back(s);
 
     bool have_ctx = (tui_.cfg_.context_size > 0);
     long ctx_used = tool_display::gauge_tokens(tui_.ctx_used_.load(),
@@ -301,21 +301,36 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     // jumping when the window is detected mid-session.
     int gauge_min = (have_ctx || ctx_used > 0) ? 12 : 0;
 
-    int right_w = clock_w + 1 + activity_w;
-    int budget = w - right_w;
-    if (budget < 0) budget = 0;
-
-    auto text_cols = [&]() {
+    // A zone's width, with one column between neighbours.
+    auto zone_cols = [](const std::vector<Seg>& zone) {
         int c = 0;
-        for (auto& s : segs) c += display_cols(s.text);
+        for (size_t i = 0; i < zone.size(); ++i)
+            c += display_cols(zone[i].text) + (i ? 1 : 0);
         return c;
     };
-    while (text_cols() + gauge_min > budget && !segs.empty()) {
+
+    // The right zone is reserved whatever it holds: with the clock switched
+    // off the space goes back to the left zone instead of staying reserved.
+    auto reserve = [&] {
+        const int r = zone_cols(right_zone);
+        return r > 0 ? r + 1 + activity_w : activity_w;
+    };
+    int budget = w - reserve();
+    if (budget < 0) budget = 0;
+
+    // One drop rule for both zones: the highest drop_priority goes first when
+    // the bar cannot hold everything, wherever the segment attaches.
+    while (zone_cols(left_zone) + gauge_min > budget &&
+           (!left_zone.empty() || !right_zone.empty())) {
+        std::vector<Seg>* zone = &left_zone;
         int worst = -1, worst_i = -1;
-        for (size_t i = 0; i < segs.size(); ++i)
-            if (segs[i].drop > worst) { worst = segs[i].drop; worst_i = (int)i; }
+        for (std::vector<Seg>* z : {&left_zone, &right_zone})
+            for (size_t i = 0; i < z->size(); ++i)
+                if ((*z)[i].drop > worst) { worst = (*z)[i].drop; worst_i = (int)i; zone = z; }
         if (worst <= 0) break;
-        segs.erase(segs.begin() + worst_i);
+        zone->erase(zone->begin() + worst_i);
+        budget = w - reserve();
+        if (budget < 0) budget = 0;
     }
 
     int x = 0;
@@ -331,7 +346,7 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
         if (x > budget) x = budget;
     };
 
-    for (auto& s : segs) put(s.text, s.pair);
+    for (auto& s : left_zone) put(s.text, s.pair);
 
     if (x < budget && (have_ctx || ctx_used > 0)) {
         put("  ctx ", P_BAR_DIM);
@@ -365,7 +380,8 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     if (!tail.empty() && x + display_cols(tail) + 1 < budget)
         put("  " + tail, P_BAR_DIM);
 
-    int ix = w - clock_w - kIW - 1;
+    const int right_w = zone_cols(right_zone);
+    int ix = right_w > 0 ? w - right_w - kIW - 1 : w - kIW - 1;
     if (ix > x + 4) {
         wattron(stdscr, COLOR_PAIR(P_BAR_DIM));
         mvaddch(y, ix, '[');
@@ -395,11 +411,21 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
         wattroff(stdscr, COLOR_PAIR(P_BAR_DIM));
     }
 
-    if (clock_w < w) {
-        std::wstring wc = to_wide(clock);
-        attron(COLOR_PAIR(P_BAR_DIM));
-        mvaddnwstr(y, w - clock_w, wc.c_str(), static_cast<int>(wc.size()));
-        attroff(COLOR_PAIR(P_BAR_DIM));
+    // The right zone, laid out left to right so the highest priority (the last
+    // entry) ends up against the edge.
+    if (right_w > 0) {
+        int rx = w - right_w;
+        for (size_t i = 0; i < right_zone.size(); ++i) {
+            if (i) ++rx;
+            std::wstring text = to_wide(right_zone[i].text);
+            if (rx + static_cast<int>(text.size()) > w) {
+                text.resize(static_cast<size_t>(std::max(0, w - rx)));
+            }
+            attron(COLOR_PAIR(right_zone[i].pair));
+            mvaddnwstr(y, rx, text.c_str(), static_cast<int>(text.size()));
+            attroff(COLOR_PAIR(right_zone[i].pair));
+            rx += static_cast<int>(text.size());
+        }
     }
 }
 

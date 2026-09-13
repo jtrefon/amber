@@ -1,6 +1,7 @@
 #include "agent/plugins_bundled.h"
 
 #include "plugins/anthropic/anthropic_plugin.h"
+#include "plugins/clock/clock_plugin.h"
 #include "plugins/commandcode/commandcode_plugin.h"
 #include "plugins/custom/custom_plugin.h"
 #include "plugins/deepseek/deepseek_plugin.h"
@@ -25,6 +26,10 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     std::vector<std::shared_ptr<IPlugin>> plugins;
     // Observability
     plugins.push_back(std::make_shared<plugins::MetricsPlugin>());
+    // Interface: the bar's right edge is a registered region, so the clock is
+    // a contribution like any other rather than a reservation the renderer
+    // makes before it knows what else the bar holds.
+    plugins.push_back(std::make_shared<plugins::ClockPlugin>());
     // Tools: one plugin per tunable unit, so a user can switch off exactly the
     // tool they want to experiment with - "search off" is the pilot the tools
     // spec names. Each carries its own metadata (category, description) and its

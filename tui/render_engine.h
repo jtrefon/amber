@@ -39,6 +39,10 @@ public:
 
     void draw();
     void draw_status_bar(const std::string& tail);
+    // Repaint the bar on the second. A segment that renders wall-clock time
+    // (the clock plugin) is correct because of this cadence, not because it
+    // schedules anything itself: segments are pure reads of the moment they
+    // are painted.
     void tick_clock();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
     void draw_drawer(const std::string& input);
@@ -80,6 +84,7 @@ private:
         std::string text;
         int pair;
         int drop;
+        agent::StatusAlign align = agent::StatusAlign::Left;
     };
     std::vector<Seg> bar_segments() const;
     agent::StatusSnapshot build_status_snapshot() const;

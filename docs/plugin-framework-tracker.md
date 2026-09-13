@@ -87,6 +87,45 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-09-12 — The clock is a plugin, and the bar has zones
+
+The clock was core UI: `draw_status_bar` built `[%H:%M:%S]` itself and reserved
+its width before it knew what else the bar held. A clock is not the harness's
+business — it is a readout that attaches to an edge and renders — so it went
+through the same path a plugin uses, and the framework gained what it needed to
+allow that.
+
+- **The slot model: alignment + ordering, and nothing else.** A status segment
+  now declares `StatusAlign::Left` or `Right` alongside the priority and drop
+  priority it already had. It never addresses a column: it names the edge and
+  its order *within* that edge, and the host owns the arithmetic. Two zones
+  exist because the bar has two edges; there is no third to declare, and no
+  geometry, offsets or z-order leaked into the interface (those stay in the
+  deferred register for the same reason as window geometry).
+- **The right zone is reserved from what is registered**, not from a hardcoded
+  clock: with the clock switched off its nine columns go back to the left
+  segments instead of leaving a gap. Drop priority now applies across both
+  zones by one rule.
+- **The clock is `plugins/clock/`**, a bundled plugin (`/set plugin clock
+  off`). It holds no state and schedules nothing: it reads the moment it is
+  painted, and the host repaints the bar on its own second — which is now
+  documented where the cadence lives (`RenderEngine::tick_clock`), because that
+  is the contract a time-bearing segment depends on.
+- **The default layout is byte-identical.** With one right-aligned segment of
+  ten columns and the twelve-column activity indicator, the zone arithmetic
+  reproduces the previous columns exactly (`w - 10 - 12 - 1` for the indicator,
+  the clock flush right). Nothing about the bar moved.
+- **Found while writing the docs, fixed:** the guide's *Status segment* example
+  was the same stale shape as the panel one — a subclass overriding
+  `id()`/`priority()`/`text()`, an API that does not exist and cannot compile.
+  `StatusSegmentCapability` is constructed with a render callable. The example
+  now shows the real thing, the zone model, and the clock as the worked example.
+- **Verified:** 739 tests green (5 new: the format pinned against a fixed
+  instant rather than a terminal, midnight/noon, the segment's alignment,
+  disable/enable through the ledger, and both zones present), `make test` exit
+  0, `make check` holds, clang-tidy and cppcheck clean.
+
+
 ### 2026-09-12 — Host services land, with a consumer (finding 2 resolved)
 
 Branch `refactor/host-services`, stacked on the wallet unification.
