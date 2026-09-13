@@ -87,6 +87,27 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-09-13 — The template lives where plugins live (`plugins/_template/`)
+
+Branch `feat/plugin-template`. Closes PF-5.2.
+
+- `examples/plugin_hello/` → `plugins/_template/` (`git mv`, no behaviour
+  change): the compiled, tested reference plugin now sits where contributors
+  look, and the copy step is literal — copy the directory, change the id. The
+  namespace and include-guard rename (`agent::templates`) follows the directory.
+- `Makefile.in`: `TEMPLATE_PLUGIN_OBJ` compiles through the generic
+  `plugins/%/%.o` rule, so the `examples/%/%.o` rule is deleted; the object stays
+  out of `make_bundled_plugins()`, and `make clean`'s `plugins/*/*.o` pattern
+  already covers it.
+- Docs follow the path: the guide quickstart, `CONTRIBUTING.md`, both website
+  plugin pages, and the template's own README.
+- Why not keep two copies: one worked example, one place to fix when the API
+  moves. `plugin_docs_test` requires only *bundled* ids to be documented, and
+  nothing scans `plugins/*` for registration, so an unbundled `_template`
+  cannot be mistaken for a shipped plugin.
+- Verification: build + tests green; the template is now inside the lint and
+  analyze scan roots, and both are clean.
+
 ### 2026-09-13 — Search backends are plugin capabilities (the tools domain closes)
 
 Branch `feat/search-backends-as-plugins`.

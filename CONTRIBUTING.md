@@ -63,8 +63,8 @@ Start with the **plugin developer guide**:
 [`docs/spec/plugins/developer-guide.md`](docs/spec/plugins/developer-guide.md).
 It has a quickstart, a tier decision tree, the capability catalogue, and the
 availability table that is the single status surface for what ships today. A
-complete, compiled, tested example lives in
-[`examples/plugin_hello/`](examples/plugin_hello/), exercised by
+complete, compiled, tested template lives in
+[`plugins/_template/`](plugins/_template/), exercised by
 `tests/example_plugin_test.cpp`.
 
 ## Submitting changes

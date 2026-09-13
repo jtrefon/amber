@@ -1,4 +1,4 @@
-// Compiles and exercises the reference plugin in examples/plugin_hello/.
+// Compiles and exercises the copy-me template in plugins/_template/.
 //
 // This test is the guard for the developer guide's "core plugin anatomy": it
 // proves the documented shape builds, that a declared capability installs into
@@ -7,7 +7,7 @@
 
 #include "agent/extensions.h"
 #include "agent/plugin_runtime.h"
-#include "examples/plugin_hello/hello_plugin.h"
+#include "plugins/_template/hello_plugin.h"
 #include "test_util.h"
 
 #include <cstdlib>
@@ -57,7 +57,7 @@ TEST(example_hello_plugin_contributes_and_unwinds_a_tool) {
     ScratchConfig scratch("hello");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add(std::make_shared<examples::HelloPlugin>());
+    runtime.add(std::make_shared<templates::HelloPlugin>());
 
     // Registered but not started: nothing is installed yet.
     ASSERT_FALSE((bool)f.tools.find("greet"));
