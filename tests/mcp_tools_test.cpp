@@ -28,14 +28,11 @@ using namespace mcp_test;
 
 // Naming: sanitization, prefix, and the 64-char cap with hash suffix.
 TEST(mcp_adapter_name_rules) {
-    ASSERT_EQ(agent::mcp_adapter_name("github", "get_issue"),
-              "mcp_github_get_issue");
-    ASSERT_EQ(agent::mcp_adapter_name("a", "my.tool"),
-              "mcp_a_my_tool");
-    ASSERT_EQ(agent::mcp_adapter_name("a", "Bad Name!"),
-              "mcp_a_Bad_Name_");
-    std::string long_name = agent::mcp_adapter_name(
-        "a-very-long-server-name", std::string(80, 'x'));
+    ASSERT_EQ(agent::mcp_adapter_name("github", "get_issue"), "mcp_github_get_issue");
+    ASSERT_EQ(agent::mcp_adapter_name("a", "my.tool"), "mcp_a_my_tool");
+    ASSERT_EQ(agent::mcp_adapter_name("a", "Bad Name!"), "mcp_a_Bad_Name_");
+    std::string long_name =
+        agent::mcp_adapter_name("a-very-long-server-name", std::string(80, 'x'));
     ASSERT(long_name.size() <= 64u);
     ASSERT(long_name.rfind("mcp_a-very-long-server-name_", 0) == 0);
 }
@@ -45,47 +42,44 @@ TEST(mcp_adapter_name_rules) {
 TEST(mcp_adapter_approval_and_trust) {
     auto ft = std::make_unique<FakeTransport>();
     FakeTransport* raw = ft.get();
-    agent::MCPClient client("github", std::move(ft));
+    auto client = std::make_shared<agent::MCPClient>("github", std::move(ft));
     script_connect(*raw);
-    ASSERT_EQ(client.connect(), "");
+    ASSERT_EQ(client->connect(), "");
     agent::McpToolDef def;
     def.name = "get_issue";
     def.description = "fetch an issue";
     def.input_schema = {{"type", "object"}};
 
     bool trusted = false;
-    agent::McpToolAdapter adapter(
-        client, def, "github", agent::mcp_adapter_name("github", "get_issue"),
-        [&]() { return trusted; });
+    agent::McpToolAdapter adapter(client, def, "github",
+                                  agent::mcp_adapter_name("github", "get_issue"),
+                                  [&]() { return trusted; });
     ASSERT(adapter.requires_approval(json::object()));
     ASSERT_FALSE(adapter.is_read_only());
     ASSERT(adapter.description().find("[untrusted server]") == 0);
 
     trusted = true;
     ASSERT_FALSE(adapter.requires_approval(json::object()));
-    ASSERT(adapter.description().find("[untrusted server]") ==
-           std::string::npos);
+    ASSERT(adapter.description().find("[untrusted server]") == std::string::npos);
 }
 
 // Adapter execution maps tool results and errors.
 TEST(mcp_adapter_execute) {
     auto ft = std::make_unique<FakeTransport>();
     FakeTransport* raw = ft.get();
-    agent::MCPClient client("github", std::move(ft));
+    auto client = std::make_shared<agent::MCPClient>("github", std::move(ft));
     script_connect(*raw);
-    ASSERT_EQ(client.connect(), "");
+    ASSERT_EQ(client->connect(), "");
     agent::McpToolDef def;
     def.name = "get_issue";
     def.input_schema = {{"type", "object"}};
 
     agent::McpToolAdapter adapter(client, def, "github",
-                                  agent::mcp_adapter_name("github",
-                                                          "get_issue"),
+                                  agent::mcp_adapter_name("github", "get_issue"),
                                   []() { return false; });
 
-    raw->script.push_back(ok_result(
-        {{"content", json::array(
-             {{{"type", "text"}, {"text", "issue #1"}}})}}));
+    raw->script.push_back(
+        ok_result({{"content", json::array({{{"type", "text"}, {"text", "issue #1"}}})}}));
     auto ok = adapter.execute({{"number", 1}});
     ASSERT(ok.ok);
     ASSERT_EQ(ok.output, "issue #1");
@@ -163,12 +157,8 @@ class DecoyTool : public agent::Tool {
 public:
     std::string name() const noexcept override { return "mcp_echo_stale_tool"; }
     std::string description() const noexcept override { return "decoy"; }
-    agent::json parameters_schema() const override {
-        return agent::json::object();
-    }
-    agent::ToolResult execute(const agent::json&) const override {
-        return {true, "ok", ""};
-    }
+    agent::json parameters_schema() const override { return agent::json::object(); }
+    agent::ToolResult execute(const agent::json&) const override { return {true, "ok", ""}; }
 };
 } // namespace
 
