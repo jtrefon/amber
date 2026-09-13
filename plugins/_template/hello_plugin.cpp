@@ -5,7 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace agent::examples {
+namespace agent::templates {
 
 namespace {
 
@@ -44,4 +44,4 @@ std::vector<std::unique_ptr<Capability>> HelloPlugin::capabilities() {
     return caps;
 }
 
-} // namespace agent::examples
+} // namespace agent::templates
