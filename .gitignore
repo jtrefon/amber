@@ -5,6 +5,7 @@
 *.lo
 *.la
 *.d
+*.dSYM/
 Makefile
 config.log
 config.status

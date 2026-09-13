@@ -23,8 +23,8 @@ std::string sanitize(const std::string& s) {
     std::string out;
     out.reserve(s.size());
     for (char c : s) {
-        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                  (c >= '0' && c <= '9') || c == '_' || c == '-';
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                  c == '_' || c == '-';
         out += ok ? c : '_';
     }
     return out;
@@ -32,18 +32,15 @@ std::string sanitize(const std::string& s) {
 
 } // namespace
 
-McpToolAdapter::McpToolAdapter(MCPClient& client, McpToolDef def,
-                               std::string server_name,
-                               std::string adapter_name,
+McpToolAdapter::McpToolAdapter(std::shared_ptr<MCPClient> client, McpToolDef def,
+                               std::string server_name, std::string adapter_name,
                                std::function<bool()> is_trusted)
-    : client_(client),
-      def_(std::move(def)),
-      server_name_(std::move(server_name)),
-      name_(std::move(adapter_name)),
-      is_trusted_(std::move(is_trusted)) {}
+    : client_(std::move(client)), def_(std::move(def)), server_name_(std::move(server_name)),
+      name_(std::move(adapter_name)), is_trusted_(std::move(is_trusted)) {}
 std::string McpToolAdapter::description() const noexcept {
     std::string out;
-    if (!is_trusted_()) out = "[untrusted server] ";
+    if (!is_trusted_())
+        out = "[untrusted server] ";
     out += def_.description;
     return out;
 }
@@ -57,17 +54,16 @@ json McpToolAdapter::parameters_schema() const {
 }
 
 std::string McpToolAdapter::summarize(const json& arguments) const {
-    return "mcp " + server_name_ + ": " + def_.name + "(" +
-           std::to_string(arguments.size()) + " args)";
+    return "mcp " + server_name_ + ": " + def_.name + "(" + std::to_string(arguments.size()) +
+           " args)";
 }
 
 ToolResult McpToolAdapter::execute(const json& arguments) const {
-    McpResult r = client_.call_tool(def_.name, arguments);
+    McpResult r = client_->call_tool(def_.name, arguments);
     ToolResult out;
     if (!r.ok) {
         out.ok = false;
-        out.error = r.error.empty()
-            ? "mcp tool '" + def_.name + "' failed" : r.error;
+        out.error = r.error.empty() ? "mcp tool '" + def_.name + "' failed" : r.error;
         return out;
     }
     out.output = r.text;
@@ -75,29 +71,29 @@ ToolResult McpToolAdapter::execute(const json& arguments) const {
     return out;
 }
 
-std::string mcp_adapter_name(const std::string& server,
-                             const std::string& tool) {
+std::string mcp_adapter_name(const std::string& server, const std::string& tool) {
     std::string full = "mcp_" + sanitize(server) + "_" + sanitize(tool);
-    if (full.size() <= kMaxToolName) return full;
+    if (full.size() <= kMaxToolName)
+        return full;
     std::string head = full.substr(0, kMaxToolName - 4);
     char buf[8];
     std::snprintf(buf, sizeof buf, "_%03x", hash3(tool));
     return head + buf;
 }
 
-size_t register_server_tools(ToolRegistry& reg, ServerManager& mgr,
-                             const std::string& server) {
+size_t register_server_tools(ToolRegistry& reg, ServerManager& mgr, const std::string& server) {
     auto client = mgr.client(server);
-    if (!client) return 0;
+    if (!client)
+        return 0;
     size_t n = 0;
     for (const auto& def : client->tools()) {
         std::string base = mcp_adapter_name(server, def.name);
         std::string name = base;
         int suffix = 2;
-        while (reg.find(name)) name = base + "_" + std::to_string(suffix++);
+        while (reg.find(name))
+            name = base + "_" + std::to_string(suffix++);
         auto adapter = std::make_unique<McpToolAdapter>(
-            *client, def, server, name,
-            [&mgr, server]() { return mgr.trusted(server); });
+            client, def, server, name, [&mgr, server]() { return mgr.trusted(server); });
         reg.register_tool(std::move(adapter));
         ++n;
     }
@@ -126,19 +122,15 @@ public:
     }
 
     json parameters_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties",
-             {{"server", {{"type", "string"},
-                          {"description", "MCP server name"}}},
-              {"uri", {{"type", "string"},
-                       {"description", "Resource uri to read"}}}}},
-            {"required", {"server", "uri"}}};
+        return {{"type", "object"},
+                {"properties",
+                 {{"server", {{"type", "string"}, {"description", "MCP server name"}}},
+                  {"uri", {{"type", "string"}, {"description", "Resource uri to read"}}}}},
+                {"required", {"server", "uri"}}};
     }
 
     std::string summarize(const json& a) const override {
-        return "mcp read_resource: " + a.value("uri", "?") + " from " +
-               a.value("server", "?");
+        return "mcp read_resource: " + a.value("uri", "?") + " from " + a.value("server", "?");
     }
 
     ToolResult execute(const json& a) const override {
@@ -159,8 +151,7 @@ public:
         McpResult r = client->read_resource(uri);
         if (!r.ok) {
             out.ok = false;
-            out.error = r.error.empty()
-                ? "resource read failed" : r.error;
+            out.error = r.error.empty() ? "resource read failed" : r.error;
             return out;
         }
         out.output = r.text;
@@ -179,19 +170,20 @@ std::unique_ptr<Tool> make_read_resource_tool(ServerManager& mgr) {
 }
 
 json mcp_completion_subtree(const ToolRegistry& reg) {
-    json mcp_node = {
-        {"action", "core.mcp"},
-        {"help", "Manage MCP servers."},
-        {"man", "The mcp command manages MCP servers and the tools they "
-                "expose. Live server tools appear under their server name."},
-        {"children", json::object()}};
+    json mcp_node = {{"action", "core.mcp"},
+                     {"help", "Manage MCP servers."},
+                     {"man", "The mcp command manages MCP servers and the tools they "
+                             "expose. Live server tools appear under their server name."},
+                     {"children", json::object()}};
     json& children = mcp_node["children"];
     for (const auto& t : reg.snapshot_tools()) {
         std::string n = t->name();
-        if (n.rfind("mcp_", 0) != 0) continue;
+        if (n.rfind("mcp_", 0) != 0)
+            continue;
         std::string rest = n.substr(4);
         size_t dot = rest.find('_');
-        if (dot == std::string::npos) continue;
+        if (dot == std::string::npos)
+            continue;
         std::string server = rest.substr(0, dot);
         std::string tool = rest.substr(dot + 1);
         if (!children.contains(server)) {
@@ -202,21 +194,16 @@ json mcp_completion_subtree(const ToolRegistry& reg) {
             std::string man = "Live tools of the MCP server ";
             man += server;
             man += ".";
-            children[server] = {{"action", action},
-                                {"help", help},
-                                {"man", man},
-                                {"children", json::object()}};
+            children[server] = {
+                {"action", action}, {"help", help}, {"man", man}, {"children", json::object()}};
         }
         std::string tool_action = "mcp.";
         tool_action += server;
         tool_action += ".";
         tool_action += tool;
         children[server]["children"][tool] = {
-            {"action", tool_action},
-            {"help", t->description()},
-            {"man", t->description()}};
+            {"action", tool_action}, {"help", t->description()}, {"man", t->description()}};
     }
     return {{"mcp", mcp_node}};
 }
 } // namespace agent
-

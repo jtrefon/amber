@@ -133,8 +133,9 @@ TEST(event_bus_different_types_independent) {
 
 TEST(event_bus_fire_reentrancy_subscribe_inside_handler) {
     auto bus = std::make_shared<EventBus>();
-    bus->subscribe(EventType::AgentTurnStart, [bus](const Event&) {
-        bus->subscribe(EventType::AgentTurnStart, [](const Event&) {});
+    EventBus* bus_ptr = bus.get();
+    bus->subscribe(EventType::AgentTurnStart, [bus_ptr](const Event&) {
+        bus_ptr->subscribe(EventType::AgentTurnStart, [](const Event&) {});
     });
     Event e{EventType::AgentTurnStart, nullptr};
     std::atomic<bool> fired{false};
@@ -149,12 +150,13 @@ TEST(event_bus_fire_reentrancy_subscribe_inside_handler) {
 
 TEST(event_bus_fire_reentrancy_fire_inside_handler) {
     auto bus = std::make_shared<EventBus>();
+    EventBus* bus_ptr = bus.get();
     std::atomic<int> outer{0}, inner{0};
-    bus->subscribe(EventType::AgentTurnEnd, [bus, &inner](const Event&) { ++inner; });
-    bus->subscribe(EventType::AgentTurnStart, [bus, &outer](const Event&) {
+    bus->subscribe(EventType::AgentTurnEnd, [&inner](const Event&) { ++inner; });
+    bus->subscribe(EventType::AgentTurnStart, [bus_ptr, &outer](const Event&) {
         ++outer;
         Event e2{EventType::AgentTurnEnd, nullptr};
-        bus->fire(EventType::AgentTurnEnd, e2);
+        bus_ptr->fire(EventType::AgentTurnEnd, e2);
     });
     Event e{EventType::AgentTurnStart, nullptr};
     std::atomic<bool> done{false};
@@ -168,5 +170,3 @@ TEST(event_bus_fire_reentrancy_fire_inside_handler) {
     ASSERT_EQ(outer.load(), 1);
     ASSERT_EQ(inner.load(), 1);
 }
-
-

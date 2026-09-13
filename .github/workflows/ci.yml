@@ -9,7 +9,44 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded PR runs so a force-push does not leave stale jobs burning
+# compute. Pushes to main are never cancelled (each must complete).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # Change detection — gates every heavyweight job on which parts of the tree
+  # a PR touched. Docs-only PRs skip the whole C++ suite; C++-only PRs skip
+  # the website build. Skipped jobs report success, so required checks still
+  # pass. Non-PR events (main pushes, dispatch) run everything.
+  # ---------------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cpp: ${{ steps.filter.outputs.cpp }}
+      website: ${{ steps.filter.outputs.website }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "cpp=true" >> "$GITHUB_OUTPUT"
+            echo "website=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only origin/${{ github.base_ref }}...HEAD)"
+          cpp=false; web=false
+          echo "$files" | grep -qE '^(lib|src|tui|bench|tools|plugins|include|tests|examples|prompts)/|^(Makefile\.in|GNUmakefile|configure|\.clang-format|\.clang-tidy|cppcheck_suppressions\.txt|version\.txt|completions\.json|amber\.conf)$|^\.github/' && cpp=true || true
+          echo "$files" | grep -q '^website/' && web=true || true
+          # This workflow's own definition affects both halves.
+          echo "$files" | grep -q '^\.github/workflows/ci\.yml$' && { cpp=true; web=true; } || true
+          echo "cpp=$cpp" >> "$GITHUB_OUTPUT"
+          echo "website=$web" >> "$GITHUB_OUTPUT"
+
   # ---------------------------------------------------------------------------
   # Static analysis — clang-tidy (per-file). On PRs, runs incrementally: only
   # the .cpp files changed in the PR are analyzed (headers/.clang-tidy changes
@@ -17,21 +54,19 @@ jobs:
   # non-gating safety net (see lint-full below).
   # ---------------------------------------------------------------------------
   lint:
+    needs: [changes]
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/install-deps
         with:
-          extra: clang-tidy bear
+          extra: clang-tidy
 
       - name: Configure (generates config for include paths)
         run: CXX=clang++ ./configure
-
-      - name: Generate compile_commands.json
-        run: bear -- make -j$(nproc) || true
 
       - name: Lint (incremental — changed files only)
         run: make lint-changed BASE=origin/${{ github.base_ref }}
@@ -42,30 +77,30 @@ jobs:
   # included in the PR diff). Does not block the pipeline.
   # ---------------------------------------------------------------------------
   lint-full:
+    needs: [changes]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && needs.changes.outputs.cpp == 'true'
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
         with:
-          extra: clang-tidy bear
+          extra: clang-tidy
 
       - name: Configure
         run: CXX=clang++ ./configure
-
-      - name: Generate compile_commands.json
-        run: bear -- make -j$(nproc) || true
 
       - name: Lint (full tree)
         run: make lint
 
   # ---------------------------------------------------------------------------
   # Static analysis — cppcheck (cross-TU, compiler-agnostic). Independent of
-  # the compiler matrix; runs once.
+  # the compiler matrix; runs once. Includes unusedFunction detection.
   # ---------------------------------------------------------------------------
   analyze:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
@@ -83,7 +118,9 @@ jobs:
   # Catches stale build rules, missing .d generation, and audit-table drift.
   # ---------------------------------------------------------------------------
   check:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
@@ -95,11 +132,28 @@ jobs:
         run: make check
 
   # ---------------------------------------------------------------------------
+  # Duplicate code — cross-file duplicate block detector. Gating: identical
+  # normalized blocks of >=6 lines fail the job.
+  # ---------------------------------------------------------------------------
+  duplicates:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Duplicate detection
+        # No configure/install-deps needed: the detector is pure python3.
+        run: python3 tools/duplicate_detector.py --min-lines=6 lib tools tui tests src
+
+  # ---------------------------------------------------------------------------
   # Complexity — informational, no fail (CCN>15 or length>50 via lizard).
   # Keeps tech debt visible without blocking; tighten to CCN 10 later.
   # ---------------------------------------------------------------------------
   complexity:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
@@ -109,26 +163,119 @@ jobs:
         run: make complexity
 
   # ---------------------------------------------------------------------------
-  # Format — clang-format dry-run (deterministic, low noise).
+  # Format — clang-format dry-run. Gating on PRs (changed files only, so
+  # enforcement ratchets in without reformatting the pre-existing tree);
+  # informational full-tree sweep on main pushes. Note: apt's clang-format
+  # version can disagree with a contributor's local version — if a PR fails
+  # here, match the runner's version before reformatting.
   # ---------------------------------------------------------------------------
   format-check:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/install-deps
         with:
           extra: clang-format
-      - name: Format check
+
+      - name: Configure
+        run: ./configure
+
+      - name: Format check (changed files — gating)
+        if: github.event_name == 'pull_request'
+        run: make format-check-changed BASE=origin/${{ github.base_ref }}
+
+      - name: Format check (full tree — informational)
+        if: github.event_name != 'pull_request'
         run: make format-check
 
   # ---------------------------------------------------------------------------
+  # Sanitizers — full build + test suite under ASan+UBSan (clang). Catches
+  # memory errors and UB that the plain build cannot surface.
+  # ---------------------------------------------------------------------------
+  sanitizers:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+
+      - name: Configure (ASan + UBSan)
+        run: |
+          CXX=clang++ \
+          CXXFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -std=c++17" \
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -std=c99" \
+          ./configure
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Test (ASan + UBSan)
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: make test
+
+  # ---------------------------------------------------------------------------
+  # Coverage — gcov build + test run, Cobertura XML uploaded to Codecov.
+  # Requires the CODECOV_TOKEN repository secret; until it is set the upload
+  # is best-effort (fail_ci_if_error: false) so the job stays green.
+  # ---------------------------------------------------------------------------
+  coverage:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+
+      - name: Install gcovr
+        run: pip install gcovr -q
+
+      - name: Configure (gcov instrumentation)
+        run: |
+          CXX=g++ \
+          CXXFLAGS="-O0 -g --coverage -std=c++17" \
+          CFLAGS="-O0 -g --coverage -std=c99" \
+          ./configure
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Test
+        run: make test
+
+      - name: Generate coverage report
+        # conftest.gcno is left by configure's compile probes (built with the
+        # coverage CXXFLAGS) and has no surviving source — remove it or gcovr
+        # aborts on the orphan note file.
+        run: |
+          rm -rf conftest*
+          gcovr --root . \
+            --filter 'lib/.*' --filter 'tools/.*' --filter 'tui/.*' \
+            --filter 'src/.*' --filter 'bench/.*' --filter 'plugins/.*' \
+            --exclude '.*tests/.*' --exclude '.*third_party/.*' \
+            --xml-pretty -o coverage.xml
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  # ---------------------------------------------------------------------------
   # Build + unit test — runs under both g++ and clang++ so ABI/syntax
-  # differences are caught at PR time. Runs in parallel with lint (the
-  # fast `check` gate is sufficient to avoid wasting build compute on
-  # broken trees; lint failures still block the PR as a required check).
+  # differences are caught at PR time. Runs in parallel with the static
+  # analysis jobs (public-repo compute is free; wall-clock feedback wins).
   # ---------------------------------------------------------------------------
   build-and-test:
-    needs: [analyze, check]
+    needs: [changes]
+    if: needs.changes.outputs.cpp == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -163,11 +310,21 @@ jobs:
   # and that the core compiles + tests pass on Apple's toolchain.
   # ---------------------------------------------------------------------------
   build-and-test-macos:
-    needs: [analyze, check]
+    needs: [changes]
+    if: needs.changes.outputs.cpp == 'true'
     runs-on: macos-latest
+    env:
+      CXX: ccache clang++
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-macos-${{ hashFiles('**/*.cpp', '**/*.h', 'Makefile.in', 'configure') }}
+          restore-keys: ccache-macos-
 
       - name: Configure
         # brew's ncurses is keg-only, so pkg-config cannot see its .pc files
@@ -190,7 +347,7 @@ jobs:
   # ---------------------------------------------------------------------------
   cd:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    needs: [build-and-test]
+    needs: [changes, build-and-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -258,7 +415,7 @@ jobs:
   # ---------------------------------------------------------------------------
   cd-macos:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    needs: [build-and-test-macos]
+    needs: [changes, build-and-test-macos]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -296,10 +453,12 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Website build — validates the Astro site builds cleanly on every PR/push.
-  # Catches broken links, template errors, or missing assets before merge.
+  # Website build — validates the Astro site builds cleanly. Runs only when
+  # website/ (or this workflow) changed.
   # ---------------------------------------------------------------------------
   website-build:
+    needs: [changes]
+    if: needs.changes.outputs.website == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
