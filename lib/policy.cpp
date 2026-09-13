@@ -16,8 +16,7 @@ namespace {
 
 // Parse a scope id into (tool, pattern). Scopes look like "bash:rm",
 // "bash:git reset", "outside:/abs/dir", or a bare tool name ("write").
-void split_scope(const std::string& scope, std::string& tool,
-                 std::string& pattern) {
+void split_scope(const std::string& scope, std::string& tool, std::string& pattern) {
     std::size_t colon = scope.find(':');
     if (colon == std::string::npos) {
         tool = scope;
@@ -41,15 +40,13 @@ std::string timestamp() {
 }
 
 json rule_to_json(const PolicyRule& r) {
-    return {
-        {"tool", r.tool},
-        {"args_pattern", r.args_pattern},
-        {"level", policy_level_name(r.level)},
-        {"last_choice", policy_level_name(r.last_choice)},
-        {"count", r.count},
-        {"created", r.created},
-        {"last_used", r.last_used}
-    };
+    return {{"tool", r.tool},
+            {"args_pattern", r.args_pattern},
+            {"level", policy_level_name(r.level)},
+            {"last_choice", policy_level_name(r.last_choice)},
+            {"count", r.count},
+            {"created", r.created},
+            {"last_used", r.last_used}};
 }
 
 PolicyRule json_to_rule(const json& j) {
@@ -81,7 +78,8 @@ void PolicyStore::init(const std::string& path) {
 void PolicyStore::load(const std::string& path) {
     rules_.clear();
     std::ifstream f(path);
-    if (!f.is_open()) return;
+    if (!f.is_open())
+        return;
     try {
         json j;
         f >> j;
@@ -102,7 +100,8 @@ void PolicyStore::save(const std::string& path) const {
     std::string tmp = path + ".tmp";
     {
         std::ofstream f(tmp);
-        if (!f) return;
+        if (!f)
+            return;
         f << arr.dump(2);
     }
     std::error_code ec;
@@ -115,12 +114,14 @@ const PolicyRule* PolicyStore::find(const std::string& scope_id) const {
     // An exact pattern match first: "bash:rm" hits the "rm" rule even when a
     // legacy whole-tool "bash" rule also exists.
     for (const auto& r : rules_) {
-        if (r.args_pattern == pattern && r.tool == tool) return &r;
+        if (r.args_pattern == pattern && r.tool == tool)
+            return &r;
     }
     // Legacy whole-tool rules (empty pattern) match a bare-tool scope id.
     if (pattern.empty()) {
         for (const auto& r : rules_) {
-            if (r.args_pattern.empty() && r.tool == tool) return &r;
+            if (r.args_pattern.empty() && r.tool == tool)
+                return &r;
         }
     }
     return nullptr;
@@ -130,11 +131,13 @@ PolicyRule* PolicyStore::mutable_find(const std::string& scope_id) {
     std::string tool, pattern;
     split_scope(scope_id, tool, pattern);
     for (auto& r : rules_) {
-        if (r.args_pattern == pattern && r.tool == tool) return &r;
+        if (r.args_pattern == pattern && r.tool == tool)
+            return &r;
     }
     if (pattern.empty()) {
         for (auto& r : rules_) {
-            if (r.args_pattern.empty() && r.tool == tool) return &r;
+            if (r.args_pattern.empty() && r.tool == tool)
+                return &r;
         }
     }
     return nullptr;
@@ -159,11 +162,9 @@ void PolicyStore::set_rule(const std::string& scope_id, PolicyLevel level) {
 void PolicyStore::revoke(const std::string& scope_id) {
     std::string tool, pattern;
     split_scope(scope_id, tool, pattern);
-    auto it = std::remove_if(rules_.begin(), rules_.end(),
-        [&](const PolicyRule& r) {
-            return r.tool == tool &&
-                   (pattern.empty() || r.args_pattern == pattern);
-        });
+    auto it = std::remove_if(rules_.begin(), rules_.end(), [&](const PolicyRule& r) {
+        return r.tool == tool && (pattern.empty() || r.args_pattern == pattern);
+    });
     rules_.erase(it, rules_.end());
     session_grants_.erase(scope_id);
 }
