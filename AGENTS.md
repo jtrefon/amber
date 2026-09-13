@@ -22,8 +22,17 @@ driven by an OpenAI-compatible LLM API.
 - CI blocks on `make && make test` under **both** `g++` and `clang++`
   (`CXX=g++` / `CXX=clang++`).
 - `make lint` (clang-tidy) and `make analyze` (cppcheck) gate CI as separate
-  compiler-agnostic jobs (single run each, independent of the compiler matrix),
-  before the build/test matrix.
+  compiler-agnostic jobs (single run each, independent of the compiler matrix).
+  `.clang-tidy` also enables the `misc-unused-*` family (dead-code surface).
+- `make duplicates` runs the cross-file duplicate-block detector
+  (`tools/duplicate_detector.py`); it is a gating CI job. `make
+  format-check-changed BASE=origin/main` is the incremental clang-format gate
+  (changed files only); full-tree `make format-check` stays informational.
+- CI also runs an ASan+UBSan `make test` job, a gcov coverage job uploading to
+  Codecov (needs the `CODECOV_TOKEN` secret), and a separate CodeQL
+  workflow (`security-and-quality` queries). The `changes` job gates every
+  heavyweight job on which paths a PR touched — docs-only PRs skip the C++
+  suite entirely.
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops
   the generated `Makefile`.
 

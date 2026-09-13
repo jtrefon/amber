@@ -26,4 +26,4 @@ runs:
     - name: Install dependencies (macOS)
       if: runner.os == 'macOS'
       shell: bash
-      run: brew install curl ncurses pkg-config
+      run: brew install curl ncurses pkg-config ccache
