@@ -14,8 +14,7 @@ namespace agent {
 // the agent explicitly targets a path inside one of them — hidden/vendored
 // content stays searchable on purpose, the default just keeps scans clean.
 inline const std::vector<std::string>& default_excluded_dirs() {
-    static const std::vector<std::string> dirs = {".amber", ".git",
-                                                  "third_party"};
+    static const std::vector<std::string> dirs = {".amber", ".git", "third_party"};
     return dirs;
 }
 
@@ -39,11 +38,9 @@ public:
     // optionally restricts files. `max` caps the number of returned hits.
     // `exclude_dirs` lists directory names to skip (default: the standard
     // hidden/vendored set); pass an empty vector to search everything.
-    virtual std::vector<SearchHit> search(
-        const std::string& query, const std::string& root,
-        const std::string& glob, long max,
-        const std::vector<std::string>& exclude_dirs =
-            default_excluded_dirs()) const = 0;
+    virtual std::vector<SearchHit>
+    search(const std::string& query, const std::string& root, const std::string& glob, long max,
+           const std::vector<std::string>& exclude_dirs = default_excluded_dirs()) const = 0;
 
     virtual std::string name() const noexcept = 0;
 };

@@ -353,11 +353,10 @@ Contribution CommandRegistry::add(const std::string& owner, CommandSpec spec) {
     c.kind = CapabilityKind::Command;
     c.name = root;
     c.remove = [this, owner, root] {
-        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
-                                      [&](const Entry& e) {
-                                          return e.owner == owner && e.spec.root == root;
-                                      }),
-                       entries_.end());
+        entries_.erase(
+            std::remove_if(entries_.begin(), entries_.end(),
+                           [&](const Entry& e) { return e.owner == owner && e.spec.root == root; }),
+            entries_.end());
     };
     return c;
 }
@@ -433,8 +432,7 @@ InstallResult ToolCapability::install(PluginServices& services) {
         registered.push_back(tool->name());
         // The meta travels with the registration, so the UI reads the verb the
         // plugin declared instead of keeping its own name→verb table.
-        registry->register_tool(std::move(tool), owner,
-                                    meta_for_tool(meta_, registered.back()));
+        registry->register_tool(std::move(tool), owner, meta_for_tool(meta_, registered.back()));
     }
     if (registered.empty()) {
         r.declined = true;
@@ -530,8 +528,7 @@ InstallResult StatusSegmentCapability::install(PluginServices& services) {
         return r;
     }
     r.contribution =
-        services.status().add(services.owner(), id_, priority_, drop_priority_, render_,
-                              align_);
+        services.status().add(services.owner(), id_, priority_, drop_priority_, render_, align_);
     r.ok = true;
     return r;
 }
@@ -564,7 +561,6 @@ InstallResult SearchBackendCapability::install(PluginServices& services) {
     r.ok = true;
     return r;
 }
-
 
 PanelCapability::PanelCapability(PanelSpec spec) : spec_(std::move(spec)) {}
 

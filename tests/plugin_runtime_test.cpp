@@ -1047,9 +1047,6 @@ public:
 
 WalletSnapshot QuotaProbePlugin::fixed_snapshot;
 
-
-
-
 TEST(opencode_go_usage_parser_parses_three_windows) {
     const std::string body = R"({
         "usage": {
@@ -1272,7 +1269,8 @@ TEST(wallet_segment_prefers_the_balance_over_windows) {
     runtime.perform_wallet_refresh();
 
     for (const auto& s : runtime.status().render(StatusSnapshot{})) {
-        if (s.id != "wallet") continue;
+        if (s.id != "wallet")
+            continue;
         ASSERT(s.text.find("12.50") != std::string::npos);
         ASSERT(s.text.find("90%") == std::string::npos);
         return;

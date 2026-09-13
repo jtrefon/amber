@@ -40,30 +40,29 @@ public:
     json parameters_schema() const override {
         return {
             {"type", "object"},
-            {"properties", {
-                {"pattern", {{"type", "string"},
-                             {"description", "Regular expression or query (max 256 chars)"},
-                             {"maxLength", 256}}},
-                {"path", {{"type", "string"},
-                          {"description", "Directory or file (default workspace root). "
-                                          "Hidden dirs and vendored code are skipped "
-                                          "by default; set a path inside one to "
-                                          "search it explicitly."}}},
-                {"glob", {{"type", "string"},
-                          {"description", "Optional glob filter, e.g. '*.cpp'"}}},
-                {"mode", {{"type", "string"},
-                          {"description", mode_description()}}},
-                {"max", {{"type", "integer"},
-                         {"description", "Max matches (default 200)"}}}
-            }},
-            {"required", {"pattern"}}
-        };
+            {"properties",
+             {{"pattern",
+               {{"type", "string"},
+                {"description", "Regular expression or query (max 256 chars)"},
+                {"maxLength", 256}}},
+              {"path",
+               {{"type", "string"},
+                {"description", "Directory or file (default workspace root). "
+                                "Hidden dirs and vendored code are skipped "
+                                "by default; set a path inside one to "
+                                "search it explicitly."}}},
+              {"glob", {{"type", "string"}, {"description", "Optional glob filter, e.g. '*.cpp'"}}},
+              {"mode", {{"type", "string"}, {"description", mode_description()}}},
+              {"max", {{"type", "integer"}, {"description", "Max matches (default 200)"}}}}},
+            {"required", {"pattern"}}};
     }
 
     ToolResult execute(const json& a) const override {
         ToolResult r;
         if (!a.contains("pattern") || !a["pattern"].is_string()) {
-            r.ok = false; r.error = "missing 'pattern'"; return r;
+            r.ok = false;
+            r.error = "missing 'pattern'";
+            return r;
         }
         std::string pattern = a["pattern"].get<std::string>();
         if (pattern.size() > 256) {
@@ -96,17 +95,15 @@ public:
         if (!req_path.empty()) {
             std::string rel = agent::Workspace::relative(path);
             std::string first = rel.substr(0, rel.find('/'));
-            excludes.erase(
-                std::remove_if(excludes.begin(), excludes.end(),
-                               [&](const std::string& d) {
-                                   return d == first;
-                               }),
-                excludes.end());
+            excludes.erase(std::remove_if(excludes.begin(), excludes.end(),
+                                          [&](const std::string& d) { return d == first; }),
+                           excludes.end());
         }
         std::string glob = a.value("glob", std::string(""));
         std::string mode = a.value("mode", std::string("grep"));
         long max = a.value("max", 200L);
-        if (max < 1) max = 1;
+        if (max < 1)
+            max = 1;
 
         // A mode that resolves to nothing fails loudly: a disabled backend
         // names the plugin and the command that re-enables it, an unknown one
@@ -118,8 +115,7 @@ public:
             return r;
         }
         const std::string backend_name = lookup.backend->name();
-        std::vector<SearchHit> hits =
-            lookup.backend->search(pattern, path, glob, max, excludes);
+        std::vector<SearchHit> hits = lookup.backend->search(pattern, path, glob, max, excludes);
 
         std::stringstream out;
         if (hits.empty()) {
@@ -129,14 +125,15 @@ public:
             for (const auto& h : hits) {
                 std::string rel = Workspace::relative(h.path);
                 if (backend_name == "semantic")
-                    out << rel << ":" << h.line_no << " (score=" << h.score
-                        << ") " << h.line << "\n";
+                    out << rel << ":" << h.line_no << " (score=" << h.score << ") " << h.line
+                        << "\n";
                 else
                     out << rel << ":" << h.line_no << ":" << h.line << "\n";
             }
         }
         r.output = out.str();
-        if (!r.output.empty() && r.output.back() == '\n') r.output.pop_back();
+        if (!r.output.empty() && r.output.back() == '\n')
+            r.output.pop_back();
         r.meta = {{"hits", static_cast<long>(hits.size())}, {"mode", mode}};
         return r;
     }

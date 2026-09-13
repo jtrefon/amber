@@ -28,11 +28,9 @@ class SemanticBackend : public SearchBackend {
 public:
     std::string name() const noexcept override { return "semantic"; }
 
-    std::vector<SearchHit> search(
-        const std::string& query, const std::string& root,
-        const std::string& glob, long max,
-        const std::vector<std::string>& exclude_dirs =
-            default_excluded_dirs()) const override {
+    std::vector<SearchHit>
+    search(const std::string& query, const std::string& root, const std::string& glob, long max,
+           const std::vector<std::string>& exclude_dirs = default_excluded_dirs()) const override {
         ensure_index(root, glob, exclude_dirs);
         std::vector<double> qvec;
         auto terms = tokenize(query);
@@ -42,7 +40,8 @@ public:
         std::scoped_lock lock(mtx_);
         for (const auto& line : lines_) {
             double score = cosine(qvec, line.vec);
-            if (score <= 0.0) continue;
+            if (score <= 0.0)
+                continue;
             SearchHit h;
             h.path = line.path;
             h.line_no = line.no;
@@ -50,10 +49,10 @@ public:
             h.score = score;
             hits.push_back(std::move(h));
         }
-        std::sort(hits.begin(), hits.end(), [](const SearchHit& a, const SearchHit& b) {
-            return a.score > b.score;
-        });
-        if (static_cast<long>(hits.size()) > max) hits.resize(max);
+        std::sort(hits.begin(), hits.end(),
+                  [](const SearchHit& a, const SearchHit& b) { return a.score > b.score; });
+        if (static_cast<long>(hits.size()) > max)
+            hits.resize(max);
         return hits;
     }
 
@@ -69,10 +68,11 @@ private:
                       const std::vector<std::string>& exclude_dirs) const {
         std::scoped_lock lock(mtx_);
         std::string excl_key;
-        for (const auto& d : exclude_dirs) excl_key += d + "\n";
+        for (const auto& d : exclude_dirs)
+            excl_key += d + "\n";
         // Rebuild if never built for this root/glob/excludes combo.
-        if (indexed_root_ == root && indexed_glob_ == glob &&
-            indexed_excludes_ == excl_key && !lines_.empty())
+        if (indexed_root_ == root && indexed_glob_ == glob && indexed_excludes_ == excl_key &&
+            !lines_.empty())
             return;
 
         lines_.clear();
@@ -82,24 +82,33 @@ private:
 
         // document frequency per term
         std::unordered_map<std::string, double> df;
-        struct RawLine { std::string path; long no; std::string text; std::vector<std::string> toks; };
+        struct RawLine {
+            std::string path;
+            long no;
+            std::string text;
+            std::vector<std::string> toks;
+        };
         std::vector<RawLine> raw;
         for (const auto& f : files) {
             std::ifstream in(f);
-            if (!in) continue;
+            if (!in)
+                continue;
             std::string text;
             long no = 0;
             while (std::getline(in, text)) {
                 ++no;
-                if (text.size() > 4096) text.resize(4096);  // skip huge lines
+                if (text.size() > 4096)
+                    text.resize(4096); // skip huge lines
                 auto toks = tokenize(text);
                 std::unordered_set<std::string> uniq(toks.begin(), toks.end());
-                for (const auto& t : uniq) df[t] += 1.0;
+                for (const auto& t : uniq)
+                    df[t] += 1.0;
                 raw.push_back({f, no, text, std::move(toks)});
             }
         }
         auto N = static_cast<double>(raw.empty() ? 1 : raw.size());
-        for (auto& kv : df) kv.second = std::log(N / kv.second) + 1.0;
+        for (auto& kv : df)
+            kv.second = std::log(N / kv.second) + 1.0;
 
         lines_.reserve(raw.size());
         for (auto& r : raw) {

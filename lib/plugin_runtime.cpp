@@ -137,7 +137,8 @@ void PluginRuntime::attach_config(const Config& config) {
 
 void PluginRuntime::attach_ui_services(UiServices* ui) noexcept {
     ui_services_ = ui ? ui : &null_ui_services();
-    if (services_) services_->ui = ui_services_;
+    if (services_)
+        services_->ui = ui_services_;
 }
 
 void PluginRuntime::attach_host_services(const HostServices& host) noexcept {
@@ -292,7 +293,6 @@ void PluginRuntime::perform_wallet_refresh() {
 
 namespace {
 
-
 // Select the window closest to exhaustion: highest percent_used, ties broken
 // by shortest duration (5h beats 7d beats monthly). Returns nullptr when no
 // window has a known percent.
@@ -335,7 +335,8 @@ StatusText wallet_status_text(const WalletSnapshot& snapshot) {
         return StatusText{buf, StatusTone::Dim};
     }
     const WalletWindow* w = closest_window(snapshot.windows);
-    if (!w) return StatusText{"  -", StatusTone::Dim};
+    if (!w)
+        return StatusText{"  -", StatusTone::Dim};
     char buf[48];
     std::snprintf(buf, sizeof(buf), "  %d%%·%s", static_cast<int>(w->percent_used),
                   w->label.c_str());

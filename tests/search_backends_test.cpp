@@ -91,9 +91,8 @@ public:
 
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
-        caps.push_back(std::make_unique<SearchBackendCapability>("fake", [] {
-            return std::make_unique<FakeBackend>("fake");
-        }));
+        caps.push_back(std::make_unique<SearchBackendCapability>(
+            "fake", [] { return std::make_unique<FakeBackend>("fake"); }));
         return caps;
     }
 };

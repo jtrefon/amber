@@ -167,8 +167,7 @@ public:
     using Render = std::function<StatusText(const StatusSnapshot&)>;
 
     Contribution add(const std::string& owner, const std::string& id, int priority,
-                     int drop_priority, Render render,
-                     StatusAlign align = StatusAlign::Left);
+                     int drop_priority, Render render, StatusAlign align = StatusAlign::Left);
 
     // Segments that produced text, in (priority, registration) order.
     std::vector<StatusSegment> render(const StatusSnapshot& snapshot) const;
@@ -556,8 +555,7 @@ private:
 class StatusSegmentCapability : public Capability {
 public:
     StatusSegmentCapability(std::string id, int priority, int drop_priority,
-                            StatusRegistry::Render render,
-                            StatusAlign align = StatusAlign::Left);
+                            StatusRegistry::Render render, StatusAlign align = StatusAlign::Left);
     std::string name() const override { return id_; }
     CapabilityKind kind() const override { return CapabilityKind::StatusSegment; }
     InstallResult install(PluginServices& services) override;

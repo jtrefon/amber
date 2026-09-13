@@ -156,7 +156,7 @@ public:
         std::atomic<long long> active_ticket{0};
         std::atomic<long long> result_ticket{0};
         std::atomic<long long> last_ms{0};
-        std::string provider; // the provider the active ticket fetches for
+        std::string provider;    // the provider the active ticket fetches for
         WalletSnapshot snapshot; // written by the worker under mutex
         mutable std::mutex mutex;
     };
