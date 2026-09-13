@@ -31,7 +31,9 @@ public:
 
 } // namespace
 
-bool HelloPlugin::initialize(const PluginContext&) { return true; }
+bool HelloPlugin::initialize(const PluginContext&) {
+    return true;
+}
 
 std::vector<std::unique_ptr<Capability>> HelloPlugin::capabilities() {
     std::vector<std::unique_ptr<Capability>> caps;
