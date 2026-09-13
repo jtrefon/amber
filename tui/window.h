@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "reasoning_block.h"
 #include "rich.h"
 #include "widgets.h"
 
@@ -42,8 +43,7 @@ struct Window {
     std::string stream_buf;           // raw streamed assistant markdown (live)
     int stream_color = P_ASSISTANT;
     std::string stream_ts;
-    std::string reason_buf;
-    bool reason_folded = false;
+    ReasoningBlock reason;            // live thinking block (folds when done)
 };
 
 }  // namespace tui

@@ -21,7 +21,6 @@ public:
     const std::vector<palette::Command>& commands();
     void build_commands();
     const palette::Command* find_command(const std::string& name);
-    std::string plugin_state_name(agent::PluginState st) const;
     bool handle_slash(const std::string& line);
     void register_action(const std::string& action,
                          std::function<void(const std::string&)> handler);
@@ -112,15 +111,11 @@ public:
     void cmd_mcp_prompts(const std::string& server);
     void cmd_mcp_set_enabled(const std::string& server, bool on);
     void cmd_mcp_trust(const std::string& args);
-    void cmd_plugin_list();
-    void cmd_plugin_status(const std::string& id);
-    void cmd_plugin_info(const std::string& id);
-    void cmd_plugin_enable(const std::string& id);
-    void cmd_plugin_disable(const std::string& id);
-    void cmd_plugin_get(const std::string& args);
-    void cmd_plugin_set(const std::string& args);
+    void cmd_plugin_settings_get(const std::string& args);
+    void cmd_plugin_settings_set(const std::string& args);
     void cmd_plugin_install(const std::string& source);
     void cmd_plugin_uninstall(const std::string& id);
+    void cmd_plugin_state_usage(const std::string& verb);
     std::string usage(const palette::Command& c) const;
     void cmd_help(const std::string& arg);
     void cmd_window(const std::string& arg);
@@ -135,7 +130,6 @@ public:
     void cmd_skills_set(const std::string& rest);
     void cmd_skills_get(const std::string& sub);
     void cmd_mcp(const std::string& rest);
-    void cmd_plugin(const std::string& rest);
     void cmd_prompt(const std::string& rest);
     void cmd_prompt_list();
     void job_ls();

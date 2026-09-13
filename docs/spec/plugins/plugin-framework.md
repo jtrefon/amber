@@ -191,18 +191,23 @@ is observable.
 | **Wallets** | `WalletRegistry::Fetch = optional<WalletSnapshot>(const Config&)` | keyed by provider id | One mechanism for one question, "what is left?", because a prepaid balance and a set of quota windows are the same idea in two shapes, and two registries for it cost two flags, two status segments and two command pairs that drift. A provider supplies only the *fetch*. The runtime owns when to refresh (turn end, provider switch, startup), the cache, and the rendering, so every provider's readout behaves identically and no plugin carries a poll loop or a cache. One core status segment: the balance when the snapshot has one, otherwise the window closest to reset; `-` when the provider declares none or the fetch failed. `/get provider wallet` carries the whole picture; `/set provider wallet on\|off` is the display switch |
 
 **Plugin registry state is itself a command-tree surface** (`plugin` namespace
-under `/get` and `/set`, D17):
+under `/get` and `/set`, D17/D18):
 
 | Command | Behaviour |
 |---|---|
 | `/get plugin list` | Every registered plugin: id, tier, state (on/off), and what it contributes |
-| `/get plugin <id>` | One plugin's detail: version, api version, capabilities, contributions, state source |
-| `/set plugin <id> on\|off` | The single write path for enable/disable; persists to the plugin's `plugin.conf` and applies immediately |
-| `/set plugin <id> <key>=<value>` | Per-plugin settings, stored next to the state |
+| `/get plugin info <id>` | One plugin's detail: version, api version, capabilities, contributions, state source — plus the manifest for external plugins |
+| `/get plugin settings <id> [key]` | An external plugin's persisted settings |
+| `/set plugin on <id>` \| `off <id>` | The single write path for enable/disable; persists to the plugin's `plugin.conf` and applies immediately |
+| `/set plugin install <path\|url>` | Stage an archive into the user plugin directory, left disabled |
+| `/set plugin uninstall <id>` | Deactivate and delete an installed plugin |
+| `/set plugin settings <id> <key>=<value>` | Per-plugin settings, stored next to the state |
 
-`/plugin install|uninstall|info` stays as the packaging namespace for the
-external tier. `enable`/`disable` no longer live there: one write path, so state
-cannot drift between two commands.
+The ids are **feed values under their verb** (`get.plugin.info.<id>`,
+`set.plugin.on.<id>`), never siblings of the commands, so the drawer of
+`/get plugin` or `/set plugin` stays a command list however many plugins
+register. The root `/plugin` namespace is retired (D18): packaging verbs moved
+under `/set plugin`, so there is one surface where there used to be two.
 
 **Toggling re-publishes the surfaces the plugin fed.** Enabling or disabling
 refreshes the provider feed (`refresh_provider_feed`) and the command tree, so
@@ -644,16 +649,18 @@ These hold always. A test that cannot express one of them is a design smell.
 #### [PLG-11] Plugin registry is a get/set surface
 
 - **Given**: bundled plugins registered, some disabled in `plugin.conf`
-- **Input**: `/get plugin list`; `/set plugin <id> off`; restart; `/set plugin <id> on`
+- **Input**: `/get plugin list`; `/set plugin off <id>`; restart; `/set plugin on <id>`
 - **Expected**: the list shows every plugin with tier, state and contributions;
-  the toggle persists and survives restart; the detail view reports the api
-  version and state source; a disabled plugin's contributions are absent.
+  the toggle persists and survives restart; `/get plugin info <id>` reports the
+  api version, state source and manifest; a disabled plugin's contributions are
+  absent; the drawers of `/get plugin` and `/set plugin` show commands, never
+  the plugin ids.
 - **Regression guard**: `plugin_getset_*` tests.
 
 #### [PLG-12] Provider list reflects plugin state live
 
 - **Given**: a provider contributed by an enabled plugin
-- **Input**: `/get provider list`, then `/set plugin <id> off`, then `/get provider list` again
+- **Input**: `/get provider list`, then `/set plugin off <id>`, then `/get provider list` again
 - **Expected**: the provider appears, then is gone, with no restart, and with
   the completion drawer agreeing with the list. Re-enabling restores it.
 - **Regression guard**: `provider_feed_follows_plugin_state`.
@@ -662,7 +669,7 @@ These hold always. A test that cannot express one of them is a design smell.
 
 - **Given**: a provider whose `flavor` is supplied by a plugin, with a user
   provider file (`~/.config/amber/providers/<name>.conf`) holding its key
-- **Input**: `/set plugin <id> off`, then a turn against that provider
+- **Input**: `/set plugin off <id>`, then a turn against that provider
 - **Expected**: the turn fails loudly, naming the plugin and the command that
   re-enables it, **never** a silent fallback to the OpenAI dialect. Re-enabling
   restores normal operation.

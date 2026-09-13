@@ -28,7 +28,10 @@ the core.
 ```
 
 - **Discovery.** A plugin is a directory containing `manifest.json` plus the
-  executable. Search order (first hit wins): `$XDG_CONFIG_HOME/amber/plugins/<id>`,
+  executable. A directory without a manifest is not a plugin — the v2 runtime
+  keeps its per-plugin state (`plugin.conf`) under the same root — so it is
+  skipped rather than reported as incompatible. Search order (first hit wins):
+  `$XDG_CONFIG_HOME/amber/plugins/<id>`,
   `~/.config/amber/plugins/<id>`, `<workspace>/.amber/plugins/<id>`,
   `$(datadir)/amber/plugins/<id>` (system-shipped).
 - **Lifecycle.** `available` (manifest valid, found) → `enabled` (tools
@@ -85,7 +88,7 @@ the core.
 | `author` / `url` / `license` | no | Attribution metadata. |
 | `description` | yes | Prompt advertisement: how/when to use the plugin's tools. Rendered into the agent's system prompt while enabled. |
 | `main` | yes | Executable path relative to the plugin directory. |
-| `settings` | no | Default key/value settings; overridden via `/plugin set <id> <key>=<value>` and persisted next to the manifest. |
+| `settings` | no | Default key/value settings; overridden via `/set plugin settings <id> <key>=<value>` and persisted next to the manifest. |
 | `completion` | no | A completions.json subtree (same node shape: `action`, `help`, `man`, `children`, `choices`, `range`). Merged into the command tree on enable. The `action` paths use the `plugin.<id>…` namespace. |
 | `tools` | no | Tool definitions. Each: `name` (registered as `plugin_<id>_<name>`), `description` (agent-facing), `schema` (JSON Schema object for `parameters`). |
 
@@ -148,20 +151,22 @@ timeout (partial output lost, plugins must emit one line per request).
 
 ## 5. Administration
 
-- `/plugin list | status <id> | enable <id> | disable <id> | get <id> [key] |
-  set <id> <key>=<value> | info <id> | install <path|url> | uninstall <id>`
+- `/get plugin list | info <id> | settings <id> [key]`
+- `/set plugin on <id> | off <id> | install <path|url> | uninstall <id> |
+  settings <id> <key>=<value>`
 - **install**: tar.gz archive (local path or http(s) URL via libcurl),
   containing `manifest.json` + executable. Validated (id, protocol version,
-  main exists, executable bit) → staged to `~/.config/amber/plugins/<id>/` →
-  enabled.
+  main exists, executable bit) → staged to `~/.config/amber/plugins/<id>/` and
+  left **disabled** — install and run are separate steps, so `/set plugin on
+  <id>` activates it deliberately.
 - **uninstall**: disables and deletes the user-level plugin directory.
   System-shipped plugins cannot be uninstalled (read-only).
 
 ## 6. Security model
 
 - Plugin code is **untrusted** but runs with the user's privileges, like the
-  harness itself. Operators install only plugins they trust; `/plugin info`
-  shows author/url/license before enabling.
+  harness itself. Operators install only plugins they trust; `/get plugin info
+  <id>` shows author/url/license before enabling.
 - All path arguments are passed through `Workspace::confine` before the plugin
   sees them; the plugin cannot escape the workspace through amber.
 - Output is capped (64 KiB) per tool result.

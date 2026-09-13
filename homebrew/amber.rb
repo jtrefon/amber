@@ -13,7 +13,7 @@ class Amber < Formula
   license "Apache-2.0"
 
   # Bump per release; the release workflow names the tarball amber-<ver>-darwin-arm64.
-  version "0.4.12"
+  version "0.5.0"
 
   url "https://github.com/jtrefon/amber/releases/download/v#{version}/amber-#{version}-darwin-arm64.tar.gz"
 

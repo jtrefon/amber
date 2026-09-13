@@ -1,4 +1,5 @@
 #include "slash_dispatcher.h"
+#include "feed_manager.h"
 #include "plugin_commands.h"
 #include "tui.h"
 
@@ -46,6 +47,16 @@ void SlashDispatcher::refresh_completions() {
         },
         tui_.settings_, action_registry_,
         [this](const std::string& text) { tui_.append_line(P_STATUS, text); });
+
+    // The tree was rebuilt from scratch, so the live feeds must be merged again:
+    // without this their leaves (models, providers, policy rules, jobs, plugin
+    // states) disappear on any rebuild — a plugin toggle, an install, an MCP
+    // connect — until the next restart.
+    refresh_model_list();
+    refresh_policy_feed();
+    refresh_job_feed();
+    refresh_provider_feed();
+    if (tui_.feed_manager_) tui_.feed_manager_->refresh_plugin_feed();
 }
 
 void SlashDispatcher::request_quit() { tui_.quit_ = true; }

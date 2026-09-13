@@ -334,17 +334,18 @@ void EventRouter::resolve_api_key(const AgentEvent& ev) {
 
 void EventRouter::on_reasoning(Window* w, const AgentEvent& ev) {
     if (!w) return;
-    w->reason_buf += ev.text;
-    if (!w->reason_folded && tui_.render_engine_->show_reasoning())
-        w->scroll_top = tui_.render_engine_->max_scroll(*w);
+    // Hidden display means no live view and no fold summary, so the deltas are
+    // not tracked at all.
+    if (!tui_.render_engine_->show_reasoning()) return;
+    w->reason.append(ev.text);
+    w->scroll_top = tui_.render_engine_->max_scroll(*w);
 }
 
 
 void EventRouter::on_token(Window* w, const AgentEvent& ev) {
     if (!w) return;
     tui_.render_engine_->clear_working();  // output is displaying — row retires
-    if (!w->reason_folded && !w->reason_buf.empty())
-        tui_.fold_reasoning(*w);
+    tui_.fold_reasoning(*w);
     w->stream_color = P_ASSISTANT;
     w->stream_buf += ev.text;
     tui_.live_ctx_offset_ += (static_cast<long>(ev.text.size()) / 4) + 1;

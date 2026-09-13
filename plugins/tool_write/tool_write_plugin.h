@@ -18,7 +18,7 @@ std::vector<std::unique_ptr<Capability>> make_write_tool_capabilities();
 class ToolWritePlugin : public IPlugin {
 public:
     std::string id() const override { return "tool_write"; }
-    std::string version() const override { return "1.0.0"; }
+    std::string version() const override { return "0.4.0"; }
     std::string name() const override { return "Write tool"; }
     std::string description() const override {
         return "The write tool: targeted replace-block edits to files.";

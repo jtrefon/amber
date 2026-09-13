@@ -364,8 +364,33 @@ TEST(cdp_plugin_protocol_roundtrip) {
     ASSERT(mgr.disable("cdp", reg));
 }
 
+// The v2 runtime keeps per-plugin state at ~/.config/amber/plugins/<id>/plugin.conf,
+// the same root external plugins install into. A directory holding only state is
+// not an install: it must not surface as an incompatible ghost of a real plugin.
+TEST(plugin_discover_ignores_state_dirs) {
+    std::string base = "/tmp/amber_plugin_test";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+    stage_fake_plugin(base + "/plugins");
+
+    std::string state = base + "/plugins/clock";
+    std::filesystem::create_directories(state);
+    {
+        std::ofstream f(state + "/plugin.conf");
+        f << "# amber plugin state: clock\nenabled=1\n";
+    }
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+
+    ASSERT(mgr.find("clock") == nullptr);
+    ASSERT(mgr.find("fake") != nullptr);
+}
+
 int main() {
     plugin_discover_loads_valid_and_flags_invalid();
+    plugin_discover_ignores_state_dirs();
     plugin_enable_registers_and_runs_tools();
     plugin_state_persists_across_manager_instances();
     plugin_install_stages_archive();

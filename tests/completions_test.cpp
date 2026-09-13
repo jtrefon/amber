@@ -26,6 +26,7 @@ int failed = 0;
     } while (0)
 
 #include "tui/drawer_rows.h"
+#include "tui/plugin_feed.h"
 #include "tui/setting_registry.h"
 
 // ── Test: JSON loads and produces expected actions ─────────────────
@@ -684,52 +685,6 @@ TEST(test_exact_top_level_namespace_still_descends) {
     ASSERT(!has_get);  // must not list "get" as a sibling
 }
 
-int main() {
-    try {
-    test_json_loads_all_commands();
-    test_core_actions_have_help();
-    test_choices_loaded();
-    test_ranges_loaded();
-    test_completions_work();
-    test_missing_json_is_ok();
-    test_empty_registry();
-    test_json_only_key_in_completions();
-    test_namespace_children();
-    test_complete_depth1_prefix();
-    test_complete_depth2_with_dot();
-    test_complete_depth2_prefix();
-    test_complete_depth2_policy();
-    test_complete_depth1_compression_namespace();
-    test_complete_nonexistent_namespace();
-    test_complete_depth1_namespace_matches_at_top();
-    test_drawer_namespace_levels();
-    test_model_command_is_leaf();
-    test_model_lives_under_get_set();
-    test_set_model_feed_leaves_complete();
-    test_policy_rule_branches_documented();
-    test_policy_rule_feed_leaves();
-    test_job_feed_leaves();
-    test_full_path_namespaces_are_distinct();
-    test_merge_preserves_static_tree_children();
-    test_feed_leaves_visible_after_merge();
-    test_drawer_rows_children_and_help();
-    test_complete_top_level_from_tree();
-    test_bare_slash_children_of();
-    test_bare_slash_drawer_rows();
-    test_bare_slash_drawer_entry_names();
-    test_partial_first_token_entry_names_include_compress();
-    test_partial_first_token_drawer_rows_include_compress();
-    test_exact_top_level_namespace_still_descends();
-    } catch (const std::exception& e) {
-        std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
-        failed++;
-    }
-
-    std::cout << (failed ? "FAILED" : "ALL PASSED")
-              << " (" << failed << " failures)\n";
-    return failed;
-}
-
 // ── Test: mcp / skills / plugin / prompt namespaces are documented ──
 
 TEST(test_json_documents_mcp_namespace) {
@@ -762,22 +717,81 @@ TEST(test_json_documents_skills_under_set_and_get) {
     ASSERT(c[1] == "off");
 }
 
-TEST(test_json_documents_plugin_and_prompt) {
+TEST(test_json_documents_plugin_surface) {
     tui::SettingRegistry reg;
     bool ok = reg.load_completions_json("completions.json");
     ASSERT(ok);
-    ASSERT(!reg.help_for("plugin.list").empty());
-    ASSERT(!reg.man_for("plugin.install").empty());
-    ASSERT(!reg.help_for("core.plugin.uninstall").empty());
-    auto subs = reg.children_of("plugin");
-    bool saw_install = false, saw_uninstall = false, saw_status = false;
-    for (const auto& s : subs) {
-        if (s == "install") saw_install = true;
-        if (s == "uninstall") saw_uninstall = true;
-        if (s == "status") saw_status = true;
+
+    // The plugin control surface is get/set only: the root /plugin namespace
+    // is retired, its verbs served by /get plugin and /set plugin.
+    auto top = reg.complete("");
+    bool has_root_plugin = false;
+    for (const auto& k : top)
+        if (k == "plugin") has_root_plugin = true;
+    ASSERT(!has_root_plugin);
+
+    auto get_kids = reg.children_of("get.plugin");
+    bool saw_list = false, saw_info = false, saw_settings = false;
+    for (const auto& k : get_kids) {
+        if (k == "list") saw_list = true;
+        if (k == "info") saw_info = true;
+        if (k == "settings") saw_settings = true;
     }
-    ASSERT(saw_install && saw_uninstall && saw_status);
+    ASSERT(saw_list && saw_info && saw_settings);
+    ASSERT_EQ(get_kids.size(), 3u);
+    ASSERT(!reg.man_for("get.plugin.info").empty());
+    ASSERT(!reg.help_for("core.config.get.plugin.info").empty());
+
+    auto set_kids = reg.children_of("set.plugin");
+    bool on = false, off = false, install = false, uninstall = false, settings = false;
+    for (const auto& k : set_kids) {
+        if (k == "on") on = true;
+        if (k == "off") off = true;
+        if (k == "install") install = true;
+        if (k == "uninstall") uninstall = true;
+        if (k == "settings") settings = true;
+    }
+    ASSERT(on && off && install && uninstall && settings);
+    ASSERT_EQ(set_kids.size(), 5u);
+    ASSERT(!reg.man_for("set.plugin.install").empty());
     ASSERT(!reg.help_for("prompt").empty());
+}
+
+// The live plugin feed must not put ids beside the commands: they hang under
+// their verb, so the drawers stay readable however many plugins register.
+TEST(test_plugin_feed_keeps_ids_out_of_the_command_namespaces) {
+    tui::SettingRegistry reg;
+    bool ok = reg.load_completions_json("completions.json");
+    ASSERT(ok);
+
+    std::vector<tui::PluginFeedEntry> plugins = {
+        {"clock", "0.4.0", "bundled", true},
+        {"sysinfo", "0.4.0", "external", false},
+    };
+    reg.merge_completions_json(tui::plugin_feed_subtree(plugins));
+
+    // Command rows only, both sides.
+    ASSERT_EQ(reg.children_of("get.plugin").size(), 3u);
+    ASSERT_EQ(reg.children_of("set.plugin").size(), 5u);
+
+    // Ids are values under the verb, help carries state + tier + version.
+    ASSERT_EQ(reg.children_of("get.plugin.info").size(), 2u);
+    ASSERT_EQ(reg.help_for("get.plugin.info.clock"),
+              std::string("on, bundled v0.4.0"));
+    ASSERT_EQ(reg.help_for("core.config.get.plugin.info.clock"),
+              std::string("on, bundled v0.4.0"));
+    ASSERT_EQ(reg.children_of("set.plugin.on").size(), 2u);
+    ASSERT_EQ(reg.help_for("set.plugin.on.clock"), std::string("already on"));
+    ASSERT_EQ(reg.help_for("set.plugin.on.sysinfo"), std::string("enable this plugin"));
+    ASSERT_EQ(reg.help_for("set.plugin.off.clock"), std::string("disable this plugin"));
+    ASSERT_EQ(reg.help_for("set.plugin.off.sysinfo"), std::string("already off"));
+    ASSERT_EQ(tui::plugin_action("set.plugin.off", "clock"),
+              std::string("core.config.set.plugin.off.clock"));
+
+    // A plugin that failed to load has no version: the row still renders.
+    std::vector<tui::PluginFeedEntry> broken = {{"busted", "", "external", false}};
+    reg.merge_completions_json(tui::plugin_feed_subtree(broken));
+    ASSERT_EQ(reg.help_for("get.plugin.info.busted"), std::string("off, external v?"));
 }
 
 // ── Test: merging subtrees unions children instead of replacing them ──
@@ -804,7 +818,7 @@ TEST(test_json_merge_unions_children) {
     }
     // Static children survive the merge alongside the live branch.
     ASSERT(has_list && has_live);
-    ASSERT(!reg.help_for("live_srv.do_thing").empty());
+    ASSERT(!reg.help_for("mcp.live_srv.do_thing").empty());
 }
 
 // ── Test: subagent settings live in the get/set tree ───────────────
@@ -905,4 +919,64 @@ TEST(test_plugin_command_subtree_merges_and_resolves) {
     const auto& tree = reg.command_tree();
     ASSERT_EQ(tree["commands"]["hello"]["children"]["greet"]["action"].get<std::string>(),
               std::string("plugin.hello.greet"));
+}
+
+// Every TEST above must be called here: definitions placed after main() were
+// silently dead until this list covered them.
+
+int main() {
+    try {
+        test_json_loads_all_commands();
+        test_core_actions_have_help();
+        test_namespace_children();
+        test_choices_loaded();
+        test_ranges_loaded();
+        test_completions_work();
+        test_json_only_key_in_completions();
+        test_missing_json_is_ok();
+        test_complete_depth1_prefix();
+        test_complete_depth2_with_dot();
+        test_complete_depth2_prefix();
+        test_complete_depth2_policy();
+        test_complete_depth1_compression_namespace();
+        test_complete_nonexistent_namespace();
+        test_complete_depth1_namespace_matches_at_top();
+        test_empty_registry();
+        test_drawer_namespace_levels();
+        test_model_command_is_leaf();
+        test_model_lives_under_get_set();
+        test_set_model_feed_leaves_complete();
+        test_policy_rule_branches_documented();
+        test_policy_rule_feed_leaves();
+        test_job_feed_leaves();
+        test_full_path_namespaces_are_distinct();
+        test_merge_preserves_static_tree_children();
+        test_feed_leaves_visible_after_merge();
+        test_drawer_rows_children_and_help();
+        test_complete_top_level_from_tree();
+        test_bare_slash_children_of();
+        test_bare_slash_drawer_rows();
+        test_bare_slash_drawer_entry_names();
+        test_partial_first_token_entry_names_include_compress();
+        test_partial_first_token_drawer_rows_include_compress();
+        test_exact_top_level_namespace_still_descends();
+        test_json_documents_mcp_namespace();
+        test_json_documents_skills_under_set_and_get();
+        test_json_documents_plugin_surface();
+        test_plugin_feed_keeps_ids_out_of_the_command_namespaces();
+        test_json_merge_unions_children();
+        test_subagent_tree_nodes();
+        test_reasoning_tree_nodes();
+        test_provider_tree_nodes();
+        test_get_mcp_learn_tree_nodes();
+        test_get_provider_list_node();
+        test_plugin_command_subtree_merges_and_resolves();
+    } catch (const std::exception& e) {
+        std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
+        failed++;
+    }
+
+    std::cout << (failed ? "FAILED" : "ALL PASSED")
+              << " (" << failed << " failures)\n";
+    return failed;
 }
