@@ -1,12 +1,12 @@
-# Reference plugin: hello
+# Template: hello
 
-The compiled example from `docs/spec/plugins/developer-guide.md`. It contributes
+The copy-me template from `docs/spec/plugins/developer-guide.md`. It contributes
 a single `greet` tool through `ToolCapability`, so it demonstrates the whole
 core-plugin path: declare a capability, let the runtime install it, and let
 disable unwind it.
 
-It is **not** bundled, it is not registered in `make_bundled_plugins()`, so it
-does not ship in the product. It is compiled and exercised by
+It is **not** bundled — not registered in `make_bundled_plugins()` — so it does
+not ship in the product. It is compiled and exercised by
 `tests/example_plugin_test.cpp`, which is the guard that the guide's anatomy
 still builds and behaves.
 

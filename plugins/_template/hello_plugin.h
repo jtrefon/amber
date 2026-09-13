@@ -1,13 +1,14 @@
-#ifndef AMBER_EXAMPLE_HELLO_PLUGIN_H
-#define AMBER_EXAMPLE_HELLO_PLUGIN_H
+#ifndef AMBER_TEMPLATE_HELLO_PLUGIN_H
+#define AMBER_TEMPLATE_HELLO_PLUGIN_H
 
-// Reference example for docs/spec/plugins/developer-guide.md.
+// The copy-me template for core plugins (docs/spec/plugins/developer-guide.md).
 //
 // A minimal core plugin: one tool, declared as a capability and installed by
 // the runtime's ledger. It is compiled and exercised by
-// tests/example_plugin_test.cpp, so the guide's anatomy cannot rot.
+// tests/example_plugin_test.cpp, so the template cannot rot.
 //
-// Copy this directory, change the id, and replace the tool.
+// Copy this directory to plugins/<your-id>/, change the id, and replace the
+// tool. It is deliberately not registered in make_bundled_plugins().
 
 #include "agent/plugin_core.h"
 
@@ -15,7 +16,7 @@
 #include <string>
 #include <vector>
 
-namespace agent::examples {
+namespace agent::templates {
 
 class HelloPlugin : public IPlugin {
 public:
@@ -31,6 +32,6 @@ public:
     std::vector<std::unique_ptr<Capability>> capabilities() override;
 };
 
-} // namespace agent::examples
+} // namespace agent::templates
 
-#endif // AMBER_EXAMPLE_HELLO_PLUGIN_H
+#endif // AMBER_TEMPLATE_HELLO_PLUGIN_H

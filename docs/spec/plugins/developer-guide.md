@@ -26,9 +26,10 @@ reason the framework exists.
 
 ## Quickstart: your first plugin
 
-A complete, compiled, tested example lives in `examples/plugin_hello/`, its
-test is `tests/example_plugin_test.cpp`, and it is built by `make test`. Copy it
-and change the id.
+A complete, compiled, tested template lives in `plugins/_template/`, its test is
+`tests/example_plugin_test.cpp`, and it is built by `make test`. Copy the
+directory to `plugins/<your-id>/` and change the id; it is never registered in
+`make_bundled_plugins()`, so the template itself does not ship.
 
 1. **Create the directory** `plugins/<id>/` with `<id>_plugin.h` and
    `<id>_plugin.cpp`.
