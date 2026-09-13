@@ -116,15 +116,21 @@ public:
     Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
-          std::unique_ptr<MemoryStore> memory_store = {},
+          std::shared_ptr<MemoryStore> memory_store = {},
           std::unique_ptr<MemoryRetriever> retriever = {}, std::unique_ptr<LLMClient> client = {},
-          LLMClientFactory client_factory = {}, bool register_skills = true);
-    // The agent registers its skill tools (read_skill/list_skills/write_skill)
-    // into the shared registry, bound to its own SkillCatalog. Hosts that
-    // construct short-lived agents sharing a parent's registry (sub-agents)
-    // pass false: the sub's registration would REPLACE the parent's bindings
-    // with references that dangle once the sub is destroyed (use-after-free
-    // on the next skill call).
+          LLMClientFactory client_factory = {}, bool register_skills = true,
+          std::shared_ptr<SkillCatalog> skills = {});
+    // `memory_store`/`skills` are shared_ptr because a project scopes them:
+    // every agent on one workspace shares ONE catalog and ONE store (skill
+    // tools resolve the calling agent's catalog through RunScope, so the
+    // registry binding is a fallback, never a hijack). Hosts with several
+    // agents on one project (TUI windows) inject the shared instances;
+    // single-agent hosts pass nothing and get private ones.
+    //
+    // `register_skills` exists for hosts that construct short-lived agents
+    // sharing a parent's registry (sub-agents): the sub's registration would
+    // REPLACE the parent's bindings with references that dangle once the sub
+    // is destroyed (use-after-free on the next skill call).
 
     // Run one turn to completion, appending to the ongoing conversation.
     // Context from previous turns is retained (the agent is stateful). Returns
@@ -192,6 +198,35 @@ public:
         cfg_.compression_keep_last_prompts = n;
         cfg_.compression_keep_last_prompts_explicit = true;
     }
+
+    // Read-only view of the resolved runtime config (model, mode, thinking)
+    // — per-agent, so a window's status bar and session snapshot describe
+    // THIS agent, not the host template.
+    const Config& config() const { return cfg_; }
+
+    // Ask the running turn to stop (the loop polls between iterations and
+    // cancellable tools consult it through RunScope). Each agent owns its
+    // token — cancelling one window never touches a sibling's run.
+    void request_cancel() { cfg_.cancel_token.request(); }
+
+    // Rebind this agent to be an independent copy of `src`: identical
+    // conversation context, runtime config, approvals, model windows, turn
+    // counter, brief store, and session-activated skills — so both legs
+    // serialize the same wire prefix (KV-cache reuse) and then diverge
+    // cleanly. The fork keeps its own cancel token, hooks, log, and event
+    // wiring. Caller guarantees `src` is quiescent (Context is
+    // single-owner; never fork mid-run).
+    void fork_from(const Agent& src);
+
+    // Switch the operational mode at runtime (/mode). Mode feeds tool
+    // availability and approval policy, both read from cfg_ per turn, so
+    // the next run picks it up — and the system prompt renders from cfg_,
+    // which makes a mode change a new wire prefix for the next request.
+    void set_mode(AgentMode mode) { cfg_.mode = mode; }
+    void set_thinking(const std::string& thinking) { cfg_.thinking = thinking; }
+
+    // Session-activated skill bodies (own list — see inject_prompt_blocks).
+    const std::vector<ActivatedSkill>& activated_skills() const { return activated_skills_; }
 
     // Policy store for tool approval rules.
     PolicyStore& policy() { return policy_; }
@@ -348,9 +383,13 @@ private:
     std::set<std::string> session_approved_; // tools granted for the session
     std::unique_ptr<CompressionStrategy> compression_;
     std::unique_ptr<CompressionGate> gate_;
-    std::unique_ptr<MemoryStore> memory_store_;
+    std::shared_ptr<MemoryStore> memory_store_;
     std::unique_ptr<MemoryRetriever> retriever_;
-    std::unique_ptr<SkillCatalog> skills_;
+    std::shared_ptr<SkillCatalog> skills_;
+    // Session-activated skill bodies, in activation order. Per-agent state
+    // even though the catalog is shared: a skill read in this session is
+    // injected into THIS session's prompt copy only.
+    std::vector<ActivatedSkill> activated_skills_;
     SessionBriefStore brief_store_;
     ExperienceConfig experience_cfg_;
     PolicyStore policy_;

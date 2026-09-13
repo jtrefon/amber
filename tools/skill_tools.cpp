@@ -1,6 +1,7 @@
 
 #include "agent/config.h"
 #include "agent/registry.h"
+#include "agent/run_scope.h"
 #include "agent/skill_catalog.h"
 #include "agent/tool.h"
 #include "agent/tools.h"
@@ -16,8 +17,10 @@ namespace agent {
 namespace {
 
 std::string scope_dir(const std::string& scope, std::string& error) {
-    if (scope == "project") return Workspace::local_dir() + "/skills";
-    if (scope == "global") return global_config_dir() + "/skills";
+    if (scope == "project")
+        return Workspace::local_dir() + "/skills";
+    if (scope == "global")
+        return global_config_dir() + "/skills";
     error = "invalid scope '" + scope + "' (use 'project' or 'global')";
     return "";
 }
@@ -28,32 +31,36 @@ std::string scope_dir(const std::string& scope, std::string& error) {
 // write_skill and /set skills create. Returns an empty string on success or a
 // human-readable error message.
 std::string author_skill(SkillCatalog& catalog, const std::string& name,
-                         const std::string& description,
-                         const std::string& body, const std::string& scope) {
+                         const std::string& description, const std::string& body,
+                         const std::string& scope) {
     if (!is_kebab_name(name)) {
-        return "invalid skill name '" + name +
-               "' (lowercase letters, digits, '-' only)";
+        return "invalid skill name '" + name + "' (lowercase letters, digits, '-' only)";
     }
     if (description.empty())
         return "missing skill description (1-2 sentence trigger guidance)";
-    if (body.empty()) return "missing skill body (markdown instructions)";
+    if (body.empty())
+        return "missing skill body (markdown instructions)";
     std::string error;
     std::string dir = scope_dir(scope, error);
-    if (dir.empty()) return error;
+    if (dir.empty())
+        return error;
 
     std::error_code ec;
     fs::path target = fs::path(dir) / name;
     fs::create_directories(target, ec);
-    if (ec) return "cannot create skill directory: " + target.string();
+    if (ec)
+        return "cannot create skill directory: " + target.string();
     {
         std::ofstream f(target / "SKILL.md", std::ios::trunc);
-        if (!f) return "cannot write " + (target / "SKILL.md").string();
+        if (!f)
+            return "cannot write " + (target / "SKILL.md").string();
         f << "---\n"
           << "name: " << name << "\n"
           << "description: " << description << "\n"
           << "---\n"
           << body << "\n";
-        if (!f) return "write failed for " + (target / "SKILL.md").string();
+        if (!f)
+            return "write failed for " + (target / "SKILL.md").string();
     }
     catalog.refresh();
     return "";
@@ -76,12 +83,10 @@ public:
     }
 
     json parameters_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties",
-             {{"name", {{"type", "string"},
-                        {"description", "Skill name to activate"}}}}},
-            {"required", {"name"}}};
+        return {{"type", "object"},
+                {"properties",
+                 {{"name", {{"type", "string"}, {"description", "Skill name to activate"}}}}},
+                {"required", {"name"}}};
     }
 
     ToolResult execute(const json& a) const override {
@@ -92,22 +97,27 @@ public:
             return r;
         }
         std::string name = a["name"].get<std::string>();
-        if (!catalog_.lookup(name)) {
+        // The catalog bound at registration is the fallback; when the tool
+        // runs inside an agent turn the CALLING agent's catalog answers —
+        // a shared registry must never serve a sibling window's project.
+        SkillCatalog& catalog = effective_catalog(catalog_);
+        if (!catalog.lookup(name)) {
             ToolResult r;
             r.ok = false;
             r.error = "unknown skill: " + name;
             return r;
         }
-        auto body = catalog_.activate(name);
+        auto body = catalog.read_body(name);
         if (!body) {
             ToolResult r;
             r.ok = false;
             r.error = "skill body exceeds skills_body_budget_tokens";
             return r;
         }
+        record_activation(name, *body);
         ToolResult r;
-        r.output = "Activated skill '" + name + "' (" +
-                   std::to_string(body->size()) + " bytes). Body appended to "
+        r.output = "Activated skill '" + name + "' (" + std::to_string(body->size()) +
+                   " bytes). Body appended to "
                    "context; follow its instructions for the current task.";
         r.meta = {{"name", name}, {"activated", true}};
         return r;
@@ -132,46 +142,43 @@ public:
     }
 
     json parameters_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties",
-             {{"name", {{"type", "string"},
-                        {"description", "Optional substring filter on skill "
-                                        "names"}}},
-              {"origin", {{"type", "string"},
-                          {"description", "Optional origin filter: 'authored' "
-                                          "or 'learned'"}}}}},
-            {"required", nlohmann::json::array()}};
+        return {{"type", "object"},
+                {"properties",
+                 {{"name",
+                   {{"type", "string"},
+                    {"description", "Optional substring filter on skill "
+                                    "names"}}},
+                  {"origin",
+                   {{"type", "string"},
+                    {"description", "Optional origin filter: 'authored' "
+                                    "or 'learned'"}}}}},
+                {"required", nlohmann::json::array()}};
     }
 
     ToolResult execute(const json& a) const override {
         std::string name_filter = a.value("name", "");
         std::string origin_filter = a.value("origin", "");
-        if (!origin_filter.empty() && origin_filter != "authored" &&
-            origin_filter != "learned") {
+        if (!origin_filter.empty() && origin_filter != "authored" && origin_filter != "learned") {
             ToolResult r;
             r.ok = false;
-            r.error = "invalid origin filter '" + origin_filter +
-                      "' (use 'authored' or 'learned')";
+            r.error = "invalid origin filter '" + origin_filter + "' (use 'authored' or 'learned')";
             return r;
         }
         std::string out;
-        for (const auto& e : catalog_.entries()) {
-            if (e.state != "enabled" && e.state != "force-enabled") continue;
-            if (!name_filter.empty() &&
-                e.name.find(name_filter) == std::string::npos)
+        for (const auto& e : effective_catalog(catalog_).entries()) {
+            if (e.state != "enabled" && e.state != "force-enabled")
                 continue;
-            if (origin_filter == "authored" &&
-                e.origin != SkillOrigin::Authored)
+            if (!name_filter.empty() && e.name.find(name_filter) == std::string::npos)
                 continue;
-            if (origin_filter == "learned" &&
-                e.origin != SkillOrigin::Learned)
+            if (origin_filter == "authored" && e.origin != SkillOrigin::Authored)
                 continue;
-            std::string desc = e.meta.description.empty()
-                ? "(no description)" : e.meta.description;
+            if (origin_filter == "learned" && e.origin != SkillOrigin::Learned)
+                continue;
+            std::string desc = e.meta.description.empty() ? "(no description)" : e.meta.description;
             out += e.name + ": " + desc + "\n";
         }
-        if (out.empty()) out = "(no skills match)\n";
+        if (out.empty())
+            out = "(no skills match)\n";
         ToolResult r;
         r.output = out;
         return r;
@@ -198,25 +205,23 @@ public:
     }
 
     json parameters_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties",
-             {{"name", {{"type", "string"},
-                        {"description", "kebab-case skill name"}}},
-              {"description", {{"type", "string"},
-                               {"description", "1-2 sentence trigger guidance"}}},
-              {"body", {{"type", "string"},
-                        {"description", "Markdown instructions"}}},
-              {"scope", {{"type", "string"},
-                         {"enum", {"project", "global"}},
-                         {"description", "Where to write the skill "
-                                         "(default project)"}}}}},
-            {"required", {"name", "description", "body"}}};
+        return {{"type", "object"},
+                {"properties",
+                 {{"name", {{"type", "string"}, {"description", "kebab-case skill name"}}},
+                  {"description",
+                   {{"type", "string"}, {"description", "1-2 sentence trigger guidance"}}},
+                  {"body", {{"type", "string"}, {"description", "Markdown instructions"}}},
+                  {"scope",
+                   {{"type", "string"},
+                    {"enum", {"project", "global"}},
+                    {"description", "Where to write the skill "
+                                    "(default project)"}}}}},
+                {"required", {"name", "description", "body"}}};
     }
 
     std::string summarize(const json& a) const override {
-        return "write skill '" + a.value("name", "?") + "' to " +
-               a.value("scope", "project") + " scope";
+        return "write skill '" + a.value("name", "?") + "' to " + a.value("scope", "project") +
+               " scope";
     }
 
     ToolResult execute(const json& a) const override {
@@ -224,16 +229,15 @@ public:
         std::string description = a.value("description", "");
         std::string body = a.value("body", "");
         std::string scope = a.value("scope", "project");
-        std::string error = author_skill(catalog_, name, description, body,
-                                         scope);
+        std::string error =
+            author_skill(effective_catalog(catalog_), name, description, body, scope);
         ToolResult r;
         if (!error.empty()) {
             r.ok = false;
             r.error = error;
             return r;
         }
-        r.output = "Skill '" + name + "' written to " + scope +
-                   " scope and re-scanned.";
+        r.output = "Skill '" + name + "' written to " + scope + " scope and re-scanned.";
         r.meta = {{"name", name}, {"scope", scope}};
         return r;
     }
@@ -244,18 +248,15 @@ private:
 
 } // namespace agent
 
-std::unique_ptr<agent::Tool> agent::make_read_skill_tool(
-    SkillCatalog& catalog) {
+std::unique_ptr<agent::Tool> agent::make_read_skill_tool(SkillCatalog& catalog) {
     return std::make_unique<agent::ReadSkillTool>(catalog);
 }
 
-std::unique_ptr<agent::Tool> agent::make_list_skills_tool(
-    SkillCatalog& catalog) {
+std::unique_ptr<agent::Tool> agent::make_list_skills_tool(SkillCatalog& catalog) {
     return std::make_unique<agent::ListSkillsTool>(catalog);
 }
 
-std::unique_ptr<agent::Tool> agent::make_write_skill_tool(
-    SkillCatalog& catalog) {
+std::unique_ptr<agent::Tool> agent::make_write_skill_tool(SkillCatalog& catalog) {
     return std::make_unique<agent::WriteSkillTool>(catalog);
 }
 

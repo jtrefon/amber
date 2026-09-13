@@ -20,24 +20,46 @@ void RenderEngine::mark_working() noexcept {
     working_visible_ = true;
 }
 
-int RenderEngine::height() const { int y, x; getmaxyx(stdscr, y, x); (void)x; return y; }
-int RenderEngine::width() const { int y, x; getmaxyx(stdscr, y, x); (void)y; return x; }
-int RenderEngine::chat_top() const { return 0; }
-int RenderEngine::chat_height() const { return std::max(1, height() - 2); }
-int RenderEngine::lines_per_page() const { return chat_height(); }
+int RenderEngine::height() const {
+    int y, x;
+    getmaxyx(stdscr, y, x);
+    (void)x;
+    return y;
+}
+int RenderEngine::width() const {
+    int y, x;
+    getmaxyx(stdscr, y, x);
+    (void)y;
+    return x;
+}
+int RenderEngine::chat_top() const {
+    return 0;
+}
+int RenderEngine::chat_height() const {
+    return std::max(1, height() - 2);
+}
+int RenderEngine::lines_per_page() const {
+    return chat_height();
+}
 
 std::vector<rich::Line> RenderEngine::build_view_without_working(const Window& w) const {
     std::vector<rich::Line> view = w.lines;
     if (show_reasoning_ && w.reason.active()) {
         rich::Line label;
-        rich::Run r0; r0.pair = P_REASONING; r0.dim = true;
+        rich::Run r0;
+        r0.pair = P_REASONING;
+        r0.dim = true;
         r0.text = "thinking...";
         label.runs.push_back(r0);
         view.push_back(label);
         rich::Line body;
-        rich::Run r1; r1.pair = P_REASONING; r1.dim = true; r1.text = w.reason.buffer;
+        rich::Run r1;
+        r1.pair = P_REASONING;
+        r1.dim = true;
+        r1.text = w.reason.buffer;
         body.runs.push_back(r1);
-        for (auto& l : rich::wrap(body, width())) view.push_back(std::move(l));
+        for (auto& l : rich::wrap(body, width()))
+            view.push_back(std::move(l));
         if (!w.stream_buf.empty())
             view.push_back(rich::Line{});
     }
@@ -50,13 +72,14 @@ std::vector<rich::Line> RenderEngine::build_view_without_working(const Window& w
                 ts.pair = P_REASONING;
                 ts.dim = true;
                 preview.front().runs.insert(preview.front().runs.begin(), std::move(ts));
-                for (auto& l : preview) view.push_back(std::move(l));
+                for (auto& l : preview)
+                    view.push_back(std::move(l));
             }
         } else {
             append_rich_to(view, w.stream_buf, w.stream_color, width());
         }
     }
-    bool live = tui_.router_->busy() && (!w.stream_buf.empty() || !w.reason.buffer.empty());
+    bool live = tui_.runs_.busy(w.id) && (!w.stream_buf.empty() || !w.reason.buffer.empty());
     if (live) {
         if (view.empty() || !view.back().runs.empty())
             view.push_back(rich::Line{});
@@ -83,15 +106,14 @@ std::vector<rich::Line> RenderEngine::build_view_without_working(const Window& w
 
 std::vector<rich::Line> RenderEngine::build_view(const Window& w) const {
     auto view = build_view_without_working(w);
-    if (tui_.router_->busy() && working_visible_) {
+    if (tui_.runs_.busy(w.id) && working_visible_) {
         if (!view.empty() && !view.back().runs.empty())
             view.push_back(rich::Line{});
         auto now = std::chrono::steady_clock::now();
         size_t secs = static_cast<size_t>(
             std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
-        std::string label = tool_display::working_label(
-            text::glyph::spinner_round(anim_phase_), activity_verb(), secs,
-            tui_.running_tool_desc_);
+        std::string label = tool_display::working_label(text::glyph::spinner_round(anim_phase_),
+                                                        activity_verb(), secs, w.running_tool_desc);
         rich::Line wl;
         rich::Run r;
         r.pair = P_STATUS;
@@ -108,26 +130,35 @@ std::vector<rich::Line> RenderEngine::build_view(const Window& w) const {
 // word, so "waiting" only appears when nothing is in flight. While a batch
 // of tool results closes out of order, fall back to the next queued call.
 std::string RenderEngine::activity_verb() const {
-    std::string tool = tui_.running_tool_;
+    // The verb describes the ACTIVE window's run — sibling agents keep
+    // their own state on their own Window.
+    const Window& w = tui_.win();
+    std::string tool = w.running_tool;
     if (tool.empty()) {
         const auto& pending = tui_.router_->pending_tools();
-        if (!pending.empty()) tool = pending.front().name;
+        for (const auto& pt : pending)
+            if (pt.window_id == w.id) {
+                tool = pt.name;
+                break;
+            }
     }
-    return tool_display::activity_verb(tui_.compressing_, tui_.state_, tool,
-                                       tui_.reg_);
+    return tool_display::activity_verb(w.compressing, w.state, tool, tui_.reg_);
 }
 
 int RenderEngine::max_scroll(const Window& w) const {
     auto view = build_view_without_working(w);
     int total = static_cast<int>(rich::rewrap_all(view, width()).size());
-    bool show_working = tui_.router_->busy() && working_visible_;
+    bool show_working = tui_.runs_.busy(w.id) && working_visible_;
     int ch = chat_height();
-    if (show_working) ch = std::max(1, ch - 1);
+    if (show_working)
+        ch = std::max(1, ch - 1);
     int m = total - ch;
     return m < 0 ? 0 : m;
 }
 
-int RenderEngine::max_scroll() const { return max_scroll(tui_.win()); }
+int RenderEngine::max_scroll() const {
+    return max_scroll(tui_.win());
+}
 
 size_t RenderEngine::utf8_len(const std::string& s, size_t i) {
     return text::utf8_len(s, i);
@@ -135,26 +166,38 @@ size_t RenderEngine::utf8_len(const std::string& s, size_t i) {
 std::vector<std::string> RenderEngine::wrap_text(const std::string& text, int w) {
     return text::wrap(text, w);
 }
-void RenderEngine::append_rich_to(std::vector<rich::Line>& view, const std::string& text,
-                                  int color, int w) {
+void RenderEngine::append_rich_to(std::vector<rich::Line>& view, const std::string& text, int color,
+                                  int w) {
     rich::Line l;
-    rich::Run r; r.pair = color; r.text = text;
+    rich::Run r;
+    r.pair = color;
+    r.text = text;
     l.runs.push_back(r);
-    for (auto& x : rich::wrap(l, w)) view.push_back(std::move(x));
+    for (auto& x : rich::wrap(l, w))
+        view.push_back(std::move(x));
 }
 void RenderEngine::append_rich_to(Window& w, const rich::Line& l) {
     tui_.append_rich_to(w, l);
 }
 
-int RenderEngine::display_cols(const std::string& s) { return text::display_cols(s); }
-std::wstring RenderEngine::to_wide(const std::string& s) { return text::to_wide(s); }
-std::string RenderEngine::kfmt(long n) { return agent::bar::kfmt(n); }
+int RenderEngine::display_cols(const std::string& s) {
+    return text::display_cols(s);
+}
+std::wstring RenderEngine::to_wide(const std::string& s) {
+    return text::to_wide(s);
+}
+std::string RenderEngine::kfmt(long n) {
+    return agent::bar::kfmt(n);
+}
 
 int RenderEngine::gauge_pair(double f) {
     switch (agent::bar::pressure(f)) {
-        case agent::bar::Pressure::Crit: return P_GAUGE_CRIT;
-        case agent::bar::Pressure::Warn: return P_GAUGE_WARN;
-        default:                         return P_GAUGE_OK;
+    case agent::bar::Pressure::Crit:
+        return P_GAUGE_CRIT;
+    case agent::bar::Pressure::Warn:
+        return P_GAUGE_WARN;
+    default:
+        return P_GAUGE_OK;
     }
 }
 
@@ -164,21 +207,25 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     agent::StatusSnapshot snapshot;
     snapshot.window_index = static_cast<int>(tui_.window_manager_->active()) + 1;
     snapshot.window_count = static_cast<int>(tui_.window_manager_->count());
-    snapshot.model = tui_.cfg_.model;
-    snapshot.reasoning_effort = tui_.cfg_.reasoning_effort;
-    snapshot.mode = tui_.cfg_.mode;
+    // The bar describes the ACTIVE window: model/mode/telemetry are that
+    // window's agent state, not process globals.
+    const Window& w = tui_.win();
+    snapshot.model = w.agent ? w.agent->config().model : tui_.cfg_.model;
+    snapshot.reasoning_effort =
+        w.agent ? w.agent->config().reasoning_effort : tui_.cfg_.reasoning_effort;
+    snapshot.mode = w.agent ? w.agent->config().mode : tui_.cfg_.mode;
     snapshot.scroll_mode = scroll_mode_;
-    snapshot.latency_ms = static_cast<long>(tui_.stats_.latency_ms);
-    snapshot.tps = tui_.stats_.tps;
-    snapshot.prompt_tokens = tui_.stats_.prompt_tokens;
-    snapshot.completion_tokens = tui_.stats_.completion_tokens;
+    snapshot.latency_ms = static_cast<long>(w.stats.latency_ms);
+    snapshot.tps = w.stats.tps;
+    snapshot.prompt_tokens = w.stats.prompt_tokens;
+    snapshot.completion_tokens = w.stats.completion_tokens;
     snapshot.running_jobs = tui_.jobs_.running_count();
     snapshot.job_seconds_left = tui_.jobs_.min_timeout_remaining();
-    snapshot.running_tool = tui_.running_tool_;
+    snapshot.running_tool = w.running_tool;
     for (const auto& st : tui_.mcp_servers_.snapshot()) {
-        if (!st.connected && st.error.empty()) continue;
-        snapshot.mcp_servers.push_back(
-            {st.name, st.connected, !st.error.empty()});
+        if (!st.connected && st.error.empty())
+            continue;
+        snapshot.mcp_servers.push_back({st.name, st.connected, !st.error.empty()});
     }
     return snapshot;
 }
@@ -187,22 +234,27 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
 // plugin never names a colour pair.
 int RenderEngine::tone_pair(agent::StatusTone tone) {
     switch (tone) {
-        case agent::StatusTone::Good:   return P_GAUGE_OK;
-        case agent::StatusTone::Warn:   return P_GAUGE_WARN;
-        case agent::StatusTone::Crit:   return P_GAUGE_CRIT;
-        case agent::StatusTone::Accent: return P_BUTTON_ACT;
-        case agent::StatusTone::Banner: return P_BANNER;
-        case agent::StatusTone::Dim:    break;
+    case agent::StatusTone::Good:
+        return P_GAUGE_OK;
+    case agent::StatusTone::Warn:
+        return P_GAUGE_WARN;
+    case agent::StatusTone::Crit:
+        return P_GAUGE_CRIT;
+    case agent::StatusTone::Accent:
+        return P_BUTTON_ACT;
+    case agent::StatusTone::Banner:
+        return P_BANNER;
+    case agent::StatusTone::Dim:
+        break;
     }
     return P_BAR_DIM;
 }
 
 std::vector<RenderEngine::Seg> RenderEngine::bar_segments() const {
     std::vector<Seg> segs;
-    for (auto& segment :
-         tui_.plugin_runtime_.status().render(build_status_snapshot())) {
-        segs.push_back({std::move(segment.text), tone_pair(segment.tone),
-                        segment.drop_priority, segment.align});
+    for (auto& segment : tui_.plugin_runtime_.status().render(build_status_snapshot())) {
+        segs.push_back({std::move(segment.text), tone_pair(segment.tone), segment.drop_priority,
+                        segment.align});
     }
     return segs;
 }
@@ -217,14 +269,14 @@ void RenderEngine::draw() {
         return;
     }
 
-    bool show_working = tui_.router_->busy() && working_visible_;
+    bool show_working = tui_.runs_.busy(tui_.win().id) && working_visible_;
     std::vector<rich::Line> view = build_view_without_working(tui_.win());
     int ch = chat_height();
-    if (show_working) ch = std::max(1, ch - 1);
+    if (show_working)
+        ch = std::max(1, ch - 1);
     chat_canvas_.resize(chat_top(), ch, width());
     chat_canvas_.set_lines(view);
-    if (static_cast<size_t>(tui_.win().scroll_top) >
-        static_cast<size_t>(chat_canvas_.max_top()))
+    if (static_cast<size_t>(tui_.win().scroll_top) > static_cast<size_t>(chat_canvas_.max_top()))
         tui_.win().scroll_top = chat_canvas_.max_top();
     chat_canvas_.set_top(tui_.win().scroll_top);
     chat_canvas_.render();
@@ -235,9 +287,9 @@ void RenderEngine::draw() {
         auto now = std::chrono::steady_clock::now();
         size_t secs = static_cast<size_t>(
             std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
-        std::string label = tool_display::working_label(
-            text::glyph::spinner_round(anim_phase_), activity_verb(), secs,
-            tui_.running_tool_desc_);
+        std::string label =
+            tool_display::working_label(text::glyph::spinner_round(anim_phase_), activity_verb(),
+                                        secs, tui_.win().running_tool_desc);
         attron(COLOR_PAIR(P_STATUS));
         // mvaddnstr counts BYTES and would truncate mid-UTF-8-sequence when the
         // label (spinner glyph + middot + task) is wider than the terminal,
@@ -253,13 +305,13 @@ void RenderEngine::draw() {
 
     {
         int total = chat_canvas_.wrapped_count();
-        if (show_working) total += 1;
+        if (show_working)
+            total += 1;
         int pos = tui_.win().scroll_top;
         int vis = chat_height();
         std::string scroll_glyph;
         if (total > vis) {
-            int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis)
-                                             / (total - vis));
+            int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis) / (total - vis));
             scroll_glyph = " P:" + std::to_string(pct) + "%";
         }
         draw_status_bar(scroll_glyph);
@@ -289,12 +341,10 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
         (s.align == agent::StatusAlign::Right ? right_zone : left_zone).push_back(s);
 
     bool have_ctx = (tui_.cfg_.context_size > 0);
-    long ctx_used = tool_display::gauge_tokens(tui_.ctx_used_.load(),
-                                               tui_.ctx_estimate_.load(),
-                                               tui_.live_ctx_offset_);
-    double frac = have_ctx
-                      ? static_cast<double>(ctx_used) / tui_.cfg_.context_size
-                      : 0.0;
+    const Window& aw = tui_.win();
+    long ctx_used =
+        tool_display::gauge_tokens(aw.ctx_used.load(), aw.ctx_estimate.load(), aw.live_ctx_offset);
+    double frac = have_ctx ? static_cast<double>(ctx_used) / tui_.cfg_.context_size : 0.0;
     // Reserve room for the gauge whether or not the window is known: the
     // count is meaningful on its own ("ctx 44.7k"), the fraction only once a
     // window exists. Keeping gauge_min constant stops the bar layout from
@@ -316,7 +366,8 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
         return r > 0 ? r + 1 + activity_w : activity_w;
     };
     int budget = w - reserve();
-    if (budget < 0) budget = 0;
+    if (budget < 0)
+        budget = 0;
 
     // One drop rule for both zones: the highest drop_priority goes first when
     // the bar cannot hold everything, wherever the segment attaches.
@@ -326,27 +377,37 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
         int worst = -1, worst_i = -1;
         for (std::vector<Seg>* z : {&left_zone, &right_zone})
             for (size_t i = 0; i < z->size(); ++i)
-                if ((*z)[i].drop > worst) { worst = (*z)[i].drop; worst_i = (int)i; zone = z; }
-        if (worst <= 0) break;
+                if ((*z)[i].drop > worst) {
+                    worst = (*z)[i].drop;
+                    worst_i = (int)i;
+                    zone = z;
+                }
+        if (worst <= 0)
+            break;
         zone->erase(zone->begin() + worst_i);
         budget = w - reserve();
-        if (budget < 0) budget = 0;
+        if (budget < 0)
+            budget = 0;
     }
 
     int x = 0;
     auto put = [&](const std::string& s, int pair) {
-        if (x >= budget) return;
+        if (x >= budget)
+            return;
         std::wstring ws = to_wide(s);
         int room = budget - x;
-        if (static_cast<int>(ws.size()) > room) ws.resize(room);
+        if (static_cast<int>(ws.size()) > room)
+            ws.resize(room);
         attron(COLOR_PAIR(pair));
         mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
         attroff(COLOR_PAIR(pair));
         x += static_cast<int>(ws.size());
-        if (x > budget) x = budget;
+        if (x > budget)
+            x = budget;
     };
 
-    for (auto& s : left_zone) put(s.text, s.pair);
+    for (auto& s : left_zone)
+        put(s.text, s.pair);
 
     if (x < budget && (have_ctx || ctx_used > 0)) {
         put("  ctx ", P_BAR_DIM);
@@ -354,15 +415,13 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
             int cells = std::min(24, std::max(6, (budget - x) - 14));
             if (cells > 0 && x < budget) {
                 put(text::glyph::block_l(), P_BAR_DIM);
-                std::string bar = text::glyph::utf8()
-                                      ? agent::bar::gauge_bar(frac, cells)
-                                      : agent::bar::gauge_bar_ascii(frac, cells);
+                std::string bar = text::glyph::utf8() ? agent::bar::gauge_bar(frac, cells)
+                                                      : agent::bar::gauge_bar_ascii(frac, cells);
                 put(bar, gauge_pair(frac));
                 put(text::glyph::block_r(), P_BAR_DIM);
                 char b[48];
                 std::snprintf(b, sizeof(b), " %d%% %s/%s",
-                              static_cast<int>(std::lround(frac * 100)),
-                              kfmt(ctx_used).c_str(),
+                              static_cast<int>(std::lround(frac * 100)), kfmt(ctx_used).c_str(),
                               kfmt(tui_.cfg_.context_size).c_str());
                 put(b, gauge_pair(frac));
             }
@@ -385,7 +444,7 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     if (ix > x + 4) {
         wattron(stdscr, COLOR_PAIR(P_BAR_DIM));
         mvaddch(y, ix, '[');
-        if (tui_.router_->busy()) {
+        if (tui_.runs_.busy(tui_.win().id)) {
             static auto last_phase = std::chrono::steady_clock::now();
             auto now = std::chrono::steady_clock::now();
             if (now - last_phase > std::chrono::milliseconds(150)) {
@@ -394,11 +453,14 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
             }
             for (int i = 0; i < kIW - 2; ++i) {
                 int c = anim_phase_ % 16;
-                if (c >= 8) c = 16 - c;
+                if (c >= 8)
+                    c = 16 - c;
                 int d = std::abs(i - c);
                 chtype a = A_NORMAL;
-                if (d == 0)      a = A_BOLD;
-                else if (d > 2)  a = A_DIM;
+                if (d == 0)
+                    a = A_BOLD;
+                else if (d > 2)
+                    a = A_DIM;
                 attron(a);
                 mvaddch(y, ix + 1 + i, '|');
                 attroff(a);
@@ -416,7 +478,8 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     if (right_w > 0) {
         int rx = w - right_w;
         for (size_t i = 0; i < right_zone.size(); ++i) {
-            if (i) ++rx;
+            if (i)
+                ++rx;
             std::wstring text = to_wide(right_zone[i].text);
             if (rx + static_cast<int>(text.size()) > w) {
                 text.resize(static_cast<size_t>(std::max(0, w - rx)));
@@ -436,8 +499,7 @@ void RenderEngine::tick_clock() {
     int pos = tui_.win().scroll_top;
     std::string tail;
     if (total > vis) {
-        int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis)
-                                         / (total - vis));
+        int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis) / (total - vis));
         tail = " P:" + std::to_string(pct) + "%";
     }
     draw_status_bar(tail);
@@ -456,10 +518,12 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
     clrtoeol();
 
     auto put = [&](const std::string& text, int pair, int attrs = 0) {
-        if (x >= w) return;
+        if (x >= w)
+            return;
         std::wstring ws = to_wide(text);
         int room = w - x;
-        if (static_cast<int>(ws.size()) > room) ws.resize(room);
+        if (static_cast<int>(ws.size()) > room)
+            ws.resize(room);
         if (attrs)
             attron(COLOR_PAIR(pair) | attrs);
         else
@@ -493,14 +557,17 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
     int total_w = prompt_w + display_cols(s) + display_cols(shadow);
     int cursor_col = prompt_w + display_cols(s.substr(0, cursor));
     int scroll_off = 0;
-    if (cursor_col >= w) scroll_off = cursor_col - w + 1;
-    if (scroll_off < prompt_w) scroll_off = 0;
+    if (cursor_col >= w)
+        scroll_off = cursor_col - w + 1;
+    if (scroll_off < prompt_w)
+        scroll_off = 0;
     if (total_w - scroll_off <= 0) {
         scroll_off = std::max(0, total_w - w);
     }
 
     int input_start = prompt_w - scroll_off;
-    if (input_start < 0) input_start = 0;
+    if (input_start < 0)
+        input_start = 0;
     if (input_start < w && scroll_off > prompt_w) {
         auto skip = text::col_to_byte(s, scroll_off - prompt_w);
         int input_len;
@@ -517,7 +584,8 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
                 std::size_t adv = text::utf8_len(s, end);
                 std::string cp = s.substr(end, adv);
                 int cw = display_cols(cp);
-                if (visible_cols + cw > room) break;
+                if (visible_cols + cw > room)
+                    break;
                 visible_cols += cw;
                 end += adv;
             }
@@ -536,7 +604,8 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
             std::size_t adv = text::utf8_len(s, end);
             std::string cp = s.substr(end, adv);
             int cw = display_cols(cp);
-            if (visible_cols + cw > room) break;
+            if (visible_cols + cw > room)
+                break;
             visible_cols += cw;
             end += adv;
         }
@@ -554,29 +623,29 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
         if (shadow_start >= 0 && shadow_start < w) {
             attron(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
             mvaddnstr(y, shadow_start, shadow.c_str(),
-                       std::min(static_cast<int>(shadow.size()), w - shadow_start));
+                      std::min(static_cast<int>(shadow.size()), w - shadow_start));
             attroff(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
         }
     }
 
     int cx = cursor_col - scroll_off;
-    if (cx < 0) cx = 0;
-    if (cx >= w) cx = w - 1;
+    if (cx < 0)
+        cx = 0;
+    if (cx >= w)
+        cx = w - 1;
     curs_set(1);
     move(y, cx);
     wnoutrefresh(stdscr);
 }
 
-
-
-
-
 void RenderEngine::draw_drawer(const std::string& input) {
-    if (!drawer_open_) return;
+    if (!drawer_open_)
+        return;
     if (tui_.modal_open_) {
         int bar_row = height() - 2;
         for (int row = std::max(0, bar_row - 8); row < bar_row; ++row) {
-            move(row, 0); clrtoeol();
+            move(row, 0);
+            clrtoeol();
         }
         return;
     }
@@ -586,8 +655,10 @@ void RenderEngine::draw_drawer(const std::string& input) {
     std::vector<std::string> rows = drawer_rows(input, tui_.settings_);
 
     int nsel = arg_mode ? 0 : static_cast<int>(rows.size());
-    if (drawer_sel_ >= nsel) drawer_sel_ = std::max(0, nsel - 1);
-    if (drawer_sel_ < 0) drawer_sel_ = 0;
+    if (drawer_sel_ >= nsel)
+        drawer_sel_ = std::max(0, nsel - 1);
+    if (drawer_sel_ < 0)
+        drawer_sel_ = 0;
 
     int max_rows = std::max(1, bar_row - chat_top());
     int header = 1;
@@ -602,7 +673,8 @@ void RenderEngine::draw_drawer(const std::string& input) {
     std::string hdr = " options  (Tab complete  Up/Down select  Enter run  ? help  Esc cancel) ";
     move(top, 0);
     attron(COLOR_PAIR(P_STATUS) | A_BOLD);
-    for (int i = 0; i < width(); ++i) addch(' ');
+    for (int i = 0; i < width(); ++i)
+        addch(' ');
     mvaddnstr(top, 0, hdr.c_str(), width());
     attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
 
@@ -625,7 +697,8 @@ void RenderEngine::git_refresh() {
     auto read_stdout = [](const char* cmd) -> std::string {
         std::string result;
         FILE* pipe = popen(cmd, "r");
-        if (!pipe) return result;
+        if (!pipe)
+            return result;
         char buf[256];
         while (fgets(buf, sizeof(buf), pipe))
             result += buf;
@@ -640,7 +713,8 @@ void RenderEngine::git_refresh() {
             cwd = buf.data();
         size_t slash = cwd.rfind('/');
         git_project_ = (slash == std::string::npos) ? cwd : cwd.substr(slash + 1);
-        if (git_project_.empty()) git_project_ = "project";
+        if (git_project_.empty())
+            git_project_ = "project";
     }
 
     std::string ref = read_stdout("git symbolic-ref HEAD 2>/dev/null");
@@ -663,7 +737,8 @@ void RenderEngine::git_refresh() {
     if (!stat.empty()) {
         auto extract = [&](const std::string& needle) -> int {
             size_t pos = stat.find(needle);
-            if (pos == std::string::npos) return 0;
+            if (pos == std::string::npos)
+                return 0;
             size_t start = pos;
             while (start > 0 && isdigit(static_cast<unsigned char>(stat[start - 1])))
                 --start;

@@ -44,6 +44,11 @@ driven by an OpenAI-compatible LLM API.
   at runtime (called out in the Makefile). When in doubt, `make clean && make`.
 - `include/agent/version.h` is **generated** by `./configure` from
   `version.h.in`; do not hand-edit it, and don't commit a stale one.
+- On macOS, `./configure` needs Homebrew ncurses on `PKG_CONFIG_PATH` or the
+  TUI silently falls back to the SDK's non-wide ncurses and `mvaddnwstr`
+  fails to compile. Re-run configure as
+  `PKG_CONFIG_PATH=/opt/homebrew/opt/ncurses/lib/pkgconfig ./configure`
+  (check the emitted `NCURSES_CFLAGS` line mentions `ncursesw` + `-DNCURSES_WIDECHAR`).
 - `compile_flags.txt` (for clangd/editors) is minimal; the real include paths
   (`-Iinclude -Isrc -Itools -I.`) and flags come from the Makefile/configure.
 
@@ -482,10 +487,10 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 6070 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 6260 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 287 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 119 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 2537 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2743 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

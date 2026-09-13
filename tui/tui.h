@@ -16,6 +16,7 @@
 #include "agent_event.h"
 #include "tui_ui_services.h"
 #include "event_router.h"
+#include "run_registry.h"
 #include "window_manager.h"
 #include "render_engine.h"
 #include "session_controller.h"
@@ -59,6 +60,7 @@ class Tui {
     friend class SessionController;
     friend class SlashDispatcher;
     friend class TuiWindowOpsHooks;
+
 public:
     Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
@@ -103,9 +105,14 @@ private:
     // ---- event machinery (owned by EventRouter) --------------------------
     bool drain_events();
     void send_async(const std::string& raw_prompt);
+    // Dispatch (or queue) a prompt on a specific window's run slot.
+    void send_async_to(Window& w, const std::string& raw_prompt);
+    // Dequeue prompts on windows whose agents finished (UI thread, per tick).
+    void drain_pending_prompts();
+    // Cancel every window's run: per-agent tokens + per-slot flags.
+    void cancel_all_runs();
     std::string expand_at_references(const std::string& raw) const;
-    void agent_worker(Window& my_win, size_t window_id,
-                      const std::string& prompt);
+    void agent_worker(Window& my_win, size_t window_id, RunSlot* slot, const std::string& prompt);
     void compress_worker(Window& my_win, size_t window_id);
     AgentEvent run_compression(Window& my_win, size_t window_id);
     std::unique_ptr<EventRouter> router_;
@@ -114,11 +121,11 @@ private:
     std::vector<std::function<void()>> ui_post_;
     // The port itself, handed to the runtime so plugins can ask the user.
     std::unique_ptr<TuiUiServices> ui_services_;
-    std::string running_tool_;
-    std::string running_tool_desc_;
-    bool compressing_ = false;  // context compression in flight (working verb)
     bool modal_open_ = false;
-    std::string pending_prompt_;
+
+    // Per-window run slots: each window's agent has its own worker thread,
+    // busy/cancel flags, and pending-prompt queue (see run_registry.h).
+    RunRegistry runs_;
 
     // ---- window management (owned by WindowManager) ---------------------
     void switch_to(size_t idx);
@@ -137,11 +144,9 @@ private:
     static std::vector<std::string> wrap_text(const std::string& text, int w);
     static std::string timestamp();
     void append_line(int color, const std::string& text);
-    void append_line_ts(int color, const std::string& text,
-                        const std::string& ts);
+    void append_line_ts(int color, const std::string& text, const std::string& ts);
     size_t append_line_to(Window& w, int color, const std::string& text);
-    size_t append_line_to(Window& w, int color, const std::string& text,
-                          const std::string& ts);
+    size_t append_line_to(Window& w, int color, const std::string& text, const std::string& ts);
     void append_rich(const rich::Line& l);
     void append_markdown(Window& w, const std::string& md);
     void append_rich_to(Window& w, const rich::Line& l);
@@ -193,31 +198,18 @@ private:
     std::unique_ptr<agent::ProviderService> providers_;
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;
-    agent::SubAgentExecutor& subagents_;       // host-owned; shared with process_* tools
-    agent::PluginManager& plugins_; // host-owned; v1 external plugin lifecycle
-    agent::PluginRuntime& plugin_runtime_; // v2 runtime (registries + ledger)
+    agent::SubAgentExecutor& subagents_;        // host-owned; shared with process_* tools
+    agent::PluginManager& plugins_;             // host-owned; v1 external plugin lifecycle
+    agent::PluginRuntime& plugin_runtime_;      // v2 runtime (registries + ledger)
     std::unique_ptr<FeedManager> feed_manager_; // feed leaves for completions
-    agent::ServerManager mcp_servers_;  // session-scoped MCP manager
-    std::string input_fill_;            // /prompt result applied to the input line
+    agent::ServerManager mcp_servers_;          // session-scoped MCP manager
+    std::string input_fill_;                    // /prompt result applied to the input line
     tui::SettingRegistry settings_;
     void build_settings();
     bool quit_ = false;
 
-    agent::RunState state_ = agent::RunState::Idle;
-    agent::Stats stats_;
-    // Context token gauge. Written by the agent/compress worker thread via
-    // context events and by the UI thread (session load/restore); read by
-    // the UI thread for the gauge. Atomic: the writers and readers are on
-    // different threads (single-owner context, event-driven progress).
-    // ctx_used_ is the server-reported prompt_tokens (-1 until known);
-    // ctx_estimate_ is the live chars/4 estimate from the per-window
-    // context-event subscription; gauge_tokens() picks the single source.
-    std::atomic<long> ctx_used_ = -1;
-    std::atomic<long> ctx_estimate_ = 0;
-    long live_ctx_offset_ = 0;   // running token count during streaming
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;
-
 };
 
 } // namespace tui

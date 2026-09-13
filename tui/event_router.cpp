@@ -31,16 +31,6 @@ bool EventRouter::empty() const {
     return queue_.empty();
 }
 
-void EventRouter::clear() {
-    std::scoped_lock lk(mtx_);
-    std::queue<AgentEvent> empty;
-    std::swap(queue_, empty);
-}
-
-void EventRouter::join_thread() {
-    if (thread_.joinable()) thread_.join();
-}
-
 void EventRouter::shutdown_queues(std::queue<AgentEvent>& pending_approvals,
                                   std::queue<AgentEvent>& pending_api_keys,
                                   std::queue<AgentEvent>& pending_asks) {
@@ -55,7 +45,10 @@ void EventRouter::shutdown_queues(std::queue<AgentEvent>& pending_approvals,
 agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
     agent::AgentHooks hooks;
     auto push_event = [this, window_id](AgentEvent ev) {
-        if (cancel_.load()) return;
+        // A cancelled window's trailing events are dropped; sibling windows
+        // keep streaming — cancel is per-slot, never global.
+        if (tui_.runs_.cancelled(window_id))
+            return;
         ev.window_id = window_id;
         std::scoped_lock lk(mtx_);
         queue_.push(std::move(ev));
@@ -98,8 +91,7 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
         ev.tool_args = a;
         push_event(std::move(ev));
     };
-    hooks.on_tool_result = [push_event](const std::string& n,
-                                        const agent::ToolResult& r,
+    hooks.on_tool_result = [push_event](const std::string& n, const agent::ToolResult& r,
                                         const agent::json& a) {
         AgentEvent ev;
         ev.type = AgentEvent::ToolResult;
@@ -114,10 +106,10 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
         ev.text = s;
         push_event(std::move(ev));
     };
-    hooks.on_approval = [this, window_id](const std::string& name,
-                                          const agent::json& args,
+    hooks.on_approval = [this, window_id](const std::string& name, const agent::json& args,
                                           const std::string& summary) -> agent::Approval {
-        if (cancel_.load()) return agent::Approval::Deny;
+        if (tui_.runs_.cancelled(window_id))
+            return agent::Approval::Deny;
         auto p = std::make_shared<std::promise<agent::Approval>>();
         auto f = p->get_future();
         AgentEvent ev;
@@ -126,7 +118,8 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
         ev.approval_promise = p;
         {
             std::scoped_lock lk(mtx_);
-            if (shutting_down_) return agent::Approval::Deny;
+            if (shutting_down_)
+                return agent::Approval::Deny;
             ev.window_id = window_id;
             queue_.push(std::move(ev));
         }
@@ -136,7 +129,8 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
     };
 
     hooks.on_api_key = [this, window_id](const std::string& reason) -> std::string {
-        if (cancel_.load()) return "";
+        if (tui_.runs_.cancelled(window_id))
+            return "";
         auto p = std::make_shared<std::promise<std::string>>();
         auto f = p->get_future();
         AgentEvent ev;
@@ -145,7 +139,8 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
         ev.api_key_promise = p;
         {
             std::scoped_lock lk(mtx_);
-            if (shutting_down_) return "";
+            if (shutting_down_)
+                return "";
             ev.window_id = window_id;
             queue_.push(std::move(ev));
         }
@@ -155,20 +150,21 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
     return hooks;
 }
 
-
 bool EventRouter::drain_events() {
     std::vector<AgentEvent> batch = pop_all();
 
-    if (batch.empty()) return false;
+    if (batch.empty())
+        return false;
 
     for (auto& ev : batch) {
         Window* w = route_event(tui_.window_manager_->all(), ev, tui_.window_manager_->active());
         switch (ev.type) {
         case AgentEvent::StateChange:
-            tui_.state_ = ev.state;
-            if (ev.state == agent::RunState::Idle ||
-                ev.state == agent::RunState::Error)
-                tui_.running_tool_.clear();
+            if (w) {
+                w->state = ev.state;
+                if (ev.state == agent::RunState::Idle || ev.state == agent::RunState::Error)
+                    w->running_tool.clear();
+            }
             break;
         case AgentEvent::Reasoning:
             on_reasoning(w, ev);
@@ -178,7 +174,8 @@ bool EventRouter::drain_events() {
             break;
         case AgentEvent::Status:
             // Worker status belongs to the conversation that emitted it.
-            if (w) tui_.append_line_to(*w, P_STATUS, ev.text);
+            if (w)
+                tui_.append_line_to(*w, P_STATUS, ev.text);
             break;
         case AgentEvent::ToolCall:
             on_tool_call(w, ev);
@@ -190,10 +187,12 @@ bool EventRouter::drain_events() {
             on_assistant(w, ev);
             break;
         case AgentEvent::Stats:
-            tui_.stats_ = ev.stats;
-            if (ev.stats.prompt_tokens >= 0) {
-                tui_.ctx_used_.store(ev.stats.prompt_tokens);
-                tui_.live_ctx_offset_ = 0;
+            if (w) {
+                w->stats = ev.stats;
+                if (ev.stats.prompt_tokens >= 0) {
+                    w->ctx_used.store(ev.stats.prompt_tokens);
+                    w->live_ctx_offset = 0;
+                }
             }
             break;
         case AgentEvent::Error:
@@ -244,27 +243,34 @@ bool EventRouter::drain_events() {
     return true;
 }
 
-
 void EventRouter::pump_pending_approvals() {
     // Resolve any approvals queued while a modal was open. Only one per pump
     // so a nested approval (during the approval dialog) queues and resolves
     // on a later tick rather than re-entering this loop.
-    if (tui_.modal_open_ || pending_approvals_.empty()) return;
+    if (tui_.modal_open_ || pending_approvals_.empty())
+        return;
     AgentEvent ev = std::move(pending_approvals_.front());
     pending_approvals_.pop();
     resolve_approval(ev);
 }
 
-
 void EventRouter::resolve_approval(const AgentEvent& ev) {
-    agent::Approval d = approve_dialog(ev.text, tui_.policy_timeout_, 0);
+    // With concurrent per-window runs, name the asking window — an approval
+    // dialog with no origin would be unanswerable ("who wants to run this?").
+    std::string prompt = ev.text;
+    if (Window* w = tui_.window_by_id(ev.window_id))
+        prompt = "[" + w->title + "] " + ev.text;
+    agent::Approval d = approve_dialog(prompt, tui_.policy_timeout_, 0);
     const char* verdict = "denied";
-    if (d == agent::Approval::AllowOnce) verdict = "allowed once";
-    else if (d == agent::Approval::AllowSession) verdict = "allowed session";
-    else if (d == agent::Approval::AlwaysAllow) verdict = "always allow";
-    else if (d == agent::Approval::AlwaysDeny) verdict = "always deny";
-    tui_.append_line(P_STATUS,
-                std::string("approval: ") + verdict + "  (" + ev.text + ")");
+    if (d == agent::Approval::AllowOnce)
+        verdict = "allowed once";
+    else if (d == agent::Approval::AllowSession)
+        verdict = "allowed session";
+    else if (d == agent::Approval::AlwaysAllow)
+        verdict = "always allow";
+    else if (d == agent::Approval::AlwaysDeny)
+        verdict = "always deny";
+    tui_.append_line(P_STATUS, std::string("approval: ") + verdict + "  (" + ev.text + ")");
     if (ev.approval_promise)
         ev.approval_promise->set_value(d);
 }
@@ -272,7 +278,8 @@ void EventRouter::resolve_approval(const AgentEvent& ev) {
 void EventRouter::pump_pending_asks() {
     // Same cadence as the other deferred questions: one per tick, so a question
     // asked from inside a dialog's handler queues rather than re-entering.
-    if (tui_.modal_open_ || pending_asks_.empty()) return;
+    if (tui_.modal_open_ || pending_asks_.empty())
+        return;
     AgentEvent ev = std::move(pending_asks_.front());
     pending_asks_.pop();
     resolve_ask(ev);
@@ -281,7 +288,8 @@ void EventRouter::pump_pending_asks() {
 void EventRouter::pump_pending_api_keys() {
     // Resolve key requests queued while a modal was open (same cadence as
     // pending approvals: one per pump).
-    if (tui_.modal_open_ || pending_api_keys_.empty()) return;
+    if (tui_.modal_open_ || pending_api_keys_.empty())
+        return;
     AgentEvent ev = std::move(pending_api_keys_.front());
     pending_api_keys_.pop();
     resolve_api_key(ev);
@@ -311,7 +319,8 @@ void EventRouter::resolve_ask(const AgentEvent& ev) {
         break;
     }
     }
-    if (ev.ask_promise) ev.ask_promise->set_value(answer);
+    if (ev.ask_promise)
+        ev.ask_promise->set_value(answer);
 }
 
 void EventRouter::resolve_api_key(const AgentEvent& ev) {
@@ -322,8 +331,7 @@ void EventRouter::resolve_api_key(const AgentEvent& ev) {
     std::string key = tui_.prompt_api_key(ev.text);
     if (!key.empty()) {
         tui_.append_line(P_STATUS,
-                    "API key updated for provider '" +
-                        tui_.cfg_.provider_name + "'");
+                         "API key updated for provider '" + tui_.cfg_.provider_name + "'");
     } else {
         tui_.append_line(P_STATUS, "API key request cancelled: " + ev.text);
     }
@@ -331,33 +339,33 @@ void EventRouter::resolve_api_key(const AgentEvent& ev) {
         ev.api_key_promise->set_value(std::move(key));
 }
 
-
 void EventRouter::on_reasoning(Window* w, const AgentEvent& ev) {
-    if (!w) return;
+    if (!w)
+        return;
     // Hidden display means no live view and no fold summary, so the deltas are
     // not tracked at all.
-    if (!tui_.render_engine_->show_reasoning()) return;
+    if (!tui_.render_engine_->show_reasoning())
+        return;
     w->reason.append(ev.text);
     w->scroll_top = tui_.render_engine_->max_scroll(*w);
 }
 
-
 void EventRouter::on_token(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    tui_.render_engine_->clear_working();  // output is displaying — row retires
+    if (!w)
+        return;
+    tui_.render_engine_->clear_working(); // output is displaying — row retires
     tui_.fold_reasoning(*w);
     w->stream_color = P_ASSISTANT;
     w->stream_buf += ev.text;
-    tui_.live_ctx_offset_ += (static_cast<long>(ev.text.size()) / 4) + 1;
+    w->live_ctx_offset += (static_cast<long>(ev.text.size()) / 4) + 1;
     w->scroll_top = tui_.render_engine_->max_scroll(*w);
 }
 
-
 void EventRouter::on_tool_call(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    tui_.running_tool_ = ev.tool_name;
-    tui_.running_tool_desc_ = tool_display::describe_tool_call(
-        ev.tool_name, ev.tool_args, tui_.reg_);
+    if (!w)
+        return;
+    w->running_tool = ev.tool_name;
+    w->running_tool_desc = tool_display::describe_tool_call(ev.tool_name, ev.tool_args, tui_.reg_);
     tui_.render_engine_->mark_working();
     tui_.flush_stream(*w);
     // One "open" line per advertised call, animated together: round
@@ -367,34 +375,30 @@ void EventRouter::on_tool_call(Window* w, const AgentEvent& ev) {
     pt.name = ev.tool_name;
     pt.fingerprint = ev.tool_args.dump();
     pt.frame = 0;
-    pt.tail = " " + tool_display::describe_tool_call(ev.tool_name, ev.tool_args,
-                                                     tui_.reg_);
+    pt.tail = " " + tool_display::describe_tool_call(ev.tool_name, ev.tool_args, tui_.reg_);
     const char* frame = text::glyph::spinner_round(0);
     pt.window_id = ev.window_id;
-    pt.index = tui_.append_line_to(*w, P_STATUS,
-                              std::string(frame) + pt.tail);
+    pt.index = tui_.append_line_to(*w, P_STATUS, std::string(frame) + pt.tail);
     pending_tools_.push_back(std::move(pt));
 }
 
-
 void EventRouter::on_tool_result(Window* w, const AgentEvent& ev) {
-    if (!w) return;
+    if (!w)
+        return;
     // Summary line: colored success/failure icon + one-line report,
     // closed IN PLACE on the open line (single line per tool call).
-    rich::Line summary = tool_display::result_line(
-        ev.tool_name, ev.tool_args, ev.tool_result.ok,
-        ev.tool_result.output, ev.tool_result.error, tui_.reg_);
+    rich::Line summary =
+        tool_display::result_line(ev.tool_name, ev.tool_args, ev.tool_result.ok,
+                                  ev.tool_result.output, ev.tool_result.error, tui_.reg_);
     // Match the pending line for this call (same window + name + args, FIFO).
-    size_t match = find_pending_tool(ev.window_id, ev.tool_name,
-                                     ev.tool_args.dump());
+    size_t match = find_pending_tool(ev.window_id, ev.tool_name, ev.tool_args.dump());
     if (match != std::string::npos) {
         auto& pt = pending_tools_[match];
         Window* ow = tui_.window_by_id(pt.window_id);
         if (ow && pt.index < ow->lines.size()) {
             size_t li = pt.index;
             // Close in place: keep the open line's timestamp run.
-            ow->lines[li] = tool_display::close_tool_line(
-                ow->lines[li], std::move(summary));
+            ow->lines[li] = tool_display::close_tool_line(ow->lines[li], std::move(summary));
         } else {
             tui_.append_rich_to(*w, summary);
         }
@@ -405,13 +409,12 @@ void EventRouter::on_tool_result(Window* w, const AgentEvent& ev) {
     // The working row reflects the active call; when results close out of
     // order mid-batch, promote the next queued call of this window so the
     // verb and task text stay live until the whole batch finishes.
-    tui_.running_tool_.clear();
-    tui_.running_tool_desc_.clear();
+    w->running_tool.clear();
+    w->running_tool_desc.clear();
     for (const auto& pt : pending_tools_) {
         if (pt.window_id == ev.window_id && !pt.name.empty()) {
-            tui_.running_tool_ = pt.name;
-            tui_.running_tool_desc_ =
-                pt.tail.size() > 1 ? pt.tail.substr(1) : "";
+            w->running_tool = pt.name;
+            w->running_tool_desc = pt.tail.size() > 1 ? pt.tail.substr(1) : "";
             break;
         }
     }
@@ -419,79 +422,81 @@ void EventRouter::on_tool_result(Window* w, const AgentEvent& ev) {
     tui_.render_engine_->git_refresh();
 }
 
-
 void EventRouter::on_assistant(Window* w, const AgentEvent& ev) {
-    if (!w) return;
+    if (!w)
+        return;
     if (w->stream_buf.empty())
         tui_.append_markdown(*w, ev.text);
 }
 
-
 void EventRouter::on_error(Window* w, const AgentEvent& ev) {
-    if (!w) return;
-    tui_.state_ = agent::RunState::Error;
+    if (!w)
+        return;
+    w->state = agent::RunState::Error;
     tui_.flush_stream(*w);
     tui_.append_line_to(*w, P_STATUS, std::string("error: ") + ev.error_msg);
 }
 
-
 void EventRouter::on_done(Window* w, const AgentEvent&) {
-    if (!w) return;
-    if (tui_.state_ != agent::RunState::Error)
-        tui_.state_ = agent::RunState::Idle;
-    tui_.running_tool_.clear();
+    if (!w)
+        return;
+    if (w->state != agent::RunState::Error)
+        w->state = agent::RunState::Idle;
+    w->running_tool.clear();
     tui_.flush_stream(*w);
     w->dirty = true;
     tui_.autosave(*w);
 }
 
-
 void EventRouter::on_compress_result(Window* w, const AgentEvent& ev) {
-    if (!w) return;
+    if (!w)
+        return;
     auto& r = ev.compress_result;
-    tui_.state_ = agent::RunState::Idle;
-    tui_.compressing_ = false;
+    w->state = agent::RunState::Idle;
+    w->compressing = false;
     // The server prompt count describes the PRE-compression context: mark it
     // stale and let the gauge fall back to the fresh chars/4 estimate until
     // the next chat refreshes the server truth.
-    tui_.ctx_used_.store(-1);
-    tui_.ctx_estimate_ = static_cast<long>(r.tokens_after);
+    w->ctx_used.store(-1);
+    w->ctx_estimate = static_cast<long>(r.tokens_after);
     {
         std::string s;
-        if (!r.error.empty()) s = "compress: " + r.error;
-        else if (r.messages_before == 0) s = "compress: no compressor configured";
+        if (!r.error.empty())
+            s = "compress: " + r.error;
+        else if (r.messages_before == 0)
+            s = "compress: no compressor configured";
         else if (r.messages_after >= r.messages_before)
             s = "compress: nothing to prune (" + std::to_string(r.messages_before) +
                 " messages, ~" + std::to_string(r.tokens_before) + " tokens)";
         else
             s = "compress: " + std::to_string(r.messages_before) + " \u2192 " +
-                std::to_string(r.messages_after) + " msgs, ~" +
-                std::to_string(r.tokens_before) + " \u2192 ~" +
-                std::to_string(r.tokens_after) + " tokens  (core:" +
-                std::to_string(r.core_count) + " ctx:" +
-                std::to_string(r.context_count) + " prune:" +
-                std::to_string(r.prune_count) + ")";
+                std::to_string(r.messages_after) + " msgs, ~" + std::to_string(r.tokens_before) +
+                " \u2192 ~" + std::to_string(r.tokens_after) +
+                " tokens  (core:" + std::to_string(r.core_count) +
+                " ctx:" + std::to_string(r.context_count) +
+                " prune:" + std::to_string(r.prune_count) + ")";
         tui_.append_line_to(*w, P_STATUS, s);
     }
     w->dirty = true;
 }
 
-
 size_t EventRouter::find_pending_tool(size_t window_id, const std::string& name,
-                              const std::string& fingerprint) const {
+                                      const std::string& fingerprint) const {
     size_t fallback = std::string::npos;
     for (size_t i = 0; i < pending_tools_.size(); ++i) {
-        if (pending_tools_[i].window_id != window_id ||
-            pending_tools_[i].name != name)
+        if (pending_tools_[i].window_id != window_id || pending_tools_[i].name != name)
             continue;
-        if (pending_tools_[i].fingerprint == fingerprint) return i;
-        if (fallback == std::string::npos) fallback = i;
+        if (pending_tools_[i].fingerprint == fingerprint)
+            return i;
+        if (fallback == std::string::npos)
+            fallback = i;
     }
     return fallback;
 }
 
 void EventRouter::advance_tool_spinners() {
-    if (pending_tools_.empty()) return;
+    if (pending_tools_.empty())
+        return;
     bool changed = false;
     for (auto& pt : pending_tools_) {
         Window* w = tui_.window_by_id(pt.window_id);
@@ -501,18 +506,17 @@ void EventRouter::advance_tool_spinners() {
         }
         ++pt.frame;
         auto& runs = w->lines[pt.index].runs;
-        if (runs.empty()) continue;
-        runs.back().text = std::string(text::glyph::spinner_round(pt.frame)) +
-                           pt.tail;
+        if (runs.empty())
+            continue;
+        runs.back().text = std::string(text::glyph::spinner_round(pt.frame)) + pt.tail;
         changed = true;
     }
     pending_tools_.erase(
         std::remove_if(pending_tools_.begin(), pending_tools_.end(),
-                       [](const PendingToolLine& pt) {
-                           return pt.index == std::string::npos;
-                       }),
+                       [](const PendingToolLine& pt) { return pt.index == std::string::npos; }),
         pending_tools_.end());
-    if (changed) tui_.render_engine_->draw();
+    if (changed)
+        tui_.render_engine_->draw();
 }
 
 } // namespace tui
