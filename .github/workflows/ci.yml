@@ -250,7 +250,11 @@ jobs:
         run: make test
 
       - name: Generate coverage report
+        # conftest.gcno is left by configure's compile probes (built with the
+        # coverage CXXFLAGS) and has no surviving source — remove it or gcovr
+        # aborts on the orphan note file.
         run: |
+          rm -rf conftest*
           gcovr --root . \
             --filter 'lib/.*' --filter 'tools/.*' --filter 'tui/.*' \
             --filter 'src/.*' --filter 'bench/.*' --filter 'plugins/.*' \
