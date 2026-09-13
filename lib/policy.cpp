@@ -31,8 +31,12 @@ void split_scope(const std::string& scope, std::string& tool,
 std::string timestamp() {
     auto now = std::chrono::system_clock::now();
     auto t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_utc{};
+    if (gmtime_r(&t, &tm_utc) == nullptr) {
+        return "";
+    }
     std::ostringstream os;
-    os << std::put_time(std::gmtime(&t), "%Y-%m-%dT%H:%M:%SZ");
+    os << std::put_time(&tm_utc, "%Y-%m-%dT%H:%M:%SZ");
     return os.str();
 }
 
