@@ -266,7 +266,7 @@ jobs:
             --xml-pretty -o coverage.xml
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.xml
           use_oidc: true
@@ -294,7 +294,7 @@ jobs:
           extra: ccache
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.ccache
           key: ccache-${{ matrix.cxx }}-${{ hashFiles('**/*.cpp', '**/*.h', 'Makefile.in', 'configure') }}
@@ -324,7 +324,7 @@ jobs:
       - uses: ./.github/actions/install-deps
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/ccache
           key: ccache-macos-${{ hashFiles('**/*.cpp', '**/*.h', 'Makefile.in', 'configure') }}
