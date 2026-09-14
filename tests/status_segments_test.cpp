@@ -42,7 +42,9 @@ StatusRegistry core_registry() {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services(tools, prompts, registry, panels, wallets, bus, commands);
+    auto search_backends = std::make_shared<SearchBackendRegistry>();
+    PluginServices services(tools, prompts, registry, panels, wallets, search_backends, bus,
+                            commands);
     services.set_owner("core");
     for (auto& capability : core_status_capabilities()) {
         InstallResult r = capability->install(services);
@@ -323,7 +325,9 @@ TEST(panel_capability_installs_and_unwinds) {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services(tools, prompts, status, panels, wallets, bus, commands);
+    auto search_backends = std::make_shared<SearchBackendRegistry>();
+    PluginServices services(tools, prompts, status, panels, wallets, search_backends, bus,
+                            commands);
     services.set_owner("gemini");
 
     PanelCapability cap(PanelSpec{
@@ -483,7 +487,9 @@ TEST(status_segment_capability_installs_and_unwinds) {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services(tools, prompts, status, panels, wallets, bus, commands);
+    auto search_backends = std::make_shared<SearchBackendRegistry>();
+    PluginServices services(tools, prompts, status, panels, wallets, search_backends, bus,
+                            commands);
     services.set_owner("gemini");
 
     StatusSegmentCapability cap("balance", 850, 4, [](const StatusSnapshot&) {

@@ -12,6 +12,7 @@
 #include "agent/config.h"
 #include "agent/event_bus.h"
 #include "agent/plugin_capability.h"
+#include "agent/search_backend.h"
 #include "agent/ui_services.h"
 #include "agent/providers.h"
 #include "agent/registry.h"
@@ -22,6 +23,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -165,8 +167,7 @@ public:
     using Render = std::function<StatusText(const StatusSnapshot&)>;
 
     Contribution add(const std::string& owner, const std::string& id, int priority,
-                     int drop_priority, Render render,
-                     StatusAlign align = StatusAlign::Left);
+                     int drop_priority, Render render, StatusAlign align = StatusAlign::Left);
 
     // Segments that produced text, in (priority, registration) order.
     std::vector<StatusSegment> render(const StatusSnapshot& snapshot) const;
@@ -269,6 +270,53 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Search backends
+// ---------------------------------------------------------------------------
+
+// Backends a plugin contributes, keyed by the mode name the search tool's
+// `mode` argument selects. Owner-tagged like every registry here, and with the
+// dialect table's known-but-disabled semantics: a mode whose plugin is switched
+// off stays *known* and reports which plugin to enable, while a mode nobody
+// provides is unknown. `declare` is what makes a switched-off plugin's mode say
+// "disabled" rather than "unknown" (D19).
+//
+// Enabled/disabled from the host thread while the agent thread resolves a mode,
+// so the table carries its own lock. Work already in flight keeps the backend
+// object it resolved; the next resolution sees the new state.
+class SearchBackendRegistry {
+public:
+    using Factory = std::function<std::unique_ptr<SearchBackend>()>;
+
+    Contribution add(const std::string& owner, const std::string& mode, Factory factory);
+
+    // Record that `owner` would provide `mode` (a plugin that ships switched
+    // off). Ignored when the mode is live.
+    void declare(const std::string& mode, const std::string& owner);
+
+    std::unique_ptr<SearchBackend> create(const std::string& mode) const;
+    std::vector<std::string> available() const;
+
+    // Empty when the mode is live, or unknown to everyone.
+    std::string unavailable_reason(const std::string& mode) const;
+
+    std::vector<ExtensionItem> items() const;
+    std::size_t size() const noexcept;
+
+private:
+    void remove_owned(const std::string& mode, const std::string& owner);
+
+    struct Entry {
+        std::string owner;
+        Factory factory;
+        std::size_t seq = 0;
+    };
+    mutable std::mutex mutex_;
+    std::map<std::string, Entry> entries_;
+    std::map<std::string, std::string> unavailable_; // mode -> plugin id
+    std::size_t next_seq_ = 0;
+};
+
+// ---------------------------------------------------------------------------
 // Panels
 // ---------------------------------------------------------------------------
 
@@ -362,15 +410,21 @@ class PluginServices {
 public:
     PluginServices(ToolRegistry& tools, PromptRegistry& prompts, StatusRegistry& status,
                    PanelRegistry& panels, WalletRegistry& wallets,
-                   EventBus& events, CommandRegistry& commands) noexcept;
+                   std::shared_ptr<SearchBackendRegistry> search_backends, EventBus& events,
+                   CommandRegistry& commands) noexcept;
 
     ToolRegistry& tools() noexcept { return *tools_; }
     PromptRegistry& prompts() noexcept { return *prompts_; }
     StatusRegistry& status() noexcept { return *status_; }
     PanelRegistry& panels() noexcept { return *panels_; }
     WalletRegistry& wallets() noexcept { return *wallets_; }
+    SearchBackendRegistry& search_backends() noexcept { return *search_backends_; }
     EventBus& events() noexcept { return *events_; }
     CommandRegistry& commands() noexcept { return *commands_; }
+
+    // The tool-facing seam over the registry: a resolver that keeps it alive,
+    // so a tool built here can never outlive its backends (search_backend.h).
+    SearchBackendProvider search_backend_provider() const;
 
     // The plugin whose capabilities are being installed right now. The runtime
     // sets this around each plugin's install pass so a contribution is tagged
@@ -398,6 +452,7 @@ private:
     StatusRegistry* status_;
     PanelRegistry* panels_;
     WalletRegistry* wallets_;
+    std::shared_ptr<SearchBackendRegistry> search_backends_;
     EventBus* events_;
     CommandRegistry* commands_;
     std::string owner_;
@@ -500,8 +555,7 @@ private:
 class StatusSegmentCapability : public Capability {
 public:
     StatusSegmentCapability(std::string id, int priority, int drop_priority,
-                            StatusRegistry::Render render,
-                            StatusAlign align = StatusAlign::Left);
+                            StatusRegistry::Render render, StatusAlign align = StatusAlign::Left);
     std::string name() const override { return id_; }
     CapabilityKind kind() const override { return CapabilityKind::StatusSegment; }
     InstallResult install(PluginServices& services) override;
@@ -526,6 +580,24 @@ public:
 
 private:
     WalletRegistry::Fetch fetch_;
+};
+
+// Contributes one search backend under the mode name the search tool's `mode`
+// argument selects. The factory is called on every resolution, so a backend
+// holds no cross-call state the runtime would have to manage (the semantic
+// backend caches its index inside its own instance, as it always has).
+class SearchBackendCapability : public Capability {
+public:
+    using Factory = SearchBackendRegistry::Factory;
+
+    SearchBackendCapability(std::string mode, Factory factory);
+    std::string name() const override { return mode_; }
+    CapabilityKind kind() const override { return CapabilityKind::SearchBackend; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    std::string mode_;
+    Factory factory_;
 };
 
 // Contributes a full-screen panel.

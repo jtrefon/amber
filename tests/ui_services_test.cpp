@@ -47,7 +47,8 @@ public:
     }
     void post_to_ui(std::function<void()> work) override {
         ++posted;
-        if (work) work();
+        if (work)
+            work();
     }
 
     std::vector<AskSpec> text_specs;
@@ -73,13 +74,12 @@ public:
 
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         std::vector<std::unique_ptr<Capability>> caps;
-        caps.push_back(std::make_unique<ToolCapability>(
-            "asking", [](PluginServices& services) {
-                collected = services.ui->ask_secret(AskSpec{"Key needed", "Paste it", ""});
-                services.ui->notify(UiLevel::Info, "asked for a key");
-                services.ui->post_to_ui([] {});
-                return std::vector<std::unique_ptr<Tool>>{};
-            }));
+        caps.push_back(std::make_unique<ToolCapability>("asking", [](PluginServices& services) {
+            collected = services.ui->ask_secret(AskSpec{"Key needed", "Paste it", ""});
+            services.ui->notify(UiLevel::Info, "asked for a key");
+            services.ui->post_to_ui([] {});
+            return std::vector<std::unique_ptr<Tool>>{};
+        }));
         return caps;
     }
 };
@@ -92,8 +92,8 @@ TEST(null_ui_services_fails_closed) {
     ASSERT_EQ(ui.ask_secret(AskSpec{"t", "p", "seed"}), std::string());
     ASSERT_EQ(ui.choose(ChooseSpec{"t", {"a", "b"}, 0}), -1);
     ASSERT_FALSE(ui.confirm(ConfirmSpec{"t", "m"}));
-    ui.notify(UiLevel::Error, "ignored");   // must not throw
-    ui.post_to_ui([] {});                   // must not run: there is no UI thread
+    ui.notify(UiLevel::Error, "ignored"); // must not throw
+    ui.post_to_ui([] {});                 // must not run: there is no UI thread
 }
 
 // The plugin-facing default is the null implementation, so a capability can ask
@@ -106,7 +106,9 @@ TEST(plugin_services_default_to_the_null_ui) {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services(tools, prompts, status, panels, wallets, bus, commands);
+    auto search_backends = std::make_shared<SearchBackendRegistry>();
+    PluginServices services(tools, prompts, status, panels, wallets, search_backends, bus,
+                            commands);
 
     ASSERT_TRUE(services.ui != nullptr);
     ASSERT_EQ(services.ui->ask_secret(AskSpec{"t", "p", ""}), std::string());
@@ -148,7 +150,7 @@ TEST(host_services_an_unattached_host_still_answers) {
     Workspace ws;
     PluginRuntime runtime(tools, cfg, ws);
     runtime.add(std::make_shared<AskingPlugin>());
-    runtime.start();   // no attach_ui_services
+    runtime.start(); // no attach_ui_services
 
     ASSERT_EQ(AskingPlugin::collected, std::string());
 }
