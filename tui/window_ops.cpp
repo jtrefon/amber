@@ -6,16 +6,15 @@
 
 namespace tui {
 
-WindowOps::WindowOps(WindowManager& wm, WindowOpsPort& port)
-    : wm_(wm), port_(port) {}
+WindowOps::WindowOps(WindowManager& wm, WindowOpsPort& port) : wm_(wm), port_(port) {}
 
 WindowOpResult WindowOps::switch_to(size_t idx) {
     if (!wm_.valid_index(idx))
         return {false, "window index out of range"};
     if (idx == wm_.active())
         return {true, ""};
-    if (port_.is_busy())
-        return {false, "cannot switch windows while agent is busy"};
+    // Switching is never gated on a run: each window's agent runs on its
+    // own slot, so a busy window never blocks the view of an idle one.
     wm_.set_active(idx);
     port_.on_switch();
     port_.redraw();
@@ -31,8 +30,10 @@ WindowOpResult WindowOps::new_window(const std::string& title) {
 WindowOpResult WindowOps::close_window() {
     if (wm_.count() <= 1)
         return {false, "cannot close the last window"};
-    if (port_.is_busy())
-        return {false, "cannot close window while agent is busy"};
+    // Only the window being closed gates the close: a running sibling's
+    // agent keeps running regardless.
+    if (port_.is_busy(wm_.active()))
+        return {false, "cannot close window while its agent is running"};
     port_.on_close();
     wm_.all().erase(wm_.all().begin() + wm_.active());
     if (wm_.active() >= wm_.count())
@@ -44,9 +45,11 @@ WindowOpResult WindowOps::close_window() {
 std::string WindowOps::list_windows() const {
     std::ostringstream os;
     for (size_t i = 0; i < wm_.count(); ++i) {
-        if (i > 0) os << "  ";
+        if (i > 0)
+            os << "  ";
         os << (i + 1) << ":";
-        if (i == wm_.active()) os << "*";
+        if (i == wm_.active())
+            os << "*";
         os << wm_.all()[i]->title;
     }
     return os.str();

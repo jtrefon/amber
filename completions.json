@@ -747,6 +747,11 @@
      "action": "core.session.rename",
      "help": "Rename a saved session.",
      "man": "Changes the display title of a saved session without modifying its content."
+    },
+    "fork": {
+     "action": "core.session.fork",
+     "help": "Fork this session into a new window.",
+     "man": "Splits the current session: a new window opens with an identical copy of the full conversation history, then both branches continue independently. The shared prefix is preserved so the fork's first request reuses the model's KV cache. Requires the agent to be idle."
     }
    }
   },

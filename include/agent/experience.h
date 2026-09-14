@@ -3,6 +3,7 @@
 #define AGENT_EXPERIENCE_H
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,7 +18,7 @@ namespace agent {
 
 struct KnowledgeItem {
     std::string id;
-    std::string name;                // human-readable label
+    std::string name; // human-readable label
     std::string content;
     std::vector<std::string> tags;
     int evidence_count = 0;
@@ -35,20 +36,20 @@ struct Skill : KnowledgeItem {
 // One item extracted during compression, used to report results back to the UI.
 struct ExtractionItem {
     std::string name;
-    std::string action;  // "upsert", "deprecate"
+    std::string action; // "upsert", "deprecate"
     int evidence = 0;
     bool promoted = false;
 };
 
 struct ExperienceConfig {
-    bool   enabled                  = true;
+    bool enabled = true;
     std::string store_path;
-    size_t max_memories             = 20;
-    size_t max_skills               = 10;
-    int    memory_promote_threshold = 3;
-    int    skill_promote_threshold  = 5;
-    double decay_rate               = 0.1;
-    size_t max_prompt_tokens        = 500;
+    size_t max_memories = 20;
+    size_t max_skills = 10;
+    int memory_promote_threshold = 3;
+    int skill_promote_threshold = 5;
+    double decay_rate = 0.1;
+    size_t max_prompt_tokens = 500;
 };
 
 // ---------------------------------------------------------------------------
@@ -84,17 +85,18 @@ public:
     // last_confirm_turn for freshness scoring.
     virtual void set_current_turn(size_t turn) = 0;
 
-    virtual std::vector<Memory> top_memories(
-        size_t k, const std::string& user_message) const = 0;
-    virtual std::vector<Skill> top_skills(
-        size_t k, const std::string& user_message) const = 0;
+    virtual std::vector<Memory> top_memories(size_t k, const std::string& user_message) const = 0;
+    virtual std::vector<Skill> top_skills(size_t k, const std::string& user_message) const = 0;
 
-    // Find by name (returns null if not found).
-    virtual const Memory* find_memory(const std::string& name) const {
-        (void)name; return nullptr;
+    // Find by name (nullopt when not found). Copies — a shared store serves
+    // concurrent agent workers, so references into store state are unsafe.
+    virtual std::optional<Memory> find_memory(const std::string& name) const {
+        (void)name;
+        return std::nullopt;
     }
-    virtual const Skill* find_skill(const std::string& name) const {
-        (void)name; return nullptr;
+    virtual std::optional<Skill> find_skill(const std::string& name) const {
+        (void)name;
+        return std::nullopt;
     }
 
     // Full listings for the /learn surface, sorted by score descending
@@ -137,9 +139,9 @@ public:
 class MemoryRetriever {
 public:
     explicit MemoryRetriever(const MemoryStore& store);
-    std::string build_system_prompt_suffix(
-        const std::string& user_message,
-        size_t max_tokens = 500) const;
+    std::string build_system_prompt_suffix(const std::string& user_message,
+                                           size_t max_tokens = 500) const;
+
 private:
     const MemoryStore& store_;
 };

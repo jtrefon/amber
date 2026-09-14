@@ -5,6 +5,7 @@
 #include "tui/window_ops.h"
 #include "tool_display.h"
 
+#include <algorithm>
 #include <ctime>
 #include <cstdlib>
 #include <string>
@@ -16,7 +17,7 @@ namespace tui {
 // tool_calls queue RestoredCall entries; tool messages emit a single
 // timestamped result line (describe + summary, no exit status).
 void SessionController::restore_message_lines(const agent::Message& m,
-                                std::vector<RestoredCall>& pending) {
+                                              std::vector<RestoredCall>& pending) {
     Window& w = tui_.win();
     if (m.role == "user") {
         tui_.append_line(P_USER, "> " + m.content);
@@ -30,10 +31,8 @@ void SessionController::restore_message_lines(const agent::Message& m,
                 c.name = fn.value("name", "?");
                 auto args = fn.value("arguments", agent::json::object());
                 if (args.is_string()) {
-                    auto parsed = agent::json::parse(args.get<std::string>(),
-                                                     nullptr, false);
-                    args = parsed.is_discarded() ? agent::json::object()
-                                                 : std::move(parsed);
+                    auto parsed = agent::json::parse(args.get<std::string>(), nullptr, false);
+                    args = parsed.is_discarded() ? agent::json::object() : std::move(parsed);
                 }
                 c.args = std::move(args);
                 pending.push_back(std::move(c));
@@ -47,8 +46,8 @@ void SessionController::restore_message_lines(const agent::Message& m,
         if (!pending.empty()) {
             RestoredCall c = std::move(pending.front());
             pending.erase(pending.begin());
-            rich::Line ln = tool_display::result_line(c.name, c.args, true,
-                                                      m.content, "", tui_.reg_);
+            rich::Line ln =
+                tool_display::result_line(c.name, c.args, true, m.content, "", tui_.reg_);
             rich::Run ts;
             ts.text = Tui::timestamp();
             ts.pair = P_REASONING;
@@ -57,7 +56,10 @@ void SessionController::restore_message_lines(const agent::Message& m,
             tui_.append_rich(ln);
         } else {
             std::string preview = m.content;
-            if (preview.size() > 80) { preview.resize(77); preview += "..."; }
+            if (preview.size() > 80) {
+                preview.resize(77);
+                preview += "...";
+            }
             tui_.append_line(P_STATUS, "  \u2514 " + m.name + ": " + preview);
         }
     }
@@ -66,23 +68,26 @@ void SessionController::restore_message_lines(const agent::Message& m,
 agent::Session SessionController::snapshot(Window& w) const {
     agent::Session s;
     s.id = w.session_id;
-    s.model = tui_.cfg_.model;
+    // The session file describes THIS window: model and telemetry come from
+    // its own agent/run state, never the global template or a sibling.
+    s.model = w.agent ? w.agent->config().model : tui_.cfg_.model;
     if (w.agent) {
         const auto& ctx = w.agent->context().get_all();
         s.messages.assign(ctx.begin(), ctx.end());
         s.meta = w.agent->meta_;
     }
     // Persist UI state so it survives exit/reload.
-    s.meta["ctx_used"] = tui_.ctx_used_.load();
-    s.meta["ctx_size"] = tui_.cfg_.context_size;
-    if (tui_.stats_.valid) {
-        s.meta["latency_ms"] = tui_.stats_.latency_ms;
-        s.meta["tps"] = tui_.stats_.tps;
-        s.meta["prompt_tokens"] = tui_.stats_.prompt_tokens;
-        s.meta["completion_tokens"] = tui_.stats_.completion_tokens;
+    s.meta["ctx_used"] = w.ctx_used.load();
+    s.meta["ctx_size"] = w.agent ? w.agent->config().context_size : tui_.cfg_.context_size;
+    if (w.stats.valid) {
+        s.meta["latency_ms"] = w.stats.latency_ms;
+        s.meta["tps"] = w.stats.tps;
+        s.meta["prompt_tokens"] = w.stats.prompt_tokens;
+        s.meta["completion_tokens"] = w.stats.completion_tokens;
     }
     s.derive_title();
-    if (w.title != "chat" && !w.title.empty()) s.title = w.title;
+    if (w.title != "chat" && !w.title.empty())
+        s.title = w.title;
     return s;
 }
 
@@ -91,14 +96,16 @@ void SessionController::autosave() {
 }
 
 void SessionController::autosave(Window& w) {
-    if (!w.dirty || !w.agent || w.agent->context().empty()) return;
+    if (!w.dirty || !w.agent || w.agent->context().empty())
+        return;
     // Called from on_done (agent finished — quiescent) and shutdown paths,
     // never mid-run. The single-owner rule is respected by the callers: the
     // context is only snapshotted here when the worker is not mutating it.
     agent::Session s = snapshot(w);
     if (store_.save(s)) {
         w.session_id = s.id;
-        if (w.title == "chat" && !s.title.empty()) w.title = s.title;
+        if (w.title == "chat" && !s.title.empty())
+            w.title = s.title;
         w.dirty = false;
     }
 }
@@ -112,9 +119,8 @@ void SessionController::save_session() {
     // Single-owner rule (see autosave): never snapshot a context the worker
     // is mid-mutation on. A background compression sets busy for its whole
     // run; saving then would race the rebuild.
-    if (tui_.router_->busy()) {
-        tui_.append_line(P_STATUS,
-                         "save deferred \u2014 agent is busy (finishes and auto-saves)");
+    if (tui_.runs_.busy(w.id)) {
+        tui_.append_line(P_STATUS, "save deferred \u2014 agent is busy (finishes and auto-saves)");
         return;
     }
     agent::Session s = snapshot(w);
@@ -125,6 +131,32 @@ void SessionController::save_session() {
     } else {
         tui_.append_line(P_STATUS, "save failed (could not write " + store_.dir() + ")");
     }
+}
+
+void SessionController::fork_session() {
+    Window& src = tui_.win();
+    if (!src.agent || src.agent->context().empty()) {
+        tui_.append_line(P_STATUS, "fork: nothing to fork (empty conversation)");
+        return;
+    }
+    // Context is single-owner: copying it while the worker mutates it would
+    // race, and get_all()'s chain assert can trip on a half-pushed message.
+    if (tui_.runs_.busy(src.id)) {
+        tui_.append_line(P_STATUS, "fork deferred — agent is busy (fork when idle)");
+        return;
+    }
+    // The fork's wire prefix is byte-identical to the source's (system
+    // prompt sealed at context[0], same model/mode on the copied config),
+    // so its first request reuses the server KV cache for the whole shared
+    // history. It gets its own session id and transcript: one store row per
+    // leg keeps the two diverging histories independently restorable.
+    Window& fork = tui_.new_window(src.title + " ⑂");
+    fork.agent->fork_from(*src.agent);
+    fork.agent->meta_["forked_from"] = src.session_id.empty() ? src.title : src.session_id;
+    fork.dirty = true;
+    autosave(src);
+    autosave(fork);
+    tui_.append_line(P_STATUS, "forked session into window '" + fork.title + "'");
 }
 
 void SessionController::load_session(const std::string& id) {
@@ -140,9 +172,10 @@ void SessionController::load_session(const std::string& id) {
     // smaller prefill.  We check utilisation directly (not the per-turn gate)
     // because this is a one-time load reduction, not an inline compression that
     // would break tail-injection.
-    double utilisation = s.messages.empty() ? 0.0
-        : static_cast<double>(w.agent->context().token_count())
-          / std::max(1, tui_.cfg_.context_size);
+    double utilisation = s.messages.empty()
+                             ? 0.0
+                             : static_cast<double>(w.agent->context().token_count()) /
+                                   std::max(1, tui_.cfg_.context_size);
     if (utilisation > 0.40) {
         tui_.append_line(P_STATUS, "large session — background compression started");
         tui_.switch_to(tui_.window_manager_->all().size() - 1);
@@ -154,20 +187,19 @@ void SessionController::load_session(const std::string& id) {
         w.agent->meta_ = s.meta;
     // Restore UI state from saved session meta.
     auto get_num = [&](const char* key, long def) -> long {
-        return (s.meta.contains(key) && s.meta[key].is_number())
-                   ? s.meta[key].get<long>() : def;
+        return (s.meta.contains(key) && s.meta[key].is_number()) ? s.meta[key].get<long>() : def;
     };
-    tui_.ctx_used_.store(get_num("ctx_used", -1));
-    tui_.ctx_estimate_ = 0;  // refilled by the restore's context events
+    w.ctx_used.store(get_num("ctx_used", -1));
+    w.ctx_estimate = 0; // refilled by the restore's context events
     long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
         tui_.cfg_.context_size = static_cast<int>(restored_ctx);
     if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
-        tui_.stats_.latency_ms = s.meta["latency_ms"].get<double>();
-        tui_.stats_.tps = static_cast<double>(get_num("tps", -1));
-        tui_.stats_.prompt_tokens = get_num("prompt_tokens", -1);
-        tui_.stats_.completion_tokens = get_num("completion_tokens", -1);
-        tui_.stats_.valid = true;
+        w.stats.latency_ms = s.meta["latency_ms"].get<double>();
+        w.stats.tps = static_cast<double>(get_num("tps", -1));
+        w.stats.prompt_tokens = get_num("prompt_tokens", -1);
+        w.stats.completion_tokens = get_num("completion_tokens", -1);
+        w.stats.valid = true;
     }
     std::vector<SessionController::RestoredCall> pending;
     for (const auto& m : s.messages)
@@ -178,7 +210,6 @@ void SessionController::load_session(const std::string& id) {
     tui_.append_line(P_STATUS, "loaded session " + s.id);
     tui_.draw();
 }
-
 
 namespace {
 
@@ -219,16 +250,19 @@ std::string fmt_time(long long ms) {
 
 // Case-insensitive contains.
 bool matches_filter(const std::string& title, const std::string& filter) {
-    if (filter.empty()) return true;
+    if (filter.empty())
+        return true;
     auto ci_find = [](const std::string& hay, const std::string& needle) {
-        if (needle.size() > hay.size()) return false;
+        if (needle.size() > hay.size())
+            return false;
         for (size_t h = 0; h <= hay.size() - needle.size(); ++h) {
             bool ok = true;
             for (size_t n = 0; n < needle.size() && ok; ++n)
-                if (std::tolower(static_cast<unsigned char>(hay[h + n]))
-                    != std::tolower(static_cast<unsigned char>(needle[n])))
+                if (std::tolower(static_cast<unsigned char>(hay[h + n])) !=
+                    std::tolower(static_cast<unsigned char>(needle[n])))
                     ok = false;
-            if (ok) return true;
+            if (ok)
+                return true;
         }
         return false;
     };
@@ -249,23 +283,27 @@ void SessionController::session_browser() {
     int dh = std::min(sh - 6, sh - 2);
 
     Dialog dlg(dh, dw, "Sessions");
-    dlg.set_footer({{"Up/Down", "nav"}, {"Enter", "load"}, {"Del", "remove"},
-                    {"/", "search"}, {"Esc", "back"}});
+    dlg.set_footer({{"Up/Down", "nav"},
+                    {"Enter", "load"},
+                    {"Del", "remove"},
+                    {"/", "search"},
+                    {"Esc", "back"}});
     WINDOW* w = dlg.win();
-    int aw = dlg.cols() - 2;       // content width
-    int ah = dlg.rows() - 2;       // content height
-    int list_h = ah - 1;           // rows for list (minus search bar)
+    int aw = dlg.cols() - 2; // content width
+    int ah = dlg.rows() - 2; // content height
+    int list_h = ah - 1;     // rows for list (minus search bar)
 
     std::string filter;
     int sel = 0;
     int scroll_off = 0;
-    curs_set(1);                   // visible cursor for the search bar
+    curs_set(1); // visible cursor for the search bar
 
     auto rebuild = [&]() -> std::vector<std::pair<int, int>> {
         std::vector<std::pair<int, int>> out;
         std::string last_date;
         for (int i = 0; i < static_cast<int>(all.size()); ++i) {
-            if (!matches_filter(all[i].title, filter)) continue;
+            if (!matches_filter(all[i].title, filter))
+                continue;
             std::string d = date_label(all[i].updated_ms);
             if (d != last_date) {
                 out.emplace_back(0, i);
@@ -279,13 +317,24 @@ void SessionController::session_browser() {
     // Snap sel to the nearest session row, or -1 if none exist.
     auto snap_sel = [&](auto& disp, int& s) {
         int n = static_cast<int>(disp.size());
-        if (n == 0) { s = -1; return; }
-        if (s < 0) s = 0;
-        if (s >= n) s = n - 1;
+        if (n == 0) {
+            s = -1;
+            return;
+        }
+        if (s < 0)
+            s = 0;
+        if (s >= n)
+            s = n - 1;
         // Walk forward/backward to the nearest session row.
         for (int step = 0; step < n; ++step) {
-            if (s + step < n && disp[s + step].first == 1) { s += step; return; }
-            if (s - step >= 0 && disp[s - step].first == 1) { s -= step; return; }
+            if (s + step < n && disp[s + step].first == 1) {
+                s += step;
+                return;
+            }
+            if (s - step >= 0 && disp[s - step].first == 1) {
+                s -= step;
+                return;
+            }
         }
         s = -1;
     };
@@ -295,8 +344,10 @@ void SessionController::session_browser() {
         auto disp = rebuild();
         int nd = static_cast<int>(disp.size());
         snap_sel(disp, sel);
-        if (sel < scroll_off) scroll_off = sel;
-        if (sel >= scroll_off + list_h) scroll_off = sel - list_h + 1;
+        if (sel < scroll_off)
+            scroll_off = sel;
+        if (sel >= scroll_off + list_h)
+            scroll_off = sel - list_h + 1;
 
         // Render list — clear each row with its own attribute so highlights
         // extend full-width. The date header rows and blank rows use the
@@ -306,7 +357,8 @@ void SessionController::session_browser() {
             int row = 1 + i;
             int disp_idx = scroll_off + i;
             bool has_item = (disp_idx < nd);
-            if (!has_item) continue;  // past end — wbkgd shows through
+            if (!has_item)
+                continue; // past end — wbkgd shows through
 
             auto& [typ, idx] = disp[disp_idx];
             if (typ == 0) {
@@ -333,7 +385,10 @@ void SessionController::session_browser() {
                 mvwaddnstr(w, row, x, title.c_str(), title_w);
                 x += title_w + 1;
                 std::string mod = m.model;
-                if (mod.size() > 10) { mod.resize(9); mod += text::glyph::ellipsis(); }
+                if (mod.size() > 10) {
+                    mod.resize(9);
+                    mod += text::glyph::ellipsis();
+                }
                 mvwaddstr(w, row, x, mod.c_str());
                 x += static_cast<int>(mod.size()) + 1;
                 char cnt[24];
@@ -343,19 +398,19 @@ void SessionController::session_browser() {
                 if (m.file_size > 0) {
                     char sz[16];
                     if (m.file_size > static_cast<long>(1024) * 1024)
-                        std::snprintf(sz, sizeof(sz), "%.1fMB",
-                                      m.file_size / (1024.0 * 1024.0));
+                        std::snprintf(sz, sizeof(sz), "%.1fMB", m.file_size / (1024.0 * 1024.0));
                     else if (m.file_size > 1024)
-                        std::snprintf(sz, sizeof(sz), "%.0fKB",
-                                      m.file_size / 1024.0);
+                        std::snprintf(sz, sizeof(sz), "%.0fKB", m.file_size / 1024.0);
                     else
                         std::snprintf(sz, sizeof(sz), "%zuB", m.file_size);
                     mvwaddstr(w, row, x, sz);
                 }
                 std::string ts = fmt_time(m.updated_ms);
                 mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
-                if (cur) wattroff(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
-                else wattroff(w, COLOR_PAIR(P_ASSISTANT));
+                if (cur)
+                    wattroff(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
+                else
+                    wattroff(w, COLOR_PAIR(P_ASSISTANT));
             }
         }
 
@@ -379,38 +434,52 @@ void SessionController::session_browser() {
         int c = wgetch(w);
         // Handle navigation and action keys BEFORE filter input so they
         // don't get swallowed by printable-character matching.
-        if (nd > 0 && (c == KEY_DOWN || c == KEY_UP || c == KEY_NPAGE ||
-                       c == KEY_PPAGE || c == '\n' || c == '\r' ||
-                       c == KEY_ENTER || c == KEY_DC || c == 4)) {
+        if (nd > 0 && (c == KEY_DOWN || c == KEY_UP || c == KEY_NPAGE || c == KEY_PPAGE ||
+                       c == '\n' || c == '\r' || c == KEY_ENTER || c == KEY_DC || c == 4)) {
             switch (c) {
-                case KEY_DOWN: ++sel; break;
-                case KEY_UP: --sel; break;
-                case KEY_NPAGE: sel += list_h; break;
-                case KEY_PPAGE: sel -= list_h; break;
-                default: break;
-                case '\n': case '\r': case KEY_ENTER:
-                    if (sel >= 0)
-                        { load_session(all[disp[sel].second].id); done = true; }
-                    break;
-                case KEY_DC: case 4: {  // Delete or Ctrl+D
-                    if (sel >= 0) {
-                        int del_idx = disp[sel].second;
-                        std::string msg = "Delete \"";
-                        msg += all[del_idx].title;
-                        msg += "\"?";
-                        tui::ConfirmPanel confirm("Delete Session", msg);
-                        if (confirm.run()) {
-                            store_.remove(all[del_idx].id);
-                            all.erase(all.begin() + del_idx);
-                            sel = 0; scroll_off = 0;
-                            if (all.empty()) {
-                                tui_.append_line(P_STATUS, "no saved sessions");
-                                done = true;
-                            }
+            case KEY_DOWN:
+                ++sel;
+                break;
+            case KEY_UP:
+                --sel;
+                break;
+            case KEY_NPAGE:
+                sel += list_h;
+                break;
+            case KEY_PPAGE:
+                sel -= list_h;
+                break;
+            default:
+                break;
+            case '\n':
+            case '\r':
+            case KEY_ENTER:
+                if (sel >= 0) {
+                    load_session(all[disp[sel].second].id);
+                    done = true;
+                }
+                break;
+            case KEY_DC:
+            case 4: { // Delete or Ctrl+D
+                if (sel >= 0) {
+                    int del_idx = disp[sel].second;
+                    std::string msg = "Delete \"";
+                    msg += all[del_idx].title;
+                    msg += "\"?";
+                    tui::ConfirmPanel confirm("Delete Session", msg);
+                    if (confirm.run()) {
+                        store_.remove(all[del_idx].id);
+                        all.erase(all.begin() + del_idx);
+                        sel = 0;
+                        scroll_off = 0;
+                        if (all.empty()) {
+                            tui_.append_line(P_STATUS, "no saved sessions");
+                            done = true;
                         }
                     }
-                    break;
                 }
+                break;
+            }
             }
         } else if (c >= 32 && c <= 126) {
             filter += static_cast<char>(c);
@@ -432,18 +501,21 @@ void SessionController::session_browser() {
 void SessionController::save_window_sessions() {
     for (const auto& window : tui_.window_manager_->all()) {
         Window& w = *window;
-        if (!w.dirty || !w.agent || w.agent->context().get_all().empty()) continue;
+        if (!w.dirty || !w.agent || w.agent->context().get_all().empty())
+            continue;
         std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
         std::fflush(stderr);
         agent::Session s = snapshot(w);
-        if (store_.save(s)) w.session_id = s.id;
+        if (store_.save(s))
+            w.session_id = s.id;
     }
     std::fprintf(stderr, "\rsession save complete\n");
 }
 
 void Tui::lazy_load_active() {
     auto& w = win();
-    if (!w.agent || !w.agent->context().empty() || w.session_id.empty()) return;
+    if (!w.agent || !w.agent->context().empty() || w.session_id.empty())
+        return;
     agent::Session s;
     if (!session_controller_->store().load(w.session_id, s)) {
         w.session_id.clear();
@@ -454,23 +526,28 @@ void Tui::lazy_load_active() {
     if (!s.meta.empty())
         w.agent->meta_ = s.meta;
     auto get_num = [&](const char* key, long def) -> long {
-        return (s.meta.contains(key) && s.meta[key].is_number())
-                   ? s.meta[key].get<long>() : def;
+        return (s.meta.contains(key) && s.meta[key].is_number()) ? s.meta[key].get<long>() : def;
     };
-    ctx_used_.store(get_num("ctx_used", -1));
-    ctx_estimate_ = 0;  // refilled by the restore's context events
+    w.ctx_used.store(get_num("ctx_used", -1));
+    w.ctx_estimate = 0; // refilled by the restore's context events
     long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
         cfg_.context_size = static_cast<int>(restored_ctx);
     if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
-        stats_.latency_ms = s.meta["latency_ms"].get<double>();
-        stats_.tps = static_cast<double>(get_num("tps", -1));
-        stats_.prompt_tokens = get_num("prompt_tokens", -1);
-        stats_.completion_tokens = get_num("completion_tokens", -1);
-        stats_.valid = true;
+        w.stats.latency_ms = s.meta["latency_ms"].get<double>();
+        w.stats.tps = static_cast<double>(get_num("tps", -1));
+        w.stats.prompt_tokens = get_num("prompt_tokens", -1);
+        w.stats.completion_tokens = get_num("completion_tokens", -1);
+        w.stats.valid = true;
     }
     w.lines.clear();
-    router_->pending_tools().clear();  // spinner lines belong to the old scrollback
+    // Spinner rows belong to the old scrollback — drop only this window's.
+    {
+        auto& pts = router_->pending_tools();
+        pts.erase(std::remove_if(pts.begin(), pts.end(),
+                                 [&w](const PendingToolLine& pt) { return pt.window_id == w.id; }),
+                  pts.end());
+    }
     std::vector<SessionController::RestoredCall> pending;
     for (const auto& m : s.messages)
         session_controller_->restore_message_lines(m, pending);
@@ -485,7 +562,6 @@ void Tui::switch_to(size_t idx) {
 void Tui::close_window() {
     window_ops_->close_window();
 }
-
 
 void SessionController::save_workspace_now() {
     agent::WorkspaceState ws;
