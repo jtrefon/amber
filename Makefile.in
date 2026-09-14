@@ -92,6 +92,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/plugins/tool_process/tool_process_plugin.o \
               $(BUILD_DIR)/plugins/tool_plan/tool_plan_plugin.o \
               $(BUILD_DIR)/plugins/tool_task/tool_task_plugin.o \
+              $(BUILD_DIR)/plugins/search_grep/search_grep_plugin.o \
+              $(BUILD_DIR)/plugins/search_semantic/search_semantic_plugin.o \
               $(BUILD_DIR)/lib/tool_prompt.o \
               $(BUILD_DIR)/plugins/custom/custom_plugin.o \
               $(BUILD_DIR)/plugins/gemini/gemini_plugin.o \
@@ -123,8 +125,7 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/skill_tools.o \
              $(BUILD_DIR)/tools/search/grep_backend.o \
              $(BUILD_DIR)/tools/search/semantic_backend.o \
-             $(BUILD_DIR)/tools/search/semantic_index.o \
-             $(BUILD_DIR)/tools/search/backend_registry.o
+             $(BUILD_DIR)/tools/search/semantic_index.o
 
 
 CLI_OBJ   = $(BUILD_DIR)/src/main.o
@@ -206,7 +207,8 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/metrics_plugin_test.o \
                $(BUILD_DIR)/tests/example_plugin_test.o \
                $(BUILD_DIR)/tests/plugin_docs_test.o \
-               $(BUILD_DIR)/tests/plugin_commands_test.o
+               $(BUILD_DIR)/tests/plugin_commands_test.o \
+               $(BUILD_DIR)/tests/search_backends_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 SB_TEST_OBJ  = $(BUILD_DIR)/tests/session_browser_test.o

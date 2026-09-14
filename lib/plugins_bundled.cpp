@@ -12,6 +12,8 @@
 #include "plugins/opencode_go/opencode_go_plugin.h"
 #include "plugins/opencode_zen/opencode_zen_plugin.h"
 #include "plugins/openrouter/openrouter_plugin.h"
+#include "plugins/search_grep/search_grep_plugin.h"
+#include "plugins/search_semantic/search_semantic_plugin.h"
 #include "plugins/tool_bash/tool_bash_plugin.h"
 #include "plugins/tool_plan/tool_plan_plugin.h"
 #include "plugins/tool_process/tool_process_plugin.h"
@@ -43,6 +45,11 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     plugins.push_back(std::make_shared<plugins::ToolProcessPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolPlanPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolTaskPlugin>());
+    // Search backends: each is its own plugin, so the mode a user wants to
+    // experiment with (or drop) is one toggle away, and the search tool resolves
+    // whichever set is enabled rather than a compiled-in pair.
+    plugins.push_back(std::make_shared<plugins::SearchGrepPlugin>());
+    plugins.push_back(std::make_shared<plugins::SearchSemanticPlugin>());
     // Providers: every provider amber ships is a plugin, so each can be
     // switched off and each owns its presets, protocol, and provider-specific
     // features. The core declares none.

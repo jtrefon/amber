@@ -77,6 +77,7 @@ bug.
 | Status segment contribution | ✅ Available | `StatusSegmentCapability` |
 | Panel contribution + registry console | ✅ Available | `PanelCapability` |
 | Wallet readout | ✅ Available | `WalletCapability` |
+| Search backend contribution | ✅ Available | `SearchBackendCapability` |
 | Command contribution (slash namespace) | ✅ Available | `CommandCapability` |
 | Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`) | ✅ Available | `PluginServices::ui` |
 | Per-plugin settings | – | Not available, use `~/.config/amber/plugins/<id>/plugin.conf` |
@@ -162,8 +163,8 @@ public:
 ```
 
 `CapabilityKind` has eight values: `Tool`, `PromptBlock`, `StatusSegment`,
-`Panel`, `Provider`, `Wallet`, `Allowance`, `Command`. Each has a concrete base
-class in `include/agent/extensions.h`.
+`Panel`, `Provider`, `Wallet`, `Command`, `SearchBackend`. Each has a concrete
+base class in `include/agent/extensions.h`.
 
 `InstallResult` distinguishes a **decline** from a **failure**:
 `ok == false && declined == true` means "nothing to install" and the plugin
@@ -407,6 +408,29 @@ shows `-`, never a fake zero. The fetch runs off the UI thread and is called wit
 the **live** config, at most once per turn boundary plus startup and provider
 switches. Do not block indefinitely; it is a network call you own.
 
+### Search backend
+
+A plugin contributes one backend for the search tool: the mode name the model
+passes as `mode`, and a factory that builds the `SearchBackend`. One plugin per
+backend is the convention (`plugins/search_grep/`, `plugins/search_semantic/`),
+so each can be switched off alone and the effect measured.
+
+```cpp
+caps.push_back(std::make_unique<agent::SearchBackendCapability>(
+    "grep", [] { return agent::make_grep_backend(); }));
+```
+
+- The mode **is** the capability's name. A mode whose plugin is switched off
+  fails loudly, naming the plugin and the command that enables it; there is no
+  silent fallback to another backend, and a mode nobody provides is reported as
+  unknown together with the enabled list.
+- The tool's `mode` description lists the enabled modes and is rebuilt on every
+  request, so disabling a backend updates the model-facing documentation in the
+  same action.
+- The factory runs on every resolution: your backend owns whatever caches it
+  needs (the semantic backend caches its own index), the runtime owns nothing of
+  it.
+
 ### Runtime state: on/off and settings
 
 Core plugins are **on by default**. Users control them through the command
@@ -543,9 +567,11 @@ The other bundled plugins are not providers. The tool set is one plugin per
 tunable unit, so a user can switch off exactly the tool they want to experiment
 with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
 `plugins/tool_bash/`, `plugins/tool_process/`, `plugins/tool_plan/` and
-`plugins/tool_task/`. Alongside them: `plugins/metrics/` (an event-observing
-plugin with no contributions) and `plugins/hello/` (the command example). That
-is 18 bundled plugins in total.
+`plugins/tool_task/`. The search backends follow the same rule, one plugin each:
+`plugins/search_grep/` and `plugins/search_semantic/`. Alongside them:
+`plugins/clock/` (the bar's right-edge readout), `plugins/metrics/` (an
+event-observing plugin with no contributions) and `plugins/hello/` (the command
+example). That is 21 bundled plugins in total.
 
 Steps:
 
