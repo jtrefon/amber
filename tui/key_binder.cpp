@@ -7,45 +7,51 @@ namespace tui {
 KeyBinder::KeyBinder(nlohmann::json bindings) : bindings_(std::move(bindings)) {}
 
 KeyAction KeyBinder::dispatch(const KeyRead& key, const InputState& state) const {
-    // Meta-encoded Alt+digit: 0xB1=Alt+1 through 0xB9=Alt+9.
+    // Meta-encoded Alt+digit: 0xB1=Alt+1 through 0xB9=Alt+9. Window
+    // switching is never busy-gated — a running agent owns its window's
+    // slot, not the input path.
     if (key.key >= 0xB1 && key.key <= 0xB9) {
-        if (state.busy) return {};
         auto name = meta_digit_name(key.key);
         auto act = lookup_simple(name);
-        if (act.type == KeyAction::SwitchWindow) return act;
+        if (act.type == KeyAction::SwitchWindow)
+            return act;
         return {};
     }
-    // ESC is stateful: drawer, Alt+digit followup, busy cancel, scroll toggle.
-    if (key.key == 27) return dispatch_esc(key, state);
+    // ESC is stateful: drawer, Alt+digit followup, busy cancel (the ACTIVE
+    // window's run), scroll toggle.
+    if (key.key == 27)
+        return dispatch_esc(key, state);
     // Ctrl+key mappings via JSON.
-    if (key.key == 14) {  // Ctrl+N
-        if (state.busy) return {};
-        return lookup_simple("ctrl+n");
-    }
-    if (key.key == 3) return lookup_simple("ctrl+c");   // Ctrl+C
-    if (key.key == 23) return lookup_simple("ctrl+w");  // Ctrl+W
+    if (key.key == 14)
+        return lookup_simple("ctrl+n"); // Ctrl+N
+    if (key.key == 3)
+        return lookup_simple("ctrl+c"); // Ctrl+C
+    if (key.key == 23)
+        return lookup_simple("ctrl+w"); // Ctrl+W
     return {};
 }
 
-KeyAction KeyBinder::dispatch_esc(const KeyRead& key,
-                                   const InputState& state) const {
-    if (state.drawer_open) return {KeyAction::CloseDrawer, -1, ""};
+KeyAction KeyBinder::dispatch_esc(const KeyRead& key, const InputState& state) const {
+    if (state.drawer_open)
+        return {KeyAction::CloseDrawer, -1, ""};
     if (key.followup) {
         int f = *key.followup;
-        if (f >= '1' && f <= '9') {
-            if (state.busy) return {};
+        if (f >= '1' && f <= '9')
             return {KeyAction::SwitchWindow, f - '1', ""};
-        }
-        if (f == 'b' || f == 'B') return {KeyAction::DeleteWord, -1, ""};
+        if (f == 'b' || f == 'B')
+            return {KeyAction::DeleteWord, -1, ""};
     }
-    if (state.busy) return {KeyAction::CancelOrQuit, -1, ""};
+    if (state.busy)
+        return {KeyAction::CancelOrQuit, -1, ""};
     return {KeyAction::ToggleScrollMode, -1, ""};
 }
 
 KeyAction KeyBinder::lookup_simple(const std::string& key_name) const {
-    if (!bindings_.contains(key_name)) return {};
+    if (!bindings_.contains(key_name))
+        return {};
     const auto& entry = bindings_[key_name];
-    if (!entry.contains("action")) return {};
+    if (!entry.contains("action"))
+        return {};
     std::string action = entry["action"];
     int arg = entry.value("arg", -1);
     if (action == "switch_window")

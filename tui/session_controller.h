@@ -21,6 +21,13 @@ public:
     void save_window_sessions();
     void save_session();
     void load_session(const std::string& id);
+    // Split the active window's session: a new window gets an identical
+    // context copy (the shared wire prefix is preserved byte-for-byte so
+    // the fork's first request hits the server prefix cache), its own
+    // session id, and a `forked_from` lineage marker. Both legs diverge
+    // independently afterward. Rejected while the source agent runs —
+    // Context is single-owner and cannot be snapshotted mid-mutation.
+    void fork_session();
     void session_browser();
     void save_workspace_now();
     void redraw_after_modal();
@@ -37,6 +44,7 @@ private:
     Tui& tui_;
     agent::SessionStore store_;
     std::string settings_path_;
+
 public:
     void init_path(const std::string& p) { settings_path_ = p; }
 };

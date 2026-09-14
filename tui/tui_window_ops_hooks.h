@@ -14,7 +14,7 @@ class Tui;
 class TuiWindowOpsHooks : public WindowOpsPort {
 public:
     explicit TuiWindowOpsHooks(Tui& tui);
-    bool is_busy() const override;
+    bool is_busy(size_t idx) const override;
     void on_switch() override;
     void on_close() override;
     void redraw() override;

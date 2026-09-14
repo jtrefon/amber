@@ -62,20 +62,18 @@ static void signal_handler(int sig) {
 }
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
-          agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
-          agent::PluginRuntime& plugin_runtime)
-    : cfg_(std::move(cfg)),
-      providers_(agent::make_default_provider_service(cfg_)),
-      reg_(reg), jobs_(jobs), subagents_(subagents),
-      plugins_(plugins), plugin_runtime_(plugin_runtime),
+         agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
+         agent::PluginRuntime& plugin_runtime)
+    : cfg_(std::move(cfg)), providers_(agent::make_default_provider_service(cfg_)), reg_(reg),
+      jobs_(jobs), subagents_(subagents), plugins_(plugins), plugin_runtime_(plugin_runtime),
       mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token) {
     std::setlocale(LC_ALL, "");
     g_terminal_guard.capture();
     initscr();
-    raw();        // capture Ctrl-C as keypress (ASCII 3) instead of SIGINT
+    raw(); // capture Ctrl-C as keypress (ASCII 3) instead of SIGINT
     noecho();
     keypad(stdscr, TRUE);
-    meta(stdscr, TRUE);   // receive the high-bit (0xB1..0xB9) Alt+number form
+    meta(stdscr, TRUE); // receive the high-bit (0xB1..0xB9) Alt+number form
     set_escdelay(25);
     curs_set(1);
     start_color();
@@ -124,15 +122,16 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     {
         std::ifstream kf("keybindings.json");
         nlohmann::json kj;
-        if (kf.is_open()) kf >> kj;
+        if (kf.is_open())
+            kf >> kj;
         key_binder_ = std::make_unique<KeyBinder>(std::move(kj));
     }
 
     reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
     mcp_servers_.connect_all();
     for (const auto& st : mcp_servers_.snapshot())
-        if (st.connected) agent::register_server_tools(reg_, mcp_servers_,
-                                                       st.name);
+        if (st.connected)
+            agent::register_server_tools(reg_, mcp_servers_, st.name);
 
     // Restore previous workspace: open saved sessions in their own windows.
     // On first launch (no saved workspace) show the welcome mural instead.
@@ -153,7 +152,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
 }
 
 Tui::~Tui() {
-    router_->request_cancel();
+    cancel_all_runs();
     {
         std::scoped_lock lk(router_->mutex());
         router_->set_shutting_down(true);
@@ -161,7 +160,7 @@ Tui::~Tui() {
         deny_all_pending_approvals(router_->pending_approvals());
         deny_all_pending_api_keys(router_->pending_api_keys());
     }
-    if (router_->thread().joinable()) router_->thread().join();
+    runs_.join_all();
     endwin();
     session_controller_->save_window_sessions();
     session_controller_->save_workspace_now();
@@ -179,17 +178,14 @@ Window& Tui::ensure_chat_window() {
     return window_manager_->ensure_chat_window();
 }
 
-Window& Tui::win() { return window_manager_->win(); }
-const Window& Tui::win() const { return window_manager_->win(); }
+Window& Tui::win() {
+    return window_manager_->win();
+}
+const Window& Tui::win() const {
+    return window_manager_->win();
+}
 
 // ---- thread / event machinery -------------------------------------------
-
-
-
-
-
-
-
 
 std::string Tui::expand_at_references(const std::string& raw) const {
     std::string out;
@@ -203,9 +199,9 @@ std::string Tui::expand_at_references(const std::string& raw) const {
         out += raw.substr(i, at - i);
         // Find end of reference token (space, end, punctuation).
         size_t end = at + 1;
-        while (end < raw.size() && raw[end] != ' ' && raw[end] != '\t' &&
-               raw[end] != ',' && raw[end] != '.' && raw[end] != '!' &&
-               raw[end] != '?' && raw[end] != ';' && raw[end] != ':')
+        while (end < raw.size() && raw[end] != ' ' && raw[end] != '\t' && raw[end] != ',' &&
+               raw[end] != '.' && raw[end] != '!' && raw[end] != '?' && raw[end] != ';' &&
+               raw[end] != ':')
             ++end;
         std::string ref = raw.substr(at + 1, end - at - 1);
         if (!ref.empty()) {
@@ -219,8 +215,9 @@ std::string Tui::expand_at_references(const std::string& raw) const {
                 if (fs::is_regular_file(ref_path, ec)) {
                     std::ifstream f(ref_path);
                     std::string content((std::istreambuf_iterator<char>(f)),
-                                         std::istreambuf_iterator<char>());
-                    if (content.size() > 4096) content.resize(4096);
+                                        std::istreambuf_iterator<char>());
+                    if (content.size() > 4096)
+                        content.resize(4096);
                     out += "\n[file: " + ref + "]\n";
                     out += content;
                     out += "\n[/file]\n";
@@ -235,20 +232,24 @@ std::string Tui::expand_at_references(const std::string& raw) const {
 }
 
 void Tui::send_async(const std::string& raw_prompt) {
-    if (router_->busy()) return;
+    send_async_to(ensure_chat_window(), raw_prompt);
+}
 
-    if (router_->thread().joinable())
-        router_->thread().join();
-    router_->clear();
-
-    router_->set_busy(true);
+void Tui::send_async_to(Window& w, const std::string& raw_prompt) {
+    // Per-window gate: a busy window queues its own prompt; sibling windows
+    // dispatch immediately — "agent is running" is a per-window fact.
+    if (runs_.busy(w.id)) {
+        runs_.enqueue(w.id, raw_prompt);
+        append_line_to(w, P_STATUS, "queued");
+        return;
+    }
+    runs_.join(w.id); // harvest the previous worker
+    runs_.clear_cancel(w.id);
+    RunSlot* slot = &runs_.slot(w.id);
+    slot->busy = true;
     render_engine_->mark_working();
-    router_->clear_cancel();
 
-    ensure_chat_window();
-    append_line(P_USER, "> " + raw_prompt);
-
-    auto& w = win();
+    append_line_to(w, P_USER, "> " + raw_prompt);
     w.reason.begin();
     render_engine_->set_show_reasoning(cfg_.show_reasoning);
     w.stream_ts = timestamp();
@@ -256,48 +257,49 @@ void Tui::send_async(const std::string& raw_prompt) {
     std::string prompt = expand_at_references(raw_prompt);
 
     // Capture the window on the UI thread: the worker must never read
-    // window_manager_->all()/window_manager_->active() (the UI thread mutates them) — it gets its own Window*
-    // and stamps every event with the window's stable id so drain_events can
-    // route even after other windows close.
+    // window_manager_->all()/window_manager_->active() (the UI thread mutates them) — it gets its
+    // own Window* and stamps every event with the window's stable id so drain_events can route even
+    // after other windows close.
     Window* my_win = &w;
     size_t my_id = w.id;
-    router_->thread() = std::thread([this, my_win, my_id, prompt] {
-        agent_worker(*my_win, my_id, prompt);
-    });
+    // The worker captures its RunSlot* — slot addresses are stable, and the
+    // busy-flag write must not re-enter the registry map (erase() joins
+    // under the map lock, so a map lookup from the worker would deadlock).
+    slot->thread = std::thread(
+        [this, my_win, my_id, slot, prompt] { agent_worker(*my_win, my_id, slot, prompt); });
 }
 
+// Dispatch prompts queued while their window's agent was busy. Runs on the
+// UI thread each idle tick; a window only dequeues when its own slot is
+// free, so queued prompts never jump the line onto a running window.
+void Tui::drain_pending_prompts() {
+    for (auto& w : window_manager_->all()) {
+        if (!w || !w->agent || runs_.busy(w->id))
+            continue;
+        auto p = runs_.pop_pending(w->id);
+        if (p)
+            send_async_to(*w, *p);
+    }
+}
 
+void Tui::cancel_all_runs() {
+    // Two channels per window: the agent's own token aborts its run loop
+    // and in-flight cancellable tools (RunScope); the slot flag drops its
+    // event stream and skips queued dispatch.
+    for (auto& w : window_manager_->all()) {
+        if (!w)
+            continue;
+        if (w->agent)
+            w->agent->request_cancel();
+        runs_.request_cancel(w->id);
+    }
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-void Tui::agent_worker(Window& my_win, size_t window_id,
-                       const std::string& prompt) {
+void Tui::agent_worker(Window& my_win, size_t window_id, RunSlot* slot, const std::string& prompt) {
     agent::AgentHooks hooks = router_->make_hooks(window_id);
 
-    // ONE subscription per window keeps the estimate fresh for the gauge;
-    // ctx_used_ holds the server-reported truth and is never clobbered by
-    // the chars/4 estimate (see gauge_tokens: server wins when known).
-    my_win.agent->context_events().subscribe(
-        [this](size_t tokens, size_t) {
-            ctx_estimate_ = static_cast<long>(tokens);
-        });
-
     try {
-        if (!router_->cancel_requested()) {
+        if (!runs_.cancelled(window_id)) {
             my_win.agent->set_hooks(hooks);
             my_win.agent->run(prompt);
             my_win.dirty = true;
@@ -320,19 +322,21 @@ void Tui::agent_worker(Window& my_win, size_t window_id,
     done.type = AgentEvent::Done;
     done.window_id = window_id;
     router_->push(std::move(done));
-    router_->set_busy(false);
+    slot->busy = false;
 }
 
 void Tui::compress_worker(Window& my_win, size_t window_id) {
-    if (router_->thread().joinable())
-        router_->thread().join();
-    router_->set_busy(true);
-    compressing_ = true;
+    if (runs_.busy(window_id))
+        return; // callers check; belt & braces
+    runs_.join(window_id);
+    RunSlot* slot = &runs_.slot(window_id);
+    slot->busy = true;
+    my_win.compressing = true;
     render_engine_->mark_working();
-    router_->thread() = std::thread([this, my_win = &my_win, window_id]() {
+    slot->thread = std::thread([this, my_win = &my_win, window_id, slot]() {
         AgentEvent ev = run_compression(*my_win, window_id);
         router_->push(std::move(ev));
-        router_->set_busy(false);
+        slot->busy = false;
     });
 }
 
@@ -356,10 +360,6 @@ AgentEvent Tui::run_compression(Window& my_win, size_t window_id) {
     return ev;
 }
 
-
-
-
-
 void Tui::run() {
     render_engine_->git_refresh();
     render_engine_->draw();
@@ -373,7 +373,7 @@ void Tui::run() {
     // (models, providers, policy rules, jobs, plugin states). Merging feeds
     // before the rebuild wiped their leaves from the tree.
     build_settings();
-    (void)commands();  // force command tree build
+    (void)commands(); // force command tree build
     // Load completion metadata from JSON (help text, choices, ranges).
     // This is the single source of truth for completion metadata — code edits
     // cannot break completion unless the JSON file is damaged.
@@ -398,11 +398,10 @@ void Tui::run() {
             //   "/set model "    (trailing space)    -> "/set model "
             std::string prefix;
             if (!input.empty() && input.back() == ' ') {
-                prefix = input;                       // explicit descend
+                prefix = input; // explicit descend
             } else {
                 size_t tok_start = input.rfind(' ');
-                tok_start = (tok_start == std::string::npos) ? 1
-                                                            : tok_start + 1;
+                tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
                 std::string last_tok = input.substr(tok_start);
                 // drawer_entry_names descends into a namespace when the
                 // trailing token resolves to children (drawer_rows.cpp); in
@@ -412,9 +411,7 @@ void Tui::run() {
                 std::string ns_so_far = input.substr(1, tok_start - 1);
                 while (!ns_so_far.empty() && ns_so_far.back() == ' ')
                     ns_so_far.pop_back();
-                std::string probe = ns_so_far.empty()
-                                        ? last_tok
-                                        : ns_so_far + "." + last_tok;
+                std::string probe = ns_so_far.empty() ? last_tok : ns_so_far + "." + last_tok;
                 if (!settings_.children_of(probe).empty())
                     prefix = input + " ";
                 else
@@ -426,7 +423,8 @@ void Tui::run() {
         // Non-slash text: top-level command names from the tree, including
         // JSON-declared aliases — never a hardcoded list.
         std::vector<std::string> names = settings_.complete("");
-        for (const auto& a : settings_.top_level_aliases()) names.push_back(a);
+        for (const auto& a : settings_.top_level_aliases())
+            names.push_back(a);
         cl.set_completions(names);
     };
     update_completions();
@@ -441,7 +439,7 @@ void Tui::run() {
             // so only save when it has finished (agent_busy_ is cleared as
             // its last action); a mid-run signal exits without the final
             // turn's session — bounded shutdown beats a torn save.
-            router_->request_cancel();
+            cancel_all_runs();
             {
                 std::scoped_lock lk(router_->mutex());
                 router_->set_shutting_down(true);
@@ -452,10 +450,13 @@ void Tui::run() {
             // endwin() first: the session-save progress writes to stderr and
             // must not interleave with a terminal ncurses still controls.
             endwin();
-            if (router_->thread().joinable() && !router_->busy()) {
-                router_->thread().join();
-                session_controller_->save_window_sessions();
-            }
+            // Workers observe their per-agent tokens and exit promptly; a
+            // truly wedged worker (blocked read) may outlive us — bounded
+            // shutdown still beats a torn save, so only idle windows save.
+            runs_.join_all();
+            for (auto& w : window_manager_->all())
+                if (w && w->agent && !runs_.busy(w->id))
+                    session_controller_->autosave(*w);
             session_controller_->save_workspace_now();
             _Exit(128 + g_signal_state.signal());
         }
@@ -472,26 +473,23 @@ void Tui::run() {
 
         int ch = getch();
         if (ch == ERR) {
-            if (had_events) { draw(); }
-            else {
+            if (had_events) {
+                draw();
+            } else {
                 auto now = std::chrono::steady_clock::now();
                 if (now - render_engine_->last_status_tick() > std::chrono::milliseconds(150)) {
                     render_engine_->set_last_status_tick(now);
-                    if (router_->busy()) {
-                        router_->advance_tool_spinners();
+                    router_->advance_tool_spinners();
+                    if (runs_.any_busy())
                         render_engine_->draw();
-                    } else {
-                        router_->advance_tool_spinners();
+                    else
                         render_engine_->tick_clock();
-                    }
                 }
             }
             render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            if (!router_->busy() && !pending_prompt_.empty()) {
-                std::string p = std::move(pending_prompt_);
-                send_async(p);
-            }
-            if (render_engine_->dirty()) render_engine_->flush();
+            drain_pending_prompts();
+            if (render_engine_->dirty())
+                render_engine_->flush();
             continue;
         }
 
@@ -510,17 +508,20 @@ void Tui::run() {
         if ((ch >= 0xB1 && ch <= 0xB9) || ch == 14 || ch == 27 || ch == 3 || ch == 23) {
             InputState state;
             state.drawer_open = cl.drawer_open();
-            state.busy = router_->busy();
+            // "busy" to the key layer means THE ACTIVE window's agent is
+            // running — it drives ESC=cancel semantics only, never gating.
+            state.busy = runs_.busy(win().id);
             state.scroll_mode = render_engine_->scroll_mode();
             state.window_count = window_manager_->count();
-            state.has_pending_prompt = !pending_prompt_.empty();
+            state.has_pending_prompt = runs_.has_pending(win().id);
 
             KeyRead kr{ch, std::nullopt};
             if (ch == 27) {
                 timeout(200);
                 int n = getch();
                 timeout(kTickTimeoutMs);
-                if (n != ERR) kr.followup = n;
+                if (n != ERR)
+                    kr.followup = n;
             }
 
             KeyAction act = key_binder_->dispatch(kr, state);
@@ -544,8 +545,17 @@ void Tui::run() {
                 draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             case KeyAction::CancelOrQuit:
-                cfg_.cancel_token.request();
-                router_->request_cancel();
+                // Ctrl+C on an idle window falls through to the quit path
+                // below (cancel_or_quit). ESC only reaches this action when
+                // the binder saw the ACTIVE window busy, so it never quits.
+                if (ch == 3 && !runs_.busy(win().id))
+                    break;
+                // Cancels the ACTIVE window's run only: the slot flag drops
+                // its event stream and the agent token aborts its loop and
+                // any in-flight cancellable tool (via RunScope).
+                if (win().agent)
+                    win().agent->request_cancel();
+                runs_.request_cancel(win().id);
                 append_line(P_STATUS, "cancelling…");
                 render_engine_->draw();
                 draw_input(cl.text(), cl.cursor(), cl.shadow());
@@ -572,14 +582,28 @@ void Tui::run() {
             }
         }
 
-        // Ctrl+C: cancel or save+exit.
+        // Ctrl+C: cancel the active window's run, or save+exit. When
+        // siblings are still running, quitting needs a confirm — the
+        // destructor then cancels and joins every worker.
         if (ch == 3) {
-            if (router_->busy()) {
-                cfg_.cancel_token.request();
-                router_->request_cancel();
+            if (runs_.busy(win().id)) {
+                if (win().agent)
+                    win().agent->request_cancel();
+                runs_.request_cancel(win().id);
                 append_line(P_STATUS, "cancelling…");
-                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw();
+                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
+            }
+            if (runs_.any_busy()) {
+                ConfirmPanel q("Quit", std::to_string(runs_.busy_count()) +
+                                           " agent(s) still running — quit anyway?");
+                if (!q.run()) {
+                    redraw_after_modal();
+                    render_engine_->draw();
+                    draw_input(cl.text(), cl.cursor(), cl.shadow());
+                    continue;
+                }
             }
             session_controller_->save_workspace_now();
             quit_ = true;
@@ -595,11 +619,9 @@ void Tui::run() {
                 int delta = scroll_dispatch::wheel_delta(ev.bstate);
                 if (delta != 0) {
                     win().scroll_top = scroll_dispatch::clamped_scroll_top(
-                        win().scroll_top, delta,
-                        render_engine_->max_scroll(win()));
+                        win().scroll_top, delta, render_engine_->max_scroll(win()));
                     render_engine_->draw();
-                    render_engine_->draw_input(cl.text(), cl.cursor(),
-                                               cl.shadow());
+                    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 }
             }
             continue;
@@ -610,48 +632,92 @@ void Tui::run() {
         bool handled = true;
 
         switch (ch) {
-        case '	':            result = cl.on_tab(); break;
+        case '	':
+            result = cl.on_tab();
+            break;
         case KEY_UP:
-            if (render_engine_->scroll_mode())
-                { win().scroll_top = std::max(0, win().scroll_top - 1); render_engine_->draw(); }
-            else
+            if (render_engine_->scroll_mode()) {
+                win().scroll_top = std::max(0, win().scroll_top - 1);
+                render_engine_->draw();
+            } else
                 result = cl.on_up();
             break;
         case KEY_DOWN:
-            if (render_engine_->scroll_mode())
-                { win().scroll_top += 1; render_engine_->draw(); }
-            else
+            if (render_engine_->scroll_mode()) {
+                win().scroll_top += 1;
+                render_engine_->draw();
+            } else
                 result = cl.on_down();
             break;
-        case KEY_LEFT:          result = cl.on_left(); break;
-        case KEY_RIGHT:         result = cl.on_right(); break;
-        case KEY_HOME:          result = cl.on_home(); break;
-        case KEY_END:           result = cl.on_end(); break;
+        case KEY_LEFT:
+            result = cl.on_left();
+            break;
+        case KEY_RIGHT:
+            result = cl.on_right();
+            break;
+        case KEY_HOME:
+            result = cl.on_home();
+            break;
+        case KEY_END:
+            result = cl.on_end();
+            break;
         case KEY_PPAGE:
-            if (render_engine_->scroll_mode())
-                { win().scroll_top = std::max(0, win().scroll_top - 10); render_engine_->draw(); }
+            if (render_engine_->scroll_mode()) {
+                win().scroll_top = std::max(0, win().scroll_top - 10);
+                render_engine_->draw();
+            }
             break;
         case KEY_NPAGE:
-            if (render_engine_->scroll_mode())
-                { win().scroll_top = std::min(render_engine_->max_scroll(), win().scroll_top + 10); render_engine_->draw(); }
+            if (render_engine_->scroll_mode()) {
+                win().scroll_top = std::min(render_engine_->max_scroll(), win().scroll_top + 10);
+                render_engine_->draw();
+            }
             break;
-        case KEY_BACKSPACE: case 127: case 8: result = cl.on_backspace(); break;
-        case 10: case 13: case KEY_ENTER:
-            if (render_engine_->scroll_mode()) { render_engine_->set_scroll_mode(false); render_engine_->draw(); }
+        case KEY_BACKSPACE:
+        case 127:
+        case 8:
+            result = cl.on_backspace();
+            break;
+        case 10:
+        case 13:
+        case KEY_ENTER:
+            if (render_engine_->scroll_mode()) {
+                render_engine_->set_scroll_mode(false);
+                render_engine_->draw();
+            }
             result = cl.on_enter();
             break;
-        case 1:  result = cl.on_ctrl_a(); break;
-        case 5:  result = cl.on_ctrl_e(); break;
-        case 11: result = cl.on_ctrl_k(); break;
-        case 20: result = cl.on_ctrl_t(); break;
-        case 21: result = cl.on_ctrl_u(); break;
-        case 23: result = cl.on_ctrl_w(); break;
-        case 25: result = cl.on_ctrl_y(); break;
-        case 31: result = cl.on_undo();   break;
-        case 4:  result = cl.on_ctrl_d(); break;
+        case 1:
+            result = cl.on_ctrl_a();
+            break;
+        case 5:
+            result = cl.on_ctrl_e();
+            break;
+        case 11:
+            result = cl.on_ctrl_k();
+            break;
+        case 20:
+            result = cl.on_ctrl_t();
+            break;
+        case 21:
+            result = cl.on_ctrl_u();
+            break;
+        case 23:
+            result = cl.on_ctrl_w();
+            break;
+        case 25:
+            result = cl.on_ctrl_y();
+            break;
+        case 31:
+            result = cl.on_undo();
+            break;
+        case 4:
+            result = cl.on_ctrl_d();
+            break;
         case 18:
             append_line(P_STATUS, "Ctrl-R: not yet implemented");
-            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+            render_engine_->draw();
+            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
             continue;
         default:
             if (ch >= 32 && ch <= 126)
@@ -673,22 +739,19 @@ void Tui::run() {
                 auto& ph = win().prompt_history;
                 if (!text.empty() && (ph.empty() || ph.back() != text)) {
                     ph.push_back(text);
-                    if (ph.size() > 100) ph.erase(ph.begin());
+                    if (ph.size() > 100)
+                        ph.erase(ph.begin());
                 }
                 win().history_pos = ph.size();
                 cl.set_history(ph);
                 if (handle_slash(text)) {
-                    render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                    render_engine_->draw();
+                    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                     continue;
                 }
-                if (router_->busy()) {
-                    pending_prompt_ = text;
-                    append_line(P_STATUS, "queued");
-                } else {
-                    ensure_chat_window();
-                    send_async(text);
-                }
-                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                send_async(text);
+                render_engine_->draw();
+                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
             case CommandLine::Result::ShowPopup: {
@@ -698,8 +761,10 @@ void Tui::run() {
                     std::vector<std::string> items;
                     for (const auto& e : fs::directory_iterator(root)) {
                         std::string name = e.path().filename().string();
-                        if (name.front() == '.') continue;
-                        if (fs::is_directory(e)) name += "/";
+                        if (name.front() == '.')
+                            continue;
+                        if (fs::is_directory(e))
+                            name += "/";
                         items.push_back(name);
                     }
                     std::sort(items.begin(), items.end());
@@ -707,7 +772,8 @@ void Tui::run() {
                         int sel = menu_select("reference file:", items);
                         if (sel >= 0 && sel < static_cast<int>(items.size())) {
                             std::string ref = items[sel];
-                            if (ref.back() == '/') ref.pop_back();
+                            if (ref.back() == '/')
+                                ref.pop_back();
                             cl.set_text_and_cursor(cl.text() + ref, cl.text().size() + ref.size());
                         }
                     }
@@ -722,128 +788,170 @@ void Tui::run() {
                         menu_select("options:", items);
                     }
                 }
-                render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                render_engine_->draw();
+                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;
             }
-    case CommandLine::Result::ShowHelpPage: {
-        std::string node = result.help_node;
-        if (!node.empty() && node[0] == '/') node = node.substr(1);
-        std::string help_key = node;
-        size_t first_sp = node.find(' ');
-        if (first_sp != std::string::npos)
-            help_key = node.substr(first_sp + 1);
-        // Try full man page first.
-        std::string man = settings_.man_for(help_key);
-        if (!man.empty()) {
-            std::vector<std::string> page;
-            // Header: help text as subtitle
-            std::string helptxt = settings_.help_for(help_key);
-            if (!helptxt.empty())
-                page.emplace_back(helptxt);
-            page.emplace_back("");
-            // Body: full man text with word wrapping
-            size_t pos = 0;
-            while (pos < man.size()) {
-                size_t next = man.find('\n', pos);
-                if (next == std::string::npos) {
-                    page.emplace_back(man.substr(pos));
-                    break;
-                }
-                page.emplace_back(man.substr(pos, next - pos));
-                pos = next + 1;
-            }
-            page.emplace_back("");
-            // Children listing
-            auto kids = settings_.children_of(help_key);
-            if (!kids.empty()) {
-                page.emplace_back("sub-commands:");
-                for (const auto& k : kids) {
-                    std::string line = "  " + k;
-                    std::string subkey = help_key;
-                    subkey += ".";
-                    subkey += k;
-                    std::string h = settings_.help_for(subkey);
-                    if (!h.empty()) {
-                        line += "  —  ";
-                        line += h;
+            case CommandLine::Result::ShowHelpPage: {
+                std::string node = result.help_node;
+                if (!node.empty() && node[0] == '/')
+                    node = node.substr(1);
+                std::string help_key = node;
+                size_t first_sp = node.find(' ');
+                if (first_sp != std::string::npos)
+                    help_key = node.substr(first_sp + 1);
+                // Try full man page first.
+                std::string man = settings_.man_for(help_key);
+                if (!man.empty()) {
+                    std::vector<std::string> page;
+                    // Header: help text as subtitle
+                    std::string helptxt = settings_.help_for(help_key);
+                    if (!helptxt.empty())
+                        page.emplace_back(helptxt);
+                    page.emplace_back("");
+                    // Body: full man text with word wrapping
+                    size_t pos = 0;
+                    while (pos < man.size()) {
+                        size_t next = man.find('\n', pos);
+                        if (next == std::string::npos) {
+                            page.emplace_back(man.substr(pos));
+                            break;
+                        }
+                        page.emplace_back(man.substr(pos, next - pos));
+                        pos = next + 1;
                     }
-                    page.emplace_back(line);
+                    page.emplace_back("");
+                    // Children listing
+                    auto kids = settings_.children_of(help_key);
+                    if (!kids.empty()) {
+                        page.emplace_back("sub-commands:");
+                        for (const auto& k : kids) {
+                            std::string line = "  " + k;
+                            std::string subkey = help_key;
+                            subkey += ".";
+                            subkey += k;
+                            std::string h = settings_.help_for(subkey);
+                            if (!h.empty()) {
+                                line += "  —  ";
+                                line += h;
+                            }
+                            page.emplace_back(line);
+                        }
+                        page.emplace_back("");
+                    }
+                    // Choices / range for leaf settings
+                    const auto& ch_choices = settings_.choices_for(help_key);
+                    if (!ch_choices.empty()) {
+                        std::string line = "choices: ";
+                        for (size_t i = 0; i < ch_choices.size(); ++i) {
+                            if (i > 0)
+                                line += ", ";
+                            line += ch_choices[i];
+                        }
+                        page.push_back(line);
+                    }
+                    double rlo, rhi;
+                    if (settings_.range_for(help_key, rlo, rhi))
+                        page.push_back("range: " + std::to_string((int)rlo) + " – " +
+                                       std::to_string((int)rhi));
+                    info_dialog(help_key, page);
+                    redraw_after_modal();
+                    render_engine_->draw();
+                    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                    continue;
                 }
-                page.emplace_back("");
-            }
-            // Choices / range for leaf settings
-            const auto& ch_choices = settings_.choices_for(help_key);
-            if (!ch_choices.empty()) {
-                std::string line = "choices: ";
-                for (size_t i = 0; i < ch_choices.size(); ++i) {
-                    if (i > 0) line += ", ";
-                    line += ch_choices[i];
+                // Fallback to one-line status for leaf settings without man text.
+                std::string desc = settings_.help_for(help_key);
+                if (!desc.empty()) {
+                    std::string msg = help_key;
+                    msg += "  —  ";
+                    msg += desc;
+                    const auto& chc = settings_.choices_for(help_key);
+                    if (!chc.empty()) {
+                        msg += "  choices: ";
+                        for (const auto& c : chc)
+                            msg += c + "|";
+                        msg.pop_back();
+                    }
+                    double rlo, rhi;
+                    if (settings_.range_for(help_key, rlo, rhi))
+                        msg += "  range: " + std::to_string(rlo) + "-" + std::to_string(rhi);
+                    append_line(P_STATUS, msg);
+                    render_engine_->draw();
+                    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                    continue;
                 }
-                page.push_back(line);
+                // Fallback to cmd_help for top-level commands.
+                size_t sp = node.find(' ');
+                if (sp != std::string::npos)
+                    node.resize(sp);
+                slash_dispatcher_->cmd_help(node);
+                render_engine_->draw();
+                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+                continue;
             }
-            double rlo, rhi;
-            if (settings_.range_for(help_key, rlo, rhi))
-                page.push_back("range: " + std::to_string((int)rlo) +
-                           " – " + std::to_string((int)rhi));
-            info_dialog(help_key, page);
-            redraw_after_modal();
-            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            continue;
-        }
-        // Fallback to one-line status for leaf settings without man text.
-        std::string desc = settings_.help_for(help_key);
-        if (!desc.empty()) {
-            std::string msg = help_key;
-            msg += "  —  ";
-            msg += desc;
-            const auto& chc = settings_.choices_for(help_key);
-            if (!chc.empty()) {
-                msg += "  choices: ";
-                for (const auto& c : chc) msg += c + "|";
-                msg.pop_back();
-            }
-            double rlo, rhi;
-            if (settings_.range_for(help_key, rlo, rhi))
-                msg += "  range: " + std::to_string(rlo) + "-" + std::to_string(rhi);
-            append_line(P_STATUS, msg);
-            render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            continue;
-        }
-        // Fallback to cmd_help for top-level commands.
-        size_t sp = node.find(' ');
-        if (sp != std::string::npos) node.resize(sp);
-        slash_dispatcher_->cmd_help(node);
-        render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-        continue;
-    }
             default:
                 break;
             }
             render_engine_->draw();
             render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            if (render_engine_->dirty()) { render_engine_->flush(); render_engine_->clear_dirty(); }
+            if (render_engine_->dirty()) {
+                render_engine_->flush();
+                render_engine_->clear_dirty();
+            }
             continue;
         }
 
         // Unhandled keys.
-        if (ch == KEY_NPAGE) { win().scroll_top += render_engine_->lines_per_page(); render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
-        if (ch == KEY_PPAGE) { win().scroll_top = std::max(0, win().scroll_top - render_engine_->lines_per_page()); render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow()); continue; }
-        if (render_engine_->dirty()) { render_engine_->flush(); render_engine_->clear_dirty(); }
+        if (ch == KEY_NPAGE) {
+            win().scroll_top += render_engine_->lines_per_page();
+            render_engine_->draw();
+            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+            continue;
+        }
+        if (ch == KEY_PPAGE) {
+            win().scroll_top = std::max(0, win().scroll_top - render_engine_->lines_per_page());
+            render_engine_->draw();
+            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+            continue;
+        }
+        if (render_engine_->dirty()) {
+            render_engine_->flush();
+            render_engine_->clear_dirty();
+        }
     }
 }
 
-
-
-void Tui::redraw_after_modal() { session_controller_->redraw_after_modal(); }
-void Tui::autosave() { session_controller_->autosave(); }
-void Tui::autosave(Window& w) { session_controller_->autosave(w); }
-void Tui::load_session(const std::string& id) { session_controller_->load_session(id); }
-void Tui::draw() { render_engine_->draw(); }
-void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) { render_engine_->draw_input(s, cursor, shadow); }
-void Tui::build_settings() { slash_dispatcher_->build_settings(); }
-bool Tui::drain_events() { return router_->drain_events(); }
-const std::vector<tui::Command>& Tui::commands() { return slash_dispatcher_->commands(); }
-bool Tui::handle_slash(const std::string& line) { return slash_dispatcher_->handle_slash(line); }
+void Tui::redraw_after_modal() {
+    session_controller_->redraw_after_modal();
+}
+void Tui::autosave() {
+    session_controller_->autosave();
+}
+void Tui::autosave(Window& w) {
+    session_controller_->autosave(w);
+}
+void Tui::load_session(const std::string& id) {
+    session_controller_->load_session(id);
+}
+void Tui::draw() {
+    render_engine_->draw();
+}
+void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
+    render_engine_->draw_input(s, cursor, shadow);
+}
+void Tui::build_settings() {
+    slash_dispatcher_->build_settings();
+}
+bool Tui::drain_events() {
+    return router_->drain_events();
+}
+const std::vector<tui::Command>& Tui::commands() {
+    return slash_dispatcher_->commands();
+}
+bool Tui::handle_slash(const std::string& line) {
+    return slash_dispatcher_->handle_slash(line);
+}
 void Tui::register_action(const std::string& action,
                           std::function<void(const std::string&)> handler) {
     slash_dispatcher_->register_action(action, std::move(handler));
@@ -851,19 +959,40 @@ void Tui::register_action(const std::string& action,
 bool Tui::busy_reject(const std::string& what) {
     return slash_dispatcher_->busy_reject(what);
 }
-void Tui::refresh_completions() { slash_dispatcher_->refresh_completions(); }
-void Tui::refresh_model_list() { slash_dispatcher_->refresh_model_list(); }
-void Tui::refresh_policy_feed() { slash_dispatcher_->refresh_policy_feed(); }
-void Tui::refresh_provider_feed() { slash_dispatcher_->refresh_provider_feed(); }
-void Tui::refresh_job_feed() { slash_dispatcher_->refresh_job_feed(); }
-void Tui::refresh_plugin_feed() {
-    if (feed_manager_) feed_manager_->refresh_plugin_feed();
+void Tui::refresh_completions() {
+    slash_dispatcher_->refresh_completions();
 }
-void Tui::cmd_model_set(const std::string& arg) { slash_dispatcher_->cmd_model_set(arg); }
-void Tui::cmd_provider(const std::string& arg) { slash_dispatcher_->cmd_provider(arg); }
-void Tui::show_plugin(const std::string& id) { slash_dispatcher_->show_plugin(id); }
-void Tui::report_toolset_audit() { slash_dispatcher_->report_toolset_audit(); }
-void Tui::set_plugin(const std::string& id, bool on) { slash_dispatcher_->set_plugin(id, on); }
+void Tui::refresh_model_list() {
+    slash_dispatcher_->refresh_model_list();
+}
+void Tui::refresh_policy_feed() {
+    slash_dispatcher_->refresh_policy_feed();
+}
+void Tui::refresh_provider_feed() {
+    slash_dispatcher_->refresh_provider_feed();
+}
+void Tui::refresh_job_feed() {
+    slash_dispatcher_->refresh_job_feed();
+}
+void Tui::refresh_plugin_feed() {
+    if (feed_manager_)
+        feed_manager_->refresh_plugin_feed();
+}
+void Tui::cmd_model_set(const std::string& arg) {
+    slash_dispatcher_->cmd_model_set(arg);
+}
+void Tui::cmd_provider(const std::string& arg) {
+    slash_dispatcher_->cmd_provider(arg);
+}
+void Tui::show_plugin(const std::string& id) {
+    slash_dispatcher_->show_plugin(id);
+}
+void Tui::report_toolset_audit() {
+    slash_dispatcher_->report_toolset_audit();
+}
+void Tui::set_plugin(const std::string& id, bool on) {
+    slash_dispatcher_->set_plugin(id, on);
+}
 void Tui::open_panels(const std::string& id) {
     const std::string shown = panel_view(plugin_runtime_.panels(), id);
     if (shown.empty()) {
@@ -879,7 +1008,8 @@ void Tui::open_panels(const std::string& id) {
 AskAnswer Tui::request_ask(const std::shared_ptr<AgentEvent>& ev) {
     // Before the router exists (activation) or after it stops (shutdown) there
     // is no one to answer: fail closed rather than block forever.
-    if (!router_ || router_->shutting_down()) return {};
+    if (!router_ || router_->shutting_down())
+        return {};
     std::shared_future<AskAnswer> answer = ev->ask_promise->get_future().share();
     router_->push(*ev);
     return answer.get();
@@ -902,7 +1032,8 @@ void Tui::drain_ui_posts() {
     std::vector<std::function<void()>> work;
     {
         std::scoped_lock lk(ui_post_mtx_);
-        if (ui_post_.empty()) return;
+        if (ui_post_.empty())
+            return;
         work.swap(ui_post_);
     }
     for (auto& fn : work) {
@@ -915,10 +1046,18 @@ void Tui::drain_ui_posts() {
     }
 }
 
-void Tui::job_kill(const std::string& id) { slash_dispatcher_->job_kill(id); }
-void Tui::job_read(const std::string& id) { slash_dispatcher_->job_read(id); }
-void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) { slash_dispatcher_->apply_policy_rule(name, lvl); }
-void Tui::show_policy_rule(const std::string& name) { slash_dispatcher_->show_policy_rule(name); }
+void Tui::job_kill(const std::string& id) {
+    slash_dispatcher_->job_kill(id);
+}
+void Tui::job_read(const std::string& id) {
+    slash_dispatcher_->job_read(id);
+}
+void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) {
+    slash_dispatcher_->apply_policy_rule(name, lvl);
+}
+void Tui::show_policy_rule(const std::string& name) {
+    slash_dispatcher_->show_policy_rule(name);
+}
 
 Window* Tui::window_by_id(size_t id) {
     return find_window(window_manager_->all(), id);

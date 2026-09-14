@@ -27,11 +27,15 @@
 #include "tui/key_binder.h"
 #include "tui/window_ops.h"
 #include "tui/window_manager.h"
+#include "tui/run_registry.h"
 #include <nlohmann/json.hpp>
 #include "tests/test_util.h"
 
+#include <atomic>
 #include <future>
 #include <queue>
+#include <set>
+#include <thread>
 #include <clocale>
 #include <fstream>
 #include <sstream>
@@ -1285,13 +1289,13 @@ namespace {
 
 // Mock WindowOpsPort for testing WindowOps in isolation.
 struct MockWindowOpsPort : public tui::WindowOpsPort {
-    bool busy = false;
+    std::set<size_t> busy; // per-window-index busy set
     int on_switch_calls = 0;
     int on_close_calls = 0;
     int redraw_calls = 0;
     std::string last_status;
 
-    bool is_busy() const override { return busy; }
+    bool is_busy(size_t idx) const override { return busy.count(idx) != 0; }
     void on_switch() override { ++on_switch_calls; }
     void on_close() override { ++on_close_calls; }
     void redraw() override { ++redraw_calls; }
@@ -1363,13 +1367,33 @@ TEST(keybinder_ctrl_n_maps_to_new_window) {
     ASSERT_EQ(act.type, tui::KeyAction::NewWindow);
 }
 
-TEST(keybinder_busy_state_blocks_window_switch) {
+TEST(keybinder_busy_does_not_block_window_switch) {
+    // Multi-session: a running agent must never block window switching.
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
     state.busy = true;
     state.window_count = 3;
     auto act = kb.dispatch({0xB1, std::nullopt}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::None);
+    ASSERT_EQ(act.type, tui::KeyAction::SwitchWindow);
+    ASSERT_EQ(act.arg, 0);
+}
+
+TEST(keybinder_busy_does_not_block_new_window) {
+    auto kb = tui::KeyBinder(load_test_keybindings());
+    tui::InputState state;
+    state.busy = true;
+    auto act = kb.dispatch({14, std::nullopt}, state); // Ctrl+N
+    ASSERT_EQ(act.type, tui::KeyAction::NewWindow);
+}
+
+TEST(keybinder_esc_digit_switches_while_busy) {
+    auto kb = tui::KeyBinder(load_test_keybindings());
+    tui::InputState state;
+    state.busy = true;
+    state.window_count = 5;
+    auto act = kb.dispatch({27, '3'}, state);
+    ASSERT_EQ(act.type, tui::KeyAction::SwitchWindow);
+    ASSERT_EQ(act.arg, 2);
 }
 
 TEST(keybinder_loads_bindings_from_json) {
@@ -1534,6 +1558,127 @@ TEST(windowops_rename_window) {
     ASSERT_TRUE(r.ok);
     ASSERT_EQ(wm.win().title, "newname");
     ASSERT_EQ(port.redraw_calls, 1);
+}
+
+TEST(windowops_switch_allowed_while_busy) {
+    // The whole point of the multi-session fix: a running agent never
+    // blocks switching to another window.
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.open_welcome_window();
+    wm.open_welcome_window();
+    wm.open_welcome_window();
+    MockWindowOpsPort port;
+    port.busy = {0, 1, 2}; // every window's agent is running
+    tui::WindowOps ops(wm, port);
+    auto r = ops.switch_to(0);
+    ASSERT_TRUE(r.ok);
+    ASSERT_EQ(wm.active(), (size_t)0);
+    ASSERT_EQ(port.on_switch_calls, 1);
+}
+
+TEST(windowops_close_busy_window_rejected) {
+    // Closing the window whose agent is mid-run is rejected; sibling
+    // windows running must not matter — only the target's busy flag.
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.open_welcome_window();
+    wm.open_welcome_window(); // active = 1
+    MockWindowOpsPort port;
+    port.busy = {1}; // the active window is running
+    tui::WindowOps ops(wm, port);
+    auto r = ops.close_window();
+    ASSERT_FALSE(r.ok);
+    ASSERT_EQ(wm.count(), (size_t)2);
+}
+
+TEST(windowops_close_idle_window_while_sibling_busy) {
+    // Window 0's agent runs; active window 1 is idle → close succeeds.
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.open_welcome_window();
+    wm.open_welcome_window(); // active = 1
+    MockWindowOpsPort port;
+    port.busy = {0};
+    tui::WindowOps ops(wm, port);
+    auto r = ops.close_window();
+    ASSERT_TRUE(r.ok);
+    ASSERT_EQ(wm.count(), (size_t)1);
+}
+
+// --- RunRegistry tests: per-window run slots (8) ---
+
+TEST(run_registry_slot_create_on_demand) {
+    tui::RunRegistry reg;
+    ASSERT_FALSE(reg.busy(7));
+    auto& s = reg.slot(7);
+    ASSERT_FALSE(s.busy.load());
+    // Same id returns the same slot — stable address for hook capture.
+    ASSERT_EQ(&reg.slot(7), &s);
+}
+
+TEST(run_registry_busy_is_per_window) {
+    tui::RunRegistry reg;
+    reg.slot(1).busy = true;
+    ASSERT_TRUE(reg.busy(1));
+    ASSERT_FALSE(reg.busy(2));
+}
+
+TEST(run_registry_any_busy_aggregates) {
+    tui::RunRegistry reg;
+    ASSERT_FALSE(reg.any_busy());
+    reg.slot(3).busy = true;
+    ASSERT_TRUE(reg.any_busy());
+    ASSERT_EQ(reg.busy_count(), (size_t)1);
+    reg.slot(5).busy = true;
+    ASSERT_EQ(reg.busy_count(), (size_t)2);
+}
+
+TEST(run_registry_cancel_is_per_window) {
+    tui::RunRegistry reg;
+    reg.request_cancel(1);
+    ASSERT_TRUE(reg.slot(1).cancel.load());
+    ASSERT_FALSE(reg.slot(2).cancel.load());
+}
+
+TEST(run_registry_pending_enqueue_and_pop_fifo) {
+    tui::RunRegistry reg;
+    reg.enqueue(1, "first");
+    reg.enqueue(1, "second");
+    auto p1 = reg.pop_pending(1);
+    auto p2 = reg.pop_pending(1);
+    ASSERT_TRUE(p1.has_value());
+    ASSERT_EQ(*p1, "first");
+    ASSERT_TRUE(p2.has_value());
+    ASSERT_EQ(*p2, "second");
+    ASSERT_FALSE(reg.pop_pending(1).has_value());
+}
+
+TEST(run_registry_pending_isolated_per_window) {
+    tui::RunRegistry reg;
+    reg.enqueue(1, "for-one");
+    ASSERT_TRUE(reg.has_pending(1));
+    ASSERT_FALSE(reg.has_pending(2));
+    ASSERT_FALSE(reg.pop_pending(2).has_value());
+}
+
+TEST(run_registry_erase_idle_slot) {
+    tui::RunRegistry reg;
+    reg.slot(4).busy = true;
+    reg.erase(4);
+    ASSERT_FALSE(reg.busy(4));
+    ASSERT_FALSE(reg.any_busy());
+}
+
+TEST(run_registry_join_all_joins_workers) {
+    tui::RunRegistry reg;
+    std::atomic<bool> ran{false};
+    reg.slot(1).thread = std::thread([&] { ran = true; });
+    reg.join_all();
+    ASSERT_TRUE(ran.load());
 }
 
 // --- CompletionProvider tests (3) ---

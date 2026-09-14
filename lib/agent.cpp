@@ -11,6 +11,7 @@
 #include "agent/model_probe.h"
 #include "agent/data_path.h"
 #include "agent/workspace.h"
+#include "agent/run_scope.h"
 
 #include <algorithm>
 #include <chrono>
@@ -67,9 +68,9 @@ std::unique_ptr<LLMClient> make_client(const Config& cfg, const LLMClientFactory
 
 Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<CompressionStrategy> compressor, std::unique_ptr<CompressionGate> gate,
-             std::unique_ptr<MemoryStore> memory_store, std::unique_ptr<MemoryRetriever> retriever,
+             std::shared_ptr<MemoryStore> memory_store, std::unique_ptr<MemoryRetriever> retriever,
              std::unique_ptr<LLMClient> client, LLMClientFactory client_factory,
-             bool register_skills)
+             bool register_skills, std::shared_ptr<SkillCatalog> skills)
     : cfg_(std::move(cfg)), registry_(registry), client_factory_(std::move(client_factory)),
       client_(nullptr), hooks_(std::move(hooks)), compression_(std::move(compressor)),
       gate_(std::move(gate)), memory_store_(std::move(memory_store)),
@@ -79,13 +80,15 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
     else
         client_ = make_client(cfg_, client_factory_);
     experience_cfg_ = load_experience_config(cfg_);
-    skills_ = std::make_unique<SkillCatalog>(cfg_);
-    std::vector<Skill> learned;
-    if (memory_store_) {
-        auto top = memory_store_->top_skills(experience_cfg_.max_skills, "");
-        learned.assign(top.begin(), top.end());
+    if (skills) {
+        skills_ = std::move(skills);
+    } else {
+        skills_ = std::make_shared<SkillCatalog>(cfg_);
+        std::vector<Skill> learned;
+        if (memory_store_)
+            learned = memory_store_->top_skills(experience_cfg_.max_skills, "");
+        skills_->discover(learned);
     }
-    skills_->discover(learned);
     if (register_skills)
         register_skill_tools(registry_, *skills_);
 }
@@ -266,6 +269,37 @@ void Agent::set_context(std::vector<Message> messages) {
     emit_context_event(context_events_, context_);
 }
 
+void Agent::fork_from(const Agent& src) {
+    // The message stack copies through the integrity-checked snapshot; the
+    // seal/hash chain is rebuilt by set_context, so both legs keep a valid
+    // chain and diverge independently afterward.
+    const auto& all = src.context_.get_all();
+    set_context(std::vector<Message>(all.begin(), all.end()));
+    cfg_ = src.cfg_;
+    // The fork is its own run: cancelling it must never touch the parent.
+    cfg_.cancel_token = CancellationToken{};
+    meta_ = src.meta_;
+    session_approved_ = src.session_approved_;
+    model_windows_ = src.model_windows_;
+    turn_counter_ = src.turn_counter_;
+    brief_store_ = src.brief_store_;
+    activated_skills_ = src.activated_skills_;
+    last_compression_ = src.last_compression_;
+    experience_cfg_ = src.experience_cfg_;
+    // A fork stays on the parent's project: adopt its shared catalog and
+    // store so learned skills/memories stay consistent across both legs.
+    if (src.skills_)
+        skills_ = src.skills_;
+    if (src.memory_store_) {
+        memory_store_ = src.memory_store_;
+        retriever_ = std::make_unique<MemoryRetriever>(*memory_store_);
+    }
+    // Rebuild the client from the copied config so the fork's first request
+    // serializes the identical wire prefix (KV-cache reuse); hooks, log,
+    // and event wiring stay the fork's own.
+    client_ = make_client(cfg_, client_factory_);
+}
+
 Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display) {
     Message reply;
     Stats stats;
@@ -403,6 +437,14 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
 }
 
 bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult* out) {
+    // Same scope as a turn: compression may run on its own worker thread,
+    // where it still needs this agent's cancel token and catalog.
+    cfg_.cancel_token.clear(); // a requested flag must not outlive its run
+    RunScope scope;
+    scope.cancel_token = &cfg_.cancel_token;
+    scope.skills = skills_.get();
+    scope.activated = &activated_skills_;
+    ScopedRunScope scope_guard(&scope);
     // Snapshot BEFORE compression — immutable, never mutate live stack.
     if (!compression_) {
         CompressionResult r;
@@ -812,7 +854,7 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
                 text += line + "\n";
             head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
         }
-        for (const auto& act : skills_->activated_skills())
+        for (const auto& act : activated_skills_)
             tail.push_back({prompt_priority::kActivatedSkills, seq++,
                             "[activated skill: " + act.name + "]\n" + act.body});
     }
@@ -869,6 +911,17 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
 }
 
 std::string Agent::run(const std::string& user_prompt) {
+    // Fresh turn: a cancel requested before this run must not abort it.
+    cfg_.cancel_token.clear();
+    // Install this agent's run scope so shared tools resolve OUR cancel
+    // token, skill catalog, and activation sink — not whichever objects
+    // were bound at registration.
+    cfg_.cancel_token.clear(); // a requested flag must not outlive its run
+    RunScope scope;
+    scope.cancel_token = &cfg_.cancel_token;
+    scope.skills = skills_.get();
+    scope.activated = &activated_skills_;
+    ScopedRunScope scope_guard(&scope);
     ensure_system_prompt();
     // The turn's opening event: fired before the prompt is sealed into the
     // context so an interceptor can still rewrite what the model will see.
@@ -900,7 +953,7 @@ std::string Agent::run(const std::string& user_prompt) {
         }
         // Cancellation ends the turn cleanly: no fabricated error message,
         // no probe round-trip, nothing pushed into the context.
-        if (cfg_.cancel_token.is_requested()) {
+        if (run_cancelled(cfg_.cancel_token)) {
             if (hooks_.on_status)
                 hooks_.on_status("cancelled by user");
             return finish_turn_cancelled();

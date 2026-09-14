@@ -17,11 +17,11 @@ thread_local bool t_subagent_inherited = false;
 // Sub-agent system prompt: the base system prompt + environment card, plus a
 // worker directive describing the focused role and the report contract.
 std::string compose_subagent_system(const Config& cfg) {
-    std::string sys = load_prompt(cfg.system_prompt_path.empty()
-                                      ? "prompts/system.md"
-                                      : cfg.system_prompt_path);
+    std::string sys =
+        load_prompt(cfg.system_prompt_path.empty() ? "prompts/system.md" : cfg.system_prompt_path);
     const std::string env_card = render_environment_card(probe_environment());
-    if (!env_card.empty()) sys += "\n\n" + env_card;
+    if (!env_card.empty())
+        sys += "\n\n" + env_card;
     sys += "\n\n## Worker directive\n\n"
            "You are a focused worker agent executing one task on behalf of "
            "the main agent. The task below is yours alone — complete it with "
@@ -56,8 +56,8 @@ void SubAgentExecutor::release_slot() noexcept {
     slot_cv_.notify_one();
 }
 
-std::string SubAgentExecutor::run_task(const std::string& prompt,
-                                       ToolRegistry& reg, std::string& err) {
+std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& reg,
+                                       std::string& err) {
     err.clear();
     if (t_in_subagent) {
         err = "task cannot be nested inside a sub-agent";
@@ -65,9 +65,9 @@ std::string SubAgentExecutor::run_task(const std::string& prompt,
     }
 
     // Serial mode: one sub-agent at a time (cache-friendly request ordering).
-    std::unique_lock<std::mutex> serial_guard(serial_mutex_,
-                                              std::defer_lock);
-    if (!parallel_.load()) serial_guard.lock();
+    std::unique_lock<std::mutex> serial_guard(serial_mutex_, std::defer_lock);
+    if (!parallel_.load())
+        serial_guard.lock();
     acquire_slot();
     struct SlotGuard {
         SubAgentExecutor* self;
@@ -82,8 +82,11 @@ std::string SubAgentExecutor::run_task(const std::string& prompt,
     sub_hooks.on_api_key = hooks_.on_api_key;
 
     Config sub_cfg = cfg_;
-    if (sub_cfg.max_tool_iterations <= 0 ||
-        sub_cfg.max_tool_iterations > max_iterations_.load())
+    // Fresh cancel flag: sibling sub-agents of one parent must not share
+    // it (cancelling one would kill the other). Parent cancel still
+    // reaches a sub through the RunScope ancestor chain.
+    sub_cfg.cancel_token = CancellationToken{};
+    if (sub_cfg.max_tool_iterations <= 0 || sub_cfg.max_tool_iterations > max_iterations_.load())
         sub_cfg.max_tool_iterations = max_iterations_.load();
 
     Message sys;
@@ -98,8 +101,7 @@ std::string SubAgentExecutor::run_task(const std::string& prompt,
         // would bind read_skill/list_skills/write_skill to this sub's
         // SkillCatalog, replace the parent's bindings in the shared registry,
         // and dangle once the sub is destroyed.
-        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_,
-                  false);
+        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_, false);
         sub.set_context({std::move(sys)});
         result = sub.run(prompt);
     } catch (const std::exception& e) {

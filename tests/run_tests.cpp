@@ -24,6 +24,7 @@
 #include "agent/skill_install.h"
 #include "agent/mcp_tools.h"
 #include "agent/subagent.h"
+#include "agent/run_scope.h"
 #include "agent/plugin.h"
 #include "tests/test_util.h"
 
@@ -6067,4 +6068,193 @@ TEST(session_brief_size_cap) {
     store.merge(b);
     std::string rendered = store.render();
     ASSERT(rendered.size() <= 2048u);
+}
+
+// ---------------------------------------------------------------------------
+// M1: per-window run scope — the ambient context a worker thread installs so
+// shared tools resolve the CALLING agent's cancel token and skill catalog
+// rather than whichever object was bound at registration.
+// ---------------------------------------------------------------------------
+
+TEST(run_scope_run_cancelled_falls_back) {
+    agent::CancellationToken host;
+    ASSERT_FALSE(agent::run_cancelled(host));
+    host.request();
+    ASSERT_TRUE(agent::run_cancelled(host));
+}
+
+TEST(run_scope_run_cancelled_uses_scoped_token) {
+    agent::CancellationToken host, scoped;
+    agent::RunScope scope;
+    scope.cancel_token = &scoped;
+    agent::ScopedRunScope guard(&scope);
+    scoped.request();
+    // The scoped token answers; the host fallback is untouched.
+    ASSERT_TRUE(agent::run_cancelled(host));
+    ASSERT_FALSE(host.is_requested());
+}
+
+TEST(run_scope_run_cancelled_walks_parent_chain) {
+    // A nested (sub-agent) run is cancelled through an ancestor's token:
+    // cancelling the window cancels its in-flight sub-agent too.
+    agent::CancellationToken host, t_outer, t_inner;
+    agent::RunScope outer, inner;
+    outer.cancel_token = &t_outer;
+    inner.cancel_token = &t_inner;
+    agent::ScopedRunScope g1(&outer);
+    agent::ScopedRunScope g2(&inner);
+    ASSERT_FALSE(agent::run_cancelled(host));
+    t_outer.request();
+    ASSERT_TRUE(agent::run_cancelled(host));
+}
+
+TEST(run_scope_nested_restores_outer) {
+    agent::RunScope outer, inner;
+    agent::CancellationToken t_outer, t_inner;
+    outer.cancel_token = &t_outer;
+    inner.cancel_token = &t_inner;
+    ASSERT_EQ(agent::current_run_scope(), nullptr);
+    {
+        agent::ScopedRunScope g1(&outer);
+        ASSERT_EQ(agent::current_run_scope(), &outer);
+        {
+            agent::ScopedRunScope g2(&inner);
+            ASSERT_EQ(agent::current_run_scope(), &inner);
+        }
+        ASSERT_EQ(agent::current_run_scope(), &outer);
+    }
+    ASSERT_EQ(agent::current_run_scope(), nullptr);
+}
+
+TEST(run_scope_resolves_scoped_skill_catalog) {
+    agent::Config cfg;
+    agent::SkillCatalog a(cfg, {}, "/tmp/amber_rs_home_a");
+    agent::SkillCatalog b(cfg, {}, "/tmp/amber_rs_home_b");
+    // No scope installed: the bound fallback answers.
+    ASSERT_EQ(&agent::effective_catalog(a), &a);
+    agent::RunScope scope;
+    scope.skills = &b;
+    agent::ScopedRunScope guard(&scope);
+    ASSERT_EQ(&agent::effective_catalog(a), &b);
+}
+
+TEST(run_scope_record_activation_goes_to_agent_sink) {
+    std::vector<agent::ActivatedSkill> sink;
+    // Outside a run: a no-op (body still served; only bookkeeping skipped).
+    agent::record_activation("x", "body");
+    ASSERT_TRUE(sink.empty());
+    agent::RunScope scope;
+    scope.activated = &sink;
+    agent::ScopedRunScope guard(&scope);
+    agent::record_activation("x", "body");
+    agent::record_activation("x", "body"); // dedup: already active
+    agent::record_activation("y", "body2");
+    ASSERT_EQ(sink.size(), 2u);
+    ASSERT_EQ(sink[0].name, "x");
+    ASSERT_EQ(sink[1].name, "y");
+}
+
+// ---------------------------------------------------------------------------
+// M1: per-window cancel — each window's Agent owns an independent token.
+// ---------------------------------------------------------------------------
+
+TEST(agent_request_cancel_is_per_agent) {
+    // CancellationToken copies share a flag, so two agents built from one
+    // cfg would cross-cancel; hosts hand each agent a config carrying its
+    // own token (WindowManager does this per window). This test builds two
+    // agents the way the TUI does and asserts the isolation holds.
+    agent::ToolRegistry reg;
+    agent::Config cfg_a, cfg_b;
+    cfg_a.cancel_token = agent::CancellationToken{};
+    cfg_b.cancel_token = agent::CancellationToken{};
+    agent::Agent a(cfg_a, reg);
+    agent::Agent b(cfg_b, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    a.request_cancel();
+    ASSERT_TRUE(a.config().cancel_token.is_requested());
+    ASSERT_FALSE(b.config().cancel_token.is_requested());
+}
+
+// ---------------------------------------------------------------------------
+// M1 /session fork — fork_from clones the conversation and run-state so both
+// legs share an identical wire prefix (KV cache reuse) and then diverge
+// independently.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::vector<agent::Message> sample_history() {
+    std::vector<agent::Message> msgs;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "sys";
+    agent::Message u;
+    u.role = "user";
+    u.content = "hello";
+    agent::Message a;
+    a.role = "assistant";
+    a.content = "hi there";
+    msgs.push_back(std::move(sys));
+    msgs.push_back(std::move(u));
+    msgs.push_back(std::move(a));
+    return msgs;
+}
+
+} // namespace
+
+TEST(agent_fork_copies_identical_context) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    agent::Agent src(cfg, reg);
+    src.set_context(sample_history());
+    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    dst.fork_from(src);
+    auto& s = src.context().get_all();
+    auto& d = dst.context().get_all();
+    ASSERT_EQ(s.size(), d.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        ASSERT_EQ(s[i].role, d[i].role);
+        ASSERT_EQ(s[i].content, d[i].content);
+    }
+}
+
+TEST(agent_fork_legs_diverge_independently) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    agent::Agent src(cfg, reg);
+    src.set_context(sample_history());
+    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    dst.fork_from(src);
+    // Push on the fork must not touch the parent's sealed stack.
+    agent::Message m;
+    m.role = "user";
+    m.content = "fork-only";
+    const_cast<agent::Context&>(dst.context()).push(m);
+    ASSERT_EQ(dst.context().size(), src.context().size() + 1);
+    ASSERT_EQ(src.context().get_all().back().content, "hi there");
+}
+
+TEST(agent_fork_copies_runtime_state) {
+    agent::Config cfg;
+    cfg.model = "parent-model";
+    agent::ToolRegistry reg;
+    agent::Agent src(cfg, reg);
+    src.set_context(sample_history());
+    src.meta_["origin"] = "test";
+    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    dst.fork_from(src);
+    // Same wire prefix requires the same model/mode/thinking — cfg follows.
+    ASSERT_EQ(dst.config().model, "parent-model");
+    ASSERT_EQ(dst.meta_["origin"], "test");
+}
+
+TEST(agent_fork_keeps_own_cancel_token) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    agent::Agent src(cfg, reg);
+    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    dst.fork_from(src);
+    // Cancelling the fork must not cancel the parent — tokens stay separate.
+    dst.request_cancel();
+    ASSERT_TRUE(dst.config().cancel_token.is_requested());
+    ASSERT_FALSE(src.config().cancel_token.is_requested());
 }

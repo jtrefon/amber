@@ -15,9 +15,12 @@ namespace {
 
 const char* scope_name(SkillScope scope) {
     switch (scope) {
-        case SkillScope::Project: return "project";
-        case SkillScope::Global: return "global";
-        case SkillScope::Interop: return "interop";
+    case SkillScope::Project:
+        return "project";
+    case SkillScope::Global:
+        return "global";
+    case SkillScope::Interop:
+        return "interop";
     }
     return "unknown";
 }
@@ -27,8 +30,10 @@ const char* origin_name(SkillOrigin origin) {
 }
 
 std::string scope_dir(const std::string& scope, std::string& error) {
-    if (scope == "project") return Workspace::local_dir() + "/skills";
-    if (scope == "global") return global_config_dir() + "/skills";
+    if (scope == "project")
+        return Workspace::local_dir() + "/skills";
+    if (scope == "global")
+        return global_config_dir() + "/skills";
     error = "invalid scope '" + scope + "' (use 'project' or 'global')";
     return "";
 }
@@ -38,18 +43,18 @@ std::string scope_dir(const std::string& scope, std::string& error) {
 std::vector<std::string> skill_show_lines(const SkillCatalog& catalog) {
     std::vector<std::string> lines;
     for (const auto& e : catalog.entries()) {
-        lines.push_back(std::string(scope_name(e.scope)) + " \u00b7 " +
-                        origin_name(e.origin) + " \u00b7 " + e.name +
-                        " \u00b7 " + e.state);
+        lines.push_back(std::string(scope_name(e.scope)) + " \u00b7 " + origin_name(e.origin) +
+                        " \u00b7 " + e.name + " \u00b7 " + e.state);
     }
     for (const auto& kv : catalog.overrides()) {
         if (kv.second.state == "disable" || kv.second.state == "block") {
             bool listed = false;
             for (const auto& e : catalog.entries())
-                if (e.name == kv.first) listed = true;
+                if (e.name == kv.first)
+                    listed = true;
             if (!listed) {
-                lines.push_back(std::string("project \u00b7 authored \u00b7 ") +
-                                kv.first + " \u00b7 " + kv.second.state + "d");
+                lines.push_back(std::string("project \u00b7 authored \u00b7 ") + kv.first +
+                                " \u00b7 " + kv.second.state + "d");
             }
         }
     }
@@ -57,47 +62,55 @@ std::vector<std::string> skill_show_lines(const SkillCatalog& catalog) {
 }
 
 std::string skill_create(SkillCatalog& catalog, const std::string& name,
-                         const std::string& description,
-                         const std::string& body,
+                         const std::string& description, const std::string& body,
                          const std::string& scope) {
     return author_skill(catalog, name, description, body, scope);
 }
 
-std::string skill_delete(SkillCatalog& catalog, const std::string& name,
-                         const std::string& scope) {
+std::string skill_delete(SkillCatalog& catalog, const std::string& name, const std::string& scope) {
     std::string error;
     std::string dir = scope_dir(scope, error);
-    if (dir.empty()) return error;
+    if (dir.empty())
+        return error;
     bool found = false;
     for (const auto& e : catalog.entries()) {
-        if (e.name != name) continue;
-        if (scope == "project" && e.scope != SkillScope::Project) continue;
-        if (scope == "global" && e.scope != SkillScope::Global) continue;
+        if (e.name != name)
+            continue;
+        if (scope == "project" && e.scope != SkillScope::Project)
+            continue;
+        if (scope == "global" && e.scope != SkillScope::Global)
+            continue;
         found = true;
         break;
     }
-    if (!found) return "no skill named '" + name + "' in " + scope + " scope";
+    if (!found)
+        return "no skill named '" + name + "' in " + scope + " scope";
     std::error_code ec;
     fs::remove_all(fs::path(dir) / name, ec);
-    if (ec) return "cannot remove " + dir + "/" + name;
+    if (ec)
+        return "cannot remove " + dir + "/" + name;
     catalog.refresh();
     return "";
 }
 
 std::string skill_export(SkillCatalog& catalog, const std::string& name) {
-    const SkillEntry* learned = nullptr;
+    // entries() is a snapshot copy — take values, never a pointer into it.
+    std::string body, description;
+    bool found = false;
     for (const auto& e : catalog.entries()) {
         if (e.name == name && e.origin == SkillOrigin::Learned) {
-            learned = &e;
+            body = e.meta.body;
+            description = e.meta.description;
+            found = true;
             break;
         }
     }
-    if (!learned)
+    if (!found)
         return "no learned skill named '" + name + "'";
-    std::string body = learned->meta.body;
-    if (body.empty()) body = name;
-    std::string description = learned->meta.description.empty()
-        ? name : learned->meta.description;
+    if (body.empty())
+        body = name;
+    if (description.empty())
+        description = name;
     return author_skill(catalog, name, description, body, "global");
 }
 
@@ -108,7 +121,8 @@ std::string skill_set_override(SkillCatalog& catalog, const std::string& name,
     std::string note;
     if (state == "block") {
         for (const auto& e : catalog.entries()) {
-            if (e.name != name) continue;
+            if (e.name != name)
+                continue;
             std::string author = e.meta.metadata.value("author", "");
             if (!author.empty())
                 note = "blocked by user (author: " + author + ")";

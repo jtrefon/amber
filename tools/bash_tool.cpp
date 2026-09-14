@@ -4,7 +4,8 @@
 #include "agent/workspace.h"
 #include "agent/process.h"
 #include "agent/job.h"
-#include "agent/shell_classify.h"   // approval classification for the gate
+#include "agent/shell_classify.h" // approval classification for the gate
+#include "agent/run_scope.h"      // run_cancelled: the calling agent's token
 
 #include <algorithm>
 #include <array>
@@ -24,15 +25,16 @@ namespace agent {
 
 namespace {
 
-constexpr int kMaxTimeout = 3600;          // 1 hour ceiling
-constexpr std::size_t kMaxOutput = std::size_t{64} * 1024;   // 64 KiB cap
+constexpr int kMaxTimeout = 3600;                          // 1 hour ceiling
+constexpr std::size_t kMaxOutput = std::size_t{64} * 1024; // 64 KiB cap
 
 // Drain buffered output from the read end of a pipe, up to kMaxOutput bytes.
 void drain_output(int fd, std::string& out) {
     std::array<char, 4096> buf{};
     ssize_t n;
     while ((n = read(fd, buf.data(), buf.size())) > 0) {
-        if (out.size() < kMaxOutput) out.append(buf.data(), static_cast<size_t>(n));
+        if (out.size() < kMaxOutput)
+            out.append(buf.data(), static_cast<size_t>(n));
     }
 }
 
@@ -40,8 +42,7 @@ void drain_output(int fd, std::string& out) {
 // killing the child's process group on timeout. The budget counts time with no
 // new output, so a long-running command that keeps emitting (e.g. a build)
 // survives indefinitely; only silence past `timeout_s` triggers a kill.
-bool run_with_timeout(int fd, pid_t pid, int timeout_s, std::string& out,
-                      bool& child_done) {
+bool run_with_timeout(int fd, pid_t pid, int timeout_s, std::string& out, bool& child_done) {
     const long deadline_ms = timeout_s * 1000L;
     long idle_ms = 0;
     const int poll_ms = 50;
@@ -54,14 +55,19 @@ bool run_with_timeout(int fd, pid_t pid, int timeout_s, std::string& out,
         if (n > 0) {
             if (out.size() < kMaxOutput)
                 out.append(buf.data(), static_cast<size_t>(n));
-            idle_ms = 0;  // output arrived: reset the idle budget
+            idle_ms = 0; // output arrived: reset the idle budget
             continue;
         }
-        if (n == 0) break;  // EOF: child closed the pipe
-        if (errno != EAGAIN && errno != EWOULDBLOCK) break;
+        if (n == 0)
+            break; // EOF: child closed the pipe
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+            break;
 
         int status = 0;
-        if (waitpid(pid, &status, WNOHANG) == pid) { child_done = true; break; }
+        if (waitpid(pid, &status, WNOHANG) == pid) {
+            child_done = true;
+            break;
+        }
         if (idle_ms >= deadline_ms) {
             kill_process_group(pid);
             return true;
@@ -74,8 +80,7 @@ bool run_with_timeout(int fd, pid_t pid, int timeout_s, std::string& out,
 
 // Extract and validate the command; clamp timeout to [1, kMaxTimeout]. Returns
 // false (with r.error set) when no command was supplied.
-bool parse_bash_args(const json& a, std::string& command, int& timeout,
-                     ToolResult& r) {
+bool parse_bash_args(const json& a, std::string& command, int& timeout, ToolResult& r) {
     if (!a.contains("command") || !a["command"].is_string() ||
         a["command"].get<std::string>().empty()) {
         r.ok = false;
@@ -90,15 +95,15 @@ bool parse_bash_args(const json& a, std::string& command, int& timeout,
 
 // Milliseconds since a steady-clock start point.
 long elapsed_ms(const std::chrono::steady_clock::time_point& t0) {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now() - t0)
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                 t0)
         .count();
 }
 
 // Fork the shell command; on success return its pid and hand back the read end
 // of the pipe via `read_fd`. Returns -1 (with r.error set) on spawn failure.
-pid_t spawn_command(const std::string& command, const std::string& cwd,
-                     int& read_fd, ToolResult& r) {
+pid_t spawn_command(const std::string& command, const std::string& cwd, int& read_fd,
+                    ToolResult& r) {
     std::string err;
     pid_t pid = spawn_shell(command, cwd, read_fd, err);
     if (pid < 0) {
@@ -110,18 +115,20 @@ pid_t spawn_command(const std::string& command, const std::string& cwd,
 
 // Assemble the combined output (with truncation notice), then either report the
 // timeout or the child's exit code into `r`.
-void format_result(std::string output, bool timed_out, int code, int timeout,
-                   long elapsed_ms, ToolResult& r) {
+void format_result(std::string output, bool timed_out, int code, int timeout, long elapsed_ms,
+                   ToolResult& r) {
     bool truncated = output.size() >= kMaxOutput;
-    if (truncated) output.resize(kMaxOutput);
+    if (truncated)
+        output.resize(kMaxOutput);
 
-    r.meta = {{"exit", code}, {"truncated", truncated},
-              {"duration_ms", elapsed_ms}};
+    r.meta = {{"exit", code}, {"truncated", truncated}, {"duration_ms", elapsed_ms}};
 
     std::ostringstream out;
     out << output;
-    if (!output.empty() && output.back() != '\n') out << '\n';
-    if (truncated) out << "[output truncated at " << kMaxOutput << " bytes]\n";
+    if (!output.empty() && output.back() != '\n')
+        out << '\n';
+    if (truncated)
+        out << "[output truncated at " << kMaxOutput << " bytes]\n";
 
     if (timed_out) {
         out << "[command timed out after " << timeout << "s and was killed]";
@@ -135,7 +142,8 @@ void format_result(std::string output, bool timed_out, int code, int timeout,
     out << "[exit " << code << "]";
     r.output = out.str();
     r.ok = (code == 0);
-    if (!r.ok) r.error = "command exited with status " + std::to_string(code);
+    if (!r.ok)
+        r.error = "command exited with status " + std::to_string(code);
 }
 } // namespace
 
@@ -156,8 +164,7 @@ void format_result(std::string output, bool timed_out, int code, int timeout,
 // whole subtree.
 class BashTool : public Tool {
 public:
-    explicit BashTool(JobService* jobs = nullptr,
-                      const CancellationToken& cancel_token = {})
+    explicit BashTool(JobService* jobs = nullptr, const CancellationToken& cancel_token = {})
         : jobs_(jobs), cancel_token_(cancel_token) {}
 
     std::string name() const noexcept override { return "bash"; }
@@ -165,7 +172,6 @@ public:
 private:
     JobService* jobs_ = nullptr;
     CancellationToken cancel_token_;
-
 
     std::string description() const noexcept override {
         return "Run a shell command in the workspace directory and return "
@@ -176,25 +182,22 @@ private:
     }
 
     json parameters_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties", {
-                {"command", {{"type", "string"},
-                             {"description",
-                              "Shell command. Use cat/grep/ls/git status for "
-                              "read-only tasks (no approval needed). "
-                              "Destructive commands (rm, mv, sed -i, writes) "
-                              "require approval. Always prefer a single bash "
-                              "call over multiple separate ones."}}},
-                 {"timeout", {{"type", "integer"},
-                              {"description",
-                               "Seconds of no output before the command is "
-                               "killed (default 60); output resets the idle "
-                               "budget, but total wall time is capped at 2x "
-                               "this value"}}}
-            }},
-            {"required", {"command"}}
-        };
+        return {{"type", "object"},
+                {"properties",
+                 {{"command",
+                   {{"type", "string"},
+                    {"description", "Shell command. Use cat/grep/ls/git status for "
+                                    "read-only tasks (no approval needed). "
+                                    "Destructive commands (rm, mv, sed -i, writes) "
+                                    "require approval. Always prefer a single bash "
+                                    "call over multiple separate ones."}}},
+                  {"timeout",
+                   {{"type", "integer"},
+                    {"description", "Seconds of no output before the command is "
+                                    "killed (default 60); output resets the idle "
+                                    "budget, but total wall time is capped at 2x "
+                                    "this value"}}}}},
+                {"required", {"command"}}};
     }
 
     bool requires_approval(const json& a) const noexcept override {
@@ -203,16 +206,19 @@ private:
             cmd = a["command"].get<std::string>();
         // A command must be PROVABLY read-only to run without approval;
         // anything else (writes, destructive commands, escapes) is gated.
-        return classify_shell(cmd, Workspace::root()).effect !=
-               ShellEffect::ReadOnly;
+        return classify_shell(cmd, Workspace::root()).effect != ShellEffect::ReadOnly;
     }
 
     bool is_read_only() const noexcept override { return false; }
 
     std::string summarize(const json& a) const override {
         std::string cmd = (a.contains("command") && a["command"].is_string())
-                              ? a["command"].get<std::string>() : "";
-        if (cmd.size() > 200) { cmd.resize(197); cmd += "..."; }
+                              ? a["command"].get<std::string>()
+                              : "";
+        if (cmd.size() > 200) {
+            cmd.resize(197);
+            cmd += "...";
+        }
         return "run: " + cmd;
     }
 
@@ -220,7 +226,8 @@ private:
         ToolResult r;
         std::string command;
         int timeout = 60;
-        if (!parse_bash_args(a, command, timeout, r)) return r;
+        if (!parse_bash_args(a, command, timeout, r))
+            return r;
         const auto t0 = std::chrono::steady_clock::now();
 
         // When wired to a host JobService, run the command through it so the
@@ -234,25 +241,27 @@ private:
             // wall-clock ceiling (2x the idle budget) guarantees a constantly
             // emitting command cannot run forever.
             std::string id = jobs_->start(command, Workspace::root(),
-                                           /*hard_timeout_s=*/2L * timeout,
-                                           /*idle_timeout_s=*/timeout);
+                                          /*hard_timeout_s=*/2L * timeout,
+                                          /*idle_timeout_s=*/timeout);
             if (id.empty()) {
                 r.ok = false;
                 r.error = "spawn failed";
                 return r;
             }
             bool timed_out = false;
-            const auto hard_deadline = std::chrono::steady_clock::now() +
-                                       std::chrono::seconds(2L * timeout);
+            const auto hard_deadline =
+                std::chrono::steady_clock::now() + std::chrono::seconds(2L * timeout);
             while (true) {
-                if (cancel_token_.is_requested()) {
+                if (run_cancelled(cancel_token_)) {
                     timed_out = true;
                     break;
                 }
                 std::shared_ptr<Job> j = jobs_->get(id);
-                if (!j) break;
+                if (!j)
+                    break;
                 JobInfo i = j->info();
-                if (j->is_done()) break;
+                if (j->is_done())
+                    break;
                 if (i.seconds_since_output >= timeout ||
                     std::chrono::steady_clock::now() >= hard_deadline) {
                     timed_out = true;
@@ -265,24 +274,23 @@ private:
             std::shared_ptr<Job> j = jobs_->get(id);
             std::string output = j ? j->output() : std::string();
             int code = j ? j->exit_code() : 0;
-            bool stopped = !j;  // erased = a concurrent stop killed it
+            bool stopped = !j; // erased = a concurrent stop killed it
             bool killed = j && j->info().state == JobState::Killed;
             timed_out = timed_out || killed || stopped;
-            jobs_->stop(id);  // erase: bash returns output inline, not via /job
-            format_result(std::move(output), timed_out, code, timeout,
-                          elapsed_ms(t0), r);
+            jobs_->stop(id); // erase: bash returns output inline, not via /job
+            format_result(std::move(output), timed_out, code, timeout, elapsed_ms(t0), r);
             return r;
         }
 
         int read_fd = -1;
         pid_t pid = spawn_command(command, Workspace::root(), read_fd, r);
-        if (pid < 0) return r;
-        setpgid(pid, pid);  // race-free with the child also setting it
+        if (pid < 0)
+            return r;
+        setpgid(pid, pid); // race-free with the child also setting it
 
         std::string output;
         bool child_done = false;
-        bool timed_out =
-            run_with_timeout(read_fd, pid, timeout, output, child_done);
+        bool timed_out = run_with_timeout(read_fd, pid, timeout, output, child_done);
 
         int status = 0;
         if (!child_done) {
@@ -291,17 +299,15 @@ private:
         }
         close(read_fd);
 
-        int code = WIFEXITED(status)    ? WEXITSTATUS(status)
+        int code = WIFEXITED(status)     ? WEXITSTATUS(status)
                    : WIFSIGNALED(status) ? 128 + WTERMSIG(status)
-                                          : -1;
-        format_result(std::move(output), timed_out, code, timeout,
-                      elapsed_ms(t0), r);
+                                         : -1;
+        format_result(std::move(output), timed_out, code, timeout, elapsed_ms(t0), r);
         return r;
     }
 };
 
-std::unique_ptr<Tool> make_bash_tool(JobService* jobs,
-                                     const CancellationToken& cancel_token) {
+std::unique_ptr<Tool> make_bash_tool(JobService* jobs, const CancellationToken& cancel_token) {
     return std::make_unique<BashTool>(jobs, cancel_token);
 }
 
