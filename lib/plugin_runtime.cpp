@@ -67,7 +67,7 @@ bool write_enabled(const std::string& id, bool enabled) {
 PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace)
     : config_(std::move(config)), workspace_(&workspace) {
     services_ = std::make_unique<PluginServices>(tools, prompts_, status_, panels_, wallets_,
-                                                 bus_, commands_);
+                                                 search_backends_, bus_, commands_);
     context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());
@@ -97,13 +97,18 @@ bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
     entry.plugin = std::move(plugin);
     entry.bundled = bundled;
     // Declarations are a property of the plugin, not of its activation: a
-    // plugin that ships switched off still declares the protocol it would
-    // provide, so a provider file pointing at that flavor reports "the plugin
-    // is disabled" rather than silently speaking another wire protocol.
+    // plugin that ships switched off still declares what it would provide, so a
+    // provider file pointing at that flavor - or a search `mode` naming that
+    // backend - reports "the plugin is disabled" rather than silently falling
+    // back or reading as unknown.
     entry.declared = entry.plugin->capabilities();
     for (const auto& capability : entry.declared) {
-        if (capability && capability->kind() == CapabilityKind::Provider)
+        if (!capability)
+            continue;
+        if (capability->kind() == CapabilityKind::Provider)
             declare_flavor(capability->name(), id);
+        else if (capability->kind() == CapabilityKind::SearchBackend)
+            search_backends_->declare(capability->name(), id);
     }
     plugins_[id] = std::move(entry);
     registry_.register_plugin(plugins_[id].plugin);
@@ -132,7 +137,8 @@ void PluginRuntime::attach_config(const Config& config) {
 
 void PluginRuntime::attach_ui_services(UiServices* ui) noexcept {
     ui_services_ = ui ? ui : &null_ui_services();
-    if (services_) services_->ui = ui_services_;
+    if (services_)
+        services_->ui = ui_services_;
 }
 
 void PluginRuntime::attach_host_services(const HostServices& host) noexcept {
@@ -287,7 +293,6 @@ void PluginRuntime::perform_wallet_refresh() {
 
 namespace {
 
-
 // Select the window closest to exhaustion: highest percent_used, ties broken
 // by shortest duration (5h beats 7d beats monthly). Returns nullptr when no
 // window has a known percent.
@@ -330,7 +335,8 @@ StatusText wallet_status_text(const WalletSnapshot& snapshot) {
         return StatusText{buf, StatusTone::Dim};
     }
     const WalletWindow* w = closest_window(snapshot.windows);
-    if (!w) return StatusText{"  -", StatusTone::Dim};
+    if (!w)
+        return StatusText{"  -", StatusTone::Dim};
     char buf[48];
     std::snprintf(buf, sizeof(buf), "  %d%%·%s", static_cast<int>(w->percent_used),
                   w->label.c_str());

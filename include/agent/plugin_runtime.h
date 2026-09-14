@@ -156,7 +156,7 @@ public:
         std::atomic<long long> active_ticket{0};
         std::atomic<long long> result_ticket{0};
         std::atomic<long long> last_ms{0};
-        std::string provider; // the provider the active ticket fetches for
+        std::string provider;    // the provider the active ticket fetches for
         WalletSnapshot snapshot; // written by the worker under mutex
         mutable std::mutex mutex;
     };
@@ -181,6 +181,7 @@ public:
     const PanelRegistry& panels() const noexcept { return panels_; }
     WalletRegistry& wallets() noexcept { return wallets_; }
     const WalletRegistry& wallets() const noexcept { return wallets_; }
+    SearchBackendRegistry& search_backends() noexcept { return *search_backends_; }
     CommandRegistry& commands() noexcept { return commands_; }
     const CommandRegistry& commands() const noexcept { return commands_; }
     EventBus& events() noexcept { return bus_; }
@@ -226,6 +227,10 @@ private:
     PanelRegistry panels_;
     CommandRegistry commands_;
     WalletRegistry wallets_;
+    // Shared with every search tool a plugin builds, so the tool's resolver
+    // keeps the table alive (search_backend.h).
+    std::shared_ptr<SearchBackendRegistry> search_backends_ =
+        std::make_shared<SearchBackendRegistry>();
     EventBus bus_;
     Subscription wallet_turn_sub_;
     std::atomic<bool> wallet_dirty_{false};

@@ -18,6 +18,10 @@ const char* capability_kind_name(CapabilityKind kind) {
         return "provider";
     case CapabilityKind::Wallet:
         return "wallet";
+    case CapabilityKind::Command:
+        return "command";
+    case CapabilityKind::SearchBackend:
+        return "search";
     }
     return "?";
 }

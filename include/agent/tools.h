@@ -8,22 +8,26 @@
 #include "agent/tool.h"
 #include "agent/process.h"
 #include "agent/registry.h"
+#include "agent/search_backend.h"
 
 namespace agent {
 
-class JobService;  // process_* tools bind to the host-owned job service
+class JobService; // process_* tools bind to the host-owned job service
 class SkillCatalog;
-class TodoStore;   // todowrite tool binds to the host-owned task list
-class SubAgentExecutor;  // task tool binds to the host-owned sub-agent executor
+class TodoStore;        // todowrite tool binds to the host-owned task list
+class SubAgentExecutor; // task tool binds to the host-owned sub-agent executor
 
 // Built-in tool factories. Definitions live in tools/*.cpp, compiled and linked
 // into libagent. Kept as factories so the registry owns unique instances.
 std::unique_ptr<Tool> make_read_tool();
 std::unique_ptr<Tool> make_write_tool();
-std::unique_ptr<Tool> make_search_tool();
+// The search tool resolves `mode` through the provider handed in at
+// construction: a hosted session passes the runtime's live registry, a bare
+// host the built-in pair (search_backend.h), so the tool never holds a raw
+// registry pointer and names no backend itself.
+std::unique_ptr<Tool> make_search_tool(SearchBackendProvider provider);
 std::unique_ptr<Tool> make_todowrite_tool(TodoStore& todos);
-std::unique_ptr<Tool> make_task_tool(SubAgentExecutor& executor,
-                                     ToolRegistry& registry);
+std::unique_ptr<Tool> make_task_tool(SubAgentExecutor& executor, ToolRegistry& registry);
 std::unique_ptr<Tool> make_bash_tool(JobService* jobs = nullptr,
                                      const CancellationToken& cancel_token = {});
 
@@ -50,8 +54,8 @@ void register_skill_tools(ToolRegistry& reg, SkillCatalog& catalog);
 // write_skill and /set skills create. Returns an empty string on success or a
 // human-readable error message.
 std::string author_skill(SkillCatalog& catalog, const std::string& name,
-                         const std::string& description,
-                         const std::string& body, const std::string& scope);
+                         const std::string& description, const std::string& body,
+                         const std::string& scope);
 
 } // namespace agent
 

@@ -319,7 +319,12 @@ struct TestHarness {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
-    PluginServices services{tools, prompts, status, panels, wallets, bus, commands};
+    std::shared_ptr<SearchBackendRegistry> search_backends =
+        std::make_shared<SearchBackendRegistry>();
+    PluginServices services;
+
+    TestHarness()
+        : services(tools, prompts, status, panels, wallets, search_backends, bus, commands) {}
 };
 
 } // namespace
