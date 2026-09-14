@@ -1,0 +1,6 @@
+# CodeQL analysis config. Tests self-register via static initializers
+# (TEST() -> Registrar), which build-mode: none cannot resolve, so every
+# TEST() fires a cpp/unused-static-function false positive (~800 open on
+# main). Dead-code analysis of self-registered test TUs has no signal.
+paths-ignore:
+  - 'tests/**'
