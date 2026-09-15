@@ -44,9 +44,6 @@ private:
     Tui& tui_;
     agent::SessionStore store_;
     std::string settings_path_;
-
-public:
-    void init_path(const std::string& p) { settings_path_ = p; }
 };
 
 } // namespace tui
