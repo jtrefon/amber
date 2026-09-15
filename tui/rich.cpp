@@ -53,7 +53,7 @@ std::vector<Line> wrap(const Line& in, int width) {
             // intact (overflow is avoided by the terminal, never corrupted).
             bool ascii = std::all_of(t.begin(), t.end(),
                                     [](char c) { return (unsigned char)c < 0x80; });
-            if (ascii && cols(t) > width && width > 0) {
+            if (ascii && cols(t) > width) {
                 for (size_t o = 0; o < t.size(); o += (size_t)width)
                     pieces.push_back({t.substr(o, (size_t)width), ri});
             } else {
