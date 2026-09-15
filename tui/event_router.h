@@ -123,7 +123,10 @@ public:
     std::mutex& mutex() noexcept { return mtx_; }
     std::queue<AgentEvent>& queue() noexcept { return queue_; }
 
-    agent::AgentHooks make_hooks(size_t window_id);
+    // `cancel` is the worker's own slot flag (RunSlot::cancel). Hooks read it
+    // as a plain atomic — never through RunRegistry, whose map lock is held
+    // across joins (a lock here would deadlock quit-while-busy).
+    agent::AgentHooks make_hooks(size_t window_id, const std::atomic<bool>& cancel);
 
     void shutdown_queues(std::queue<AgentEvent>& pending_approvals,
                          std::queue<AgentEvent>& pending_api_keys,

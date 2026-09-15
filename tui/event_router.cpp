@@ -42,12 +42,13 @@ void EventRouter::shutdown_queues(std::queue<AgentEvent>& pending_approvals,
     deny_all_pending_asks(pending_asks);
 }
 
-agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
+agent::AgentHooks EventRouter::make_hooks(size_t window_id, const std::atomic<bool>& cancel) {
     agent::AgentHooks hooks;
-    auto push_event = [this, window_id](AgentEvent ev) {
+    auto push_event = [this, window_id, &cancel](AgentEvent ev) {
         // A cancelled window's trailing events are dropped; sibling windows
-        // keep streaming — cancel is per-slot, never global.
-        if (tui_.runs_.cancelled(window_id))
+        // keep streaming — cancel is per-slot, never global. Read the slot's
+        // atomic directly: the registry map lock is held across joins.
+        if (cancel.load())
             return;
         ev.window_id = window_id;
         std::scoped_lock lk(mtx_);
@@ -106,9 +107,9 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
         ev.text = s;
         push_event(std::move(ev));
     };
-    hooks.on_approval = [this, window_id](const std::string& name, const agent::json& args,
-                                          const std::string& summary) -> agent::Approval {
-        if (tui_.runs_.cancelled(window_id))
+    hooks.on_approval = [this, window_id, &cancel](const std::string& name, const agent::json& args,
+                                                   const std::string& summary) -> agent::Approval {
+        if (cancel.load())
             return agent::Approval::Deny;
         auto p = std::make_shared<std::promise<agent::Approval>>();
         auto f = p->get_future();
@@ -128,8 +129,8 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id) {
         return f.get();
     };
 
-    hooks.on_api_key = [this, window_id](const std::string& reason) -> std::string {
-        if (tui_.runs_.cancelled(window_id))
+    hooks.on_api_key = [this, window_id, &cancel](const std::string& reason) -> std::string {
+        if (cancel.load())
             return "";
         auto p = std::make_shared<std::promise<std::string>>();
         auto f = p->get_future();
