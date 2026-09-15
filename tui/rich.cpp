@@ -5,10 +5,11 @@
 
 #include "textutil.h"
 
-
 namespace tui::rich {
 
-int cols(const std::string& s) { return text::display_cols(s); }
+int cols(const std::string& s) {
+    return text::display_cols(s);
+}
 
 namespace {
 
@@ -21,11 +22,15 @@ std::vector<std::string> tokens(const std::string& s) {
     size_t i = 0, n = s.size();
     while (i < n) {
         size_t j = i;
-        while (j < n && s[j] != ' ' && s[j] != '\t') j += text::utf8_len(s, j);
-        if (j > i) { out.push_back(s.substr(i, j - i)); i = j; }
-        else {  // whitespace run
+        while (j < n && s[j] != ' ' && s[j] != '\t')
+            j += text::utf8_len(s, j);
+        if (j > i) {
+            out.push_back(s.substr(i, j - i));
+            i = j;
+        } else { // whitespace run
             size_t k = i;
-            while (k < n && (s[k] == ' ' || s[k] == '\t')) ++k;
+            while (k < n && (s[k] == ' ' || s[k] == '\t'))
+                ++k;
             out.push_back(s.substr(i, k - i));
             i = k;
         }
@@ -36,23 +41,28 @@ std::vector<std::string> tokens(const std::string& s) {
 } // namespace
 
 std::vector<Line> wrap(const Line& in, int width) {
-    if (width <= 0) width = 80;
+    if (width <= 0)
+        width = 80;
     std::vector<Line> out;
 
     // Build a flat list of (token, run-index) so each wrapped physical line
     // keeps the correct style for every piece of text.
-    struct Piece { std::string text; size_t run; };
+    struct Piece {
+        std::string text;
+        size_t run;
+    };
     std::vector<Piece> pieces;
     pieces.reserve(in.runs.size() * 2);
     for (size_t ri = 0; ri < in.runs.size(); ++ri) {
         for (auto& t : tokens(in.runs[ri].text)) {
-            if (t.empty()) continue;
+            if (t.empty())
+                continue;
             // A single token wider than the column: hard-break it so it does
             // not overflow the canvas. Only safe on pure-ASCII text, where a
             // byte boundary == a display column; multi-byte tokens are left
             // intact (overflow is avoided by the terminal, never corrupted).
-            bool ascii = std::all_of(t.begin(), t.end(),
-                                    [](char c) { return (unsigned char)c < 0x80; });
+            bool ascii =
+                std::all_of(t.begin(), t.end(), [](char c) { return (unsigned char)c < 0x80; });
             if (ascii && cols(t) > width) {
                 for (size_t o = 0; o < t.size(); o += (size_t)width)
                     pieces.push_back({t.substr(o, (size_t)width), ri});
@@ -69,11 +79,12 @@ std::vector<Line> wrap(const Line& in, int width) {
         // Merge the just-pushed run into the previous one if style matches,
         // so a wrapped physical line keeps a compact run list.
         size_t n = cur.runs.size();
-        if (n < 2) return;
+        if (n < 2)
+            return;
         Run& a = cur.runs[n - 2];
         Run& b = cur.runs[n - 1];
-        if (a.pair == b.pair && a.bold == b.bold && a.dim == b.dim &&
-            a.italic == b.italic && a.under == b.under) {
+        if (a.pair == b.pair && a.bold == b.bold && a.dim == b.dim && a.italic == b.italic &&
+            a.under == b.under) {
             a.text += b.text;
             cur.runs.pop_back();
         }
@@ -91,11 +102,12 @@ std::vector<Line> wrap(const Line& in, int width) {
 
     for (auto& p : pieces) {
         int w = cols(p.text);
-        bool space = (p.text.find(' ') != std::string::npos) ||
-                     (p.text.find('\t') != std::string::npos);
+        bool space =
+            (p.text.find(' ') != std::string::npos) || (p.text.find('\t') != std::string::npos);
         if (!first && used + (space ? 1 : w) > width) {
             flush();
-            if (space) continue;  // drop the leading space at line start
+            if (space)
+                continue; // drop the leading space at line start
         }
         Run r = in.runs[p.run];
         if (!first && space) {
@@ -109,23 +121,25 @@ std::vector<Line> wrap(const Line& in, int width) {
         used += (first && space) ? 0 : w;
         first = false;
     }
-    if (!cur.runs.empty() || out.empty()) flush();
+    if (!cur.runs.empty() || out.empty())
+        flush();
     return out;
 }
 
 std::vector<Line> rewrap_all(const std::vector<Line>& lines, int width) {
     std::vector<Line> out;
-    if (width <= 0) width = 80;
+    if (width <= 0)
+        width = 80;
     for (const auto& l : lines) {
         if (l.is_hr || l.is_table) {
             out.push_back(l);
             continue;
         }
         auto wl = wrap(l, width);
-        for (auto& x : wl) out.push_back(std::move(x));
+        for (auto& x : wl)
+            out.push_back(std::move(x));
     }
     return out;
 }
 
 } // namespace tui::rich
-
