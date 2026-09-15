@@ -120,10 +120,19 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     window_ops_hooks_ = std::make_unique<TuiWindowOpsHooks>(*this);
     window_ops_ = std::make_unique<WindowOps>(*window_manager_, *window_ops_hooks_);
     {
-        std::ifstream kf("keybindings.json");
+        // Same data-path resolution as completions.json: a bare relative
+        // path silently leaves every binding empty when amber runs outside
+        // the source tree or from an install prefix.
+        std::string exe = agent::exe_path();
         nlohmann::json kj;
-        if (kf.is_open())
-            kf >> kj;
+        for (const auto& c :
+             agent::data_file_candidates("keybindings.json", exe.empty() ? nullptr : exe.c_str())) {
+            std::ifstream kf(c);
+            if (kf.is_open()) {
+                kf >> kj;
+                break;
+            }
+        }
         key_binder_ = std::make_unique<KeyBinder>(std::move(kj));
     }
 
@@ -491,6 +500,43 @@ void Tui::run() {
             if (render_engine_->dirty())
                 render_engine_->flush();
             continue;
+        }
+
+        // macOS Option-as-text form: terminals with default Option settings
+        // send the literal Option characters as UTF-8 (Option+1 = '¡'
+        // U+00A1, ...) instead of an ESC prefix. Assemble the sequence and
+        // normalize digit-row glyphs to the meta-digit path so Alt+number
+        // works with no terminal configuration. Other Option glyphs stay
+        // non-insertable, matching the prior drop of non-ASCII input.
+        if (ch >= 0xC2 && ch <= 0xF4) {
+            int need = (ch < 0xE0) ? 1 : (ch < 0xF0) ? 2 : 3;
+            unsigned char seq[4] = {static_cast<unsigned char>(ch)};
+            int got = 0;
+            timeout(50);
+            for (; got < need; ++got) {
+                int b = getch();
+                if (b == ERR)
+                    break;
+                if ((b & 0xC0) != 0x80) {
+                    ungetch(b); // not a continuation byte — don't eat the key
+                    break;
+                }
+                seq[got + 1] = static_cast<unsigned char>(b);
+            }
+            timeout(kTickTimeoutMs);
+            if (got != need)
+                continue;
+            uint32_t cp = seq[0] & ((need == 1) ? 0x1F : (need == 2) ? 0x0F : 0x07);
+            for (int i = 1; i <= need; ++i)
+                cp = (cp << 6) | (seq[i] & 0x3F);
+            if (int d = macos_option_digit(cp); d >= 0)
+                ch = 0xB0 + d;
+            else if (cp == kMacosOptionB) {
+                cl.on_ctrl_w();
+                draw_input(cl.text(), cl.cursor(), cl.shadow());
+                continue;
+            } else
+                continue;
         }
 
         // Alt+0 opens the panel view (the registry console first); the host
