@@ -4,6 +4,33 @@
 
 namespace tui {
 
+int macos_option_digit(uint32_t codepoint) {
+    switch (codepoint) {
+    case 0x00A1:
+        return 1; // ¡
+    case 0x2122:
+        return 2; // ™
+    case 0x00A3:
+        return 3; // £
+    case 0x00A2:
+        return 4; // ¢
+    case 0x221E:
+        return 5; // ∞
+    case 0x00A6:
+        return 6; // §
+    case 0x00B6:
+        return 7; // ¶
+    case 0x2022:
+        return 8; // •
+    case 0x00AA:
+        return 9; // ª
+    case 0x00BA:
+        return 0; // º
+    default:
+        return -1;
+    }
+}
+
 KeyBinder::KeyBinder(nlohmann::json bindings) : bindings_(std::move(bindings)) {}
 
 KeyAction KeyBinder::dispatch(const KeyRead& key, const InputState& state) const {

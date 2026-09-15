@@ -1315,7 +1315,7 @@ nlohmann::json load_test_keybindings() {
 
 } // namespace
 
-// --- KeyBinder tests (8) ---
+// --- KeyBinder tests (10) ---
 
 TEST(keybinder_meta_digit_maps_to_switch_window) {
     auto kb = tui::KeyBinder(load_test_keybindings());
@@ -1405,6 +1405,28 @@ TEST(keybinder_loads_bindings_from_json) {
     auto act = kb.dispatch({0xB9, std::nullopt}, state);
     ASSERT_EQ(act.type, tui::KeyAction::SwitchWindow);
     ASSERT_EQ(act.arg, 8);
+}
+
+TEST(macos_option_digit_maps_digit_row) {
+    // The literal characters macOS terminals send for Option+1..9,0 with
+    // default Option settings (US layout).
+    ASSERT_EQ(tui::macos_option_digit(0x00A1), 1); // ¡
+    ASSERT_EQ(tui::macos_option_digit(0x2122), 2); // ™
+    ASSERT_EQ(tui::macos_option_digit(0x00A3), 3); // £
+    ASSERT_EQ(tui::macos_option_digit(0x00A2), 4); // ¢
+    ASSERT_EQ(tui::macos_option_digit(0x221E), 5); // ∞
+    ASSERT_EQ(tui::macos_option_digit(0x00A6), 6); // §
+    ASSERT_EQ(tui::macos_option_digit(0x00B6), 7); // ¶
+    ASSERT_EQ(tui::macos_option_digit(0x2022), 8); // •
+    ASSERT_EQ(tui::macos_option_digit(0x00AA), 9); // ª
+    ASSERT_EQ(tui::macos_option_digit(0x00BA), 0); // º
+}
+
+TEST(macos_option_digit_rejects_other_codepoints) {
+    ASSERT_EQ(tui::macos_option_digit('1'), -1);
+    ASSERT_EQ(tui::macos_option_digit(0x00DF), -1); // ß = Option+S
+    ASSERT_EQ(tui::macos_option_digit(0x20AC), -1); // €
+    ASSERT_EQ(tui::macos_option_digit(0x222B), -1); // ∫ = Option+B, not a digit
 }
 
 // --- WindowOps tests (11) ---
