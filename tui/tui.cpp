@@ -296,10 +296,10 @@ void Tui::cancel_all_runs() {
 }
 
 void Tui::agent_worker(Window& my_win, size_t window_id, RunSlot* slot, const std::string& prompt) {
-    agent::AgentHooks hooks = router_->make_hooks(window_id);
+    agent::AgentHooks hooks = router_->make_hooks(window_id, slot->cancel);
 
     try {
-        if (!runs_.cancelled(window_id)) {
+        if (!slot->cancel.load()) {
             my_win.agent->set_hooks(hooks);
             my_win.agent->run(prompt);
             my_win.dirty = true;

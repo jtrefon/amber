@@ -32,6 +32,7 @@
 #include "tests/test_util.h"
 
 #include <atomic>
+#include <chrono>
 #include <future>
 #include <queue>
 #include <set>
@@ -1679,6 +1680,28 @@ TEST(run_registry_join_all_joins_workers) {
     reg.slot(1).thread = std::thread([&] { ran = true; });
     reg.join_all();
     ASSERT_TRUE(ran.load());
+}
+
+TEST(run_registry_join_all_does_not_block_worker_cancel_check) {
+    // Quit-while-busy: join_all joins a worker that is still checking its
+    // cancel flag. If join_all holds the map lock across join(), the
+    // worker's cancelled() lookup blocks on it and the join never returns.
+    tui::RunRegistry reg;
+    std::atomic<bool> stop{false};
+    reg.slot(1).thread = std::thread([&] {
+        while (!stop.load())
+            (void)reg.cancelled(1);
+    });
+    std::atomic<bool> joined{false};
+    std::thread joiner([&] {
+        reg.join_all();
+        joined = true;
+    });
+    // Let join_all get inside its join before releasing the worker.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    stop = true;
+    joiner.join();
+    ASSERT_TRUE(joined.load());
 }
 
 // --- CompletionProvider tests (3) ---
