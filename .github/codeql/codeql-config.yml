@@ -2,5 +2,9 @@
 # (TEST() -> Registrar), which build-mode: none cannot resolve, so every
 # TEST() fires a cpp/unused-static-function false positive (~800 open on
 # main). Dead-code analysis of self-registered test TUs has no signal.
+# Vendored sources (nlohmann/json, md4c) carry ~110 commented-out-code and
+# style alerts we cannot fix upstream; they are noise on every PR.
 paths-ignore:
   - 'tests/**'
+  - 'third_party/**'
+  - 'include/nlohmann/**'
