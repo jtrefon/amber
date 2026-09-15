@@ -1,12 +1,25 @@
 #ifndef AMBER_TUI_KEY_BINDER_H
 #define AMBER_TUI_KEY_BINDER_H
 
+#include <cstdint>
+
 #include <nlohmann/json.hpp>
 #include "tui/input_state.h"
 #include "tui/key_action.h"
 #include "tui/key_read.h"
 
 namespace tui {
+
+// macOS terminals with default Option-key settings send the literal Option
+// characters instead of an ESC prefix: Option+1 = U+00A1 '¡', Option+2 =
+// U+2122 '™', and so on. Map such a codepoint to its digit (0-9) so
+// Option+digit switches windows with no terminal configuration. Returns -1
+// for codepoints outside the Option digit row.
+int macos_option_digit(uint32_t codepoint);
+
+// Option+B = U+222B '∫' on the same keyboards — the macOS spelling of
+// Alt+B (delete word).
+inline constexpr uint32_t kMacosOptionB = 0x222B;
 
 // Pure key-to-action mapping. Translates raw terminal keys (meta-encoded
 // digits, ESC+digit followups, Ctrl+keys) into typed KeyActions using a
