@@ -11,10 +11,12 @@ namespace {
 
 long parse_attempt(const std::string& text) noexcept {
     size_t open = text.find("retrying (");
-    if (open == std::string::npos) return 0;
+    if (open == std::string::npos)
+        return 0;
     open += 10;
     size_t end = text.find('/', open);
-    if (end == std::string::npos) return 0;
+    if (end == std::string::npos)
+        return 0;
     try {
         return std::stol(text.substr(open, end - open));
     } catch (...) {
@@ -27,27 +29,34 @@ long parse_attempt(const std::string& text) noexcept {
 // targets (e.g. `cd /tmp && ...`) are not counted.
 bool is_workspace_cd(const std::string& cmd) noexcept {
     const std::string root = agent::Workspace::root();
-    if (root.empty()) return false;
+    if (root.empty())
+        return false;
     size_t i = cmd.find_first_not_of(" \t");
-    if (i == std::string::npos || cmd.compare(i, 3, "cd ") != 0) return false;
+    if (i == std::string::npos || cmd.compare(i, 3, "cd ") != 0)
+        return false;
     i += 3;
-    while (i < cmd.size() && cmd[i] == ' ') ++i;
-    if (i + root.size() > cmd.size() ||
-        cmd.compare(i, root.size(), root) != 0)
+    while (i < cmd.size() && cmd[i] == ' ')
+        ++i;
+    if (i + root.size() > cmd.size() || cmd.compare(i, root.size(), root) != 0)
         return false;
     size_t end = i + root.size();
-    while (end < cmd.size() && cmd[end] == '/') ++end;
-    if (end == cmd.size()) return true;                    // bare `cd <root>`
-    if (cmd[end] == '&') return cmd.compare(end, 2, "&&") == 0;
+    while (end < cmd.size() && cmd[end] == '/')
+        ++end;
+    if (end == cmd.size())
+        return true; // bare `cd <root>`
+    if (cmd[end] == '&')
+        return cmd.compare(end, 2, "&&") == 0;
     return cmd[end] == ' ' && cmd.compare(end + 1, 2, "&&") == 0;
 }
 
 long parse_iteration(const std::string& text) noexcept {
     size_t pos = text.find("iteration ");
-    if (pos == std::string::npos) return 0;
+    if (pos == std::string::npos)
+        return 0;
     pos += 10;
     size_t end = text.find('/', pos);
-    if (end == std::string::npos) return 0;
+    if (end == std::string::npos)
+        return 0;
     try {
         return std::stol(text.substr(pos, end - pos));
     } catch (...) {
@@ -59,13 +68,9 @@ long parse_iteration(const std::string& text) noexcept {
 
 agent::AgentHooks Recorder::hooks() {
     agent::AgentHooks h;
-    h.on_tool_call = [this](const std::string& n, const agent::json& a) {
-        on_tool_call(n, a);
-    };
+    h.on_tool_call = [this](const std::string& n, const agent::json& a) { on_tool_call(n, a); };
     h.on_tool_result = [this](const std::string& n, const agent::ToolResult& r,
-                              const agent::json& a) {
-        on_tool_result(n, r, a);
-    };
+                              const agent::json& a) { on_tool_result(n, r, a); };
     h.on_status = [this](const std::string& t) { on_status(t); };
     h.on_debug = [this](const std::string& t) { on_debug(t); };
     h.on_stats = [this](const agent::Stats& s) { on_stats(s); };
@@ -78,13 +83,11 @@ void Recorder::on_tool_call(const std::string& name, const agent::json& args) {
     pending_.push_back({fingerprint(name, args), name, args, t});
     stream_.calls.push_back({name, args, t, "", stream_.iterations});
     if (name == "bash" && args.is_object() && args.contains("command") &&
-        args["command"].is_string() &&
-        is_workspace_cd(args["command"].get<std::string>()))
+        args["command"].is_string() && is_workspace_cd(args["command"].get<std::string>()))
         ++stream_.bash_cd_prefix;
 }
 
-void Recorder::on_tool_result(const std::string& name,
-                              const agent::ToolResult& res,
+void Recorder::on_tool_result(const std::string& name, const agent::ToolResult& res,
                               const agent::json&) {
     ToolEvent e;
     e.name = name;
@@ -95,14 +98,16 @@ void Recorder::on_tool_result(const std::string& name,
         e.timeout = res.meta.value("timeout", false);
     }
     for (auto it = pending_.begin(); it != pending_.end(); ++it) {
-        if (it->name != name) continue;
+        if (it->name != name)
+            continue;
         e.args = it->args;
         e.duration_ms = now_ms() - it->t0_ms;
         pending_.erase(it);
         break;
     }
     for (auto& c : stream_.calls) {
-        if (c.name != name || !c.status.empty()) continue;
+        if (c.name != name || !c.status.empty())
+            continue;
         if (e.ok)
             c.status = "ok";
         else if (e.denied)
@@ -114,9 +119,13 @@ void Recorder::on_tool_result(const std::string& name,
     stream_.tools.push_back(std::move(e));
 }
 
-void Recorder::on_status(const std::string& text) { parse_status(text, stream_); }
+void Recorder::on_status(const std::string& text) {
+    parse_status(text, stream_);
+}
 
-void Recorder::on_debug(const std::string& text) { parse_debug(text, stream_); }
+void Recorder::on_debug(const std::string& text) {
+    parse_debug(text, stream_);
+}
 
 void Recorder::on_stats(const agent::Stats& s) {
     StatsEvent e;
@@ -127,22 +136,20 @@ void Recorder::on_stats(const agent::Stats& s) {
     stream_.stats.push_back(e);
     stream_.prompt_tokens += e.prompt_tokens;
     stream_.completion_tokens += e.completion_tokens;
-    if (stream_.ttft_ms < 0 && s.latency_ms >= 0) stream_.ttft_ms = s.latency_ms;
+    if (stream_.ttft_ms < 0 && s.latency_ms >= 0)
+        stream_.ttft_ms = s.latency_ms;
 }
 
 void Recorder::on_state(agent::RunState) {}
 
-std::string Recorder::fingerprint(const std::string& name,
-                                  const agent::json& args) noexcept {
-    return name + "|" +
-           (args.is_string() ? args.get<std::string>() : args.dump());
+std::string Recorder::fingerprint(const std::string& name, const agent::json& args) noexcept {
+    return name + "|" + (args.is_string() ? args.get<std::string>() : args.dump());
 }
 
 long Recorder::now_ms() noexcept {
-    return static_cast<long>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
+    return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now().time_since_epoch())
+                                 .count());
 }
 
 void parse_status(const std::string& text, EventStream& out) noexcept {
@@ -166,7 +173,8 @@ void parse_status(const std::string& text, EventStream& out) noexcept {
 
 void parse_debug(const std::string& text, EventStream& out) noexcept {
     long it = parse_iteration(text);
-    if (it > 0 && it > out.iterations) out.iterations = static_cast<int>(it);
+    if (it > 0 && it > out.iterations)
+        out.iterations = static_cast<int>(it);
 }
 
 } // namespace bench

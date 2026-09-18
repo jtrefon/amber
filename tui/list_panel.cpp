@@ -3,27 +3,21 @@
 
 namespace tui {
 
-ListPanel::ListPanel(const std::string& title,
-                     const std::vector<std::string>& items)
+ListPanel::ListPanel(const std::string& title, const std::vector<std::string>& items)
     : Panel(std::min(static_cast<int>(items.size()) + 2, 20),
-            std::max(static_cast<int>(title.size()) + 8, 50),
-            title,
-            {{"Up/Down", "navigate"},
-             {"Enter", "select"},
-             {"/", "filter"},
-             {"Esc", "cancel"}}),
+            std::max(static_cast<int>(title.size()) + 8, 50), title,
+            {{"Up/Down", "navigate"}, {"Enter", "select"}, {"/", "filter"}, {"Esc", "cancel"}}),
       items_(items) {}
 
-ListPanel::ListPanel(const std::string& title,
-                     const std::vector<std::string>& items,
+ListPanel::ListPanel(const std::string& title, const std::vector<std::string>& items,
                      std::vector<FooterKey> footer)
     : Panel(std::min(static_cast<int>(items.size()) + 2, 20),
-            std::max(static_cast<int>(title.size()) + 8, 50),
-            title, std::move(footer)),
+            std::max(static_cast<int>(title.size()) + 8, 50), title, std::move(footer)),
       items_(items) {}
 
 std::vector<std::string> ListPanel::filtered() const {
-    if (filter_.empty()) return items_;
+    if (filter_.empty())
+        return items_;
     std::vector<std::string> out;
     for (const auto& item : items_)
         if (item.find(filter_) != std::string::npos)
@@ -48,18 +42,22 @@ int ListPanel::run() {
 void ListPanel::run_input_loop() {
     int ch;
     while ((ch = getch()) != ERR) {
-        if (handle_key(ch)) break;
+        if (handle_key(ch))
+            break;
     }
 }
 
 void ListPanel::remap_filtered_selection() {
-    if (filter_.empty()) return;
+    if (filter_.empty())
+        return;
     // If filtering, map selected index to original items_
     auto f = filtered();
     if (selection_ >= 0 && selection_ < static_cast<int>(f.size())) {
         for (int i = 0; i < static_cast<int>(items_.size()); ++i)
-            if (items_[i] == f[selection_])
-                { selection_ = i; break; }
+            if (items_[i] == f[selection_]) {
+                selection_ = i;
+                break;
+            }
     }
 }
 
@@ -74,7 +72,7 @@ bool ListPanel::handle_key(int ch) {
     }
 
     if (filter_mode_) {
-        if (ch == 27) {  // Esc cancels filter
+        if (ch == 27) { // Esc cancels filter
             filter_mode_ = false;
             filter_.clear();
             selection_ = 0;
@@ -97,8 +95,14 @@ bool ListPanel::handle_key(int ch) {
             return false;
         }
         // During filter mode, Enter/Esc still work for selection/cancel
-        if (ch == '\n' || ch == '\r') { filter_mode_ = false; return true; }
-        if (ch == 27) { filter_mode_ = false; return true; }
+        if (ch == '\n' || ch == '\r') {
+            filter_mode_ = false;
+            return true;
+        }
+        if (ch == 27) {
+            filter_mode_ = false;
+            return true;
+        }
         return false;
     }
 
@@ -128,11 +132,11 @@ bool ListPanel::handle_key(int ch) {
     case '\r':
     case ' ':
         filter_mode_ = false;
-        return true;  // select
-    case 27:  // Esc
+        return true; // select
+    case 27:         // Esc
         filter_mode_ = false;
         selection_ = -1;
-        return true;  // cancel
+        return true; // cancel
     default:
         return false;
     }

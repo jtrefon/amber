@@ -19,8 +19,10 @@ std::string pack_skill_name(const std::string& listing) {
     std::istringstream ss(listing);
     std::string entry;
     while (std::getline(ss, entry)) {
-        if (entry.size() < 9) continue;
-        if (entry.compare(entry.size() - 9, 9, "/SKILL.md") != 0) continue;
+        if (entry.size() < 9)
+            continue;
+        if (entry.compare(entry.size() - 9, 9, "/SKILL.md") != 0)
+            continue;
         size_t first = entry.find_first_not_of("./");
         size_t slash = entry.find('/', first);
         if (first == std::string::npos || slash == std::string::npos)
@@ -32,11 +34,11 @@ std::string pack_skill_name(const std::string& listing) {
 
 } // namespace
 
-std::string install_skill_pack(const std::string& source,
-                               const std::string& dest_root) {
+std::string install_skill_pack(const std::string& source, const std::string& dest_root) {
     std::string err;
     std::string bytes = fetch_bytes(source, err);
-    if (bytes.empty()) return err;
+    if (bytes.empty())
+        return err;
 
     std::string tmp = "/tmp/amber-skill-install-" + std::to_string(getpid());
     std::string tgz = tmp + ".tar.gz";
@@ -67,8 +69,7 @@ std::string install_skill_pack(const std::string& source,
     }
     std::string body_path = tmp + "/" + name + "/SKILL.md";
     std::ifstream body_in(body_path, std::ios::binary);
-    std::string body((std::istreambuf_iterator<char>(body_in)),
-                     std::istreambuf_iterator<char>());
+    std::string body((std::istreambuf_iterator<char>(body_in)), std::istreambuf_iterator<char>());
     if (!parse_skill_meta(body)) {
         std::filesystem::remove_all(tmp, ec);
         std::filesystem::remove(tgz, ec);
@@ -78,22 +79,24 @@ std::string install_skill_pack(const std::string& source,
     std::string dest = dest_root + "/" + name;
     std::filesystem::remove_all(dest, ec);
     std::error_code ec2;
-    std::filesystem::copy(tmp + "/" + name, dest,
-                          std::filesystem::copy_options::recursive, ec2);
+    std::filesystem::copy(tmp + "/" + name, dest, std::filesystem::copy_options::recursive, ec2);
     std::filesystem::remove_all(tmp, ec);
     std::filesystem::remove(tgz, ec);
-    if (ec2) return "cannot stage skill: " + ec2.message();
+    if (ec2)
+        return "cannot stage skill: " + ec2.message();
     return "";
 }
 
-std::string uninstall_skill(const std::string& name,
-                            const std::string& dest_root) {
-    if (!is_kebab_name(name)) return "invalid skill name: " + name;
+std::string uninstall_skill(const std::string& name, const std::string& dest_root) {
+    if (!is_kebab_name(name))
+        return "invalid skill name: " + name;
     std::string dest = dest_root + "/" + name;
-    if (!std::filesystem::exists(dest)) return "skill not installed: " + name;
+    if (!std::filesystem::exists(dest))
+        return "skill not installed: " + name;
     std::error_code ec;
     std::filesystem::remove_all(dest, ec);
-    if (ec) return "cannot remove " + dest;
+    if (ec)
+        return "cannot remove " + dest;
     return "";
 }
 

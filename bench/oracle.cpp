@@ -13,7 +13,8 @@ bool glob_match(const std::string& pattern, const std::string& text) noexcept {
     size_t p = 0, t = 0, star = std::string::npos, mark = 0;
     while (t < text.size()) {
         if (p < pattern.size() && pattern[p] == text[t]) {
-            ++p; ++t;
+            ++p;
+            ++t;
         } else if (p < pattern.size() && pattern[p] == '*') {
             star = p++;
             mark = t;
@@ -24,7 +25,8 @@ bool glob_match(const std::string& pattern, const std::string& text) noexcept {
             return false;
         }
     }
-    while (p < pattern.size() && pattern[p] == '*') ++p;
+    while (p < pattern.size() && pattern[p] == '*')
+        ++p;
     return p == pattern.size();
 }
 
@@ -37,13 +39,12 @@ std::string basename(const std::string& p) {
 } // namespace
 
 bool value_matches(const agent::json& expected, const agent::json& actual) {
-    if (expected.is_string() &&
-        expected.get<std::string>().find('*') != std::string::npos) {
+    if (expected.is_string() && expected.get<std::string>().find('*') != std::string::npos) {
         return actual.is_string() &&
-               glob_match(expected.get<std::string>(),
-                          actual.get<std::string>());
+               glob_match(expected.get<std::string>(), actual.get<std::string>());
     }
-    if (expected == actual) return true;
+    if (expected == actual)
+        return true;
     // Path normalization: live agents read workspace files via their
     // absolute paths (the tools resolve them); an oracle expecting a bare
     // relative name must still match — compare basenames when exactly one
@@ -58,10 +59,8 @@ bool value_matches(const agent::json& expected, const agent::json& actual) {
         // Nested relative expectation: "src/header.h" matches any absolute
         // path ending in exactly "/src/header.h" (never a different
         // directory with the same leaf).
-        if (!e_bare && !a_bare && a[0] == '/' &&
-            a.size() > e.size() + 1 &&
-            a.compare(a.size() - e.size(), e.size(), e) == 0 &&
-            a[a.size() - e.size() - 1] == '/')
+        if (!e_bare && !a_bare && a[0] == '/' && a.size() > e.size() + 1 &&
+            a.compare(a.size() - e.size(), e.size(), e) == 0 && a[a.size() - e.size() - 1] == '/')
             return true;
     }
     return false;
@@ -71,7 +70,8 @@ bool value_matches(const agent::json& expected, const agent::json& actual) {
 std::vector<std::string> keys(const agent::json& j) {
     std::vector<std::string> out;
     if (j.is_object()) {
-        for (auto it = j.begin(); it != j.end(); ++it) out.push_back(it.key());
+        for (auto it = j.begin(); it != j.end(); ++it)
+            out.push_back(it.key());
     }
     return out;
 }
@@ -84,24 +84,33 @@ struct StepState {
 
 // Score one call against one step. Returns precision (0..1) or -1 on miss.
 double match_step(const ScenarioStep& step, const ToolCallEvent& call) {
-    if (step.tool != call.name) return -1.0;
-    if (step.args.is_null()) return 1.0;
+    if (step.tool != call.name)
+        return -1.0;
+    if (step.args.is_null())
+        return 1.0;
     const std::vector<std::string> expected = keys(step.args);
-    if (expected.empty()) return 1.0;
-    if (!call.args.is_object()) return -1.0;
+    if (expected.empty())
+        return 1.0;
+    if (!call.args.is_object())
+        return -1.0;
     if (!step.args_subset) {
         const std::vector<std::string> actual = keys(call.args);
-        if (actual.size() != expected.size()) return -1.0;
+        if (actual.size() != expected.size())
+            return -1.0;
         for (const auto& k : expected)
-            if (!call.args.contains(k)) return -1.0;
+            if (!call.args.contains(k))
+                return -1.0;
     }
     for (const auto& k : expected) {
-        if (!call.args.contains(k)) return -1.0;
-        if (!value_matches(step.args[k], call.args[k])) return -1.0;
+        if (!call.args.contains(k))
+            return -1.0;
+        if (!value_matches(step.args[k], call.args[k]))
+            return -1.0;
     }
     size_t matched = 0;
     for (const auto& k : expected) {
-        if (value_matches(step.args[k], call.args[k])) ++matched;
+        if (value_matches(step.args[k], call.args[k]))
+            ++matched;
     }
     return static_cast<double>(matched) / static_cast<double>(expected.size());
 }
@@ -147,7 +156,8 @@ OracleResult score_oracle(const std::vector<ScenarioStep>& oracle,
         }
         if (!matched) {
             for (size_t si = 0; si < oracle.size(); ++si) {
-                if (!oracle[si].unordered || steps[si].matched) continue;
+                if (!oracle[si].unordered || steps[si].matched)
+                    continue;
                 double p = match_step(oracle[si], call);
                 if (p >= 0.0) {
                     steps[si] = {true, static_cast<int>(ci), p};
@@ -157,7 +167,8 @@ OracleResult score_oracle(const std::vector<ScenarioStep>& oracle,
                 }
             }
         }
-        if (!matched) ++r.wasted;
+        if (!matched)
+            ++r.wasted;
     }
 
     for (const auto& st : steps) {
@@ -167,11 +178,9 @@ OracleResult score_oracle(const std::vector<ScenarioStep>& oracle,
         }
         precision_sum += st.precision;
     }
-    r.bullseye = static_cast<double>(r.matched_steps) /
-                 static_cast<double>(r.total_steps);
-    r.arg_precision = r.matched_steps > 0
-                          ? precision_sum / static_cast<double>(r.matched_steps)
-                          : 0.0;
+    r.bullseye = static_cast<double>(r.matched_steps) / static_cast<double>(r.total_steps);
+    r.arg_precision =
+        r.matched_steps > 0 ? precision_sum / static_cast<double>(r.matched_steps) : 0.0;
     r.success = r.matched_steps == r.total_steps;
     r.total_calls = static_cast<int>(calls.size());
 

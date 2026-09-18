@@ -28,7 +28,8 @@ std::string read_all(const fs::path& p) {
 
 std::vector<fs::path> source_files(const fs::path& dir, const char* ext) {
     std::vector<fs::path> out;
-    if (!fs::is_directory(dir)) return out;
+    if (!fs::is_directory(dir))
+        return out;
     for (const auto& e : fs::directory_iterator(dir)) {
         if (e.is_regular_file() && e.path().extension() == ext)
             out.push_back(e.path());
@@ -38,8 +39,7 @@ std::vector<fs::path> source_files(const fs::path& dir, const char* ext) {
 
 bool file_has_checks(const fs::path& p) noexcept {
     return fs::is_regular_file(p) &&
-           (p.extension() == ".cpp" || p.extension() == ".c" ||
-            p.extension() == ".h");
+           (p.extension() == ".cpp" || p.extension() == ".c" || p.extension() == ".h");
 }
 
 bool is_source_file(const fs::path& p) noexcept {
@@ -48,7 +48,8 @@ bool is_source_file(const fs::path& p) noexcept {
 
 std::string artifact_text(const fs::path& artifact_dir) {
     std::string all;
-    if (!fs::is_directory(artifact_dir)) return all;
+    if (!fs::is_directory(artifact_dir))
+        return all;
     for (const auto& e : fs::recursive_directory_iterator(artifact_dir)) {
         if (e.is_regular_file() && file_has_checks(e.path()))
             all += read_all(e.path()) + "\n";
@@ -58,12 +59,13 @@ std::string artifact_text(const fs::path& artifact_dir) {
 
 long artifact_loc(const fs::path& artifact_dir) {
     long loc = 0;
-    if (!fs::is_directory(artifact_dir)) return loc;
+    if (!fs::is_directory(artifact_dir))
+        return loc;
     for (const auto& e : fs::recursive_directory_iterator(artifact_dir)) {
-        if (!e.is_regular_file() || !file_has_checks(e.path())) continue;
+        if (!e.is_regular_file() || !file_has_checks(e.path()))
+            continue;
         const std::string text = read_all(e.path());
-        loc += static_cast<long>(
-            std::count(text.begin(), text.end(), '\n'));
+        loc += static_cast<long>(std::count(text.begin(), text.end(), '\n'));
     }
     return loc;
 }
@@ -79,7 +81,8 @@ std::string run_capture(const std::string& cmd, int* status) {
     }
     char buf[4096];
     size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        out.append(buf, n);
     // pclose returns the raw wait status; macOS's WEXITSTATUS macro takes the
     // address of its argument, so it cannot be applied to the pclose() rvalue
     // directly (clang error). Bind to a local first.
@@ -88,14 +91,13 @@ std::string run_capture(const std::string& cmd, int* status) {
     return out;
 }
 
-std::string compile_cmd(const std::string& compiler,
-                        const std::vector<fs::path>& artifact_sources,
+std::string compile_cmd(const std::string& compiler, const std::vector<fs::path>& artifact_sources,
                         const fs::path& solution_dir, const fs::path& test_file,
                         const fs::path& bin) {
     std::ostringstream cmd;
-    cmd << compiler << " -std=c++17 -w -I\"" << fs::absolute(solution_dir).string()
-        << "\" ";
-    for (const auto& s : artifact_sources) cmd << '"' << s.string() << "\" ";
+    cmd << compiler << " -std=c++17 -w -I\"" << fs::absolute(solution_dir).string() << "\" ";
+    for (const auto& s : artifact_sources)
+        cmd << '"' << s.string() << "\" ";
     cmd << '"' << test_file.string() << "\" -o \"" << bin.string() << '"';
     return cmd.str();
 }
@@ -106,15 +108,14 @@ struct TestOutcome {
     std::string output;
 };
 
-TestOutcome run_one_test(const std::string& compiler,
-                         const std::vector<fs::path>& artifact_sources,
+TestOutcome run_one_test(const std::string& compiler, const std::vector<fs::path>& artifact_sources,
                          const fs::path& solution_dir, const fs::path& test_file,
                          const fs::path& cache) {
     TestOutcome out;
     const fs::path bin = cache / (test_file.stem().string() + ".bin");
-    if (std::system((compile_cmd(compiler, artifact_sources, solution_dir, test_file, bin) +
-                     " 2>/dev/null")
-                        .c_str()) != 0)
+    if (std::system(
+            (compile_cmd(compiler, artifact_sources, solution_dir, test_file, bin) + " 2>/dev/null")
+                .c_str()) != 0)
         return out;
     out.compiled = true;
     int status = -1;
@@ -125,32 +126,34 @@ TestOutcome run_one_test(const std::string& compiler,
 
 // The agent's source set is the skeleton's contract files only — stray files
 // the agent left behind (own scratch tests) must not enter the build.
-std::vector<fs::path> contract_sources(const fs::path& skeleton_dir,
-                                       const fs::path& artifact_dir) {
+std::vector<fs::path> contract_sources(const fs::path& skeleton_dir, const fs::path& artifact_dir) {
     std::vector<fs::path> out;
-    if (!fs::is_directory(skeleton_dir)) return out;
+    if (!fs::is_directory(skeleton_dir))
+        return out;
     for (const auto& e : fs::directory_iterator(skeleton_dir)) {
-        if (!e.is_regular_file() || !is_source_file(e.path())) continue;
+        if (!e.is_regular_file() || !is_source_file(e.path()))
+            continue;
         const fs::path candidate = artifact_dir / e.path().filename();
-        if (fs::is_regular_file(candidate)) out.push_back(candidate);
+        if (fs::is_regular_file(candidate))
+            out.push_back(candidate);
     }
     return out;
 }
 
 std::string duplicate_blocks(const fs::path& artifact_dir) {
     const fs::path detector = fs::current_path() / "tools" / "duplicate_detector.py";
-    if (!fs::is_regular_file(detector)) return "";
+    if (!fs::is_regular_file(detector))
+        return "";
     int status = 0;
-    return run_capture("python3 \"" + detector.string() +
-                           "\" --min-lines=6 \"" + artifact_dir.string() +
-                           "\" 2>/dev/null",
+    return run_capture("python3 \"" + detector.string() + "\" --min-lines=6 \"" +
+                           artifact_dir.string() + "\" 2>/dev/null",
                        &status);
 }
 
 } // namespace
 
-bool load_structure_checks(const std::string& template_dir,
-                           std::vector<StructureCheck>& out, std::string& err) {
+bool load_structure_checks(const std::string& template_dir, std::vector<StructureCheck>& out,
+                           std::string& err) {
     const fs::path p = fs::path(template_dir) / kChecksFile;
     if (!fs::is_regular_file(p)) {
         err = "template has no checks.json: " + p.string();
@@ -168,15 +171,15 @@ bool load_structure_checks(const std::string& template_dir,
         return false;
     }
     for (const char* kind : {"must_contain", "must_not_contain"}) {
-        if (!j.contains(kind)) continue;
+        if (!j.contains(kind))
+            continue;
         if (!j[kind].is_array()) {
             err = std::string("checks.json: ") + kind + " must be an array";
             return false;
         }
         for (const auto& e : j[kind]) {
             if (!e.is_string()) {
-                err = std::string("checks.json: ") + kind +
-                      " entries must be strings";
+                err = std::string("checks.json: ") + kind + " entries must be strings";
                 return false;
             }
             out.push_back({kind, e.get<std::string>()});
@@ -185,8 +188,7 @@ bool load_structure_checks(const std::string& template_dir,
     return true;
 }
 
-TemplateResult run_template(const std::string& template_dir,
-                            const std::string& artifact_dir,
+TemplateResult run_template(const std::string& template_dir, const std::string& artifact_dir,
                             const std::string& compiler, std::string& err) {
     TemplateResult r;
     const fs::path tpl(template_dir);
@@ -195,7 +197,8 @@ TemplateResult run_template(const std::string& template_dir,
     const fs::path artifact(artifact_dir);
 
     std::vector<StructureCheck> checks;
-    if (!load_structure_checks(template_dir, checks, err)) return r;
+    if (!load_structure_checks(template_dir, checks, err))
+        return r;
 
     const std::vector<fs::path> tests = source_files(hidden, ".cpp");
     if (tests.empty()) {
@@ -207,14 +210,12 @@ TemplateResult run_template(const std::string& template_dir,
     size_t passed_checks = 0;
     for (const auto& c : checks) {
         const bool present = text.find(c.pattern) != std::string::npos;
-        if ((c.kind == "must_contain" && present) ||
-            (c.kind == "must_not_contain" && !present))
+        if ((c.kind == "must_contain" && present) || (c.kind == "must_not_contain" && !present))
             ++passed_checks;
     }
-    r.structure_checks = checks.empty()
-                             ? 1.0
-                             : static_cast<double>(passed_checks) /
-                                   static_cast<double>(checks.size());
+    r.structure_checks =
+        checks.empty() ? 1.0
+                       : static_cast<double>(passed_checks) / static_cast<double>(checks.size());
     r.artifact_loc = artifact_loc(artifact);
 
     const std::string dup_out = duplicate_blocks(artifact);
@@ -226,42 +227,36 @@ TemplateResult run_template(const std::string& template_dir,
     }
     r.duplicate_blocks = static_cast<int>(dup_count);
 
-    const fs::path cache =
-        fs::temp_directory_path() /
-        ("amber_bench_tpl_" + std::to_string(static_cast<long>(::getpid())));
+    const fs::path cache = fs::temp_directory_path() /
+                           ("amber_bench_tpl_" + std::to_string(static_cast<long>(::getpid())));
     fs::create_directories(cache);
 
     std::vector<TestOutcome> reference_outcomes;
     reference_outcomes.reserve(tests.size());
-    const std::vector<fs::path> ref_sources =
-        contract_sources(reference, reference);
+    const std::vector<fs::path> ref_sources = contract_sources(reference, reference);
     for (const auto& t : tests)
-        reference_outcomes.push_back(
-            run_one_test(compiler, ref_sources, reference, t, cache));
+        reference_outcomes.push_back(run_one_test(compiler, ref_sources, reference, t, cache));
 
     r.tests_total = static_cast<int>(tests.size());
     r.compile_ok = true;
     bool reference_all_good = true;
-    std::vector<fs::path> art_sources =
-        contract_sources(tpl / "skeleton", artifact);
+    std::vector<fs::path> art_sources = contract_sources(tpl / "skeleton", artifact);
     if (art_sources.empty()) {
         art_sources = source_files(artifact, ".cpp");
         const auto c_sources = source_files(artifact, ".c");
-        art_sources.insert(art_sources.end(), c_sources.begin(),
-                           c_sources.end());
+        art_sources.insert(art_sources.end(), c_sources.begin(), c_sources.end());
     }
     for (size_t i = 0; i < tests.size(); ++i) {
-        TestOutcome ao =
-            run_one_test(compiler, art_sources, artifact, tests[i], cache);
+        TestOutcome ao = run_one_test(compiler, art_sources, artifact, tests[i], cache);
         if (!ao.compiled) {
             r.compile_ok = false;
             reference_all_good = false;
             continue;
         }
-        if (ao.passed) ++r.tests_passed;
+        if (ao.passed)
+            ++r.tests_passed;
         const TestOutcome& ro = reference_outcomes[i];
-        if (!ro.compiled || !ro.passed || !ao.passed ||
-            ro.output != ao.output)
+        if (!ro.compiled || !ro.passed || !ao.passed || ro.output != ao.output)
             reference_all_good = false;
     }
     r.behavior_equivalent = reference_all_good;

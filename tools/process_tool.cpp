@@ -17,14 +17,24 @@ std::string status_line(const JobInfo& i) {
     std::ostringstream s;
     s << "[job " << i.id << " ";
     switch (i.state) {
-        case JobState::Running:
-        case JobState::Starting: s << "running"; break;
-        case JobState::Done:    s << "done exit " << i.exit_code; break;
-        case JobState::Killed:  s << "killed"; break;
-        case JobState::Failed:  s << "failed to start"; break;
+    case JobState::Running:
+    case JobState::Starting:
+        s << "running";
+        break;
+    case JobState::Done:
+        s << "done exit " << i.exit_code;
+        break;
+    case JobState::Killed:
+        s << "killed";
+        break;
+    case JobState::Failed:
+        s << "failed to start";
+        break;
     }
-    if (i.remaining_idle_s >= 0) s << " idle " << i.remaining_idle_s << "s";
-    if (i.remaining_hard_s >= 0) s << " hard " << i.remaining_hard_s << "s";
+    if (i.remaining_idle_s >= 0)
+        s << " idle " << i.remaining_idle_s << "s";
+    if (i.remaining_hard_s >= 0)
+        s << " hard " << i.remaining_hard_s << "s";
     s << "]";
     return s.str();
 }
@@ -49,18 +59,14 @@ public:
         p["type"] = "object";
         json props = json::object();
         props["command"] = json::object(
-            {{"type", "string"},
-             {"description", "Shell command to run in the background."}});
+            {{"type", "string"}, {"description", "Shell command to run in the background."}});
         props["timeout"] = json::object(
-            {{"type", "integer"},
-             {"description", "Hard lifetime in seconds (default 600)."}});
-        props["idle_timeout"] = json::object(
-            {{"type", "integer"},
-             {"description",
-               "Seconds of no output before auto-kill (default 30)."}});
+            {{"type", "integer"}, {"description", "Hard lifetime in seconds (default 600)."}});
+        props["idle_timeout"] =
+            json::object({{"type", "integer"},
+                          {"description", "Seconds of no output before auto-kill (default 30)."}});
         props["cwd"] = json::object(
-            {{"type", "string"},
-             {"description", "Working directory (default: workspace root)."}});
+            {{"type", "string"}, {"description", "Working directory (default: workspace root)."}});
         p["properties"] = props;
         p["required"] = json::array({"command"});
         return p;
@@ -71,7 +77,10 @@ public:
         std::string c = a.contains("command") && a["command"].is_string()
                             ? a["command"].get<std::string>()
                             : "";
-        if (c.size() > 200) { c.resize(197); c += "..."; }
+        if (c.size() > 200) {
+            c.resize(197);
+            c += "...";
+        }
         return "bg start: " + c;
     }
     ToolResult execute(const json& a) const override {
@@ -118,12 +127,10 @@ public:
         json p = json::object();
         p["type"] = "object";
         json props = json::object();
-        props["id"] = json::object(
-            {{"type", "string"}, {"description", "Job id."}});
+        props["id"] = json::object({{"type", "string"}, {"description", "Job id."}});
         props["all"] = json::object(
             {{"type", "boolean"},
-             {"description",
-               "Return full output instead of the delta (default false)."}});
+             {"description", "Return full output instead of the delta (default false)."}});
         p["properties"] = props;
         p["required"] = json::array({"id"});
         return p;
@@ -131,9 +138,7 @@ public:
     bool requires_approval(const json&) const noexcept override { return false; }
     bool is_read_only() const noexcept override { return true; }
     std::string summarize(const json& a) const override {
-        std::string id = a.contains("id") && a["id"].is_string()
-                             ? a["id"].get<std::string>()
-                             : "";
+        std::string id = a.contains("id") && a["id"].is_string() ? a["id"].get<std::string>() : "";
         return "bg read: " + id;
     }
     ToolResult execute(const json& a) const override {
@@ -161,9 +166,10 @@ public:
             out << "(no new output)\n";
         else
             out << body;
-        r.meta = {{"job_id", id}, {"state", static_cast<int>(info.state)},
-                   {"delta", !body.empty()},
-                   {"duration_ms", info.seconds_since_start * 1000}};
+        r.meta = {{"job_id", id},
+                  {"state", static_cast<int>(info.state)},
+                  {"delta", !body.empty()},
+                  {"duration_ms", info.seconds_since_start * 1000}};
         r.ok = true;
         r.output = out.str();
         return r;
@@ -187,8 +193,7 @@ public:
         json p = json::object();
         p["type"] = "object";
         json props = json::object();
-        props["id"] = json::object(
-            {{"type", "string"}, {"description", "Job id."}});
+        props["id"] = json::object({{"type", "string"}, {"description", "Job id."}});
         p["properties"] = props;
         p["required"] = json::array({"id"});
         return p;
@@ -196,9 +201,7 @@ public:
     bool requires_approval(const json&) const noexcept override { return true; }
     bool is_read_only() const noexcept override { return false; }
     std::string summarize(const json& a) const override {
-        std::string id = a.contains("id") && a["id"].is_string()
-                             ? a["id"].get<std::string>()
-                             : "";
+        std::string id = a.contains("id") && a["id"].is_string() ? a["id"].get<std::string>() : "";
         return "bg stop: " + id;
     }
     ToolResult execute(const json& a) const override {

@@ -55,11 +55,11 @@ protected:
     void emit(const StreamChunk& chunk);
 
     Message& out_;
-    ChunkSink on_chunk_;   // stored by value: an `auto` lambda binds through a
-                           // temporary std::function, and a reference member
-                           // would dangle on the first content delta.
+    ChunkSink on_chunk_; // stored by value: an `auto` lambda binds through a
+                         // temporary std::function, and a reference member
+                         // would dangle on the first content delta.
     std::string debug_path_;
-    long prompt_tokens_ = -1;      // from the final usage event
+    long prompt_tokens_ = -1; // from the final usage event
     long completion_tokens_ = -1;
 
 private:

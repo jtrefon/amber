@@ -29,8 +29,7 @@ TEST(mcp_wire_request_roundtrip) {
 }
 
 TEST(mcp_wire_notification_roundtrip) {
-    std::string wire = agent::mcp_encode_notification(
-        "notifications/initialized", json::object());
+    std::string wire = agent::mcp_encode_notification("notifications/initialized", json::object());
     auto msg = agent::mcp_decode_line(wire);
     ASSERT(msg.has_value());
     ASSERT_FALSE(msg->id.has_value());
@@ -39,8 +38,7 @@ TEST(mcp_wire_notification_roundtrip) {
 }
 
 TEST(mcp_wire_response_roundtrip) {
-    std::string wire = agent::mcp_encode_response(
-        3, {{"tools", json::array()}});
+    std::string wire = agent::mcp_encode_response(3, {{"tools", json::array()}});
     auto msg = agent::mcp_decode_line(wire);
     ASSERT(msg.has_value());
     ASSERT(msg->id.has_value());
@@ -99,8 +97,7 @@ TEST(mcp_wire_compact_no_embedded_newlines) {
 
 // Response ids may be strings per JSON-RPC; decode must tolerate them.
 TEST(mcp_wire_string_id_tolerated) {
-    auto msg = agent::mcp_decode_line(
-        R"({"jsonrpc":"2.0","id":"abc","result":{}})");
+    auto msg = agent::mcp_decode_line(R"({"jsonrpc":"2.0","id":"abc","result":{}})");
     ASSERT(msg.has_value());
     ASSERT(msg->id.has_value());
     ASSERT_EQ(msg->id->dump(), "\"abc\"");
@@ -118,7 +115,8 @@ bool wait_for_file(const std::string& path, int attempts = 300) {
     // runners (macOS), where a 1s wait raced the statefile write.
     for (int i = 0; i < attempts; ++i) {
         std::ifstream f(path);
-        if (f.is_open()) return true;
+        if (f.is_open())
+            return true;
         usleep(10 * 1000);
     }
     return false;
@@ -131,11 +129,10 @@ struct HttpFixture {
     std::string statefile;
     int pid = -1;
 
-    explicit HttpFixture(const std::string& mode)
-        : statefile("/tmp/mcp_http_" + mode + ".txt") {
+    explicit HttpFixture(const std::string& mode) : statefile("/tmp/mcp_http_" + mode + ".txt") {
         unlink(statefile.c_str());
-        std::string cmd = "tests/fixtures/mcp_http " + statefile + " " +
-                          mode + " >/dev/null 2>&1 &";
+        std::string cmd =
+            "tests/fixtures/mcp_http " + statefile + " " + mode + " >/dev/null 2>&1 &";
         ASSERT(std::system(cmd.c_str()) == 0);
         ASSERT(wait_for_file(statefile));
         std::ifstream f(statefile);
@@ -169,15 +166,13 @@ TEST(mcp_stdio_echo_roundtrip) {
     agent::StdioTransport t("tests/fixtures/mcp_echo", {}, ".", {}, 5000);
     ASSERT_EQ(t.failure_reason(), "");
 
-    auto resp = t.request(1, "initialize",
-                          {{"protocolVersion", "2025-06-18"}});
+    auto resp = t.request(1, "initialize", {{"protocolVersion", "2025-06-18"}});
     ASSERT(resp.status == agent::McpTransportStatus::Ok);
     ASSERT(resp.message.has_value());
     ASSERT(resp.message->id.has_value());
     ASSERT_EQ(resp.message->id->dump(), "1");
     ASSERT(resp.message->result.has_value());
-    ASSERT_EQ(resp.message->result->value("protocolVersion", ""),
-              "2025-06-18");
+    ASSERT_EQ(resp.message->result->value("protocolVersion", ""), "2025-06-18");
 
     auto r2 = t.request(2, "tools/list", json::object());
     ASSERT(r2.status == agent::McpTransportStatus::Ok);
@@ -195,8 +190,7 @@ TEST(mcp_stdio_sigterm_escalates_to_sigkill) {
     std::string pidfile = "/tmp/mcp_sigterm_pid.txt";
     unlink(pidfile.c_str());
     {
-        agent::StdioTransport t(
-            "tests/fixtures/mcp_ignore_sigterm", {pidfile}, ".", {}, 5000);
+        agent::StdioTransport t("tests/fixtures/mcp_ignore_sigterm", {pidfile}, ".", {}, 5000);
         ASSERT(wait_for_file(pidfile));
         int pid = -1;
         {
@@ -213,8 +207,7 @@ TEST(mcp_stdio_sigterm_escalates_to_sigkill) {
 
 // [MT-03] stderr never pollutes the protocol; it is retained for diagnostics.
 TEST(mcp_stdio_stderr_isolated) {
-    agent::StdioTransport t(
-        "tests/fixtures/mcp_echo", {"stderr"}, ".", {}, 5000);
+    agent::StdioTransport t("tests/fixtures/mcp_echo", {"stderr"}, ".", {}, 5000);
     auto resp = t.request(1, "ping", json::object());
     ASSERT(resp.status == agent::McpTransportStatus::Ok);
     auto m = resp.message;
@@ -225,12 +218,12 @@ TEST(mcp_stdio_stderr_isolated) {
 
 // A server that dies at startup surfaces its stderr in failure_reason().
 TEST(mcp_stdio_startup_failure_reports_stderr) {
-    agent::StdioTransport t(
-        "tests/fixtures/mcp_echo", {"boom"}, ".", {}, 2000);
+    agent::StdioTransport t("tests/fixtures/mcp_echo", {"boom"}, ".", {}, 2000);
     std::string reason;
     for (int i = 0; i < 200; ++i) {
         reason = t.failure_reason();
-        if (!reason.empty()) break;
+        if (!reason.empty())
+            break;
         usleep(10 * 1000);
     }
     ASSERT_FALSE(reason.empty());
@@ -243,12 +236,13 @@ TEST(mcp_stdio_spawn_failure_fails_fast) {
     std::string reason;
     for (int i = 0; i < 200; ++i) {
         reason = t.failure_reason();
-        if (!reason.empty()) break;
+        if (!reason.empty())
+            break;
         usleep(10 * 1000);
     }
     ASSERT_FALSE(reason.empty());
-    bool spawn_or_closed = reason.find("spawn") != std::string::npos ||
-                           reason.find("closed") != std::string::npos;
+    bool spawn_or_closed =
+        reason.find("spawn") != std::string::npos || reason.find("closed") != std::string::npos;
     ASSERT(spawn_or_closed);
     auto r = t.request(1, "ping", json::object());
     ASSERT(r.status == agent::McpTransportStatus::TransportError);
@@ -265,8 +259,7 @@ TEST(mcp_stdio_spawn_failure_fails_fast) {
 TEST(mcp_http_json_roundtrip) {
     HttpFixture fx("echo");
     agent::HttpTransport t(fx.url, "sekret", 5000);
-    auto r = t.request(1, "initialize",
-                       {{"protocolVersion", "2025-06-18"}});
+    auto r = t.request(1, "initialize", {{"protocolVersion", "2025-06-18"}});
     ASSERT(r.status == agent::McpTransportStatus::Ok);
     ASSERT(r.message.has_value());
     const agent::McpMessage& m0 = *r.message;
@@ -280,8 +273,7 @@ TEST(mcp_http_json_roundtrip) {
     ASSERT(r2.message.has_value());
     const agent::McpMessage& m2 = *r2.message;
     ASSERT(m2.result.has_value());
-    ASSERT_EQ(m2.result->value("echo", json::object()).value("method", ""),
-              "tools/list");
+    ASSERT_EQ(m2.result->value("echo", json::object()).value("method", ""), "tools/list");
     ASSERT_TRUE(t.notify("notifications/initialized", json::object()));
     t.close_session();
     t.shutdown();
@@ -292,13 +284,11 @@ TEST(mcp_http_json_roundtrip) {
 TEST(mcp_http_sse_streaming_response) {
     HttpFixture fx("sse");
     int server_msgs = 0;
-    agent::HttpTransport t(
-        fx.url, "", 5000,
-        [&](const agent::McpMessage& m) {
-            if (m.method == "notifications/progress") ++server_msgs;
-        });
-    auto r = t.request(7, "tools/call",
-                       {{"name", "x"}, {"arguments", json::object()}});
+    agent::HttpTransport t(fx.url, "", 5000, [&](const agent::McpMessage& m) {
+        if (m.method == "notifications/progress")
+            ++server_msgs;
+    });
+    auto r = t.request(7, "tools/call", {{"name", "x"}, {"arguments", json::object()}});
     ASSERT(r.status == agent::McpTransportStatus::Ok);
     auto m = r.message;
     ASSERT(m.has_value());

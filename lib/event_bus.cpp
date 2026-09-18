@@ -14,7 +14,8 @@ std::size_t type_index(EventType type) noexcept {
 } // namespace
 
 EventBus::EventBus() noexcept {
-    for (auto& count : counts_) count.store(0, std::memory_order_relaxed);
+    for (auto& count : counts_)
+        count.store(0, std::memory_order_relaxed);
 }
 
 size_t EventBus::subscribe(EventType type, Observer handler) {
@@ -43,14 +44,17 @@ bool EventBus::fire(EventType type, Event& event) {
     {
         std::scoped_lock lk(mtx_);
         for (auto& e : interceptors_) {
-            if (e.type == type) interceptors.push_back(e);
+            if (e.type == type)
+                interceptors.push_back(e);
         }
         for (auto& e : observers_) {
-            if (e.type == type) observers.push_back(e);
+            if (e.type == type)
+                observers.push_back(e);
         }
     }
     for (auto it = interceptors.rbegin(); it != interceptors.rend(); ++it) {
-        if (!it->handler(event)) return false;
+        if (!it->handler(event))
+            return false;
     }
     for (auto& e : observers) {
         e.handler(event);
@@ -82,7 +86,8 @@ void EventBus::clear() {
     std::scoped_lock lk(mtx_);
     observers_.clear();
     interceptors_.clear();
-    for (auto& count : counts_) count.store(0, std::memory_order_relaxed);
+    for (auto& count : counts_)
+        count.store(0, std::memory_order_relaxed);
 }
 
 } // namespace agent

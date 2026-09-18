@@ -7,8 +7,8 @@
 
 namespace agent {
 
-pid_t spawn_shell(const std::string& command, const std::string& cwd,
-                  int& read_fd, std::string& err) {
+pid_t spawn_shell(const std::string& command, const std::string& cwd, int& read_fd,
+                  std::string& err) {
     int pipefd[2];
     if (pipe(pipefd) != 0) {
         err = "pipe failed";
@@ -33,8 +33,12 @@ pid_t spawn_shell(const std::string& command, const std::string& cwd,
         // parent's ncurses getch() — npm, react scripts, and other interactive
         // programs should not hang waiting for keyboard input.
         int null_fd = open("/dev/null", O_RDONLY);
-        if (null_fd >= 0) { dup2(null_fd, STDIN_FILENO); close(null_fd); }
-        if (!cwd.empty() && chdir(cwd.c_str()) != 0) _exit(127);
+        if (null_fd >= 0) {
+            dup2(null_fd, STDIN_FILENO);
+            close(null_fd);
+        }
+        if (!cwd.empty() && chdir(cwd.c_str()) != 0)
+            _exit(127);
         execl("/bin/sh", "sh", "-c", command.c_str(), (char*)nullptr);
         _exit(127);
     }
@@ -43,26 +47,31 @@ pid_t spawn_shell(const std::string& command, const std::string& cwd,
     return pid;
 }
 
-pid_t spawn_mcp_server(const std::string& command,
-                       const std::vector<std::string>& args,
-                       const std::string& cwd, int& stdin_fd, int& stdout_fd,
-                       int& stderr_fd, std::string& err) {
+pid_t spawn_mcp_server(const std::string& command, const std::vector<std::string>& args,
+                       const std::string& cwd, int& stdin_fd, int& stdout_fd, int& stderr_fd,
+                       std::string& err) {
     int in_pipe[2] = {-1, -1};
     int out_pipe[2] = {-1, -1};
     int err_pipe[2] = {-1, -1};
     if (pipe(in_pipe) != 0 || pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
         err = "pipe failed";
-        close(in_pipe[0]); close(in_pipe[1]);
-        close(out_pipe[0]); close(out_pipe[1]);
-        close(err_pipe[0]); close(err_pipe[1]);
+        close(in_pipe[0]);
+        close(in_pipe[1]);
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(err_pipe[0]);
+        close(err_pipe[1]);
         return -1;
     }
     pid_t pid = fork();
     if (pid < 0) {
         err = "fork failed";
-        close(in_pipe[0]); close(in_pipe[1]);
-        close(out_pipe[0]); close(out_pipe[1]);
-        close(err_pipe[0]); close(err_pipe[1]);
+        close(in_pipe[0]);
+        close(in_pipe[1]);
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(err_pipe[0]);
+        close(err_pipe[1]);
         return -1;
     }
     if (pid == 0) {
@@ -77,7 +86,8 @@ pid_t spawn_mcp_server(const std::string& command,
         close(in_pipe[0]);
         close(out_pipe[1]);
         close(err_pipe[1]);
-        if (!cwd.empty() && chdir(cwd.c_str()) != 0) _exit(127);
+        if (!cwd.empty() && chdir(cwd.c_str()) != 0)
+            _exit(127);
         std::vector<char*> argv;
         argv.reserve(args.size() + 2);
         argv.push_back(const_cast<char*>(command.c_str()));
@@ -98,7 +108,8 @@ pid_t spawn_mcp_server(const std::string& command,
 }
 
 void kill_process_group(pid_t pid) {
-    if (pid > 0) kill(-pid, SIGKILL);
+    if (pid > 0)
+        kill(-pid, SIGKILL);
 }
 
 } // namespace agent

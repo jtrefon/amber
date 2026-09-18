@@ -13,15 +13,15 @@ namespace agent {
 // fields are simply omitted. `workspace` is the directory every bash call
 // starts in, so the agent never needs to `cd` into it.
 struct EnvironmentInfo {
-    std::string os;              // e.g. "Ubuntu 24.04 (Linux 6.8.0-45 x86_64)"
-    std::string user;            // username, e.g. "jack"
-    bool root = false;           // running as uid 0
-    bool sudo_passwordless = false;  // `sudo -n true` succeeds without a password
-    std::string workspace;       // workspace root — where bash commands run
-    std::string date;            // "2026-08-07"
-    std::string timezone;        // "UTC+2"
-    std::string resources;       // "8 cores \u00b7 16 GB RAM"
-    std::vector<std::string> tools;  // present non-universal tools, e.g. {"git","python3"}
+    std::string os;                 // e.g. "Ubuntu 24.04 (Linux 6.8.0-45 x86_64)"
+    std::string user;               // username, e.g. "jack"
+    bool root = false;              // running as uid 0
+    bool sudo_passwordless = false; // `sudo -n true` succeeds without a password
+    std::string workspace;          // workspace root — where bash commands run
+    std::string date;               // "2026-08-07"
+    std::string timezone;           // "UTC+2"
+    std::string resources;          // "8 cores \u00b7 16 GB RAM"
+    std::vector<std::string> tools; // present non-universal tools, e.g. {"git","python3"}
 };
 
 // Collect environment facts. Never throws; missing probes leave fields empty.

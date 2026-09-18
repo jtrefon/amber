@@ -19,9 +19,9 @@ std::set<std::string> g_truncated;
 
 } // namespace
 
-void debug_log(const std::string& path, const std::string& tag,
-               const std::string& payload) {
-    if (path.empty()) return;
+void debug_log(const std::string& path, const std::string& tag, const std::string& payload) {
+    if (path.empty())
+        return;
     std::ios::openmode mode = std::ios::app | std::ios::binary;
     {
         std::scoped_lock lk(g_truncated_mu);
@@ -31,13 +31,11 @@ void debug_log(const std::string& path, const std::string& tag,
         }
     }
     std::ofstream f(path, mode);
-    if (!f) return;
+    if (!f)
+        return;
     using namespace std::chrono;
-    long long ms =
-        duration_cast<milliseconds>(system_clock::now().time_since_epoch())
-            .count();
-    f << "==== " << ms << ' ' << tag << " (" << payload.size() << "B) ====\n"
-      << payload << "\n";
+    long long ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    f << "==== " << ms << ' ' << tag << " (" << payload.size() << "B) ====\n" << payload << "\n";
 }
 
 } // namespace agent

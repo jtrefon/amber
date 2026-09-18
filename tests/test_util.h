@@ -34,14 +34,13 @@ inline int passed = 0;
 inline const char* g_only = std::getenv("RUN_TESTS_ONLY");
 
 struct Registrar {
-    Registrar(const std::string& name, void (*fn)()) {
-        registry().push_back({name, fn});
-    }
+    Registrar(const std::string& name, void (*fn)()) { registry().push_back({name, fn}); }
 };
 
 inline int run_all() {
     for (const auto& c : registry()) {
-        if (g_only && c.name.find(g_only) == std::string::npos) continue;
+        if (g_only && c.name.find(g_only) == std::string::npos)
+            continue;
         try {
             c.fn();
             ++passed;
@@ -61,31 +60,38 @@ inline int run_all() {
     return failures == 0 ? 0 : 1;
 }
 
-[[noreturn]] inline void fail(const std::string& msg) { throw msg; }
+[[noreturn]] inline void fail(const std::string& msg) {
+    throw msg;
+}
 
 } // namespace test
 } // namespace agent
 
-#define TEST(name)                                                          \
-    static void test_##name();                                              \
-    static ::agent::test::Registrar reg_##name(#name, test_##name);        \
+#define TEST(name)                                                                                 \
+    static void test_##name();                                                                     \
+    static ::agent::test::Registrar reg_##name(#name, test_##name);                                \
     static void test_##name()
 
-#define ASSERT(cond)                                                        \
-    do { if (!(cond)) {                                                     \
-        std::ostringstream _os; _os << "assert failed: " #cond              \
-            << " (" << __FILE__ << ":" << __LINE__ << ")";                 \
-        ::agent::test::fail(_os.str());                                     \
-    } } while (0)
+#define ASSERT(cond)                                                                               \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::ostringstream _os;                                                                \
+            _os << "assert failed: " #cond << " (" << __FILE__ << ":" << __LINE__ << ")";          \
+            ::agent::test::fail(_os.str());                                                        \
+        }                                                                                          \
+    } while (0)
 
-#define ASSERT_EQ(a, b)                                                     \
-    do { auto _va = (a); auto _vb = (b);                                    \
-        if (!(_va == _vb)) {                                                \
-            std::ostringstream _os; _os << "assert_eq failed: " #a " == " #b \
-                << " (" << __FILE__ << ":" << __LINE__ << ") -> "           \
-                << _va << " != " << _vb;                                    \
-            ::agent::test::fail(_os.str());                                 \
-        } } while (0)
+#define ASSERT_EQ(a, b)                                                                            \
+    do {                                                                                           \
+        auto _va = (a);                                                                            \
+        auto _vb = (b);                                                                            \
+        if (!(_va == _vb)) {                                                                       \
+            std::ostringstream _os;                                                                \
+            _os << "assert_eq failed: " #a " == " #b << " (" << __FILE__ << ":" << __LINE__        \
+                << ") -> " << _va << " != " << _vb;                                                \
+            ::agent::test::fail(_os.str());                                                        \
+        }                                                                                          \
+    } while (0)
 
 #define ASSERT_TRUE(cond) ASSERT(cond)
 #define ASSERT_FALSE(cond) ASSERT(!(cond))

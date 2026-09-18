@@ -22,8 +22,8 @@ struct KeyAction {
         Scroll,             // arg = scroll delta (lines)
         RouteToCommandLine, // arg = raw key code, hand off to CommandLine
     } type = None;
-    int arg = -1;           // window index, scroll delta, or key code
-    std::string text;       // optional text payload (unused for keys)
+    int arg = -1;     // window index, scroll delta, or key code
+    std::string text; // optional text payload (unused for keys)
 };
 
 } // namespace tui

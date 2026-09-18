@@ -18,45 +18,45 @@ class Dialect;
 struct Message {
     std::string role;
     std::string content;
-    std::string reasoning;               // assistant thinking (not sent back)
-    std::string tool_call_id;            // for role == "tool"
-    std::string name;                    // tool name for tool messages
-    json tool_calls;                     // assistant messages may carry calls
+    std::string reasoning;    // assistant thinking (not sent back)
+    std::string tool_call_id; // for role == "tool"
+    std::string name;         // tool name for tool messages
+    json tool_calls;          // assistant messages may carry calls
 };
 
 // One parsed Server-Sent-Event delta from a streaming response.
 struct StreamChunk {
-    bool done = false;                   // terminal [DONE] marker seen
-    std::string delta;                   // incremental answer text (if any)
-    std::string reasoning;               // incremental thinking/reasoning text
-    json tool_calls;                     // incremental tool_call fragments (if any)
+    bool done = false;     // terminal [DONE] marker seen
+    std::string delta;     // incremental answer text (if any)
+    std::string reasoning; // incremental thinking/reasoning text
+    json tool_calls;       // incremental tool_call fragments (if any)
 };
 
 // Capabilities discovered from the server's /v1/models endpoint. Fields are
 // empty / <=0 when the server did not report them.
 struct ServerInfo {
-    bool ok = false;            // a model entry was successfully parsed
-    std::string model;          // model id (e.g. the gguf name / alias)
-    int context_size = 0;       // n_ctx (loaded context window), 0 if unknown
-    int context_train = 0;      // n_ctx_train (model's native max), 0 if unknown
+    bool ok = false;       // a model entry was successfully parsed
+    std::string model;     // model id (e.g. the gguf name / alias)
+    int context_size = 0;  // n_ctx (loaded context window), 0 if unknown
+    int context_train = 0; // n_ctx_train (model's native max), 0 if unknown
 };
 
 // One entry of a provider's model listing, as parsed by a Dialect. `context`
 // is 0 when the protocol does not report a window (e.g. Anthropic's listing).
 struct ModelInfo {
     std::string id;
-    int context = 0;        // n_ctx (loaded context window)
-    int context_train = 0;  // n_ctx_train (native max)
+    int context = 0;       // n_ctx (loaded context window)
+    int context_train = 0; // n_ctx_train (native max)
 };
 
 // Per-request telemetry, surfaced to UIs for the status bar. Filled in after a
 // chat/chat_stream call completes. Fields are -1/0 when unknown.
 struct Stats {
-    double latency_ms = -1;              // time-to-first-byte (server "lag")
-    double tps = -1;                     // completion tokens / generation time
-    long prompt_tokens = -1;            // usage.prompt_tokens (context used)
-    long completion_tokens = -1;        // usage.completion_tokens
-    bool valid = false;                  // true once a request populated it
+    double latency_ms = -1;      // time-to-first-byte (server "lag")
+    double tps = -1;             // completion tokens / generation time
+    long prompt_tokens = -1;     // usage.prompt_tokens (context used)
+    long completion_tokens = -1; // usage.completion_tokens
+    bool valid = false;          // true once a request populated it
 };
 
 // Port: a chat backend over an OpenAI-compatible endpoint. The library does
@@ -99,10 +99,10 @@ public:
     // returns the assembled assistant message. The callback receives partial
     // text as it arrives, enabling live TUI rendering. When `stats` is non-null
     // it is filled with per-request telemetry after completion.
-    virtual Message chat_stream(
-        const std::vector<Message>& messages, const std::vector<std::shared_ptr<Tool>>& tools,
-        const std::function<void(const StreamChunk&)>& on_chunk,
-        Stats* stats = nullptr) = 0;
+    virtual Message chat_stream(const std::vector<Message>& messages,
+                                const std::vector<std::shared_ptr<Tool>>& tools,
+                                const std::function<void(const StreamChunk&)>& on_chunk,
+                                Stats* stats = nullptr) = 0;
 
     // Context window the server taught us via a 400 overflow rejection
     // (parse_context_size_from_error), or 0 when none was learned yet.
@@ -127,18 +127,17 @@ public:
 
     ServerInfo probe_server() const override;
     Message chat(const std::vector<Message>& messages,
-                 const std::vector<std::shared_ptr<Tool>>& tools,
-                 Stats* stats = nullptr) override;
-    Message chat_stream(
-        const std::vector<Message>& messages, const std::vector<std::shared_ptr<Tool>>& tools,
-        const std::function<void(const StreamChunk&)>& on_chunk,
-        Stats* stats = nullptr) override;
+                 const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats = nullptr) override;
+    Message chat_stream(const std::vector<Message>& messages,
+                        const std::vector<std::shared_ptr<Tool>>& tools,
+                        const std::function<void(const StreamChunk&)>& on_chunk,
+                        Stats* stats = nullptr) override;
     int learned_context_size() const override { return learned_; }
 
 private:
     Config cfg_;
     std::unique_ptr<Dialect> dialect_;
-    int learned_ = 0;  // window taught by a 400 overflow rejection
+    int learned_ = 0; // window taught by a 400 overflow rejection
 };
 
 // Merge probed server info into a Config, filling ONLY values the user did not

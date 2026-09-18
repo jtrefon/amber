@@ -6,7 +6,8 @@ namespace agent {
 Message build_classify_request(bool update_previous) {
     Message req;
     req.role = "user";
-    std::string body = R"JSON(Analyze the conversation above. You are compressing it so work can continue with the most recent exchanges preserved verbatim and everything older reduced to a clear, self-contained summary.
+    std::string body =
+        R"JSON(Analyze the conversation above. You are compressing it so work can continue with the most recent exchanges preserved verbatim and everything older reduced to a clear, self-contained summary.
 
 == What to produce ==
 
@@ -62,7 +63,8 @@ compressed state and the new turns since it.)JSON";
 Message build_extract_request() {
     Message req;
     req.role = "user";
-    req.content = R"JSON(Review the classification above. For each COMPLETED INVESTIGATION that was pruned, extract:
+    req.content =
+        R"JSON(Review the classification above. For each COMPLETED INVESTIGATION that was pruned, extract:
 
 MEMORIES (facts about the codebase, project, or user):
   {"name": "<kebab-case-id>", "content": "One-sentence summary of the finding.",

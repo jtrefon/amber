@@ -101,8 +101,8 @@ std::vector<std::unique_ptr<Capability>> CommandcodePlugin::capabilities() {
         std::make_unique<ProviderCapability>("openai", std::function<std::unique_ptr<Dialect>()>{},
                                              std::vector<ProviderCapability::Preset>{preset}));
 
-    caps.push_back(std::make_unique<WalletCapability>(
-        [](const Config& cfg) -> std::optional<WalletSnapshot> {
+    caps.push_back(
+        std::make_unique<WalletCapability>([](const Config& cfg) -> std::optional<WalletSnapshot> {
             if (cfg.api_key.empty())
                 return std::nullopt;
             const std::optional<std::string> body =

@@ -45,8 +45,8 @@ std::vector<std::string> enum_values(const std::string& text, const std::string&
         return out;
     const std::string body = text.substr(brace + 1, end - brace - 1);
     const std::regex re(R"(([A-Za-z_][A-Za-z0-9_]*)\s*[,=])");
-    for (auto it = std::sregex_iterator(body.begin(), body.end(), re);
-         it != std::sregex_iterator(); ++it)
+    for (auto it = std::sregex_iterator(body.begin(), body.end(), re); it != std::sregex_iterator();
+         ++it)
         out.push_back((*it)[1].str());
     return out;
 }
@@ -54,8 +54,8 @@ std::vector<std::string> enum_values(const std::string& text, const std::string&
 std::vector<std::string> event_structs(const std::string& text) {
     std::vector<std::string> out;
     const std::regex re(R"(struct\s+([A-Za-z_][A-Za-z0-9_]*Event)\b)");
-    for (auto it = std::sregex_iterator(text.begin(), text.end(), re);
-         it != std::sregex_iterator(); ++it)
+    for (auto it = std::sregex_iterator(text.begin(), text.end(), re); it != std::sregex_iterator();
+         ++it)
         out.push_back((*it)[1].str());
     return out;
 }

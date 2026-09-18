@@ -16,8 +16,7 @@ public:
     // ── Rendering ───────────────────────────────────────────────────
 
     virtual void draw() = 0;
-    virtual void draw_input(const std::string& input, size_t cursor,
-                            const std::string& shadow) = 0;
+    virtual void draw_input(const std::string& input, size_t cursor, const std::string& shadow) = 0;
     virtual void draw_status_bar(const std::string& tail) = 0;
     virtual void flush() = 0;
     virtual void clear_screen() = 0;
@@ -25,21 +24,21 @@ public:
     // ── Input ───────────────────────────────────────────────────────
 
     enum Key : int {
-        KEY_NONE  = -1,
-        KEY_ERR   = -2,
-        KEY_UP    = -3,
-        KEY_DOWN  = -4,
-        KEY_LEFT  = -5,
+        KEY_NONE = -1,
+        KEY_ERR = -2,
+        KEY_UP = -3,
+        KEY_DOWN = -4,
+        KEY_LEFT = -5,
         KEY_RIGHT = -6,
-        KEY_HOME  = -7,
-        KEY_END   = -8,
+        KEY_HOME = -7,
+        KEY_END = -8,
         KEY_PPAGE = -9,
         KEY_NPAGE = -10,
         KEY_BACKSPACE = -11,
-        KEY_TAB   = -12,
+        KEY_TAB = -12,
         KEY_SHIFT_TAB = -13,
         KEY_ENTER = -14,
-        KEY_ESC   = -15,
+        KEY_ESC = -15,
 
         // Printable range: 32-126 map to ASCII.
         // Ctrl range: 1-26 map to Ctrl-A through Ctrl-Z.
@@ -54,8 +53,7 @@ public:
     // ── Dialogs ─────────────────────────────────────────────────────
 
     // Show a selection menu. Returns selected index or -1 for cancel.
-    virtual int menu_select(const std::string& title,
-                            const std::vector<std::string>& items) = 0;
+    virtual int menu_select(const std::string& title, const std::vector<std::string>& items) = 0;
 
     // ── Misc ────────────────────────────────────────────────────────
 

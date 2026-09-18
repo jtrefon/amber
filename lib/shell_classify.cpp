@@ -31,32 +31,48 @@ std::vector<Tok> tokenize(const std::string& s) {
     bool in_single = false, in_double = false;
     for (char c : s) {
         if (in_single) {
-            if (c == '\'') in_single = false;
-            else cur += c;
+            if (c == '\'')
+                in_single = false;
+            else
+                cur += c;
             quoted = true;
             continue;
         }
         if (in_double) {
-            if (c == '"') in_double = false;
-            else cur += c;
+            if (c == '"')
+                in_double = false;
+            else
+                cur += c;
             quoted = true;
             continue;
         }
-        if (c == '\'') { in_single = true; continue; }
-        if (c == '"') { in_double = true; continue; }
+        if (c == '\'') {
+            in_single = true;
+            continue;
+        }
+        if (c == '"') {
+            in_double = true;
+            continue;
+        }
         if (c == ' ' || c == '\t' || c == '\n') {
-            if (!cur.empty()) { out.push_back({cur, quoted}); cur.clear(); quoted = false; }
+            if (!cur.empty()) {
+                out.push_back({cur, quoted});
+                cur.clear();
+                quoted = false;
+            }
             continue;
         }
         cur += c;
     }
-    if (!cur.empty()) out.push_back({cur, quoted});
+    if (!cur.empty())
+        out.push_back({cur, quoted});
     return out;
 }
 
 std::vector<std::string> pattern_words(const std::string& pattern) {
     std::vector<std::string> w;
-    for (const auto& t : tokenize(pattern)) w.push_back(t.text);
+    for (const auto& t : tokenize(pattern))
+        w.push_back(t.text);
     return w;
 }
 
@@ -65,10 +81,9 @@ std::vector<std::string> pattern_words(const std::string& pattern) {
 // `cd` is deliberately excluded: it changes process state and enables
 // relative-path escapes, so it is never read-only.
 bool is_reader_head(const std::string& h) {
-    static const char* kReaders[] = {
-        "ls", "cat", "grep", "head", "tail", "wc", "sort", "uniq",
-        "diff", "pwd", "which", "env", "printenv", "date", "echo",
-        "printf", "export"};
+    static const char* kReaders[] = {"ls",       "cat",  "grep", "head",   "tail",  "wc",
+                                     "sort",     "uniq", "diff", "pwd",    "which", "env",
+                                     "printenv", "date", "echo", "printf", "export"};
     return std::any_of(std::begin(kReaders), std::end(kReaders),
                        [&](const char* s) { return h == s; });
 }
@@ -83,44 +98,56 @@ bool is_chain_op(const std::string& t) {
 // are data and never count. File-descriptor duplicates (2>&1, 1>&2) are not
 // escapes.
 bool is_escape_token(const Tok& t) {
-    if (t.quoted) return false;
+    if (t.quoted)
+        return false;
     const std::string& s = t.text;
-    if (s == "&" || s == "`" || s.rfind("$(", 0) == 0) return true;
-    if (s.rfind("2>&", 0) == 0 || s.rfind("1>&", 0) == 0) return false;
+    if (s == "&" || s == "`" || s.rfind("$(", 0) == 0)
+        return true;
+    if (s.rfind("2>&", 0) == 0 || s.rfind("1>&", 0) == 0)
+        return false;
     // Standalone chain operators (; && || |) are proper separators, not
     // escapes — they are split into segments below. Only glued operators
     // (a;b, cmd&, x|y) are escapes.
-    if (is_chain_op(s)) return false;
-    return std::any_of(s.begin(), s.end(), [](char c) {
-        return c == ';' || c == '&' || c == '|' || c == '`';
-    });
+    if (is_chain_op(s))
+        return false;
+    return std::any_of(s.begin(), s.end(),
+                       [](char c) { return c == ';' || c == '&' || c == '|' || c == '`'; });
 }
 
 // Output redirection (">", ">>", ">f", "2>f", "&>f"): the command writes a
 // file. Input redirects ("<", "<f") read; fd dups (2>&1) redirect within the
 // process. Returns the target path ("" when the target is the next token).
 bool output_redirect_target(const Tok& t, std::string& target) {
-    if (t.quoted) return false;
+    if (t.quoted)
+        return false;
     const std::string& s = t.text;
     std::size_t i = std::string::npos;
-    if (s == ">" || s == ">>" || s == "&>") return true;  // target follows
-    if (s == "2>" || s == "2>>" || s == "1>" || s == "1>>") return true;
-    if (s[0] == '>') i = 1;
-    else if (s.rfind("2>", 0) == 0 || s.rfind("1>", 0) == 0 ||
-             s.rfind("&>", 0) == 0)
+    if (s == ">" || s == ">>" || s == "&>")
+        return true; // target follows
+    if (s == "2>" || s == "2>>" || s == "1>" || s == "1>>")
+        return true;
+    if (s[0] == '>')
+        i = 1;
+    else if (s.rfind("2>", 0) == 0 || s.rfind("1>", 0) == 0 || s.rfind("&>", 0) == 0)
         i = 2;
-    if (i == std::string::npos) return false;
-    while (i < s.size() && s[i] == '>') ++i;
+    if (i == std::string::npos)
+        return false;
+    while (i < s.size() && s[i] == '>')
+        ++i;
     target = s.substr(i);
     return true;
 }
 
 bool is_input_redirect(const Tok& t) {
-    if (t.quoted) return false;
+    if (t.quoted)
+        return false;
     const std::string& s = t.text;
-    if (s == "<") return true;
-    if (s[0] == '<') return true;
-    if (s.rfind("0<", 0) == 0) return true;
+    if (s == "<")
+        return true;
+    if (s[0] == '<')
+        return true;
+    if (s.rfind("0<", 0) == 0)
+        return true;
     return false;
 }
 
@@ -130,14 +157,16 @@ std::size_t first_command_token(const std::vector<Tok>& toks) {
     while (i < toks.size()) {
         const std::string& t = toks[i].text;
         std::size_t eq = t.find('=');
-        if (eq == std::string::npos || eq == 0) break;
+        if (eq == std::string::npos || eq == 0)
+            break;
         bool name_ok = true;
         for (std::size_t k = 0; k < eq; ++k)
             if (!isalnum(static_cast<unsigned char>(t[k])) && t[k] != '_') {
                 name_ok = false;
                 break;
             }
-        if (!name_ok) break;
+        if (!name_ok)
+            break;
         ++i;
     }
     return i;
@@ -160,25 +189,30 @@ std::string containing_dir(const std::string& path) {
 // for tests and matches the policy engine's calls.
 std::string outside_scope_for(const Tok& t, bool is_target) {
     const std::string& s = t.text;
-    if (s.empty() || s[0] == '-' || s[0] == '$') return "";
-    if (t.quoted && !is_target) return "";   // quoted data, not a path
-    bool path_like = s.find('/') != std::string::npos || s == "." ||
-                     s == ".." || s.rfind("~/", 0) == 0 ||
-                     s.rfind("../", 0) == 0;
-    if (!is_target && !path_like) return "";  // bare word resolved by cwd
-    if (is_target && !path_like && !t.quoted) return "";  // bare file name
+    if (s.empty() || s[0] == '-' || s[0] == '$')
+        return "";
+    if (t.quoted && !is_target)
+        return ""; // quoted data, not a path
+    bool path_like = s.find('/') != std::string::npos || s == "." || s == ".." ||
+                     s.rfind("~/", 0) == 0 || s.rfind("../", 0) == 0;
+    if (!is_target && !path_like)
+        return ""; // bare word resolved by cwd
+    if (is_target && !path_like && !t.quoted)
+        return ""; // bare file name
     std::string resolved, err;
-    if (Workspace::confine(s, resolved, err)) return "";
+    if (Workspace::confine(s, resolved, err))
+        return "";
     return "outside:" + containing_dir(s);
 }
 
-bool pattern_matches(const std::string& pattern,
-                     const std::vector<std::string>& ws, std::size_t start) {
+bool pattern_matches(const std::string& pattern, const std::vector<std::string>& ws,
+                     std::size_t start) {
     std::vector<std::string> want_words = pattern_words(pattern);
     if (want_words.empty() || start + want_words.size() > ws.size())
         return false;
     for (std::size_t i = 0; i < want_words.size(); ++i)
-        if (ws[start + i] != want_words[i]) return false;
+        if (ws[start + i] != want_words[i])
+            return false;
     return true;
 }
 
@@ -191,20 +225,50 @@ const std::vector<std::string>& destructive_command_patterns() {
     // like `cp`/`mv`/`touch` are deliberately absent — they are confined to
     // the workspace and run free unless their arguments escape it.
     static const std::vector<std::string> kPatterns = {
-        "rm", "rmdir", "dd", "mkfs", "fdisk", "parted", "shred",
-        "chmod -R", "chown -R", "sudo", "apt", "apt-get", "dnf", "yum",
-        "pacman", "docker", "podman", "systemctl", "service", "shutdown",
-        "reboot", "halt", "poweroff", "kill", "pkill", "killall",
-        "git reset", "git clean", "git push --force", "git push -f",
-        "git push", "git revert", "git checkout --", "git merge --abort",
-        "pip install", "npm install", "npm publish", "yarn add",
+        "rm",
+        "rmdir",
+        "dd",
+        "mkfs",
+        "fdisk",
+        "parted",
+        "shred",
+        "chmod -R",
+        "chown -R",
+        "sudo",
+        "apt",
+        "apt-get",
+        "dnf",
+        "yum",
+        "pacman",
+        "docker",
+        "podman",
+        "systemctl",
+        "service",
+        "shutdown",
+        "reboot",
+        "halt",
+        "poweroff",
+        "kill",
+        "pkill",
+        "killall",
+        "git reset",
+        "git clean",
+        "git push --force",
+        "git push -f",
+        "git push",
+        "git revert",
+        "git checkout --",
+        "git merge --abort",
+        "pip install",
+        "npm install",
+        "npm publish",
+        "yarn add",
         "cargo install",
     };
     return kPatterns;
 }
 
-ShellClass classify_shell(const std::string& command,
-                          const std::string& /*workspace*/) {
+ShellClass classify_shell(const std::string& command, const std::string& /*workspace*/) {
     ShellClass out;
     // Tokenize line-by-line and insert a chain-op sentinel between lines so
     // embedded newlines act as command separators (like ";"). The tokenizer
@@ -216,20 +280,20 @@ ShellClass classify_shell(const std::string& command,
         bool first_line = true;
         while (pos <= command.size()) {
             std::size_t nl = command.find('\n', pos);
-            std::string line = (nl == std::string::npos)
-                                   ? command.substr(pos)
-                                   : command.substr(pos, nl - pos);
+            std::string line =
+                (nl == std::string::npos) ? command.substr(pos) : command.substr(pos, nl - pos);
             if (!first_line && !toks.empty())
-                toks.push_back({";", false});  // chain-op sentinel
+                toks.push_back({";", false}); // chain-op sentinel
             auto line_toks = tokenize(line);
             toks.insert(toks.end(), line_toks.begin(), line_toks.end());
             first_line = false;
-            if (nl == std::string::npos) break;
+            if (nl == std::string::npos)
+                break;
             pos = nl + 1;
         }
     }
     if (toks.empty()) {
-        out.effect = ShellEffect::ReadOnly;  // nothing to run
+        out.effect = ShellEffect::ReadOnly; // nothing to run
         return out;
     }
 
@@ -262,15 +326,15 @@ ShellClass classify_shell(const std::string& command,
     bool any_write = false;
 
     for (const auto& seg : segs) {
-        std::size_t head_i = first_command_token(
-            std::vector<Tok>(toks.begin() + static_cast<long>(seg.first),
-                             toks.begin() + static_cast<long>(seg.second)));
+        std::size_t head_i =
+            first_command_token(std::vector<Tok>(toks.begin() + static_cast<long>(seg.first),
+                                                 toks.begin() + static_cast<long>(seg.second)));
         std::size_t h = seg.first + head_i;
-        if (h >= seg.second) continue;  // empty segment (e.g. trailing ";")
+        if (h >= seg.second)
+            continue; // empty segment (e.g. trailing ";")
         const std::string& head = toks[h].text;
-        if (head.empty() || head[0] == '-' ||
-            head.find('/') != std::string::npos) {
-            out.effect = ShellEffect::Destructive;  // qualified/unknown binary
+        if (head.empty() || head[0] == '-' || head.find('/') != std::string::npos) {
+            out.effect = ShellEffect::Destructive; // qualified/unknown binary
             out.scope_id = "bash:*";
             return out;
         }
@@ -283,9 +347,8 @@ ShellClass classify_shell(const std::string& command,
         bool git_reader = false;
         if (head == "git" && h + 1 < seg.second) {
             const std::string& sub = toks[h + 1].text;
-            static const char* kReadSub[] = {"status", "diff", "log", "show",
-                                             "branch", "remote", "ls-files",
-                                             "rev-parse", "help"};
+            static const char* kReadSub[] = {"status", "diff",     "log",       "show", "branch",
+                                             "remote", "ls-files", "rev-parse", "help"};
             git_reader = std::any_of(std::begin(kReadSub), std::end(kReadSub),
                                      [&](const char* s) { return sub == s; });
         }
@@ -293,22 +356,24 @@ ShellClass classify_shell(const std::string& command,
 
         // Path and redirect scan for this segment.
         bool seg_write = false;
-        std::string seg_scope;   // e.g. "bash:git add" for write grants
+        std::string seg_scope; // e.g. "bash:git add" for write grants
         bool target_next = false;
         for (std::size_t i = seg.first; i < seg.second; ++i) {
             const Tok& t = toks[i];
             if (target_next) {
                 std::string scope = outside_scope_for(t, /*is_target=*/true);
                 if (!scope.empty()) {
-                    if (first_outside.empty()) first_outside = scope;
+                    if (first_outside.empty())
+                        first_outside = scope;
                 }
                 target_next = false;
                 continue;
             }
             std::string rtarget;
             if (output_redirect_target(t, rtarget)) {
-                seg_write = true;   // a redirect writes a file
-                if (rtarget.empty()) target_next = true;
+                seg_write = true; // a redirect writes a file
+                if (rtarget.empty())
+                    target_next = true;
                 else {
                     Tok target{rtarget, false};
                     std::string scope = outside_scope_for(target, true);
@@ -323,16 +388,15 @@ ShellClass classify_shell(const std::string& command,
                 target_next = true;
                 continue;
             }
-            if (i == h) continue;                // the head itself
+            if (i == h)
+                continue; // the head itself
             // find -delete / -exec and sed -i mutate.
-            if (head == "find" &&
-                (t.text == "-delete" || t.text == "-exec" ||
-                 t.text == "-execdir" || t.text == "-ok")) {
+            if (head == "find" && (t.text == "-delete" || t.text == "-exec" ||
+                                   t.text == "-execdir" || t.text == "-ok")) {
                 seg_write = true;
                 continue;
             }
-            if (head == "sed" &&
-                (t.text == "-i" || t.text.rfind("-i", 0) == 0)) {
+            if (head == "sed" && (t.text == "-i" || t.text.rfind("-i", 0) == 0)) {
                 seg_write = true;
                 continue;
             }
@@ -341,7 +405,8 @@ ShellClass classify_shell(const std::string& command,
             // below, but out-of-workspace paths are caught here.
             std::string scope = outside_scope_for(t, /*is_target=*/false);
             if (!scope.empty()) {
-                if (first_outside.empty()) first_outside = scope;
+                if (first_outside.empty())
+                    first_outside = scope;
                 continue;
             }
         }
@@ -369,16 +434,17 @@ ShellClass classify_shell(const std::string& command,
             }
         }
 
-        if (!first_outside.empty()) continue;  // outside wins; keep scanning
+        if (!first_outside.empty())
+            continue; // outside wins; keep scanning
         if (!dpat.empty()) {
-            if (first_destructive.empty()) first_destructive = "bash:" + dpat;
+            if (first_destructive.empty())
+                first_destructive = "bash:" + dpat;
             continue;
         }
         if (seg_write) {
             any_write = true;
-            if (first_write.empty()) first_write = seg_scope.empty()
-                                                       ? "bash:" + head
-                                                       : seg_scope;
+            if (first_write.empty())
+                first_write = seg_scope.empty() ? "bash:" + head : seg_scope;
         }
     }
 

@@ -28,42 +28,45 @@ public:
     }
 
     json parameters_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties", {
-                {"path", {{"type", "string"},
-                          {"description", "Path to the file to read"}}},
-                {"offset", {{"type", "integer"},
-                            {"description", "1-based starting line (default 1)"}}},
-                {"limit", {{"type", "integer"},
-                           {"description", "Max lines to return (default 200)"}}}
-            }},
-            {"required", {"path"}}
-        };
+        return {{"type", "object"},
+                {"properties",
+                 {{"path", {{"type", "string"}, {"description", "Path to the file to read"}}},
+                  {"offset",
+                   {{"type", "integer"}, {"description", "1-based starting line (default 1)"}}},
+                  {"limit",
+                   {{"type", "integer"}, {"description", "Max lines to return (default 200)"}}}}},
+                {"required", {"path"}}};
     }
 
     ToolResult execute(const json& a) const override {
         ToolResult r;
         if (!a.contains("path") || !a["path"].is_string()) {
-            r.ok = false; r.error = "missing 'path'"; return r;
+            r.ok = false;
+            r.error = "missing 'path'";
+            return r;
         }
         std::string requested = a["path"].get<std::string>();
         std::string path, cerr;
         if (!Workspace::confine(requested, path, cerr)) {
-            r.ok = false; r.error = cerr; return r;
+            r.ok = false;
+            r.error = cerr;
+            return r;
         }
         long offset = a.value("offset", 1L);
         long limit = a.value("limit", 200L);
-        if (offset < 1) offset = 1;
-        if (limit < 1) limit = 1;
+        if (offset < 1)
+            offset = 1;
+        if (limit < 1)
+            limit = 1;
         // Line-based hard ceiling: a single call must never pull tens of
         // thousands of lines into the conversation (binary/generated files).
-        if (limit > 2000) limit = 2000;
+        if (limit > 2000)
+            limit = 2000;
 
         // A FIFO/socket would block the agent forever on open()/read —
         // reject special files up front (confinement is lexical and cannot
         // see the file type).
-        struct stat st{};
+        struct stat st {};
         if (stat(path.c_str(), &st) == 0 && !S_ISREG(st.st_mode)) {
             r.ok = false;
             r.error = "not a regular file (named pipe/device) - refusing to block: " +
@@ -89,8 +92,8 @@ public:
         for (std::streamsize i = 0; i < got; ++i)
             if (sniff[static_cast<size_t>(i)] == '\0') {
                 r.ok = false;
-                r.error = "binary file (NUL bytes) - refusing to read: " +
-                          Workspace::relative(path);
+                r.error =
+                    "binary file (NUL bytes) - refusing to read: " + Workspace::relative(path);
                 return r;
             }
         in.clear();
@@ -106,29 +109,34 @@ public:
         std::stringstream out;
         while (std::getline(in, line)) {
             ++total;
-            if (lineno + 1 < offset) { ++lineno; continue; }
-            if (printed >= limit) break;
+            if (lineno + 1 < offset) {
+                ++lineno;
+                continue;
+            }
+            if (printed >= limit)
+                break;
             if (line.size() > kMaxLineBytes) {
                 const std::size_t cut = line.size() - kMaxLineBytes;
                 line.resize(kMaxLineBytes);
                 line += " ...(" + std::to_string(cut) + " bytes truncated)...";
             }
             out << (lineno + 1) << ":\t" << line << "\n";
-            ++lineno; ++printed;
+            ++lineno;
+            ++printed;
         }
 
         std::string rel = Workspace::relative(path);
         long end_line = offset + printed - 1;
-        r.output = "# " + rel + ":" + std::to_string(offset) + "-" +
-                   std::to_string(end_line) + " (" + std::to_string(printed) +
-                   " lines)\n" + out.str();
-        r.meta = {{"lines", printed}, {"total", total},
+        r.output = "# " + rel + ":" + std::to_string(offset) + "-" + std::to_string(end_line) +
+                   " (" + std::to_string(printed) + " lines)\n" + out.str();
+        r.meta = {{"lines", printed},
+                  {"total", total},
                   {"more", printed >= limit && lineno < total},
-                  {"path", rel}, {"start", offset}};
+                  {"path", rel},
+                  {"start", offset}};
         if (printed >= limit && lineno < total)
-            r.output += "\n[more lines available: " + std::to_string(total - lineno)
-                      + " remaining; pass offset=" + std::to_string(lineno + 1)
-                      + " to continue]";
+            r.output += "\n[more lines available: " + std::to_string(total - lineno) +
+                        " remaining; pass offset=" + std::to_string(lineno + 1) + " to continue]";
         else
             r.output += "\n[end of file: " + std::to_string(total) + " lines]";
         return r;

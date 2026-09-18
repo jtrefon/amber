@@ -37,7 +37,6 @@ public:
     int cols() const { return cols_; }
     int max_top() const { return std::max(0, wrapped_count() - rows_); }
 
-
     // Paint the current viewport into the window and refresh it.
     void render();
 

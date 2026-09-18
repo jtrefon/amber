@@ -28,7 +28,8 @@ inline size_t message_tokens(const Message& msg) noexcept {
 
 inline size_t estimate_tokens(const std::vector<Message>& msgs) noexcept {
     size_t n = 0;
-    for (const auto& msg : msgs) n += message_tokens(msg);
+    for (const auto& msg : msgs)
+        n += message_tokens(msg);
     return n;
 }
 
@@ -99,9 +100,9 @@ public:
 
 private:
     std::deque<Message> stack_;
-    std::deque<uint64_t> hashes_;    // one chained hash per message
+    std::deque<uint64_t> hashes_; // one chained hash per message
     size_t token_count_ = 0;
-    uint64_t chain_hash_ = 0;        // hash of the last message (== hashes_.back())
+    uint64_t chain_hash_ = 0; // hash of the last message (== hashes_.back())
 
     // ------------------------------------------------------------------
     // Hash-chain
@@ -120,22 +121,25 @@ private:
     //         || reasoning || \0 || tool_call_id || \0 || name
     //         [|| \0 || tool_calls.dump()]
     static uint64_t chain_hash(uint64_t prev, const Message& msg) noexcept {
-        auto cap = 8 + msg.role.size() + 1 + msg.content.size() + 1
-                     + msg.reasoning.size() + 1
-                     + msg.tool_call_id.size() + 1 + msg.name.size() + 1;
+        auto cap = 8 + msg.role.size() + 1 + msg.content.size() + 1 + msg.reasoning.size() + 1 +
+                   msg.tool_call_id.size() + 1 + msg.name.size() + 1;
         if (!msg.tool_calls.is_null())
             cap += msg.tool_calls.dump().size() + 1;
         std::string buf;
         buf.reserve(cap);
         for (size_t i = 0; i < 8; ++i)
             buf.push_back(static_cast<char>((prev >> (i * 8)) & 0xFF));
-        auto append = [&](const std::string& s) { buf += s; buf += '\0'; };
+        auto append = [&](const std::string& s) {
+            buf += s;
+            buf += '\0';
+        };
         append(msg.role);
         append(msg.content);
         append(msg.reasoning);
         append(msg.tool_call_id);
         append(msg.name);
-        if (!msg.tool_calls.is_null()) append(msg.tool_calls.dump());
+        if (!msg.tool_calls.is_null())
+            append(msg.tool_calls.dump());
         return fnv1a(buf);
     }
 
@@ -154,13 +158,12 @@ class ContextEventSource {
 public:
     using Callback = std::function<void(size_t tokens, size_t msgs)>;
 
-    void subscribe(Callback cb) {
-        subs_.push_back(std::move(cb));
-    }
+    void subscribe(Callback cb) { subs_.push_back(std::move(cb)); }
 
     void publish(size_t tokens, size_t msgs) const {
         for (const auto& cb : subs_)
-            if (cb) cb(tokens, msgs);
+            if (cb)
+                cb(tokens, msgs);
     }
 
 private:

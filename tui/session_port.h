@@ -16,7 +16,7 @@ public:
     virtual void drain_events() = 0;
     virtual void check_timeouts() = 0;
     virtual void poll_balance() = 0;
-    virtual bool consume_signal() = 0;  // returns true if a deferred signal fired
+    virtual bool consume_signal() = 0; // returns true if a deferred signal fired
     virtual void handle_shutdown() = 0;
 };
 

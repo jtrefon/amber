@@ -24,14 +24,13 @@ const std::vector<std::string>& destructive_command_patterns();
 
 struct ShellClass {
     ShellEffect effect = ShellEffect::Destructive;
-    std::string scope_id;  // "bash:rm", "bash:git reset", "outside:/abs/dir"
+    std::string scope_id; // "bash:rm", "bash:git reset", "outside:/abs/dir"
 };
 
 // Classify a shell command line against the workspace root. Purely syntactic:
 // a command that cannot be proven safe is Destructive (prompt). `workspace`
 // must be the absolute workspace root used for path containment.
-ShellClass classify_shell(const std::string& command,
-                          const std::string& workspace);
+ShellClass classify_shell(const std::string& command, const std::string& workspace);
 
 } // namespace agent
 

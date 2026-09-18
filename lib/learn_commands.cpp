@@ -9,18 +9,21 @@ namespace agent {
 namespace {
 
 bool matches_filter(const LearnItem& item, const std::string& filter) {
-    if (filter.empty()) return true;
-    if (filter == "memory") return item.type == "memory";
-    if (filter == "skill") return item.type == "skill";
+    if (filter.empty())
+        return true;
+    if (filter == "memory")
+        return item.type == "memory";
+    if (filter == "skill")
+        return item.type == "skill";
     return item.name.find(filter) != std::string::npos;
 }
 
 } // namespace
 
-std::vector<LearnItem> learn_items(const MemoryStore* store,
-                                   const std::string& filter) {
+std::vector<LearnItem> learn_items(const MemoryStore* store, const std::string& filter) {
     std::vector<LearnItem> out;
-    if (!store) return out;
+    if (!store)
+        return out;
     for (const auto& m : store->all_memories()) {
         LearnItem it;
         it.id = m.id;
@@ -30,7 +33,8 @@ std::vector<LearnItem> learn_items(const MemoryStore* store,
         it.promoted = m.promoted;
         it.turn = m.last_confirm_turn;
         it.score = store->score_of(m);
-        if (matches_filter(it, filter)) out.push_back(std::move(it));
+        if (matches_filter(it, filter))
+            out.push_back(std::move(it));
     }
     for (const auto& s : store->all_skills()) {
         LearnItem it;
@@ -42,20 +46,20 @@ std::vector<LearnItem> learn_items(const MemoryStore* store,
         it.turn = s.last_confirm_turn;
         it.trigger = s.trigger_phrase;
         it.score = store->score_of(s);
-        if (matches_filter(it, filter)) out.push_back(std::move(it));
+        if (matches_filter(it, filter))
+            out.push_back(std::move(it));
     }
     std::sort(out.begin(), out.end(),
-              [](const LearnItem& a, const LearnItem& b) {
-                  return a.score > b.score;
-              });
+              [](const LearnItem& a, const LearnItem& b) { return a.score > b.score; });
     return out;
 }
 
-std::vector<std::string> learn_show_lines(const MemoryStore* store,
-                                          const std::string& filter) {
-    if (!store) return {"experience store disabled"};
+std::vector<std::string> learn_show_lines(const MemoryStore* store, const std::string& filter) {
+    if (!store)
+        return {"experience store disabled"};
     auto items = learn_items(store, filter);
-    if (items.empty()) return {"(no learned items)"};
+    if (items.empty())
+        return {"(no learned items)"};
     std::vector<std::string> lines;
     lines.reserve(items.size());
     for (const auto& it : items) {
@@ -84,8 +88,7 @@ std::vector<std::string> learn_show_lines(const MemoryStore* store,
     return lines;
 }
 
-std::vector<std::string> learn_inspect_lines(const MemoryStore* store,
-                                             const std::string& id,
+std::vector<std::string> learn_inspect_lines(const MemoryStore* store, const std::string& id,
                                              std::string& error) {
     error.clear();
     if (!store) {
@@ -93,15 +96,16 @@ std::vector<std::string> learn_inspect_lines(const MemoryStore* store,
         return {};
     }
     for (const auto& m : store->all_memories()) {
-        if (m.id != id) continue;
+        if (m.id != id)
+            continue;
         std::string tags;
         for (size_t i = 0; i < m.tags.size(); ++i) {
-            if (i) tags += ", ";
+            if (i)
+                tags += ", ";
             tags += m.tags[i];
         }
         char score_buf[16];
-        std::snprintf(score_buf, sizeof score_buf, "%.2f",
-                      store->score_of(m));
+        std::snprintf(score_buf, sizeof score_buf, "%.2f", store->score_of(m));
         std::vector<std::string> lines = {
             "id: " + m.id,
             "type: memory",
@@ -116,7 +120,8 @@ std::vector<std::string> learn_inspect_lines(const MemoryStore* store,
         return lines;
     }
     for (const auto& s : store->all_skills()) {
-        if (s.id != id) continue;
+        if (s.id != id)
+            continue;
         std::vector<std::string> lines = {
             "id: " + s.id,
             "type: skill",
@@ -141,11 +146,13 @@ std::vector<std::string> learn_summary_lines(const MemoryStore* store,
     if (store) {
         for (const auto& m : store->all_memories()) {
             ++mem;
-            if (m.promoted) ++promoted;
+            if (m.promoted)
+                ++promoted;
         }
         for (const auto& s : store->all_skills()) {
             ++sk;
-            if (s.promoted) ++promoted;
+            if (s.promoted)
+                ++promoted;
         }
     }
     std::string line = "memories: ";

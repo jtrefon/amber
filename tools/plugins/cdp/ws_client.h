@@ -35,20 +35,18 @@ public:
     bool connected() const { return fd_ >= 0; }
 
     // HTTP GET for http(s):// or ws:// URLs; returns the response body.
-    bool http_get_url(const std::string& url, std::string& body,
-                      std::string& err);
+    bool http_get_url(const std::string& url, std::string& body, std::string& err);
 
 private:
-    bool parse_url(const std::string& url, std::string& host, int& port,
-                   std::string& path);
-    bool http_get(const std::string& host, int port, const std::string& req_path,
-                  std::string& body, std::string& err);
+    bool parse_url(const std::string& url, std::string& host, int& port, std::string& path);
+    bool http_get(const std::string& host, int port, const std::string& req_path, std::string& body,
+                  std::string& err);
     bool read_some(int timeout_ms);
     bool pump_frame(std::string& out);
     void send_frame(int opcode, const std::string& payload) const;
 
     int fd_ = -1;
-    std::string buf_;  // raw bytes read but not yet framed
+    std::string buf_; // raw bytes read but not yet framed
 };
 
 } // namespace cdp

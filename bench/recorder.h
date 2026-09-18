@@ -30,7 +30,7 @@ struct RetryEvent {
 };
 
 struct RecoveryEvent {
-    std::string kind;   // "repaired" | "steer" | "model"
+    std::string kind; // "repaired" | "steer" | "model"
 };
 
 struct StatsEvent {
@@ -41,15 +41,15 @@ struct StatsEvent {
 };
 
 struct EventStream {
-    std::vector<ToolCallEvent> calls;   // in the agent's chosen order
+    std::vector<ToolCallEvent> calls; // in the agent's chosen order
     std::vector<ToolEvent> tools;
     std::vector<RetryEvent> retries;
     std::vector<RecoveryEvent> recoveries;
     std::vector<StatsEvent> stats;
-    int compressions = 0;           // "compressing N messages..." status lines
-    int bash_cd_prefix = 0;         // bash calls starting with `cd <workspace> &&`
-    int iterations = 0;             // max "iteration N/M" observed
-    double ttft_ms = -1;            // first request's time-to-first-byte
+    int compressions = 0;   // "compressing N messages..." status lines
+    int bash_cd_prefix = 0; // bash calls starting with `cd <workspace> &&`
+    int iterations = 0;     // max "iteration N/M" observed
+    double ttft_ms = -1;    // first request's time-to-first-byte
     long prompt_tokens = 0;
     long completion_tokens = 0;
     bool hard_stop = false;
@@ -81,8 +81,7 @@ private:
         long t0_ms;
     };
 
-    static std::string fingerprint(const std::string& name,
-                                   const agent::json& args) noexcept;
+    static std::string fingerprint(const std::string& name, const agent::json& args) noexcept;
     static long now_ms() noexcept;
 
     EventStream stream_;

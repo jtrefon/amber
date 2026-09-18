@@ -12,14 +12,15 @@ namespace {
 // or (for dotted partials) when the suffix after the last dot matches.
 // An empty partial matches everything (the drawer rows are the filter).
 bool completion_matches(const std::string& name, const std::string& p) {
-    if (p.empty()) return true;
+    if (p.empty())
+        return true;
     if (name.size() >= p.size() && name.substr(0, p.size()) == p)
         return true;
     size_t dot = p.rfind('.');
-    if (dot == std::string::npos || dot + 1 >= p.size()) return false;
+    if (dot == std::string::npos || dot + 1 >= p.size())
+        return false;
     const std::string suffix = p.substr(dot + 1);
-    return name.size() >= suffix.size() &&
-           name.substr(0, suffix.size()) == suffix;
+    return name.size() >= suffix.size() && name.substr(0, suffix.size()) == suffix;
 }
 
 } // namespace
@@ -41,16 +42,19 @@ void CommandLine::reset_cycle() {
     last_tab_input_.clear();
 }
 
-
 void CommandLine::advance_cycle(int dir) {
-    if (cycle_matches_.empty()) return;
-    if (dir > 0) cycle_index_ = (cycle_index_ + 1) % cycle_matches_.size();
-    else cycle_index_ = (cycle_index_ + cycle_matches_.size() - 1) % cycle_matches_.size();
+    if (cycle_matches_.empty())
+        return;
+    if (dir > 0)
+        cycle_index_ = (cycle_index_ + 1) % cycle_matches_.size();
+    else
+        cycle_index_ = (cycle_index_ + cycle_matches_.size() - 1) % cycle_matches_.size();
 
     // Replace the current token with the cycled match.
     // Find the start of the current word.
     size_t start = cursor_;
-    while (start > 0 && input_[start - 1] != ' ') --start;
+    while (start > 0 && input_[start - 1] != ' ')
+        --start;
     std::string token = input_.substr(start, cursor_ - start);
     std::string replacement = cycle_matches_[cycle_index_];
     // For dotted tokens where completions are leaf-level, preserve the prefix.
@@ -71,21 +75,25 @@ void CommandLine::recompute() {
     drawer_open_ = (!input_.empty() && input_[0] == '/');
 
     // Only show shadow when cursor is at end of input.
-    if (cursor_ != input_.size()) return;
-    if (input_.empty() || input_[0] != '/') return;
+    if (cursor_ != input_.size())
+        return;
+    if (input_.empty() || input_[0] != '/')
+        return;
 
     // Find the partial token (text after last space or start).
     size_t tok_start = input_.rfind(' ');
     tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
     std::string partial = input_.substr(tok_start);
-    if (partial.empty()) return;
+    if (partial.empty())
+        return;
 
     // First, try cycle matches (set by Tab cycling).
     if (!cycle_matches_.empty() && cycle_index_ < cycle_matches_.size()) {
         const std::string& match = cycle_matches_[cycle_index_];
         size_t dot = partial.rfind('.');
         std::string p = (dot == std::string::npos || dot + 1 >= partial.size())
-                        ? partial : partial.substr(dot + 1);
+                            ? partial
+                            : partial.substr(dot + 1);
         if (!p.empty() && match.size() >= p.size() && match.substr(0, p.size()) == p) {
             if (match.size() > p.size())
                 shadow_ = match.substr(p.size());
@@ -100,7 +108,8 @@ void CommandLine::recompute() {
         if (completion_matches(name, partial)) {
             size_t dot = partial.rfind('.');
             std::string p = (dot == std::string::npos || dot + 1 >= partial.size())
-                            ? partial : partial.substr(dot + 1);
+                                ? partial
+                                : partial.substr(dot + 1);
             if (name.size() > p.size()) {
                 shadow_ = name.substr(p.size());
             } else {
@@ -229,7 +238,10 @@ CommandLine::Result CommandLine::on_tab() {
         bool can_complete = partial.empty() || partial.back() == '.';
         if (!can_complete) {
             for (const auto& n : completions_)
-                if (n.rfind(partial, 0) == 0) { can_complete = true; break; }
+                if (n.rfind(partial, 0) == 0) {
+                    can_complete = true;
+                    break;
+                }
         }
         if (can_complete) {
             input_ += completions_[0];
@@ -259,7 +271,8 @@ CommandLine::Result CommandLine::on_shift_tab() {
 
 CommandLine::Result CommandLine::on_enter() {
     Result r;
-    if (input_.empty()) return r;
+    if (input_.empty())
+        return r;
 
     // If drawer is open with selection, dispatch the selected command.
     // Match against the filtered drawer items (not cycle_matches_, which may
@@ -277,8 +290,7 @@ CommandLine::Result CommandLine::on_enter() {
                 prefix = dispatch_prefix_;
             } else {
                 size_t tok_start = input_.rfind(' ');
-                tok_start = (tok_start == std::string::npos) ? 1
-                                                            : tok_start + 1;
+                tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
                 prefix = input_.substr(0, tok_start);
             }
             r.dispatch_text = prefix + filtered[drawer_sel_];
@@ -296,7 +308,8 @@ CommandLine::Result CommandLine::on_enter() {
     // Save to history.
     if (history_.empty() || history_.back() != input_) {
         history_.push_back(input_);
-        if (history_.size() > 100) history_.erase(history_.begin());
+        if (history_.size() > 100)
+            history_.erase(history_.begin());
     }
     history_pos_ = history_.size();
     input_.clear();
@@ -347,9 +360,11 @@ CommandLine::Result CommandLine::on_ctrl_w() {
     if (cursor_ > 0) {
         size_t start = cursor_;
         // Skip spaces backward.
-        while (start > 0 && input_[start - 1] == ' ') --start;
+        while (start > 0 && input_[start - 1] == ' ')
+            --start;
         // Skip non-space backward.
-        while (start > 0 && input_[start - 1] != ' ') --start;
+        while (start > 0 && input_[start - 1] != ' ')
+            --start;
         kill_buffer_ = input_.substr(start, cursor_ - start);
         input_.erase(start, cursor_ - start);
         cursor_ = start;
@@ -405,7 +420,7 @@ CommandLine::Result CommandLine::on_up() {
             if (drawer_sel_ > 0) {
                 --drawer_sel_;
             } else {
-                drawer_sel_ = static_cast<int>(filtered.size()) - 1;  // wrap
+                drawer_sel_ = static_cast<int>(filtered.size()) - 1; // wrap
             }
             recompute();
             return r;
@@ -429,7 +444,7 @@ CommandLine::Result CommandLine::on_down() {
             if (drawer_sel_ < static_cast<int>(filtered.size()) - 1) {
                 ++drawer_sel_;
             } else {
-                drawer_sel_ = 0;  // wrap
+                drawer_sel_ = 0; // wrap
             }
             recompute();
             return r;
@@ -448,12 +463,14 @@ CommandLine::Result CommandLine::on_down() {
 }
 
 CommandLine::Result CommandLine::on_left() {
-    if (cursor_ > 0) --cursor_;
+    if (cursor_ > 0)
+        --cursor_;
     return Result{};
 }
 
 CommandLine::Result CommandLine::on_right() {
-    if (cursor_ < input_.size()) ++cursor_;
+    if (cursor_ < input_.size())
+        ++cursor_;
     return Result{};
 }
 

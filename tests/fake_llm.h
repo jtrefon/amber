@@ -16,11 +16,11 @@ namespace agent_test {
 
 // One scripted response (or failure) served by FakeLLMClient.
 struct FakeReply {
-    std::string content;               // assistant text (may be empty)
-    json tool_calls = json::array();   // assistant tool_calls
-    std::string error;                 // non-empty -> throw instead of replying
-    bool retryable = true;             // ApiError.retryable when throwing
-    long prompt_tokens = 0;            // stats.prompt_tokens for this reply
+    std::string content;             // assistant text (may be empty)
+    json tool_calls = json::array(); // assistant tool_calls
+    std::string error;               // non-empty -> throw instead of replying
+    bool retryable = true;           // ApiError.retryable when throwing
+    long prompt_tokens = 0;          // stats.prompt_tokens for this reply
     long completion_tokens = 0;
 };
 
@@ -56,8 +56,7 @@ public:
             stats->valid = true;
         }
         if (!r.error.empty())
-            throw agent::ApiError(r.retryable ? 503 : 401, r.retryable,
-                                  r.error);
+            throw agent::ApiError(r.retryable ? 503 : 401, r.retryable, r.error);
         agent::Message m;
         m.role = "assistant";
         m.content = r.content;
@@ -65,11 +64,10 @@ public:
         return m;
     }
 
-    agent::Message chat_stream(
-        const std::vector<agent::Message>& messages,
-        const std::vector<std::shared_ptr<agent::Tool>>& tools,
-        const std::function<void(const agent::StreamChunk&)>& on_chunk,
-        agent::Stats* stats = nullptr) override {
+    agent::Message chat_stream(const std::vector<agent::Message>& messages,
+                               const std::vector<std::shared_ptr<agent::Tool>>& tools,
+                               const std::function<void(const agent::StreamChunk&)>& on_chunk,
+                               agent::Stats* stats = nullptr) override {
         (void)on_chunk;
         return chat(messages, tools, stats);
     }
@@ -80,10 +78,9 @@ inline agent::Message tool_call_msg(const std::string& fn, const json& args,
                                     const std::string& id = "call_1") {
     agent::Message m;
     m.role = "assistant";
-    m.tool_calls = json::array(
-        {{{"id", id},
-          {"type", "function"},
-          {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
+    m.tool_calls = json::array({{{"id", id},
+                                 {"type", "function"},
+                                 {"function", {{"name", fn}, {"arguments", args.dump()}}}}});
     return m;
 }
 

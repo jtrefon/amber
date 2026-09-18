@@ -24,19 +24,24 @@ std::string call_key(const std::string& fn, const json& args) {
 // Look up the tool result for a given tool_call_id and extract its
 // status from the envelope header (e.g. "ok", "error", "denied").
 // Returns "unknown" if not found.
-std::string prev_call_outcome(const std::string& tool_call_id,
-                                const std::deque<Message>& history) {
-    if (tool_call_id.empty()) return "unknown";
+std::string prev_call_outcome(const std::string& tool_call_id, const std::deque<Message>& history) {
+    if (tool_call_id.empty())
+        return "unknown";
     for (const auto& m : history) {
-        if (m.role != "tool") continue;
-        if (m.tool_call_id != tool_call_id) continue;
+        if (m.role != "tool")
+            continue;
+        if (m.tool_call_id != tool_call_id)
+            continue;
         // Envelope: [tool=name args=... status=X meta=...]\n...
         auto pos = m.content.find("status=");
-        if (pos == std::string::npos) return "unknown";
+        if (pos == std::string::npos)
+            return "unknown";
         pos += 7; // skip "status="
         auto end = m.content.find(' ', pos);
-        if (end == std::string::npos) end = m.content.find(']', pos);
-        if (end == std::string::npos) return "unknown";
+        if (end == std::string::npos)
+            end = m.content.find(']', pos);
+        if (end == std::string::npos)
+            return "unknown";
         return m.content.substr(pos, end - pos);
     }
     return "unknown";
@@ -45,9 +50,9 @@ std::string prev_call_outcome(const std::string& tool_call_id,
 // Check if a previous tool call was denied (not executed) by looking for
 // the corresponding tool result message in history. Returns true if the
 // previous call matching the given `tool_call_id` was denied by policy.
-bool was_prev_call_denied(const std::string& tool_call_id,
-                            const std::deque<Message>& history) {
-    if (tool_call_id.empty()) return false;
+bool was_prev_call_denied(const std::string& tool_call_id, const std::deque<Message>& history) {
+    if (tool_call_id.empty())
+        return false;
     return prev_call_outcome(tool_call_id, history) == "denied";
 }
 
@@ -59,29 +64,38 @@ bool was_prev_call_denied(const std::string& tool_call_id,
 // retries after the user extends permissions.
 // Returns a descriptive message string if duplicate, empty string if not.
 std::string find_duplicate_call(const std::string& fn, const json& args,
-                                  const std::deque<Message>& history,
-                                 const std::string& current_id) {
+                                const std::deque<Message>& history, const std::string& current_id) {
     std::string needle = call_key(fn, args);
     for (const auto& m : history) {
-        if (m.role != "assistant" || m.tool_calls.is_null()) continue;
+        if (m.role != "assistant" || m.tool_calls.is_null())
+            continue;
         bool is_current = false;
         for (const auto& tc : m.tool_calls)
-            if (tc.value("id", "") == current_id) { is_current = true; break; }
-        if (is_current) continue;
+            if (tc.value("id", "") == current_id) {
+                is_current = true;
+                break;
+            }
+        if (is_current)
+            continue;
         for (const auto& tc : m.tool_calls) {
             auto func = tc.value("function", json::object());
-            if (func.value("name", "") != fn) continue;
+            if (func.value("name", "") != fn)
+                continue;
             const json& raw = func.value("arguments", json::object());
             json stored_args;
             if (raw.is_string()) {
-                try { stored_args = json::parse(raw.get_ref<const std::string&>()); }
-                catch (...) { continue; }
+                try {
+                    stored_args = json::parse(raw.get_ref<const std::string&>());
+                } catch (...) {
+                    continue;
+                }
             } else if (raw.is_object()) {
                 stored_args = raw;
             } else {
                 continue;
             }
-            if (call_key(fn, stored_args) != needle) continue;
+            if (call_key(fn, stored_args) != needle)
+                continue;
 
             // Skip if the previous call was denied (user didn't approve it).
             // The agent may retry after the user extends permissions.
@@ -102,7 +116,8 @@ std::string find_duplicate_call(const std::string& fn, const json& args,
                         preview += it.key() + " ";
                 }
             }
-            if (preview.size() > 120) preview.resize(120);
+            if (preview.size() > 120)
+                preview.resize(120);
             std::string msg = "You already ran \"";
             msg += fn;
             msg += "\" with these exact parameters (";
@@ -119,28 +134,28 @@ std::string find_duplicate_call(const std::string& fn, const json& args,
     return {};
 }
 
-
 } // namespace
 
 // Gate one tool call: apply the decision engine, and when the verdict is
 // Prompt, consult the host hook and record the outcome against the scope.
 // Returns true when the call may run. With no host hook the call is denied
 // (fail-safe).
-bool approve_tool(const Tool& tool, const json& args, const Config& cfg,
-                  const AgentHooks& hooks,
-                  std::set<std::string>& session_approved,
-                  PolicyStore* policy) {
-    if (!hooks.on_approval) return false;   // fail-safe: no host, no approval
+bool approve_tool(const Tool& tool, const json& args, const Config& cfg, const AgentHooks& hooks,
+                  std::set<std::string>& session_approved, PolicyStore* policy) {
+    if (!hooks.on_approval)
+        return false; // fail-safe: no host, no approval
     if (!policy) {
         // No policy store: fall back to the legacy whole-tool dialog.
         std::string summary = tool.summarize(args);
         Approval d = hooks.on_approval(tool.name(), args, summary);
-        if (d == Approval::AllowSession) session_approved.insert(tool.name());
+        if (d == Approval::AllowSession)
+            session_approved.insert(tool.name());
         return d == Approval::AllowOnce || d == Approval::AllowSession ||
                d == Approval::AlwaysAllow;
     }
     Decision dec = decide_approval(cfg, tool, args, *policy);
-    if (dec.v != Verdict::Prompt) return dec.v == Verdict::Allow;
+    if (dec.v != Verdict::Prompt)
+        return dec.v == Verdict::Allow;
 
     const std::string& scope = dec.scope_id;
     std::string summary = tool.summarize(args);
@@ -170,34 +185,34 @@ bool approve_tool(const Tool& tool, const json& args, const Config& cfg,
     return false; // Deny
 }
 
-bool dispatch_tool_calls(const json& calls, const Config& cfg,
-                         ToolRegistry& registry, const AgentHooks& hooks,
-                         ConversationLog& log,
-                         std::set<std::string>& session_approved,
-                         PolicyStore* policy,
-                         EventBus* events,
-                         Context* context) {
+bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& registry,
+                         const AgentHooks& hooks, ConversationLog& log,
+                         std::set<std::string>& session_approved, PolicyStore* policy,
+                         EventBus* events, Context* context) {
     struct Call {
         std::string id, fn;
         json args;
         bool args_ok = true;
-        std::shared_ptr<Tool> tool;  // lease: alive across concurrent unregister
+        std::shared_ptr<Tool> tool; // lease: alive across concurrent unregister
         bool approved = false;
-        bool intercepted = false;    // an event interceptor blocked this call
+        bool intercepted = false; // an event interceptor blocked this call
         std::string denied_reason;
     };
     // Tool events are optional: no bus attached means every publish below is
     // skipped, and dispatch pays nothing for the plugin surface.
     const auto publish = [events](auto& event) {
-        if (events) Events(*events).publish(event);
+        if (events)
+            Events(*events).publish(event);
     };
     std::vector<Call> todo;
 
     for (const auto& call : calls) {
         Call c;
         parse_tool_call(call, c.id, c.fn, c.args, c.args_ok);
-        if (hooks.on_tool_call) hooks.on_tool_call(c.fn, c.args);
-        if (hooks.on_debug) hooks.on_debug("tool_call: " + c.fn);
+        if (hooks.on_tool_call)
+            hooks.on_tool_call(c.fn, c.args);
+        if (hooks.on_debug)
+            hooks.on_debug("tool_call: " + c.fn);
         log.event("tool_call", {{"name", c.fn}, {"id", c.id}, {"args", c.args}});
 
         // An interceptor sees every requested call before the approval gate:
@@ -211,22 +226,20 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
             if (requested.cancel) {
                 c.intercepted = true;
                 c.denied_reason = "denied by interceptor: " + c.fn;
-                log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
-                                          {"reason", "interceptor"}});
+                log.event("tool_denied", {{"name", c.fn}, {"id", c.id}, {"reason", "interceptor"}});
             } else if (c.args_ok) {
                 c.args = requested.args;
             }
         }
 
-        c.tool = registry.find(c.fn);  // shared lease: survives unregister mid-dispatch
+        c.tool = registry.find(c.fn); // shared lease: survives unregister mid-dispatch
         if (c.intercepted) {
             // Denial already recorded; the call still produces a result below.
         } else if (!c.tool) {
             c.denied_reason = "unknown tool: " + c.fn;
         } else if (cfg.mode == agent::AgentMode::Read && !c.tool->is_read_only()) {
             c.denied_reason = "tool \"" + c.fn + "\" is not available in read mode";
-            log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
-                                      {"reason", "read_mode"}});
+            log.event("tool_denied", {{"name", c.fn}, {"id", c.id}, {"reason", "read_mode"}});
         } else if (c.args_ok) {
             // Duplicate detection: skip when disabled (/set detection duplicate off).
             std::string dup;
@@ -242,27 +255,20 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
                 Decision dec = decide_approval(cfg, *c.tool, c.args, *policy);
                 bool approved = dec.v == Verdict::Allow;
                 if (dec.v == Verdict::Prompt)
-                    approved = approve_tool(*c.tool, c.args, cfg, hooks,
-                                            session_approved, policy);
+                    approved = approve_tool(*c.tool, c.args, cfg, hooks, session_approved, policy);
                 if (!approved) {
-                    c.denied_reason =
-                        "denied by user: " + c.fn + " was not approved.";
-                    log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
-                                              {"args", c.args}});
+                    c.denied_reason = "denied by user: " + c.fn + " was not approved.";
+                    log.event("tool_denied", {{"name", c.fn}, {"id", c.id}, {"args", c.args}});
                 } else {
                     c.approved = true;
                 }
-            } else if (cfg.mode == agent::AgentMode::Yolo ||
-                       !c.tool->requires_approval(c.args) ||
+            } else if (cfg.mode == agent::AgentMode::Yolo || !c.tool->requires_approval(c.args) ||
                        (hooks.on_approval &&
-                        approve_tool(*c.tool, c.args, cfg, hooks,
-                                     session_approved, policy))) {
+                        approve_tool(*c.tool, c.args, cfg, hooks, session_approved, policy))) {
                 c.approved = true;
             } else {
-                c.denied_reason =
-                    "denied by user: " + c.fn + " was not approved.";
-                log.event("tool_denied", {{"name", c.fn}, {"id", c.id},
-                                          {"args", c.args}});
+                c.denied_reason = "denied by user: " + c.fn + " was not approved.";
+                log.event("tool_denied", {{"name", c.fn}, {"id", c.id}, {"args", c.args}});
             }
         }
         todo.push_back(std::move(c));
@@ -278,40 +284,44 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
     const bool caller_in_subagent = in_subagent();
     std::vector<Pending> pending;
     for (size_t i = 0; i < todo.size(); ++i) {
-        if (!todo[i].approved) continue;
-        pending.push_back({i, std::async(std::launch::async,
-                                         [&todo, i, caller_in_subagent]() {
-            set_subagent_inherited(caller_in_subagent);
-            try { return todo[i].tool->execute(todo[i].args); }
-            catch (const std::exception& e) {
-                return ToolResult{false, "", std::string("tool threw: ") + e.what(), agent::json{}};
-            }
-        })});
+        if (!todo[i].approved)
+            continue;
+        pending.push_back({i, std::async(std::launch::async, [&todo, i, caller_in_subagent]() {
+                               set_subagent_inherited(caller_in_subagent);
+                               try {
+                                   return todo[i].tool->execute(todo[i].args);
+                               } catch (const std::exception& e) {
+                                   return ToolResult{false, "",
+                                                     std::string("tool threw: ") + e.what(),
+                                                     agent::json{}};
+                               }
+                           })});
     }
 
     bool all_ok = true;
 
     auto process_one = [&](const Call& c, ToolResult res) {
-        if (!res.ok) all_ok = false;
+        if (!res.ok)
+            all_ok = false;
         ToolCompletedEvent completed;
         completed.name = c.fn;
         completed.result = &res;
         publish(completed);
-        if (hooks.on_tool_result) hooks.on_tool_result(c.fn, res, c.args);
+        if (hooks.on_tool_result)
+            hooks.on_tool_result(c.fn, res, c.args);
         if (hooks.on_debug)
-            hooks.on_debug("tool_result: " + c.fn + " (" +
-                            (res.ok ? "ok" : "error") + ")");
-        log.event("tool_result", {{"name", c.fn}, {"id", c.id},
-                                    {"ok", res.ok},
-                                    {"output", res.ok ? res.output : res.error}});
+            hooks.on_debug("tool_result: " + c.fn + " (" + (res.ok ? "ok" : "error") + ")");
+        log.event("tool_result", {{"name", c.fn},
+                                  {"id", c.id},
+                                  {"ok", res.ok},
+                                  {"output", res.ok ? res.output : res.error}});
 
         json call_args = c.args;
         Message tool_msg;
         tool_msg.role = "tool";
         tool_msg.tool_call_id = c.id;
         tool_msg.name = c.fn;
-        tool_msg.content = utf8_sanitize(
-            format_tool_envelope(c.fn, call_args, res));
+        tool_msg.content = utf8_sanitize(format_tool_envelope(c.fn, call_args, res));
         context->push(std::move(tool_msg));
         MessageAddedEvent added;
         added.message = &context->get_all().back();
@@ -321,7 +331,8 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
 
     // Process non-approved calls immediately (no execution needed).
     for (auto& c : todo) {
-        if (c.approved) continue;
+        if (c.approved)
+            continue;
         ToolResult res;
         if (c.args_ok) {
             res.ok = false;
@@ -329,10 +340,10 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg,
             res.meta["denied"] = true;
         } else {
             res.ok = false;
-            std::string raw = c.args.is_string() ? c.args.get<std::string>()
-                                                   : c.args.dump();
+            std::string raw = c.args.is_string() ? c.args.get<std::string>() : c.args.dump();
             res.error = "tool call arguments were not valid JSON (truncated or "
-                        "malformed): " + raw.substr(0, 200);
+                        "malformed): " +
+                        raw.substr(0, 200);
         }
         process_one(c, std::move(res));
     }

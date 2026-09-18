@@ -6,7 +6,6 @@
 
 #include "textutil.h"
 
-
 namespace tui::md {
 
 // Lightweight heuristic source highlighter for fenced code. Returns RichLines
@@ -18,24 +17,27 @@ namespace tui::md {
 // blocks.)
 namespace {
 const char* kw[] = {
-    "auto","bool","break","case","catch","class","const","continue","default",
-    "delete","do","else","enum","explicit","export","extern","false","for",
-    "friend","if","inline","namespace","new","noexcept","nullptr","private",
-    "protected","public","return","sizeof","static","struct","switch","template",
-    "this","throw","true","try","typedef","typename","using","virtual","void",
-    "while","constexpr","constinit","requires","co_await","co_yield","await",
-    "async","fn","let","mut","pub","use","impl","match","def","lambda","import",
-    "from","as","with","yield","print","echo","local","function","then","fi",
-    "done","esac","select",nullptr};
+    "auto",     "bool",     "break",     "case",   "catch",     "class",     "const",    "continue",
+    "default",  "delete",   "do",        "else",   "enum",      "explicit",  "export",   "extern",
+    "false",    "for",      "friend",    "if",     "inline",    "namespace", "new",      "noexcept",
+    "nullptr",  "private",  "protected", "public", "return",    "sizeof",    "static",   "struct",
+    "switch",   "template", "this",      "throw",  "true",      "try",       "typedef",  "typename",
+    "using",    "virtual",  "void",      "while",  "constexpr", "constinit", "requires", "co_await",
+    "co_yield", "await",    "async",     "fn",     "let",       "mut",       "pub",      "use",
+    "impl",     "match",    "def",       "lambda", "import",    "from",      "as",       "with",
+    "yield",    "print",    "echo",      "local",  "function",  "then",      "fi",       "done",
+    "esac",     "select",   nullptr};
 
 bool is_kw(const std::string& w) {
     for (int k = 0; kw[k]; ++k)
-        if (w == kw[k]) return true;
+        if (w == kw[k])
+            return true;
     return false;
 }
 
 void hl_push(std::vector<rich::Run>& runs, const std::string& t, int p, bool b) {
-    if (!t.empty()) runs.push_back({t, p, b});
+    if (!t.empty())
+        runs.push_back({t, p, b});
 }
 
 std::vector<rich::Run> hl_runs(const std::string& line, int code_pair) {
@@ -55,21 +57,20 @@ std::vector<rich::Run> hl_runs(const std::string& line, int code_pair) {
             char q = c;
             size_t j = i + 1;
             while (j < n && line[j] != q) {
-                if (line[j] == '\\') j += 2;
-                else ++j;
+                if (line[j] == '\\')
+                    j += 2;
+                else
+                    ++j;
             }
-            hl_push(runs, line.substr(i, (j < n ? j - i + 1 : n - i)),
-                    P_MD_CODESTR, false);
+            hl_push(runs, line.substr(i, (j < n ? j - i + 1 : n - i)), P_MD_CODESTR, false);
             i = (j < n ? j + 1 : n);
             continue;
         }
         if (std::isdigit(static_cast<unsigned char>(c)) ||
-            (c == '.' && i + 1 < n &&
-             std::isdigit(static_cast<unsigned char>(line[i + 1])))) {
+            (c == '.' && i + 1 < n && std::isdigit(static_cast<unsigned char>(line[i + 1])))) {
             size_t j = i;
-            while (j < n &&
-                   (std::isalnum(static_cast<unsigned char>(line[j])) ||
-                    line[j] == '.' || line[j] == 'x' || line[j] == '_'))
+            while (j < n && (std::isalnum(static_cast<unsigned char>(line[j])) || line[j] == '.' ||
+                             line[j] == 'x' || line[j] == '_'))
                 ++j;
             hl_push(runs, line.substr(i, j - i), P_MD_CODENUM, false);
             i = j;
@@ -77,39 +78,41 @@ std::vector<rich::Run> hl_runs(const std::string& line, int code_pair) {
         }
         if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
             size_t j = i;
-            while (j < n &&
-                   (std::isalnum(static_cast<unsigned char>(line[j])) ||
-                    line[j] == '_'))
+            while (j < n && (std::isalnum(static_cast<unsigned char>(line[j])) || line[j] == '_'))
                 ++j;
             std::string w = line.substr(i, j - i);
-            if (is_kw(w)) hl_push(runs, w, P_MD_CODEKEY, true);
-            else hl_push(runs, w, code_pair, false);
+            if (is_kw(w))
+                hl_push(runs, w, P_MD_CODEKEY, true);
+            else
+                hl_push(runs, w, code_pair, false);
             i = j;
             continue;
         }
         runs.push_back({std::string(1, c), code_pair, false});
         ++i;
     }
-    if (runs.empty()) runs.push_back({line, code_pair, false});
+    if (runs.empty())
+        runs.push_back({line, code_pair, false});
     return runs;
 }
 } // namespace
 
-std::vector<rich::Line> highlight(const std::string& code,
-                                 const std::string& /*lang*/, int code_pair) {
+std::vector<rich::Line> highlight(const std::string& code, const std::string& /*lang*/,
+                                  int code_pair) {
     std::vector<rich::Line> out;
     std::istringstream iss(code);
     std::string ln;
     while (std::getline(iss, ln)) {
-        if (!ln.empty() && ln.back() == '\r') ln.pop_back();
+        if (!ln.empty() && ln.back() == '\r')
+            ln.pop_back();
         rich::Line l;
         l.is_code = true;
         l.runs = hl_runs(ln, code_pair);
         out.push_back(l);
     }
-    if (out.empty()) out.push_back(rich::Line{});
+    if (out.empty())
+        out.push_back(rich::Line{});
     return out;
 }
 
 } // namespace tui::md
-

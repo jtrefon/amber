@@ -11,8 +11,7 @@ namespace tui {
 // human-readable reason. This is the single path-confinement authority for
 // all TUI slash commands and @-reference expansion — no TUI code should
 // build paths via string concatenation with the workspace root.
-bool confine_path(const std::string& input, std::string& resolved,
-                  std::string& err);
+bool confine_path(const std::string& input, std::string& resolved, std::string& err);
 
 } // namespace tui
 

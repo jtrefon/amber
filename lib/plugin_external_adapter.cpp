@@ -4,7 +4,8 @@
 
 namespace agent {
 
-ExternalPluginAdapter::ExternalPluginAdapter(PluginManager& manager, std::string plugin_id, std::string version)
+ExternalPluginAdapter::ExternalPluginAdapter(PluginManager& manager, std::string plugin_id,
+                                             std::string version)
     : manager_(&manager), id_(std::move(plugin_id)), version_(std::move(version)) {}
 
 bool ExternalPluginAdapter::initialize(const PluginContext& ctx) {

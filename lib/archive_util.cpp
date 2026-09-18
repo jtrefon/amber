@@ -19,7 +19,8 @@ size_t download_write_cb(void* ptr, size_t size, size_t nmemb, void* user) {
 
 std::string run_capture(const std::string& cmd) {
     FILE* p = popen(cmd.c_str(), "r");
-    if (!p) return "";
+    if (!p)
+        return "";
     std::string out;
     std::array<char, 512> buf{};
     while (fgets(buf.data(), static_cast<int>(buf.size()), p))
@@ -37,8 +38,7 @@ std::string fetch_bytes(const std::string& source, std::string& err) {
             err = "cannot read file: " + source;
             return "";
         }
-        std::string body((std::istreambuf_iterator<char>(f)),
-                         std::istreambuf_iterator<char>());
+        std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         return body;
     }
     std::string body;
@@ -72,8 +72,7 @@ std::string list_tar_gz(const std::string& archive_path) {
     return run_capture("tar -tzf " + archive_path + " 2>&1");
 }
 
-std::string unpack_tar_gz(const std::string& archive_path,
-                          const std::string& dest) {
+std::string unpack_tar_gz(const std::string& archive_path, const std::string& dest) {
     return run_capture("tar -xzf " + archive_path + " -C " + dest + " 2>&1");
 }
 

@@ -21,8 +21,7 @@ public:
     bool dispatch(const std::string& action, const std::string& arg) const;
 
 private:
-    std::map<std::string, std::function<void(const std::string&)>>
-        handlers_;
+    std::map<std::string, std::function<void(const std::string&)>> handlers_;
 };
 
 } // namespace tui

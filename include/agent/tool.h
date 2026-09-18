@@ -13,9 +13,9 @@ using json = nlohmann::json;
 // agent loop can relay failures back to the model without crashing.
 struct ToolResult {
     bool ok = true;
-    std::string output;   // human/model readable payload
-    std::string error;    // populated when ok == false
-    json meta = nullptr;  // structured metadata (lines, exit, duration, etc.)
+    std::string output;  // human/model readable payload
+    std::string error;   // populated when ok == false
+    json meta = nullptr; // structured metadata (lines, exit, duration, etc.)
 };
 
 // A tool advertised to the LLM. The schema field is the JSON object placed
@@ -50,9 +50,7 @@ public:
     // A short, human-readable summary of what this specific invocation will do,
     // shown in approval prompts (e.g. the command line for a shell tool).
     // Defaults to the tool name; override to surface the concrete action.
-    virtual std::string summarize(const json& /*arguments*/) const {
-        return name();
-    }
+    virtual std::string summarize(const json& /*arguments*/) const { return name(); }
 
     // Execute with the arguments supplied by the model.
     virtual ToolResult execute(const json& arguments) const = 0;

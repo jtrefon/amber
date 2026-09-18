@@ -24,16 +24,12 @@ class StdioTransport : public McpTransport {
 public:
     // Spawns `command` immediately. On spawn failure the transport is dead;
     // failure_reason() reports the error and every call fails fast.
-    StdioTransport(std::string command, std::vector<std::string> args,
-                   std::string cwd,
-                   std::function<void(const McpMessage&)> on_server_message =
-                       {},
-                   int request_timeout_ms = 60000,
-                   const CancellationToken* cancel_token = nullptr);
+    StdioTransport(std::string command, std::vector<std::string> args, std::string cwd,
+                   std::function<void(const McpMessage&)> on_server_message = {},
+                   int request_timeout_ms = 60000, const CancellationToken* cancel_token = nullptr);
     ~StdioTransport() override;
 
-    McpTransportResult request(int id, const std::string& method,
-                               const json& params) override;
+    McpTransportResult request(int id, const std::string& method, const json& params) override;
     bool notify(const std::string& method, const json& params) override;
     bool respond(int id, const json& result) override;
     bool respond_error(int id, const McpError& error) override;
@@ -59,7 +55,7 @@ private:
     int stderr_fd_ = -1;
 
     std::atomic<bool> closed_{false};
-    std::once_flag shutdown_once_;   // single teardown across concurrent calls
+    std::once_flag shutdown_once_; // single teardown across concurrent calls
     mutable std::mutex mtx_;
     std::condition_variable cv_;
     std::map<int, McpMessage> pending_;

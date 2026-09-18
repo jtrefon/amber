@@ -23,7 +23,8 @@ std::string normalize(const fs::path& p) {
 
 std::string ensure_root() {
     std::string& r = root_storage();
-    if (!r.empty()) return r;
+    if (!r.empty())
+        return r;
     if (const char* env = std::getenv("AMBER_WORKSPACE"); env && *env) {
         r = normalize(fs::absolute(fs::path(env)));
     } else {
@@ -37,15 +38,19 @@ std::string ensure_root() {
 // True if `child` is `base` or a descendant of it, comparing normalized,
 // slash-terminated prefixes so "/work/foo2" is not considered inside "/work/foo".
 bool is_within(const std::string& base, const std::string& child) {
-    if (child == base) return true;
+    if (child == base)
+        return true;
     std::string b = base;
-    if (b.empty() || b.back() != '/') b += '/';
+    if (b.empty() || b.back() != '/')
+        b += '/';
     return child.compare(0, b.size(), b) == 0;
 }
 
 } // namespace
 
-std::string Workspace::root() { return ensure_root(); }
+std::string Workspace::root() {
+    return ensure_root();
+}
 
 void Workspace::set_root(const std::string& path) {
     root_storage() = normalize(fs::absolute(fs::path(path)));
@@ -58,8 +63,7 @@ std::string Workspace::local_dir() {
     return dir;
 }
 
-bool Workspace::confine(const std::string& path, std::string& resolved,
-                        std::string& error) {
+bool Workspace::confine(const std::string& path, std::string& resolved, std::string& error) {
     if (path.empty()) {
         error = "empty path";
         return false;
@@ -83,7 +87,8 @@ bool Workspace::confine(const std::string& path, std::string& resolved,
     // lexical comparison against it would reject every in-workspace path.
     std::error_code ec;
     fs::path canon_base = fs::weakly_canonical(fs::path(base), ec);
-    if (ec) canon_base = fs::path(base);   // root does not exist yet
+    if (ec)
+        canon_base = fs::path(base); // root does not exist yet
     const std::string cbase = canon_base.generic_string();
 
     // If the whole path exists, canonical() follows every component including
@@ -91,8 +96,7 @@ bool Workspace::confine(const std::string& path, std::string& resolved,
     fs::path canon_full = fs::canonical(abs, ec);
     if (!ec) {
         if (!is_within(cbase, canon_full.generic_string())) {
-            error = "path resolves outside workspace root (" + base +
-                    "): " + path;
+            error = "path resolves outside workspace root (" + base + "): " + path;
             return false;
         }
         resolved = norm;
@@ -106,7 +110,8 @@ bool Workspace::confine(const std::string& path, std::string& resolved,
         std::error_code lec;
         if (fs::is_symlink(fs::symlink_status(abs, lec))) {
             error = "path is a symlink whose target does not exist; "
-                    "refusing: " + path;
+                    "refusing: " +
+                    path;
             return false;
         }
     }
@@ -129,8 +134,7 @@ bool Workspace::confine(const std::string& path, std::string& resolved,
         }
         // Anchor does not exist. Peel its last component and resolve the next
         // existing ancestor, but never climb above the root itself.
-        if (anchor == fs::path(base) ||
-            anchor.parent_path() == fs::path(base) ||
+        if (anchor == fs::path(base) || anchor.parent_path() == fs::path(base) ||
             anchor == anchor.root_path()) {
             // The root itself does not exist (or does not resolve), so no
             // symlink can be hiding in it yet — the lexical result stands.
@@ -146,7 +150,8 @@ std::string Workspace::relative(const std::string& path) {
     if (path.compare(0, base.size(), base) == 0 &&
         (path.size() == base.size() || path[base.size()] == '/')) {
         std::string rel = path.substr(base.size());
-        if (!rel.empty() && rel[0] == '/') rel.erase(0, 1);
+        if (!rel.empty() && rel[0] == '/')
+            rel.erase(0, 1);
         return rel.empty() ? "." : rel;
     }
     return path;

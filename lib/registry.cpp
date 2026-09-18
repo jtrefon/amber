@@ -7,7 +7,7 @@ namespace agent {
 
 namespace {
 
-constexpr const char* kRoleNames[] = {"other", "read", "write", "search",
+constexpr const char* kRoleNames[] = {"other",   "read", "write",   "search",
                                       "execute", "plan", "delegate"};
 
 } // namespace
@@ -19,7 +19,8 @@ std::string to_string(ToolRole role) {
 
 ToolRole parse_tool_role(const std::string& name) {
     for (std::size_t i = 0; i < std::size(kRoleNames); ++i) {
-        if (name == kRoleNames[i]) return static_cast<ToolRole>(i);
+        if (name == kRoleNames[i])
+            return static_cast<ToolRole>(i);
     }
     return ToolRole::Other;
 }
