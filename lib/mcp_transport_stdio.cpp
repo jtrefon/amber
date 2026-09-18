@@ -18,36 +18,31 @@ constexpr int kSigtermGraceMs = 3000;
 constexpr int kSigkillGraceMs = 5000;
 
 bool reap(pid_t pid, int ms) {
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     while (true) {
         int st = 0;
         pid_t r = waitpid(pid, &st, WNOHANG);
-        if (r == pid) return true;
-        if (r < 0 && errno == ECHILD) return true;
-        if (std::chrono::steady_clock::now() >= deadline) return false;
+        if (r == pid)
+            return true;
+        if (r < 0 && errno == ECHILD)
+            return true;
+        if (std::chrono::steady_clock::now() >= deadline)
+            return false;
         usleep(10 * 1000);
     }
 }
 
 } // namespace
 
-StdioTransport::StdioTransport(std::string command,
-                               std::vector<std::string> args,
-                               std::string cwd,
-                               std::function<void(const McpMessage&)>
-                                   on_server_message,
-                               int request_timeout_ms,
-                               const CancellationToken* cancel_token)
-    : McpTransport(std::move(on_server_message)),
-      command_(std::move(command)),
-      args_(std::move(args)),
-      cwd_(std::move(cwd)),
+StdioTransport::StdioTransport(std::string command, std::vector<std::string> args, std::string cwd,
+                               std::function<void(const McpMessage&)> on_server_message,
+                               int request_timeout_ms, const CancellationToken* cancel_token)
+    : McpTransport(std::move(on_server_message)), command_(std::move(command)),
+      args_(std::move(args)), cwd_(std::move(cwd)),
       request_timeout_ms_(request_timeout_ms > 0 ? request_timeout_ms : 60000),
       cancel_token_(cancel_token) {
     std::string err;
-    pid_ = spawn_mcp_server(command_, args_, cwd_, stdin_fd_, stdout_fd_,
-                            stderr_fd_, err);
+    pid_ = spawn_mcp_server(command_, args_, cwd_, stdin_fd_, stdout_fd_, stderr_fd_, err);
     if (pid_ <= 0) {
         failure_ = "mcp spawn failed: " + err;
         return;
@@ -58,10 +53,11 @@ StdioTransport::StdioTransport(std::string command,
     stderr_thread_ = std::thread(&StdioTransport::stderr_loop, this);
 }
 
-StdioTransport::~StdioTransport() { StdioTransport::shutdown(); }
+StdioTransport::~StdioTransport() {
+    StdioTransport::shutdown();
+}
 
-McpTransportResult StdioTransport::request(int id, const std::string& method,
-                                           const json& params) {
+McpTransportResult StdioTransport::request(int id, const std::string& method, const json& params) {
     McpRequest req;
     req.id = id;
     req.method = method;
@@ -73,8 +69,8 @@ McpTransportResult StdioTransport::request(int id, const std::string& method,
     }
 
     std::unique_lock<std::mutex> lk(mtx_);
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(request_timeout_ms_);
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(request_timeout_ms_);
     bool answered = false;
     while (true) {
         bool pred = closed_.load() || pending_.count(id) > 0 ||
@@ -83,13 +79,14 @@ McpTransportResult StdioTransport::request(int id, const std::string& method,
             answered = true;
             break;
         }
-        if (std::chrono::steady_clock::now() >= deadline) break;
+        if (std::chrono::steady_clock::now() >= deadline)
+            break;
         cv_.wait_for(lk, std::chrono::milliseconds(50));
     }
     McpTransportResult r;
     if (!answered) {
-        r.status = closed_.load() ? McpTransportStatus::TransportError
-                                  : McpTransportStatus::Timeout;
+        r.status =
+            closed_.load() ? McpTransportStatus::TransportError : McpTransportStatus::Timeout;
         return r;
     }
     if (cancel_token_ && cancel_token_->is_requested()) {
@@ -122,41 +119,44 @@ void StdioTransport::shutdown() {
     // Concurrent shutdown() calls (UI thread / agent thread) must not join or
     // close twice — one teardown, everyone waits.
     std::call_once(shutdown_once_, [this]() {
-    bool was_closed = closed_.exchange(true);
-    if (!was_closed) {
-        {
-            std::scoped_lock lk(mtx_);
-            failure_ = failure_.empty() ? "transport closed" : failure_;
-        }
-        cv_.notify_all();
-        if (pid_ > 0) {
-            if (stdin_fd_ >= 0) {
-                close(stdin_fd_);
-                stdin_fd_ = -1;
+        bool was_closed = closed_.exchange(true);
+        if (!was_closed) {
+            {
+                std::scoped_lock lk(mtx_);
+                failure_ = failure_.empty() ? "transport closed" : failure_;
             }
-            terminate_child();
+            cv_.notify_all();
+            if (pid_ > 0) {
+                if (stdin_fd_ >= 0) {
+                    close(stdin_fd_);
+                    stdin_fd_ = -1;
+                }
+                terminate_child();
+            }
         }
-    }
-    // The reader threads poll their fds and exit within one poll interval of
-    // closed_; only AFTER they have joined is it safe to close stdout/stderr
-    // — closing them earlier could recycle an fd number while a thread is
-    // still blocked on it (garbage from an unrelated fd).
-    if (stdout_thread_.joinable()) stdout_thread_.join();
-    if (stderr_thread_.joinable()) stderr_thread_.join();
-    if (stdout_fd_ >= 0) {
-        close(stdout_fd_);
-        stdout_fd_ = -1;
-    }
-    if (stderr_fd_ >= 0) {
-        close(stderr_fd_);
-        stderr_fd_ = -1;
-    }
+        // The reader threads poll their fds and exit within one poll interval of
+        // closed_; only AFTER they have joined is it safe to close stdout/stderr
+        // — closing them earlier could recycle an fd number while a thread is
+        // still blocked on it (garbage from an unrelated fd).
+        if (stdout_thread_.joinable())
+            stdout_thread_.join();
+        if (stderr_thread_.joinable())
+            stderr_thread_.join();
+        if (stdout_fd_ >= 0) {
+            close(stdout_fd_);
+            stdout_fd_ = -1;
+        }
+        if (stderr_fd_ >= 0) {
+            close(stderr_fd_);
+            stderr_fd_ = -1;
+        }
     });
 }
 
 std::string StdioTransport::failure_reason() const {
     std::scoped_lock lk(mtx_);
-    if (failure_.empty()) return "";
+    if (failure_.empty())
+        return "";
     return failure_ + (stderr_tail_.empty() ? "" : "\n" + stderr_tail_);
 }
 
@@ -166,13 +166,19 @@ void StdioTransport::stdout_loop() {
     while (!closed_.load()) {
         // Poll with a short timeout instead of blocking in read(): shutdown
         // must never close this fd while a thread is blocked on it.
-        struct pollfd pfd{stdout_fd_, POLLIN, 0};
+        struct pollfd pfd {
+            stdout_fd_, POLLIN, 0
+        };
         int pr = poll(&pfd, 1, 100);
-        if (pr < 0) break;
-        if (pr == 0) continue;  // timeout — re-check closed_
-        if (!(pfd.revents & POLLIN)) break;
+        if (pr < 0)
+            break;
+        if (pr == 0)
+            continue; // timeout — re-check closed_
+        if (!(pfd.revents & POLLIN))
+            break;
         ssize_t n = read(stdout_fd_, tmp, sizeof tmp);
-        if (n <= 0) break;
+        if (n <= 0)
+            break;
         buf.append(tmp, static_cast<size_t>(n));
         size_t pos;
         while ((pos = buf.find('\n')) != std::string::npos) {
@@ -185,7 +191,8 @@ void StdioTransport::stdout_loop() {
             return;
         }
     }
-    if (!closed_.load()) fail("mcp server closed its output");
+    if (!closed_.load())
+        fail("mcp server closed its output");
 }
 
 void StdioTransport::stderr_loop() {
@@ -194,13 +201,19 @@ void StdioTransport::stderr_loop() {
     while (!closed_.load()) {
         // Poll with a short timeout instead of blocking in read(): shutdown
         // must never close this fd while a thread is blocked on it.
-        struct pollfd pfd{stderr_fd_, POLLIN, 0};
+        struct pollfd pfd {
+            stderr_fd_, POLLIN, 0
+        };
         int pr = poll(&pfd, 1, 100);
-        if (pr < 0) break;
-        if (pr == 0) continue;  // timeout — re-check closed_
-        if (!(pfd.revents & POLLIN)) break;
+        if (pr < 0)
+            break;
+        if (pr == 0)
+            continue; // timeout — re-check closed_
+        if (!(pfd.revents & POLLIN))
+            break;
         ssize_t n = read(stderr_fd_, tmp, sizeof tmp);
-        if (n <= 0) break;
+        if (n <= 0)
+            break;
         tail.append(tmp, static_cast<size_t>(n));
         if (tail.size() > kStderrTailCap)
             tail.erase(0, tail.size() - kStderrTailCap);
@@ -222,18 +235,21 @@ void StdioTransport::handle_line(const std::string& line) {
         cv_.notify_all();
         return;
     }
-    if (on_server_message_) on_server_message_(*msg);
+    if (on_server_message_)
+        on_server_message_(*msg);
 }
 
 bool StdioTransport::write_line(const std::string& line) {
-    if (closed_.load() || stdin_fd_ < 0) return false;
+    if (closed_.load() || stdin_fd_ < 0)
+        return false;
     std::string out = line;
     out += "\n";
     size_t off = 0;
     while (off < out.size()) {
         ssize_t n = write(stdin_fd_, out.data() + off, out.size() - off);
         if (n < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR)
+                continue;
             return false;
         }
         off += static_cast<size_t>(n);
@@ -242,10 +258,13 @@ bool StdioTransport::write_line(const std::string& line) {
 }
 
 void StdioTransport::terminate_child() const {
-    if (pid_ <= 0) return;
-    if (reap(pid_, kEofGraceMs)) return;
+    if (pid_ <= 0)
+        return;
+    if (reap(pid_, kEofGraceMs))
+        return;
     kill(-pid_, SIGTERM);
-    if (reap(pid_, kSigtermGraceMs)) return;
+    if (reap(pid_, kSigtermGraceMs))
+        return;
     kill(-pid_, SIGKILL);
     reap(pid_, kSigkillGraceMs);
 }
@@ -253,11 +272,14 @@ void StdioTransport::terminate_child() const {
 void StdioTransport::fail(const std::string& reason) {
     {
         std::scoped_lock lk(mtx_);
-        if (failure_.empty()) failure_ = reason;
+        if (failure_.empty())
+            failure_ = reason;
     }
     cv_.notify_all();
-    if (closed_.exchange(true)) return;
-    if (pid_ > 0) terminate_child();
+    if (closed_.exchange(true))
+        return;
+    if (pid_ > 0)
+        terminate_child();
     // No fd closes here: stderr_fd_ stays open until shutdown has joined the
     // reader thread (closing it while stderr_loop may be blocked on it would
     // race — see shutdown).

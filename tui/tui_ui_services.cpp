@@ -41,11 +41,13 @@ bool TuiUiServices::confirm(const agent::ConfirmSpec& spec) {
 }
 
 void TuiUiServices::notify(agent::UiLevel level, const std::string& message) {
-    if (notify_) notify_(level, message);
+    if (notify_)
+        notify_(level, message);
 }
 
 void TuiUiServices::post_to_ui(std::function<void()> work) {
-    if (post_) post_(std::move(work));
+    if (post_)
+        post_(std::move(work));
 }
 
 } // namespace tui

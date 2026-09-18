@@ -33,8 +33,8 @@ public:
 
     static size_t utf8_len(const std::string& s, size_t i);
     static std::vector<std::string> wrap_text(const std::string& text, int w);
-    static void append_rich_to(std::vector<rich::Line>& view,
-                               const std::string& text, int color, int w);
+    static void append_rich_to(std::vector<rich::Line>& view, const std::string& text, int color,
+                               int w);
     void append_rich_to(Window& w, const rich::Line& l);
 
     void draw();
@@ -63,8 +63,12 @@ public:
     void mark_dirty() noexcept { dirty_ = true; }
     void clear_dirty() noexcept { dirty_ = false; }
     void flush() const { doupdate(); }
-    std::chrono::steady_clock::time_point last_status_tick() const noexcept { return last_status_tick_; }
-    void set_last_status_tick(std::chrono::steady_clock::time_point t) noexcept { last_status_tick_ = t; }
+    std::chrono::steady_clock::time_point last_status_tick() const noexcept {
+        return last_status_tick_;
+    }
+    void set_last_status_tick(std::chrono::steady_clock::time_point t) noexcept {
+        last_status_tick_ = t;
+    }
     bool drawer_open() const noexcept { return drawer_open_; }
     void set_drawer_open(bool v) noexcept { drawer_open_ = v; }
     int drawer_sel() const noexcept { return drawer_sel_; }

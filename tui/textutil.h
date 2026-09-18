@@ -17,8 +17,7 @@ namespace text {
 // integer/double in [min, max]. Returns nullopt for garbage, empty input,
 // trailing junk, or out-of-range values — setters must never throw on input.
 std::optional<int> parse_setting_int(const std::string& v, int min, int max);
-std::optional<double> parse_setting_double(const std::string& v, double min,
-                                           double max);
+std::optional<double> parse_setting_double(const std::string& v, double min, double max);
 
 // Byte length of the UTF-8 sequence starting at index i. A truncated or invalid
 // sequence is treated as a single byte so callers always make progress.
@@ -71,31 +70,30 @@ const char* check();
 // Cross used for tool-result failure indicators.
 const char* cross();
 
-    // Animated spinner frame (round ball). Frames cycle mod 4; the ASCII
-    // fallback cycles |/-\ on non-UTF-8 terminals.
-    const char* spinner_round(int frame);
+// Animated spinner frame (round ball). Frames cycle mod 4; the ASCII
+// fallback cycles |/-\ on non-UTF-8 terminals.
+const char* spinner_round(int frame);
 
-    // Table box-drawing characters. Each returns the UTF-8 glyph when the
-    // terminal supports it, or an ASCII fallback otherwise.
-    const char* vbar();        // vertical bar  (│ or |)
-    const char* hbar();        // horizontal bar (─ or -)
-    const char* tee_left();    // left T       (├ or +)
-    const char* tee_right();   // right T      (┤ or +)
-    const char* tbl_cross();   // table cross  (┼ or +)
-    const char* top_left();    // top-left corner (┌ or +)
-    const char* top_right();   // top-right corner (┐ or +)
-    const char* bottom_left(); // bottom-left corner (└ or +)
-    const char* bottom_right();// bottom-right corner (┘ or +)
-    const char* top_tee();     // top T (┬ or +)
-    const char* bottom_tee();  // bottom T (┴ or +)
+// Table box-drawing characters. Each returns the UTF-8 glyph when the
+// terminal supports it, or an ASCII fallback otherwise.
+const char* vbar();         // vertical bar  (│ or |)
+const char* hbar();         // horizontal bar (─ or -)
+const char* tee_left();     // left T       (├ or +)
+const char* tee_right();    // right T      (┤ or +)
+const char* tbl_cross();    // table cross  (┼ or +)
+const char* top_left();     // top-left corner (┌ or +)
+const char* top_right();    // top-right corner (┐ or +)
+const char* bottom_left();  // bottom-left corner (└ or +)
+const char* bottom_right(); // bottom-right corner (┘ or +)
+const char* top_tee();      // top T (┬ or +)
+const char* bottom_tee();   // bottom T (┴ or +)
 
 } // namespace glyph
 
 // Build the git-aware decorated prompt string.
 // Project is the folder basename, branch is git branch, ins/del from diff.
 // Returns e.g. "┌ project branch +3/-1 ❯ " or ASCII fallback.
-std::string git_prompt(const std::string& project, const std::string& branch,
-                       int ins, int del);
+std::string git_prompt(const std::string& project, const std::string& branch, int ins, int del);
 
 // Convert a display-column offset to a byte offset in a UTF-8 string.
 // Returns the byte position (npos if col exceeds the string's display width).

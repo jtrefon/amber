@@ -18,17 +18,19 @@ const std::pair<std::string_view, std::string_view> kHttpScheme[] = {
 
 std::optional<std::string> http_scheme(const std::string& s) {
     for (const auto& [from, to] : kHttpScheme)
-        if (s == from) return std::string(to);
+        if (s == from)
+            return std::string(to);
     return std::nullopt;
 }
 
-}  // namespace
+} // namespace
 
 bool Url::parse(const std::string& in, Url& out) {
     size_t sep = in.find("://");
-    if (sep == std::string::npos || sep == 0) return false;
+    if (sep == std::string::npos || sep == 0)
+        return false;
     out.scheme = in.substr(0, sep);
-    std::string rest = in.substr(sep + 3);  // host[:port][/path]
+    std::string rest = in.substr(sep + 3); // host[:port][/path]
 
     size_t slash = rest.find('/');
     std::string hostport = (slash == std::string::npos) ? rest : rest.substr(0, slash);
@@ -51,8 +53,9 @@ std::string Url::authority() const {
 
 std::string Url::toHttpBase() const {
     auto s = http_scheme(scheme);
-    if (!s) return "";
+    if (!s)
+        return "";
     return *s + "://" + authority();
 }
 
-}  // namespace cdp
+} // namespace cdp

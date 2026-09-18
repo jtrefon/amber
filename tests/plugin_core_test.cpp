@@ -12,8 +12,7 @@ namespace {
 
 class StubPlugin : public IPlugin {
 public:
-    StubPlugin(std::string id, std::string ver)
-        : id_(std::move(id)), version_(std::move(ver)) {}
+    StubPlugin(std::string id, std::string ver) : id_(std::move(id)), version_(std::move(ver)) {}
 
     std::string id() const override { return id_; }
     std::string version() const override { return version_; }
@@ -197,5 +196,3 @@ TEST(plugin_registry_activate_requires_context) {
     ASSERT(reg.state("act") != PluginRegistry::State::Active);
     ASSERT_FALSE(plugin->initialized_);
 }
-
-

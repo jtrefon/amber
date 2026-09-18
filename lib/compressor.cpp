@@ -15,48 +15,47 @@ namespace agent {
 
 class DefaultCompressionGate : public CompressionGate {
 public:
-    explicit DefaultCompressionGate(const CompressionConfig& cfg)
-        : cfg_(cfg) {}
+    explicit DefaultCompressionGate(const CompressionConfig& cfg) : cfg_(cfg) {}
 
-    bool should_compress(const Context& context,
-                         const Config& agent_cfg) const override {
-        if (is_within_cooldown(agent_cfg.turn_counter)) return false;
-        if (!threshold_exceeded(context, agent_cfg)) return false;
-        if (!sufficient_turns(context)) return false;
+    bool should_compress(const Context& context, const Config& agent_cfg) const override {
+        if (is_within_cooldown(agent_cfg.turn_counter))
+            return false;
+        if (!threshold_exceeded(context, agent_cfg))
+            return false;
+        if (!sufficient_turns(context))
+            return false;
         return true;
     }
 
-    void set_last_compress_turn(size_t turn) override {
-        last_compress_turn_ = turn;
-    }
+    void set_last_compress_turn(size_t turn) override { last_compress_turn_ = turn; }
 
     void set_threshold(double t) override {
-        if (t > 0.0) cfg_.threshold = t;
+        if (t > 0.0)
+            cfg_.threshold = t;
     }
 
     void set_min_turns(int n) override { cfg_.min_turns = n; }
 
     // Last decision inputs, for the host's gate-fire debug log.
-    void last_decision(double& tokens, double& budget,
-                       double& threshold) const override {
+    void last_decision(double& tokens, double& budget, double& threshold) const override {
         tokens = last_tokens_;
         budget = last_budget_;
         threshold = last_threshold_;
     }
 
 private:
-    bool threshold_exceeded(const Context& context,
-                            const Config& agent_cfg) const {
+    bool threshold_exceeded(const Context& context, const Config& agent_cfg) const {
         // The budget is the window the model actually has: the active
         // model's probed context or an explicit config, clamped by anything
         // the server taught us via an overflow rejection. An unknown window
         // disables auto-compression — the gate never guesses (no arbitrary
         // fallback budget); /compress and the 400-overflow learner cover it.
         auto budget = static_cast<double>(agent_cfg.context_size);
-        if (budget <= 0) return false;
+        if (budget <= 0)
+            return false;
         double tokens = agent_cfg.prompt_tokens_used > 0
-            ? static_cast<double>(agent_cfg.prompt_tokens_used)
-            : static_cast<double>(context.token_count());
+                            ? static_cast<double>(agent_cfg.prompt_tokens_used)
+                            : static_cast<double>(context.token_count());
         last_tokens_ = tokens;
         last_budget_ = budget;
         last_threshold_ = cfg_.threshold;
@@ -76,8 +75,7 @@ private:
         // compression, normal cooldown applies.
         if (last_compress_turn_ == 0)
             return current_turn == 0 && cfg_.cooldown_turns > 0;
-        return (current_turn - last_compress_turn_) <
-               static_cast<size_t>(cfg_.cooldown_turns);
+        return (current_turn - last_compress_turn_) < static_cast<size_t>(cfg_.cooldown_turns);
     }
 
     CompressionConfig cfg_;
@@ -91,8 +89,7 @@ private:
 // CompressionReporter  —  bridges pipeline events to AgentHooks
 // =========================================================================
 
-CompressionReporter::CompressionReporter(const AgentHooks& hooks,
-                                         CompressionResult& result,
+CompressionReporter::CompressionReporter(const AgentHooks& hooks, CompressionResult& result,
                                          std::function<void()> progress)
     : hooks_(hooks), r_(result), progress_(std::move(progress)) {}
 
@@ -117,8 +114,7 @@ void CompressionReporter::on_progress(size_t tokens, size_t msgs) {
     // Emitted as the working set shrinks (collapse/prune/apply). Keep it a
     // compact status line so the host's context gauge can tick downward
     // without spamming the scrollback.
-    log("  ... " + std::to_string(msgs) + " msgs, ~"
-        + std::to_string(tokens) + " tok remain");
+    log("  ... " + std::to_string(msgs) + " msgs, ~" + std::to_string(tokens) + " tok remain");
     pump();
 }
 
@@ -136,26 +132,30 @@ void CompressionReporter::on_parse_result(const CompressionResponse& cr) {
     size_t core = 0, prune = 0, ctx = 0;
     for (const auto& seg : cr.segments) {
         switch (seg.tag) {
-            case Classification::core:    ++core; break;
-            case Classification::prune:   ++prune; break;
-            case Classification::context: ++ctx; break;
+        case Classification::core:
+            ++core;
+            break;
+        case Classification::prune:
+            ++prune;
+            break;
+        case Classification::context:
+            ++ctx;
+            break;
         }
     }
-    std::string seg_info = std::to_string(cr.segments.size()) + " segments"
-        + " (" + std::to_string(core) + " core, "
-        + std::to_string(prune) + " prune, "
-        + std::to_string(ctx) + " archive)";
-    log("parsed " + seg_info
-        + ", " + std::to_string(cr.memory_ops.size()) + " mem ops"
-        + ", " + std::to_string(cr.skill_ops.size()) + " skill ops");
+    std::string seg_info = std::to_string(cr.segments.size()) + " segments" + " (" +
+                           std::to_string(core) + " core, " + std::to_string(prune) + " prune, " +
+                           std::to_string(ctx) + " archive)";
+    log("parsed " + seg_info + ", " + std::to_string(cr.memory_ops.size()) + " mem ops" + ", " +
+        std::to_string(cr.skill_ops.size()) + " skill ops");
 
     // Show each memory/skill op that was extracted
     for (const auto& m : cr.memory_ops)
-        log("  [mem] " + m.action + " \"" + m.name + "\""
-            + (m.content.empty() ? "" : ": " + m.content.substr(0, 100)));
+        log("  [mem] " + m.action + " \"" + m.name + "\"" +
+            (m.content.empty() ? "" : ": " + m.content.substr(0, 100)));
     for (const auto& s : cr.skill_ops)
-        log("  [skill] " + s.action + " \"" + s.name + "\""
-            + (s.content.empty() ? "" : ": " + s.content.substr(0, 100)));
+        log("  [skill] " + s.action + " \"" + s.name + "\"" +
+            (s.content.empty() ? "" : ": " + s.content.substr(0, 100)));
     pump();
 }
 
@@ -170,17 +170,17 @@ void CompressionReporter::on_error(const std::string& msg) {
 }
 
 void CompressionReporter::on_compress_done(const CompressionResult& final) {
-    auto elapsed = std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - t0_).count();
+    auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0_).count();
     r_.messages_after = final.messages_after;
     r_.tokens_after = final.tokens_after;
     std::string detail;
     if (r_.messages_before > r_.messages_after)
         detail += std::to_string(r_.messages_before - r_.messages_after) + " msgs removed";
     if (r_.tokens_before > r_.tokens_after) {
-        if (!detail.empty()) detail += ", ";
-        detail += std::to_string(r_.tokens_before) + " → "
-                  + std::to_string(r_.tokens_after) + " tok";
+        if (!detail.empty())
+            detail += ", ";
+        detail +=
+            std::to_string(r_.tokens_before) + " → " + std::to_string(r_.tokens_after) + " tok";
     }
     if (detail.empty())
         detail = std::to_string(r_.tokens_after) + " tok";
@@ -188,11 +188,13 @@ void CompressionReporter::on_compress_done(const CompressionResult& final) {
 }
 
 void CompressionReporter::log(const std::string& msg) {
-    if (hooks_.on_status) hooks_.on_status(msg);
+    if (hooks_.on_status)
+        hooks_.on_status(msg);
 }
 
 void CompressionReporter::pump() {
-    if (progress_) progress_();
+    if (progress_)
+        progress_();
 }
 
 namespace {
@@ -201,15 +203,14 @@ namespace {
 // previous compression (re-compression updates its archive).
 bool has_compressed_context(const std::vector<Message>& msgs) {
     for (const auto& m : msgs)
-        if (m.content.compare(0, sizeof(kCompressedContextPrefix) - 1,
-                              kCompressedContextPrefix) == 0)
+        if (m.content.compare(0, sizeof(kCompressedContextPrefix) - 1, kCompressedContextPrefix) ==
+            0)
             return true;
     return false;
 }
 
 // Append one message to a request vector (classify/extract tails).
-std::vector<Message> append_message(std::vector<Message> base,
-                                    Message m) {
+std::vector<Message> append_message(std::vector<Message> base, Message m) {
     base.push_back(std::move(m));
     return base;
 }
@@ -222,12 +223,9 @@ std::vector<Message> append_message(std::vector<Message> base,
 
 class CompressionPipeline : public CompressionStrategy {
 public:
-    std::vector<Message> compress(
-        Context& context,
-        const CompressionConfig& cfg,
-        LLMClient& client,
-        CompressionObserver* observer,
-        CompressionResponse* response_out) override {
+    std::vector<Message> compress(Context& context, const CompressionConfig& cfg, LLMClient& client,
+                                  CompressionObserver* observer,
+                                  CompressionResponse* response_out) override {
 
         // Pristine snapshot: the spec's atomicity invariant — any classify
         // failure returns the ORIGINAL history untouched. The context is
@@ -249,7 +247,8 @@ public:
         collapse_loops(copy);
         if (observer) {
             size_t removed = pre_loop - copy.size();
-            if (removed > 0) observer->on_loop_collapse(removed);
+            if (removed > 0)
+                observer->on_loop_collapse(removed);
             observer->on_progress(estimate_tokens(copy), copy.size());
         }
         prune_tool_io(copy, &cfg);
@@ -260,7 +259,8 @@ public:
         // models it is by far the largest token class (a 262k window can be
         // 80%+ reasoning), so dropping it on compression is the single biggest
         // reduction and loses nothing the model needs to continue.
-        for (auto& m : copy) m.reasoning.clear();
+        for (auto& m : copy)
+            m.reasoning.clear();
 
         if (observer)
             observer->on_progress(estimate_tokens(copy), copy.size());
@@ -278,17 +278,19 @@ public:
         CompressionResponse cr;
         Message class_reply;
         {
-            Message class_req =
-                build_classify_request(has_compressed_context(copy));
+            Message class_req = build_classify_request(has_compressed_context(copy));
             auto request = append_message(copy, class_req);
 
-            if (observer) observer->on_llm_request_sent();
+            if (observer)
+                observer->on_llm_request_sent();
             try {
                 class_reply = client.chat(request, {});
             } catch (const std::exception& e) {
                 cr.error = std::string("LLM call failed: ") + e.what();
-                if (observer) observer->on_error(cr.error);
-                if (response_out) *response_out = std::move(cr);
+                if (observer)
+                    observer->on_error(cr.error);
+                if (response_out)
+                    *response_out = std::move(cr);
                 return original;
             }
 
@@ -296,25 +298,26 @@ public:
             cr = parse_compression_response(class_reply.content);
             if (cr.segments.empty()) {
                 cr.error = "unparseable compression response";
-                if (observer) observer->on_error(cr.error);
-                if (response_out) *response_out = std::move(cr);
+                if (observer)
+                    observer->on_error(cr.error);
+                if (response_out)
+                    *response_out = std::move(cr);
                 return original;
             }
 
-            if (observer) observer->on_parse_result(cr);
+            if (observer)
+                observer->on_parse_result(cr);
             copy = apply_classification(copy, cr, &cfg);
 
             // Enforce the post-compression target budget (context_size *
             // target_pct / 100): archive older core messages until the output
             // fits the target — the real lever for aggressive compression.
-            copy = enforce_target_budget(std::move(copy),
-                                         static_cast<size_t>(cfg.context_size),
-                                         cfg);
+            copy =
+                enforce_target_budget(std::move(copy), static_cast<size_t>(cfg.context_size), cfg);
 
             // Enforce headroom: leave at least 25% free (final safety net;
             // normally already satisfied by the target budget).
-            copy = enforce_headroom(std::move(copy),
-                                    static_cast<size_t>(cfg.context_size));
+            copy = enforce_headroom(std::move(copy), static_cast<size_t>(cfg.context_size));
 
             if (observer) {
                 observer->on_apply_result({});
@@ -330,8 +333,7 @@ public:
         // the classification above", and the classify prompt + its response
         // are replayed before the extract prompt.
         {
-            Message class_req =
-                build_classify_request(has_compressed_context(classify_prefix));
+            Message class_req = build_classify_request(has_compressed_context(classify_prefix));
             Message ext_req = build_extract_request();
             auto request = append_message(classify_prefix, class_req);
             Message stored_reply;
@@ -340,14 +342,16 @@ public:
             request = append_message(std::move(request), std::move(stored_reply));
             request = append_message(std::move(request), ext_req);
 
-            if (observer) observer->on_llm_request_sent();
+            if (observer)
+                observer->on_llm_request_sent();
             Message ext_reply;
             try {
                 ext_reply = client.chat(request, {});
             } catch (const std::exception&) {
                 // Extraction failure is non-fatal — classification result used
                 // (spec CP-08: degraded but safe).
-                if (response_out) *response_out = std::move(cr);
+                if (response_out)
+                    *response_out = std::move(cr);
                 return copy;
             }
 
@@ -356,22 +360,22 @@ public:
             CompressionResponse er = parse_compression_response(ext_reply.content);
             cr.memory_ops = std::move(er.memory_ops);
             cr.skill_ops = std::move(er.skill_ops);
-            if (er.brief) cr.brief = std::move(er.brief);
+            if (er.brief)
+                cr.brief = std::move(er.brief);
         }
 
-        if (response_out) *response_out = std::move(cr);
+        if (response_out)
+            *response_out = std::move(cr);
         return copy;
     }
 };
 
-std::unique_ptr<CompressionStrategy> make_compressor(
-    const CompressionConfig& cfg) {
+std::unique_ptr<CompressionStrategy> make_compressor(const CompressionConfig& cfg) {
     (void)cfg;
     return std::make_unique<CompressionPipeline>();
 }
 
-std::unique_ptr<CompressionGate> make_compression_gate(
-    const CompressionConfig& cfg) {
+std::unique_ptr<CompressionGate> make_compression_gate(const CompressionConfig& cfg) {
     return std::make_unique<DefaultCompressionGate>(cfg);
 }
 

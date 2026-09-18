@@ -35,26 +35,33 @@ Panel::Panel(int h, int w, std::string title, std::vector<FooterKey> footer)
 }
 
 Panel::~Panel() {
-    if (panel_) del_panel(panel_);
-    if (shadow_panel_) del_panel(shadow_panel_);
-    if (content_win_) delwin(content_win_);
-    if (win_) delwin(win_);
-    if (shadow_win_) delwin(shadow_win_);
+    if (panel_)
+        del_panel(panel_);
+    if (shadow_panel_)
+        del_panel(shadow_panel_);
+    if (content_win_)
+        delwin(content_win_);
+    if (win_)
+        delwin(win_);
+    if (shadow_win_)
+        delwin(shadow_win_);
     update_panels();
     doupdate();
 }
 
 void Panel::draw_frame() {
-    if (!win_) return;
+    if (!win_)
+        return;
 
     // Border with ACS lines
-    wborder(win_, ACS_VLINE, ACS_VLINE, ACS_HLINE, ACS_HLINE,
-            ACS_ULCORNER, ACS_URCORNER, ACS_LLCORNER, ACS_LRCORNER);
+    wborder(win_, ACS_VLINE, ACS_VLINE, ACS_HLINE, ACS_HLINE, ACS_ULCORNER, ACS_URCORNER,
+            ACS_LLCORNER, ACS_LRCORNER);
 
     // Title in top border
     if (!title_.empty()) {
         int t = (w_ - static_cast<int>(title_.size())) / 2;
-        if (t < 2) t = 2;
+        if (t < 2)
+            t = 2;
         mvwaddch(win_, 0, t - 1, ACS_VLINE);
         // Erase the title area (overwrite the HLINEs)
         for (size_t i = 0; i < title_.size(); ++i)
@@ -92,16 +99,20 @@ void Panel::show() {
     // Show shadow first so it stays BENEATH the main window.
     // show_panel() places the panel on top of the stack; showing
     // the shadow before the window keeps the window on top.
-    if (shadow_panel_) show_panel(shadow_panel_);
-    if (panel_) show_panel(panel_);
+    if (shadow_panel_)
+        show_panel(shadow_panel_);
+    if (panel_)
+        show_panel(panel_);
     draw_frame();
     update_panels();
     doupdate();
 }
 
 void Panel::hide() {
-    if (panel_) hide_panel(panel_);
-    if (shadow_panel_) hide_panel(shadow_panel_);
+    if (panel_)
+        hide_panel(panel_);
+    if (shadow_panel_)
+        hide_panel(shadow_panel_);
     update_panels();
     doupdate();
 }

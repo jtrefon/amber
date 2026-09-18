@@ -24,17 +24,16 @@ TEST(mcp_client_connect_and_discover) {
     agent::MCPClient client("fixture", std::move(ft));
 
     raw->script.push_back(ok_result(init_result()));
+    raw->script.push_back(
+        ok_result({{"tools", json::array({{{"name", "get_issue"},
+                                           {"description", "d"},
+                                           {"inputSchema", {{"type", "object"}}}}})}}));
+    raw->script.push_back(
+        ok_result({{"resources", json::array({{{"uri", "doc://x"}, {"name", "x"}}})}}));
     raw->script.push_back(ok_result(
-        {{"tools", json::array({{{"name", "get_issue"},
-                                 {"description", "d"},
-                                 {"inputSchema", {{"type", "object"}}}}})}}));
-    raw->script.push_back(ok_result(
-        {{"resources", json::array({{{"uri", "doc://x"}, {"name", "x"}}})}}));
-    raw->script.push_back(ok_result(
-        {{"prompts", json::array({{{"name", "review"},
-                                   {"arguments", json::array(
-                                       {{{"name", "code"},
-                                         {"required", true}}})}}})}}));
+        {{"prompts",
+          json::array({{{"name", "review"},
+                        {"arguments", json::array({{{"name", "code"}, {"required", true}}})}}})}}));
 
     std::string err = client.connect();
     ASSERT_EQ(err, "");
@@ -70,11 +69,11 @@ TEST(mcp_client_call_tool_flattens_content) {
     ASSERT_EQ(client.connect(), "");
 
     raw->script.push_back(ok_result(
-        {{"content", json::array(
-             {{{"type", "text"}, {"text", "hello "}},
-              {{"type", "resource"},
-               {"resource", {{"uri", "doc://y"}, {"text", "world"}}}},
-              {{"type", "image"}, {"mimeType", "image/png"}, {"data", "abc"}}})}}));
+        {{"content",
+          json::array(
+              {{{"type", "text"}, {"text", "hello "}},
+               {{"type", "resource"}, {"resource", {{"uri", "doc://y"}, {"text", "world"}}}},
+               {{"type", "image"}, {"mimeType", "image/png"}, {"data", "abc"}}})}}));
     auto r = client.call_tool("get_issue", json::object());
     ASSERT(r.ok);
     ASSERT(r.text.find("hello ") != std::string::npos);
@@ -82,10 +81,8 @@ TEST(mcp_client_call_tool_flattens_content) {
     ASSERT(r.text.find("world") != std::string::npos);
     ASSERT(r.text.find("[image image/png, 3 bytes]") != std::string::npos);
 
-    raw->script.push_back(ok_result({{"isError", true},
-                                     {"content", json::array(
-                                         {{{"type", "text"},
-                                           {"text", "boom"}}})}}));
+    raw->script.push_back(ok_result(
+        {{"isError", true}, {"content", json::array({{{"type", "text"}, {"text", "boom"}}})}}));
     auto r2 = client.call_tool("get_issue", json::object());
     ASSERT_FALSE(r2.ok);
     ASSERT_EQ(r2.error, "boom");
@@ -99,20 +96,18 @@ TEST(mcp_client_read_resource_and_prompt) {
     script_connect(*raw);
     ASSERT_EQ(client.connect(), "");
 
-    raw->script.push_back(ok_result(
-        {{"contents", json::array(
-             {{{"uri", "doc://arch"}, {"mimeType", "text/plain"},
-               {"text", "the architecture"}}})}}));
+    raw->script.push_back(ok_result({{"contents", json::array({{{"uri", "doc://arch"},
+                                                                {"mimeType", "text/plain"},
+                                                                {"text", "the architecture"}}})}}));
     auto res = client.read_resource("doc://arch");
     ASSERT(res.ok);
     ASSERT(res.text.find("the architecture") != std::string::npos);
 
     raw->script.push_back(ok_result(
-        {{"messages", json::array(
-             {{{"role", "user"},
-               {"content", {{"type", "text"}, {"text", "review this"}}}},
-              {{"role", "assistant"},
-               {"content", {{"type", "text"}, {"text", "done"}}}}})}}));
+        {{"messages",
+          json::array(
+              {{{"role", "user"}, {"content", {{"type", "text"}, {"text", "review this"}}}},
+               {{"role", "assistant"}, {"content", {{"type", "text"}, {"text", "done"}}}}})}}));
     auto p = client.get_prompt("review", {{"code", "x"}});
     ASSERT(p.ok);
     ASSERT(p.text.find("user: review this") != std::string::npos);
@@ -125,18 +120,17 @@ TEST(mcp_client_discovery_pagination) {
     FakeTransport* raw = ft.get();
     agent::MCPClient client("fixture", std::move(ft));
     raw->script.push_back(ok_result(init_result()));
-    raw->script.push_back(ok_result(
-        {{"tools", json::array({{{"name", "t1"}}})},
-         {"nextCursor", "p2"}}));
-    raw->script.push_back(ok_result(
-        {{"tools", json::array({{{"name", "t2"}}})}}));
+    raw->script.push_back(
+        ok_result({{"tools", json::array({{{"name", "t1"}}})}, {"nextCursor", "p2"}}));
+    raw->script.push_back(ok_result({{"tools", json::array({{{"name", "t2"}}})}}));
     raw->script.push_back(ok_result({{"resources", json::array()}}));
     raw->script.push_back(ok_result({{"prompts", json::array()}}));
     ASSERT_EQ(client.connect(), "");
     ASSERT_EQ(client.tools().size(), 2u);
     int list_calls = 0;
     for (const auto& m : raw->methods)
-        if (m == "tools/list") ++list_calls;
+        if (m == "tools/list")
+            ++list_calls;
     ASSERT_EQ(list_calls, 2);
 }
 
@@ -177,7 +171,8 @@ TEST(mcp_client_listchanged_refreshes) {
     ASSERT(r.ok);
     int list_calls = 0;
     for (const auto& m : raw->methods)
-        if (m == "tools/list") ++list_calls;
+        if (m == "tools/list")
+            ++list_calls;
     ASSERT_EQ(list_calls, 2);
 }
 
@@ -192,13 +187,14 @@ TEST(mcp_client_session_expired_retries) {
     agent::McpTransportResult expired;
     expired.status = agent::McpTransportStatus::SessionExpired;
     raw->script.push_back(std::move(expired));
-    script_connect(*raw);  // re-initialize + discovery
+    script_connect(*raw); // re-initialize + discovery
     raw->script.push_back(ok_result({{"content", json::array()}}));
     auto r = client.call_tool("get_issue", json::object());
     ASSERT(r.ok);
     int init_calls = 0;
     for (const auto& m : raw->methods)
-        if (m == "initialize") ++init_calls;
+        if (m == "initialize")
+            ++init_calls;
     ASSERT_EQ(init_calls, 2);
 }
 
@@ -231,9 +227,8 @@ TEST(mcp_client_unknown_tool_error) {
 // Flattening caps at the byte budget with an explicit truncation marker.
 TEST(mcp_client_flatten_cap) {
     std::string big(70000, 'x');
-    json content = json::array({{{ "type", "text"}, {"text", big}}});
-    std::string flat = agent::mcp_flatten_content(
-        content, static_cast<size_t>(64) * 1024);
+    json content = json::array({{{"type", "text"}, {"text", big}}});
+    std::string flat = agent::mcp_flatten_content(content, static_cast<size_t>(64) * 1024);
     ASSERT(flat.find("[truncated:") != std::string::npos);
     ASSERT(flat.size() <= (static_cast<size_t>(64) * 1024) + 64);
 }
@@ -254,16 +249,13 @@ TEST(mcp_client_cancel_pre_request) {
         ASSERT(m != "tools/call");
 }
 
-
 // [MS-06] A hung stdio call is interrupted promptly by the shared token.
 TEST(mcp_client_cancel_interrupts_hung_call) {
     agent::CancellationToken token;
     std::string pidfile = "/tmp/mcp_cancel_pid.txt";
     unlink(pidfile.c_str());
-    agent::StdioTransport t(
-        "tests/fixtures/mcp_ignore_sigterm",
-        std::vector<std::string>{pidfile},
-        ".", nullptr, 10000, &token);
+    agent::StdioTransport t("tests/fixtures/mcp_ignore_sigterm", std::vector<std::string>{pidfile},
+                            ".", nullptr, 10000, &token);
     std::thread canceller([&]() {
         usleep(100 * 1000);
         token.request();

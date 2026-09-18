@@ -13,9 +13,11 @@ namespace {
 std::string run_cmd(const std::string& cmd) {
     FILE* pipe = popen(cmd.c_str(), "r");
     std::string out;
-    if (!pipe) return out;
+    if (!pipe)
+        return out;
     char buf[256];
-    while (fgets(buf, sizeof buf, pipe)) out += buf;
+    while (fgets(buf, sizeof buf, pipe))
+        out += buf;
     pclose(pipe);
     return out;
 }
@@ -25,8 +27,7 @@ void write_file(const std::string& path, const std::string& contents) {
     f << contents;
 }
 
-void write_skill(const std::string& dir, const std::string& name,
-                 const std::string& frontmatter) {
+void write_skill(const std::string& dir, const std::string& name, const std::string& frontmatter) {
     run_cmd("mkdir -p " + dir + "/" + name);
     write_file(dir + "/" + name + "/SKILL.md", frontmatter);
 }
@@ -36,13 +37,12 @@ void write_skill(const std::string& dir, const std::string& name,
 // SF-01: valid frontmatter parses name/description; body is everything after
 // the closing ---.
 TEST(skill_parse_basic_frontmatter) {
-    std::string doc =
-        "---\n"
-        "name: deploy\n"
-        "description: Deploy the app\n"
-        "---\n"
-        "## Instructions\n"
-        "Run make deploy.\n";
+    std::string doc = "---\n"
+                      "name: deploy\n"
+                      "description: Deploy the app\n"
+                      "---\n"
+                      "## Instructions\n"
+                      "Run make deploy.\n";
     auto meta = agent::parse_skill_meta(doc);
     ASSERT(meta.has_value());
     ASSERT_EQ(meta->name, "deploy");
@@ -52,14 +52,13 @@ TEST(skill_parse_basic_frontmatter) {
 
 // SF-02: '>' folded values are joined onto one line.
 TEST(skill_parse_folded_description) {
-    std::string doc =
-        "---\n"
-        "name: fold-me\n"
-        "description: >\n"
-        "  First line\n"
-        "  Second line\n"
-        "---\n"
-        "body\n";
+    std::string doc = "---\n"
+                      "name: fold-me\n"
+                      "description: >\n"
+                      "  First line\n"
+                      "  Second line\n"
+                      "---\n"
+                      "body\n";
     auto meta = agent::parse_skill_meta(doc);
     ASSERT(meta.has_value());
     ASSERT_EQ(meta->description, "First line Second line");
@@ -68,15 +67,14 @@ TEST(skill_parse_folded_description) {
 // SF-07: metadata subkeys collect into a JSON object; unknown top-level keys
 // are ignored (forward compatibility).
 TEST(skill_parse_metadata_and_unknown_keys) {
-    std::string doc =
-        "---\n"
-        "name: x\n"
-        "description: d\n"
-        "metadata:\n"
-        "  author: someone\n"
-        "  version: 3\n"
-        "future_key: ignored\n"
-        "---\n";
+    std::string doc = "---\n"
+                      "name: x\n"
+                      "description: d\n"
+                      "metadata:\n"
+                      "  author: someone\n"
+                      "  version: 3\n"
+                      "future_key: ignored\n"
+                      "---\n";
     auto meta = agent::parse_skill_meta(doc);
     ASSERT(meta.has_value());
     ASSERT_EQ(meta->metadata.value("author", ""), "someone");
@@ -85,12 +83,11 @@ TEST(skill_parse_metadata_and_unknown_keys) {
 
 // SF-07: inline {k: v} metadata flow map also works.
 TEST(skill_parse_inline_flow_metadata) {
-    std::string doc =
-        "---\n"
-        "name: x\n"
-        "description: d\n"
-        "metadata: {author: alice, category: ops}\n"
-        "---\n";
+    std::string doc = "---\n"
+                      "name: x\n"
+                      "description: d\n"
+                      "metadata: {author: alice, category: ops}\n"
+                      "---\n";
     auto meta = agent::parse_skill_meta(doc);
     ASSERT(meta.has_value());
     ASSERT_EQ(meta->metadata.value("author", ""), "alice");
@@ -142,10 +139,8 @@ TEST(skill_scan_precedence_and_interop_gate) {
     run_cmd("rm -rf " + ws + " " + global);
     write_skill(ws + "/.amber/skills", "dup", "---\ndescription: project\n---\n");
     write_skill(global + "/skills", "dup", "---\ndescription: global\n---\n");
-    write_skill(global + "/skills", "global-only",
-                "---\ndescription: g\n---\n");
-    write_skill(ws + "/.claude/skills", "claude-skill",
-                "---\ndescription: c\n---\n");
+    write_skill(global + "/skills", "global-only", "---\ndescription: g\n---\n");
+    write_skill(ws + "/.claude/skills", "claude-skill", "---\ndescription: c\n---\n");
 
     agent::SkillScanPaths paths;
     paths.project = ws + "/.amber/skills";
@@ -165,7 +160,8 @@ TEST(skill_scan_precedence_and_interop_gate) {
     auto with_interop = agent::scan_skills(paths, true);
     ASSERT_EQ(with_interop.size(), 3u);
     for (const auto& f : with_interop) {
-        if (f.name == "dup") ASSERT(f.scope == agent::SkillScope::Project);
+        if (f.name == "dup")
+            ASSERT(f.scope == agent::SkillScope::Project);
         if (f.name == "claude-skill") {
             ASSERT(f.scope == agent::SkillScope::Interop);
         }

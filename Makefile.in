@@ -369,15 +369,17 @@ complexity:
 # must be clean, so enforcement ratchets in as code is edited.
 format-check:
 	@echo "clang-format --dry-run (full tree, informational)..."
-	@files=$$(find $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/include/agent $(SRC_DIR)/plugins $(SRC_DIR)/tests $(SRC_DIR)/bench -name '*.cpp' -o -name '*.h' | sort); \
+	@files=$$(find $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/include/agent $(SRC_DIR)/plugins $(SRC_DIR)/tests $(SRC_DIR)/bench -name '*.cpp' -o -name '*.h' | grep -v 'bench/scenarios/' | sort); \
 	clang-format --dry-run --Werror $$files 2>&1 | head -n 30; \
 	echo "  done (informational)"
 
 # Incremental format gate: clang-format --dry-run --Werror on the .cpp/.h
 # files changed since BASE. No C++ changes -> exits 0 immediately.
+# bench/scenarios/ is exempt both here and in format-check: fixture code the
+# benchmark agent edits and oracles score, not project style.
 format-check-changed:
 	@echo "clang-format (incremental, base=$(BASE))..."
-	@changed=$$(git diff --name-only $(BASE)...HEAD -- '*.cpp' '*.h' 2>/dev/null | grep -v third_party || true); \
+	@changed=$$(git diff --name-only $(BASE)...HEAD -- '*.cpp' '*.h' 2>/dev/null | grep -vE 'third_party|bench/scenarios' || true); \
 	if [ -z "$$changed" ]; then echo "  no C++ changes, skipping"; exit 0; fi; \
 	fail=0; \
 	for f in $$changed; do \

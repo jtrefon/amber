@@ -31,8 +31,7 @@ enum class EventType : std::uint8_t {
     Count, // sentinel: number of event types
 };
 
-inline constexpr std::size_t kEventTypeCount =
-    static_cast<std::size_t>(EventType::Count);
+inline constexpr std::size_t kEventTypeCount = static_cast<std::size_t>(EventType::Count);
 
 struct Event {
     EventType type;

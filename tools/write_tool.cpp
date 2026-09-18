@@ -31,22 +31,16 @@ public:
     json parameters_schema() const override {
         return {
             {"type", "object"},
-            {"properties", {
-                {"path", {{"type", "string"},
-                          {"description", "File to edit or create"}}},
-                {"edits", {{"type", "array"},
-                           {"description", "List of {old, new} edit objects"},
-                           {"items", {
-                               {"type", "object"},
-                               {"properties", {
-                                   {"old", {{"type", "string"}}},
-                                   {"new", {{"type", "string"}}}
-                               }},
-                               {"required", {"old", "new"}}
-                           }}}}
-            }},
-            {"required", {"path", "edits"}}
-        };
+            {"properties",
+             {{"path", {{"type", "string"}, {"description", "File to edit or create"}}},
+              {"edits",
+               {{"type", "array"},
+                {"description", "List of {old, new} edit objects"},
+                {"items",
+                 {{"type", "object"},
+                  {"properties", {{"old", {{"type", "string"}}}, {"new", {{"type", "string"}}}}},
+                  {"required", {"old", "new"}}}}}}}},
+            {"required", {"path", "edits"}}};
     }
 
     // Create/overwrite (any edit with old=="") is a state change the user
@@ -54,51 +48,58 @@ public:
     // workflow and run free in WRITE mode.
     bool requires_approval(const json& a) const noexcept override {
         try {
-            if (!a.contains("edits") || !a["edits"].is_array()) return true;
-            return std::any_of(a["edits"].begin(), a["edits"].end(),
-                               [](const json& e) -> bool {
-                                   auto it = e.find("old");
-                                   if (it == e.end()) return true;
-                                   const auto* s = it->get_ptr<const std::string*>();
-                                   return s != nullptr && s->empty();
-                               });
+            if (!a.contains("edits") || !a["edits"].is_array())
+                return true;
+            return std::any_of(a["edits"].begin(), a["edits"].end(), [](const json& e) -> bool {
+                auto it = e.find("old");
+                if (it == e.end())
+                    return true;
+                const auto* s = it->get_ptr<const std::string*>();
+                return s != nullptr && s->empty();
+            });
         } catch (...) {
-            return true;  // fail-safe: require approval on any error
+            return true; // fail-safe: require approval on any error
         }
     }
 
     ToolResult execute(const json& a) const override {
         ToolResult r;
         if (!a.contains("path") || !a["path"].is_string()) {
-            r.ok = false; r.error = "missing 'path'"; return r;
+            r.ok = false;
+            r.error = "missing 'path'";
+            return r;
         }
         if (!a.contains("edits") || !a["edits"].is_array() || a["edits"].empty()) {
-            r.ok = false; r.error = "missing non-empty 'edits'"; return r;
+            r.ok = false;
+            r.error = "missing non-empty 'edits'";
+            return r;
         }
         std::string requested = a["path"].get<std::string>();
         std::string path, cerr;
         if (!Workspace::confine(requested, path, cerr)) {
-            r.ok = false; r.error = cerr; return r;
+            r.ok = false;
+            r.error = cerr;
+            return r;
         }
 
         std::ifstream fin(path);
         std::string content = fin ? std::string((std::istreambuf_iterator<char>(fin)),
-                                                 std::istreambuf_iterator<char>()) : "";
+                                                std::istreambuf_iterator<char>())
+                                  : "";
 
         size_t applied = 0;
         for (const auto& e : a["edits"]) {
             std::string old_s = e.value("old", "");
             std::string new_s = e.value("new", "");
             if (old_s.empty()) {
-                content = new_s;            // full overwrite / create
+                content = new_s; // full overwrite / create
                 ++applied;
                 continue;
             }
             size_t pos = content.find(old_s);
             if (pos == std::string::npos) {
                 r.ok = false;
-                r.error = "edit " + std::to_string(applied) +
-                          " not applied: 'old' not found";
+                r.error = "edit " + std::to_string(applied) + " not applied: 'old' not found";
                 return r;
             }
             content.replace(pos, old_s.size(), new_s);
@@ -106,13 +107,17 @@ public:
         }
 
         std::ofstream fout(path, std::ios::trunc);
-        if (!fout) { r.ok = false; r.error = "cannot write: " + path; return r; }
+        if (!fout) {
+            r.ok = false;
+            r.error = "cannot write: " + path;
+            return r;
+        }
         fout << content;
         std::string rel = Workspace::relative(path);
         r.meta = {{"applied", applied}, {"path", rel}};
         r.output = "applied " + std::to_string(applied) + " edit(s) to " + rel;
         return r;
-     }
+    }
 };
 
 std::unique_ptr<Tool> make_write_tool() {

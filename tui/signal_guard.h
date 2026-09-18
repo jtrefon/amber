@@ -18,7 +18,8 @@ public:
         sig_ = sig;
     }
     bool consume() noexcept {
-        if (!flag_) return false;
+        if (!flag_)
+            return false;
         flag_ = 0;
         return true;
     }
@@ -36,15 +37,14 @@ private:
 // without endwin().
 class TerminalGuard {
 public:
-    void capture() noexcept {
-        valid_ = tcgetattr(STDIN_FILENO, &saved_) == 0;
-    }
+    void capture() noexcept { valid_ = tcgetattr(STDIN_FILENO, &saved_) == 0; }
     void restore() noexcept {
-        if (valid_) tcsetattr(STDIN_FILENO, TCSANOW, &saved_);
+        if (valid_)
+            tcsetattr(STDIN_FILENO, TCSANOW, &saved_);
     }
 
 private:
-    struct termios saved_{};
+    struct termios saved_ {};
     bool valid_ = false;
 };
 

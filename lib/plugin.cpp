@@ -35,12 +35,14 @@ constexpr int kCallTimeoutSec = 60;
 std::string config_base() {
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
         return xdg;
-    if (const char* home = std::getenv("HOME")) return std::string(home) + "/.config";
+    if (const char* home = std::getenv("HOME"))
+        return std::string(home) + "/.config";
     return "";
 }
 
 std::string home_dir() {
-    if (const char* h = std::getenv("HOME")) return h;
+    if (const char* h = std::getenv("HOME"))
+        return h;
     return "";
 }
 
@@ -70,8 +72,7 @@ bool is_executable(const std::string& p) {
 // Rejects absolute paths, parent traversal (..), and symlinks pointing
 // outside the plugin dir. A malicious manifest with main="../../bin/sh"
 // or a symlinked entry point must not execute arbitrary code.
-bool is_safe_main_path(const std::string& dir, const std::string& main,
-                       std::string& err) {
+bool is_safe_main_path(const std::string& dir, const std::string& main, std::string& err) {
     namespace fs = std::filesystem;
     if (!main.empty() && main[0] == '/') {
         err = "main must be a relative path, got absolute: " + main;
@@ -80,13 +81,20 @@ bool is_safe_main_path(const std::string& dir, const std::string& main,
     fs::path resolved = fs::path(dir) / main;
     std::error_code ec;
     fs::path canonical_dir = fs::canonical(dir, ec);
-    if (ec) { err = "cannot resolve plugin dir: " + ec.message(); return false; }
+    if (ec) {
+        err = "cannot resolve plugin dir: " + ec.message();
+        return false;
+    }
     fs::path canonical_main = fs::canonical(resolved, ec);
-    if (ec) { err = "cannot resolve main: " + ec.message(); return false; }
+    if (ec) {
+        err = "cannot resolve main: " + ec.message();
+        return false;
+    }
     // The canonical main path must be inside the canonical plugin dir.
     std::string dir_str = canonical_dir.string();
     std::string main_str = canonical_main.string();
-    if (dir_str.back() == '/') dir_str.pop_back();
+    if (dir_str.back() == '/')
+        dir_str.pop_back();
     if (main_str.find(dir_str) != 0 ||
         (main_str.size() > dir_str.size() && main_str[dir_str.size()] != '/') ||
         main_str == dir_str) {
@@ -105,10 +113,12 @@ bool is_safe_main_path(const std::string& dir, const std::string& main,
 std::vector<std::string> list_subdirs(const std::string& dir) {
     std::vector<std::string> out;
     DIR* d = opendir(dir.c_str());
-    if (!d) return out;
+    if (!d)
+        return out;
     struct dirent* e;
     while ((e = readdir(d))) {
-        if (e->d_name[0] == '.') continue;
+        if (e->d_name[0] == '.')
+            continue;
         std::string p = dir + "/" + e->d_name;
         struct stat st;
         if (stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
@@ -120,7 +130,8 @@ std::vector<std::string> list_subdirs(const std::string& dir) {
 
 std::string read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return "";
+    if (!f)
+        return "";
     std::ostringstream ss;
     ss << f.rdbuf();
     return ss.str();
@@ -132,8 +143,7 @@ std::string read_file(const std::string& path) {
 // Manifest
 // ---------------------------------------------------------------------------
 
-bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out,
-                                   std::string& err) {
+bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out, std::string& err) {
     std::string raw = read_file(dir + "/manifest.json");
     if (raw.empty()) {
         err = "manifest.json missing or unreadable";
@@ -145,9 +155,7 @@ bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out,
         return false;
     }
     auto str = [&](const char* key) {
-        return j.contains(key) && j[key].is_string()
-                   ? j[key].get<std::string>()
-                   : std::string();
+        return j.contains(key) && j[key].is_string() ? j[key].get<std::string>() : std::string();
     };
     out.id = str("id");
     out.name = str("name");
@@ -160,8 +168,7 @@ bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out,
     out.protocol_version = j.value("protocol_version", 0);
     out.completion = j.contains("completion") ? j["completion"] : json::object();
     out.tools = j.contains("tools") ? j["tools"] : json::array();
-    out.default_settings =
-        j.contains("settings") ? j["settings"] : json::object();
+    out.default_settings = j.contains("settings") ? j["settings"] : json::object();
 
     if (!is_plugin_id(out.id)) {
         err = "invalid id '" + out.id + "' (expected [a-z0-9_]+)";
@@ -182,7 +189,8 @@ bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out,
     }
     // Reject main paths that escape the plugin directory: absolute paths,
     // parent traversal, and symlinks pointing outside the plugin dir.
-    if (!is_safe_main_path(dir, out.main, err)) return false;
+    if (!is_safe_main_path(dir, out.main, err))
+        return false;
     return true;
 }
 
@@ -202,7 +210,8 @@ void PluginManager::discover(const std::vector<std::string>& dirs) {
             roots.emplace_back(home + "/.local/share/amber/plugins");
         }
         std::string ws = Workspace::root();
-        if (!ws.empty()) roots.emplace_back(ws + "/.amber/plugins");
+        if (!ws.empty())
+            roots.emplace_back(ws + "/.amber/plugins");
         roots.emplace_back("/usr/local/share/amber/plugins");
         roots.emplace_back("/usr/share/amber/plugins");
     }
@@ -210,11 +219,13 @@ void PluginManager::discover(const std::vector<std::string>& dirs) {
     for (const auto& root : roots) {
         for (const auto& dir : list_subdirs(root)) {
             std::string id = dir.substr(dir.find_last_of('/') + 1);
-            if (find(id)) continue;
+            if (find(id))
+                continue;
             // A plugin install carries a manifest; the v2 host keeps per-plugin
             // state (plugin.conf) under the same root, so a manifest-less
             // directory is state, not an install.
-            if (access((dir + "/manifest.json").c_str(), F_OK) != 0) continue;
+            if (access((dir + "/manifest.json").c_str(), F_OK) != 0)
+                continue;
             PluginInfo info;
             info.id = id;
             info.dir = dir;
@@ -237,28 +248,33 @@ void PluginManager::discover(const std::vector<std::string>& dirs) {
 
 const PluginInfo* PluginManager::find(const std::string& id) const {
     for (const auto& p : plugins_)
-        if (p.id == id) return &p;
+        if (p.id == id)
+            return &p;
     return nullptr;
 }
 
 PluginInfo* PluginManager::find(const std::string& id) {
     for (auto& p : plugins_)
-        if (p.id == id) return &p;
+        if (p.id == id)
+            return &p;
     return nullptr;
 }
 
 void PluginManager::load_state() {
     std::string raw = read_file(state_path());
-    if (raw.empty()) return;
+    if (raw.empty())
+        return;
     state_ = json::parse(raw, nullptr, false);
-    if (state_.is_discarded()) state_ = json::object();
+    if (state_.is_discarded())
+        state_ = json::object();
 }
 
 void PluginManager::save_state() {
     std::error_code ec;
     std::filesystem::create_directories(state_path().substr(0, state_path().find_last_of('/')), ec);
     std::ofstream f(state_path());
-    if (f) f << state_.dump(2);
+    if (f)
+        f << state_.dump(2);
 }
 
 // ---------------------------------------------------------------------------
@@ -275,15 +291,19 @@ void PluginManager::shutdown_session(Session& s) {
                 (void)wr;
             }
             for (int i = 0; i < 50; ++i) {
-                if (waitpid(s.pid, &status, WNOHANG) != 0) break;
+                if (waitpid(s.pid, &status, WNOHANG) != 0)
+                    break;
                 usleep(20000);
             }
-            if (waitpid(s.pid, &status, WNOHANG) == 0) kill(s.pid, SIGKILL);
+            if (waitpid(s.pid, &status, WNOHANG) == 0)
+                kill(s.pid, SIGKILL);
             waitpid(s.pid, &status, 0);
         }
     }
-    if (s.in_fd >= 0) close(s.in_fd);
-    if (s.out_fd >= 0) close(s.out_fd);
+    if (s.in_fd >= 0)
+        close(s.in_fd);
+    if (s.out_fd >= 0)
+        close(s.out_fd);
     s.pid = -1;
     s.in_fd = s.out_fd = -1;
 }
@@ -302,10 +322,12 @@ bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
     if (pid == 0) {
         dup2(to_child[0], STDIN_FILENO);
         dup2(from_child[1], STDOUT_FILENO);
-        close(to_child[0]); close(to_child[1]);
-        close(from_child[0]); close(from_child[1]);
-        execl((info.dir + "/" + info.manifest.main).c_str(),
-              info.manifest.main.c_str(), (char*)nullptr);
+        close(to_child[0]);
+        close(to_child[1]);
+        close(from_child[0]);
+        close(from_child[1]);
+        execl((info.dir + "/" + info.manifest.main).c_str(), info.manifest.main.c_str(),
+              (char*)nullptr);
         _exit(127);
     }
     close(to_child[0]);
@@ -333,7 +355,9 @@ bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
     char buf[4096];
     int timeout = kCallTimeoutSec * 1000;
     while (s.in_buf.find('\n') == std::string::npos) {
-        struct pollfd pfd{s.out_fd, POLLIN, 0};
+        struct pollfd pfd {
+            s.out_fd, POLLIN, 0
+        };
         int rc = poll(&pfd, 1, timeout);
         if (rc == 0) {
             info.error = "plugin initialize timed out";
@@ -357,8 +381,7 @@ bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
     std::string resp_line = s.in_buf.substr(0, nl);
     s.in_buf.erase(0, nl + 1);
     json resp = json::parse(resp_line, nullptr, false);
-    if (resp.is_discarded() || !resp.contains("result") ||
-        !resp["result"].value("ok", false)) {
+    if (resp.is_discarded() || !resp.contains("result") || !resp["result"].value("ok", false)) {
         info.error = "initialize rejected";
         shutdown_session(s);
         return false;
@@ -374,7 +397,8 @@ std::shared_ptr<PluginManager::Session> PluginManager::session(PluginInfo& info)
     {
         std::scoped_lock lk(sessions_mtx_);
         auto it = sessions_.find(info.id);
-        if (it != sessions_.end()) return it->second;
+        if (it != sessions_.end())
+            return it->second;
     }
     auto s = std::make_shared<Session>();
     spawn_and_handshake(info, *s);
@@ -396,8 +420,8 @@ namespace plugin_internal {
 
 class PluginTool : public Tool {
 public:
-    PluginTool(PluginManager* mgr, std::string id, std::string name,
-               std::string description, json schema)
+    PluginTool(PluginManager* mgr, std::string id, std::string name, std::string description,
+               json schema)
         : mgr_(mgr), id_(std::move(id)), name_(std::move(name)),
           description_(std::move(description)), schema_(std::move(schema)) {}
 
@@ -423,20 +447,22 @@ private:
 
 } // namespace plugin_internal
 
-ToolResult PluginManager::call_tool(const PluginInfo& info,
-                                    const std::string& name, const json& args) {
+ToolResult PluginManager::call_tool(const PluginInfo& info, const std::string& name,
+                                    const json& args) {
     PluginInfo* infos = nullptr;
     for (auto& p : plugins_)
-        if (p.id == info.id) infos = &p;
-    if (!infos) return {false, "", "plugin not found"};
+        if (p.id == info.id)
+            infos = &p;
+    if (!infos)
+        return {false, "", "plugin not found"};
     std::shared_ptr<Session> s = session(*infos);
-    if (s->pid < 0) return {false, "", "plugin not running: " + infos->error};
+    if (s->pid < 0)
+        return {false, "", "plugin not running: " + infos->error};
 
     std::scoped_lock lock(s->mtx);
     static std::atomic<long> next_id{2};
-    json req = {{"id", next_id++},
-                {"method", "tool.call"},
-                {"params", {{"name", name}, {"args", args}}}};
+    json req = {
+        {"id", next_id++}, {"method", "tool.call"}, {"params", {{"name", name}, {"args", args}}}};
     std::string line = req.dump() + "\n";
     if (write(s->in_fd, line.data(), line.size()) != (ssize_t)line.size())
         return {false, "", "plugin write failed (process died?)"};
@@ -444,14 +470,19 @@ ToolResult PluginManager::call_tool(const PluginInfo& info,
     // Wait for the response line with a deadline.
     int timeout = kCallTimeoutSec * 1000;
     while (s->in_buf.find('\n') == std::string::npos) {
-        struct pollfd pfd {s->out_fd, POLLIN, 0};
+        struct pollfd pfd {
+            s->out_fd, POLLIN, 0
+        };
         int rc = poll(&pfd, 1, timeout);
-        if (rc == 0) return {false, "", "plugin call timed out"};
-        if (rc < 0) return {false, "", "plugin poll failed"};
+        if (rc == 0)
+            return {false, "", "plugin call timed out"};
+        if (rc < 0)
+            return {false, "", "plugin poll failed"};
         char buf[4096];
         // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
         ssize_t n = read(s->out_fd, buf, sizeof buf);
-        if (n <= 0) return {false, "", "plugin exited during call"};
+        if (n <= 0)
+            return {false, "", "plugin exited during call"};
         s->in_buf.append(buf, (size_t)n);
     }
     size_t nl = s->in_buf.find('\n');
@@ -466,15 +497,19 @@ ToolResult PluginManager::call_tool(const PluginInfo& info,
     out.output = r.value("output", std::string());
     if (!out.ok && out.output.empty())
         out.output = r.value("error", std::string());
-    if (r.contains("meta")) out.meta = r["meta"];
+    if (r.contains("meta"))
+        out.meta = r["meta"];
     return out;
 }
 
 bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {
     PluginInfo* info = find(id);
-    if (!info) return false;
-    if (info->state == PluginState::Incompatible) return false;
-    if (info->state == PluginState::Enabled) return true;
+    if (!info)
+        return false;
+    if (info->state == PluginState::Incompatible)
+        return false;
+    if (info->state == PluginState::Enabled)
+        return true;
 
     std::shared_ptr<Session> s = session(*info);
     if (s->pid < 0) {
@@ -485,13 +520,12 @@ bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {
         if (!t.is_object() || !t.contains("name") || !t["name"].is_string())
             continue;
         std::string name = t["name"].get<std::string>();
-        std::string desc =
-            t.contains("description") && t["description"].is_string()
-                ? t["description"].get<std::string>()
-                : std::string();
+        std::string desc = t.contains("description") && t["description"].is_string()
+                               ? t["description"].get<std::string>()
+                               : std::string();
         json schema = t.contains("schema") ? t["schema"] : json::object();
-        reg.register_tool(std::make_unique<plugin_internal::PluginTool>(
-            this, id, name, desc, schema));
+        reg.register_tool(
+            std::make_unique<plugin_internal::PluginTool>(this, id, name, desc, schema));
     }
     info->state = PluginState::Enabled;
     state_[id]["enabled"] = true;
@@ -501,8 +535,10 @@ bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {
 
 bool PluginManager::disable(const std::string& id, ToolRegistry& reg) {
     PluginInfo* info = find(id);
-    if (!info) return false;
-    if (info->state == PluginState::Disabled) return true;
+    if (!info)
+        return false;
+    if (info->state == PluginState::Disabled)
+        return true;
     reg.unregister_tools_with_prefix("plugin_" + id + "_");
     std::shared_ptr<Session> session;
     {
@@ -529,10 +565,10 @@ bool PluginManager::disable(const std::string& id, ToolRegistry& reg) {
 // Settings
 // ---------------------------------------------------------------------------
 
-std::string PluginManager::get_setting(const std::string& id,
-                                       const std::string& key) const {
+std::string PluginManager::get_setting(const std::string& id, const std::string& key) const {
     const PluginInfo* info = find(id);
-    if (!info || !info->settings.contains(key)) return "";
+    if (!info || !info->settings.contains(key))
+        return "";
     const json& v = info->settings[key];
     return v.is_string() ? v.get<std::string>() : v.dump();
 }
@@ -540,7 +576,8 @@ std::string PluginManager::get_setting(const std::string& id,
 bool PluginManager::set_setting(const std::string& id, const std::string& key,
                                 const std::string& value) {
     PluginInfo* info = find(id);
-    if (!info) return false;
+    if (!info)
+        return false;
     if (info->manifest.default_settings.contains(key) &&
         info->manifest.default_settings[key].is_number())
         info->settings[key] = std::strtod(value.c_str(), nullptr);
@@ -561,10 +598,10 @@ bool PluginManager::set_setting(const std::string& id, const std::string& key,
 std::string PluginManager::install(const std::string& source) {
     std::string err;
     std::string archive = fetch_bytes(source, err);
-    if (archive.empty()) return err;
+    if (archive.empty())
+        return err;
 
-    std::string tmp = std::string("/tmp/amber-plugin-install-") +
-                      std::to_string(getpid());
+    std::string tmp = std::string("/tmp/amber-plugin-install-") + std::to_string(getpid());
     std::string tgz = tmp + ".tar.gz";
     std::error_code ec;
     std::filesystem::remove_all(tmp, ec);
@@ -576,7 +613,8 @@ std::string PluginManager::install(const std::string& source) {
     std::string list = list_tar_gz(tgz);
     if (list.find("manifest.json") == std::string::npos)
         return "archive does not contain manifest.json";
-    if (!unpack_tar_gz(tgz, tmp).empty()) return "cannot unpack archive";
+    if (!unpack_tar_gz(tgz, tmp).empty())
+        return "cannot unpack archive";
 
     // Manifest may live at the archive root or in a single top-level dir.
     std::string dir = tmp;
@@ -584,16 +622,16 @@ std::string PluginManager::install(const std::string& source) {
     std::string perr;
     if (!parse_manifest(dir, m, perr))
         dir = tmp + "/" + m.id;
-    if (!parse_manifest(dir, m, perr)) return perr;
+    if (!parse_manifest(dir, m, perr))
+        return perr;
     std::string dest = user_plugin_dir() + "/" + m.id;
     std::filesystem::remove_all(dest, ec);
     std::error_code ec2;
     std::filesystem::create_directories(dest, ec2);
     std::error_code ec3;
-    std::filesystem::copy(dir, dest,
-                          std::filesystem::copy_options::recursive,
-                          ec3);
-    if (ec3) return "cannot stage plugin: " + ec3.message();
+    std::filesystem::copy(dir, dest, std::filesystem::copy_options::recursive, ec3);
+    if (ec3)
+        return "cannot stage plugin: " + ec3.message();
     std::filesystem::remove_all(tmp, ec);
     std::filesystem::remove(tgz, ec);
     return "";
@@ -601,7 +639,8 @@ std::string PluginManager::install(const std::string& source) {
 
 std::string PluginManager::uninstall(const std::string& id) {
     PluginInfo* info = find(id);
-    if (!info) return "plugin not found: " + id;
+    if (!info)
+        return "plugin not found: " + id;
     std::string user_dir = user_plugin_dir() + "/" + id;
     if (info->dir != user_dir)
         return "refusing to uninstall system-shipped plugin";
@@ -619,7 +658,8 @@ std::string PluginManager::uninstall(const std::string& id) {
 std::string plugin_tools_advertisement(const ToolRegistry& reg) {
     std::string out;
     for (const std::shared_ptr<Tool>& tool : reg.snapshot_tools()) {
-        if (tool->name().rfind("plugin_", 0) != 0) continue;
+        if (tool->name().rfind("plugin_", 0) != 0)
+            continue;
         out += "- `" + tool->name() + "`: " + tool->description() + "\n";
     }
     return out.empty() ? out : "## Plugins\n" + out;

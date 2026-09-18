@@ -16,8 +16,7 @@ std::string list_tar_gz(const std::string& archive_path);
 
 // Extract a tar.gz archive into `dest`. Returns "" on success or a
 // human-readable error.
-std::string unpack_tar_gz(const std::string& archive_path,
-                          const std::string& dest);
+std::string unpack_tar_gz(const std::string& archive_path, const std::string& dest);
 
 } // namespace agent
 

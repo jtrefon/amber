@@ -15,9 +15,9 @@ namespace {
 // descriptions look identical and manufacture false ambiguity warnings.
 bool is_significant_word(const std::string& w) {
     static const std::set<std::string> kNoise = {
-        "a", "an", "and", "as", "at", "be", "by", "for", "from", "in", "into",
-        "is", "it", "of", "on", "or", "that", "the", "this", "to", "use",
-        "used", "using", "with", "you", "your"};
+        "a",    "an",   "and", "as",   "at",    "be",   "by",  "for",  "from",
+        "in",   "into", "is",  "it",   "of",    "on",   "or",  "that", "the",
+        "this", "to",   "use", "used", "using", "with", "you", "your"};
     return w.size() > 2 && kNoise.find(w) == kNoise.end();
 }
 
@@ -28,11 +28,13 @@ std::set<std::string> significant_words(const std::string& text) {
         if (std::isalnum(static_cast<unsigned char>(c))) {
             current += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         } else if (!current.empty()) {
-            if (is_significant_word(current)) words.insert(current);
+            if (is_significant_word(current))
+                words.insert(current);
             current.clear();
         }
     }
-    if (!current.empty() && is_significant_word(current)) words.insert(current);
+    if (!current.empty() && is_significant_word(current))
+        words.insert(current);
     return words;
 }
 
@@ -42,12 +44,13 @@ std::set<std::string> significant_words(const std::string& text) {
 constexpr double kSameDescription = 0.6;
 
 double similarity(const std::set<std::string>& a, const std::set<std::string>& b) {
-    if (a.empty() || b.empty()) return 0.0;
+    if (a.empty() || b.empty())
+        return 0.0;
     std::vector<std::string> shared;
-    std::set_intersection(a.begin(), a.end(), b.begin(), b.end(),
-                          std::back_inserter(shared));
+    std::set_intersection(a.begin(), a.end(), b.begin(), b.end(), std::back_inserter(shared));
     const std::size_t total = a.size() + b.size() - shared.size();
-    if (total == 0) return 0.0;
+    if (total == 0)
+        return 0.0;
     return static_cast<double>(shared.size()) / static_cast<double>(total);
 }
 
@@ -61,7 +64,8 @@ struct RoleUsage {
 std::map<ToolRole, RoleUsage> group_by_role(const ToolRegistry& registry) {
     std::map<ToolRole, RoleUsage> by_role;
     for (const auto& tool : registry.snapshot_tools()) {
-        if (!tool) continue;
+        if (!tool)
+            continue;
         const ToolMeta meta = registry.meta_for(tool->name());
         RoleUsage& usage = by_role[meta.role];
         usage.role = meta.role;
@@ -74,7 +78,8 @@ std::map<ToolRole, RoleUsage> group_by_role(const ToolRegistry& registry) {
 void append_deficiencies(const std::map<ToolRole, RoleUsage>& by_role,
                          std::vector<AuditFinding>& out) {
     for (ToolRole required : required_tool_roles()) {
-        if (by_role.find(required) != by_role.end()) continue;
+        if (by_role.find(required) != by_role.end())
+            continue;
         AuditFinding f;
         f.kind = AuditFinding::Kind::Deficiency;
         f.message = "no enabled tool can " + to_string(required) +
@@ -87,12 +92,14 @@ void append_deficiencies(const std::map<ToolRole, RoleUsage>& by_role,
 void append_ambiguities(const std::map<ToolRole, RoleUsage>& by_role,
                         std::vector<AuditFinding>& out) {
     for (const auto& [role, usage] : by_role) {
-        if (role == ToolRole::Other || usage.tools.size() < 2) continue;
+        if (role == ToolRole::Other || usage.tools.size() < 2)
+            continue;
         for (std::size_t i = 0; i < usage.tools.size(); ++i) {
             for (std::size_t j = i + 1; j < usage.tools.size(); ++j) {
                 const auto left = significant_words(usage.tools[i]->description());
                 const auto right = significant_words(usage.tools[j]->description());
-                if (similarity(left, right) < kSameDescription) continue;
+                if (similarity(left, right) < kSameDescription)
+                    continue;
                 AuditFinding f;
                 f.kind = AuditFinding::Kind::Ambiguity;
                 f.message = "tools '" + usage.tools[i]->name() + "' and '" +

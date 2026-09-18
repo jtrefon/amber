@@ -23,7 +23,8 @@ public:
     LearnedWindowCapture(const Config& cfg, int& learned)
         : cfg_(cfg), before_(cfg.context_size), learned_(learned) {}
     ~LearnedWindowCapture() {
-        if (cfg_.context_size != before_) learned_ = cfg_.context_size;
+        if (cfg_.context_size != before_)
+            learned_ = cfg_.context_size;
     }
     LearnedWindowCapture(const LearnedWindowCapture&) = delete;
     LearnedWindowCapture& operator=(const LearnedWindowCapture&) = delete;
@@ -46,16 +47,17 @@ private:
 // have to look at the constructor's parameter after it has been moved from.
 std::unique_ptr<Dialect> resolve_dialect(const Config& cfg,
                                          std::unique_ptr<Dialect> explicit_dialect) {
-    if (explicit_dialect) return explicit_dialect;
+    if (explicit_dialect)
+        return explicit_dialect;
     const std::string reason = flavor_unavailable_reason(cfg.flavor);
-    if (!reason.empty()) throw std::runtime_error(reason);
+    if (!reason.empty())
+        throw std::runtime_error(reason);
     return make_dialect(cfg.flavor);
 }
 
 } // namespace
 
-HttpLLMClient::HttpLLMClient(Config cfg)
-    : HttpLLMClient(std::move(cfg), nullptr) {}
+HttpLLMClient::HttpLLMClient(Config cfg) : HttpLLMClient(std::move(cfg), nullptr) {}
 
 HttpLLMClient::HttpLLMClient(Config cfg, std::unique_ptr<Dialect> dialect)
     : cfg_(std::move(cfg)), dialect_(resolve_dialect(cfg_, std::move(dialect))) {
@@ -69,7 +71,7 @@ ServerInfo HttpLLMClient::probe_server() const {
 }
 
 Message HttpLLMClient::chat(const std::vector<Message>& messages,
-                        const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats) {
+                            const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats) {
     json body = dialect_->build_chat_body(cfg_, messages, tools, false);
     // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
     // nlohmann throws type_error.316 on dump() unless we replace bad bytes.
@@ -82,14 +84,15 @@ Message HttpLLMClient::chat(const std::vector<Message>& messages,
     debug_log(cfg_.debug_log, "response", response);
 
     Message out = dialect_->parse_completion(response);
-    if (stats) fill_buffered_stats(*stats, *dialect_, response, ttfb, total);
+    if (stats)
+        fill_buffered_stats(*stats, *dialect_, response, ttfb, total);
     return out;
 }
 
 Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
-                               const std::vector<std::shared_ptr<Tool>>& tools,
-                               const std::function<void(const StreamChunk&)>& on_chunk,
-                               Stats* stats) {
+                                   const std::vector<std::shared_ptr<Tool>>& tools,
+                                   const std::function<void(const StreamChunk&)>& on_chunk,
+                                   Stats* stats) {
     json body = dialect_->build_chat_body(cfg_, messages, tools, true);
     std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
     debug_log(cfg_.debug_log, "request-stream", payload);
@@ -102,9 +105,8 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
     LearnedWindowCapture learned_window(cfg_, learned_);
     stream_completion(cfg_, *dialect_, payload, *decoder, stats, status);
     debug_log(cfg_.debug_log, "response-stream",
-              "http=" + std::to_string(status) +
-                  " content=" + out.content +
-                  "\n---reasoning---\n" + out.reasoning);
+              "http=" + std::to_string(status) + " content=" + out.content + "\n---reasoning---\n" +
+                  out.reasoning);
 
     // Validate tool call arguments: if any tool call has non-JSON arguments,
     // discard ALL tool calls and keep only text.  Malformed tool calls in
@@ -116,12 +118,14 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
             std::string raw = fn.value("arguments", "");
             if (!raw.empty()) {
                 auto parsed = json::parse(raw, nullptr, false);
-                if (parsed.is_discarded()) { valid = false; break; }
+                if (parsed.is_discarded()) {
+                    valid = false;
+                    break;
+                }
             }
         }
         if (!valid) {
-            debug_log(cfg_.debug_log, "response-stream",
-                      "discarding malformed tool calls");
+            debug_log(cfg_.debug_log, "response-stream", "discarding malformed tool calls");
             out.tool_calls = json::value_t::null;
         }
     }

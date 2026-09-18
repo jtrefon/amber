@@ -30,12 +30,18 @@ public:
 
     friend std::ostream& operator<<(std::ostream& os, State s) {
         switch (s) {
-            case State::Discovered: return os << "Discovered";
-            case State::Registered: return os << "Registered";
-            case State::Active: return os << "Active";
-            case State::Failed: return os << "Failed";
-            case State::Deactivated: return os << "Deactivated";
-            case State::Shutdown: return os << "Shutdown";
+        case State::Discovered:
+            return os << "Discovered";
+        case State::Registered:
+            return os << "Registered";
+        case State::Active:
+            return os << "Active";
+        case State::Failed:
+            return os << "Failed";
+        case State::Deactivated:
+            return os << "Deactivated";
+        case State::Shutdown:
+            return os << "Shutdown";
         }
         return os << "Unknown";
     }

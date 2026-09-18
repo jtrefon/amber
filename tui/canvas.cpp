@@ -11,15 +11,22 @@ namespace tui {
 Canvas::Canvas() = default;
 
 Canvas::~Canvas() {
-    if (win_) delwin(win_);
+    if (win_)
+        delwin(win_);
 }
 
 void Canvas::resize(int y, int h, int w) {
-    if (h < 1) h = 1;
-    if (w < 1) w = 1;
-    if (win_ && y_ == y && rows_ == h && cols_ == w) return;
-    y_ = y; rows_ = h; cols_ = w;
-    if (win_) delwin(win_);
+    if (h < 1)
+        h = 1;
+    if (w < 1)
+        w = 1;
+    if (win_ && y_ == y && rows_ == h && cols_ == w)
+        return;
+    y_ = y;
+    rows_ = h;
+    cols_ = w;
+    if (win_)
+        delwin(win_);
     win_ = newwin(h, w, y, 0);
     if (win_) {
         keypad(win_, TRUE);
@@ -36,19 +43,21 @@ void Canvas::set_lines(const std::vector<rich::Line>& lines) {
     rewrap();
 }
 
-
 void Canvas::rewrap() {
     wrapped_ = rich::rewrap_all(lines_, cols_);
-    if (top_ > max_top()) top_ = max_top();
+    if (top_ > max_top())
+        top_ = max_top();
 }
 
 void Canvas::render() {
-    if (!win_) return;
+    if (!win_)
+        return;
     werase(win_);
     int start = std::min(top_, max_top());
     for (int row = 0; row < rows_; ++row) {
         int idx = start + row;
-        if (idx < 0 || idx >= wrapped_count()) continue;
+        if (idx < 0 || idx >= wrapped_count())
+            continue;
         const rich::Line& l = wrapped_[idx];
         if (l.is_hr) {
             wattron(win_, COLOR_PAIR(l.runs.empty() ? P_BAR_DIM : l.runs[0].pair));
@@ -58,11 +67,13 @@ void Canvas::render() {
         }
         int x = 0;
         for (const auto& r : l.runs) {
-            if (x >= cols_) break;                 // nothing left on this row
+            if (x >= cols_)
+                break; // nothing left on this row
             int room = cols_ - x;
-            if (room <= 0) break;
-            int attr = (r.bold ? A_BOLD : 0) | (r.dim ? A_DIM : 0) |
-                       (r.italic ? A_ITALIC : 0) | (r.under ? A_UNDERLINE : 0);
+            if (room <= 0)
+                break;
+            int attr = (r.bold ? A_BOLD : 0) | (r.dim ? A_DIM : 0) | (r.italic ? A_ITALIC : 0) |
+                       (r.under ? A_UNDERLINE : 0);
             wattron(win_, COLOR_PAIR(r.pair) | attr);
             std::wstring ws = text::to_wide(r.text);
             // Clamp the write to the window width. mvwaddnwstr does not clip
@@ -74,8 +85,10 @@ void Canvas::render() {
             int n = 0;
             for (wchar_t wc : ws) {
                 int w = wcwidth(wc);
-                if (w < 0) w = 1;
-                if (w > budget) break;
+                if (w < 0)
+                    w = 1;
+                if (w > budget)
+                    break;
                 budget -= w;
                 ++n;
             }

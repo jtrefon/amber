@@ -25,25 +25,26 @@ std::string Tui::timestamp() {
 void Tui::append_line(int color, const std::string& text) {
     append_line_ts(color, text, timestamp());
 }
-void Tui::append_line_ts(int color, const std::string& text,
-                         const std::string& ts) {
+void Tui::append_line_ts(int color, const std::string& text, const std::string& ts) {
     append_line_to(win(), color, text, ts);
 }
 size_t Tui::append_line_to(Window& w, int color, const std::string& text) {
     return append_line_to(w, color, text, timestamp());
 }
-size_t Tui::append_line_to(Window& w, int color, const std::string& text,
-                           const std::string& ts) {
+size_t Tui::append_line_to(Window& w, int color, const std::string& text, const std::string& ts) {
     // Build one RichLine with a dim timestamp run followed by the body run,
     // then wrap it to the current width so wrapped continuations align.
     rich::Line head;
     if (!ts.empty())
-        head.runs.push_back({ts, P_REASONING, false, true});  // faint timestamp
-    rich::Run body; body.pair = color; body.text = text;
+        head.runs.push_back({ts, P_REASONING, false, true}); // faint timestamp
+    rich::Run body;
+    body.pair = color;
+    body.text = text;
     head.runs.push_back(body);
     auto wrapped = rich::wrap(head, render_engine_->width());
     size_t first = w.lines.size();
-    for (auto& l : wrapped) w.lines.push_back(std::move(l));
+    for (auto& l : wrapped)
+        w.lines.push_back(std::move(l));
     trim_lines(w);
     int max = render_engine_->max_scroll(w);
     if (w.scroll_top >= max - 2)
@@ -68,13 +69,12 @@ void Tui::append_markdown(Window& w, const std::string& md) {
         auto lines = md::render(md, render_engine_->md_style());
         if (!lines.empty()) {
             rich::Run ts;
-            ts.text = (w.stream_ts.empty() ? timestamp()
-                                           : w.stream_ts) + " ";
+            ts.text = (w.stream_ts.empty() ? timestamp() : w.stream_ts) + " ";
             ts.pair = P_REASONING;
             ts.dim = true;
-            lines.front().runs.insert(lines.front().runs.begin(),
-                                      std::move(ts));
-            for (auto& l : lines) w.lines.push_back(std::move(l));
+            lines.front().runs.insert(lines.front().runs.begin(), std::move(ts));
+            for (auto& l : lines)
+                w.lines.push_back(std::move(l));
         }
     } else {
         append_line_to(w, P_ASSISTANT, md);
@@ -84,19 +84,24 @@ void Tui::append_markdown(Window& w, const std::string& md) {
 }
 void Tui::banner(const std::string& text) {
     rich::Line l;
-    rich::Run r; r.pair = P_BANNER; r.bold = true; r.text = text;
+    rich::Run r;
+    r.pair = P_BANNER;
+    r.bold = true;
+    r.text = text;
     l.runs.push_back(r);
     win().lines.push_back(std::move(l));
     win().scroll_top = render_engine_->max_scroll();
 }
 void Tui::trim_lines(Window& w) {
-    if (w.lines.size() <= 10000) return;
+    if (w.lines.size() <= 10000)
+        return;
     w.lines.erase(w.lines.begin(), w.lines.begin() + 5000);
     // Pending tool lines hold indices into this window's scrollback; shift
     // surviving entries by the trimmed amount and invalidate the rest so
     // spinner animation can never write to a moved line.
     for (auto& pt : router_->pending_tools()) {
-        if (pt.window_id != w.id) continue;
+        if (pt.window_id != w.id)
+            continue;
         if (pt.index < 5000) {
             pt.index = std::string::npos;
         } else {
@@ -114,6 +119,5 @@ bool RenderEngine::drawer_has_arg(const std::string& input) {
 std::vector<const palette::Command*> RenderEngine::filter_commands(const std::string& token) {
     return palette::filter(tui_.commands(), token);
 }
-
 
 } // namespace tui

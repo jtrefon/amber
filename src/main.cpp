@@ -54,13 +54,15 @@ public:
     }
 
     int choose(const agent::ChooseSpec& spec) override {
-        if (!interactive_ || spec.choices.empty()) return -1;
+        if (!interactive_ || spec.choices.empty())
+            return -1;
         std::cout << spec.title << "\n";
         for (std::size_t i = 0; i < spec.choices.size(); ++i)
             std::cout << "  " << (i + 1) << ") " << spec.choices[i] << "\n";
         std::cout << "choice [1-" << spec.choices.size() << "]: " << std::flush;
         std::string line;
-        if (!std::getline(std::cin, line)) return -1;
+        if (!std::getline(std::cin, line))
+            return -1;
         try {
             const int n = std::stoi(line);
             return n >= 1 && n <= static_cast<int>(spec.choices.size()) ? n - 1 : -1;
@@ -70,11 +72,13 @@ public:
     }
 
     bool confirm(const agent::ConfirmSpec& spec) override {
-        if (!interactive_) return false;
+        if (!interactive_)
+            return false;
         std::cout << spec.title << "\n" << spec.message << "\n";
         std::cout << "proceed? [y/N]: " << std::flush;
         std::string line;
-        if (!std::getline(std::cin, line)) return false;
+        if (!std::getline(std::cin, line))
+            return false;
         return !line.empty() && (line[0] == 'y' || line[0] == 'Y');
     }
 
@@ -88,17 +92,22 @@ public:
     // No UI thread exists here: the CLI prints as it goes, so posted work runs
     // where it was posted from. A plugin sees the same contract either way.
     void post_to_ui(std::function<void()> work) override {
-        if (work) work();
+        if (work)
+            work();
     }
 
 private:
     std::string ask(const agent::AskSpec& spec, bool secret) {
-        if (!interactive_) return {};
-        if (!spec.title.empty()) std::cout << spec.title << "\n";
+        if (!interactive_)
+            return {};
+        if (!spec.title.empty())
+            std::cout << spec.title << "\n";
         std::cout << (spec.prompt.empty() ? "value" : spec.prompt) << ": " << std::flush;
         std::string line;
-        if (!std::getline(std::cin, line)) return {};
-        if (line.empty() && !spec.initial.empty()) return spec.initial;
+        if (!std::getline(std::cin, line))
+            return {};
+        if (line.empty() && !spec.initial.empty())
+            return spec.initial;
         (void)secret; // no echo control on a pipe; documented in the guide
         return line;
     }

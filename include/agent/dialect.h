@@ -48,27 +48,24 @@ public:
     virtual std::vector<std::string> auth_headers(const Config& cfg) const = 0;
 
     // Build the request body. Pure: unit-testable without libcurl.
-    virtual json build_chat_body(
-        const Config& cfg, const std::vector<Message>& messages,
-        const std::vector<std::shared_ptr<Tool>>& tools, bool stream) const = 0;
+    virtual json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
+                                 const std::vector<std::shared_ptr<Tool>>& tools,
+                                 bool stream) const = 0;
 
     // Parse a buffered response body into an assistant message. Degrades
     // gracefully on malformed input (recovery text, never throws).
     virtual Message parse_completion(const std::string& raw) const = 0;
 
     // Create the incremental decoder for a streamed response.
-    virtual std::unique_ptr<StreamDecoder> make_decoder(
-        Message& out, StreamDecoder::ChunkSink on_chunk,
-        std::string debug_path) const = 0;
+    virtual std::unique_ptr<StreamDecoder>
+    make_decoder(Message& out, StreamDecoder::ChunkSink on_chunk, std::string debug_path) const = 0;
 
     // Parse a model-listing body. `preferred_model` (when non-empty) selects
     // the entry whose id matches; the protocol's own fallback applies
     // otherwise. Pure: unit-testable without libcurl.
-    virtual ServerInfo parse_models_response(
-        const std::string& body,
-        const std::string& preferred_model = "") const = 0;
-    virtual std::vector<ModelInfo> parse_model_list_response(
-        const std::string& body) const = 0;
+    virtual ServerInfo parse_models_response(const std::string& body,
+                                             const std::string& preferred_model = "") const = 0;
+    virtual std::vector<ModelInfo> parse_model_list_response(const std::string& body) const = 0;
 
     // Token usage of a buffered response body.
     virtual TokenUsage parse_usage(const std::string& raw) const = 0;
@@ -93,8 +90,7 @@ std::unique_ptr<Dialect> make_dialect(const std::string& flavor);
 // register into the same table). `owner` is the plugin id for plugin-provided
 // dialects, empty for built-ins; it is what `disable` uses to take exactly the
 // right flavors back.
-void register_dialect(const std::string& flavor,
-                      std::function<std::unique_ptr<Dialect>()> factory,
+void register_dialect(const std::string& flavor, std::function<std::unique_ptr<Dialect>()> factory,
                       const std::string& owner = "");
 
 // Remove the dialects a plugin registered. Their flavors are remembered as

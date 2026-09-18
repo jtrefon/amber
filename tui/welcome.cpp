@@ -9,7 +9,6 @@
 #include <cstdlib>
 #include <string>
 
-
 namespace tui::welcome {
 
 namespace {
@@ -32,7 +31,8 @@ const int kArtCols = 120;
 // colours directly gives identical visuals everywhere without that side-effect.
 void init_gray_pairs() {
     static bool done = false;
-    if (done) return;
+    if (done)
+        return;
     done = true;
 
     init_pair(P_GRAY, 0, 0);
@@ -41,8 +41,10 @@ void init_gray_pairs() {
 }
 
 int color_to_pair(int cidx) {
-    if (cidx == 0) return P_GRAY;
-    if (cidx >= 232 && cidx <= 255) return P_GRAY + 1 + (cidx - 232);
+    if (cidx == 0)
+        return P_GRAY;
+    if (cidx >= 232 && cidx <= 255)
+        return P_GRAY + 1 + (cidx - 232);
     return P_GRAY;
 }
 
@@ -72,8 +74,7 @@ void render(WINDOW* win, int start_y, int width) {
     wattron(win, COLOR_PAIR(P_BANNER));
     mvwaddstr(win, y++, xo, "");
     mvwaddstr(win, y++, xo,
-              ("        A M B E R  " + ver + "  " +
-               text::glyph::middot() + "  " + date).c_str());
+              ("        A M B E R  " + ver + "  " + text::glyph::middot() + "  " + date).c_str());
     mvwaddstr(win, y++, xo, "        an AI agent for the amber-CRT age");
     mvwaddstr(win, y++, xo, "");
     mvwaddstr(win, y++, xo, "        /help      show commands & getting started");
@@ -92,4 +93,3 @@ void render(WINDOW* win, int start_y, int width) {
 }
 
 } // namespace tui::welcome
-

@@ -8,13 +8,13 @@ namespace tui {
 namespace {
 
 // Append "[choice|choice]" or "[lo-hi]" to a row for leaf settings.
-void append_choices(std::string& line, const std::string& key,
-                    const SettingRegistry& settings) {
+void append_choices(std::string& line, const std::string& key, const SettingRegistry& settings) {
     const auto& ch = settings.choices_for(key);
     if (!ch.empty()) {
         line += "  [";
         for (size_t i = 0; i < ch.size(); ++i) {
-            if (i > 0) line += "|";
+            if (i > 0)
+                line += "|";
             line += ch[i];
         }
         line += "]";
@@ -22,8 +22,7 @@ void append_choices(std::string& line, const std::string& key,
     }
     double rlo, rhi;
     if (settings.range_for(key, rlo, rhi))
-        line += "  [" + std::to_string((int)rlo) + "-" +
-                std::to_string((int)rhi) + "]";
+        line += "  [" + std::to_string((int)rlo) + "-" + std::to_string((int)rhi) + "]";
 }
 
 // Convert "get policy mode" → "get.policy.mode" (namespaces are indexed
@@ -33,12 +32,13 @@ std::string dotted_path(const std::string& space_separated) {
     size_t p = 0;
     while (p < space_separated.size()) {
         size_t spc = space_separated.find(' ', p);
-        std::string tok = (spc == std::string::npos)
-                              ? space_separated.substr(p)
-                              : space_separated.substr(p, spc - p);
-        if (!out.empty()) out += ".";
+        std::string tok = (spc == std::string::npos) ? space_separated.substr(p)
+                                                     : space_separated.substr(p, spc - p);
+        if (!out.empty())
+            out += ".";
         out += tok;
-        if (spc == std::string::npos) break;
+        if (spc == std::string::npos)
+            break;
         p = spc + 1;
     }
     return out;
@@ -50,7 +50,8 @@ std::string child_row(const std::string& name, const std::string& full_key,
     line += name;
     std::string h = settings.help_for(full_key);
     if (!h.empty()) {
-        if (name.size() < 34) line.append(34 - name.size(), ' ');
+        if (name.size() < 34)
+            line.append(34 - name.size(), ' ');
         line += "  ";
         line += h;
     }
@@ -60,8 +61,7 @@ std::string child_row(const std::string& name, const std::string& full_key,
 
 } // namespace
 
-std::vector<std::string> drawer_rows(const std::string& input,
-                                     const SettingRegistry& settings) {
+std::vector<std::string> drawer_rows(const std::string& input, const SettingRegistry& settings) {
     std::vector<std::string> rows;
 
     // Extract the namespace path: "/get policy mode" → ns "get.policy",
@@ -70,7 +70,8 @@ std::vector<std::string> drawer_rows(const std::string& input,
     size_t sp = input.find(' ', 1);
     if (sp != std::string::npos) {
         ns_path = input.substr(1);
-        while (!ns_path.empty() && ns_path.back() == ' ') ns_path.pop_back();
+        while (!ns_path.empty() && ns_path.back() == ' ')
+            ns_path.pop_back();
         size_t last_sp = ns_path.rfind(' ');
         if (last_sp != std::string::npos) {
             partial = ns_path.substr(last_sp + 1);
@@ -87,7 +88,10 @@ std::vector<std::string> drawer_rows(const std::string& input,
             auto top = settings.complete("");
             bool exact = false;
             for (const auto& t : top)
-                if (t == ns_path) { exact = true; break; }
+                if (t == ns_path) {
+                    exact = true;
+                    break;
+                }
             if (!exact) {
                 partial = ns_path;
                 ns_path.clear();
@@ -128,7 +132,8 @@ std::vector<std::string> drawer_rows(const std::string& input,
     }
 
     for (const auto& k : kids) {
-        if (!partial.empty() && k.rfind(partial, 0) != 0) continue;
+        if (!partial.empty() && k.rfind(partial, 0) != 0)
+            continue;
         std::string full_key;
         full_key.reserve(ns.size() + 1 + k.size());
         if (!ns.empty()) {
@@ -149,7 +154,8 @@ std::vector<std::string> drawer_entry_names(const std::string& input,
     size_t sp = input.find(' ', 1);
     if (sp != std::string::npos) {
         ns_path = input.substr(1);
-        while (!ns_path.empty() && ns_path.back() == ' ') ns_path.pop_back();
+        while (!ns_path.empty() && ns_path.back() == ' ')
+            ns_path.pop_back();
         size_t last_sp = ns_path.rfind(' ');
         if (last_sp != std::string::npos) {
             partial = ns_path.substr(last_sp + 1);
@@ -163,7 +169,10 @@ std::vector<std::string> drawer_entry_names(const std::string& input,
             auto top = settings.complete("");
             bool exact = false;
             for (const auto& t : top)
-                if (t == ns_path) { exact = true; break; }
+                if (t == ns_path) {
+                    exact = true;
+                    break;
+                }
             if (!exact) {
                 partial = ns_path;
                 ns_path.clear();
@@ -172,7 +181,8 @@ std::vector<std::string> drawer_entry_names(const std::string& input,
     }
     std::string ns = dotted_path(ns_path);
     auto kids = settings.children_of(ns);
-    if (kids.empty()) return {};
+    if (kids.empty())
+        return {};
     if (!partial.empty()) {
         std::string sub_key = ns.empty() ? partial : ns + "." + partial;
         auto sub = settings.children_of(sub_key);
@@ -182,7 +192,8 @@ std::vector<std::string> drawer_entry_names(const std::string& input,
     }
     std::vector<std::string> out;
     for (const auto& k : kids) {
-        if (!partial.empty() && k.rfind(partial, 0) != 0) continue;
+        if (!partial.empty() && k.rfind(partial, 0) != 0)
+            continue;
         out.push_back(k);
     }
     return out;

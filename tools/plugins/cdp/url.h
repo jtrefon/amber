@@ -11,19 +11,19 @@
 namespace cdp {
 
 struct Url {
-    std::string scheme;  // "ws" | "wss" | "http" | "https"
+    std::string scheme; // "ws" | "wss" | "http" | "https"
     std::string host;
-    std::string port;    // empty if none
-    std::string path;    // leading '/' included, empty if none
+    std::string port; // empty if none
+    std::string path; // leading '/' included, empty if none
 
     // Splits "scheme://host[:port][/path]" into fields. Returns false if the
     // input has no "scheme://" prefix or an empty host.
     static bool parse(const std::string& in, Url& out);
 
     std::string authority() const;  // "host" or "host:port"
-    std::string toHttpBase() const;  // "http(s)://host[:port]" (no path)
+    std::string toHttpBase() const; // "http(s)://host[:port]" (no path)
 };
 
-}  // namespace cdp
+} // namespace cdp
 
-#endif  // CDP_URL_H
+#endif // CDP_URL_H

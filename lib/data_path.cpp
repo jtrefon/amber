@@ -16,20 +16,24 @@ namespace {
 
 std::string dirname_of(const std::string& path) {
     size_t slash = path.find_last_of('/');
-    if (slash == std::string::npos) return ".";
-    if (slash == 0) return "/";
+    if (slash == std::string::npos)
+        return ".";
+    if (slash == 0)
+        return "/";
     return path.substr(0, slash);
 }
 
 std::string home_dir() {
-    if (const char* h = std::getenv("HOME")) return h;
+    if (const char* h = std::getenv("HOME"))
+        return h;
     return "";
 }
 
-void add_if_unique(std::vector<std::string>& out, std::string dir,
-                   const std::string& path) {
-    if (dir.empty() || dir == ".") return;
-    if (dir.back() != '/') dir += "/";
+void add_if_unique(std::vector<std::string>& out, std::string dir, const std::string& path) {
+    if (dir.empty() || dir == ".")
+        return;
+    if (dir.back() != '/')
+        dir += "/";
     std::string candidate = dir + path;
     if (std::find(out.begin(), out.end(), candidate) == out.end())
         out.push_back(std::move(candidate));
@@ -41,13 +45,16 @@ std::string exe_dir() {
     std::array<char, 4096> buf{};
 #ifdef __APPLE__
     uint32_t size = buf.size() - 1;
-    if (_NSGetExecutablePath(buf.data(), &size) != 0) return "";
+    if (_NSGetExecutablePath(buf.data(), &size) != 0)
+        return "";
     std::array<char, 4096> resolved{};
-    if (realpath(buf.data(), resolved.data()) == nullptr) return "";
+    if (realpath(buf.data(), resolved.data()) == nullptr)
+        return "";
     return dirname_of(resolved.data());
 #else
     ssize_t len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
-    if (len <= 0) return "";
+    if (len <= 0)
+        return "";
     buf[len] = '\0';
     return dirname_of(buf.data());
 #endif
@@ -62,22 +69,25 @@ std::string exe_path() {
     std::array<char, 4096> buf{};
 #ifdef __APPLE__
     uint32_t size = buf.size() - 1;
-    if (_NSGetExecutablePath(buf.data(), &size) != 0) return "";
+    if (_NSGetExecutablePath(buf.data(), &size) != 0)
+        return "";
     std::array<char, 4096> resolved{};
-    if (realpath(buf.data(), resolved.data()) == nullptr) return "";
+    if (realpath(buf.data(), resolved.data()) == nullptr)
+        return "";
     return resolved.data();
 #else
     ssize_t len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
-    if (len <= 0) return "";
+    if (len <= 0)
+        return "";
     buf[len] = '\0';
     return buf.data();
 #endif
 }
 
-std::vector<std::string> data_file_candidates(const std::string& path,
-                                              const char* argv0) {
+std::vector<std::string> data_file_candidates(const std::string& path, const char* argv0) {
     std::vector<std::string> out;
-    if (path.empty()) return out;
+    if (path.empty())
+        return out;
     // 1. As given — CWD when relative.
     if (path[0] == '/' || file_exists(path))
         out.push_back(path);
@@ -93,10 +103,12 @@ std::vector<std::string> data_file_candidates(const std::string& path,
         // (Homebrew, /usr/local, custom) can be found next to it.
         if (std::string(argv0).find('/') == std::string::npos) {
             std::string real = exe_dir();
-            if (!real.empty()) bindir = real;
+            if (!real.empty())
+                bindir = real;
         }
         add_if_unique(out, bindir, path);
-        if (bindir != ".") add_if_unique(out, bindir + "/../share/amber", path);
+        if (bindir != ".")
+            add_if_unique(out, bindir + "/../share/amber", path);
     }
     // 3. Workspace root.
     if (const char* ws = std::getenv("AMBER_WORKSPACE"))

@@ -15,7 +15,6 @@
 #include "textutil.h"
 #include "third_party/md4c/md4c.h"
 
-
 namespace tui::md {
 
 namespace {
@@ -27,8 +26,8 @@ struct RunStyle {
     int pair = 0;
     bool bold = false, dim = false, italic = false, under = false;
     bool operator==(const RunStyle& o) const {
-        return pair == o.pair && bold == o.bold && dim == o.dim &&
-               italic == o.italic && under == o.under;
+        return pair == o.pair && bold == o.bold && dim == o.dim && italic == o.italic &&
+               under == o.under;
     }
 };
 
@@ -41,16 +40,16 @@ struct Ctx {
     const Style* st;
     std::vector<Line>* out;
 
-    std::vector<RunStyle> style_stack;   // active inline style (nested spans)
-    Line cur;                            // current block's accumulated line
-    bool pending_break = false;          // soft break becomes a space
+    std::vector<RunStyle> style_stack; // active inline style (nested spans)
+    Line cur;                          // current block's accumulated line
+    bool pending_break = false;        // soft break becomes a space
 
-    int heading_level = 0;               // >0 while inside a heading
-    int quote_depth = 0;                 // >0 while inside a blockquote
-    std::vector<ListFrame> lists;         // active list nesting
+    int heading_level = 0;        // >0 while inside a heading
+    int quote_depth = 0;          // >0 while inside a blockquote
+    std::vector<ListFrame> lists; // active list nesting
 
     bool in_code = false;
-    std::string code_buf;                // raw fenced/indented code
+    std::string code_buf; // raw fenced/indented code
     std::string code_lang;
 
     // table accumulation — rows are buffered until MD_BLOCK_TABLE leaves so
@@ -61,7 +60,7 @@ struct Ctx {
     std::vector<MD_ALIGN> aligns;
     bool row_is_head = false;
     std::vector<std::string> row_cells;
-    std::string cell_buf;                // text of the cell being built
+    std::string cell_buf; // text of the cell being built
     bool in_cell = false;
     std::vector<std::vector<std::string>> table_rows;
     std::vector<bool> table_row_is_head;
@@ -73,7 +72,9 @@ RunStyle base_style(const Style& st) {
     return s;
 }
 
-void emit_line(Ctx& c, Line l) { c.out->push_back(std::move(l)); }
+void emit_line(Ctx& c, Line l) {
+    c.out->push_back(std::move(l));
+}
 
 // Forward declarations (defined below flush_block).
 bool is_separator_line(const Line& l);
@@ -83,14 +84,14 @@ void emit_hr(Ctx& c);
 std::string block_prefix(Ctx& c, bool& use_quote_pair) {
     std::string p;
     for (size_t i = 0; i < c.lists.size(); ++i) {
-        p += "  ";  // 2-space indent per nesting level
+        p += "  "; // 2-space indent per nesting level
     }
     if (!c.lists.empty()) {
         const ListFrame& f = c.lists.back();
         if (f.ordered)
             p += std::to_string(f.index) + ". ";
         else
-            p += "• ";  // bullet
+            p += "• "; // bullet
     }
     if (c.quote_depth > 0) {
         int indent = c.quote_depth > 0 ? (c.quote_depth - 1) * 2 : 0;
@@ -155,34 +156,48 @@ void flush_block(Ctx& c) {
 //       points are the same one, length >= 4) — covers decorative "7777…",
 //       "....", "||||", "────" separators LLMs like to draw.
 bool is_separator_line(const Line& l) {
-    if (l.runs.empty()) return false;
+    if (l.runs.empty())
+        return false;
     std::string t;
-    for (const auto& r : l.runs) t += r.text;
-    if (t.empty()) return false;
+    for (const auto& r : l.runs)
+        t += r.text;
+    if (t.empty())
+        return false;
     // Count codepoints and the most frequent one.
     std::vector<std::string> cps;
     for (size_t i = 0; i < t.size(); i += text::utf8_len(t, i))
         cps.push_back(t.substr(i, text::utf8_len(t, i)));
-    if (cps.size() < 4) return false;
+    if (cps.size() < 4)
+        return false;
     bool all_rule = true;
     for (const auto& cp : cps) {
         if (cp.size() == 1) {
             auto c = static_cast<unsigned char>(cp[0]);
-            bool ascii_sep = (c == '-' || c == '=' || c == '_' || c == '*' ||
-                              c == ':' || c == '|' || c == '.' || c == '#' ||
-                              c == '+' || c == '~');
-            if (!ascii_sep) { all_rule = false; break; }
+            bool ascii_sep = (c == '-' || c == '=' || c == '_' || c == '*' || c == ':' ||
+                              c == '|' || c == '.' || c == '#' || c == '+' || c == '~');
+            if (!ascii_sep) {
+                all_rule = false;
+                break;
+            }
         } else {
-            all_rule = false; break;  // multi-byte glyph: not pure-ASCII rule
+            all_rule = false;
+            break; // multi-byte glyph: not pure-ASCII rule
         }
     }
-    if (all_rule) return true;
+    if (all_rule)
+        return true;
     // Dominant repeated glyph?
-    std::string dom; int best = 0;
+    std::string dom;
+    int best = 0;
     for (const auto& a : cps) {
         int n = 0;
-        for (const auto& b : cps) if (a == b) ++n;
-        if (n > best) { best = n; dom = a; }
+        for (const auto& b : cps)
+            if (a == b)
+                ++n;
+        if (n > best) {
+            best = n;
+            dom = a;
+        }
     }
     return best * 5 >= static_cast<int>(cps.size()) * 4 && !dom.empty();
 }
@@ -198,9 +213,11 @@ void emit_hr(Ctx& c) {
 }
 
 void flush_table(Ctx& c) {
-    if (c.table_rows.empty()) return;
+    if (c.table_rows.empty())
+        return;
     int ncol = c.table_cols;
-    for (auto& r : c.table_rows) ncol = std::max(ncol, static_cast<int>(r.size()));
+    for (auto& r : c.table_rows)
+        ncol = std::max(ncol, static_cast<int>(r.size()));
     if (ncol <= 0) {
         c.table_rows.clear();
         c.table_row_is_head.clear();
@@ -222,7 +239,8 @@ void flush_table(Ctx& c) {
         r.pair = c.st->table_pair;
         r.text = top ? text::glyph::top_left() : text::glyph::bottom_left();
         for (int k = 0; k < ncol; ++k) {
-            for (int j = 0; j < w[k] + 2; ++j) r.text += text::glyph::hbar();
+            for (int j = 0; j < w[k] + 2; ++j)
+                r.text += text::glyph::hbar();
             if (k + 1 < ncol) {
                 r.text += top ? text::glyph::top_tee() : text::glyph::bottom_tee();
             } else {
@@ -243,13 +261,12 @@ void flush_table(Ctx& c) {
         sep.text += " ";
         l.runs.push_back(sep);
         for (int k = 0; k < ncol; ++k) {
-            std::string t = k < static_cast<int>(c.table_rows[ri].size())
-                                ? c.table_rows[ri][k]
-                                : "";
+            std::string t =
+                k < static_cast<int>(c.table_rows[ri].size()) ? c.table_rows[ri][k] : "";
             int pad = w[k] - text::display_cols(t);
-            if (pad < 0) pad = 0;
-            MD_ALIGN a = (k < static_cast<int>(c.aligns.size())) ? c.aligns[k]
-                                                                 : MD_ALIGN_DEFAULT;
+            if (pad < 0)
+                pad = 0;
+            MD_ALIGN a = (k < static_cast<int>(c.aligns.size())) ? c.aligns[k] : MD_ALIGN_DEFAULT;
             int left = 0, right = 0;
             if (a == MD_ALIGN_RIGHT) {
                 left = pad;
@@ -267,7 +284,8 @@ void flush_table(Ctx& c) {
             sp.pair = c.st->table_pair;
             sp.text = " ";
             sp.text += text::glyph::vbar();
-            if (k + 1 < ncol) sp.text += " ";
+            if (k + 1 < ncol)
+                sp.text += " ";
             l.runs.push_back(sp);
         }
         emit_line(c, std::move(l));
@@ -279,9 +297,9 @@ void flush_table(Ctx& c) {
             hr.pair = c.st->table_pair;
             hr.text = text::glyph::tee_left();
             for (int k = 0; k < ncol; ++k) {
-                for (int j = 0; j < w[k] + 2; ++j) hr.text += text::glyph::hbar();
-                hr.text += (k + 1 < ncol) ? text::glyph::tbl_cross()
-                                         : text::glyph::tee_right();
+                for (int j = 0; j < w[k] + 2; ++j)
+                    hr.text += text::glyph::hbar();
+                hr.text += (k + 1 < ncol) ? text::glyph::tbl_cross() : text::glyph::tee_right();
             }
             hl.runs.push_back(hr);
             emit_line(c, std::move(hl));
@@ -313,8 +331,7 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
         }
     };
     while (i < n) {
-        if (static_cast<unsigned char>(s[i]) == 0x1b && i + 1 < n &&
-            s[i + 1] == '[') {
+        if (static_cast<unsigned char>(s[i]) == 0x1b && i + 1 < n && s[i + 1] == '[') {
             flush();
             // parse SGR; mutate cur; advance i past the sequence
             size_t j = i + 2;
@@ -330,7 +347,8 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
                         num += ch;
                     ++j;
                 } else if (ch == 'm') {
-                    if (!num.empty()) nums.push_back(std::stoi(num));
+                    if (!num.empty())
+                        nums.push_back(std::stoi(num));
                     ++j;
                     break;
                 } else {
@@ -338,33 +356,82 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
                     break;
                 }
             }
-            if (nums.empty()) nums.push_back(0);
+            if (nums.empty())
+                nums.push_back(0);
             for (int code : nums) {
                 switch (code) {
-                    case 0: cur = base; break;
-                    case 1: cur.bold = true; break;
-                    case 2: cur.dim = true; break;
-                    case 3: cur.italic = true; break;
-                    case 4: cur.under = true; break;
-                    case 22: cur.bold = cur.dim = false; break;
-                    case 23: cur.italic = false; break;
-                    case 24: cur.under = false; break;
-                    case 30: cur.pair = c.st->text_pair; break;
-                    case 31: cur.pair = P_GAUGE_CRIT; break;
-                    case 32: cur.pair = c.st->code_pair; break;
-                    case 33: cur.pair = P_MD_CODESTR; break;
-                    case 34: cur.pair = P_MD_CODECMT; break;
-                    case 35: cur.pair = P_MD_CODEKEY; break;
-                    case 36: cur.pair = c.st->quote_pair; break;
-                    case 37: case 90: cur.pair = c.st->text_pair; break;
-                    case 91: cur.pair = P_GAUGE_CRIT; break;
-                    case 92: cur.pair = c.st->code_pair; break;
-                    case 93: cur.pair = P_MD_CODESTR; break;
-                    case 94: cur.pair = P_MD_CODECMT; break;
-                    case 95: cur.pair = P_MD_CODEKEY; break;
-                    case 96: cur.pair = c.st->quote_pair; break;
-                    case 97: cur.pair = c.st->text_pair; break;
-                    default: break;
+                case 0:
+                    cur = base;
+                    break;
+                case 1:
+                    cur.bold = true;
+                    break;
+                case 2:
+                    cur.dim = true;
+                    break;
+                case 3:
+                    cur.italic = true;
+                    break;
+                case 4:
+                    cur.under = true;
+                    break;
+                case 22:
+                    cur.bold = cur.dim = false;
+                    break;
+                case 23:
+                    cur.italic = false;
+                    break;
+                case 24:
+                    cur.under = false;
+                    break;
+                case 30:
+                    cur.pair = c.st->text_pair;
+                    break;
+                case 31:
+                    cur.pair = P_GAUGE_CRIT;
+                    break;
+                case 32:
+                    cur.pair = c.st->code_pair;
+                    break;
+                case 33:
+                    cur.pair = P_MD_CODESTR;
+                    break;
+                case 34:
+                    cur.pair = P_MD_CODECMT;
+                    break;
+                case 35:
+                    cur.pair = P_MD_CODEKEY;
+                    break;
+                case 36:
+                    cur.pair = c.st->quote_pair;
+                    break;
+                case 37:
+                case 90:
+                    cur.pair = c.st->text_pair;
+                    break;
+                case 91:
+                    cur.pair = P_GAUGE_CRIT;
+                    break;
+                case 92:
+                    cur.pair = c.st->code_pair;
+                    break;
+                case 93:
+                    cur.pair = P_MD_CODESTR;
+                    break;
+                case 94:
+                    cur.pair = P_MD_CODECMT;
+                    break;
+                case 95:
+                    cur.pair = P_MD_CODEKEY;
+                    break;
+                case 96:
+                    cur.pair = c.st->quote_pair;
+                    break;
+                case 97:
+                    cur.pair = c.st->text_pair;
+                    break;
+                default:
+                    break;
                 }
             }
             i = j;
@@ -380,69 +447,70 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
 int enter_block(MD_BLOCKTYPE type, void* detail, void* ud) {
     Ctx& c = *static_cast<Ctx*>(ud);
     switch (type) {
-        case MD_BLOCK_H: {
-            auto* d = static_cast<MD_BLOCK_H_DETAIL*>(detail);
-            c.heading_level = static_cast<int>(d->level);
-            break;
-        }
-        case MD_BLOCK_QUOTE:
-            ++c.quote_depth;
-            break;
-        case MD_BLOCK_CODE: {
-            auto* d = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
-            c.in_code = true;
-            c.code_buf.clear();
-            c.code_lang.clear();
-            if (d && d->lang.text && d->lang.size > 0)
-                c.code_lang.assign(d->lang.text, d->lang.size);
-            break;
-        }
-        case MD_BLOCK_UL: {
-            c.lists.push_back({false, 0});
-            break;
-        }
-        case MD_BLOCK_OL: {
-            auto* d = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
-            c.lists.push_back({true, d ? d->start : 1});
-            break;
-        }
-        case MD_BLOCK_LI: {
-            // Flush any in-progress item text before starting this one (tight
-            // nested lists append sibling text to the same c.cur without an
-            // intervening block boundary).
-            if (!c.cur.runs.empty()) flush_block(c);
-            break;
-        }
-        case MD_BLOCK_TABLE: {
-            auto* d = static_cast<MD_BLOCK_TABLE_DETAIL*>(detail);
-            c.in_table = true;
-            c.table_cols = d ? static_cast<int>(d->col_count) : 0;
-            c.aligns.assign(c.table_cols, MD_ALIGN_DEFAULT);
-            c.row_cells.clear();
-            c.table_rows.clear();
-            c.table_row_is_head.clear();
-            break;
-        }
-        case MD_BLOCK_TH: {
-            c.row_is_head = true;
-            c.in_cell = true;
-            c.cell_buf.clear();
-            auto* d = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
-            if (d && c.row_cells.size() < c.aligns.size())
-                c.aligns[c.row_cells.size()] = d->align;
-            break;
-        }
-        case MD_BLOCK_TD: {
-            c.row_is_head = false;
-            c.in_cell = true;
-            c.cell_buf.clear();
-            auto* d = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
-            if (d && c.row_cells.size() < c.aligns.size())
-                c.aligns[c.row_cells.size()] = d->align;
-            break;
-        }
-        default:
-            break;
+    case MD_BLOCK_H: {
+        auto* d = static_cast<MD_BLOCK_H_DETAIL*>(detail);
+        c.heading_level = static_cast<int>(d->level);
+        break;
+    }
+    case MD_BLOCK_QUOTE:
+        ++c.quote_depth;
+        break;
+    case MD_BLOCK_CODE: {
+        auto* d = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
+        c.in_code = true;
+        c.code_buf.clear();
+        c.code_lang.clear();
+        if (d && d->lang.text && d->lang.size > 0)
+            c.code_lang.assign(d->lang.text, d->lang.size);
+        break;
+    }
+    case MD_BLOCK_UL: {
+        c.lists.push_back({false, 0});
+        break;
+    }
+    case MD_BLOCK_OL: {
+        auto* d = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
+        c.lists.push_back({true, d ? d->start : 1});
+        break;
+    }
+    case MD_BLOCK_LI: {
+        // Flush any in-progress item text before starting this one (tight
+        // nested lists append sibling text to the same c.cur without an
+        // intervening block boundary).
+        if (!c.cur.runs.empty())
+            flush_block(c);
+        break;
+    }
+    case MD_BLOCK_TABLE: {
+        auto* d = static_cast<MD_BLOCK_TABLE_DETAIL*>(detail);
+        c.in_table = true;
+        c.table_cols = d ? static_cast<int>(d->col_count) : 0;
+        c.aligns.assign(c.table_cols, MD_ALIGN_DEFAULT);
+        c.row_cells.clear();
+        c.table_rows.clear();
+        c.table_row_is_head.clear();
+        break;
+    }
+    case MD_BLOCK_TH: {
+        c.row_is_head = true;
+        c.in_cell = true;
+        c.cell_buf.clear();
+        auto* d = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
+        if (d && c.row_cells.size() < c.aligns.size())
+            c.aligns[c.row_cells.size()] = d->align;
+        break;
+    }
+    case MD_BLOCK_TD: {
+        c.row_is_head = false;
+        c.in_cell = true;
+        c.cell_buf.clear();
+        auto* d = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
+        if (d && c.row_cells.size() < c.aligns.size())
+            c.aligns[c.row_cells.size()] = d->align;
+        break;
+    }
+    default:
+        break;
     }
     return 0;
 }
@@ -451,81 +519,86 @@ int leave_block(MD_BLOCKTYPE type, void* detail, void* ud) {
     (void)detail;
     Ctx& c = *static_cast<Ctx*>(ud);
     switch (type) {
-        case MD_BLOCK_P:
-        case MD_BLOCK_H:
-            if (c.in_cell) {
-                c.row_cells.push_back(c.cell_buf);
-                c.cell_buf.clear();
-                c.in_cell = false;
-            } else {
-                flush_block(c);
-            }
-            c.heading_level = 0;
-            break;
-        case MD_BLOCK_QUOTE:
-            if (c.quote_depth > 0) --c.quote_depth;
-            break;
-        case MD_BLOCK_CODE: {
-            c.in_code = false;
-            // Split the captured source into lines and emit each as a code
-            // line (with optional heuristic highlighting).
-            std::vector<Line> hl =
-                highlight(c.code_buf, c.code_lang, c.st->code_pair);
-            for (auto& l : hl) emit_line(c, std::move(l));
-            if (c.code_buf.empty()) emit_line(c, Line{});  // blank separator
-            c.code_buf.clear();
-            c.code_lang.clear();
-            break;
+    case MD_BLOCK_P:
+    case MD_BLOCK_H:
+        if (c.in_cell) {
+            c.row_cells.push_back(c.cell_buf);
+            c.cell_buf.clear();
+            c.in_cell = false;
+        } else {
+            flush_block(c);
         }
-        case MD_BLOCK_HR: {
-            Line l;
-            l.is_hr = true;
-            Run r;
-            r.pair = c.st->hr_pair;
-            r.text = " ";
-            l.runs.push_back(r);
+        c.heading_level = 0;
+        break;
+    case MD_BLOCK_QUOTE:
+        if (c.quote_depth > 0)
+            --c.quote_depth;
+        break;
+    case MD_BLOCK_CODE: {
+        c.in_code = false;
+        // Split the captured source into lines and emit each as a code
+        // line (with optional heuristic highlighting).
+        std::vector<Line> hl = highlight(c.code_buf, c.code_lang, c.st->code_pair);
+        for (auto& l : hl)
             emit_line(c, std::move(l));
-            break;
+        if (c.code_buf.empty())
+            emit_line(c, Line{}); // blank separator
+        c.code_buf.clear();
+        c.code_lang.clear();
+        break;
+    }
+    case MD_BLOCK_HR: {
+        Line l;
+        l.is_hr = true;
+        Run r;
+        r.pair = c.st->hr_pair;
+        r.text = " ";
+        l.runs.push_back(r);
+        emit_line(c, std::move(l));
+        break;
+    }
+    case MD_BLOCK_UL:
+    case MD_BLOCK_OL:
+        if (!c.lists.empty())
+            c.lists.pop_back();
+        break;
+    case MD_BLOCK_LI:
+        // md4c emits tight list items as bare text (no inner P), so flush
+        // the accumulated item text here. For loose lists the inner P
+        // already flushed; c.cur will be empty and flush_block is a no-op.
+        if (!c.cur.runs.empty())
+            flush_block(c);
+        // Advance the ordered-list counter for the next sibling item.
+        if (!c.lists.empty()) {
+            ListFrame& f = c.lists.back();
+            if (f.ordered)
+                ++f.index;
         }
-        case MD_BLOCK_UL:
-        case MD_BLOCK_OL:
-            if (!c.lists.empty()) c.lists.pop_back();
-            break;
-        case MD_BLOCK_LI:
-            // md4c emits tight list items as bare text (no inner P), so flush
-            // the accumulated item text here. For loose lists the inner P
-            // already flushed; c.cur will be empty and flush_block is a no-op.
-            if (!c.cur.runs.empty()) flush_block(c);
-            // Advance the ordered-list counter for the next sibling item.
-            if (!c.lists.empty()) {
-                ListFrame& f = c.lists.back();
-                if (f.ordered) ++f.index;
-            }
-            break;
-        case MD_BLOCK_TR: {
-            c.table_rows.push_back(c.row_cells);
-            c.table_row_is_head.push_back(c.row_is_head);
-            c.row_cells.clear();
-            c.row_is_head = false;
-            break;
+        break;
+    case MD_BLOCK_TR: {
+        c.table_rows.push_back(c.row_cells);
+        c.table_row_is_head.push_back(c.row_is_head);
+        c.row_cells.clear();
+        c.row_is_head = false;
+        break;
+    }
+    case MD_BLOCK_TABLE:
+        flush_table(c);
+        c.in_table = false;
+        c.aligns.clear();
+        break;
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD:
+        // Cell content is emitted as inline text (no inner paragraph
+        // block), so flush the captured cell text here.
+        if (c.in_cell || !c.cell_buf.empty()) {
+            c.row_cells.push_back(c.cell_buf);
+            c.cell_buf.clear();
+            c.in_cell = false;
         }
-        case MD_BLOCK_TABLE:
-            flush_table(c);
-            c.in_table = false;
-            c.aligns.clear();
-            break;
-        case MD_BLOCK_TH:
-        case MD_BLOCK_TD:
-            // Cell content is emitted as inline text (no inner paragraph
-            // block), so flush the captured cell text here.
-            if (c.in_cell || !c.cell_buf.empty()) {
-                c.row_cells.push_back(c.cell_buf);
-                c.cell_buf.clear();
-                c.in_cell = false;
-            }
-            break;
-        default:
-            break;
+        break;
+    default:
+        break;
     }
     return 0;
 }
@@ -535,13 +608,27 @@ int enter_span(MD_SPANTYPE type, void* detail, void* ud) {
     Ctx& c = *static_cast<Ctx*>(ud);
     RunStyle s = c.style_stack.empty() ? base_style(*c.st) : c.style_stack.back();
     switch (type) {
-        case MD_SPAN_EM: s.italic = true; break;
-        case MD_SPAN_STRONG: s.bold = true; break;
-        case MD_SPAN_CODE: s.pair = c.st->code_pair; break;
-        case MD_SPAN_DEL: s.dim = true; break;  // no strike attr in ncurses
-        case MD_SPAN_A: s.pair = c.st->link_pair; s.under = true; break;
-        case MD_SPAN_IMG: s.pair = c.st->link_pair; break;
-        default: break;
+    case MD_SPAN_EM:
+        s.italic = true;
+        break;
+    case MD_SPAN_STRONG:
+        s.bold = true;
+        break;
+    case MD_SPAN_CODE:
+        s.pair = c.st->code_pair;
+        break;
+    case MD_SPAN_DEL:
+        s.dim = true;
+        break; // no strike attr in ncurses
+    case MD_SPAN_A:
+        s.pair = c.st->link_pair;
+        s.under = true;
+        break;
+    case MD_SPAN_IMG:
+        s.pair = c.st->link_pair;
+        break;
+    default:
+        break;
     }
     c.style_stack.push_back(s);
     return 0;
@@ -549,7 +636,8 @@ int enter_span(MD_SPANTYPE type, void* detail, void* ud) {
 
 int leave_span(MD_SPANTYPE type, void* detail, void* ud) {
     Ctx& c = *static_cast<Ctx*>(ud);
-    if (!c.style_stack.empty()) c.style_stack.pop_back();
+    if (!c.style_stack.empty())
+        c.style_stack.pop_back();
     (void)type;
     (void)detail;
     return 0;
@@ -570,25 +658,25 @@ int text_cb(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* ud) {
     }
 
     switch (type) {
-        case MD_TEXT_SOFTBR:
-            if (c.quote_depth > 0) {
-                // Inside a blockquote, render each source line as its own
-                // quoted line so the '>' prefix repeats per visual row.
-                flush_block(c);
-            } else if (!c.cur.runs.empty()) {
-                Run r;
-                r.pair = base.pair;
-                r.text = " ";
-                c.cur.runs.push_back(r);
-            }
-            break;
-        case MD_TEXT_BR:
-            // Hard break: end the current line, start a new one.
+    case MD_TEXT_SOFTBR:
+        if (c.quote_depth > 0) {
+            // Inside a blockquote, render each source line as its own
+            // quoted line so the '>' prefix repeats per visual row.
             flush_block(c);
-            break;
-        default:
-            append_styled(c, s, base);
-            break;
+        } else if (!c.cur.runs.empty()) {
+            Run r;
+            r.pair = base.pair;
+            r.text = " ";
+            c.cur.runs.push_back(r);
+        }
+        break;
+    case MD_TEXT_BR:
+        // Hard break: end the current line, start a new one.
+        flush_block(c);
+        break;
+    default:
+        append_styled(c, s, base);
+        break;
     }
     return 0;
 }
@@ -601,25 +689,31 @@ std::string normalize_markdown(const std::string& md) {
     std::vector<std::string> in, out;
     std::string line;
     for (char i : md) {
-        if (i == '\n') { in.push_back(line); line.clear(); }
-        else line += i;
+        if (i == '\n') {
+            in.push_back(line);
+            line.clear();
+        } else
+            line += i;
     }
-    if (!line.empty()) in.push_back(line);
+    if (!line.empty())
+        in.push_back(line);
 
     auto is_blank = [](const std::string& s) {
-        return std::all_of(s.begin(), s.end(),
-                           [](unsigned char c) { return std::isspace(c); });
+        return std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isspace(c); });
     };
     auto is_heading = [](const std::string& s) {
         size_t i = 0;
-        while (i < s.size() && (s[i] == ' ' || s[i] == '#')) ++i;
+        while (i < s.size() && (s[i] == ' ' || s[i] == '#'))
+            ++i;
         return i > 0 && i < s.size() && s[i] != '#';
     };
     // A table row: starts (modulo indent) with '|' and has a second '|'.
     auto is_table_row = [](const std::string& s) {
         size_t i = 0;
-        while (i < s.size() && s[i] == ' ') ++i;
-        if (i >= s.size() || s[i] != '|') return false;
+        while (i < s.size() && s[i] == ' ')
+            ++i;
+        if (i >= s.size() || s[i] != '|')
+            return false;
         return s.find('|', i + 1) != std::string::npos;
     };
     // A long run of rule glyphs (- ─ ━ ═) glued onto a paragraph (a model that
@@ -632,7 +726,8 @@ std::string normalize_markdown(const std::string& md) {
         std::string text, run;
         auto is_sep = [](char c) {
             auto u = static_cast<unsigned char>(c);
-            if (u >= 0x80) return true;  // box-drawing / bullets
+            if (u >= 0x80)
+                return true; // box-drawing / bullets
             return c == '-' || c == '=';
         };
         bool broke = false;
@@ -641,9 +736,11 @@ std::string normalize_markdown(const std::string& md) {
                 run += c;
             } else {
                 if (run.size() >= 12) {
-                    if (!text.empty()) parts.push_back(text);
+                    if (!text.empty())
+                        parts.push_back(text);
                     parts.push_back(run);
-                    text.clear(); broke = true;
+                    text.clear();
+                    broke = true;
                 } else if (!run.empty()) {
                     text += run;
                 }
@@ -652,14 +749,19 @@ std::string normalize_markdown(const std::string& md) {
             }
         }
         if (run.size() >= 12) {
-            if (!text.empty()) { parts.push_back(text); text.clear(); }
+            if (!text.empty()) {
+                parts.push_back(text);
+                text.clear();
+            }
             parts.push_back(run);
             broke = true;
         } else if (!run.empty()) {
             text += run;
         }
-        if (!broke) return {s};
-        if (!text.empty()) parts.push_back(text);
+        if (!broke)
+            return {s};
+        if (!text.empty())
+            parts.push_back(text);
         return parts;
     };
 
@@ -670,16 +772,17 @@ std::string normalize_markdown(const std::string& md) {
         auto parts = split_sep_runs(l);
         if (parts.size() > 1) {
             auto all_rule = [](const std::string& s) {
-                if (s.empty()) return false;
-                return std::all_of(
-                    s.begin(), s.end(), [](unsigned char c) {
-                        if (c >= 0x80) return true;  // box-drawing / bullets
-                        return c == '-' || c == '=';
-                    });
+                if (s.empty())
+                    return false;
+                return std::all_of(s.begin(), s.end(), [](unsigned char c) {
+                    if (c >= 0x80)
+                        return true; // box-drawing / bullets
+                    return c == '-' || c == '=';
+                });
             };
             for (auto& p : parts) {
                 if (all_rule(p)) {
-                    out.emplace_back("");  // blank line so it renders as a rule
+                    out.emplace_back(""); // blank line so it renders as a rule
                     out.push_back(p);
                 } else {
                     out.push_back(p);
@@ -704,32 +807,41 @@ std::string normalize_markdown(const std::string& md) {
         // a delimiter before every body row.
         auto is_delimiter = [](const std::string& s) {
             size_t i = 0;
-            while (i < s.size() && (s[i] == ' ' || s[i] == '|')) ++i;
-            if (i == 0) return false;
+            while (i < s.size() && (s[i] == ' ' || s[i] == '|'))
+                ++i;
+            if (i == 0)
+                return false;
             bool ok = true, saw = false;
             for (size_t j = i; j < s.size(); ++j) {
                 char c = s[j];
                 if (c == '|' || c == ' ' || c == ':' || c == '-') {
-                    saw = true; continue;
+                    saw = true;
+                    continue;
                 }
-                ok = false; break;
+                ok = false;
+                break;
             }
             return ok && saw;
         };
         if (is_table_row(l) && i + 1 < in.size()) {
             size_t n = i + 1;
-            while (n < in.size() && is_blank(in[n])) ++n;
+            while (n < in.size() && is_blank(in[n]))
+                ++n;
             if (n < in.size() && is_table_row(in[n]) && !is_delimiter(in[n])) {
-                bool prev_is_table = !out.empty() &&
-                    (is_table_row(out.back()) || is_delimiter(out.back()));
+                bool prev_is_table =
+                    !out.empty() && (is_table_row(out.back()) || is_delimiter(out.back()));
                 if (!prev_is_table) {
                     int cols = 0;
                     for (char p : l)
-                        if (p == '|') ++cols;
-                    if (l.front() == '|') --cols;
-                    if (cols < 1) cols = 1;
+                        if (p == '|')
+                            ++cols;
+                    if (l.front() == '|')
+                        --cols;
+                    if (cols < 1)
+                        cols = 1;
                     std::string sep;
-                    for (int c = 0; c < cols; ++c) sep += "|---";
+                    for (int c = 0; c < cols; ++c)
+                        sep += "|---";
                     sep += "|";
                     out.push_back(l);
                     out.push_back(sep);
@@ -749,53 +861,75 @@ std::string normalize_markdown(const std::string& md) {
         auto count_cols = [](const std::string& s) -> int {
             int pipes = 0;
             for (size_t i = 0; i < s.size(); ++i) {
-                if (s[i] == '|' && (i == 0 || s[i - 1] != '\\')) ++pipes;
+                if (s[i] == '|' && (i == 0 || s[i - 1] != '\\'))
+                    ++pipes;
             }
-            if (pipes == 0) return 0;
+            if (pipes == 0)
+                return 0;
             size_t first = s.find_first_not_of(' ');
             size_t last = s.find_last_not_of(' ');
-            if (first == std::string::npos || last == std::string::npos) return 0;
+            if (first == std::string::npos || last == std::string::npos)
+                return 0;
             bool starts_pipe = s[first] == '|';
             bool ends_pipe = s[last] == '|';
-            if (starts_pipe && ends_pipe) return std::max(0, pipes - 1);
-            if (starts_pipe || ends_pipe) return pipes;
+            if (starts_pipe && ends_pipe)
+                return std::max(0, pipes - 1);
+            if (starts_pipe || ends_pipe)
+                return pipes;
             return pipes + 1;
         };
         auto is_delim = [](const std::string& s) -> bool {
             size_t j = 0;
-            while (j < s.size() && (s[j] == ' ' || s[j] == '|')) ++j;
-            if (j == 0) return false;
+            while (j < s.size() && (s[j] == ' ' || s[j] == '|'))
+                ++j;
+            if (j == 0)
+                return false;
             bool ok = true, saw = false;
             for (size_t k = j; k < s.size(); ++k) {
                 char c = s[k];
-                if (c == '|' || c == ' ' || c == ':' || c == '-') { saw = true; continue; }
-                ok = false; break;
+                if (c == '|' || c == ' ' || c == ':' || c == '-') {
+                    saw = true;
+                    continue;
+                }
+                ok = false;
+                break;
             }
             return ok && saw;
         };
-        for (size_t i = 0; i < out.size(); ) {
-            if (!is_table_row(out[i]) && !is_delim(out[i])) { ++i; continue; }
+        for (size_t i = 0; i < out.size();) {
+            if (!is_table_row(out[i]) && !is_delim(out[i])) {
+                ++i;
+                continue;
+            }
             size_t start = i;
-            while (i < out.size() && (is_table_row(out[i]) || is_delim(out[i]))) ++i;
+            while (i < out.size() && (is_table_row(out[i]) || is_delim(out[i])))
+                ++i;
             size_t end = i;
             int max_cols = 0;
             for (size_t k = start; k < end; ++k) {
-                if (is_blank(out[k])) continue;
+                if (is_blank(out[k]))
+                    continue;
                 max_cols = std::max(max_cols, count_cols(out[k]));
             }
-            if (max_cols <= 0) continue;
+            if (max_cols <= 0)
+                continue;
             for (size_t k = start; k < end; ++k) {
-                if (is_blank(out[k])) continue;
+                if (is_blank(out[k]))
+                    continue;
                 int cur = count_cols(out[k]);
-                if (cur >= max_cols) continue;
+                if (cur >= max_cols)
+                    continue;
                 bool delim = is_delim(out[k]);
                 std::string s = out[k];
                 size_t f = s.find_first_not_of(' ');
                 size_t l = s.find_last_not_of(' ');
-                if (f == std::string::npos) continue;
+                if (f == std::string::npos)
+                    continue;
                 s = s.substr(f, l - f + 1);
-                if (s.front() != '|') s.insert(0, "| ");
-                if (s.back() != '|') s += " |";
+                if (s.front() != '|')
+                    s.insert(0, "| ");
+                if (s.back() != '|')
+                    s += " |";
                 cur = count_cols(s);
                 while (cur < max_cols) {
                     s += delim ? "---|" : " |";
@@ -809,7 +943,8 @@ std::string normalize_markdown(const std::string& md) {
     std::string res;
     for (size_t i = 0; i < out.size(); ++i) {
         res += out[i];
-        if (i + 1 < out.size()) res += '\n';
+        if (i + 1 < out.size())
+            res += '\n';
     }
     return res;
 }
@@ -839,4 +974,3 @@ std::vector<Line> render(const std::string& md, const Style& st) {
 }
 
 } // namespace tui::md
-

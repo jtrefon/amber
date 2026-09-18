@@ -34,10 +34,10 @@ std::tm local_tm(int hour, int minute, int second) {
     return tm;
 }
 
-std::optional<StatusSegment> find_segment(PluginRuntime& runtime,
-                                          const std::string& id) {
+std::optional<StatusSegment> find_segment(PluginRuntime& runtime, const std::string& id) {
     for (const auto& s : runtime.status().render(StatusSnapshot{}))
-        if (s.id == id) return s;
+        if (s.id == id)
+            return s;
     return std::nullopt;
 }
 
@@ -103,8 +103,10 @@ TEST(the_clock_shares_the_registry_with_the_segments_that_were_always_there) {
     bool saw_left = false;
     bool saw_right = false;
     for (const auto& s : runtime.status().render(StatusSnapshot{})) {
-        if (s.align == StatusAlign::Left) saw_left = true;
-        if (s.align == StatusAlign::Right) saw_right = true;
+        if (s.align == StatusAlign::Left)
+            saw_left = true;
+        if (s.align == StatusAlign::Right)
+            saw_right = true;
     }
     ASSERT(saw_left);
     ASSERT(saw_right);

@@ -17,29 +17,38 @@ namespace agent {
 using json = nlohmann::json;
 
 enum class PolicyLevel : std::uint8_t {
-    Ask,           // prompt every time (default / no stored rule)
-    AllowOnce,     // just this call
-    AllowSession,  // rest of this conversation
-    AlwaysAllow,   // persisted — never ask again
-    AlwaysDeny     // persisted — always block
+    Ask,          // prompt every time (default / no stored rule)
+    AllowOnce,    // just this call
+    AllowSession, // rest of this conversation
+    AlwaysAllow,  // persisted — never ask again
+    AlwaysDeny    // persisted — always block
 };
 
 inline const char* policy_level_name(PolicyLevel l) {
     switch (l) {
-        case PolicyLevel::Ask:           return "ask";
-        case PolicyLevel::AllowOnce:     return "allow_once";
-        case PolicyLevel::AllowSession:  return "allow_session";
-        case PolicyLevel::AlwaysAllow:   return "allow";
-        case PolicyLevel::AlwaysDeny:    return "deny";
+    case PolicyLevel::Ask:
+        return "ask";
+    case PolicyLevel::AllowOnce:
+        return "allow_once";
+    case PolicyLevel::AllowSession:
+        return "allow_session";
+    case PolicyLevel::AlwaysAllow:
+        return "allow";
+    case PolicyLevel::AlwaysDeny:
+        return "deny";
     }
     return "ask";
 }
 
 inline PolicyLevel policy_level_from_name(const std::string& n) {
-    if (n == "allow" || n == "always_allow") return PolicyLevel::AlwaysAllow;
-    if (n == "deny" || n == "always_deny")   return PolicyLevel::AlwaysDeny;
-    if (n == "allow_session") return PolicyLevel::AllowSession;
-    if (n == "allow_once")    return PolicyLevel::AllowOnce;
+    if (n == "allow" || n == "always_allow")
+        return PolicyLevel::AlwaysAllow;
+    if (n == "deny" || n == "always_deny")
+        return PolicyLevel::AlwaysDeny;
+    if (n == "allow_session")
+        return PolicyLevel::AllowSession;
+    if (n == "allow_once")
+        return PolicyLevel::AllowOnce;
     return PolicyLevel::Ask;
 }
 
@@ -66,8 +75,7 @@ struct PolicyRule {
 // Human-readable scope for menus/completions: "bash:rm" -> "bash.rm",
 // "outside:/etc" -> "outside./etc", bare "write" stays "write".
 inline std::string scope_display(const PolicyRule& r) {
-    std::string s = r.args_pattern.empty() ? r.tool
-                                           : r.tool + "." + r.args_pattern;
+    std::string s = r.args_pattern.empty() ? r.tool : r.tool + "." + r.args_pattern;
     std::replace(s.begin(), s.end(), ':', '.');
     return s;
 }

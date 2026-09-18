@@ -4,8 +4,7 @@
 
 namespace tui {
 
-bool confine_path(const std::string& input, std::string& resolved,
-                  std::string& err) {
+bool confine_path(const std::string& input, std::string& resolved, std::string& err) {
     return agent::Workspace::confine(input, resolved, err);
 }
 

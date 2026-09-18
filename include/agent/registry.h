@@ -19,12 +19,12 @@ namespace agent {
 // else shares.
 enum class ToolRole : std::uint8_t {
     Other,
-    Read,      // brings workspace content back
-    Write,     // changes workspace content
-    Search,    // locates content across the workspace
-    Execute,   // runs a process or command
-    Plan,      // records intent for the session
-    Delegate,  // hands work to a sub-agent
+    Read,     // brings workspace content back
+    Write,    // changes workspace content
+    Search,   // locates content across the workspace
+    Execute,  // runs a process or command
+    Plan,     // records intent for the session
+    Delegate, // hands work to a sub-agent
 };
 
 std::string to_string(ToolRole role);

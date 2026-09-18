@@ -17,18 +17,22 @@ namespace {
 std::string trim(const std::string& s) {
     size_t b = 0;
     size_t e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
+    while (b < e && std::isspace(static_cast<unsigned char>(s[b])))
+        ++b;
+    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])))
+        --e;
     return s.substr(b, e - b);
 }
 
-void set_field(agent::SkillMeta& meta,
-               const std::string& key,
-               const std::string& val) {
-    if (key == "name") meta.name = val;
-    else if (key == "description") meta.description = val;
-    else if (key == "license") meta.license = val;
-    else if (key == "compatibility") meta.compatibility = val;
+void set_field(agent::SkillMeta& meta, const std::string& key, const std::string& val) {
+    if (key == "name")
+        meta.name = val;
+    else if (key == "description")
+        meta.description = val;
+    else if (key == "license")
+        meta.license = val;
+    else if (key == "compatibility")
+        meta.compatibility = val;
 }
 
 // Parse an inline YAML flow map `{k: v, k2: v2}` into a JSON object.
@@ -41,21 +45,22 @@ void merge_flow_map(json& dst, const std::string& val) {
     std::string part;
     while (std::getline(ss, part, ',')) {
         size_t colon = part.find(':');
-        if (colon == std::string::npos) continue;
+        if (colon == std::string::npos)
+            continue;
         std::string key = trim(part.substr(0, colon));
         std::string value = trim(part.substr(colon + 1));
-        if (key.empty()) continue;
+        if (key.empty())
+            continue;
         dst[key] = value;
     }
 }
 
 // Join an accumulated folded block (`>` continuation lines) into `meta`.
-void flush_folded(agent::SkillMeta& meta,
-                  const std::string& key,
-                  std::vector<std::string>& lines) {
+void flush_folded(agent::SkillMeta& meta, const std::string& key, std::vector<std::string>& lines) {
     std::string joined;
     for (const std::string& l : lines) {
-        if (!joined.empty()) joined += " ";
+        if (!joined.empty())
+            joined += " ";
         joined += l;
     }
     set_field(meta, key, joined);
@@ -80,10 +85,12 @@ std::optional<SkillMeta> parse_skill_meta(const std::string& contents) {
     std::string line;
 
     while (std::getline(in, line)) {
-        if (trim(line).empty()) continue;
+        if (trim(line).empty())
+            continue;
         break;
     }
-    if (trim(line) != "---") return std::nullopt;
+    if (trim(line) != "---")
+        return std::nullopt;
 
     SkillMeta meta;
     std::vector<std::string> body_lines;
@@ -106,8 +113,7 @@ std::optional<SkillMeta> parse_skill_meta(const std::string& contents) {
             if (indented) {
                 size_t c = line.find(':');
                 if (c != std::string::npos)
-                    meta.metadata[trim(line.substr(0, c))] =
-                        trim(line.substr(c + 1));
+                    meta.metadata[trim(line.substr(0, c))] = trim(line.substr(c + 1));
                 continue;
             }
             in_metadata = false;
@@ -122,7 +128,8 @@ std::optional<SkillMeta> parse_skill_meta(const std::string& contents) {
         }
 
         size_t colon = line.find(':');
-        if (colon == std::string::npos) continue;
+        if (colon == std::string::npos)
+            continue;
         std::string key = trim(line.substr(0, colon));
         std::string val = trim(line.substr(colon + 1));
 
@@ -135,16 +142,18 @@ std::optional<SkillMeta> parse_skill_meta(const std::string& contents) {
         } else if (val == ">") {
             folded_key = key;
             folded_lines.clear();
-        } else if (key == "name" || key == "description" ||
-                   key == "license" || key == "compatibility") {
+        } else if (key == "name" || key == "description" || key == "license" ||
+                   key == "compatibility") {
             set_field(meta, key, val);
         }
     }
-    if (!folded_key.empty()) flush_folded(meta, folded_key, folded_lines);
+    if (!folded_key.empty())
+        flush_folded(meta, folded_key, folded_lines);
 
     std::string body;
     for (size_t i = 0; i < body_lines.size(); ++i) {
-        if (i) body += "\n";
+        if (i)
+            body += "\n";
         body += body_lines[i];
     }
     meta.body = body;
@@ -153,23 +162,28 @@ std::optional<SkillMeta> parse_skill_meta(const std::string& contents) {
     return meta;
 }
 
-std::vector<SkillFile> scan_skill_dir(const std::string& root,
-                                      SkillScope scope,
+std::vector<SkillFile> scan_skill_dir(const std::string& root, SkillScope scope,
                                       std::vector<std::string>* warnings) {
     std::vector<SkillFile> out;
-    if (root.empty()) return out;
+    if (root.empty())
+        return out;
     std::error_code ec;
-    if (!fs::exists(root, ec)) return out;
+    if (!fs::exists(root, ec))
+        return out;
 
     for (const auto& entry : fs::directory_iterator(root, ec)) {
-        if (ec) break;
+        if (ec)
+            break;
         std::error_code e2;
-        if (!entry.is_directory(e2)) continue;
+        if (!entry.is_directory(e2))
+            continue;
         std::string name = entry.path().filename().string();
-        if (name.empty() || name[0] == '.') continue;
+        if (name.empty() || name[0] == '.')
+            continue;
         if (!is_kebab_name(name)) {
             if (warnings) {
-                warnings->push_back("skill '" + name + "': invalid name "
+                warnings->push_back("skill '" + name +
+                                    "': invalid name "
                                     "(lowercase letters, digits, '-' only)");
             }
             continue;
@@ -177,15 +191,13 @@ std::vector<SkillFile> scan_skill_dir(const std::string& root,
         fs::path sk_path = entry.path() / "SKILL.md";
         if (!fs::exists(sk_path, e2)) {
             if (warnings)
-                warnings->push_back("skill '" + name +
-                                    "': no SKILL.md, skipping");
+                warnings->push_back("skill '" + name + "': no SKILL.md, skipping");
             continue;
         }
         std::ifstream f(sk_path);
         if (!f.is_open()) {
             if (warnings)
-                warnings->push_back("skill '" + name +
-                                    "': unreadable SKILL.md, skipping");
+                warnings->push_back("skill '" + name + "': unreadable SKILL.md, skipping");
             continue;
         }
         std::stringstream ss;
@@ -193,30 +205,26 @@ std::vector<SkillFile> scan_skill_dir(const std::string& root,
         auto meta = parse_skill_meta(ss.str());
         if (!meta) {
             if (warnings)
-                warnings->push_back("skill '" + name +
-                                    "': malformed SKILL.md, skipping");
+                warnings->push_back("skill '" + name + "': malformed SKILL.md, skipping");
             continue;
         }
         meta->name = name;
         meta->description = trim(meta->description);
-        out.push_back(
-            SkillFile{name, entry.path().string(), scope, std::move(*meta)});
+        out.push_back(SkillFile{name, entry.path().string(), scope, std::move(*meta)});
     }
     std::sort(out.begin(), out.end(),
-              [](const SkillFile& a, const SkillFile& b) {
-                  return a.name < b.name;
-              });
+              [](const SkillFile& a, const SkillFile& b) { return a.name < b.name; });
     return out;
 }
 
-std::vector<SkillFile> scan_skills(const SkillScanPaths& paths,
-                                   bool interop_enabled,
+std::vector<SkillFile> scan_skills(const SkillScanPaths& paths, bool interop_enabled,
                                    std::vector<std::string>* warnings) {
     std::vector<SkillFile> result;
     std::set<std::string> seen;
     auto absorb = [&](std::vector<SkillFile> files) {
         for (SkillFile& f : files) {
-            if (seen.insert(f.name).second) result.push_back(std::move(f));
+            if (seen.insert(f.name).second)
+                result.push_back(std::move(f));
         }
     };
     absorb(scan_skill_dir(paths.project, SkillScope::Project, warnings));

@@ -11,7 +11,7 @@ namespace tui {
 struct PluginFeedEntry {
     std::string id;
     std::string version;
-    std::string tier;  // "bundled" or "external"
+    std::string tier; // "bundled" or "external"
     bool enabled = false;
 };
 

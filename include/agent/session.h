@@ -11,13 +11,13 @@ namespace agent {
 // A persisted conversation: the full message history plus light metadata. Saved
 // as a single JSON file so sessions are greppable and portable.
 struct Session {
-    std::string id;              // stable file id (timestamp-based, unique)
-    std::string title;           // human label (defaults to first user line)
-    std::string model;           // model in use when created
-    long long created_ms = 0;    // unix ms
-    long long updated_ms = 0;    // unix ms, bumped on save
+    std::string id;           // stable file id (timestamp-based, unique)
+    std::string title;        // human label (defaults to first user line)
+    std::string model;        // model in use when created
+    long long created_ms = 0; // unix ms
+    long long updated_ms = 0; // unix ms, bumped on save
     std::vector<Message> messages;
-    json meta;                     // internal metadata (archive, mentions) — never sent to LLM
+    json meta; // internal metadata (archive, mentions) — never sent to LLM
 
     // Serialize/deserialize to the on-disk JSON shape.
     json to_json() const;
@@ -34,7 +34,7 @@ struct SessionMeta {
     std::string model;
     long long updated_ms = 0;
     int message_count = 0;
-    size_t file_size = 0;      // JSON file size in bytes
+    size_t file_size = 0; // JSON file size in bytes
 };
 
 // Serializable workspace state: which sessions are open and which is active.
@@ -81,7 +81,6 @@ public:
     // Call rebuild_index() after any session save/remove to keep it fresh.
     std::vector<SessionMeta> list() const;
     void rebuild_index() const;
-
 
     // Workspace state: persist / restore open windows and their sessions.
     bool save_workspace(const WorkspaceState& ws) const;

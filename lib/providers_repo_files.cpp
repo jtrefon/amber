@@ -24,28 +24,36 @@ std::string providers_dir() {
 
 std::optional<Provider> parse_file(const std::string& path) {
     std::ifstream f(path);
-    if (!f) return std::nullopt;
+    if (!f)
+        return std::nullopt;
     Provider p;
     std::string line;
     while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty() || line[0] == '#')
+            continue;
         const auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
+        if (eq == std::string::npos)
+            continue;
         const std::string key = line.substr(0, eq);
         std::string val = line.substr(eq + 1);
         if (!val.empty() && val.front() == '"' && val.back() == '"')
             val = val.substr(1, val.size() - 2);
-        if (key == "provider") p.name = val;
-        else if (key == "api_base") p.api_base = val;
-        else if (key == "api_key") p.api_key = val;
+        if (key == "provider")
+            p.name = val;
+        else if (key == "api_base")
+            p.api_base = val;
+        else if (key == "api_key")
+            p.api_key = val;
         else if (key == "default_model" || key == "model")
             p.default_model = val;
-        else if (key == "requires_key") p.requires_key = (val == "1" || val == "true");
+        else if (key == "requires_key")
+            p.requires_key = (val == "1" || val == "true");
         else if (key == "default_context_size")
             p.default_context_size = std::atoi(val.c_str());
         // Wire dialect: absent means the OpenAI-compatible baseline, so
         // existing provider files keep working untouched.
-        else if (key == "flavor" && !val.empty()) p.flavor = val;
+        else if (key == "flavor" && !val.empty())
+            p.flavor = val;
     }
     return p;
 }
@@ -73,7 +81,8 @@ public:
     bool save(const Provider& p) override {
         const std::string path = providers_dir() + "/" + p.name + ".conf";
         std::ofstream f(path, std::ios::trunc);
-        if (!f) return false;
+        if (!f)
+            return false;
         f << "# amber provider: " << p.name << "\n";
         f << "provider=" << p.name << "\n";
         f << "api_base=" << p.api_base << "\n";
@@ -82,7 +91,8 @@ public:
         f << "requires_key=" << (p.requires_key ? "1" : "0") << "\n";
         // Only written when it is not the default: a file that says nothing
         // about flavor means openai, which is what every existing file means.
-        if (p.flavor != "openai") f << "flavor=" << p.flavor << "\n";
+        if (p.flavor != "openai")
+            f << "flavor=" << p.flavor << "\n";
         if (p.default_context_size > 0)
             f << "default_context_size=" << p.default_context_size << "\n";
         return static_cast<bool>(f);

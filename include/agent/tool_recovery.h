@@ -6,9 +6,12 @@
 #include <string>
 
 #include "agent/conversation_log.h"
-#include "agent/llm.h"  // Message, json
+#include "agent/llm.h" // Message, json
 
-namespace agent { class Context; struct AgentHooks; }
+namespace agent {
+class Context;
+struct AgentHooks;
+} // namespace agent
 
 namespace agent {
 
@@ -30,8 +33,7 @@ private:
 
 // The model is stuck retrying a tool that keeps failing. Inject steering
 // guidance into history so the model sees it on the next chat call.
-void inject_tool_recovery_steer(Context* context,
-                                const AgentHooks& hooks, ConversationLog& log);
+void inject_tool_recovery_steer(Context* context, const AgentHooks& hooks, ConversationLog& log);
 
 } // namespace agent
 

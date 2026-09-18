@@ -19,14 +19,12 @@ std::vector<std::string> skill_show_lines(const SkillCatalog& catalog);
 
 // Author a skill (wraps author_skill). Empty string on success, else error.
 std::string skill_create(SkillCatalog& catalog, const std::string& name,
-                         const std::string& description,
-                         const std::string& body,
+                         const std::string& description, const std::string& body,
                          const std::string& scope);
 
 // Remove the SKILL.md directory for `name` in the given scope. Empty on
 // success, else error.
-std::string skill_delete(SkillCatalog& catalog, const std::string& name,
-                         const std::string& scope);
+std::string skill_delete(SkillCatalog& catalog, const std::string& name, const std::string& scope);
 
 // Graduate a learned skill into a global authored SKILL.md (one-way; the
 // learned store is untouched). Empty on success, else error.

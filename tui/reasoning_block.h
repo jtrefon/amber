@@ -13,7 +13,10 @@ struct ReasoningBlock {
     bool folded = false;
 
     bool active() const noexcept { return !folded && !buffer.empty(); }
-    void begin() noexcept { buffer.clear(); folded = false; }
+    void begin() noexcept {
+        buffer.clear();
+        folded = false;
+    }
     void append(const std::string& delta);
     std::string fold();
 };

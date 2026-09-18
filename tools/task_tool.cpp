@@ -27,15 +27,13 @@ public:
     }
 
     agent::json parameters_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties",
-             {{"prompt",
-               {{"type", "string"},
-                {"description",
-                 "The focused task for the worker agent: what to do, what "
-                 "to verify, and what to report back."}}}}},
-            {"required", {"prompt"}}};
+        return {{"type", "object"},
+                {"properties",
+                 {{"prompt",
+                   {{"type", "string"},
+                    {"description", "The focused task for the worker agent: what to do, what "
+                                    "to verify, and what to report back."}}}}},
+                {"required", {"prompt"}}};
     }
 
     // Sub-agent inherits the parent's full tool registry — a model denied
@@ -44,17 +42,12 @@ public:
 
     ToolResult execute(const agent::json& args) const override {
         if (!args.contains("prompt") || !args["prompt"].is_string())
-            return ToolResult{false, "", "task: missing prompt",
-                              agent::json::object()};
+            return ToolResult{false, "", "task: missing prompt", agent::json::object()};
         if (in_subagent())
-            return ToolResult{false,
-                              "",
-                              "task cannot be nested inside a sub-agent",
+            return ToolResult{false, "", "task cannot be nested inside a sub-agent",
                               agent::json::object()};
         std::string err;
-        std::string out =
-            executor_.run_task(args["prompt"].get<std::string>(), registry_,
-                               err);
+        std::string out = executor_.run_task(args["prompt"].get<std::string>(), registry_, err);
         if (!err.empty())
             return ToolResult{false, "", err, agent::json::object()};
         return ToolResult{true, out, "", agent::json::object()};
@@ -67,8 +60,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<Tool> make_task_tool(SubAgentExecutor& executor,
-                                     ToolRegistry& registry) {
+std::unique_ptr<Tool> make_task_tool(SubAgentExecutor& executor, ToolRegistry& registry) {
     return std::make_unique<TaskTool>(executor, registry);
 }
 

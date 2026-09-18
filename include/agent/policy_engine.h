@@ -18,14 +18,14 @@ using json = nlohmann::json;
 
 // What the approval gate should do with a tool call.
 enum class Verdict : std::uint8_t {
-    Allow,       // run without a dialog
-    DenySilent,  // block without a dialog (read mode / stored always-deny)
-    Prompt       // ask the host via AgentHooks::on_approval
+    Allow,      // run without a dialog
+    DenySilent, // block without a dialog (read mode / stored always-deny)
+    Prompt      // ask the host via AgentHooks::on_approval
 };
 
 struct Decision {
     Verdict v = Verdict::Allow;
-    std::string scope_id;  // resource scope the decision (and grants) key on
+    std::string scope_id; // resource scope the decision (and grants) key on
 };
 
 // Decide whether a tool call needs a dialog. Pure: reads the mode, the tool's

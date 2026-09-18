@@ -63,7 +63,7 @@ private:
     void clamp_scroll();
 
     std::vector<BrowserItem> items_;
-    std::vector<std::pair<int, int>> disp_;   // (kind, items index)
+    std::vector<std::pair<int, int>> disp_; // (kind, items index)
     std::string filter_;
     int sel_ = 0;
     int scroll_off_ = 0;

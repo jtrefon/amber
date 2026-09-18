@@ -18,20 +18,22 @@ size_t probe_write_cb(void* ptr, size_t size, size_t nmemb, void* user) {
 
 // GET the dialect's model-listing endpoint into `response`. Returns a non-OK
 // CURLcode on transport failure or when the protocol has no listing endpoint.
-CURLcode fetch_models(const Config& cfg, const Dialect& dialect,
-                      std::string& response) {
+CURLcode fetch_models(const Config& cfg, const Dialect& dialect, std::string& response) {
     const std::string url = dialect.models_url(cfg);
-    if (url.empty()) return CURLE_URL_MALFORMAT;
+    if (url.empty())
+        return CURLE_URL_MALFORMAT;
 
     CURL* c = curl_easy_init();
-    if (!c) return CURLE_FAILED_INIT;
+    if (!c)
+        return CURLE_FAILED_INIT;
 
     struct curl_slist* headers = nullptr;
     for (const auto& h : dialect.auth_headers(cfg))
         headers = curl_slist_append(headers, h.c_str());
 
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    if (headers) curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
+    if (headers)
+        curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(c, CURLOPT_HTTPGET, 1L);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, probe_write_cb);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &response);
@@ -39,7 +41,8 @@ CURLcode fetch_models(const Config& cfg, const Dialect& dialect,
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
 
     CURLcode rc = curl_easy_perform(c);
-    if (headers) curl_slist_free_all(headers);
+    if (headers)
+        curl_slist_free_all(headers);
     curl_easy_cleanup(c);
     return rc;
 }
@@ -57,8 +60,7 @@ ServerInfo probe_server(const Config& cfg, const Dialect& dialect) {
     // router (kilocode et al.) lists models in its own order, and the first
     // entry with a context window is not necessarily the one in use — adopting
     // it sizes the gauge and the compression budget to the wrong model.
-    return dialect.parse_models_response(
-        response, cfg.model_explicit ? cfg.model : "");
+    return dialect.parse_models_response(response, cfg.model_explicit ? cfg.model : "");
 }
 
 ServerInfo probe_server(const Config& cfg) {
@@ -67,7 +69,8 @@ ServerInfo probe_server(const Config& cfg) {
 }
 
 void merge_server_info(Config& cfg, const ServerInfo& info) {
-    if (!info.ok) return;
+    if (!info.ok)
+        return;
     if (!cfg.model_explicit && !info.model.empty())
         cfg.model = info.model;
     if (!cfg.context_explicit && info.context_size > 0)
@@ -86,10 +89,10 @@ ServerInfo apply_server_autodetect(Config& cfg) {
     return info;
 }
 
-std::vector<ModelInfo> list_model_info(const Config& cfg,
-                                       const Dialect& dialect) {
+std::vector<ModelInfo> list_model_info(const Config& cfg, const Dialect& dialect) {
     std::string response;
-    if (fetch_models(cfg, dialect, response) != CURLE_OK) return {};
+    if (fetch_models(cfg, dialect, response) != CURLE_OK)
+        return {};
     return dialect.parse_model_list_response(response);
 }
 

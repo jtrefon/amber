@@ -156,8 +156,7 @@ TEST(oracle_redundant_identical_calls) {
 }
 
 TEST(oracle_empty_oracle_success) {
-    OracleResult r = bench::score_oracle(
-        {}, {{"read", {{"path", "a.txt"}}, 0, "ok"}});
+    OracleResult r = bench::score_oracle({}, {{"read", {{"path", "a.txt"}}, 0, "ok"}});
     ASSERT(r.success);
     ASSERT_EQ(r.bullseye, 1.0);
 }
@@ -177,7 +176,8 @@ TEST(scenario_loader_roundtrip) {
         "name": "demo",
         "suite": "tools",
         "description": "d",
-        "platforms": )") + platform_json + R"(,
+        "platforms": )") + platform_json +
+                                    R"(,
         "prompt": "do it",
         "oracle": [
             {"tool": "read", "args": {"path": "*"}},
@@ -251,7 +251,7 @@ TEST(recorder_pairs_tool_call_and_result) {
     agent::AgentHooks hooks = rec.hooks();
     hooks.on_tool_call("read", {{"path", "a.txt"}});
     hooks.on_tool_result("read", agent::ToolResult{true, "hello", "", agent::json{}},
-                       agent::json::object());
+                         agent::json::object());
     ASSERT_EQ(rec.stream().tools.size(), 1u);
     const bench::ToolEvent& e = rec.stream().tools[0];
     ASSERT_EQ(e.name, "read");
@@ -267,9 +267,9 @@ TEST(recorder_concurrent_pairing_out_of_order) {
     hooks.on_tool_call("read", {{"path", "a.txt"}});
     hooks.on_tool_call("search", {{"query", "x"}});
     hooks.on_tool_result("search", agent::ToolResult{true, "hit", "", agent::json{}},
-                       agent::json::object());
+                         agent::json::object());
     hooks.on_tool_result("read", agent::ToolResult{true, "text", "", agent::json{}},
-                       agent::json::object());
+                         agent::json::object());
     ASSERT_EQ(rec.stream().tools.size(), 2u);
     bool seen_read = false, seen_search = false;
     for (const auto& e : rec.stream().tools) {
@@ -285,11 +285,13 @@ TEST(recorder_denied_and_timeout_flags) {
     Recorder rec;
     agent::AgentHooks hooks = rec.hooks();
     hooks.on_tool_call("bash", {{"command", "rm -rf /"}});
-    hooks.on_tool_result("bash", agent::ToolResult{false, "", "denied", agent::json{{"denied", true}}},
-                       agent::json::object());
+    hooks.on_tool_result("bash",
+                         agent::ToolResult{false, "", "denied", agent::json{{"denied", true}}},
+                         agent::json::object());
     hooks.on_tool_call("read", {{"path", "a.txt"}});
-    hooks.on_tool_result("read", agent::ToolResult{false, "", "timeout", agent::json{{"timeout", true}}},
-                       agent::json::object());
+    hooks.on_tool_result("read",
+                         agent::ToolResult{false, "", "timeout", agent::json{{"timeout", true}}},
+                         agent::json::object());
     ASSERT_EQ(rec.stream().tools.size(), 2u);
     ASSERT(rec.stream().tools[0].denied);
     ASSERT(rec.stream().tools[1].timeout);
@@ -384,8 +386,7 @@ TEST(kpi_computation_synthesized_stream) {
     Checks pc;
     pc.must_contain = {"done"};
 
-    Kpi k = bench::compute_kpi(stream, oracle, meter, tmpl, pc, "all done.",
-                               5000, 3000);
+    Kpi k = bench::compute_kpi(stream, oracle, meter, tmpl, pc, "all done.", 5000, 3000);
     ASSERT(k.success);
     ASSERT_EQ(k.bullseye, 1.0);
     ASSERT_EQ(k.tool_call_accuracy, 1.0);
@@ -423,7 +424,8 @@ TEST(resource_meter_samples) {
     ResourceMeter meter;
     meter.start();
     volatile long sink = 0;
-    for (int i = 0; i < 100000; ++i) sink += i;
+    for (int i = 0; i < 100000; ++i)
+        sink += i;
     (void)sink;
     meter.stop();
     ASSERT(meter.cpu_ms() >= 0);
@@ -451,18 +453,16 @@ TEST(template_validate_reference_and_score_artifact) {
     std::string tpl = dir + "/template";
     fs::create_directories(tpl + "/reference");
     fs::create_directories(tpl + "/hidden_tests");
-    write_file(tpl + "/reference/solution.h",
-               "#pragma once\n"
-               "#include <string>\n"
-               "std::string fizzbuzz(int n);\n");
-    write_file(tpl + "/reference/solution.cpp",
-               "#include \"solution.h\"\n"
-               "std::string fizzbuzz(int n) {\n"
-               "  if (n % 15 == 0) return \"FizzBuzz\";\n"
-               "  if (n % 3 == 0) return \"Fizz\";\n"
-               "  if (n % 5 == 0) return \"Buzz\";\n"
-               "  return std::to_string(n);\n"
-               "}\n");
+    write_file(tpl + "/reference/solution.h", "#pragma once\n"
+                                              "#include <string>\n"
+                                              "std::string fizzbuzz(int n);\n");
+    write_file(tpl + "/reference/solution.cpp", "#include \"solution.h\"\n"
+                                                "std::string fizzbuzz(int n) {\n"
+                                                "  if (n % 15 == 0) return \"FizzBuzz\";\n"
+                                                "  if (n % 3 == 0) return \"Fizz\";\n"
+                                                "  if (n % 5 == 0) return \"Buzz\";\n"
+                                                "  return std::to_string(n);\n"
+                                                "}\n");
     write_file(tpl + "/hidden_tests/test_main.cpp",
                "#include \"solution.h\"\n"
                "#include <cstdio>\n"
@@ -504,14 +504,13 @@ TEST(template_artifact_failure_no_equivalence) {
     fs::create_directories(tpl + "/hidden_tests");
     write_file(tpl + "/reference/solution.h",
                "#pragma once\n#include <string>\nstd::string fizzbuzz(int n);\n");
-    write_file(tpl + "/reference/solution.cpp",
-               "#include \"solution.h\"\n"
-               "std::string fizzbuzz(int n) {\n"
-               "  if (n % 15 == 0) return \"FizzBuzz\";\n"
-               "  if (n % 3 == 0) return \"Fizz\";\n"
-               "  if (n % 5 == 0) return \"Buzz\";\n"
-               "  return std::to_string(n);\n"
-               "}\n");
+    write_file(tpl + "/reference/solution.cpp", "#include \"solution.h\"\n"
+                                                "std::string fizzbuzz(int n) {\n"
+                                                "  if (n % 15 == 0) return \"FizzBuzz\";\n"
+                                                "  if (n % 3 == 0) return \"Fizz\";\n"
+                                                "  if (n % 5 == 0) return \"Buzz\";\n"
+                                                "  return std::to_string(n);\n"
+                                                "}\n");
     write_file(tpl + "/hidden_tests/test_main.cpp",
                "#include \"solution.h\"\n#include <cstdlib>\n"
                "int main() { return fizzbuzz(3) == \"Fizz\" ? 0 : 1; }\n");
@@ -521,9 +520,8 @@ TEST(template_artifact_failure_no_equivalence) {
     fs::create_directories(art);
     write_file(art + "/solution.h",
                "#pragma once\n#include <string>\nstd::string fizzbuzz(int n);\n");
-    write_file(art + "/solution.cpp",
-               "#include \"solution.h\"\n"
-               "std::string fizzbuzz(int) { return \"Fizzz\"; }\n");
+    write_file(art + "/solution.cpp", "#include \"solution.h\"\n"
+                                      "std::string fizzbuzz(int) { return \"Fizzz\"; }\n");
     write_file(tpl + "/checks.json", R"({"must_contain": ["fizzbuzz"]})");
 
     std::string err;
@@ -635,7 +633,9 @@ TEST(e2e_hermetic_restores_workspace_root) {
     ASSERT_EQ(agent::Workspace::root(), prior);
 }
 
-int main() { return agent::test::run_all(); }
+int main() {
+    return agent::test::run_all();
+}
 
 // ---------------------------------------------------------------------------
 // Scoring (v2 — continuous, weighted, discriminating)
@@ -651,14 +651,13 @@ static bench::Kpi perfect_kpi() {
     return k;
 }
 
-#define ASSERT_NEAR(a, b, eps)                                                \
-    do {                                                                      \
-        const double _a = (a);                                                \
-        const double _b = (b);                                                \
-        if (_a < _b - (eps) || _a > _b + (eps))                               \
-            ::agent::test::fail("assert_near failed: " #a " ~= " #b           \
-                                " (" + std::to_string(_a) + " vs " +          \
-                                std::to_string(_b) + ")");                    \
+#define ASSERT_NEAR(a, b, eps)                                                                     \
+    do {                                                                                           \
+        const double _a = (a);                                                                     \
+        const double _b = (b);                                                                     \
+        if (_a < _b - (eps) || _a > _b + (eps))                                                    \
+            ::agent::test::fail("assert_near failed: " #a " ~= " #b " (" + std::to_string(_a) +    \
+                                " vs " + std::to_string(_b) + ")");                                \
     } while (0)
 
 TEST(score_perfect_run_100) {
@@ -704,10 +703,10 @@ TEST(score_robustness_hard_stop) {
     Kpi k = perfect_kpi();
     k.steps = 1;
     k.hard_stop = true;
-    k.success = false;  // compute_kpi marks hard stops as failures
+    k.success = false; // compute_kpi marks hard stops as failures
     bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
     ASSERT_NEAR(sc.robustness, 0.0, 0.01);
-    ASSERT_NEAR(sc.total, 60.0, 0.01);  // partial credit capped at 60
+    ASSERT_NEAR(sc.total, 60.0, 0.01); // partial credit capped at 60
 }
 
 TEST(score_failure_cap_keeps_partial_credit) {
@@ -715,7 +714,7 @@ TEST(score_failure_cap_keeps_partial_credit) {
     s.oracle = {{"read", {{"path", "a.txt"}}}};
     Kpi k = perfect_kpi();
     k.steps = 1;
-    k.success = false;  // one failed check, otherwise flawless
+    k.success = false; // one failed check, otherwise flawless
     bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
     ASSERT_NEAR(sc.correctness, 100.0, 0.01);
     ASSERT_NEAR(sc.total, 60.0, 0.01);
@@ -734,7 +733,9 @@ TEST(score_adherence_forbidden_penalty) {
 
 TEST(score_expected_steps_from_oracle) {
     Scenario s;
-    s.oracle = {{"read", {{"path", "a.txt"}}}, {"write", {{"path", "b.txt"}}}, {"bash", {{"command", "*"}}}};
+    s.oracle = {{"read", {{"path", "a.txt"}}},
+                {"write", {{"path", "b.txt"}}},
+                {"bash", {{"command", "*"}}}};
     Kpi k = perfect_kpi();
     k.steps = 3;
     bench::Score sc = bench::compute_score(k, s, 1.0, 0, 100.0);
@@ -796,8 +797,7 @@ TEST(report_markdown_comparison_matrix) {
     m1.model = "model-a";
     bench::RunMeta m2;
     m2.model = "model-b";
-    std::string md = bench::render_markdown_comparison(
-        {{m1, {a}}, {m2, {b}}});
+    std::string md = bench::render_markdown_comparison({{m1, {a}}, {m2, {b}}});
     ASSERT(md.find("model-a") != std::string::npos);
     ASSERT(md.find("model-b") != std::string::npos);
     ASSERT(md.find("90") != std::string::npos);
@@ -824,7 +824,7 @@ TEST(kpi_tool_aggregation_from_stream) {
     oracle.on_oracle_calls = 2;
     oracle.total_calls = 4;
     oracle.arg_precision = 1.0;
-    oracle.redundant = 1;  // identical read a.txt twice (score_oracle detects)
+    oracle.redundant = 1; // identical read a.txt twice (score_oracle detects)
 
     ResourceMeter meter;
     TemplateResult tmpl;
@@ -834,7 +834,7 @@ TEST(kpi_tool_aggregation_from_stream) {
     ASSERT_EQ(k.tool_calls, 4);
     ASSERT_EQ(k.tool_failures, 1);
     ASSERT_EQ(k.tool_denied, 1);
-    ASSERT_EQ(k.redundant, 1);  // read a.txt twice
+    ASSERT_EQ(k.redundant, 1); // read a.txt twice
     ASSERT_EQ(k.bash_cd_prefix, 2);
 }
 
@@ -866,8 +866,7 @@ TEST(report_markdown_agentic_profile) {
 // ---------------------------------------------------------------------------
 
 static bench::Agentic agentic_for(const std::vector<bench::ToolCallEvent>& calls,
-                                  const std::vector<ScenarioStep>& oracle,
-                                  const agent::json& plan,
+                                  const std::vector<ScenarioStep>& oracle, const agent::json& plan,
                                   const Kpi& k = Kpi{}) {
     bench::EventStream stream;
     stream.calls = calls;
@@ -911,8 +910,8 @@ TEST(agentic_explicit_plan_overrides_oracle) {
         {"write", {{"path", "solution.cpp"}}, 0, "ok"},
         {"bash", {{"command", "g++"}}, 0, "ok"},
     };
-    auto a = agentic_for(calls, {{"read", {}}},
-                         agent::json{{"read", 1}, {"write", 1}, {"bash", 1}});
+    auto a =
+        agentic_for(calls, {{"read", {}}}, agent::json{{"read", 1}, {"write", 1}, {"bash", 1}});
     ASSERT_EQ(a.plan_tools, 3);
     ASSERT_EQ(a.plan_deviation, 0);
     ASSERT_EQ(a.score, 100.0);
@@ -921,8 +920,8 @@ TEST(agentic_explicit_plan_overrides_oracle) {
 TEST(agentic_repeats_failures_retries_penalized) {
     std::vector<bench::ToolCallEvent> calls = {
         {"read", {{"path", "a.txt"}}, 0, "ok"},
-        {"read", {{"path", "a.txt"}}, 0, "ok"},   // exact repeat
-        {"read", {{"path", "b.txt"}}, 0, "error"},  // failure
+        {"read", {{"path", "a.txt"}}, 0, "ok"},    // exact repeat
+        {"read", {{"path", "b.txt"}}, 0, "error"}, // failure
     };
     Kpi k;
     k.redundant = 1;
@@ -942,7 +941,7 @@ TEST(agentic_no_plan_skipped) {
 TEST(agentic_efficiency_percent_normalized) {
     std::vector<bench::ToolCallEvent> calls = {
         {"read", {{"path", "a.txt"}}, 0, "ok"},
-        {"read", {{"path", "a.txt"}}, 0, "ok"},   // 2 reads, plan says 1
+        {"read", {{"path", "a.txt"}}, 0, "ok"}, // 2 reads, plan says 1
         {"bash", {{"command", "ls"}}, 0, "ok"},
     };
     auto a = agentic_for(calls, {{"read", {}}}, agent::json());
@@ -953,10 +952,10 @@ TEST(agentic_efficiency_percent_normalized) {
 
 TEST(agentic_efficiency_capped_at_100) {
     std::vector<bench::ToolCallEvent> calls = {
-        {"read", {{"path", "a.txt"}}, 0, "ok"},  // fewer calls than plan
+        {"read", {{"path", "a.txt"}}, 0, "ok"}, // fewer calls than plan
     };
     auto a = agentic_for(calls, {{"read", {}}, {"write", {}}}, agent::json());
-    ASSERT_EQ(a.efficiency_pct, 100.0);  // under-execution capped (correctness catches it)
+    ASSERT_EQ(a.efficiency_pct, 100.0); // under-execution capped (correctness catches it)
 }
 
 TEST(template_c_source_support) {
@@ -966,8 +965,7 @@ TEST(template_c_source_support) {
     fs::create_directories(tpl + "/reference");
     fs::create_directories(tpl + "/hidden_tests");
     write_file(tpl + "/reference/lib.h", "#pragma once\nint value(void);\n");
-    write_file(tpl + "/reference/lib.c",
-               "#include \"lib.h\"\nint value(void) { return 42; }\n");
+    write_file(tpl + "/reference/lib.c", "#include \"lib.h\"\nint value(void) { return 42; }\n");
     write_file(tpl + "/hidden_tests/test_main.cpp",
                "#include \"lib.h\"\n#include <cstdio>\n"
                "int main() { std::printf(\"%d\", value()); return value() == 42 ? 0 : 1; }\n");
@@ -1025,17 +1023,14 @@ TEST(subagent_hooks_do_not_leak) {
         {{{"id", "call_1"},
           {"type", "function"},
           {"function",
-           {{"name", "task"},
-            {"arguments", R"({"prompt":"explore the workspace"})"}}}}});
+           {{"name", "task"}, {"arguments", R"({"prompt":"explore the workspace"})"}}}}});
     script->push_back(std::move(task_call));
     auto script2 = sub_script;
     bench::BenchReply sub_read;
-    sub_read.tool_calls = json::array(
-        {{{"id", "call_2"},
-          {"type", "function"},
-          {"function",
-           {{"name", "read"},
-            {"arguments", R"({"path":"Makefile"})"}}}}});
+    sub_read.tool_calls =
+        json::array({{{"id", "call_2"},
+                      {"type", "function"},
+                      {"function", {{"name", "read"}, {"arguments", R"({"path":"Makefile"})"}}}}});
     script2->push_back(std::move(sub_read));
     bench::BenchReply sub_report;
     sub_report.content = "worker findings";
@@ -1052,8 +1047,7 @@ TEST(subagent_hooks_do_not_leak) {
 
     Recorder rec;
     AgentHooks hooks = rec.hooks();
-    hooks.on_approval = [](const std::string&, const json&,
-                           const std::string&) {
+    hooks.on_approval = [](const std::string&, const json&, const std::string&) {
         return Approval::AllowOnce;
     };
     auto parent = std::make_unique<bench::FakeClient>();
@@ -1111,7 +1105,7 @@ TEST(score_new_weights_exact) {
     Kpi k = perfect_kpi();
     // 2-step oracle, 4 steps -> excess 2 -> efficiency 80.
     k.steps = 4;
-    k.prompt_adherence = 0.9;  // adherence 90
+    k.prompt_adherence = 0.9; // adherence 90
     bench::Score sc = bench::compute_score(k, s, 1.0, 0, 60.0);
     ASSERT_NEAR(sc.correctness, 100.0, 0.01);
     ASSERT_NEAR(sc.efficiency, 80.0, 0.01);
@@ -1271,11 +1265,11 @@ TEST(agentic_penalizes_missing_and_wrong_tools) {
     bench::EventStream stream;
     bench::Agentic none = bench::compute_agentic(stream, k, s);
     ASSERT(none.has_plan);
-    ASSERT_NEAR(none.score, 80.0, 0.01);  // 2 missing tools
+    ASSERT_NEAR(none.score, 80.0, 0.01); // 2 missing tools
 
     stream.calls.push_back({"bash", {{"command", "ls"}}, 0, "ok"});
     bench::Agentic wrong = bench::compute_agentic(stream, k, s);
-    ASSERT_NEAR(wrong.score, 70.0, 0.01);  // 2 missing + 1 wrong tool
+    ASSERT_NEAR(wrong.score, 70.0, 0.01); // 2 missing + 1 wrong tool
 }
 
 // An exact plan match scores 100 on the agentic lens.
@@ -1318,8 +1312,7 @@ TEST(checks_any_of_parse_and_pass) {
 // read-back step still must follow.
 TEST(p03_oracle_write_requires_edits) {
     std::string err;
-    auto s = bench::load_scenario(
-        "bench/scenarios/prompt/p-03-verify-after-action.json", err);
+    auto s = bench::load_scenario("bench/scenarios/prompt/p-03-verify-after-action.json", err);
     ASSERT(s.has_value());
     ASSERT_EQ(s->oracle.size(), 2u);
     const auto& write = s->oracle[0];
@@ -1328,14 +1321,12 @@ TEST(p03_oracle_write_requires_edits) {
     ASSERT(write.args_subset);
 
     // Positive: a path-only write to a.txt satisfies the write step.
-    std::vector<bench::ToolCallEvent> ok_calls = {
-        {"write", {{"path", "a.txt"}}, 0, "ok"},
-        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    std::vector<bench::ToolCallEvent> ok_calls = {{"write", {{"path", "a.txt"}}, 0, "ok"},
+                                                  {"read", {{"path", "a.txt"}}, 0, "ok"}};
     ASSERT_EQ(bench::score_oracle(s->oracle, ok_calls).bullseye, 1.0);
     // Negative: a write to a different file cannot satisfy the step.
-    std::vector<bench::ToolCallEvent> bad_calls = {
-        {"write", {{"path", "other.txt"}}, 0, "ok"},
-        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    std::vector<bench::ToolCallEvent> bad_calls = {{"write", {{"path", "other.txt"}}, 0, "ok"},
+                                                   {"read", {{"path", "a.txt"}}, 0, "ok"}};
     ASSERT(bench::score_oracle(s->oracle, bad_calls).bullseye < 1.0);
 }
 
@@ -1351,7 +1342,7 @@ TEST(agentic_penalizes_excess_planned_tools) {
     stream.calls.push_back({"write", {{"path", "c.txt"}}, 0, "ok"});
     bench::Agentic a = bench::compute_agentic(stream, k, s);
     ASSERT(a.has_plan);
-    ASSERT_NEAR(a.score, 90.0, 0.01);  // one excess read
+    ASSERT_NEAR(a.score, 90.0, 0.01); // one excess read
 }
 
 // ---------------------------------------------------------------------------
@@ -1372,9 +1363,8 @@ static bench::ScenarioReport score_report(const std::string& name, double total,
 // Three runs of one scenario aggregate into a single report: median score,
 // repeat count, and a positive standard deviation.
 TEST(repeat_aggregates_median_and_stddev) {
-    std::vector<bench::ScenarioReport> runs = {
-        score_report("s1", 90.0), score_report("s1", 95.0),
-        score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> runs = {score_report("s1", 90.0), score_report("s1", 95.0),
+                                               score_report("s1", 97.0)};
     bench::ScenarioReport agg = bench::aggregate_repeats(runs);
     ASSERT_EQ(agg.repeat_n, 3);
     ASSERT_NEAR(agg.score_median, 95.0, 0.01);
@@ -1386,13 +1376,16 @@ TEST(repeat_aggregates_median_and_stddev) {
 TEST(model_score_uses_aggregated_medians) {
     std::vector<bench::ScenarioReport> runs;
     // scenario a: 90, 95, 97 (median 95); scenario b: 40, 80, 82 (median 80)
-    for (double s : {90.0, 95.0, 97.0}) runs.push_back(score_report("a", s, 2));
-    for (double s : {40.0, 80.0, 82.0}) runs.push_back(score_report("b", s, 2));
+    for (double s : {90.0, 95.0, 97.0})
+        runs.push_back(score_report("a", s, 2));
+    for (double s : {40.0, 80.0, 82.0})
+        runs.push_back(score_report("b", s, 2));
     std::vector<bench::ScenarioReport> agg;
     for (const auto& name : {"a", "b"}) {
         std::vector<bench::ScenarioReport> one;
         for (const auto& r : runs)
-            if (r.name == name) one.push_back(r);
+            if (r.name == name)
+                one.push_back(r);
         agg.push_back(bench::aggregate_repeats(one));
     }
     // weighted mean of medians: (2*95 + 2*80)/4 = 87.5
@@ -1410,11 +1403,9 @@ TEST(resolution_rule_enforces_noise_floor) {
 
 // The JSON report exposes the aggregate fields when repeats were run.
 TEST(repeat_json_emits_median_and_ci) {
-    std::vector<bench::ScenarioReport> runs = {
-        score_report("s1", 90.0), score_report("s1", 95.0),
-        score_report("s1", 97.0)};
-    std::vector<bench::ScenarioReport> agg = {
-        bench::aggregate_repeats(runs)};
+    std::vector<bench::ScenarioReport> runs = {score_report("s1", 90.0), score_report("s1", 95.0),
+                                               score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> agg = {bench::aggregate_repeats(runs)};
     bench::RunMeta meta;
     meta.mode = "hermetic";
     meta.model = "fake";
@@ -1427,11 +1418,10 @@ TEST(repeat_json_emits_median_and_ci) {
 // A stored JSON report round-trips: the repeat fields and the model CI
 // survive render_json -> parse_report_json, and legacy files (no repeat
 // fields) default score_median to score.
-TEST(repeat_json_roundtrip_preserves_fields) {    std::vector<bench::ScenarioReport> runs = {
-        score_report("s1", 90.0), score_report("s1", 95.0),
-        score_report("s1", 97.0)};
-    std::vector<bench::ScenarioReport> agg = {
-        bench::aggregate_repeats(runs)};
+TEST(repeat_json_roundtrip_preserves_fields) {
+    std::vector<bench::ScenarioReport> runs = {score_report("s1", 90.0), score_report("s1", 95.0),
+                                               score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> agg = {bench::aggregate_repeats(runs)};
     bench::RunMeta meta;
     meta.mode = "hermetic";
     meta.model = "fake";
@@ -1450,8 +1440,8 @@ TEST(repeat_json_roundtrip_preserves_fields) {    std::vector<bench::ScenarioRep
 
     // Legacy file: score_median defaults to score.
     agent::json legacy = agent::json::object();
-    legacy["scenarios"] = agent::json::array({
-        {{"name", "s1"}, {"suite", "tools"}, {"score", 91.0}}});
+    legacy["scenarios"] =
+        agent::json::array({{{"name", "s1"}, {"suite", "tools"}, {"score", 91.0}}});
     std::vector<bench::ScenarioReport> legacy_back;
     ASSERT(bench::parse_report_json(legacy, meta2, legacy_back));
     ASSERT_EQ(legacy_back[0].repeat_n, 1);
@@ -1489,8 +1479,7 @@ TEST(report_json_roundtrip_keeps_failures_and_telemetry) {
     ASSERT(bench::parse_report_json(j, meta2, back));
     ASSERT_EQ(back.size(), 1u);
     ASSERT_EQ(back[0].failures.size(), 1u);
-    ASSERT(back[0].failures[0].find("oracle not matched") !=
-           std::string::npos);
+    ASSERT(back[0].failures[0].find("oracle not matched") != std::string::npos);
     ASSERT_EQ(back[0].tool_details.size(), 1u);
     ASSERT_EQ(back[0].tool_details[0].name, "bash");
     ASSERT_EQ(back[0].tool_details[0].error, "exit 1");
@@ -1509,11 +1498,9 @@ TEST(report_json_roundtrip_keeps_failures_and_telemetry) {
 
 // The text report shows the repeat statistics on repeated scenarios.
 TEST(repeat_text_report_shows_stats) {
-    std::vector<bench::ScenarioReport> runs = {
-        score_report("s1", 90.0), score_report("s1", 95.0),
-        score_report("s1", 97.0)};
-    std::vector<bench::ScenarioReport> agg = {
-        bench::aggregate_repeats(runs)};
+    std::vector<bench::ScenarioReport> runs = {score_report("s1", 90.0), score_report("s1", 95.0),
+                                               score_report("s1", 97.0)};
+    std::vector<bench::ScenarioReport> agg = {bench::aggregate_repeats(runs)};
     bench::RunMeta meta;
     meta.mode = "hermetic";
     meta.model = "fake";
@@ -1525,8 +1512,7 @@ TEST(repeat_text_report_shows_stats) {
 // A two-run aggregation carries the metadata; the canonical score is the
 // median, not the representative run's total.
 TEST(repeat_two_runs_median_is_canonical) {
-    std::vector<bench::ScenarioReport> runs = {
-        score_report("s1", 90.0), score_report("s1", 100.0)};
+    std::vector<bench::ScenarioReport> runs = {score_report("s1", 90.0), score_report("s1", 100.0)};
     bench::ScenarioReport agg = bench::aggregate_repeats(runs);
     ASSERT_EQ(agg.repeat_n, 2);
     ASSERT_NEAR(agg.score_median, 95.0, 0.01);
@@ -1545,7 +1531,8 @@ TEST(model_score_ci_shrinks_with_repeats) {
     for (const auto& name : {"a", "b"}) {
         std::vector<bench::ScenarioReport> one;
         for (const auto& r : runs)
-            if (r.name == name) one.push_back(r);
+            if (r.name == name)
+                one.push_back(r);
         agg3.push_back(bench::aggregate_repeats(one));
     }
     const double ci3 = bench::model_score_ci(agg3);
@@ -1553,13 +1540,16 @@ TEST(model_score_ci_shrinks_with_repeats) {
     // Nine runs of the same distributions must shrink the interval.
     std::vector<bench::ScenarioReport> runs9;
     runs9.reserve(18);
-    for (int i = 0; i < 9; ++i) runs9.push_back(score_report("a", 90.0 + (i % 3), 2));
-    for (int i = 0; i < 9; ++i) runs9.push_back(score_report("b", 80.0 + (i % 3), 2));
+    for (int i = 0; i < 9; ++i)
+        runs9.push_back(score_report("a", 90.0 + (i % 3), 2));
+    for (int i = 0; i < 9; ++i)
+        runs9.push_back(score_report("b", 80.0 + (i % 3), 2));
     std::vector<bench::ScenarioReport> agg9;
     for (const auto& name : {"a", "b"}) {
         std::vector<bench::ScenarioReport> one;
         for (const auto& r : runs9)
-            if (r.name == name) one.push_back(r);
+            if (r.name == name)
+                one.push_back(r);
         agg9.push_back(bench::aggregate_repeats(one));
     }
     const double ci9 = bench::model_score_ci(agg9);
@@ -1585,11 +1575,11 @@ TEST(model_score_ci_missing_for_single_runs) {
 TEST(model_score_ci_deterministic) {
     std::vector<bench::ScenarioReport> runs;
     runs.reserve(3);
-    for (int i = 0; i < 3; ++i) runs.push_back(score_report("a", 90.0 + i));
+    for (int i = 0; i < 3; ++i)
+        runs.push_back(score_report("a", 90.0 + i));
     std::vector<bench::ScenarioReport> agg = {bench::aggregate_repeats(runs)};
     ASSERT_EQ(bench::model_score_ci(agg), bench::model_score_ci(agg));
 }
-
 
 // ---------------------------------------------------------------------------
 // BENCH-02 — discrimination-weighted aggregation (the resolution engine)
@@ -1600,8 +1590,8 @@ TEST(discrimination_weights_zero_for_trophies) {
     std::vector<std::vector<bench::ScenarioReport>> population;
     for (int m = 0; m < 4; ++m) {
         std::vector<bench::ScenarioReport> run;
-        run.push_back(score_report("trophy", 100.0, 3));       // constant
-        run.push_back(score_report("trophy2", 99.0, 3));       // constant
+        run.push_back(score_report("trophy", 100.0, 3)); // constant
+        run.push_back(score_report("trophy2", 99.0, 3)); // constant
         run.push_back(score_report("split", 40.0 + (20.0 * m), 3));
         population.push_back(std::move(run));
     }
@@ -1623,14 +1613,12 @@ TEST(discriminative_score_ranks_by_separation) {
     b.push_back(score_report("split", 100.0, 1));
     std::vector<std::vector<bench::ScenarioReport>> population = {a, b};
 
-    const std::map<std::string, double> w =
-        bench::discrimination_weights(population);
+    const std::map<std::string, double> w = bench::discrimination_weights(population);
     // Plain difficulty-weighted score ranks A above B...
     ASSERT(bench::run_score(a) > bench::run_score(b));
     // ...but the discriminative score must rank B above A: the separator
     // dominates the delta and the trophy contributes ~nothing.
-    ASSERT(bench::run_score_discriminative(b, w) >
-           bench::run_score_discriminative(a, w));
+    ASSERT(bench::run_score_discriminative(b, w) > bench::run_score_discriminative(a, w));
 }
 
 // A single file has no population: the discriminative score falls back to
@@ -1640,10 +1628,8 @@ TEST(discriminative_single_run_falls_back) {
     run.push_back(score_report("trophy", 100.0, 3));
     run.push_back(score_report("split", 60.0, 3));
     std::map<std::string, double> empty;
-    ASSERT_NEAR(bench::run_score_discriminative(run, empty),
-                bench::run_score(run), 0.001);
+    ASSERT_NEAR(bench::run_score_discriminative(run, empty), bench::run_score(run), 0.001);
 }
-
 
 // Weights are keyed by scenario name: a reordered or incomplete run still
 // aligns correctly.
@@ -1652,7 +1638,7 @@ TEST(discrimination_weights_keyed_by_name) {
     m1.push_back(score_report("split", 40.0, 2));
     m1.push_back(score_report("trophy", 100.0, 3));
     std::vector<bench::ScenarioReport> m2;
-    m2.push_back(score_report("trophy", 100.0, 3));   // reordered
+    m2.push_back(score_report("trophy", 100.0, 3)); // reordered
     m2.push_back(score_report("split", 100.0, 2));
     std::vector<std::vector<bench::ScenarioReport>> population = {m1, m2};
     std::map<std::string, double> w = bench::discrimination_weights(population);
@@ -1680,8 +1666,7 @@ TEST(discriminative_ci_uses_discriminative_weights) {
     m2.push_back(score_report("trophy", 70.0, 5));
     m2.push_back(score_report("split", 100.0, 1));
     std::vector<std::vector<bench::ScenarioReport>> population = {m1, m2};
-    const std::map<std::string, double> w =
-        bench::discrimination_weights(population);
+    const std::map<std::string, double> w = bench::discrimination_weights(population);
 
     // Repeat runs for a CI.
     std::vector<bench::ScenarioReport> runs;
@@ -1693,7 +1678,8 @@ TEST(discriminative_ci_uses_discriminative_weights) {
     for (const auto& name : {"trophy", "split"}) {
         std::vector<bench::ScenarioReport> one;
         for (const auto& r : runs)
-            if (r.name == name) one.push_back(r);
+            if (r.name == name)
+                one.push_back(r);
         agg.push_back(bench::aggregate_repeats(one));
     }
     const double plain_ci = bench::model_score_ci(agg);
@@ -1703,7 +1689,6 @@ TEST(discriminative_ci_uses_discriminative_weights) {
     // The separator dominates under discrimination -> different uncertainty.
     ASSERT(std::abs(plain_ci - disc_ci) > 0.01);
 }
-
 
 // ---------------------------------------------------------------------------
 // BENCH-03 — reference-anchored difficulty ladder (calibration + headroom)
@@ -1721,8 +1706,7 @@ TEST(calibration_anchor_exact_for_balanced_population) {
     other.push_back(score_report("hard", 90.0, 3));
     std::vector<std::vector<bench::ScenarioReport>> population = {ref, other};
 
-    const std::vector<double> w =
-        bench::anchor_weights(population, 0, 50.0);
+    const std::vector<double> w = bench::anchor_weights(population, 0, 50.0);
     ASSERT_EQ(w.size(), 2u);
     // Weighted reference score lands exactly on the anchor.
     double weighted = 0.0, wsum = 0.0;
@@ -1736,8 +1720,8 @@ TEST(calibration_anchor_exact_for_balanced_population) {
 // A higher reference score must never get a higher weight: the ladder
 // de-weights what the reference solves well.
 TEST(anchor_weights_monotonic_in_score) {
-    const std::vector<double> w = bench::anchor_weights(
-        {{score_report("a", 95.0, 3), score_report("b", 20.0, 3)}}, 0, 50.0);
+    const std::vector<double> w =
+        bench::anchor_weights({{score_report("a", 95.0, 3), score_report("b", 20.0, 3)}}, 0, 50.0);
     ASSERT(w[0] < w[1]);
 }
 
@@ -1772,8 +1756,8 @@ TEST(suggest_difficulties_clamped_and_improve) {
 // The chart must have a top: the best model leaves headroom below 1000 for
 // larger models yet to come.
 TEST(headroom_positive_below_ceiling) {
-    std::vector<std::vector<bench::ScenarioReport>> population = {
-        {score_report("s", 95.0, 3)}, {score_report("s", 90.0, 3)}};
+    std::vector<std::vector<bench::ScenarioReport>> population = {{score_report("s", 95.0, 3)},
+                                                                  {score_report("s", 90.0, 3)}};
     ASSERT(bench::headroom(population) > 0.0);
 }
 
@@ -1793,7 +1777,6 @@ TEST(difficulty_six_scenario_loads) {
     ASSERT_EQ(s->difficulty, 6);
 }
 
-
 // ---------------------------------------------------------------------------
 // Oracle path normalization (found by the local baseline)
 // ---------------------------------------------------------------------------
@@ -1801,11 +1784,9 @@ TEST(difficulty_six_scenario_loads) {
 // A live agent reads workspace files via their ABSOLUTE path (the tools
 // resolve them); an oracle expecting a bare relative name must still match.
 TEST(oracle_matches_bare_filename_against_absolute_path) {
-    std::vector<bench::ScenarioStep> oracle = {
-        {"read", {{"path", "Review.cpp"}}, false, false}};
+    std::vector<bench::ScenarioStep> oracle = {{"read", {{"path", "Review.cpp"}}, false, false}};
     std::vector<bench::ToolCallEvent> calls = {
-        {"read", {{"path", "/tmp/amber_bench_ws_arch-01/Review.cpp"}}, 0,
-         "ok"}};
+        {"read", {{"path", "/tmp/amber_bench_ws_arch-01/Review.cpp"}}, 0, "ok"}};
     bench::OracleResult r = bench::score_oracle(oracle, calls);
     ASSERT_EQ(r.bullseye, 1.0);
     ASSERT_EQ(r.wasted, 0);
@@ -1815,8 +1796,7 @@ TEST(oracle_matches_bare_filename_against_absolute_path) {
 TEST(oracle_absolute_path_matches_relative_call) {
     std::vector<bench::ScenarioStep> oracle = {
         {"read", {{"path", "/tmp/amber_bench_ws_x/notes.txt"}}, false, false}};
-    std::vector<bench::ToolCallEvent> calls = {
-        {"read", {{"path", "notes.txt"}}, 0, "ok"}};
+    std::vector<bench::ToolCallEvent> calls = {{"read", {{"path", "notes.txt"}}, 0, "ok"}};
     ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 1.0);
 }
 
@@ -1829,12 +1809,10 @@ TEST(oracle_non_filename_keeps_exact_match) {
     ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 0.0);
 }
 
-
 // A nested RELATIVE expectation must also match the absolute form the live
 // agent produces: expected "src/header.h" vs actual "/tmp/ws/src/header.h".
 TEST(oracle_nested_relative_matches_absolute) {
-    std::vector<bench::ScenarioStep> oracle = {
-        {"write", {{"path", "src/header.h"}}, false, false}};
+    std::vector<bench::ScenarioStep> oracle = {{"write", {{"path", "src/header.h"}}, false, false}};
     std::vector<bench::ToolCallEvent> calls = {
         {"write", {{"path", "/tmp/ws/src/header.h"}}, 0, "ok"}};
     ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 1.0);
@@ -1842,8 +1820,7 @@ TEST(oracle_nested_relative_matches_absolute) {
 
 // ...but a different directory with the same leaf must not match.
 TEST(oracle_nested_relative_rejects_other_directory) {
-    std::vector<bench::ScenarioStep> oracle = {
-        {"write", {{"path", "src/header.h"}}, false, false}};
+    std::vector<bench::ScenarioStep> oracle = {{"write", {{"path", "src/header.h"}}, false, false}};
     std::vector<bench::ToolCallEvent> calls = {
         {"write", {{"path", "/tmp/ws/include/header.h"}}, 0, "ok"}};
     ASSERT_EQ(bench::score_oracle(oracle, calls).bullseye, 0.0);
@@ -1867,11 +1844,17 @@ TEST(scenario_h02_oracle_unordered_survey_then_edit) {
         {"read", {{"path", "src/header.h"}}, 0, "ok"},
         {"read", {{"path", "src/impl.cpp"}}, 0, "ok"},
         {"read", {{"path", "src/other.cpp"}}, 0, "ok"},
-        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
-        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"}};
+        {"write",
+         {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}},
+         0,
+         "ok"},
+        {"write",
+         {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}},
+         0,
+         "ok"}};
     bench::OracleResult r = bench::score_oracle(s->oracle, calls);
     ASSERT_EQ(r.bullseye, 1.0);
-    ASSERT_EQ(r.wasted, 2);  // survey search + impl.cpp read are off-oracle
+    ASSERT_EQ(r.wasted, 2); // survey search + impl.cpp read are off-oracle
 }
 
 // ...but editing a file the oracle never expects (other.cpp) is still a miss.
@@ -1881,24 +1864,39 @@ TEST(scenario_h02_oracle_rejects_rewrite_of_other_cpp) {
     ASSERT(s.has_value());
     std::vector<bench::ToolCallEvent> calls = {
         {"read", {{"path", "src/header.h"}}, 0, "ok"},
-        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
-        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
-        {"write", {{"path", "src/other.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write",
+         {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}},
+         0,
+         "ok"},
+        {"write",
+         {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}},
+         0,
+         "ok"},
+        {"write",
+         {{"path", "src/other.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}},
+         0,
+         "ok"},
         {"read", {{"path", "src/other.cpp"}}, 0, "ok"}};
     bench::OracleResult r = bench::score_oracle(s->oracle, calls);
     ASSERT_EQ(r.bullseye, 1.0);
-    ASSERT_EQ(r.wasted, 1);  // the redundant rewrite of other.cpp
+    ASSERT_EQ(r.wasted, 1); // the redundant rewrite of other.cpp
 }
 
- TEST(scenario_h02_oracle_scores_correct_rename) {
+TEST(scenario_h02_oracle_scores_correct_rename) {
     std::string err;
     auto s = bench::load_scenario("bench/scenarios/headroom/h-02-multi-file-consistency.json", err);
     ASSERT(s.has_value());
     ASSERT(s->oracle.size() == 4u);
     std::vector<bench::ToolCallEvent> calls = {
         {"read", {{"path", "src/header.h"}}, 0, "ok"},
-        {"write", {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
-        {"write", {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}}, 0, "ok"},
+        {"write",
+         {{"path", "src/header.h"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}},
+         0,
+         "ok"},
+        {"write",
+         {{"path", "src/impl.cpp"}, {"edits", {{"old", "OldName"}, {"new", "NewName"}}}},
+         0,
+         "ok"},
         {"read", {{"path", "src/other.cpp"}}, 0, "ok"}};
     bench::OracleResult r = bench::score_oracle(s->oracle, calls);
     ASSERT_EQ(r.bullseye, 1.0);
@@ -1910,13 +1908,12 @@ TEST(scenario_h02_oracle_rejects_rewrite_of_other_cpp) {
 // 10-model population: 7/10 correct answers failed the check.
 TEST(checks_ds01_accepts_multiplication_symbol) {
     std::string err;
-    auto s = bench::load_scenario("bench/scenarios/review-datastructures/ds-01-nested-loop.json", err);
+    auto s =
+        bench::load_scenario("bench/scenarios/review-datastructures/ds-01-nested-loop.json", err);
     ASSERT(s.has_value());
     // The exact answer the population produced: O(n × m) + nested + set.
-    ASSERT(bench::checks_pass(
-        s->checks,
-        "Nested-loop membership check. Complexity O(n × m). "
-        "Use a hash set (unordered_set)."));
+    ASSERT(bench::checks_pass(s->checks, "Nested-loop membership check. Complexity O(n × m). "
+                                         "Use a hash set (unordered_set)."));
 }
 
 // A read oracle step {"path": "Review.cpp"} must match a call that adds the
@@ -1924,7 +1921,7 @@ TEST(checks_ds01_accepts_multiplication_symbol) {
 // keys, not an exhaustive set. Exact key-count matching is opt-in.
 TEST(oracle_default_is_subset_extra_args_ok) {
     std::vector<bench::ScenarioStep> steps = {
-        {"read", {{"path", "Review.cpp"}}}};  // no args_subset flag
+        {"read", {{"path", "Review.cpp"}}}}; // no args_subset flag
     std::vector<bench::ToolCallEvent> calls = {
         {"read", {{"path", "/tmp/ws/Review.cpp"}, {"limit", 200}}, 0, "ok"}};
     bench::OracleResult r = bench::score_oracle(steps, calls);
@@ -1935,10 +1932,8 @@ TEST(oracle_default_is_subset_extra_args_ok) {
 // ...but a missing REQUIRED key still fails, and an explicit args_subset
 // false still demands exact key sets (opt-in strictness preserved).
 TEST(oracle_default_subset_still_requires_all_expected_keys) {
-    std::vector<bench::ScenarioStep> steps = {
-        {"read", {{"path", "a.txt"}, {"lines", 40}}}};
-    std::vector<bench::ToolCallEvent> calls = {
-        {"read", {{"path", "a.txt"}}, 0, "ok"}};
+    std::vector<bench::ScenarioStep> steps = {{"read", {{"path", "a.txt"}, {"lines", 40}}}};
+    std::vector<bench::ToolCallEvent> calls = {{"read", {{"path", "a.txt"}}, 0, "ok"}};
     bench::OracleResult r = bench::score_oracle(steps, calls);
     ASSERT_FALSE(r.success);
     ASSERT_EQ(r.matched_steps, 0);
@@ -1960,7 +1955,7 @@ TEST(harness_scorecard_covers_all_families) {
     for (const auto& fam : bench::required_probe_families()) {
         auto it = sc.families.find(fam);
         ASSERT_TRUE(it != sc.families.end());
-        ASSERT_TRUE(it->second.second > 0);  // at least one probe ran
+        ASSERT_TRUE(it->second.second > 0); // at least one probe ran
     }
 }
 
@@ -1972,8 +1967,7 @@ TEST(harness_scorecard_clean_tree_is_green) {
     for (const auto& p : sc.probes) {
         if (!p.passed)
             ::agent::test::fail("probe failed: " + p.name + " [" + p.family +
-                                "] — expected=" + p.expected +
-                                " detail=" + p.detail);
+                                "] — expected=" + p.expected + " detail=" + p.detail);
     }
     ASSERT_EQ(sc.passed, sc.total);
     ASSERT_EQ(sc.integrity, 1.0);
@@ -1985,8 +1979,7 @@ TEST(harness_extract_probe_pins_bare_json) {
     std::vector<bench::ProbeResult> results = bench::run_all_probes();
     bool found = false;
     for (const auto& p : results) {
-        if (p.family == "extract" &&
-            p.name.find("bare") != std::string::npos) {
+        if (p.family == "extract" && p.name.find("bare") != std::string::npos) {
             found = true;
             ASSERT_TRUE(p.passed);
         }
@@ -2000,8 +1993,7 @@ TEST(harness_parse_probe_roundtrips_tool_calls_sse) {
     std::vector<bench::ProbeResult> results = bench::run_all_probes();
     bool found = false;
     for (const auto& p : results) {
-        if (p.family == "parse" &&
-            p.name.find("tool_calls") != std::string::npos) {
+        if (p.family == "parse" && p.name.find("tool_calls") != std::string::npos) {
             found = true;
             ASSERT_TRUE(p.passed);
         }
@@ -2015,8 +2007,7 @@ TEST(harness_context_probe_chain_survives) {
     std::vector<bench::ProbeResult> results = bench::run_all_probes();
     bool found = false;
     for (const auto& p : results) {
-        if (p.family == "context" &&
-            p.name.find("chain") != std::string::npos) {
+        if (p.family == "context" && p.name.find("chain") != std::string::npos) {
             found = true;
             ASSERT_TRUE(p.passed);
         }
@@ -2037,8 +2028,8 @@ TEST(harness_scorecard_aggregation_math) {
     ASSERT_EQ(sc.passed, 3);
     ASSERT_EQ(sc.total, 4);
     ASSERT_EQ(sc.integrity, 0.75);
-    ASSERT_EQ(sc.families["parse"].first, 1);   // passed
-    ASSERT_EQ(sc.families["parse"].second, 2);  // total
+    ASSERT_EQ(sc.families["parse"].first, 1);  // passed
+    ASSERT_EQ(sc.families["parse"].second, 2); // total
     ASSERT_EQ(sc.family_integrity("extract"), 1.0);
     ASSERT_EQ(sc.family_integrity("parse"), 0.5);
 }

@@ -51,5 +51,4 @@ std::string reasoning_badge(const std::string& effort);
 
 } // namespace agent::bar
 
-
 #endif // AGENT_STATUSBAR_H

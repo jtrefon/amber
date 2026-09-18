@@ -11,10 +11,8 @@ namespace tui {
 class ModalPort {
 public:
     virtual ~ModalPort() = default;
-    virtual int menu_select(const std::string& title,
-                            const std::vector<std::string>& items) = 0;
-    virtual void info_dialog(const std::string& title,
-                             const std::vector<std::string>& lines) = 0;
+    virtual int menu_select(const std::string& title, const std::vector<std::string>& items) = 0;
+    virtual void info_dialog(const std::string& title, const std::vector<std::string>& lines) = 0;
     virtual void redraw_after_modal() = 0;
 };
 

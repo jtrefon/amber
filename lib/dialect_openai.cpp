@@ -57,9 +57,9 @@ void sanitize_node(json& node) {
 void accumulate_arguments(json& fn, const json& frag) {
     auto view = [&]() -> json {
         if (fn.contains("arguments") && fn["arguments"].is_string()) {
-            json v = json::parse(fn["arguments"].get<std::string>(), nullptr,
-                                  false);
-            if (!v.is_discarded() && v.is_object()) return v;
+            json v = json::parse(fn["arguments"].get<std::string>(), nullptr, false);
+            if (!v.is_discarded() && v.is_object())
+                return v;
         }
         return json::object();
     };
@@ -73,8 +73,8 @@ void accumulate_arguments(json& fn, const json& frag) {
             std::string cur = fn["arguments"].get<std::string>();
             json cur_obj = json::parse(cur, nullptr, false);
             json piece_obj = json::parse(piece, nullptr, false);
-            if (!cur_obj.is_discarded() && cur_obj.is_object() &&
-                !piece_obj.is_discarded() && piece_obj.is_object()) {
+            if (!cur_obj.is_discarded() && cur_obj.is_object() && !piece_obj.is_discarded() &&
+                piece_obj.is_object()) {
                 for (auto it = piece_obj.begin(); it != piece_obj.end(); ++it)
                     cur_obj[it.key()] = it.value();
                 fn["arguments"] = cur_obj.dump();
@@ -107,15 +107,17 @@ void accumulate_arguments(json& fn, const json& frag) {
 // would deny an "unknown tool" and leave an orphan tool-result referencing a
 // call that no longer exists.
 void drop_empty_tool_slots(json& calls) {
-    if (calls.is_null() || !calls.is_array()) return;
+    if (calls.is_null() || !calls.is_array())
+        return;
     json dense = json::array();
     for (auto& tc : calls) {
-        if (!tc.is_object()) continue;
+        if (!tc.is_object())
+            continue;
         const json& fn = tc.value("function", json::object());
-        bool has_name = fn.is_object() && fn.contains("name") &&
-                        fn["name"].is_string() &&
+        bool has_name = fn.is_object() && fn.contains("name") && fn["name"].is_string() &&
                         !fn["name"].get<std::string>().empty();
-        if (has_name) dense.push_back(std::move(tc));
+        if (has_name)
+            dense.push_back(std::move(tc));
     }
     calls = std::move(dense);
 }
@@ -126,15 +128,17 @@ void drop_empty_tool_slots(json& calls) {
 // a type-discriminator 400) and default a missing/empty `type` to "function".
 // The caller's history is untouched.
 json sanitize_tool_calls(const json& calls) {
-    if (calls.is_null() || !calls.is_array()) return json::array();
+    if (calls.is_null() || !calls.is_array())
+        return json::array();
     json out = json::array();
     for (const auto& tc : calls) {
-        if (!tc.is_object()) continue;
+        if (!tc.is_object())
+            continue;
         const json& fn = tc.value("function", json::object());
-        if (!fn.is_object()) continue;
+        if (!fn.is_object())
+            continue;
         auto it = fn.find("name");
-        if (it == fn.end() || !it->is_string() ||
-            it->get<std::string>().empty())
+        if (it == fn.end() || !it->is_string() || it->get<std::string>().empty())
             continue;
         json kept = tc;
         // Some paths (text-extracted calls, restored sessions) omit `type`;
@@ -151,8 +155,10 @@ json sanitize_tool_calls(const json& calls) {
 // string (so a malformed model response never throws and aborts the turn).
 std::string str_or_raw(const json& j, const char* key, const std::string& d) {
     auto it = j.find(key);
-    if (it == j.end() || it->is_null()) return d;
-    if (it->is_string()) return it->get<std::string>();
+    if (it == j.end() || it->is_null())
+        return d;
+    if (it->is_string())
+        return it->get<std::string>();
     // Non-string content: keep it as JSON text rather than throwing, so the
     // pipeline can feed it back to the model instead of crashing.
     return it->dump();
@@ -181,12 +187,14 @@ int parse_context_size_from_error(const std::string& body) {
     };
     for (const char* pat : patterns) {
         auto pos = body.find(pat);
-        if (pos == std::string::npos) continue;
+        if (pos == std::string::npos)
+            continue;
         pos += strlen(pat);
         // Skip past any non-digit prefix (e.g. open paren)
         while (pos < body.size() && !std::isdigit(static_cast<unsigned char>(body[pos])))
             ++pos;
-        if (pos >= body.size()) continue;
+        if (pos >= body.size())
+            continue;
         long val = std::atol(body.c_str() + pos);
         if (val > 0 && val < 10000000) // sanity: 1M tokens is generous max
             return static_cast<int>(val);
@@ -201,29 +209,35 @@ int parse_context_size_from_error(const std::string& body) {
 // rides through the blip, while a genuine schema-rejection 400 (JSON error
 // body) stays non-retryable.
 bool is_retryable_http_error(long http_code, const std::string& body) {
-    if (http_code == 429 || http_code >= 500) return true;
-    if (http_code != 400) return false;
+    if (http_code == 429 || http_code >= 500)
+        return true;
+    if (http_code != 400)
+        return false;
     // 400 with a JSON error body is a real rejection (bad schema, bad model,
     // bad auth) — never retry. An empty SSE stream means the upstream died
     // before producing anything; that is transient.
     json parsed = json::parse(body, nullptr, false);
-    if (!parsed.is_discarded()) return false;
+    if (!parsed.is_discarded())
+        return false;
     // Allow SSE comments (`: KILO PROCESSING`) and a bare [DONE]; anything
     // else (a JSON error, a data payload) is a real response.
     std::stringstream ss(body);
     std::string line;
     while (std::getline(ss, line)) {
-        if (line.empty() || line[0] == ':') continue;
-        if (line == "data: [DONE]" || line == "[DONE]") continue;
+        if (line.empty() || line[0] == ':')
+            continue;
+        if (line == "data: [DONE]" || line == "[DONE]")
+            continue;
         if (line.rfind("data:", 0) == 0) {
             // An empty `data:` line is ignorable; any payload is a real
             // response (the upstream said something before dying).
             std::string payload = line.substr(5);
             size_t p = payload.find_first_not_of(" \t\r");
-            if (p == std::string::npos) continue;
+            if (p == std::string::npos)
+                continue;
             return false;
         }
-        return false;   // unrecognized content: genuine response body
+        return false; // unrecognized content: genuine response body
     }
     return true;
 }
@@ -251,10 +265,14 @@ ModelInfo parse_entry(const json& e) {
         m.context = read_int(meta, "n_ctx");
         m.context_train = read_int(meta, "n_ctx_train");
     }
-    if (m.context == 0) m.context = read_int(e, "n_ctx");
-    if (m.context == 0) m.context = read_int(e, "context_length");
-    if (m.context_train == 0) m.context_train = read_int(e, "n_ctx_train");
-    if (m.context_train == 0) m.context_train = read_int(e, "context_length");
+    if (m.context == 0)
+        m.context = read_int(e, "n_ctx");
+    if (m.context == 0)
+        m.context = read_int(e, "context_length");
+    if (m.context_train == 0)
+        m.context_train = read_int(e, "n_ctx_train");
+    if (m.context_train == 0)
+        m.context_train = read_int(e, "context_length");
     return m;
 }
 
@@ -276,7 +294,8 @@ public:
 protected:
     void decode_payload(const std::string& data) override {
         json evt = json::parse(data, nullptr, false);
-        if (evt.is_discarded()) return;
+        if (evt.is_discarded())
+            return;
 
         // The include_usage final chunk carries usage and often an empty
         // choices[].
@@ -284,12 +303,12 @@ protected:
             const json& u = evt["usage"];
             if (u.contains("prompt_tokens") && u["prompt_tokens"].is_number())
                 prompt_tokens_ = u["prompt_tokens"].get<long>();
-            if (u.contains("completion_tokens") &&
-                u["completion_tokens"].is_number())
+            if (u.contains("completion_tokens") && u["completion_tokens"].is_number())
                 completion_tokens_ = u["completion_tokens"].get<long>();
         }
 
-        if (!evt.contains("choices") || evt["choices"].empty()) return;
+        if (!evt.contains("choices") || evt["choices"].empty())
+            return;
         const json& delta = evt["choices"][0].value("delta", json::object());
         StreamChunk chunk;
 
@@ -308,7 +327,8 @@ protected:
         out_.content += chunk.delta;
         out_.reasoning += chunk.reasoning;
 
-        if (!chunk.tool_calls.is_null()) merge_tool_fragments(chunk.tool_calls);
+        if (!chunk.tool_calls.is_null())
+            merge_tool_fragments(chunk.tool_calls);
         emit(chunk);
     }
 
@@ -316,10 +336,13 @@ protected:
         // Compact before emitting the terminal chunk so downstream dispatch
         // only ever sees dense, name-bearing tool calls.
         drop_empty_tool_slots(out_.tool_calls);
-        if (pending_.empty()) return;
+        if (pending_.empty())
+            return;
         StreamChunk chunk;
-        if (in_think_) chunk.reasoning = pending_;
-        else chunk.delta = pending_;
+        if (in_think_)
+            chunk.reasoning = pending_;
+        else
+            chunk.delta = pending_;
         pending_.clear();
         out_.content += chunk.delta;
         out_.reasoning += chunk.reasoning;
@@ -341,7 +364,8 @@ private:
                     // Keep a short tail back in case a tag straddles the
                     // boundary.
                     std::size_t safe = s.size() > 6 ? s.size() - 6 : i;
-                    if (safe < i) safe = i;
+                    if (safe < i)
+                        safe = i;
                     chunk.delta += s.substr(i, safe - i);
                     pending_ = s.substr(safe);
                     return;
@@ -353,7 +377,8 @@ private:
                 std::size_t close = s.find("</think>", i);
                 if (close == std::string::npos) {
                     std::size_t safe = s.size() > 7 ? s.size() - 7 : i;
-                    if (safe < i) safe = i;
+                    if (safe < i)
+                        safe = i;
                     chunk.reasoning += s.substr(i, safe - i);
                     pending_ = s.substr(safe);
                     return;
@@ -366,13 +391,16 @@ private:
     }
 
     void merge_tool_fragments(const json& frags) {
-        if (frags.is_null()) return;
-        if (out_.tool_calls.is_null()) out_.tool_calls = json::array();
+        if (frags.is_null())
+            return;
+        if (out_.tool_calls.is_null())
+            out_.tool_calls = json::array();
         for (const auto& frag : frags) {
             int idx = frag.value("index", 0);
             // Sparse-index guard: a huge index must not allocate a billion
             // empty slots; out-of-range fragments are dropped.
-            if (idx < 0 || idx >= kMaxToolCallsPerMessage) continue;
+            if (idx < 0 || idx >= kMaxToolCallsPerMessage)
+                continue;
             while (static_cast<int>(out_.tool_calls.size()) <= idx)
                 out_.tool_calls.push_back(json::object());
             json& slot = out_.tool_calls[idx];
@@ -381,7 +409,8 @@ private:
             if (frag.contains("type") && frag["type"].is_string())
                 slot["type"] = frag["type"];
             json& fn = slot["function"];
-            if (fn.is_null()) fn = json::object();
+            if (fn.is_null())
+                fn = json::object();
             const json& ffn = frag.value("function", json::object());
             if (ffn.contains("name") && ffn["name"].is_string())
                 fn["name"] = ffn["name"];
@@ -390,8 +419,8 @@ private:
         }
     }
 
-    bool in_think_ = false;  // inside an inline <think> ... </think> span
-    std::string pending_;    // tail kept back for tag-boundary lookahead
+    bool in_think_ = false; // inside an inline <think> ... </think> span
+    std::string pending_;   // tail kept back for tag-boundary lookahead
 };
 
 class OpenAIDialect : public Dialect {
@@ -402,9 +431,7 @@ public:
         return cfg.api_base + "/chat/completions";
     }
 
-    std::string models_url(const Config& cfg) const override {
-        return cfg.api_base + "/models";
-    }
+    std::string models_url(const Config& cfg) const override { return cfg.api_base + "/models"; }
 
     std::vector<std::string> auth_headers(const Config& cfg) const override {
         std::vector<std::string> headers;
@@ -416,17 +443,17 @@ public:
     json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
                          const std::vector<std::shared_ptr<Tool>>& tools,
                          bool stream) const override {
-        json body = {
-            {"model", cfg.model},
-            {"temperature", cfg.temperature},
-            {"max_tokens", cfg.max_tokens},
-            {"stream", stream},
-            {"messages", json::array()}};
+        json body = {{"model", cfg.model},
+                     {"temperature", cfg.temperature},
+                     {"max_tokens", cfg.max_tokens},
+                     {"stream", stream},
+                     {"messages", json::array()}};
 
         // Ask the server to emit a final usage chunk during streaming so we can
         // show context usage and token counts (Qwen/llama.cpp/vLLM honour
         // this).
-        if (stream) body["stream_options"] = {{"include_usage", true}};
+        if (stream)
+            body["stream_options"] = {{"include_usage", true}};
 
         // Qwen-style thinking control for servers using the model's native
         // jinja chat template (llama.cpp --jinja). The template reads
@@ -437,8 +464,7 @@ public:
             bool enable = (cfg.thinking == "on");
             body["chat_template_kwargs"]["enable_thinking"] = enable;
             if (enable && cfg.thinking_budget > 0)
-                body["chat_template_kwargs"]["thinking_budget"] =
-                    cfg.thinking_budget;
+                body["chat_template_kwargs"]["thinking_budget"] = cfg.thinking_budget;
         }
 
         // Compatibility fallback for OpenAI o-series / vLLM style reasoning
@@ -456,11 +482,9 @@ public:
         json resp = json::parse(response, nullptr, false);
         Message out;
         out.role = "assistant";
-        if (resp.is_discarded() || !resp.contains("choices") ||
-            !resp["choices"].is_array() || resp["choices"].empty()) {
-            out.content =
-                "[error: malformed LLM response, raw body follows]\n" +
-                response;
+        if (resp.is_discarded() || !resp.contains("choices") || !resp["choices"].is_array() ||
+            resp["choices"].empty()) {
+            out.content = "[error: malformed LLM response, raw body follows]\n" + response;
             return out;
         }
         const json& msg = resp["choices"][0].value("message", json::object());
@@ -477,7 +501,10 @@ public:
                 std::string raw = fn.value("arguments", "");
                 if (!raw.empty()) {
                     auto parsed = json::parse(raw, nullptr, false);
-                    if (parsed.is_discarded()) { valid = false; break; }
+                    if (parsed.is_discarded()) {
+                        valid = false;
+                        break;
+                    }
                 }
             }
             if (valid) {
@@ -493,22 +520,22 @@ public:
         return out;
     }
 
-    std::unique_ptr<StreamDecoder> make_decoder(
-        Message& out, StreamDecoder::ChunkSink on_chunk,
-        std::string debug_path) const override {
+    std::unique_ptr<StreamDecoder> make_decoder(Message& out, StreamDecoder::ChunkSink on_chunk,
+                                                std::string debug_path) const override {
         return std::make_unique<OpenAIStreamDecoder>(out, std::move(on_chunk),
                                                      std::move(debug_path));
     }
 
-    ServerInfo parse_models_response(
-        const std::string& body,
-        const std::string& preferred_model) const override {
+    ServerInfo parse_models_response(const std::string& body,
+                                     const std::string& preferred_model) const override {
         ServerInfo info;
         json j = json::parse(body, nullptr, false);
-        if (j.is_discarded()) return info;
+        if (j.is_discarded())
+            return info;
 
         const json* arr = model_array(j);
-        if (!arr || arr->empty()) return info;
+        if (!arr || arr->empty())
+            return info;
 
         // The active model's entry wins (a router may list models without
         // context metadata ahead of the one in use); otherwise the first entry
@@ -516,7 +543,8 @@ public:
         const json* chosen = nullptr;
         if (!preferred_model.empty()) {
             for (const auto& e : *arr) {
-                if (!e.is_object()) continue;
+                if (!e.is_object())
+                    continue;
                 for (const char* k : {"id", "model", "name"}) {
                     if (e.contains(k) && e[k].is_string() &&
                         e[k].get<std::string>() == preferred_model) {
@@ -524,7 +552,8 @@ public:
                         break;
                     }
                 }
-                if (chosen) break;
+                if (chosen)
+                    break;
             }
         }
         if (!chosen) {
@@ -534,7 +563,8 @@ public:
                     break;
                 }
         }
-        if (!chosen) chosen = &(*arr)[0];
+        if (!chosen)
+            chosen = &(*arr)[0];
 
         ModelInfo m = parse_entry(*chosen);
         info.model = m.id;
@@ -544,14 +574,15 @@ public:
         return info;
     }
 
-    std::vector<ModelInfo> parse_model_list_response(
-        const std::string& body) const override {
+    std::vector<ModelInfo> parse_model_list_response(const std::string& body) const override {
         std::vector<ModelInfo> out;
         json j = json::parse(body, nullptr, false);
-        if (j.is_discarded()) return out;
+        if (j.is_discarded())
+            return out;
 
         const json* arr = model_array(j);
-        if (!arr) return out;
+        if (!arr)
+            return out;
 
         // Servers sometimes list the same model multiple times (aliases, quant
         // variants with the same id); the UI and model-set validation expect a
@@ -599,13 +630,16 @@ private:
         // identical with or without the merge.
         std::string merged_system;
         for (const auto& m : messages) {
-            if (m.role != "system") continue;
-            if (!merged_system.empty()) merged_system += "\n\n";
+            if (m.role != "system")
+                continue;
+            if (!merged_system.empty())
+                merged_system += "\n\n";
             merged_system += m.content;
         }
         bool system_emitted = false;
         for (const auto& m : messages) {
-            if (m.role == "system") continue;
+            if (m.role == "system")
+                continue;
             // First non-system message: emit the accumulated system block
             // first so it is always at the beginning of the conversation.
             if (!system_emitted) {
@@ -652,9 +686,9 @@ private:
             out.push_back({{"role", "system"}, {"content", merged_system}});
     }
 
-    void append_tools(json& body,
-                      const std::vector<std::shared_ptr<Tool>>& tools) const {
-        if (tools.empty()) return;
+    void append_tools(json& body, const std::vector<std::shared_ptr<Tool>>& tools) const {
+        if (tools.empty())
+            return;
         json tarr = json::array();
         for (const auto& t : tools) {
             json params = t->parameters_schema();

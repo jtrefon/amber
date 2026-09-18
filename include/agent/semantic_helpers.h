@@ -29,8 +29,7 @@ std::string shell_quote(const std::string& s);
 // Recursive file discovery (std::filesystem) honoring a glob on the basename
 // and skipping excluded top-level directory names anywhere in the path.
 void walk(const std::string& dir, const std::string& glob,
-          const std::vector<std::string>& exclude_dirs,
-          std::vector<std::string>& files);
+          const std::vector<std::string>& exclude_dirs, std::vector<std::string>& files);
 
 } // namespace agent
 

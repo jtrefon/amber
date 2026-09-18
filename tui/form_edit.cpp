@@ -29,9 +29,10 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
         set_field_back(f, COLOR_PAIR(P_FIELD));
         set_field_fore(f, COLOR_PAIR(P_FIELD));
         field_opts_off(f, O_AUTOSKIP);
-        field_opts_off(f, O_STATIC);          // allow horizontal scrolling
+        field_opts_off(f, O_STATIC); // allow horizontal scrolling
         set_max_field(f, 1024);
-        if (fields[i].secret) field_opts_off(f, O_PUBLIC);
+        if (fields[i].secret)
+            field_opts_off(f, O_PUBLIC);
         set_field_buffer(f, 0, fields[i].value.c_str());
         fs.push_back(f);
     }
@@ -63,9 +64,7 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
         wattroff(w, COLOR_PAIR(focus == 2 ? P_BUTTON_ACT : P_BUTTON) | A_BOLD);
     };
 
-    dlg.set_footer({{"Tab/Arrows", "move"},
-                     {"Enter", "confirm"},
-                     {"Esc", "cancel"}});
+    dlg.set_footer({{"Tab/Arrows", "move"}, {"Enter", "confirm"}, {"Esc", "cancel"}});
     int focus = 0;
     curs_set(1);
     set_current_field(form, fs[0]);
@@ -87,61 +86,79 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
         int c = wgetch(w);
         if (focus == 0) {
             switch (c) {
-                case '\t':
-                case KEY_DOWN:
-                    if (field_index(current_field(form)) == n - 1) {
-                        focus = 1;
-                    } else {
-                        form_driver(form, REQ_NEXT_FIELD);
-                        form_driver(form, REQ_END_LINE);
-                    }
-                    break;
-                case KEY_BTAB:
-                case KEY_UP:
-                    form_driver(form, REQ_PREV_FIELD);
+            case '\t':
+            case KEY_DOWN:
+                if (field_index(current_field(form)) == n - 1) {
+                    focus = 1;
+                } else {
+                    form_driver(form, REQ_NEXT_FIELD);
                     form_driver(form, REQ_END_LINE);
-                    break;
-                case KEY_LEFT:  form_driver(form, REQ_PREV_CHAR); break;
-                case KEY_RIGHT: form_driver(form, REQ_NEXT_CHAR); break;
-                case KEY_HOME:  form_driver(form, REQ_BEG_LINE); break;
-                case KEY_END:   form_driver(form, REQ_END_LINE); break;
-                case KEY_DC:    form_driver(form, REQ_DEL_CHAR); break;
-                case KEY_BACKSPACE:
-                case 127:
-                case 8:         form_driver(form, REQ_DEL_PREV); break;
-                case '\n':
-                case '\r':
-                case KEY_ENTER: focus = 1; break;
-                case 27:        result = false; done = true; break;
-                default:
-                    if (c >= 32 && c <= 126) form_driver(form, c);
-                    break;
+                }
+                break;
+            case KEY_BTAB:
+            case KEY_UP:
+                form_driver(form, REQ_PREV_FIELD);
+                form_driver(form, REQ_END_LINE);
+                break;
+            case KEY_LEFT:
+                form_driver(form, REQ_PREV_CHAR);
+                break;
+            case KEY_RIGHT:
+                form_driver(form, REQ_NEXT_CHAR);
+                break;
+            case KEY_HOME:
+                form_driver(form, REQ_BEG_LINE);
+                break;
+            case KEY_END:
+                form_driver(form, REQ_END_LINE);
+                break;
+            case KEY_DC:
+                form_driver(form, REQ_DEL_CHAR);
+                break;
+            case KEY_BACKSPACE:
+            case 127:
+            case 8:
+                form_driver(form, REQ_DEL_PREV);
+                break;
+            case '\n':
+            case '\r':
+            case KEY_ENTER:
+                focus = 1;
+                break;
+            case 27:
+                result = false;
+                done = true;
+                break;
+            default:
+                if (c >= 32 && c <= 126)
+                    form_driver(form, c);
+                break;
             }
         } else {
             switch (c) {
-                case '\t':
-                case KEY_RIGHT:
-                case KEY_BTAB:
-                case KEY_LEFT:
-                    focus = (focus == 1) ? 2 : 1;
-                    break;
-                case KEY_UP:
-                    focus = 0;
-                    set_current_field(form, fs[n - 1]);
-                    form_driver(form, REQ_END_LINE);
-                    break;
-                case '\n':
-                case '\r':
-                case KEY_ENTER:
-                    result = (focus == 1);
-                    done = true;
-                    break;
-                case 27:
-                    result = false;
-                    done = true;
-                    break;
-                default:
-                    break;
+            case '\t':
+            case KEY_RIGHT:
+            case KEY_BTAB:
+            case KEY_LEFT:
+                focus = (focus == 1) ? 2 : 1;
+                break;
+            case KEY_UP:
+                focus = 0;
+                set_current_field(form, fs[n - 1]);
+                form_driver(form, REQ_END_LINE);
+                break;
+            case '\n':
+            case '\r':
+            case KEY_ENTER:
+                result = (focus == 1);
+                done = true;
+                break;
+            case 27:
+                result = false;
+                done = true;
+                break;
+            default:
+                break;
             }
         }
     }
@@ -158,8 +175,10 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     curs_set(0);
     unpost_form(form);
     free_form(form);
-    for (int i = 0; i < n; ++i) free_field(fs[i]);
-    if (fsub) delwin(fsub);
+    for (int i = 0; i < n; ++i)
+        free_field(fs[i]);
+    if (fsub)
+        delwin(fsub);
     return result;
 }
 

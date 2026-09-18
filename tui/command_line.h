@@ -24,46 +24,45 @@ public:
     const std::string& text() const { return input_; }
     size_t cursor() const { return cursor_; }
     bool drawer_open() const { return drawer_open_; }
-    int  drawer_sel() const { return drawer_sel_; }
+    int drawer_sel() const { return drawer_sel_; }
     const std::string& shadow() const { return shadow_; }
-
 
     // Result of an event.
     struct Result {
         enum Action {
-            None,              // internal state change only
-            Dispatch,          // enter pressed → dispatch dispatch_text
-            ShowPopup,         // show popup with popup_items
-            ShowHelpPage       // show full help page for help_node
+            None,        // internal state change only
+            Dispatch,    // enter pressed → dispatch dispatch_text
+            ShowPopup,   // show popup with popup_items
+            ShowHelpPage // show full help page for help_node
         };
         Action action = None;
         std::string dispatch_text;
         std::vector<std::string> popup_items;
-        std::string help_node;       // tree path to show help for
+        std::string help_node; // tree path to show help for
 
         bool drawer_open = false;
-        int  drawer_sel = 0;
+        int drawer_sel = 0;
     };
 
     // ── Event handlers ──────────────────────────────────────────────
 
-    Result on_char(char c);      // printable character
-    Result on_tab();             // Tab
-    Result on_shift_tab();       // Shift-Tab (backward cycle)
+    Result on_char(char c); // printable character
+    Result on_tab();        // Tab
+    Result on_shift_tab();  // Shift-Tab (backward cycle)
     Result on_enter();
     Result on_backspace();
     Result on_ctrl_d();
-    Result on_ctrl_r();          // reverse history search (stub)
-    Result on_ctrl_a();          // beginning of line
-    Result on_ctrl_e();          // end of line
-    Result on_ctrl_w();          // delete word backward
-    Result on_ctrl_u();          // delete to start of line
-    Result on_ctrl_k();          // delete to end of line
-    Result on_ctrl_y();          // yank (paste kill buffer)
-    Result on_ctrl_t();          // transpose characters
-    Result on_undo();            // Ctrl-_ (undo)
-    Result on_up();              // history up or cycle up
-    Result on_down();            // history down or cycle down
+    Result on_ctrl_r(); // reverse history search (stub)
+    Result on_ctrl_a(); // beginning of line
+    Result on_ctrl_e(); // end of line
+    Result on_ctrl_w(); // delete word backward
+    Result on_ctrl_u(); // delete to start of line
+    Result on_ctrl_k(); // delete to end of line
+    Result on_ctrl_y(); // yank (paste kill buffer)
+    Result on_ctrl_t(); // transpose characters
+    Result on_undo();   // Ctrl-_ (undo)
+    Result on_up();     // history up or cycle up
+    Result on_down();   // history down or cycle down
     Result on_left();
     Result on_right();
     Result on_home();
@@ -71,9 +70,11 @@ public:
 
     // ── History ─────────────────────────────────────────────────────
 
-    void set_history(const std::vector<std::string>& h) { history_ = h; history_pos_ = history_.size(); }
+    void set_history(const std::vector<std::string>& h) {
+        history_ = h;
+        history_pos_ = history_.size();
+    }
     const std::vector<std::string>& history() const { return history_; }
-
 
     // ── Completion context (set by the host for shadow computation) ──
 
@@ -93,17 +94,24 @@ public:
 
     // ── Direct state control (for test setup) ───────────────────────
 
-    void set_text(const std::string& t) { input_ = t; cursor_ = t.size(); recompute(); }
-    void set_text_and_cursor(const std::string& t, size_t c) { input_ = t; cursor_ = c; }
+    void set_text(const std::string& t) {
+        input_ = t;
+        cursor_ = t.size();
+        recompute();
+    }
+    void set_text_and_cursor(const std::string& t, size_t c) {
+        input_ = t;
+        cursor_ = c;
+    }
 
 private:
     std::string input_;
     size_t cursor_ = 0;
     bool drawer_open_ = false;
-    int  drawer_sel_ = 0;
-    std::string shadow_;           // faded completion hint after cursor
-    std::string kill_buffer_;      // for Ctrl-Y (yank)
-    std::string undo_buffer_;      // for undo
+    int drawer_sel_ = 0;
+    std::string shadow_;      // faded completion hint after cursor
+    std::string kill_buffer_; // for Ctrl-Y (yank)
+    std::string undo_buffer_; // for undo
     size_t undo_cursor_ = 0;
 
     // Completion / cycle state
@@ -123,9 +131,10 @@ private:
     size_t history_pos_ = 0;
 
     // Internal helpers
-    void recompute();              // update shadow, drawer after mutation
-    void save_undo();              // save state for undo
-    std::vector<std::string> drawer_items() const;  // completions_ filtered by the trailing partial token
+    void recompute(); // update shadow, drawer after mutation
+    void save_undo(); // save state for undo
+    std::vector<std::string>
+    drawer_items() const; // completions_ filtered by the trailing partial token
 
     void advance_cycle(int dir);
     void reset_cycle();

@@ -9,8 +9,10 @@ namespace agent {
 namespace {
 
 Classification tag_from_string(const std::string& s) {
-    if (s == "core") return Classification::core;
-    if (s == "prune") return Classification::prune;
+    if (s == "core")
+        return Classification::core;
+    if (s == "prune")
+        return Classification::prune;
     return Classification::context;
 }
 
@@ -18,7 +20,8 @@ Classification tag_from_string(const std::string& s) {
 // LLMs commonly wrap JSON in ```json ... ``` or prefix conversational text.
 std::string extract_json_block(const std::string& raw) {
     auto attempt = json::parse(raw, nullptr, false);
-    if (!attempt.is_discarded()) return raw;
+    if (!attempt.is_discarded())
+        return raw;
 
     std::string s = raw;
     auto erase_all = [](std::string& t, const std::string& pat) {
@@ -29,7 +32,8 @@ std::string extract_json_block(const std::string& raw) {
     erase_all(s, "```");
     erase_all(s, "\\n");
     attempt = json::parse(s, nullptr, false);
-    if (!attempt.is_discarded()) return s;
+    if (!attempt.is_discarded())
+        return s;
 
     // Try to find a JSON object or array
     auto brace = s.find('{');
@@ -43,13 +47,16 @@ std::string extract_json_block(const std::string& raw) {
         start = bracket;
         close_char = ']';
     }
-    if (start == std::string::npos) return {};
+    if (start == std::string::npos)
+        return {};
     s = s.substr(start);
     auto close = s.rfind(close_char);
-    if (close == std::string::npos) return {};
+    if (close == std::string::npos)
+        return {};
     s.resize(close + 1);
     attempt = json::parse(s, nullptr, false);
-    if (!attempt.is_discarded()) return s;
+    if (!attempt.is_discarded())
+        return s;
     return {};
 }
 
@@ -57,10 +64,12 @@ std::string extract_json_block(const std::string& raw) {
 
 CompressionResponse parse_compression_response(const std::string& json_str) {
     CompressionResponse cr;
-    if (json_str.empty()) return cr;
+    if (json_str.empty())
+        return cr;
 
     std::string cleaned = extract_json_block(json_str);
-    if (cleaned.empty()) return cr;
+    if (cleaned.empty())
+        return cr;
 
     try {
         json j = json::parse(cleaned);
@@ -68,7 +77,8 @@ CompressionResponse parse_compression_response(const std::string& json_str) {
         // If the LLM returned a bare array, it's a classification-only response.
         if (j.is_array()) {
             for (const auto& seg : j) {
-                if (!seg.is_object()) continue;
+                if (!seg.is_object())
+                    continue;
                 ClassifiedSegment cs;
                 std::string turns = seg.value("turns", "0-0");
                 std::string tag = seg.value("tag", "context");
@@ -78,14 +88,12 @@ CompressionResponse parse_compression_response(const std::string& json_str) {
 
                 size_t dash = turns.find('-');
                 if (dash != std::string::npos) {
-                    cs.turn_start = static_cast<size_t>(
-                        std::atol(turns.substr(0, dash).c_str()));
-                    cs.turn_end = static_cast<size_t>(
-                        std::atol(turns.substr(dash + 1).c_str()));
+                    cs.turn_start = static_cast<size_t>(std::atol(turns.substr(0, dash).c_str()));
+                    cs.turn_end = static_cast<size_t>(std::atol(turns.substr(dash + 1).c_str()));
                 }
                 cr.segments.push_back(cs);
             }
-            return cr;  // Classification only — no memory/skill ops
+            return cr; // Classification only — no memory/skill ops
         }
 
         // Parse the work-state summary (top-level string the classifier emits).
@@ -104,10 +112,8 @@ CompressionResponse parse_compression_response(const std::string& json_str) {
 
                 size_t dash = turns.find('-');
                 if (dash != std::string::npos) {
-                    cs.turn_start = static_cast<size_t>(
-                        std::atol(turns.substr(0, dash).c_str()));
-                    cs.turn_end = static_cast<size_t>(
-                        std::atol(turns.substr(dash + 1).c_str()));
+                    cs.turn_start = static_cast<size_t>(std::atol(turns.substr(0, dash).c_str()));
+                    cs.turn_end = static_cast<size_t>(std::atol(turns.substr(dash + 1).c_str()));
                 }
                 cr.segments.push_back(cs);
             }
@@ -157,13 +163,14 @@ CompressionResponse parse_compression_response(const std::string& json_str) {
             brief.next = b.value("next", "");
             if (b.contains("done") && b["done"].is_array())
                 for (const auto& d : b["done"])
-                    if (d.is_string()) brief.done.push_back(d.get<std::string>());
+                    if (d.is_string())
+                        brief.done.push_back(d.get<std::string>());
             if (b.contains("avoid") && b["avoid"].is_array())
                 for (const auto& a : b["avoid"])
-                    if (a.is_string()) brief.avoid.push_back(a.get<std::string>());
-            if (!brief.intent.empty() || !brief.direction.empty() ||
-                !brief.done.empty() || !brief.next.empty() ||
-                !brief.avoid.empty())
+                    if (a.is_string())
+                        brief.avoid.push_back(a.get<std::string>());
+            if (!brief.intent.empty() || !brief.direction.empty() || !brief.done.empty() ||
+                !brief.next.empty() || !brief.avoid.empty())
                 cr.brief = std::move(brief);
         }
     } catch (const std::exception&) { // NOLINT: invalid JSON from LLM is expected, not exceptional

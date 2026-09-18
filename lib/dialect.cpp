@@ -14,7 +14,7 @@ using DialectFactory = std::function<std::unique_ptr<Dialect>()>;
 
 struct DialectEntry {
     DialectFactory factory;
-    std::string owner;  // plugin id, empty for built-ins
+    std::string owner; // plugin id, empty for built-ins
 };
 
 // The table is mutated when a provider plugin is toggled at runtime and read
@@ -39,13 +39,14 @@ std::map<std::string, DialectEntry>& dialect_table() {
 // Flavors a plugin used to provide. Kept separate from the table so an
 // unknown flavor still falls back while a disabled one refuses.
 std::map<std::string, std::string>& unavailable_flavors() {
-    static std::map<std::string, std::string> flavors;  // flavor -> plugin id
+    static std::map<std::string, std::string> flavors; // flavor -> plugin id
     return flavors;
 }
 
 std::unique_ptr<Dialect> find_locked(const std::string& flavor) {
     auto it = dialect_table().find(flavor);
-    if (it != dialect_table().end()) return it->second.factory();
+    if (it != dialect_table().end())
+        return it->second.factory();
     auto fallback = dialect_table().find("openai");
     return fallback->second.factory();
 }
@@ -57,8 +58,7 @@ std::unique_ptr<Dialect> make_dialect(const std::string& flavor) {
     return find_locked(flavor);
 }
 
-void register_dialect(const std::string& flavor,
-                      std::function<std::unique_ptr<Dialect>()> factory,
+void register_dialect(const std::string& flavor, std::function<std::unique_ptr<Dialect>()> factory,
                       const std::string& owner) {
     std::scoped_lock lock(dialect_mutex());
     dialect_table()[flavor] = DialectEntry{std::move(factory), owner};
@@ -69,7 +69,8 @@ void register_dialect(const std::string& flavor,
 }
 
 void unregister_dialects_for(const std::string& owner) {
-    if (owner.empty()) return;
+    if (owner.empty())
+        return;
     std::scoped_lock lock(dialect_mutex());
     for (auto it = dialect_table().begin(); it != dialect_table().end();) {
         if (it->second.owner == owner) {
@@ -82,33 +83,38 @@ void unregister_dialects_for(const std::string& owner) {
 }
 
 bool unregister_dialect(const std::string& flavor, const std::string& owner) {
-    if (owner.empty()) return false;
+    if (owner.empty())
+        return false;
     std::scoped_lock lock(dialect_mutex());
     auto it = dialect_table().find(flavor);
-    if (it == dialect_table().end() || it->second.owner != owner) return false;
+    if (it == dialect_table().end() || it->second.owner != owner)
+        return false;
     unavailable_flavors()[flavor] = owner;
     dialect_table().erase(it);
     return true;
 }
 
 void declare_flavor(const std::string& flavor, const std::string& owner) {
-    if (flavor.empty() || owner.empty()) return;
+    if (flavor.empty() || owner.empty())
+        return;
     std::scoped_lock lock(dialect_mutex());
     // A protocol someone is providing right now needs no declaration: a
     // presets-only provider "declaring" the shared openai dialect must never
     // make that dialect look unavailable.
-    if (dialect_table().count(flavor)) return;
+    if (dialect_table().count(flavor))
+        return;
     unavailable_flavors()[flavor] = owner;
 }
 
 std::string flavor_unavailable_reason(const std::string& flavor) {
     std::scoped_lock lock(dialect_mutex());
-    if (dialect_table().count(flavor)) return {};   // currently provided
+    if (dialect_table().count(flavor))
+        return {}; // currently provided
     auto it = unavailable_flavors().find(flavor);
-    if (it == unavailable_flavors().end()) return {};  // nobody provides it: a typo
-    return "provider flavor '" + flavor + "' is provided by plugin '" +
-           it->second + "', which is disabled - enable it with /set plugin " +
-           it->second + " on";
+    if (it == unavailable_flavors().end())
+        return {}; // nobody provides it: a typo
+    return "provider flavor '" + flavor + "' is provided by plugin '" + it->second +
+           "', which is disabled - enable it with /set plugin " + it->second + " on";
 }
 
 } // namespace agent

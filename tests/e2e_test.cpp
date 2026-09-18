@@ -33,8 +33,7 @@ public:
     void set_timeout(int) override {}
 
     void draw() override {}
-    void draw_input(const std::string& input, size_t cursor,
-                    const std::string& shadow) override {
+    void draw_input(const std::string& input, size_t cursor, const std::string& shadow) override {
         last_input_ = input;
         last_cursor_ = cursor;
         last_shadow_ = shadow;
@@ -43,8 +42,7 @@ public:
     void flush() override {}
     void clear_screen() override {}
 
-    int menu_select(const std::string& title,
-                    const std::vector<std::string>& items) override {
+    int menu_select(const std::string& title, const std::vector<std::string>& items) override {
         last_menu_title_ = !title.empty() ? title[0] : 0;
         last_menu_items_ = items;
         // Default: select first item.
@@ -80,7 +78,8 @@ EventLoopResult simulate(MockView& view, tui::CommandLine& cl) {
 
     switch (key) {
     case tui::View::KEY_ENTER:
-    case 10: case 13:
+    case 10:
+    case 13:
         result = cl.on_enter();
         break;
     case tui::View::KEY_TAB:
@@ -88,7 +87,8 @@ EventLoopResult simulate(MockView& view, tui::CommandLine& cl) {
         result = cl.on_tab();
         break;
     case tui::View::KEY_BACKSPACE:
-    case 127: case 8:
+    case 127:
+    case 8:
         result = cl.on_backspace();
         break;
     case tui::View::KEY_UP:
@@ -103,16 +103,36 @@ EventLoopResult simulate(MockView& view, tui::CommandLine& cl) {
     case tui::View::KEY_RIGHT:
         result = cl.on_right();
         break;
-    case 1: result = cl.on_ctrl_a(); break;   // Ctrl-A
-    case 5: result = cl.on_ctrl_e(); break;   // Ctrl-E
-    case 11: result = cl.on_ctrl_k(); break;  // Ctrl-K
-    case 21: result = cl.on_ctrl_u(); break;  // Ctrl-U
-    case 23: result = cl.on_ctrl_w(); break;  // Ctrl-W
-    case 25: result = cl.on_ctrl_y(); break;  // Ctrl-Y
-    case 20: result = cl.on_ctrl_t(); break;  // Ctrl-T
-    case 31: result = cl.on_undo(); break;    // Ctrl-_
-    case 4:  result = cl.on_ctrl_d(); break;  // Ctrl-D
-    case 18: result = cl.on_ctrl_r(); break;  // Ctrl-R
+    case 1:
+        result = cl.on_ctrl_a();
+        break; // Ctrl-A
+    case 5:
+        result = cl.on_ctrl_e();
+        break; // Ctrl-E
+    case 11:
+        result = cl.on_ctrl_k();
+        break; // Ctrl-K
+    case 21:
+        result = cl.on_ctrl_u();
+        break; // Ctrl-U
+    case 23:
+        result = cl.on_ctrl_w();
+        break; // Ctrl-W
+    case 25:
+        result = cl.on_ctrl_y();
+        break; // Ctrl-Y
+    case 20:
+        result = cl.on_ctrl_t();
+        break; // Ctrl-T
+    case 31:
+        result = cl.on_undo();
+        break; // Ctrl-_
+    case 4:
+        result = cl.on_ctrl_d();
+        break; // Ctrl-D
+    case 18:
+        result = cl.on_ctrl_r();
+        break; // Ctrl-R
     default:
         if (key >= 32 && key <= 126)
             result = cl.on_char(static_cast<char>(key));
@@ -132,7 +152,8 @@ EventLoopResult simulate(MockView& view, tui::CommandLine& cl) {
     case tui::CommandLine::Result::ShowHelpPage:
         r.help_shown = result.help_node;
         break;
-    default: break;
+    default:
+        break;
     }
 
     r.lines = view.drawn_lines_;
@@ -142,10 +163,14 @@ EventLoopResult simulate(MockView& view, tui::CommandLine& cl) {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 #define TEST(name) void name()
-#define ASSERT(cond) do { \
-    if (!(cond)) { std::cerr << "FAIL: " << #cond << " at " << __FILE__ << ":" << __LINE__ << "\n"; exit(1); } \
-} while(0)
-#define ASSERT_EQ(a,b) ASSERT((a) == (b))
+#define ASSERT(cond)                                                                               \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "FAIL: " << #cond << " at " << __FILE__ << ":" << __LINE__ << "\n";       \
+            exit(1);                                                                               \
+        }                                                                                          \
+    } while (0)
+#define ASSERT_EQ(a, b) ASSERT((a) == (b))
 #define ASSERT_CONTAINS(str, substr) ASSERT((str).find(substr) != std::string::npos)
 #define PASS std::cout << "  PASS\n"
 
@@ -168,7 +193,8 @@ TEST(test_set_typed) {
     MockView view;
     tui::CommandLine cl;
     view.keys_ = {'/', 's', 'e', 't'};
-    for (int i = 0; i < 4; ++i) simulate(view, cl);
+    for (int i = 0; i < 4; ++i)
+        simulate(view, cl);
     ASSERT_EQ(cl.text(), "/set");
     PASS;
 }
@@ -193,7 +219,8 @@ TEST(test_question_with_space_help) {
     tui::CommandLine cl;
     view.keys_ = {'/', 's', 'e', 't', ' ', '?'};
     EventLoopResult r;
-    for (int i = 0; i < 6; ++i) r = simulate(view, cl);
+    for (int i = 0; i < 6; ++i)
+        r = simulate(view, cl);
     ASSERT_EQ(r.help_shown, "/set");
     ASSERT_CONTAINS(r.input_before, "/set");
     PASS;
@@ -205,7 +232,8 @@ TEST(test_question_no_space_popup) {
     tui::CommandLine cl;
     view.keys_ = {'/', 's', 'e', 't', '?'};
     EventLoopResult r;
-    for (int i = 0; i < 5; ++i) r = simulate(view, cl);
+    for (int i = 0; i < 5; ++i)
+        r = simulate(view, cl);
     ASSERT_EQ(r.popup_shown.size(), 0u); // no commands registered yet
     // Input should be restored to /set
     ASSERT_EQ(cl.text(), "/set");
@@ -218,9 +246,11 @@ TEST(test_at_reference) {
     tui::CommandLine cl;
     view.keys_ = {'r', 'e', 'a', 'd', ' ', '@'};
     EventLoopResult r;
-    for (int i = 0; i < 6; ++i) r = simulate(view, cl);
+    for (int i = 0; i < 6; ++i)
+        r = simulate(view, cl);
     // @ should trigger ShowPopup
-    ASSERT_EQ(r.popup_shown.size(), 0u); // MockView's menu_select returns first item, no popup items in result
+    ASSERT_EQ(r.popup_shown.size(),
+              0u); // MockView's menu_select returns first item, no popup items in result
     ASSERT_EQ(cl.text(), "read @");
     PASS;
 }
@@ -230,7 +260,8 @@ TEST(test_ctrl_w) {
     MockView view;
     tui::CommandLine cl;
     view.keys_ = {'/', 's', 'e', 't', ' ', 'o', 'n', 23}; // Ctrl-W
-    for (int i = 0; i < 7; ++i) simulate(view, cl); // type /set on
+    for (int i = 0; i < 7; ++i)
+        simulate(view, cl);      // type /set on
     auto r = simulate(view, cl); // Ctrl-W
     ASSERT_EQ(cl.text(), "/set ");
     PASS;
@@ -241,7 +272,9 @@ TEST(test_ctrl_a_e) {
     MockView view;
     tui::CommandLine cl;
     view.keys_ = {'a', 'b', 'c', 1, 5}; // abc then Ctrl-A, Ctrl-E
-    simulate(view, cl); simulate(view, cl); simulate(view, cl); // abc
+    simulate(view, cl);
+    simulate(view, cl);
+    simulate(view, cl); // abc
     ASSERT_EQ(cl.text(), "abc");
     ASSERT_EQ(cl.cursor(), 3u);
     simulate(view, cl); // Ctrl-A
@@ -256,7 +289,8 @@ TEST(test_backspace) {
     MockView view;
     tui::CommandLine cl;
     view.keys_ = {'a', 'b', 'c', 127};
-    for (int i = 0; i < 3; ++i) simulate(view, cl);
+    for (int i = 0; i < 3; ++i)
+        simulate(view, cl);
     ASSERT_EQ(cl.text(), "abc");
     simulate(view, cl);
     ASSERT_EQ(cl.text(), "ab");
@@ -279,7 +313,7 @@ TEST(test_shadow_appears_with_completions) {
 TEST(test_shadow_empty_without_completions) {
     std::cout << "[TEST] no completions = no shadow...";
     tui::CommandLine cl;
-    cl.set_completions({});  // empty completions
+    cl.set_completions({}); // empty completions
     cl.set_text("/se");
     ASSERT(cl.shadow().empty());
     PASS;
@@ -304,7 +338,10 @@ TEST(test_get_question_help) {
     cl.set_completions({"get", "set", "help"});
 
     // Type /get
-    cl.on_char('/'); cl.on_char('g'); cl.on_char('e'); cl.on_char('t');
+    cl.on_char('/');
+    cl.on_char('g');
+    cl.on_char('e');
+    cl.on_char('t');
     ASSERT_EQ(cl.text(), "/get");
 
     // Type space then ?
@@ -323,8 +360,8 @@ TEST(test_get_dete_shadow) {
     std::cout << "[TEST] /get dete shadow...";
     tui::CommandLine cl;
     // Simulate correct per-argument completions for `get`.
-    cl.set_completions({"config","model","provider","toolfold","policy",
-                         "display","compression","detection","think"});
+    cl.set_completions({"config", "model", "provider", "toolfold", "policy", "display",
+                        "compression", "detection", "think"});
     cl.set_text("/get dete");
     ASSERT(!cl.shadow().empty());
     ASSERT_EQ(cl.shadow(), "ction");
@@ -338,25 +375,25 @@ TEST(test_shadow_sequential_typing) {
     // First character: type '/' — no completions yet.
     cl.on_char('/');
     // Now the host sets completions (simulating update_completions in Tui::run).
-    cl.set_completions({"help", "set", "session", "save", "quit", "stop",
-                        "system", "files", "provider", "model", "job", "compress"});
+    cl.set_completions({"help", "set", "session", "save", "quit", "stop", "system", "files",
+                        "provider", "model", "job", "compress"});
     // After '/' and completions: partial is "", no shadow.
     ASSERT(cl.shadow().empty());
 
     // Type 's': partial = "s", should find shadow.
     cl.on_char('s');
     ASSERT(!cl.shadow().empty());
-    ASSERT_EQ(cl.shadow(), "et");  // "set" is first match
+    ASSERT_EQ(cl.shadow(), "et"); // "set" is first match
 
     // Type 'e': partial = "se", shadow should narrow.
     cl.on_char('e');
     ASSERT(!cl.shadow().empty());
-    ASSERT_EQ(cl.shadow(), "t");  // "set" after "se" → "t"
+    ASSERT_EQ(cl.shadow(), "t"); // "set" after "se" → "t"
 
     // Type 't': partial = "set", shadow should be space.
     cl.on_char('t');
     ASSERT(!cl.shadow().empty());
-    ASSERT_EQ(cl.shadow(), " ");  // "set " — space added by convention
+    ASSERT_EQ(cl.shadow(), " "); // "set " — space added by convention
 
     PASS;
 }
@@ -373,7 +410,7 @@ TEST(test_registry_wired_slash_c_shadow) {
     cl.on_char('/');
     // Host updates completions from the registry after each keystroke.
     cl.set_completions(tui::drawer_entry_names(cl.text(), reg));
-    ASSERT(cl.shadow().empty());  // "/" alone: no shadow (list shown, not a partial)
+    ASSERT(cl.shadow().empty()); // "/" alone: no shadow (list shown, not a partial)
     cl.on_char('c');
     cl.set_completions(tui::drawer_entry_names(cl.text(), reg));
     // /c must produce a shadow (the remainder of the first c* command).
@@ -406,7 +443,7 @@ TEST(test_drawer_arrows_navigate_and_enter_dispatches) {
     tui::SettingRegistry reg;
     ASSERT(reg.load_completions_json("completions.json"));
     tui::CommandLine cl;
-    cl.set_history({"older prompt"});  // history must NOT be navigated
+    cl.set_history({"older prompt"}); // history must NOT be navigated
     // Type "/c" (multiple drawer items: close, compress).
     for (char ch : std::string("/c")) {
         cl.on_char(ch);
@@ -442,7 +479,7 @@ TEST(test_drawer_arrows_over_exact_command_children) {
     tui::SettingRegistry reg;
     ASSERT(reg.load_completions_json("completions.json"));
     tui::CommandLine cl;
-    cl.set_history({"old history entry"});  // must NOT be navigated
+    cl.set_history({"old history entry"}); // must NOT be navigated
     for (char ch : std::string("/window")) {
         cl.on_char(ch);
         std::string input = cl.text();
@@ -453,14 +490,14 @@ TEST(test_drawer_arrows_over_exact_command_children) {
     }
     ASSERT(cl.drawer_open());
     auto items = tui::drawer_entry_names("/window", reg);
-    ASSERT(items.size() >= 4u);  // new/close/list/rename
+    ASSERT(items.size() >= 4u); // new/close/list/rename
 
     std::string text_before = cl.text();
     // Down moves the highlight — input text must NOT be replaced/cleared.
     int sel0 = cl.drawer_sel();
     cl.on_down();
     ASSERT_EQ(cl.drawer_sel(), sel0 + 1);
-    ASSERT_EQ(cl.text(), text_before);  // not clobbered by history nav
+    ASSERT_EQ(cl.text(), text_before); // not clobbered by history nav
 
     // Enter dispatches "/window <selected child>" (namespace preserved).
     auto r = cl.on_enter();
@@ -576,8 +613,8 @@ TEST(test_tab_depth2_cycle_to_second) {
     tui::CommandLine cl;
     cl.set_completions({"loop", "duplicate"});
     cl.set_text("/get detection.");
-    cl.on_tab();  // first → loop
-    cl.on_tab();  // second → duplicate
+    cl.on_tab(); // first → loop
+    cl.on_tab(); // second → duplicate
     ASSERT_EQ(cl.text(), "/get detection.duplicate");
     PASS;
 }
@@ -587,9 +624,9 @@ TEST(test_tab_depth2_cycle_three_times_wraps) {
     tui::CommandLine cl;
     cl.set_completions({"loop", "duplicate"});
     cl.set_text("/get detection.");
-    cl.on_tab();  // loop
-    cl.on_tab();  // duplicate
-    cl.on_tab();  // wraps back to loop
+    cl.on_tab(); // loop
+    cl.on_tab(); // duplicate
+    cl.on_tab(); // wraps back to loop
     ASSERT_EQ(cl.text(), "/get detection.loop");
     PASS;
 }
@@ -602,10 +639,21 @@ TEST(test_shadow_depth2_sequential_typing) {
     cl.set_completions({"loop", "duplicate"});
 
     // Type /get detection.
-    cl.on_char('/'); cl.on_char('g'); cl.on_char('e'); cl.on_char('t');
-    cl.on_char(' '); cl.on_char('d'); cl.on_char('e'); cl.on_char('t');
-    cl.on_char('e'); cl.on_char('c'); cl.on_char('t'); cl.on_char('i');
-    cl.on_char('o'); cl.on_char('n'); cl.on_char('.');
+    cl.on_char('/');
+    cl.on_char('g');
+    cl.on_char('e');
+    cl.on_char('t');
+    cl.on_char(' ');
+    cl.on_char('d');
+    cl.on_char('e');
+    cl.on_char('t');
+    cl.on_char('e');
+    cl.on_char('c');
+    cl.on_char('t');
+    cl.on_char('i');
+    cl.on_char('o');
+    cl.on_char('n');
+    cl.on_char('.');
 
     // At /get detection. → partial = "detection." → suffix = "" → no shadow
     ASSERT(cl.shadow().empty());

@@ -18,11 +18,11 @@ namespace bench {
 struct BenchReply {
     std::string content;
     agent::json tool_calls = agent::json::array();
-    std::string error;                  // non-empty -> throw ApiError
+    std::string error; // non-empty -> throw ApiError
     bool retryable = true;
-    long latency_ms = 0;                // simulated time-to-first-byte
-    int drop_after_chunks = 0;          // >0 -> throw after N stream chunks
-    std::string chunk_delta = "x";      // text per streamed chunk
+    long latency_ms = 0;           // simulated time-to-first-byte
+    int drop_after_chunks = 0;     // >0 -> throw after N stream chunks
+    std::string chunk_delta = "x"; // text per streamed chunk
     long prompt_tokens = 0;
     long completion_tokens = 0;
 };
@@ -39,11 +39,10 @@ public:
                         const std::vector<std::shared_ptr<agent::Tool>>& tools,
                         agent::Stats* stats = nullptr) override;
 
-    agent::Message chat_stream(
-        const std::vector<agent::Message>& messages,
-        const std::vector<std::shared_ptr<agent::Tool>>& tools,
-        const std::function<void(const agent::StreamChunk&)>& on_chunk,
-        agent::Stats* stats = nullptr) override;
+    agent::Message chat_stream(const std::vector<agent::Message>& messages,
+                               const std::vector<std::shared_ptr<agent::Tool>>& tools,
+                               const std::function<void(const agent::StreamChunk&)>& on_chunk,
+                               agent::Stats* stats = nullptr) override;
 };
 
 } // namespace bench

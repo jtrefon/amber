@@ -27,11 +27,11 @@ struct Config;
 struct Provider {
     std::string name;
     std::string api_base;
-    std::string api_key;       // may be empty (env / none)
+    std::string api_key; // may be empty (env / none)
     bool requires_key = false;
     std::string default_model; // last-used model for this provider
     int default_context_size = 0;
-    bool builtin = false;      // code preset vs user-added file
+    bool builtin = false; // code preset vs user-added file
     // Wire dialect this provider speaks. Declared here rather than looked up
     // by name, so a provider carries its own protocol and a plugin-provided
     // provider needs no core table entry (last so existing initialisers keep
@@ -71,8 +71,8 @@ public:
 
 struct ProviderSelection {
     Provider provider;
-    std::string error;    // non-empty on hard failure
-    std::string warning;  // non-empty on soft issues (e.g. missing key)
+    std::string error;   // non-empty on hard failure
+    std::string warning; // non-empty on soft issues (e.g. missing key)
     bool ok() const noexcept { return error.empty(); }
 };
 
@@ -143,8 +143,7 @@ bool seed_provider(const std::string& name, const Config& connection);
 std::unique_ptr<ModelCatalog> make_http_model_catalog();
 
 // Boundary wiring: static presets + user files + the custom connection.
-std::unique_ptr<ProviderService> make_default_provider_service(
-    const Config& cfg);
+std::unique_ptr<ProviderService> make_default_provider_service(const Config& cfg);
 
 } // namespace agent
 

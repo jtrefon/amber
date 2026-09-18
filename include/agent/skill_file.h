@@ -50,23 +50,21 @@ std::optional<SkillMeta> parse_skill_meta(const std::string& contents);
 // Scan one skill-directory root, one level deep. Missing root -> empty result.
 // `warnings`, when non-null, receives human-readable notes for entries that
 // were excluded (unreadable SKILL.md, invalid name, malformed frontmatter).
-std::vector<SkillFile> scan_skill_dir(const std::string& root,
-                                      SkillScope scope,
+std::vector<SkillFile> scan_skill_dir(const std::string& root, SkillScope scope,
                                       std::vector<std::string>* warnings = nullptr);
 
 // Where the scanner looks for skills.
 struct SkillScanPaths {
-    std::string project;   // <workspace>/.amber/skills
-    std::string global;    // ~/.config/amber/skills
-    std::string claude;    // <workspace>/.claude/skills (interop, opt-in)
-    std::string codex;     // <workspace>/.codex/skills (interop, opt-in)
+    std::string project; // <workspace>/.amber/skills
+    std::string global;  // ~/.config/amber/skills
+    std::string claude;  // <workspace>/.claude/skills (interop, opt-in)
+    std::string codex;   // <workspace>/.codex/skills (interop, opt-in)
 };
 
 // Scan all roots in precedence order (project -> global -> interop). The first
 // occurrence of a name wins (project shadows global, global shadows interop).
 // Interop roots are scanned only when `interop_enabled`.
-std::vector<SkillFile> scan_skills(const SkillScanPaths& paths,
-                                   bool interop_enabled,
+std::vector<SkillFile> scan_skills(const SkillScanPaths& paths, bool interop_enabled,
                                    std::vector<std::string>* warnings = nullptr);
 
 // Resolve the scan paths from the current workspace and config dir.

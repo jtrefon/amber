@@ -13,8 +13,8 @@ agent::ExperienceConfig ec(const std::string& path) {
     return cfg;
 }
 
-void add_memory(agent::MemoryStore& store, const std::string& name,
-                const std::string& content, int evidence, bool promoted) {
+void add_memory(agent::MemoryStore& store, const std::string& name, const std::string& content,
+                int evidence, bool promoted) {
     agent::Memory m;
     m.name = name;
     m.content = content;
@@ -25,8 +25,8 @@ void add_memory(agent::MemoryStore& store, const std::string& name,
     store.upsert(m);
 }
 
-void add_skill(agent::MemoryStore& store, const std::string& name,
-               const std::string& content, int evidence) {
+void add_skill(agent::MemoryStore& store, const std::string& name, const std::string& content,
+               int evidence) {
     agent::Skill sk;
     sk.name = name;
     sk.content = content;
@@ -158,8 +158,8 @@ TEST(learn_summary_lines) {
 
     auto lines = agent::learn_summary_lines(store.get(), cfg);
     ASSERT_EQ(lines.size(), 1u);
-    ASSERT_EQ(lines[0],
-              "memories: 2/20 \u00b7 skills: 1/10 \u00b7 promoted: 1 \u00b7 "
-              "path: " + path);
+    ASSERT_EQ(lines[0], "memories: 2/20 \u00b7 skills: 1/10 \u00b7 promoted: 1 \u00b7 "
+                        "path: " +
+                            path);
     std::remove(path.c_str());
 }

@@ -14,13 +14,13 @@ public:
     Dialog(int h, int w, const std::string& title);
     ~Dialog() override = default;
 
-    using Panel::win;
-    using Panel::content;
-    using Panel::rows;
     using Panel::cols;
-    using Panel::show;
+    using Panel::content;
     using Panel::hide;
+    using Panel::rows;
     using Panel::set_footer;
+    using Panel::show;
+    using Panel::win;
 };
 
 } // namespace tui

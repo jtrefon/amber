@@ -6,19 +6,11 @@
 #include <iostream>
 #include <string>
 
-static int failed = 0;
-#define ASSERT(cond) do { \
-    if (!(cond)) { std::cerr << "FAIL: " << #cond << "\n"; failed++; } \
-} while (0)
-#define ASSERT_EQ(a, b) do { \
-    if ((a) != (b)) { std::cerr << "FAIL: " << #a << " == " << #b \
-        << "\n  got:      " << (a) << "\n  expected: " << (b) << "\n"; failed++; } \
-} while (0)
+#include "tests/minitest.h"
 
 namespace {
 
-void check(const std::string& in, const std::string& want_scheme,
-           const std::string& want_base) {
+void check(const std::string& in, const std::string& want_scheme, const std::string& want_base) {
     cdp::Url u;
     bool ok = cdp::Url::parse(in, u);
     ASSERT(ok);
@@ -26,7 +18,7 @@ void check(const std::string& in, const std::string& want_scheme,
     ASSERT_EQ(u.toHttpBase(), want_base);
 }
 
-}  // namespace
+} // namespace
 
 int main() {
     // ws:// — already-correct path (must not regress).

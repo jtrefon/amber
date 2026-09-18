@@ -16,11 +16,11 @@ namespace agent {
 
 // Lifecycle of a background process managed by JobService.
 enum class JobState : std::uint8_t {
-    Starting,  // spawned, reader not yet confirmed alive
-    Running,   // actively producing output (or at least alive)
-    Done,      // exited on its own (exit_code valid)
-    Killed,    // terminated by JobService (timeout or explicit stop)
-    Failed,    // could not spawn
+    Starting, // spawned, reader not yet confirmed alive
+    Running,  // actively producing output (or at least alive)
+    Done,     // exited on its own (exit_code valid)
+    Killed,   // terminated by JobService (timeout or explicit stop)
+    Failed,   // could not spawn
 };
 
 // Point-in-time, host-friendly snapshot of a job. All times are relative
@@ -33,8 +33,8 @@ struct JobInfo {
     int exit_code = 0;
     long seconds_since_start = 0;
     long seconds_since_output = 0;
-    long remaining_idle_s = -1;   // -1 = idle timeout disabled
-    long remaining_hard_s = -1;   // -1 = hard timeout disabled
+    long remaining_idle_s = -1; // -1 = idle timeout disabled
+    long remaining_hard_s = -1; // -1 = hard timeout disabled
     std::size_t bytes = 0;
     bool truncated = false;
 };
@@ -47,11 +47,9 @@ class Job {
 public:
     // Spawn `command` (via /bin/sh -c) in `cwd`; start a reader thread.
     // Returns nullptr on spawn failure (with `err` set).
-    static std::unique_ptr<Job> start(const std::string& id,
-                                      const std::string& command,
-                                      const std::string& cwd,
-                                      long hard_timeout_s, long idle_timeout_s,
-                                      std::string& err);
+    static std::unique_ptr<Job> start(const std::string& id, const std::string& command,
+                                      const std::string& cwd, long hard_timeout_s,
+                                      long idle_timeout_s, std::string& err);
 
     ~Job();
 
@@ -61,7 +59,7 @@ public:
     const std::string& id() const { return id_; }
     JobInfo info() const;
     bool is_done() const;
-    int exit_code() const;   // valid once the job has exited/killed
+    int exit_code() const; // valid once the job has exited/killed
 
     // Return output produced since the previous call (and only that), advancing
     // an internal cursor. Cheap; safe to call frequently from the agent loop.
@@ -94,8 +92,8 @@ private:
 
     std::string id_;
     std::string command_;
-    std::string cwd_;          // resolved (confined) working directory
-    std::string initial_cwd_;  // cwd before confinement, for error reporting
+    std::string cwd_;         // resolved (confined) working directory
+    std::string initial_cwd_; // cwd before confinement, for error reporting
     pid_t pid_ = 0;
     int read_fd_ = -1;
     long hard_timeout_s_ = 0;
@@ -103,13 +101,13 @@ private:
 
     mutable std::mutex mtx_;
     JobState state_ = JobState::Starting;
-    std::string output_;        // protected by mtx_
+    std::string output_; // protected by mtx_
     std::size_t read_cursor_ = 0;
     bool truncated_ = false;
     int exit_code_ = 0;
     // Kill-once latch (read by kill() and the reader's reap grace loop).
     std::atomic<bool> kill_done_ = false;
-    static constexpr std::size_t kCap = 1 << 20;  // 1 MiB output cap
+    static constexpr std::size_t kCap = 1 << 20; // 1 MiB output cap
     // After the child closes its output, keep trying to reap it for this
     // long before the Done transition (a still-running daemon would
     // otherwise be orphaned and never reaped).

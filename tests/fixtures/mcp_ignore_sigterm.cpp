@@ -21,6 +21,7 @@ int main(int argc, char** argv) {
     char buf[4096];
     for (;;) {
         ssize_t n = read(STDIN_FILENO, buf, sizeof buf);
-        if (n <= 0) sleep(3600);  // EOF: keep running, awaiting SIGKILL
+        if (n <= 0)
+            sleep(3600); // EOF: keep running, awaiting SIGKILL
     }
 }

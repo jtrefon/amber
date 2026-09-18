@@ -23,15 +23,18 @@ double SlashDispatcher::compression_threshold_effective() const {
 void SlashDispatcher::refresh_completions() {
     tui_.settings_.reset_completion_index();
     auto try_load = [&](const std::string& path) {
-        if (path.empty()) return false;
+        if (path.empty())
+            return false;
         bool ok = tui_.settings_.load_completions_json(path);
-        if (ok) tui_.append_line(P_DEBUG, "loaded completions from " + path);
+        if (ok)
+            tui_.append_line(P_DEBUG, "loaded completions from " + path);
         return ok;
     };
     std::string exe = agent::exe_path();
-    for (const auto& c : agent::data_file_candidates(
-             "completions.json", exe.empty() ? nullptr : exe.c_str()))
-        if (try_load(c)) break;
+    for (const auto& c :
+         agent::data_file_candidates("completions.json", exe.empty() ? nullptr : exe.c_str()))
+        if (try_load(c))
+            break;
     for (const auto& p : tui_.plugins_.plugins())
         if (p.state == agent::PluginState::Enabled)
             tui_.settings_.merge_completions_json(p.manifest.completion);
@@ -56,9 +59,12 @@ void SlashDispatcher::refresh_completions() {
     refresh_policy_feed();
     refresh_job_feed();
     refresh_provider_feed();
-    if (tui_.feed_manager_) tui_.feed_manager_->refresh_plugin_feed();
+    if (tui_.feed_manager_)
+        tui_.feed_manager_->refresh_plugin_feed();
 }
 
-void SlashDispatcher::request_quit() { tui_.quit_ = true; }
+void SlashDispatcher::request_quit() {
+    tui_.quit_ = true;
+}
 
 } // namespace tui

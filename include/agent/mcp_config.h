@@ -15,18 +15,18 @@ namespace agent {
 
 // One declared MCP server (from a config file or /mcp add).
 struct McpServerConfig {
-    std::string name;          // kebab-case; the namespacing root
-    std::string type;          // "stdio" | "http"
-    std::string command;       // stdio: executable (no shell)
-    std::vector<std::string> args;  // stdio: space-separated in the file
-    std::string cwd;           // stdio: empty = workspace root
-    std::string url;           // http
-    std::string auth_token;    // http: static bearer token (never logged)
+    std::string name;              // kebab-case; the namespacing root
+    std::string type;              // "stdio" | "http"
+    std::string command;           // stdio: executable (no shell)
+    std::vector<std::string> args; // stdio: space-separated in the file
+    std::string cwd;               // stdio: empty = workspace root
+    std::string url;               // http
+    std::string auth_token;        // http: static bearer token (never logged)
     bool enabled = true;
     bool auto_connect = false;
     bool trusted = false;
     int timeout_s = 60;
-    std::string error;         // validation error ("" when valid)
+    std::string error; // validation error ("" when valid)
 };
 
 // Load all server configs: global (~/.config/amber/mcp/) first, then project

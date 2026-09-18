@@ -32,8 +32,7 @@ public:
     // within the root. On success `resolved` is the absolute normalized path
     // and the function returns true. On violation it returns false and fills
     // `error` with a message suitable for returning to the model.
-    static bool confine(const std::string& path, std::string& resolved,
-                        std::string& error);
+    static bool confine(const std::string& path, std::string& resolved, std::string& error);
 
     // Strip the workspace root prefix from `path`, returning a relative path.
     // If `path` is not under the root, returns it unchanged.
@@ -42,7 +41,6 @@ public:
     // Clear the cached root so the next call to root() re-initializes from
     // the environment or cwd. Used by tests to avoid interference across
     // test cases. Not thread-safe — call only between tests, not concurrently.
-
 };
 
 } // namespace agent

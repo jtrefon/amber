@@ -29,7 +29,7 @@ struct AuditFinding {
     };
 
     Kind kind = Kind::Deficiency;
-    std::string message;   // one line, naming the tools involved
+    std::string message; // one line, naming the tools involved
 };
 
 std::string to_string(AuditFinding::Kind kind);

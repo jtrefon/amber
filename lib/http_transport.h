@@ -26,38 +26,33 @@ struct HeaderList {
     HeaderList() = default;
     HeaderList(const HeaderList&) = delete;
     HeaderList& operator=(const HeaderList&) = delete;
-    HeaderList(HeaderList&& other) noexcept : list(other.list) {
-        other.list = nullptr;
-    }
+    HeaderList(HeaderList&& other) noexcept : list(other.list) { other.list = nullptr; }
     HeaderList& operator=(HeaderList&& other) noexcept {
         if (this != &other) {
-            if (list) curl_slist_free_all(list);
+            if (list)
+                curl_slist_free_all(list);
             list = other.list;
             other.list = nullptr;
         }
         return *this;
     }
-    void add(const std::string& h) {
-        list = curl_slist_append(list, h.c_str());
-    }
+    void add(const std::string& h) { list = curl_slist_append(list, h.c_str()); }
 };
 
 // POST `payload` to the dialect's chat endpoint; return the raw response body
 // (or throw on transport error). `accept_sse` adds the text/event-stream
 // Accept header. `ttfb`/`total` receive transfer timings in seconds when
 // non-null.
-std::string post_completion(Config& cfg, const Dialect& dialect,
-                            const std::string& payload, bool accept_sse,
-                            double* ttfb, double* total);
+std::string post_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
+                            bool accept_sse, double* ttfb, double* total);
 
 // Run a streaming completion: POST `payload`, feed response bytes to
 // `decoder`, and finalize. Fills `stats` (timings + token counts). Throws on
 // transport error. `cfg` is non-const so a 400 overflow rejection can teach
 // the runtime context window (the host pulls it via
 // LLMClient::learned_context_size()).
-void stream_completion(Config& cfg, const Dialect& dialect,
-                       const std::string& payload, StreamDecoder& decoder,
-                       Stats* stats, long& status_out);
+void stream_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
+                       StreamDecoder& decoder, Stats* stats, long& status_out);
 
 // Build the human-readable HTTP error message. When the body carries a known
 // server-side failure mode, an actionable hint is appended (e.g. llama.cpp
@@ -68,9 +63,8 @@ std::string describe_http_error(long http_code, const std::string& body);
 // Fill `stats` from a buffered response body and its transfer timings
 // (seconds), mapping the dialect's token usage. Mirrors the telemetry that
 // stream_completion() produces for the streamed path.
-void fill_buffered_stats(Stats& stats, const Dialect& dialect,
-                         const std::string& response, double ttfb,
-                         double total);
+void fill_buffered_stats(Stats& stats, const Dialect& dialect, const std::string& response,
+                         double ttfb, double total);
 
 } // namespace agent
 

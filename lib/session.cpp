@@ -15,8 +15,7 @@ namespace {
 
 long long now_ms() {
     using namespace std::chrono;
-    return duration_cast<milliseconds>(system_clock::now().time_since_epoch())
-        .count();
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
 // Serialize a single conversation Message to JSON (round-trips all fields the
@@ -25,10 +24,14 @@ json msg_to_json(const Message& m) {
     json j;
     j["role"] = m.role;
     j["content"] = m.content;
-    if (!m.reasoning.empty()) j["reasoning"] = m.reasoning;
-    if (!m.tool_call_id.empty()) j["tool_call_id"] = m.tool_call_id;
-    if (!m.name.empty()) j["name"] = m.name;
-    if (!m.tool_calls.is_null()) j["tool_calls"] = m.tool_calls;
+    if (!m.reasoning.empty())
+        j["reasoning"] = m.reasoning;
+    if (!m.tool_call_id.empty())
+        j["tool_call_id"] = m.tool_call_id;
+    if (!m.name.empty())
+        j["name"] = m.name;
+    if (!m.tool_calls.is_null())
+        j["tool_calls"] = m.tool_calls;
     return j;
 }
 
@@ -44,7 +47,8 @@ Message msg_from_json(const json& j) {
         m.tool_call_id = j["tool_call_id"].get<std::string>();
     if (j.contains("name") && j["name"].is_string())
         m.name = j["name"].get<std::string>();
-    if (j.contains("tool_calls")) m.tool_calls = j["tool_calls"];
+    if (j.contains("tool_calls"))
+        m.tool_calls = j["tool_calls"];
     return m;
 }
 
@@ -58,7 +62,8 @@ std::string default_dir() {
 
 json Session::to_json() const {
     json arr = json::array();
-    for (const auto& m : messages) arr.push_back(msg_to_json(m));
+    for (const auto& m : messages)
+        arr.push_back(msg_to_json(m));
     json result = json::object();
     result["id"] = id;
     result["title"] = title;
@@ -74,7 +79,8 @@ json Session::to_json() const {
 
 Session Session::from_json(const json& j) {
     Session s;
-    if (j.contains("id") && j["id"].is_string()) s.id = j["id"].get<std::string>();
+    if (j.contains("id") && j["id"].is_string())
+        s.id = j["id"].get<std::string>();
     if (j.contains("title") && j["title"].is_string())
         s.title = j["title"].get<std::string>();
     if (j.contains("model") && j["model"].is_string())
@@ -84,7 +90,8 @@ Session Session::from_json(const json& j) {
     if (j.contains("updated_ms") && j["updated_ms"].is_number_integer())
         s.updated_ms = j["updated_ms"].get<long long>();
     if (j.contains("messages") && j["messages"].is_array())
-        for (const auto& m : j["messages"]) s.messages.push_back(msg_from_json(m));
+        for (const auto& m : j["messages"])
+            s.messages.push_back(msg_from_json(m));
     if (j.contains("meta") && j["meta"].is_object())
         s.meta = j["meta"];
     return s;
@@ -92,20 +99,25 @@ Session Session::from_json(const json& j) {
 
 void Session::derive_title(size_t max_len) {
     for (const auto& m : messages) {
-        if (m.role != "user" || m.content.empty()) continue;
+        if (m.role != "user" || m.content.empty())
+            continue;
         std::string t = m.content;
         // First line only, collapse whitespace edges.
         size_t nl = t.find('\n');
-        if (nl != std::string::npos) t.resize(nl);
-        if (t.size() > max_len) { t.resize(max_len - 1); t += "\u2026"; }
+        if (nl != std::string::npos)
+            t.resize(nl);
+        if (t.size() > max_len) {
+            t.resize(max_len - 1);
+            t += "\u2026";
+        }
         title = t;
         return;
     }
-    if (title.empty()) title = "(empty)";
+    if (title.empty())
+        title = "(empty)";
 }
 
-SessionStore::SessionStore(const std::string& dir)
-    : dir_(dir.empty() ? default_dir() : dir) {}
+SessionStore::SessionStore(const std::string& dir) : dir_(dir.empty() ? default_dir() : dir) {}
 
 bool SessionStore::ensure_dir() const {
     std::error_code ec;
@@ -128,9 +140,12 @@ std::string SessionStore::workspace_path() const {
 }
 
 bool SessionStore::save(Session& s) const {
-    if (!ensure_dir()) return false;
-    if (s.id.empty()) s.id = new_id();
-    if (s.created_ms == 0) s.created_ms = now_ms();
+    if (!ensure_dir())
+        return false;
+    if (s.id.empty())
+        s.id = new_id();
+    if (s.created_ms == 0)
+        s.created_ms = now_ms();
     s.updated_ms = now_ms();
     // Atomic write (tmp + rename): a crash mid-save must never corrupt or
     // lose the session file.
@@ -138,10 +153,12 @@ bool SessionStore::save(Session& s) const {
     const std::string tmp = target + ".tmp";
     {
         std::ofstream f(tmp, std::ios::trunc);
-        if (!f) return false;
+        if (!f)
+            return false;
         // Replace invalid UTF-8 rather than throw (model output can be dirty).
         f << s.to_json().dump(2, ' ', false, json::error_handler_t::replace);
-        if (!f) return false;
+        if (!f)
+            return false;
     }
     if (std::rename(tmp.c_str(), target.c_str()) != 0) {
         ::remove(tmp.c_str());
@@ -153,13 +170,15 @@ bool SessionStore::save(Session& s) const {
 
 bool SessionStore::load(const std::string& id, Session& out) const {
     std::ifstream f(path_for(id));
-    if (!f) return false;
-    std::string body((std::istreambuf_iterator<char>(f)),
-                     std::istreambuf_iterator<char>());
+    if (!f)
+        return false;
+    std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     json j = json::parse(body, nullptr, false);
-    if (j.is_discarded()) return false;
+    if (j.is_discarded())
+        return false;
     out = Session::from_json(j);
-    if (out.id.empty()) out.id = id;
+    if (out.id.empty())
+        out.id = id;
     return true;
 }
 
@@ -173,12 +192,14 @@ std::vector<SessionMeta> SessionStore::scan_directory() const {
     std::error_code ec;
     for (const auto& entry : std::filesystem::directory_iterator(dir_, ec)) {
         std::string name = entry.path().filename().string();
-        if (name == "index.json" || name == "workspace.json") continue;
+        if (name == "index.json" || name == "workspace.json")
+            continue;
         if (name.size() < 6 || name.substr(name.size() - 5) != ".json")
             continue;
         std::string id = name.substr(0, name.size() - 5);
         Session s;
-        if (!load(id, s)) continue;
+        if (!load(id, s))
+            continue;
         SessionMeta m;
         m.id = s.id;
         m.title = s.title;
@@ -188,18 +209,19 @@ std::vector<SessionMeta> SessionStore::scan_directory() const {
         m.file_size = static_cast<size_t>(entry.file_size());
         out.push_back(m);
     }
-    std::sort(out.begin(), out.end(),
-              [](const SessionMeta& a, const SessionMeta& b) {
-                  return a.updated_ms > b.updated_ms;
-              });
+    std::sort(out.begin(), out.end(), [](const SessionMeta& a, const SessionMeta& b) {
+        return a.updated_ms > b.updated_ms;
+    });
     return out;
 }
 
 std::vector<SessionMeta> SessionStore::list() const {
-    if (cache_valid_) return list_cache_;
+    if (cache_valid_)
+        return list_cache_;
     list_cache_ = scan_directory();
     cache_valid_ = true;
-    if (!list_cache_.empty()) rebuild_index();
+    if (!list_cache_.empty())
+        rebuild_index();
     return list_cache_;
 }
 
@@ -209,29 +231,31 @@ void SessionStore::rebuild_index() const {
     j["version"] = 1;
     json arr = json::array();
     for (const auto& e : entries) {
-        arr.push_back({
-            {"id", e.id},
-            {"title", e.title},
-            {"model", e.model},
-            {"updated_ms", e.updated_ms},
-            {"message_count", e.message_count},
-            {"file_size", e.file_size}
-        });
+        arr.push_back({{"id", e.id},
+                       {"title", e.title},
+                       {"model", e.model},
+                       {"updated_ms", e.updated_ms},
+                       {"message_count", e.message_count},
+                       {"file_size", e.file_size}});
     }
     j["sessions"] = arr;
     std::ofstream f(index_path(), std::ios::trunc);
-    if (f) f << j.dump(2);
+    if (f)
+        f << j.dump(2);
 }
 
 bool SessionStore::save_workspace(const WorkspaceState& ws) const {
-    if (!ensure_dir()) return false;
+    if (!ensure_dir())
+        return false;
     const std::string target = workspace_path();
     const std::string tmp = target + ".tmp";
     {
         std::ofstream f(tmp, std::ios::trunc);
-        if (!f) return false;
+        if (!f)
+            return false;
         f << ws.to_json().dump(2);
-        if (!f) return false;
+        if (!f)
+            return false;
     }
     if (std::rename(tmp.c_str(), target.c_str()) != 0) {
         ::remove(tmp.c_str());
@@ -242,7 +266,8 @@ bool SessionStore::save_workspace(const WorkspaceState& ws) const {
 
 WorkspaceState SessionStore::load_workspace() const {
     std::ifstream f(workspace_path());
-    if (!f) return {};
+    if (!f)
+        return {};
     try {
         json j;
         f >> j;
@@ -260,12 +285,9 @@ json WorkspaceState::to_json() const {
     json arr = json::array();
     for (const auto& w : windows) {
         json ph = json::array();
-        for (const auto& h : w.prompt_history) ph.push_back(h);
-        arr.push_back({
-            {"session_id", w.session_id},
-            {"title", w.title},
-            {"prompt_history", ph}
-        });
+        for (const auto& h : w.prompt_history)
+            ph.push_back(h);
+        arr.push_back({{"session_id", w.session_id}, {"title", w.title}, {"prompt_history", ph}});
     }
     return {{"version", 1}, {"windows", arr}, {"active", active}};
 }
