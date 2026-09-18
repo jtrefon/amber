@@ -23,7 +23,8 @@ public:
         cfg.api_key = p.api_key;
         cfg.flavor = p.flavor;
         std::vector<std::string> ids;
-        for (const auto& m : list_model_info(cfg)) ids.push_back(m.id);
+        for (const auto& m : list_model_info(cfg))
+            ids.push_back(m.id);
         return ids;
     }
 };

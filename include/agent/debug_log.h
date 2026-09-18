@@ -10,8 +10,7 @@ namespace agent {
 // path is empty. Binary-safe: writes raw bytes verbatim (useful for raw SSE
 // dumps). The "{ts}" placeholder in the path is resolved to a process-start
 // stamp so concurrent streams land in distinct files.
-void debug_log(const std::string& path, const std::string& tag,
-               const std::string& payload);
+void debug_log(const std::string& path, const std::string& tag, const std::string& payload);
 
 } // namespace agent
 

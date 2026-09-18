@@ -23,31 +23,31 @@ namespace tui {
 
 // Color pair for panel elements
 enum PanelPair {
-    PP_BORDER = P_DIALOG,      // dialog body background
-    PP_TITLE = P_BANNER,       // title text in border
-    PP_FOOTER = P_STATUS,      // footer shortcut text
-    PP_SHADOW = P_SHADOW,      // drop shadow
-    PP_SELECT = P_BUTTON_ACT,  // selected item
-    PP_ITEM = P_BUTTON,        // unselected item
+    PP_BORDER = P_DIALOG,     // dialog body background
+    PP_TITLE = P_BANNER,      // title text in border
+    PP_FOOTER = P_STATUS,     // footer shortcut text
+    PP_SHADOW = P_SHADOW,     // drop shadow
+    PP_SELECT = P_BUTTON_ACT, // selected item
+    PP_ITEM = P_BUTTON,       // unselected item
 };
 
 struct FooterKey {
-    std::string key;     // e.g. "Tab", "Enter", "Esc"
-    std::string action;  // e.g. "next", "select", "cancel"
+    std::string key;    // e.g. "Tab", "Enter", "Esc"
+    std::string action; // e.g. "next", "select", "cancel"
 };
 
 // Base class for all modal panels. Provides consistent framing,
 // title, footer, shadow, and centered layout.
 class Panel {
 public:
-    Panel(int h, int w, std::string title,
-          std::vector<FooterKey> footer = {});
+    Panel(int h, int w, std::string title, std::vector<FooterKey> footer = {});
     virtual ~Panel();
 
     // Set footer keys after construction (used by Dialog compatibility).
     void set_footer(std::vector<FooterKey> footer) {
         footer_ = std::move(footer);
-        if (win_) draw_frame();
+        if (win_)
+            draw_frame();
     }
 
     Panel(const Panel&) = delete;
@@ -67,7 +67,6 @@ public:
     // Top-left position (computed for centering)
     int top() const { return top_; }
 
-
     // Draw the border, title, and footer
     void draw_frame();
 
@@ -82,8 +81,8 @@ public:
     virtual void show_help();
 
 protected:
-    int h_, w_;           // outer dimensions (including border)
-    int top_, left_;      // centered position
+    int h_, w_;      // outer dimensions (including border)
+    int top_, left_; // centered position
     WINDOW* win_ = nullptr;
     WINDOW* content_win_ = nullptr;
     WINDOW* shadow_win_ = nullptr;

@@ -48,25 +48,30 @@ std::string http_base() {
 std::string ws_json_get(const std::string& url) {
     cdp::WsClient tmp;
     std::string body, err;
-    if (tmp.http_get_url(url, body, err)) return body;
+    if (tmp.http_get_url(url, body, err))
+        return body;
     return "";
 }
 
 json cdp_command(const std::string& method, const json& params) {
     json req = {{"id", next_cdp_id++}, {"method", method}, {"params", params}};
-    if (!ws.send_text(req.dump())) return json::object();
+    if (!ws.send_text(req.dump()))
+        return json::object();
     std::string reply;
     while (ws.recv_text(reply, kCdpTimeoutMs)) {
         json r = json::parse(reply, nullptr, false);
-        if (r.is_discarded()) continue;
-        if (r.contains("id") && r["id"] == req["id"]) return r;
+        if (r.is_discarded())
+            continue;
+        if (r.contains("id") && r["id"] == req["id"])
+            return r;
     }
     return json::object();
 }
 
 // Lazily attach to the first page target.
 bool ensure_target(std::string& err) {
-    if (ws.connected()) return true;
+    if (ws.connected())
+        return true;
     std::string body = ws_json_get(http_base() + "/json");
     json targets = json::parse(body, nullptr, false);
     if (targets.is_discarded() || !targets.is_array()) {
@@ -76,16 +81,17 @@ bool ensure_target(std::string& err) {
     }
     std::string ws_url;
     for (const auto& t : targets) {
-        if (t.value("type", std::string()) == "page" &&
-            t.contains("webSocketDebuggerUrl"))
+        if (t.value("type", std::string()) == "page" && t.contains("webSocketDebuggerUrl"))
             ws_url = t["webSocketDebuggerUrl"].get<std::string>();
-        if (!ws_url.empty()) break;
+        if (!ws_url.empty())
+            break;
     }
     if (ws_url.empty()) {
         err = "no page target found (open a tab in Chrome first)";
         return false;
     }
-    if (!ws.connect(ws_url, err)) return false;
+    if (!ws.connect(ws_url, err))
+        return false;
     return true;
 }
 
@@ -96,40 +102,43 @@ std::string tool_list_targets() {
         return "ERROR: cannot reach CDP endpoint at " + endpoint;
     std::string out;
     for (const auto& t : targets)
-        out += t.value("type", "?") + " | " + t.value("title", "") + " | " +
-               t.value("url", "") + "\n";
+        out +=
+            t.value("type", "?") + " | " + t.value("title", "") + " | " + t.value("url", "") + "\n";
     return trim(out);
 }
 
 std::string tool_navigate(const json& args) {
     std::string err;
-    if (!ensure_target(err)) return "ERROR: " + err;
+    if (!ensure_target(err))
+        return "ERROR: " + err;
     json r = cdp_command("Page.navigate", {{"url", args.value("url", std::string())}});
-    if (r.empty()) return "ERROR: no response from browser";
+    if (r.empty())
+        return "ERROR: no response from browser";
     if (r.contains("error"))
         return "ERROR: " + r["error"].value("message", std::string());
     std::string id = r.value("result", json()).value("frameId", std::string());
-    return "navigating to " + args.value("url", std::string()) + (id.empty() ? "" : " (frame " + id + ")");
+    return "navigating to " + args.value("url", std::string()) +
+           (id.empty() ? "" : " (frame " + id + ")");
 }
 
 std::string tool_eval(const json& args) {
     std::string err;
-    if (!ensure_target(err)) return "ERROR: " + err;
-    json r = cdp_command("Runtime.evaluate",
-                         {{"expression", args.value("expression", std::string())},
-                          {"returnByValue", true}});
-    if (r.empty()) return "ERROR: no response from browser";
+    if (!ensure_target(err))
+        return "ERROR: " + err;
+    json r =
+        cdp_command("Runtime.evaluate", {{"expression", args.value("expression", std::string())},
+                                         {"returnByValue", true}});
+    if (r.empty())
+        return "ERROR: no response from browser";
     if (r.contains("error"))
         return "ERROR: " + r["error"].value("message", std::string());
     const json& res = r["result"];
     if (res.contains("exceptionDetails"))
-        return "ERROR: " + res["exceptionDetails"]
-                              .value("text", std::string());
+        return "ERROR: " + res["exceptionDetails"].value("text", std::string());
     if (res.contains("result")) {
         const json& v = res["result"];
         if (v.contains("value"))
-            return v["value"].is_string() ? v["value"].get<std::string>()
-                                          : v["value"].dump();
+            return v["value"].is_string() ? v["value"].get<std::string>() : v["value"].dump();
         return "undefined";
     }
     return "";
@@ -137,30 +146,34 @@ std::string tool_eval(const json& args) {
 
 std::string tool_url() {
     std::string err;
-    if (!ensure_target(err)) return "ERROR: " + err;
-    json r = cdp_command("Runtime.evaluate",
-                         {{"expression", "location.href"}, {"returnByValue", true}});
-    if (r.empty() || !r.contains("result")) return "ERROR: no response";
+    if (!ensure_target(err))
+        return "ERROR: " + err;
+    json r =
+        cdp_command("Runtime.evaluate", {{"expression", "location.href"}, {"returnByValue", true}});
+    if (r.empty() || !r.contains("result"))
+        return "ERROR: no response";
     return r["result"].value("result", json()).value("value", "unknown");
 }
 
 std::string tool_click(const json& args) {
     std::string err;
-    if (!ensure_target(err)) return "ERROR: " + err;
+    if (!ensure_target(err))
+        return "ERROR: " + err;
     int x = args.value("x", 0);
     int y = args.value("y", 0);
-    cdp_command("Input.dispatchMouseEvent",
-                {{"type", "mousePressed"}, {"x", x}, {"y", y}, {"button", "left"},
-                 {"clickCount", 1}});
-    cdp_command("Input.dispatchMouseEvent",
-                {{"type", "mouseReleased"}, {"x", x}, {"y", y}, {"button", "left"},
-                 {"clickCount", 1}});
+    cdp_command(
+        "Input.dispatchMouseEvent",
+        {{"type", "mousePressed"}, {"x", x}, {"y", y}, {"button", "left"}, {"clickCount", 1}});
+    cdp_command(
+        "Input.dispatchMouseEvent",
+        {{"type", "mouseReleased"}, {"x", x}, {"y", y}, {"button", "left"}, {"clickCount", 1}});
     return "clicked at (" + std::to_string(x) + ", " + std::to_string(y) + ")";
 }
 
 std::string tool_type(const json& args) {
     std::string err;
-    if (!ensure_target(err)) return "ERROR: " + err;
+    if (!ensure_target(err))
+        return "ERROR: " + err;
     cdp_command("Input.insertText", {{"text", args.value("text", std::string())}});
     return "typed " + std::to_string(args.value("text", std::string()).size()) + " chars";
 }
@@ -170,13 +183,15 @@ std::string base64_decode(const std::string& in) {
         std::array<int, 256> t{};
         t.fill(-1);
         const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        for (int i = 0; chars[i]; ++i) t[(unsigned char)chars[i]] = i;
+        for (int i = 0; chars[i]; ++i)
+            t[(unsigned char)chars[i]] = i;
         return t;
     }();
     std::string out;
     int val = 0, bits = 0;
     for (unsigned char c : in) {
-        if (tbl[c] < 0) continue;
+        if (tbl[c] < 0)
+            continue;
         val = (val << 6) | tbl[c];
         bits += 6;
         if (bits >= 8) {
@@ -189,22 +204,27 @@ std::string base64_decode(const std::string& in) {
 
 std::string tool_screenshot(const json& args) {
     std::string err;
-    if (!ensure_target(err)) return "ERROR: " + err;
+    if (!ensure_target(err))
+        return "ERROR: " + err;
     json p = {{"format", "png"}, {"fromSurface", true}};
-    if (args.contains("width")) p["width"] = args["width"];
-    if (args.contains("height")) p["height"] = args["height"];
+    if (args.contains("width"))
+        p["width"] = args["width"];
+    if (args.contains("height"))
+        p["height"] = args["height"];
     json r = cdp_command("Page.captureScreenshot", p);
-    if (r.empty()) return "ERROR: no response from browser";
+    if (r.empty())
+        return "ERROR: no response from browser";
     if (!r.contains("result"))
         return "ERROR: " + r.value("error", json()).value("message", std::string());
     std::string b64 = r["result"].value("data", std::string());
     std::string png = base64_decode(b64);
-    if (png.empty()) return "ERROR: screenshot returned no data";
+    if (png.empty())
+        return "ERROR: screenshot returned no data";
     std::string dir = workspace.empty() ? "." : workspace + "/.amber";
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
-    long ts = static_cast<long>(std::chrono::system_clock::now()
-                                   .time_since_epoch().count() / 1000000000LL);
+    long ts = static_cast<long>(std::chrono::system_clock::now().time_since_epoch().count() /
+                                1000000000LL);
     std::string path = dir + "/cdp_" + std::to_string(ts) + ".png";
     std::ofstream f(path, std::ios::binary);
     f << png;
@@ -213,26 +233,36 @@ std::string tool_screenshot(const json& args) {
 
 std::string tool_snapshot() {
     std::string err;
-    if (!ensure_target(err)) return "ERROR: " + err;
-    json r = cdp_command("Runtime.evaluate",
-                         {{"expression", "document.documentElement.outerHTML"},
-                          {"returnByValue", true}});
-    if (r.empty()) return "ERROR: no response from browser";
-    std::string html = r.value("result", json()).value("result", json())
-                           .value("value", std::string());
-    if (html.empty()) return "ERROR: empty page snapshot";
+    if (!ensure_target(err))
+        return "ERROR: " + err;
+    json r = cdp_command("Runtime.evaluate", {{"expression", "document.documentElement.outerHTML"},
+                                              {"returnByValue", true}});
+    if (r.empty())
+        return "ERROR: no response from browser";
+    std::string html =
+        r.value("result", json()).value("result", json()).value("value", std::string());
+    if (html.empty())
+        return "ERROR: empty page snapshot";
     return html.substr(0, 12000) + (html.size() > 12000 ? "\n...[truncated]" : "");
 }
 
 json dispatch(const std::string& name, const json& args) {
-    if (name == "list_targets") return result(true, tool_list_targets());
-    if (name == "navigate") return result(true, tool_navigate(args));
-    if (name == "eval") return result(true, tool_eval(args));
-    if (name == "url") return result(true, tool_url());
-    if (name == "click") return result(true, tool_click(args));
-    if (name == "type") return result(true, tool_type(args));
-    if (name == "screenshot") return result(true, tool_screenshot(args));
-    if (name == "snapshot") return result(true, tool_snapshot());
+    if (name == "list_targets")
+        return result(true, tool_list_targets());
+    if (name == "navigate")
+        return result(true, tool_navigate(args));
+    if (name == "eval")
+        return result(true, tool_eval(args));
+    if (name == "url")
+        return result(true, tool_url());
+    if (name == "click")
+        return result(true, tool_click(args));
+    if (name == "type")
+        return result(true, tool_type(args));
+    if (name == "screenshot")
+        return result(true, tool_screenshot(args));
+    if (name == "snapshot")
+        return result(true, tool_snapshot());
     return result(false, "ERROR: unknown tool " + name);
 }
 
@@ -243,7 +273,8 @@ int main() {
     while (std::getline(std::cin, line)) {
         try {
             json msg = json::parse(line, nullptr, false);
-            if (msg.is_discarded()) continue;
+            if (msg.is_discarded())
+                continue;
             json resp = json::object();
             std::string method = msg.value("method", std::string());
             resp["id"] = msg.value("id", json());
@@ -257,9 +288,9 @@ int main() {
                 workspace = msg["params"].value("workspace", std::string());
                 resp["result"] = {{"protocol_version", 1}, {"ok", true}};
             } else if (method == "tool.call") {
-                resp["result"] = dispatch(
-                    msg["params"].value("name", std::string()),
-                    msg["params"].contains("args") ? msg["params"]["args"] : json::object());
+                resp["result"] = dispatch(msg["params"].value("name", std::string()),
+                                          msg["params"].contains("args") ? msg["params"]["args"]
+                                                                         : json::object());
             } else if (method == "shutdown") {
                 ws.close();
                 break;
@@ -273,8 +304,7 @@ int main() {
         } catch (const std::exception& e) {
             std::string err = "ERROR: ";
             err += e.what();
-            std::cout << json{{"id", json()}, {"result", result(false, err)}}.dump()
-                      << "\n";
+            std::cout << json{{"id", json()}, {"result", result(false, err)}}.dump() << "\n";
             std::cout.flush();
         }
     }

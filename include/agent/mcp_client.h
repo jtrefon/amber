@@ -71,8 +71,7 @@ public:
     // (optional, shared) aborts in-flight calls with a Cancelled result and
     // sends notifications/cancelled to the server.
     MCPClient(std::string server_name, std::unique_ptr<McpTransport> transport,
-              std::string transport_error = "",
-              const CancellationToken* cancel_token = nullptr);
+              std::string transport_error = "", const CancellationToken* cancel_token = nullptr);
 
     // initialize + version negotiation + discovery. Returns "" on success or
     // a human-readable error.
@@ -105,8 +104,7 @@ public:
 
 private:
     std::string do_connect();
-    McpTransportResult request_with_retry(int id, const std::string& method,
-                                          const json& params);
+    McpTransportResult request_with_retry(int id, const std::string& method, const json& params);
     std::string discover_tools();
     std::string discover_resources();
     std::string discover_prompts();

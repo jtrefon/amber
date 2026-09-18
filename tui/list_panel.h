@@ -17,7 +17,7 @@ public:
     ListPanel(const std::string& title, const std::vector<std::string>& items,
               std::vector<FooterKey> footer);
 
-    int run();  // Returns selected index, or -1 on cancel
+    int run(); // Returns selected index, or -1 on cancel
 
 private:
     bool handle_key(int ch) override;

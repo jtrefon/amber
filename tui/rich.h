@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "widgets.h"   // color pair ids
+#include "widgets.h" // color pair ids
 
 namespace tui {
 namespace rich {
@@ -26,10 +26,10 @@ struct Run {
 // one or more physical rows, each inheriting the runs' styles.
 struct Line {
     std::vector<Run> runs;
-    bool is_code = false;     // rendered in a fenced block (own background)
-    bool is_hr = false;       // horizontal rule
-    bool is_table = false;    // pre-formatted table row (never word-wrap)
-    int heading = 0;          // 1..6 for heading lines (extra bold/space)
+    bool is_code = false;  // rendered in a fenced block (own background)
+    bool is_hr = false;    // horizontal rule
+    bool is_table = false; // pre-formatted table row (never word-wrap)
+    int heading = 0;       // 1..6 for heading lines (extra bold/space)
 };
 
 // Number of display columns occupied by a UTF-8 string (whole glyphs count

@@ -16,15 +16,16 @@
 namespace bench {
 
 struct Kpi {
-    bool success = false;    double bullseye = 0.0;
+    bool success = false;
+    double bullseye = 0.0;
     double tool_call_accuracy = 0.0;
     double arg_precision = 0.0;
     int steps = 0;
-    int compressions = 0;     // context compactions that ran
-    int bash_cd_prefix = 0;   // bash calls prefixed with `cd <workspace> &&` (redundant)
-    int tool_calls = 0;       // executed tool calls (all statuses)
-    int tool_failures = 0;    // calls that returned an error
-    int tool_denied = 0;      // calls denied by the approval gate
+    int compressions = 0;   // context compactions that ran
+    int bash_cd_prefix = 0; // bash calls prefixed with `cd <workspace> &&` (redundant)
+    int tool_calls = 0;     // executed tool calls (all statuses)
+    int tool_failures = 0;  // calls that returned an error
+    int tool_denied = 0;    // calls denied by the approval gate
     // Failure taxonomy (BENCH-11): tool_failures split by reason.
     std::map<std::string, int> failure_taxonomy;
     int wasted = 0;
@@ -52,10 +53,9 @@ struct Kpi {
 
 // Compute the KPI record. `final_text` is the run's final assistant reply.
 // `bullseye_at_ms` is the wall time until the oracle was fully matched.
-Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle,
-                const ResourceMeter& meter, const TemplateResult& tmpl,
-                const Checks& prompt_checks, const std::string& final_text,
-                long wall_ms, long bullseye_at_ms);
+Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle, const ResourceMeter& meter,
+                const TemplateResult& tmpl, const Checks& prompt_checks,
+                const std::string& final_text, long wall_ms, long bullseye_at_ms);
 
 // Compose the success flag from the KPI record + budget enforcement.
 bool kpi_success(const Kpi& k, const Scenario& s) noexcept;
@@ -89,8 +89,7 @@ struct Score {
 // 0.40*c + 0.25*e + 0.20*agentic + 0.10*r + 0.05*a. A failed scenario keeps
 // its partial credit capped at 60. agentic_score is the tool-economy score
 // (compute_agentic); callers pass 100.0 when the scenario has no plan.
-Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
-                    int forbidden_calls,
+Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio, int forbidden_calls,
                     double agentic_score = 100.0) noexcept;
 
 // Agentic performance: distance from the scenario's optimal tool plan.
@@ -107,17 +106,16 @@ Score compute_score(const Kpi& k, const Scenario& s, double checks_ratio,
 // has_plan=false and are excluded from agentic aggregation.
 struct Agentic {
     bool has_plan = false;
-    int plan_tools = 0;         // optimal tool calls
-    int plan_deviation = 0;     // actual - plan (extra calls, signed)
-    double plan_ratio = 0.0;    // plan / actual
-    double efficiency_pct = 0.0;  // plan/actual * 100, capped at 100 (0-100 axis)
-    double score = 0.0;         // 0..100 plan-adherence
+    int plan_tools = 0;          // optimal tool calls
+    int plan_deviation = 0;      // actual - plan (extra calls, signed)
+    double plan_ratio = 0.0;     // plan / actual
+    double efficiency_pct = 0.0; // plan/actual * 100, capped at 100 (0-100 axis)
+    double score = 0.0;          // 0..100 plan-adherence
     std::map<std::string, int> plan_by_tool;
     std::map<std::string, int> actual_by_tool;
 };
 
-Agentic compute_agentic(const EventStream& stream, const Kpi& k,
-                        const Scenario& s);
+Agentic compute_agentic(const EventStream& stream, const Kpi& k, const Scenario& s);
 
 } // namespace bench
 

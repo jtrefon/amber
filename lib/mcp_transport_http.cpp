@@ -15,13 +15,13 @@ constexpr const char* kProtocolVersion = "2025-06-18";
 size_t write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* body = static_cast<std::string*>(userdata);
     size_t n = size * nmemb;
-    if (body->size() + n > kBodyCap) return 0;
+    if (body->size() + n > kBodyCap)
+        return 0;
     body->append(ptr, n);
     return n;
 }
 
-int progress_cb(void* userdata, curl_off_t, curl_off_t, curl_off_t,
-                 curl_off_t) {
+int progress_cb(void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     auto* token = static_cast<const CancellationToken*>(userdata);
     return token->is_requested() ? 1 : 0;
 }
@@ -34,13 +34,11 @@ size_t header_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     if (colon != std::string::npos) {
         std::string name = line.substr(0, colon);
         std::string value = line.substr(colon + 1);
-        while (!value.empty() &&
-               (value.front() == ' ' || value.front() == '\t' ||
-                value.front() == '\r' || value.front() == '\n'))
+        while (!value.empty() && (value.front() == ' ' || value.front() == '\t' ||
+                                  value.front() == '\r' || value.front() == '\n'))
             value.erase(value.begin());
-        while (!value.empty() &&
-               (value.back() == ' ' || value.back() == '\t' ||
-                value.back() == '\r' || value.back() == '\n'))
+        while (!value.empty() && (value.back() == ' ' || value.back() == '\t' ||
+                                  value.back() == '\r' || value.back() == '\n'))
             value.pop_back();
         if (name == "content-type" || name == "Content-Type") {
             reply->content_type = value;
@@ -54,20 +52,15 @@ size_t header_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
 
 } // namespace
 
-HttpTransport::HttpTransport(std::string url, std::string auth_token,
-                             int request_timeout_ms,
-                             std::function<void(const McpMessage&)>
-                                 on_server_message,
+HttpTransport::HttpTransport(std::string url, std::string auth_token, int request_timeout_ms,
+                             std::function<void(const McpMessage&)> on_server_message,
                              const CancellationToken* cancel_token)
-    : McpTransport(std::move(on_server_message)),
-      url_(std::move(url)),
+    : McpTransport(std::move(on_server_message)), url_(std::move(url)),
       auth_token_(std::move(auth_token)),
-      request_timeout_ms_(request_timeout_ms > 0 ? request_timeout_ms
-                                                 : 60000),
+      request_timeout_ms_(request_timeout_ms > 0 ? request_timeout_ms : 60000),
       cancel_token_(cancel_token) {}
 
-McpTransportResult HttpTransport::request(int id, const std::string& method,
-                                          const json& params) {
+McpTransportResult HttpTransport::request(int id, const std::string& method, const json& params) {
     McpRequest req;
     req.id = id;
     req.method = method;
@@ -76,8 +69,8 @@ McpTransportResult HttpTransport::request(int id, const std::string& method,
     if (!post(mcp_encode_request(req), reply)) {
         McpTransportResult r;
         r.status = (cancel_token_ && cancel_token_->is_requested())
-            ? McpTransportStatus::Cancelled
-            : McpTransportStatus::TransportError;
+                       ? McpTransportStatus::Cancelled
+                       : McpTransportStatus::TransportError;
         return r;
     }
     McpTransportResult r;
@@ -88,8 +81,7 @@ McpTransportResult HttpTransport::request(int id, const std::string& method,
         return r;
     }
     if (reply.status < 200 || reply.status >= 300) {
-        failure_ = "mcp http " + std::to_string(reply.status) + ": " +
-                   reply.body.substr(0, 512);
+        failure_ = "mcp http " + std::to_string(reply.status) + ": " + reply.body.substr(0, 512);
         r.status = McpTransportStatus::TransportError;
         return r;
     }
@@ -102,8 +94,7 @@ McpTransportResult HttpTransport::request(int id, const std::string& method,
         while (pos < buf.size()) {
             size_t nl = buf.find('\n', pos);
             std::string line =
-                (nl == std::string::npos) ? buf.substr(pos)
-                                          : buf.substr(pos, nl - pos);
+                (nl == std::string::npos) ? buf.substr(pos) : buf.substr(pos, nl - pos);
             pos = (nl == std::string::npos) ? buf.size() : nl + 1;
             if (line.empty()) {
                 if (!event_data.empty()) {
@@ -114,31 +105,34 @@ McpTransportResult HttpTransport::request(int id, const std::string& method,
                         r.status = McpTransportStatus::TransportError;
                         return r;
                     }
-                    if (msg->is_response() && msg->id.has_value() &&
-                        msg->id->is_number_integer() &&
+                    if (msg->is_response() && msg->id.has_value() && msg->id->is_number_integer() &&
                         msg->id->get<int>() == id) {
                         r.message = std::move(msg);
                         return r;
                     }
-                    if (on_server_message_) on_server_message_(*msg);
+                    if (on_server_message_)
+                        on_server_message_(*msg);
                 }
                 continue;
             }
             if (line.rfind("data:", 0) == 0) {
                 std::string data = line.substr(5);
-                if (!data.empty() && data.front() == ' ') data.erase(0, 1);
-                if (!event_data.empty()) event_data += "\n";
+                if (!data.empty() && data.front() == ' ')
+                    data.erase(0, 1);
+                if (!event_data.empty())
+                    event_data += "\n";
                 event_data += data;
             }
         }
         if (!event_data.empty()) {
             auto msg = mcp_decode_line(event_data);
-            if (msg && msg->is_response() && msg->id.has_value() &&
-                msg->id->is_number_integer() && msg->id->get<int>() == id) {
+            if (msg && msg->is_response() && msg->id.has_value() && msg->id->is_number_integer() &&
+                msg->id->get<int>() == id) {
                 r.message = std::move(msg);
                 return r;
             }
-            if (msg && on_server_message_) on_server_message_(*msg);
+            if (msg && on_server_message_)
+                on_server_message_(*msg);
         }
         failure_ = "mcp server did not answer on the SSE stream";
         r.status = McpTransportStatus::TransportError;
@@ -156,31 +150,36 @@ McpTransportResult HttpTransport::request(int id, const std::string& method,
 
 bool HttpTransport::notify(const std::string& method, const json& params) {
     HttpReply reply;
-    if (!post(mcp_encode_notification(method, params), reply)) return false;
+    if (!post(mcp_encode_notification(method, params), reply))
+        return false;
     return reply.status >= 200 && reply.status < 300;
 }
 
 bool HttpTransport::respond(int id, const json& result) {
     HttpReply reply;
-    return post(mcp_encode_response(id, result), reply) &&
-           reply.status >= 200 && reply.status < 300;
+    return post(mcp_encode_response(id, result), reply) && reply.status >= 200 &&
+           reply.status < 300;
 }
 
 bool HttpTransport::respond_error(int id, const McpError& error) {
     HttpReply reply;
-    return post(mcp_encode_error_response(id, error), reply) &&
-           reply.status >= 200 && reply.status < 300;
+    return post(mcp_encode_error_response(id, error), reply) && reply.status >= 200 &&
+           reply.status < 300;
 }
 
 void HttpTransport::close_session() {
     HttpReply reply;
-    post("", reply);  // body unused; DELETE below
+    post("", reply); // body unused; DELETE below
     (void)reply;
 }
 
-void HttpTransport::shutdown() { closed_ = true; }
+void HttpTransport::shutdown() {
+    closed_ = true;
+}
 
-std::string HttpTransport::failure_reason() const { return failure_; }
+std::string HttpTransport::failure_reason() const {
+    return failure_;
+}
 
 bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
     if (closed_) {
@@ -203,8 +202,7 @@ bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
 
     curl_easy_setopt(curl.get(), CURLOPT_URL, url_.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.list);
-    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS,
-                     static_cast<long>(request_timeout_ms_));
+    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, static_cast<long>(request_timeout_ms_));
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &reply.body);
@@ -219,21 +217,18 @@ bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
     if (!payload.empty()) {
         curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
         curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, payload.c_str());
-        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE,
-                         static_cast<long>(payload.size()));
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
     } else {
         curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, "DELETE");
     }
 
     CURLcode rc = curl_easy_perform(curl.get());
-    if (rc == CURLE_ABORTED_BY_CALLBACK && cancel_token_ &&
-        cancel_token_->is_requested()) {
+    if (rc == CURLE_ABORTED_BY_CALLBACK && cancel_token_ && cancel_token_->is_requested()) {
         failure_ = "cancelled";
         return false;
     }
     if (rc != CURLE_OK) {
-        failure_ = "mcp http transport error: " +
-                   std::string(curl_easy_strerror(rc));
+        failure_ = "mcp http transport error: " + std::string(curl_easy_strerror(rc));
         return false;
     }
     curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &reply.status);

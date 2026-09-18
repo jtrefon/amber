@@ -11,15 +11,29 @@
 
 // Minimal test framework (mirrors tests/completions_test.cpp).
 #define TEST(name) void name()
-#define ASSERT(cond) do { \
-    if (!(cond)) { std::cerr << "FAIL: " << #cond << "\n"; failed++; } \
-} while(0)
-#define REQUIRE(cond) do { \
-    if (!(cond)) { std::cerr << "FAIL: " << #cond << "\n"; failed++; return; } \
-} while(0)
-#define ASSERT_EQ(a,b) do { \
-    if ((a) != (b)) { std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a) << " expected: " << (b) << "\n"; failed++; } \
-} while(0)
+#define ASSERT(cond)                                                                               \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "FAIL: " << #cond << "\n";                                                \
+            failed++;                                                                              \
+        }                                                                                          \
+    } while (0)
+#define REQUIRE(cond)                                                                              \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "FAIL: " << #cond << "\n";                                                \
+            failed++;                                                                              \
+            return;                                                                                \
+        }                                                                                          \
+    } while (0)
+#define ASSERT_EQ(a, b)                                                                            \
+    do {                                                                                           \
+        if ((a) != (b)) {                                                                          \
+            std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a)                        \
+                      << " expected: " << (b) << "\n";                                             \
+            failed++;                                                                              \
+        }                                                                                          \
+    } while (0)
 
 int failed = 0;
 
@@ -32,12 +46,15 @@ struct EnvGuard {
     EnvGuard(const std::string& xdg) {
         const char* old = std::getenv("XDG_CONFIG_HOME");
         was_set = old != nullptr;
-        if (old) saved_xdg = old;
+        if (old)
+            saved_xdg = old;
         setenv("XDG_CONFIG_HOME", xdg.c_str(), 1);
     }
     ~EnvGuard() {
-        if (was_set) setenv("XDG_CONFIG_HOME", saved_xdg.c_str(), 1);
-        else unsetenv("XDG_CONFIG_HOME");
+        if (was_set)
+            setenv("XDG_CONFIG_HOME", saved_xdg.c_str(), 1);
+        else
+            unsetenv("XDG_CONFIG_HOME");
     }
 };
 
@@ -400,9 +417,8 @@ int main() {
     sec05_manifest_rejects_symlink_main();
     sysinfo_plugin_reports_host_facts();
     cdp_plugin_protocol_roundtrip();
-    if (failed) std::cerr << failed << " FAILED\n";
+    if (failed)
+        std::cerr << failed << " FAILED\n";
     std::cout << (failed ? "FAILED" : "ALL PASSED") << " (" << failed << " failures)\n";
     return failed ? 1 : 0;
 }
-
-

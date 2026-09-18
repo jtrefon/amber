@@ -41,31 +41,26 @@ inline constexpr std::size_t kMaxSummaryChars = 200;
 
 // Placeholder that replaces bulky old tool outputs in Phase-0 pruning. The
 // session log retains the original content.
-inline constexpr char kToolOutputOmitted[] = "[tool output omitted \u2014 session log retains the original]";
+inline constexpr char kToolOutputOmitted[] =
+    "[tool output omitted \u2014 session log retains the original]";
 
 // Prefix of the compressed-context message produced by apply_classification;
 // enforce_headroom locates it by this prefix to append archive entries.
-inline constexpr char kCompressedContextPrefix[] =
-    "Compressed conversation context:";
+inline constexpr char kCompressedContextPrefix[] = "Compressed conversation context:";
 
 // True when a user-role message is the agent's INTERNAL confirmation probe
 // ("Are you finished? ...") injected by confirm_turn — NOT a real user prompt.
 // The compression guard counts only genuine user prompts, so these probes must
 // not inflate the protected recent tail.
 inline bool is_confirmation_probe(const Message& m) noexcept {
-    return m.role == "user" &&
-           m.content.compare(0, 17, "Are you finished?") == 0;
+    return m.role == "user" && m.content.compare(0, 17, "Are you finished?") == 0;
 }
 
 // ---------------------------------------------------------------------------
 // Value types
 // ---------------------------------------------------------------------------
 
-enum class Classification : std::uint8_t {
-    core,
-    context,
-    prune
-};
+enum class Classification : std::uint8_t { core, context, prune };
 
 struct CompressionResult {
     size_t messages_before = 0;
@@ -75,18 +70,18 @@ struct CompressionResult {
     size_t core_count = 0;
     size_t context_count = 0;
     size_t prune_count = 0;
-    std::string error;               // non-empty when compression failed
+    std::string error; // non-empty when compression failed
 };
 
 struct CompressionConfig {
-    double threshold        = kDefaultCompressionThreshold;
-    int    min_turns        = 10;
-    int    cooldown_turns   = 20;
-    int    context_size     = 0;       // filled from Config for headroom enforcement
+    double threshold = kDefaultCompressionThreshold;
+    int min_turns = 10;
+    int cooldown_turns = 20;
+    int context_size = 0; // filled from Config for headroom enforcement
     // Post-compression target (% of context window) and how many of the most
     // recent user prompts survive verbatim. Defaults match the pipeline.
-    int    target_pct           = kDefaultCompressionTargetPct;
-    int    keep_last_prompts    = kDefaultCompressionKeepLastPrompts;
+    int target_pct = kDefaultCompressionTargetPct;
+    int keep_last_prompts = kDefaultCompressionKeepLastPrompts;
 };
 
 // One classified span in the LLM response.
@@ -99,11 +94,11 @@ struct ClassifiedSegment {
 
 // One memory or skill operation from the LLM.
 struct KnowledgeOp {
-    std::string name;                // human-readable label
+    std::string name; // human-readable label
     std::string content;
     std::vector<std::string> tags;
-    std::string action;             // "upsert" or "deprecate"
-    std::string trigger_phrase;     // only for skills
+    std::string action;         // "upsert" or "deprecate"
+    std::string trigger_phrase; // only for skills
 };
 
 // Structured result of parsing the LLM compression response.
@@ -119,8 +114,8 @@ struct CompressionResponse {
     // next/avoid). Absent when the LLM did not produce one — non-fatal
     // (memories/skills still apply). See docs/plan/session-brief.md.
     std::optional<SessionBrief> brief;
-    std::string error;               // non-empty when the pipeline failed;
-                                     // callers must keep the context untouched
+    std::string error; // non-empty when the pipeline failed;
+                       // callers must keep the context untouched
 };
 
 // ---------------------------------------------------------------------------
@@ -143,18 +138,17 @@ struct CompressionObserver {
     // host can render a live (decreasing) context gauge. tokens_remaining /
     // msgs_remaining are the current working estimate, which shrinks as
     // collapse/prune/apply drop messages.
-    virtual void on_progress(size_t /*tokens_remaining*/,
-                             size_t /*msgs_remaining*/) {}
+    virtual void on_progress(size_t /*tokens_remaining*/, size_t /*msgs_remaining*/) {}
 };
 
 class CompressionGate {
 public:
     virtual ~CompressionGate() = default;
-    virtual bool should_compress(const Context& context,
-                                  const Config& agent_cfg) const = 0;
+    virtual bool should_compress(const Context& context, const Config& agent_cfg) const = 0;
     virtual void set_last_compress_turn(size_t turn) { (void)turn; }
     virtual bool is_within_cooldown(size_t current_turn) const {
-        (void)current_turn; return false;
+        (void)current_turn;
+        return false;
     }
     virtual void set_threshold(double t) { (void)t; }
     virtual void set_min_turns(int n) { (void)n; }
@@ -173,12 +167,10 @@ public:
     // construction (spec invariant 7). The caller rebuilds the context from
     // the returned message list on success.
     // Returns the compressed message list.
-    virtual std::vector<Message> compress(
-        Context& context,
-        const CompressionConfig& cfg,
-        LLMClient& client,
-        CompressionObserver* observer = nullptr,
-        CompressionResponse* response_out = nullptr) = 0;
+    virtual std::vector<Message> compress(Context& context, const CompressionConfig& cfg,
+                                          LLMClient& client,
+                                          CompressionObserver* observer = nullptr,
+                                          CompressionResponse* response_out = nullptr) = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -193,8 +185,7 @@ void collapse_loops(std::vector<Message>& history);
 // the recent tail — bulky tool output is the largest token class; the session
 // log retains the original). With cfg null only messages older than the legacy
 // two-user guard are pruned. Returns the number of messages replaced.
-std::size_t prune_tool_io(std::vector<Message>& history,
-                          const CompressionConfig* cfg = nullptr);
+std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig* cfg = nullptr);
 
 // Repair tool_call/tool_result group splits left by classification: orphaned
 // tool messages (no preceding assistant tool_calls) are removed, and
@@ -219,47 +210,38 @@ CompressionResponse parse_compression_response(const std::string& json);
 // When `cfg` is null the legacy defaults apply (protect the last two user
 // turns, no target-budget floor); the pipeline passes the real config so the
 // configurable keep-last-prompts guard and target_pct budget are honored.
-std::vector<Message> apply_classification(
-    const std::vector<Message>& history,
-    const CompressionResponse& response,
-    const CompressionConfig* cfg = nullptr);
+std::vector<Message> apply_classification(const std::vector<Message>& history,
+                                          const CompressionResponse& response,
+                                          const CompressionConfig* cfg = nullptr);
 
 // Apply memory/skill upsert/deprecate ops to a MemoryStore.
 // When `items` is non-null, it receives one ExtractionItem per op for UI
 // reporting. The store owns promotion thresholds.
-void apply_memory_ops(MemoryStore& store,
-                      const std::vector<KnowledgeOp>& ops,
-                      const std::string& store_path,
-                      std::vector<ExtractionItem>* items = nullptr);
-void apply_skill_ops(MemoryStore& store,
-                     const std::vector<KnowledgeOp>& ops,
-                     const std::string& store_path,
-                     std::vector<ExtractionItem>* items = nullptr);
+void apply_memory_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
+                      const std::string& store_path, std::vector<ExtractionItem>* items = nullptr);
+void apply_skill_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
+                     const std::string& store_path, std::vector<ExtractionItem>* items = nullptr);
 
 // Enforce that the compressed context leaves at least 25% headroom.
 // Drops oldest non-system messages, recording them as archive entries on
 // the compressed-context message. The system prompt at index 0 is never
 // modified. Returns the tightened vector (it may be shorter than input).
-std::vector<Message> enforce_headroom(std::vector<Message> compressed,
-                                       size_t context_size);
+std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size);
 
 // Enforce the post-compression target budget (context_size * target_pct / 100)
 // by archiving eligible oldest core messages into the compressed-context
 // archive until the output fits. The last `keep_last_prompts` user messages
 // and the system prompt are never archived. Returns the trimmed vector.
-std::vector<Message> enforce_target_budget(std::vector<Message> compressed,
-                                           size_t context_size,
+std::vector<Message> enforce_target_budget(std::vector<Message> compressed, size_t context_size,
                                            const CompressionConfig& cfg);
 
 // ---------------------------------------------------------------------------
 // Factory functions
 // ---------------------------------------------------------------------------
 
-std::unique_ptr<CompressionStrategy> make_compressor(
-    const CompressionConfig& cfg);
+std::unique_ptr<CompressionStrategy> make_compressor(const CompressionConfig& cfg);
 
-std::unique_ptr<CompressionGate> make_compression_gate(
-    const CompressionConfig& cfg);
+std::unique_ptr<CompressionGate> make_compression_gate(const CompressionConfig& cfg);
 
 CompressionConfig load_compression_config(const Config& cfg);
 
@@ -282,6 +264,7 @@ public:
     void on_error(const std::string& msg) override;
     void on_compress_done(const CompressionResult& final) override;
     void on_progress(size_t tokens, size_t msgs) override;
+
 private:
     const AgentHooks& hooks_;
     CompressionResult& r_;

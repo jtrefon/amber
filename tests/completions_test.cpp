@@ -5,24 +5,33 @@
 
 // Minimal test framework
 #define TEST(name) void name()
-#define ASSERT(cond) do { \
-    if (!(cond)) { std::cerr << "FAIL: " << #cond << "\n"; failed++; } \
-} while(0)
-#define ASSERT_EQ(a,b) do { \
-    if ((a) != (b)) { std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a) << " expected: " << (b) << "\n"; failed++; } \
-} while(0)
+#define ASSERT(cond)                                                                               \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "FAIL: " << #cond << "\n";                                                \
+            failed++;                                                                              \
+        }                                                                                          \
+    } while (0)
+#define ASSERT_EQ(a, b)                                                                            \
+    do {                                                                                           \
+        if ((a) != (b)) {                                                                          \
+            std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a)                        \
+                      << " expected: " << (b) << "\n";                                             \
+            failed++;                                                                              \
+        }                                                                                          \
+    } while (0)
 
 int failed = 0;
 
 // cppcheck cannot see through the ASSERT macro; a real guard keeps the
 // container-access checks provably safe.
-#define REQUIRE_NONEMPTY(v)                                                       \
-    do {                                                                          \
-        if ((v).empty()) {                                                        \
-            std::cerr << "FAIL: " #v " empty\n";                                 \
-            failed++;                                                             \
-            return;                                                               \
-        }                                                                         \
+#define REQUIRE_NONEMPTY(v)                                                                        \
+    do {                                                                                           \
+        if ((v).empty()) {                                                                         \
+            std::cerr << "FAIL: " #v " empty\n";                                                   \
+            failed++;                                                                              \
+            return;                                                                                \
+        }                                                                                          \
     } while (0)
 
 #include "tui/drawer_rows.h"
@@ -62,7 +71,8 @@ TEST(test_namespace_children) {
     REQUIRE_NONEMPTY(get_kids);
     bool found_think = false;
     for (const auto& k : get_kids)
-        if (k == "think") found_think = true;
+        if (k == "think")
+            found_think = true;
     ASSERT(found_think);
     // Full-path namespaces: the set side is queried separately from get.
     auto set_kids = reg.children_of("set.policy");
@@ -113,8 +123,10 @@ TEST(test_completions_work) {
     auto all = reg.complete("");
     bool has_get = false, has_set = false;
     for (const auto& s : all) {
-        if (s == "get") has_get = true;
-        if (s == "set") has_set = true;
+        if (s == "get")
+            has_get = true;
+        if (s == "set")
+            has_set = true;
         ASSERT(s.find('.') == std::string::npos);
     }
     ASSERT(has_get);
@@ -124,7 +136,8 @@ TEST(test_completions_work) {
     auto get_kids = reg.complete("get");
     bool has_model = false;
     for (const auto& s : get_kids)
-        if (s == "get.model") has_model = true;
+        if (s == "get.model")
+            has_model = true;
     ASSERT(has_model);
 
     // "get.detection" → the two leaf paths.
@@ -132,8 +145,10 @@ TEST(test_completions_work) {
     ASSERT_EQ(sub.size(), 2u);
     bool has_loop = false, has_dup = false;
     for (const auto& s : sub) {
-        if (s == "get.detection.loop") has_loop = true;
-        if (s == "get.detection.duplicate") has_dup = true;
+        if (s == "get.detection.loop")
+            has_loop = true;
+        if (s == "get.detection.duplicate")
+            has_dup = true;
     }
     ASSERT(has_loop);
     ASSERT(has_dup);
@@ -150,9 +165,12 @@ TEST(test_json_only_key_in_completions) {
     auto get_kids = reg.complete("get");
     bool found_provider = false, found_model = false, found_config = false;
     for (const auto& k : get_kids) {
-        if (k == "get.provider") found_provider = true;
-        if (k == "get.model") found_model = true;
-        if (k == "get.config") found_config = true;
+        if (k == "get.provider")
+            found_provider = true;
+        if (k == "get.model")
+            found_model = true;
+        if (k == "get.config")
+            found_config = true;
     }
     ASSERT(found_provider);
     ASSERT(found_model);
@@ -164,7 +182,7 @@ TEST(test_json_only_key_in_completions) {
 TEST(test_missing_json_is_ok) {
     tui::SettingRegistry reg;
     bool ok = reg.load_completions_json("nonexistent.json");
-    ASSERT(!ok);  // should return false, not crash
+    ASSERT(!ok); // should return false, not crash
 }
 
 // ── 3-level deep completions (full-path namespace queries) ─────────
@@ -176,7 +194,8 @@ TEST(test_complete_depth1_prefix) {
     auto r = reg.complete("get");
     bool found = false;
     for (const auto& k : r)
-        if (k == "get.detection") found = true;
+        if (k == "get.detection")
+            found = true;
     REQUIRE_NONEMPTY(r);
     ASSERT(found);
 }
@@ -199,7 +218,8 @@ TEST(test_complete_depth2_prefix) {
     REQUIRE_NONEMPTY(r);
     bool found = false;
     for (const auto& k : r)
-        if (k == "get.detection.duplicate") found = true;
+        if (k == "get.detection.duplicate")
+            found = true;
     ASSERT(found);
 }
 
@@ -251,13 +271,15 @@ TEST(test_complete_depth1_namespace_matches_at_top) {
     auto top = reg.complete("");
     bool found_compress = false;
     for (const auto& s : top)
-        if (s == "compress") found_compress = true;
+        if (s == "compress")
+            found_compress = true;
     ASSERT(found_compress);
     // ...and the compression namespace lives under get/set.
     auto get_kids = reg.complete("get");
     bool found_compression = false;
     for (const auto& s : get_kids)
-        if (s == "get.compression") found_compression = true;
+        if (s == "get.compression")
+            found_compression = true;
     ASSERT(found_compression);
 }
 
@@ -284,7 +306,8 @@ TEST(test_drawer_namespace_levels) {
     REQUIRE_NONEMPTY(set_kids);
     bool has_policy = false;
     for (const auto& k : set_kids)
-        if (k == "policy") has_policy = true;
+        if (k == "policy")
+            has_policy = true;
     ASSERT(has_policy);
 
     // Level 3: /set policy <TAB> → children of "set.policy" (full path)
@@ -295,7 +318,7 @@ TEST(test_drawer_namespace_levels) {
 
     // Level 4: /set policy mode <TAB> → children of "set.policy.mode"
     auto mode_kids = reg.children_of("set.policy.mode");
-    ASSERT(mode_kids.empty());  // mode is a leaf node, no children
+    ASSERT(mode_kids.empty()); // mode is a leaf node, no children
 
     // Verify help text at each level (full paths).
     ASSERT(!reg.help_for("set.policy").empty());
@@ -316,7 +339,8 @@ TEST(test_model_command_is_leaf) {
     // The root command is no longer in the tree.
     bool root_model = false;
     for (const auto& k : reg.complete(""))
-        if (k == "model") root_model = true;
+        if (k == "model")
+            root_model = true;
     ASSERT(!root_model);
 }
 
@@ -330,7 +354,8 @@ TEST(test_model_lives_under_get_set) {
     ASSERT(ok);
     bool root_model = false;
     for (const auto& k : reg.complete(""))
-        if (k == "model") root_model = true;
+        if (k == "model")
+            root_model = true;
     ASSERT(!root_model);
     // /get model list|context are documented children.
     auto get_kids = reg.children_of("get.model");
@@ -338,8 +363,10 @@ TEST(test_model_lives_under_get_set) {
     ASSERT_EQ(get_kids.size(), 2u);
     bool has_list = false, has_context = false;
     for (const auto& k : get_kids) {
-        if (k == "list") has_list = true;
-        if (k == "context") has_context = true;
+        if (k == "list")
+            has_list = true;
+        if (k == "context")
+            has_context = true;
     }
     ASSERT(has_list && has_context);
     // /set model is a documented branch (bare = current model).
@@ -367,8 +394,10 @@ TEST(test_set_model_feed_leaves_complete) {
     ASSERT_EQ(kids.size(), 2u);
     bool has_llama = false, has_qwen = false;
     for (const auto& k : kids) {
-        if (k == "set.model.llama3") has_llama = true;
-        if (k == "set.model.qwen2") has_qwen = true;
+        if (k == "set.model.llama3")
+            has_llama = true;
+        if (k == "set.model.qwen2")
+            has_qwen = true;
     }
     ASSERT(has_llama && has_qwen);
     ASSERT_EQ(reg.help_for("set.model.llama3"), "ctx 8192");
@@ -388,9 +417,11 @@ TEST(test_policy_rule_branches_documented) {
     // get.policy and set.policy both document the rule branch.
     bool get_has_rule = false, set_has_rule = false;
     for (const auto& k : reg.children_of("get.policy"))
-        if (k == "rule") get_has_rule = true;
+        if (k == "rule")
+            get_has_rule = true;
     for (const auto& k : reg.children_of("set.policy"))
-        if (k == "rule") set_has_rule = true;
+        if (k == "rule")
+            set_has_rule = true;
     ASSERT(get_has_rule && set_has_rule);
 }
 
@@ -401,16 +432,16 @@ TEST(test_policy_rule_feed_leaves) {
     // The policy feed shape (refresh_policy_feed): tool leaves under both
     // get.policy.rule and set.policy.rule, level info as help text.
     nlohmann::json subtree = nlohmann::json::object();
-    subtree["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
-        ["action"] = "core.config.get.policy.rule.bash";
-    subtree["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
-        ["help"] = "allow (used 3x)";
-    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
-        ["action"] = "core.config.set.policy.rule.bash";
-    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]
-        ["help"] = "allow (used 3x)";
-    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["search"]
-        ["action"] = "core.config.set.policy.rule.search";
+    subtree["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]["action"] =
+        "core.config.get.policy.rule.bash";
+    subtree["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]["help"] =
+        "allow (used 3x)";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]["action"] =
+        "core.config.set.policy.rule.bash";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]["help"] =
+        "allow (used 3x)";
+    subtree["set"]["children"]["policy"]["children"]["rule"]["children"]["search"]["action"] =
+        "core.config.set.policy.rule.search";
     reg.merge_completions_json(subtree);
 
     // /set policy rule <Tab> completes tool names...
@@ -419,8 +450,10 @@ TEST(test_policy_rule_feed_leaves) {
     ASSERT_EQ(set_kids.size(), 2u);
     bool has_bash = false, has_search = false;
     for (const auto& k : set_kids) {
-        if (k == "set.policy.rule.bash") has_bash = true;
-        if (k == "set.policy.rule.search") has_search = true;
+        if (k == "set.policy.rule.bash")
+            has_bash = true;
+        if (k == "set.policy.rule.search")
+            has_search = true;
     }
     ASSERT(has_bash && has_search);
     // ...with the current level as inline help.
@@ -441,13 +474,10 @@ TEST(test_job_feed_leaves) {
     bool ok = reg.load_completions_json("completions.json");
     ASSERT(ok);
     nlohmann::json subtree = nlohmann::json::object();
-    subtree["job"]["children"]["kill"]["children"]["42"]["action"] =
-        "core.job.kill.42";
+    subtree["job"]["children"]["kill"]["children"]["42"]["action"] = "core.job.kill.42";
     subtree["job"]["children"]["kill"]["children"]["42"]["help"] = "running";
-    subtree["job"]["children"]["kill"]["children"]["43"]["action"] =
-        "core.job.kill.43";
-    subtree["job"]["children"]["read"]["children"]["42"]["action"] =
-        "core.job.read.42";
+    subtree["job"]["children"]["kill"]["children"]["43"]["action"] = "core.job.kill.43";
+    subtree["job"]["children"]["read"]["children"]["42"]["action"] = "core.job.read.42";
     reg.merge_completions_json(subtree);
 
     // /job kill <Tab> completes running jobs...
@@ -456,8 +486,10 @@ TEST(test_job_feed_leaves) {
     ASSERT_EQ(kill_kids.size(), 2u);
     bool has_42 = false, has_43 = false;
     for (const auto& k : kill_kids) {
-        if (k == "job.kill.42") has_42 = true;
-        if (k == "job.kill.43") has_43 = true;
+        if (k == "job.kill.42")
+            has_42 = true;
+        if (k == "job.kill.43")
+            has_43 = true;
     }
     ASSERT(has_42 && has_43);
     ASSERT_EQ(reg.help_for("job.kill.42"), "running");
@@ -480,8 +512,7 @@ TEST(test_full_path_namespaces_are_distinct) {
     // A feed-style merge: set.model gains dynamic value children.
     nlohmann::json subtree = nlohmann::json::object();
     subtree["set"]["children"]["model"]["action"] = "core.config.set.model";
-    subtree["set"]["children"]["model"]["children"]["m1"]["action"] =
-        "core.config.set.model.m1";
+    subtree["set"]["children"]["model"]["children"]["m1"]["action"] = "core.config.set.model.m1";
     subtree["set"]["children"]["model"]["children"]["m1"]["help"] = "ctx 8192";
     reg.merge_completions_json(subtree);
 
@@ -515,12 +546,11 @@ TEST(test_merge_preserves_static_tree_children) {
     subtree["mcp"]["children"]["live_srv"]["action"] = "mcp.live_srv";
     subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["action"] =
         "mcp.live_srv.do_thing";
-    subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["help"] =
-        "does the thing";
+    subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["help"] = "does the thing";
     reg.merge_completions_json(subtree);
 
     // Static children survive in the tree alongside the live branch.
-    auto tree = reg.command_tree();  // mutable copy: operator[] never throws
+    auto tree = reg.command_tree(); // mutable copy: operator[] never throws
     const auto& mcp = tree["commands"]["mcp"];
     ASSERT(mcp["action"] == "core.mcp");
     ASSERT(mcp.contains("children"));
@@ -535,23 +565,25 @@ TEST(test_feed_leaves_visible_after_merge) {
     reg.load_completions_json("completions.json");
     // Simulate the provider feed merge (the startup wiring must not wipe it).
     nlohmann::json subtree;
-    subtree["set"]["children"]["provider"]["children"]["zz_feed_provider"]
-        ["action"] = "core.config.set.provider.zz_feed_provider";
-    subtree["set"]["children"]["provider"]["children"]["zz_feed_provider"]
-        ["help"] = "feed-provider help text";
+    subtree["set"]["children"]["provider"]["children"]["zz_feed_provider"]["action"] =
+        "core.config.set.provider.zz_feed_provider";
+    subtree["set"]["children"]["provider"]["children"]["zz_feed_provider"]["help"] =
+        "feed-provider help text";
     reg.merge_completions_json(subtree);
 
     auto kids = reg.children_of("set.provider");
     bool found = false;
     for (const auto& k : kids)
-        if (k == "zz_feed_provider") found = true;
+        if (k == "zz_feed_provider")
+            found = true;
     ASSERT(found);
     ASSERT(!reg.help_for("set.provider.zz_feed_provider").empty());
     // The completion path must surface it too.
     auto completions = reg.complete("set.provider");
     bool found2 = false;
     for (const auto& c : completions)
-        if (c == "set.provider.zz_feed_provider") found2 = true;
+        if (c == "set.provider.zz_feed_provider")
+            found2 = true;
     ASSERT(found2);
 }
 
@@ -563,8 +595,7 @@ TEST(test_drawer_rows_children_and_help) {
     auto rows = tui::drawer_rows("/get model l", reg);
     bool found = false;
     for (const auto& r : rows)
-        if (r.find("list") != std::string::npos &&
-            r.find("all models") != std::string::npos)
+        if (r.find("list") != std::string::npos && r.find("all models") != std::string::npos)
             found = true;
     ASSERT(found);
 }
@@ -593,8 +624,10 @@ TEST(test_bare_slash_children_of) {
     REQUIRE_NONEMPTY(kids);
     bool has_get = false, has_set = false;
     for (const auto& k : kids) {
-        if (k == "get") has_get = true;
-        if (k == "set") has_set = true;
+        if (k == "get")
+            has_get = true;
+        if (k == "set")
+            has_set = true;
     }
     ASSERT(has_get);
     ASSERT(has_set);
@@ -609,8 +642,10 @@ TEST(test_bare_slash_drawer_rows) {
     REQUIRE_NONEMPTY(rows);
     bool has_get = false, has_set = false;
     for (const auto& r : rows) {
-        if (r.find("get") != std::string::npos) has_get = true;
-        if (r.find("set") != std::string::npos) has_set = true;
+        if (r.find("get") != std::string::npos)
+            has_get = true;
+        if (r.find("set") != std::string::npos)
+            has_set = true;
     }
     ASSERT(has_get);
     ASSERT(has_set);
@@ -625,8 +660,10 @@ TEST(test_bare_slash_drawer_entry_names) {
     REQUIRE_NONEMPTY(names);
     bool has_get = false, has_set = false;
     for (const auto& n : names) {
-        if (n == "get") has_get = true;
-        if (n == "set") has_set = true;
+        if (n == "get")
+            has_get = true;
+        if (n == "set")
+            has_set = true;
     }
     ASSERT(has_get);
     ASSERT(has_set);
@@ -645,7 +682,8 @@ TEST(test_partial_first_token_entry_names_include_compress) {
     REQUIRE_NONEMPTY(names);
     bool has_compress = false;
     for (const auto& n : names) {
-        if (n == "compress") has_compress = true;
+        if (n == "compress")
+            has_compress = true;
         if (n == "set") {
             std::cerr << "FAIL: partial /c must not return non-c* command\n";
             failed++;
@@ -662,7 +700,8 @@ TEST(test_partial_first_token_drawer_rows_include_compress) {
     REQUIRE_NONEMPTY(rows);
     bool saw_compress = false;
     for (const auto& r : rows)
-        if (r.find("compress") != std::string::npos) saw_compress = true;
+        if (r.find("compress") != std::string::npos)
+            saw_compress = true;
     ASSERT(saw_compress);
 }
 
@@ -681,8 +720,10 @@ TEST(test_exact_top_level_namespace_still_descends) {
     // was treated as a partial filter of the top level (which would include
     // "get" itself or unrelated top-level names).
     bool has_get = false;
-    for (const auto& n : names) if (n == "get") has_get = true;
-    ASSERT(!has_get);  // must not list "get" as a sibling
+    for (const auto& n : names)
+        if (n == "get")
+            has_get = true;
+    ASSERT(!has_get); // must not list "get" as a sibling
 }
 
 // ── Test: mcp / skills / plugin / prompt namespaces are documented ──
@@ -693,12 +734,14 @@ TEST(test_json_documents_mcp_namespace) {
     ASSERT(ok);
     ASSERT(!reg.help_for("mcp.list").empty());
     ASSERT(!reg.man_for("mcp.connect").empty());
-    ASSERT(!reg.help_for("core.mcp.trust").empty());  // action-path index
+    ASSERT(!reg.help_for("core.mcp.trust").empty()); // action-path index
     auto subs = reg.children_of("mcp");
     bool saw_connect = false, saw_trust = false;
     for (const auto& s : subs) {
-        if (s == "connect") saw_connect = true;
-        if (s == "trust") saw_trust = true;
+        if (s == "connect")
+            saw_connect = true;
+        if (s == "trust")
+            saw_trust = true;
     }
     ASSERT(saw_connect && saw_trust);
 }
@@ -727,15 +770,19 @@ TEST(test_json_documents_plugin_surface) {
     auto top = reg.complete("");
     bool has_root_plugin = false;
     for (const auto& k : top)
-        if (k == "plugin") has_root_plugin = true;
+        if (k == "plugin")
+            has_root_plugin = true;
     ASSERT(!has_root_plugin);
 
     auto get_kids = reg.children_of("get.plugin");
     bool saw_list = false, saw_info = false, saw_settings = false;
     for (const auto& k : get_kids) {
-        if (k == "list") saw_list = true;
-        if (k == "info") saw_info = true;
-        if (k == "settings") saw_settings = true;
+        if (k == "list")
+            saw_list = true;
+        if (k == "info")
+            saw_info = true;
+        if (k == "settings")
+            saw_settings = true;
     }
     ASSERT(saw_list && saw_info && saw_settings);
     ASSERT_EQ(get_kids.size(), 3u);
@@ -745,11 +792,16 @@ TEST(test_json_documents_plugin_surface) {
     auto set_kids = reg.children_of("set.plugin");
     bool on = false, off = false, install = false, uninstall = false, settings = false;
     for (const auto& k : set_kids) {
-        if (k == "on") on = true;
-        if (k == "off") off = true;
-        if (k == "install") install = true;
-        if (k == "uninstall") uninstall = true;
-        if (k == "settings") settings = true;
+        if (k == "on")
+            on = true;
+        if (k == "off")
+            off = true;
+        if (k == "install")
+            install = true;
+        if (k == "uninstall")
+            uninstall = true;
+        if (k == "settings")
+            settings = true;
     }
     ASSERT(on && off && install && uninstall && settings);
     ASSERT_EQ(set_kids.size(), 5u);
@@ -776,10 +828,8 @@ TEST(test_plugin_feed_keeps_ids_out_of_the_command_namespaces) {
 
     // Ids are values under the verb, help carries state + tier + version.
     ASSERT_EQ(reg.children_of("get.plugin.info").size(), 2u);
-    ASSERT_EQ(reg.help_for("get.plugin.info.clock"),
-              std::string("on, bundled v0.4.0"));
-    ASSERT_EQ(reg.help_for("core.config.get.plugin.info.clock"),
-              std::string("on, bundled v0.4.0"));
+    ASSERT_EQ(reg.help_for("get.plugin.info.clock"), std::string("on, bundled v0.4.0"));
+    ASSERT_EQ(reg.help_for("core.config.get.plugin.info.clock"), std::string("on, bundled v0.4.0"));
     ASSERT_EQ(reg.children_of("set.plugin.on").size(), 2u);
     ASSERT_EQ(reg.help_for("set.plugin.on.clock"), std::string("already on"));
     ASSERT_EQ(reg.help_for("set.plugin.on.sysinfo"), std::string("enable this plugin"));
@@ -802,19 +852,23 @@ TEST(test_json_merge_unions_children) {
     ASSERT(ok);
     // A live MCP server branch lands under the existing mcp command.
     nlohmann::json subtree = {
-        {"mcp", {{"action", "core.mcp"},
-                 {"children",
-                  {{"live_srv", {{"action", "mcp.live_srv"},
-                                 {"children", {{"do_thing",
-                                                {{"action", "mcp.live_srv.do_thing"},
-                                                 {"help", "does the thing"}}}}}}}}}}}};
+        {"mcp",
+         {{"action", "core.mcp"},
+          {"children",
+           {{"live_srv",
+             {{"action", "mcp.live_srv"},
+              {"children",
+               {{"do_thing",
+                 {{"action", "mcp.live_srv.do_thing"}, {"help", "does the thing"}}}}}}}}}}}};
     reg.merge_completions_json(subtree);
 
     auto subs = reg.children_of("mcp");
     bool has_list = false, has_live = false;
     for (const auto& s : subs) {
-        if (s == "list") has_list = true;
-        if (s == "live_srv") has_live = true;
+        if (s == "list")
+            has_list = true;
+        if (s == "live_srv")
+            has_live = true;
     }
     // Static children survive the merge alongside the live branch.
     ASSERT(has_list && has_live);
@@ -886,7 +940,6 @@ TEST(test_get_provider_list_node) {
 
 // ── Test: feed leaves are visible to the drawer/completion queries ──
 
-
 // ── Test: a plugin command namespace merges and resolves ──
 // SlashDispatcher::refresh_completions merges each CommandRegistry contribution
 // as {root: {help, man, children: subtree}} and stamps executable leaves with a
@@ -912,7 +965,8 @@ TEST(test_plugin_command_subtree_merges_and_resolves) {
     REQUIRE_NONEMPTY(kids);
     bool has_greet = false;
     for (const auto& k : kids)
-        if (k == "hello.greet") has_greet = true;
+        if (k == "hello.greet")
+            has_greet = true;
     ASSERT(has_greet);
     ASSERT_EQ(reg.help_for("hello.greet"), "Greet someone");
 
@@ -976,7 +1030,6 @@ int main() {
         failed++;
     }
 
-    std::cout << (failed ? "FAILED" : "ALL PASSED")
-              << " (" << failed << " failures)\n";
+    std::cout << (failed ? "FAILED" : "ALL PASSED") << " (" << failed << " failures)\n";
     return failed;
 }

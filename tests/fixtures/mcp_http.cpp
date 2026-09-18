@@ -33,7 +33,8 @@ std::atomic<int> g_counter{0};
 
 std::string to_lower(std::string s) {
     for (char& c : s)
-        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c >= 'A' && c <= 'Z')
+            c += 32;
     return s;
 }
 
@@ -44,24 +45,24 @@ std::string header_value(const std::map<std::string, std::string>& headers,
 }
 
 // Reads a full HTTP request (headers + Content-Length body) off one socket.
-bool read_request(int fd, std::string& method, std::string& path,
-                  std::string& body,
+bool read_request(int fd, std::string& method, std::string& path, std::string& body,
                   std::map<std::string, std::string>& headers) {
     std::string buf;
     char tmp[4096];
     const std::string term = "\r\n\r\n";
     while (buf.find(term) == std::string::npos) {
         ssize_t n = read(fd, tmp, sizeof tmp);
-        if (n <= 0) return false;
+        if (n <= 0)
+            return false;
         buf.append(tmp, static_cast<size_t>(n));
     }
     const size_t body_off = buf.find(term) + term.size();
     const std::string head = buf.substr(0, body_off - term.size());
 
     const size_t sp1 = head.find(' ');
-    const size_t sp2 = (sp1 == std::string::npos) ? std::string::npos
-                                                  : head.find(' ', sp1 + 1);
-    if (sp1 == std::string::npos || sp2 == std::string::npos) return false;
+    const size_t sp2 = (sp1 == std::string::npos) ? std::string::npos : head.find(' ', sp1 + 1);
+    if (sp1 == std::string::npos || sp2 == std::string::npos)
+        return false;
     method = head.substr(0, sp1);
     path = head.substr(sp1 + 1, sp2 - sp1 - 1);
 
@@ -69,25 +70,28 @@ bool read_request(int fd, std::string& method, std::string& path,
     while (pos != std::string::npos) {
         const size_t line_start = pos + 2;
         const size_t nl = head.find("\r\n", line_start);
-        const size_t line_end =
-            (nl == std::string::npos) ? head.size() : nl;
+        const size_t line_end = (nl == std::string::npos) ? head.size() : nl;
         const std::string line = head.substr(line_start, line_end - line_start);
         const size_t colon = line.find(':');
         if (colon != std::string::npos) {
             std::string value = line.substr(colon + 1);
-            while (!value.empty() && value.front() == ' ') value.erase(0, 1);
+            while (!value.empty() && value.front() == ' ')
+                value.erase(0, 1);
             headers[to_lower(line.substr(0, colon))] = value;
         }
-        if (nl == std::string::npos) break;
+        if (nl == std::string::npos)
+            break;
         pos = nl;
     }
 
     long clen = 0;
     const std::string len = header_value(headers, "Content-Length");
-    if (!len.empty()) clen = std::atol(len.c_str());
+    if (!len.empty())
+        clen = std::atol(len.c_str());
     while (buf.size() < body_off + static_cast<size_t>(clen)) {
         ssize_t n = read(fd, tmp, sizeof tmp);
-        if (n <= 0) break;
+        if (n <= 0)
+            break;
         buf.append(tmp, static_cast<size_t>(n));
     }
     body = buf.substr(body_off, static_cast<size_t>(clen));
@@ -98,20 +102,20 @@ void send_all(int fd, const std::string& s) {
     size_t off = 0;
     while (off < s.size()) {
         ssize_t n = write(fd, s.data() + off, s.size() - off);
-        if (n <= 0) return;
+        if (n <= 0)
+            return;
         off += static_cast<size_t>(n);
     }
 }
 
-void respond(int fd, int status, const char* reason,
-             const std::string& content_type, const std::string& body,
-             const std::string& extra_header = "") {
-    std::string h = "HTTP/1.1 " + std::to_string(status) + " " + reason +
-                    "\r\n";
+void respond(int fd, int status, const char* reason, const std::string& content_type,
+             const std::string& body, const std::string& extra_header = "") {
+    std::string h = "HTTP/1.1 " + std::to_string(status) + " " + reason + "\r\n";
     if (!content_type.empty())
         h += "Content-Type: " + content_type + "\r\n";
     h += "Content-Length: " + std::to_string(body.size()) + "\r\n";
-    if (!extra_header.empty()) h += extra_header + "\r\n";
+    if (!extra_header.empty())
+        h += extra_header + "\r\n";
     h += "\r\n";
     send_all(fd, h + body);
 }
@@ -175,9 +179,7 @@ void handle_post(int fd, const std::string& mode, const std::string& body,
             extra = "Mcp-Session-Id: " + std::string(kSessionId);
         }
         respond_json(fd, 200, "OK",
-                     json{{"jsonrpc", "2.0"}, {"id", reqid},
-                          {"result", result}}.dump(),
-                     extra);
+                     json{{"jsonrpc", "2.0"}, {"id", reqid}, {"result", result}}.dump(), extra);
         return;
     }
 
@@ -189,18 +191,16 @@ void handle_post(int fd, const std::string& mode, const std::string& body,
             "\n"
             "event: message\n"
             "data: {\"jsonrpc\":\"2.0\",\"id\":" +
-            reqid.dump() + ",\"result\":{\"sse\":true,\"session\":" +
-            json(session).dump() + "}}\n\n";
+            reqid.dump() + ",\"result\":{\"sse\":true,\"session\":" + json(session).dump() +
+            "}}\n\n";
         respond(fd, 200, "OK", "text/event-stream", payload);
         return;
     }
 
-    json result = {{"echo", {{"method", method},
-                             {"params", obj.value("params", json::object())}}}};
-    if (mode == "session") result["session"] = session;
-    respond_json(fd, 200, "OK",
-                 json{{"jsonrpc", "2.0"}, {"id", reqid},
-                      {"result", result}}.dump());
+    json result = {{"echo", {{"method", method}, {"params", obj.value("params", json::object())}}}};
+    if (mode == "session")
+        result["session"] = session;
+    respond_json(fd, 200, "OK", json{{"jsonrpc", "2.0"}, {"id", reqid}, {"result", result}}.dump());
 }
 
 void handle_connection(int fd, const std::string& mode) {
@@ -209,8 +209,10 @@ void handle_connection(int fd, const std::string& mode) {
     std::string method, path, body;
     std::map<std::string, std::string> headers;
     if (read_request(fd, method, path, body, headers)) {
-        if (method == "POST") handle_post(fd, mode, body, headers);
-        else if (method == "DELETE") respond_accepted(fd);
+        if (method == "POST")
+            handle_post(fd, mode, body, headers);
+        else if (method == "DELETE")
+            respond_accepted(fd);
     }
     close(fd);
 }
@@ -222,7 +224,8 @@ int main(int argc, char** argv) {
     const std::string mode = argc > 2 ? argv[2] : "echo";
 
     const int lsock = socket(AF_INET, SOCK_STREAM, 0);
-    if (lsock < 0) return 1;
+    if (lsock < 0)
+        return 1;
     int opt = 1;
     setsockopt(lsock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof opt);
     sockaddr_in addr{};
@@ -231,21 +234,22 @@ int main(int argc, char** argv) {
     addr.sin_port = 0;
     if (bind(lsock, reinterpret_cast<sockaddr*>(&addr), sizeof addr) < 0)
         return 1;
-    if (listen(lsock, 16) < 0) return 1;
+    if (listen(lsock, 16) < 0)
+        return 1;
     socklen_t alen = sizeof addr;
     getsockname(lsock, reinterpret_cast<sockaddr*>(&addr), &alen);
 
     FILE* f = std::fopen(statefile.c_str(), "w");
     if (f != nullptr) {
-        std::fprintf(f, "PORT:%d\nPID:%d\n",
-                     static_cast<int>(ntohs(addr.sin_port)),
+        std::fprintf(f, "PORT:%d\nPID:%d\n", static_cast<int>(ntohs(addr.sin_port)),
                      static_cast<int>(getpid()));
         std::fclose(f);
     }
 
     for (;;) {
         const int c = accept(lsock, nullptr, nullptr);
-        if (c < 0) continue;
+        if (c < 0)
+            continue;
         std::thread(handle_connection, c, mode).detach();
     }
 }

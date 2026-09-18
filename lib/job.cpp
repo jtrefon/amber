@@ -13,10 +13,8 @@
 
 namespace agent {
 
-std::unique_ptr<Job> Job::start(const std::string& id,
-                                const std::string& command,
-                                const std::string& cwd,
-                                long hard_timeout_s, long idle_timeout_s,
+std::unique_ptr<Job> Job::start(const std::string& id, const std::string& command,
+                                const std::string& cwd, long hard_timeout_s, long idle_timeout_s,
                                 std::string& err) {
     auto job = std::unique_ptr<Job>(new Job);
     job->id_ = id;
@@ -26,7 +24,8 @@ std::unique_ptr<Job> Job::start(const std::string& id,
     job->idle_timeout_s_ = idle_timeout_s;
     job->start_ = std::chrono::steady_clock::now();
     job->last_output_ = job->start_;
-    if (!job->begin(err)) return nullptr;
+    if (!job->begin(err))
+        return nullptr;
     return job;
 }
 
@@ -69,20 +68,15 @@ JobInfo Job::info() const {
     i.seconds_since_start = sec_since(start_);
     i.seconds_since_output = sec_since(last_output_);
     i.remaining_idle_s =
-        (idle_timeout_s_ > 0)
-            ? std::max(0L, idle_timeout_s_ - sec_since(last_output_))
-            : -1;
+        (idle_timeout_s_ > 0) ? std::max(0L, idle_timeout_s_ - sec_since(last_output_)) : -1;
     i.remaining_hard_s =
-        (hard_timeout_s_ > 0)
-            ? std::max(0L, hard_timeout_s_ - sec_since(start_))
-            : -1;
+        (hard_timeout_s_ > 0) ? std::max(0L, hard_timeout_s_ - sec_since(start_)) : -1;
     return i;
 }
 
 bool Job::is_done() const {
     std::scoped_lock lk(mtx_);
-    return state_ == JobState::Done || state_ == JobState::Killed ||
-           state_ == JobState::Failed;
+    return state_ == JobState::Done || state_ == JobState::Killed || state_ == JobState::Failed;
 }
 
 int Job::exit_code() const {
@@ -92,7 +86,8 @@ int Job::exit_code() const {
 
 std::string Job::read_delta() {
     std::scoped_lock lk(mtx_);
-    if (read_cursor_ >= output_.size()) return "";
+    if (read_cursor_ >= output_.size())
+        return "";
     std::string delta = output_.substr(read_cursor_);
     read_cursor_ = output_.size();
     return delta;
@@ -104,8 +99,10 @@ std::string Job::output() const {
 }
 
 void Job::kill() {
-    if (!begin_kill()) return;
-    if (reader_.joinable()) reader_.join();
+    if (!begin_kill())
+        return;
+    if (reader_.joinable())
+        reader_.join();
 }
 
 // Kill-once state transition: exactly one caller signals the process group
@@ -115,10 +112,11 @@ void Job::kill() {
 // consumer can observe Killed with a stale exit code.
 bool Job::begin_kill() {
     std::scoped_lock lk(mtx_);
-    if (kill_done_) return false;
-    bool was_running =
-        (state_ == JobState::Running || state_ == JobState::Starting);
-    if (was_running) kill_process_group(pid_);
+    if (kill_done_)
+        return false;
+    bool was_running = (state_ == JobState::Running || state_ == JobState::Starting);
+    if (was_running)
+        kill_process_group(pid_);
     kill_done_ = true;
     return true;
 }
@@ -129,23 +127,22 @@ bool Job::begin_kill() {
 void Job::finalize(int status, bool reaped, bool killed) {
     std::scoped_lock lk(mtx_);
     if (reaped) {
-        if (WIFEXITED(status)) exit_code_ = WEXITSTATUS(status);
-        else if (WIFSIGNALED(status)) exit_code_ = 128 + WTERMSIG(status);
+        if (WIFEXITED(status))
+            exit_code_ = WEXITSTATUS(status);
+        else if (WIFSIGNALED(status))
+            exit_code_ = 128 + WTERMSIG(status);
     } else {
-        exit_code_ = -1;  // kill landed but the child could not be reaped
+        exit_code_ = -1; // kill landed but the child could not be reaped
     }
     if (state_ == JobState::Running || state_ == JobState::Starting)
         state_ = killed ? JobState::Killed : JobState::Done;
 }
 
 bool Job::check_timeouts() {
-    if (is_done()) return false;
-    long idle = (idle_timeout_s_ > 0)
-                    ? idle_timeout_s_ - sec_since(last_output_)
-                    : 1 << 30;
-    long hard = (hard_timeout_s_ > 0)
-                    ? hard_timeout_s_ - sec_since(start_)
-                    : 1 << 30;
+    if (is_done())
+        return false;
+    long idle = (idle_timeout_s_ > 0) ? idle_timeout_s_ - sec_since(last_output_) : 1 << 30;
+    long hard = (hard_timeout_s_ > 0) ? hard_timeout_s_ - sec_since(start_) : 1 << 30;
     if (idle <= 0 || hard <= 0) {
         kill();
         return true;
@@ -161,12 +158,13 @@ void Job::reap_after_eof() {
     int status = 0;
     pid_t w = waitpid(pid_, &status, WNOHANG);
     for (int i = 0; w != pid_ && i < kEofReapGraceMs / 50; ++i) {
-        if (kill_done_.load()) break;
+        if (kill_done_.load())
+            break;
         usleep(50000);
         w = waitpid(pid_, &status, WNOHANG);
     }
     if (w != pid_) {
-        begin_kill();  // signals the group (no-op if kill() already did)
+        begin_kill(); // signals the group (no-op if kill() already did)
         for (int i = 0; w != pid_ && i < 100; ++i) {
             usleep(20000);
             w = waitpid(pid_, &status, WNOHANG);
@@ -189,11 +187,12 @@ void Job::reader_loop() {
             last_output_ = std::chrono::steady_clock::now();
             continue;
         }
-        if (n == 0) {  // EOF: the child closed the pipe.
+        if (n == 0) { // EOF: the child closed the pipe.
             reap_after_eof();
             break;
         }
-        if (errno != EAGAIN && errno != EWOULDBLOCK) break;
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+            break;
         // No data yet: has the child exited? If so, drain remaining then stop.
         int status = 0;
         pid_t w = waitpid(pid_, &status, WNOHANG);
@@ -201,8 +200,10 @@ void Job::reader_loop() {
             // Drain any final buffered bytes before publishing the outcome.
             while ((n = read(read_fd_, buf.data(), buf.size())) > 0) {
                 std::scoped_lock lk(mtx_);
-                if (output_.size() < kCap) output_.append(buf.data(), (std::size_t)n);
-                else if (!truncated_) truncated_ = true;
+                if (output_.size() < kCap)
+                    output_.append(buf.data(), (std::size_t)n);
+                else if (!truncated_)
+                    truncated_ = true;
             }
             finalize(status, true, kill_done_.load());
             break;
@@ -225,26 +226,25 @@ void Job::set_state(JobState s) {
 
 long Job::sec_since(const std::chrono::steady_clock::time_point& tp) const {
     auto d = std::chrono::steady_clock::now() - tp;
-    return static_cast<long>(
-        std::chrono::duration_cast<std::chrono::seconds>(d).count());
+    return static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(d).count());
 }
 
 // ---- JobService -----------------------------------------------------------
 
-std::string JobService::start(const std::string& command,
-                               const std::string& cwd, long hard_timeout_s,
-                               long idle_timeout_s) {
+std::string JobService::start(const std::string& command, const std::string& cwd,
+                              long hard_timeout_s, long idle_timeout_s) {
     // Confine the working directory to the workspace: an unconfined cwd would
     // let the model root a background shell anywhere on disk.
     std::string dir = cwd.empty() ? Workspace::root() : cwd;
     std::string confined, err;
-    if (!Workspace::confine(dir, confined, err)) return "";  // empty id = error
+    if (!Workspace::confine(dir, confined, err))
+        return ""; // empty id = error
     dir = confined;
     std::string id = std::to_string(++counter_);
     std::string spawn_err;
-    auto job = Job::start(id, command, dir, hard_timeout_s, idle_timeout_s,
-                          spawn_err);
-    if (!job) return "";  // spawn failed; empty id signals error
+    auto job = Job::start(id, command, dir, hard_timeout_s, idle_timeout_s, spawn_err);
+    if (!job)
+        return ""; // spawn failed; empty id signals error
     std::scoped_lock lk(mtx_);
     jobs_[id] = std::move(job);
     return id;
@@ -255,7 +255,8 @@ bool JobService::stop(const std::string& id) {
     {
         std::scoped_lock lk(mtx_);
         auto it = jobs_.find(id);
-        if (it == jobs_.end()) return false;
+        if (it == jobs_.end())
+            return false;
         job = it->second;
         jobs_.erase(it);
     }
@@ -270,9 +271,11 @@ void JobService::check_timeouts() {
     {
         std::scoped_lock lk(mtx_);
         for (auto& kv : jobs_)
-            if (!kv.second->is_done()) running.push_back(kv.second);
+            if (!kv.second->is_done())
+                running.push_back(kv.second);
     }
-    for (const auto& j : running) j->check_timeouts();
+    for (const auto& j : running)
+        j->check_timeouts();
 }
 
 std::shared_ptr<Job> JobService::get(const std::string& id) {
@@ -303,7 +306,8 @@ std::vector<JobInfo> JobService::list() const {
     std::vector<JobInfo> out;
     std::scoped_lock lk(mtx_);
     out.reserve(jobs_.size());
-    for (auto& kv : jobs_) out.push_back(kv.second->info());
+    for (auto& kv : jobs_)
+        out.push_back(kv.second->info());
     return out;
 }
 
@@ -311,7 +315,8 @@ int JobService::running_count() const {
     std::scoped_lock lk(mtx_);
     int n = 0;
     for (auto& kv : jobs_)
-        if (!kv.second->is_done()) ++n;
+        if (!kv.second->is_done())
+            ++n;
     return n;
 }
 
@@ -320,13 +325,14 @@ int JobService::min_timeout_remaining() const {
     int best = -1;
     for (auto& kv : jobs_) {
         const Job* j = kv.second.get();
-        if (j->is_done()) continue;
+        if (j->is_done())
+            continue;
         JobInfo i = j->info();
         int rem = i.remaining_hard_s;
-        if (i.remaining_idle_s >= 0 &&
-            (rem < 0 || i.remaining_idle_s < rem))
+        if (i.remaining_idle_s >= 0 && (rem < 0 || i.remaining_idle_s < rem))
             rem = i.remaining_idle_s;
-        if (rem >= 0 && (best < 0 || rem < best)) best = rem;
+        if (rem >= 0 && (best < 0 || rem < best))
+            best = rem;
     }
     return best;
 }

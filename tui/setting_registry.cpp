@@ -14,7 +14,8 @@ void SettingRegistry::add(Setting s) {
 
 const Setting* SettingRegistry::find(const std::string& key) const {
     for (const auto& s : settings_)
-        if (s.key == key) return &s;
+        if (s.key == key)
+            return &s;
     return nullptr;
 }
 
@@ -63,20 +64,20 @@ std::vector<std::string> SettingRegistry::complete(const std::string& prefix) co
         size_t p = 0;
         while (p < prefix.size()) {
             size_t dot = prefix.find('.', p);
-            std::string tok = (dot == std::string::npos)
-                                  ? prefix.substr(p)
-                                  : prefix.substr(p, dot - p);
+            std::string tok =
+                (dot == std::string::npos) ? prefix.substr(p) : prefix.substr(p, dot - p);
             if (p == 0) {
-                if (!node->contains(tok)) return out;
+                if (!node->contains(tok))
+                    return out;
                 node = &(*node)[tok];
             } else {
                 if (!node->is_object() || !node->contains("children") ||
-                    !(*node)["children"].is_object() ||
-                    !(*node)["children"].contains(tok))
+                    !(*node)["children"].is_object() || !(*node)["children"].contains(tok))
                     return out;
                 node = &(*node)["children"][tok];
             }
-            if (dot == std::string::npos) break;
+            if (dot == std::string::npos)
+                break;
             p = dot + 1;
         }
     }
@@ -95,34 +96,39 @@ std::vector<std::string> SettingRegistry::complete(const std::string& prefix) co
 
 std::string SettingRegistry::resolve_key(const std::string& key) const {
     auto indexed = [&](const std::string& k) {
-        return key_help_.count(k) || key_man_.count(k) ||
-               key_children_.count(k) || command_choices_.count(k) ||
-               command_ranges_.count(k);
+        return key_help_.count(k) || key_man_.count(k) || key_children_.count(k) ||
+               command_choices_.count(k) || command_ranges_.count(k);
     };
-    if (indexed(key)) return key;
+    if (indexed(key))
+        return key;
     std::string g = "get." + key;
-    if (indexed(g)) return g;
+    if (indexed(g))
+        return g;
     std::string s = "set." + key;
-    if (indexed(s)) return s;
+    if (indexed(s))
+        return s;
     return "";
 }
 
 std::string SettingRegistry::help_for(const std::string& key) const {
     std::string rk = resolve_key(key);
-    if (rk.empty() || !key_help_.count(rk)) return "";
+    if (rk.empty() || !key_help_.count(rk))
+        return "";
     return key_help_.at(rk);
 }
 
 std::string SettingRegistry::man_for(const std::string& key) const {
     std::string rk = resolve_key(key);
-    if (rk.empty() || !key_man_.count(rk)) return "";
+    if (rk.empty() || !key_man_.count(rk))
+        return "";
     return key_man_.at(rk);
 }
 
 std::vector<std::string> SettingRegistry::children_of(const std::string& key) const {
     std::string rk = resolve_key(key);
     auto it = key_children_.find(rk);
-    if (it != key_children_.end()) return it->second;
+    if (it != key_children_.end())
+        return it->second;
     // Bare "/" (empty key after stripping the slash) — top-level command
     // names from the JSON tree, mirroring complete(""). Without this the
     // bare "/" drawer path returns empty (key_children_ is never indexed
@@ -137,18 +143,21 @@ std::vector<std::string> SettingRegistry::children_of(const std::string& key) co
     return {};
 }
 
-void SettingRegistry::index_node(const nlohmann::json& node,
-                                    const std::string& display_path) {
-    if (!node.is_object()) return;
+void SettingRegistry::index_node(const nlohmann::json& node, const std::string& display_path) {
+    if (!node.is_object())
+        return;
 
-    auto idx = [&](const std::string& key, const std::string& help,
-                   const std::string& man,
-                   const std::vector<std::string>& choices,
-                   double rlo, double rhi, bool has_range) {
-        if (!help.empty()) key_help_[key] = help;
-        if (!man.empty()) key_man_[key] = man;
-        if (!choices.empty()) command_choices_[key] = choices;
-        if (has_range) command_ranges_[key] = {rlo, rhi};
+    auto idx = [&](const std::string& key, const std::string& help, const std::string& man,
+                   const std::vector<std::string>& choices, double rlo, double rhi,
+                   bool has_range) {
+        if (!help.empty())
+            key_help_[key] = help;
+        if (!man.empty())
+            key_man_[key] = man;
+        if (!choices.empty())
+            command_choices_[key] = choices;
+        if (has_range)
+            command_ranges_[key] = {rlo, rhi};
     };
 
     std::string help_text, man_text, action;
@@ -183,15 +192,14 @@ void SettingRegistry::index_node(const nlohmann::json& node,
     // set.<ns> never collide ("set.model" != "get.model"). Top-level
     // commands keep their bare name ("model", "policy").
     std::string key_path = display_path;
-    if (!key_path.empty() &&
-        (key_path.find('.') != std::string::npos ||
-         !node.contains("children") || !help_text.empty())) {
+    if (!key_path.empty() && (key_path.find('.') != std::string::npos ||
+                              !node.contains("children") || !help_text.empty())) {
         idx(key_path, help_text, man_text, choices, rlo, rhi, has_range);
-        if (!aliases.empty()) command_aliases_[key_path] = aliases;
+        if (!aliases.empty())
+            command_aliases_[key_path] = aliases;
     }
 
-    auto union_into = [](std::vector<std::string>& dst,
-                         const std::vector<std::string>& src) {
+    auto union_into = [](std::vector<std::string>& dst, const std::vector<std::string>& src) {
         for (const auto& k : src)
             if (std::find(dst.begin(), dst.end(), k) == dst.end())
                 dst.push_back(k);
@@ -214,9 +222,8 @@ void SettingRegistry::index_node(const nlohmann::json& node,
 
     if (node.contains("children") && node["children"].is_object()) {
         for (auto it = node["children"].begin(); it != node["children"].end(); ++it) {
-            std::string child_display = display_path.empty()
-                ? it.key()
-                : display_path + "." + it.key();
+            std::string child_display =
+                display_path.empty() ? it.key() : display_path + "." + it.key();
             index_node(it.value(), child_display);
         }
     }
@@ -224,7 +231,8 @@ void SettingRegistry::index_node(const nlohmann::json& node,
 
 bool SettingRegistry::load_completions_json(const std::string& path) {
     std::ifstream f(path);
-    if (!f) return false;
+    if (!f)
+        return false;
 
     using json = nlohmann::json;
     json root;
@@ -249,7 +257,10 @@ namespace {
 // documented nodes (action/help/man + static children) alive when a live
 // integration (MCP server, plugin, value feed) merges its branches in.
 void merge_tree_node(nlohmann::json& dst, const nlohmann::json& src) {
-    if (!dst.is_object()) { dst = src; return; }
+    if (!dst.is_object()) {
+        dst = src;
+        return;
+    }
     for (auto it = src.begin(); it != src.end(); ++it) {
         if (it.key() == "children" && it.value().is_object()) {
             if (!dst.contains("children") || !dst["children"].is_object())
@@ -265,11 +276,13 @@ void merge_tree_node(nlohmann::json& dst, const nlohmann::json& src) {
 } // namespace
 
 bool SettingRegistry::merge_completions_json(const nlohmann::json& subtree) {
-    if (!subtree.is_object()) return false;
+    if (!subtree.is_object())
+        return false;
     for (auto it = subtree.begin(); it != subtree.end(); ++it) {
         index_node(it.value(), it.key());
         nlohmann::json& node = tree_["commands"][it.key()];
-        if (!node.is_object()) node = nlohmann::json::object();
+        if (!node.is_object())
+            node = nlohmann::json::object();
         merge_tree_node(node, it.value());
     }
     return true;
@@ -286,8 +299,7 @@ void SettingRegistry::reset_completion_index() {
     command_subcommands_.clear();
 }
 
-const std::vector<std::string>& SettingRegistry::aliases_for(
-    const std::string& key) const {
+const std::vector<std::string>& SettingRegistry::aliases_for(const std::string& key) const {
     static const std::vector<std::string> empty;
     std::string rk = resolve_key(key);
     auto it = command_aliases_.find(rk);
@@ -298,7 +310,8 @@ std::vector<std::string> SettingRegistry::top_level_aliases() const {
     std::vector<std::string> out;
     for (const auto& [path, aliases] : command_aliases_)
         if (path.find('.') == std::string::npos)
-            for (const auto& a : aliases) out.push_back(a);
+            for (const auto& a : aliases)
+                out.push_back(a);
     return out;
 }
 
@@ -319,7 +332,8 @@ bool SettingRegistry::range_for(const std::string& key, double& lo, double& hi) 
     std::string rk = resolve_key(key);
     auto it = command_ranges_.find(rk);
     if (it != command_ranges_.end()) {
-        lo = it->second.first; hi = it->second.second;
+        lo = it->second.first;
+        hi = it->second.second;
         return true;
     }
     return false;

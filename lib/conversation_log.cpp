@@ -8,13 +8,13 @@ namespace agent {
 namespace {
 long long now_ms() {
     using namespace std::chrono;
-    return duration_cast<milliseconds>(system_clock::now().time_since_epoch())
-        .count();
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 } // namespace
 
 void ConversationLog::open(const std::string& path) {
-    if (path.empty()) return;
+    if (path.empty())
+        return;
     session_ = std::to_string(now_ms());
     std::string resolved = path;
     const std::string tok = "{ts}";
@@ -23,15 +23,15 @@ void ConversationLog::open(const std::string& path) {
         resolved.replace(pos, tok.size(), session_);
     // The default path lives under .amber/logs/, which may not exist yet.
     std::error_code ec;
-    std::filesystem::create_directories(
-        std::filesystem::path(resolved).parent_path(), ec);
+    std::filesystem::create_directories(std::filesystem::path(resolved).parent_path(), ec);
     out_.open(resolved, std::ios::app);
     if (out_.is_open())
         event("session_start", {{"session", session_}});
 }
 
 void ConversationLog::event(const std::string& type, const json& fields) {
-    if (!out_.is_open()) return;
+    if (!out_.is_open())
+        return;
     json rec = fields;
     rec["ts"] = now_ms();
     rec["session"] = session_;

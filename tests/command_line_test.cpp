@@ -6,25 +6,31 @@
 
 // Minimal test framework for CommandLine.
 #define TEST(name) void name()
-#define ASSERT(cond) do { \
-    if (!(cond)) { \
-        std::cerr << "FAIL: " << #cond << " at " << __FILE__ << ":" << __LINE__ << "\n"; \
-        return 1; \
-    } \
-} while(0)
-#define ASSERT_EQ(a,b) ASSERT((a) == (b))
+#define ASSERT(cond)                                                                               \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "FAIL: " << #cond << " at " << __FILE__ << ":" << __LINE__ << "\n";       \
+            return 1;                                                                              \
+        }                                                                                          \
+    } while (0)
+#define ASSERT_EQ(a, b) ASSERT((a) == (b))
 
 int run_test(const char* name, int (*fn)()) {
     std::cout << "[TEST] " << name << "...\n";
     int rc = fn();
-    if (rc) std::cout << "  FAIL\n"; else std::cout << "  PASS\n";
+    if (rc)
+        std::cout << "  FAIL\n";
+    else
+        std::cout << "  PASS\n";
     return rc;
 }
 
 // ── Test: basic text insertion ──
 static int test_basic_insertion() {
     tui::CommandLine cl;
-    cl.on_char('h'); cl.on_char('e'); cl.on_char('l');
+    cl.on_char('h');
+    cl.on_char('e');
+    cl.on_char('l');
     ASSERT_EQ(cl.text(), "hel");
     ASSERT_EQ(cl.cursor(), 3);
     return 0;
@@ -43,7 +49,8 @@ static int test_slash_triggers_drawer() {
 static int test_backspace() {
     tui::CommandLine cl;
     cl.set_text("hello");
-    cl.on_backspace(); cl.on_backspace();
+    cl.on_backspace();
+    cl.on_backspace();
     ASSERT_EQ(cl.text(), "hel");
     ASSERT_EQ(cl.cursor(), 3);
     return 0;
@@ -95,7 +102,7 @@ static int test_ctrl_k() {
 static int test_undo() {
     tui::CommandLine cl;
     cl.set_text("hello");
-    cl.on_ctrl_w();  // delete word backward — saves undo
+    cl.on_ctrl_w(); // delete word backward — saves undo
     ASSERT(cl.text().empty());
     cl.on_undo();
     ASSERT_EQ(cl.text(), "hello");
@@ -105,7 +112,7 @@ static int test_undo() {
 // ── Test: ? without space → ShowPopup ──
 static int test_question_no_space() {
     tui::CommandLine cl;
-    cl.set_text("/set");  // cursor at end: /set|
+    cl.set_text("/set"); // cursor at end: /set|
     // Insert '?' — no space before it.
     auto r = cl.on_char('?');
     ASSERT_EQ(r.action, tui::CommandLine::Result::ShowPopup);
@@ -117,7 +124,7 @@ static int test_question_no_space() {
 // ── Test: ? with space → ShowHelpPage ──
 static int test_question_with_space() {
     tui::CommandLine cl;
-    cl.set_text("/set ");  // trailing space: /set |
+    cl.set_text("/set "); // trailing space: /set |
     auto r = cl.on_char('?');
     ASSERT_EQ(r.action, tui::CommandLine::Result::ShowHelpPage);
     ASSERT_EQ(r.help_node, "/set");
@@ -129,7 +136,7 @@ static int test_question_with_space() {
 // ── Test: ? with space at nested depth ──
 static int test_question_nested() {
     tui::CommandLine cl;
-    cl.set_text("/set detection ");  // /set detection |
+    cl.set_text("/set detection "); // /set detection |
     auto r = cl.on_char('?');
     ASSERT_EQ(r.action, tui::CommandLine::Result::ShowHelpPage);
     ASSERT_EQ(r.help_node, "/set detection");
@@ -191,7 +198,9 @@ static int test_at_then_normal() {
     tui::CommandLine cl;
     cl.set_text("read ");
     cl.on_char('@');
-    cl.on_char('f'); cl.on_char('i'); cl.on_char('l');
+    cl.on_char('f');
+    cl.on_char('i');
+    cl.on_char('l');
     ASSERT_EQ(cl.text(), "read @fil");
     return 0;
 }
@@ -200,7 +209,8 @@ static int test_at_then_normal() {
 static int test_long_input() {
     tui::CommandLine cl;
     std::string s;
-    for (int i = 0; i < 1000; ++i) s += 'x';
+    for (int i = 0; i < 1000; ++i)
+        s += 'x';
     cl.set_text(s);
     ASSERT_EQ(cl.text().size(), 1000u);
     cl.on_ctrl_a();
@@ -226,9 +236,9 @@ static int test_yank() {
     tui::CommandLine cl;
     cl.set_text("hello world");
     cl.on_ctrl_e();
-    cl.on_ctrl_w();  // deletes "world"
+    cl.on_ctrl_w(); // deletes "world"
     ASSERT_EQ(cl.text(), "hello ");
-    cl.on_ctrl_y();  // yanks "world" back
+    cl.on_ctrl_y(); // yanks "world" back
     ASSERT_EQ(cl.text(), "hello world");
     return 0;
 }
@@ -295,11 +305,11 @@ static int test_tab_cycle_replaces_only_token() {
     tui::CommandLine cl;
     cl.set_completions({"policy", "provider"});
     cl.set_text("/set p");
-    cl.on_tab();   // accept shadow → /set policy
+    cl.on_tab(); // accept shadow → /set policy
     ASSERT_EQ(cl.text(), "/set policy");
-    cl.on_tab();   // cycle → provider
+    cl.on_tab(); // cycle → provider
     ASSERT_EQ(cl.text(), "/set provider");
-    cl.on_tab();   // cycle back → policy
+    cl.on_tab(); // cycle back → policy
     ASSERT_EQ(cl.text(), "/set policy");
     return 0;
 }
@@ -342,10 +352,9 @@ int main() {
     failed += run_test("shadow dotted partial", test_shadow_dotted_partial);
     failed += run_test("shadow never single letter", test_shadow_never_single_letter);
     failed += run_test("tab cycle replaces only token", test_tab_cycle_replaces_only_token);
-    failed += run_test("enter dispatches drawer row descend", test_enter_dispatches_drawer_row_descend);
+    failed +=
+        run_test("enter dispatches drawer row descend", test_enter_dispatches_drawer_row_descend);
 
-    std::cout << "\n" << (failed ? "FAILED" : "ALL PASSED")
-              << " (" << failed << " failures)\n";
+    std::cout << "\n" << (failed ? "FAILED" : "ALL PASSED") << " (" << failed << " failures)\n";
     return failed;
 }
-

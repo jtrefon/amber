@@ -26,9 +26,10 @@ void upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memo
 void upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& skill,
                   const ExperienceConfig& cfg, int current_turn);
 std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Memory>& memories,
-                                        size_t k, const std::string& user_message, int current_turn);
-std::vector<Skill> select_top_skills(const std::unordered_map<std::string, Skill>& skills,
-                                     size_t k, const std::string& user_message);
+                                        size_t k, const std::string& user_message,
+                                        int current_turn);
+std::vector<Skill> select_top_skills(const std::unordered_map<std::string, Skill>& skills, size_t k,
+                                     const std::string& user_message);
 std::vector<Memory> sorted_memories(const std::unordered_map<std::string, Memory>& memories,
                                     int current_turn);
 std::vector<Skill> sorted_skills(const std::unordered_map<std::string, Skill>& skills,
@@ -52,7 +53,8 @@ int deprecate_one_map(const std::string& content, std::unordered_map<std::string
             }
         }
     }
-    if (it == items.end()) return -1;
+    if (it == items.end())
+        return -1;
     T& item = it->second;
     item.evidence_count = std::max(0, item.evidence_count - 1);
     if (item.evidence_count == 0) {

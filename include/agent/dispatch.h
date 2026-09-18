@@ -25,10 +25,8 @@ using json = nlohmann::json;
 // the outcome (session grant / persisted rule) against the decision's scope
 // id. Returns true only when the call may run; with no hook set, approval
 // always fails (fail-safe).
-bool approve_tool(const Tool& tool, const json& args, const Config& cfg,
-                  const AgentHooks& hooks,
-                  std::set<std::string>& session_approved,
-                  PolicyStore* policy);
+bool approve_tool(const Tool& tool, const json& args, const Config& cfg, const AgentHooks& hooks,
+                  std::set<std::string>& session_approved, PolicyStore* policy);
 
 // Execute every requested tool call, recording results into `history`. Tools
 // run in parallel via std::async; approval is checked synchronously. Returns
@@ -37,13 +35,10 @@ bool approve_tool(const Tool& tool, const json& args, const Config& cfg,
 // stays a thin orchestrator.
 class EventBus;
 
-bool dispatch_tool_calls(const json& calls, const Config& cfg,
-                         ToolRegistry& registry, const AgentHooks& hooks,
-                         ConversationLog& log,
-                         std::set<std::string>& session_approved,
-                         PolicyStore* policy,
-                         EventBus* events,
-                         Context* context);
+bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& registry,
+                         const AgentHooks& hooks, ConversationLog& log,
+                         std::set<std::string>& session_approved, PolicyStore* policy,
+                         EventBus* events, Context* context);
 
 } // namespace agent
 

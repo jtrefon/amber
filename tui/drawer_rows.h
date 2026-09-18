@@ -14,8 +14,7 @@ namespace tui {
 //   drawer_rows("/set provider d", settings)
 //     → { "  deepseek  Switch the active LLM provider.",
 //         "  kilocode  ..." }
-std::vector<std::string> drawer_rows(const std::string& input,
-                                     const SettingRegistry& settings);
+std::vector<std::string> drawer_rows(const std::string& input, const SettingRegistry& settings);
 
 std::vector<std::string> drawer_entry_names(const std::string& input,
                                             const SettingRegistry& settings);

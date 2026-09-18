@@ -26,7 +26,8 @@ namespace {
 // The `clientp` argument is a `const CancellationToken*` set via
 // CURLOPT_XFERINFODATA. A null or uncontested token is a no-op.
 int cancel_check_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-    if (!clientp) return 0;
+    if (!clientp)
+        return 0;
     const auto* token = static_cast<const CancellationToken*>(clientp);
     return token->is_requested() ? 1 : 0;
 }
@@ -46,17 +47,18 @@ void apply_tps(Stats& stats, double ttfb, double total) {
 // Shared curl request execution: sets up the dialect's URL and auth headers,
 // the POST body, write callback, timeout, and cancel wiring, then performs the
 // request and collects timing + status. Throws on transport error.
-void curl_exec(const Config& cfg, const Dialect& dialect,
-               const std::string& payload, bool accept_sse, long timeout_s,
-               curl_write_callback write_fn, void* write_data,
-               long& http_code, double& ttfb, double& total,
-               const char* debug_tag) {
+void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& payload,
+               bool accept_sse, long timeout_s, curl_write_callback write_fn, void* write_data,
+               long& http_code, double& ttfb, double& total, const char* debug_tag) {
     auto c = make_curl();
-    if (!c) throw std::runtime_error("curl_easy_init failed");
+    if (!c)
+        throw std::runtime_error("curl_easy_init failed");
     HeaderList headers;
     headers.add("Content-Type: application/json");
-    if (accept_sse) headers.add("Accept: text/event-stream");
-    for (const auto& h : dialect.auth_headers(cfg)) headers.add(h);
+    if (accept_sse)
+        headers.add("Accept: text/event-stream");
+    for (const auto& h : dialect.auth_headers(cfg))
+        headers.add(h);
 
     const std::string url = dialect.chat_url(cfg);
     curl_easy_setopt(c.get(), CURLOPT_URL, url.c_str());
@@ -86,26 +88,25 @@ void curl_exec(const Config& cfg, const Dialect& dialect,
         debug_log(cfg.debug_log, debug_tag, std::string(curl_easy_strerror(rc)));
         if (cfg.cancel_token.is_requested())
             throw CancelledError("request cancelled by user");
-        throw std::runtime_error(std::string("curl error: ") +
-                                 curl_easy_strerror(rc));
+        throw std::runtime_error(std::string("curl error: ") + curl_easy_strerror(rc));
     }
 }
 
 } // namespace
 
 HeaderList::~HeaderList() {
-    if (list) curl_slist_free_all(list);
+    if (list)
+        curl_slist_free_all(list);
 }
 
 std::string describe_http_error(long http_code, const std::string& body) {
-    std::string msg = "HTTP " + std::to_string(http_code) +
-                      " from LLM server: " + body.substr(0, 200);
+    std::string msg =
+        "HTTP " + std::to_string(http_code) + " from LLM server: " + body.substr(0, 200);
     // llama.cpp "automatic parser generation" failures mean the loaded
     // model's chat template cannot be auto-parsed for tool calling — a
     // server/model problem, not a request problem. Say so instead of
     // leaving the user to decode the raw nlohmann error.
-    if (body.find("Unable to generate parser for this template") !=
-        std::string::npos)
+    if (body.find("Unable to generate parser for this template") != std::string::npos)
         msg += "  (server chat-template parser failure: reload the model "
                "on the server or check its template)";
     return msg;
@@ -115,17 +116,17 @@ std::string describe_http_error(long http_code, const std::string& body) {
 // body, setting up auth/JSON headers and throwing on any transport error.
 // `accept_sse` adds the text/event-stream Accept header for streaming
 // requests. When non-null, `ttfb`/`total` receive transfer timings in seconds.
-std::string post_completion(Config& cfg, const Dialect& dialect,
-                            const std::string& payload, bool accept_sse,
-                            double* ttfb, double* total) {
+std::string post_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
+                            bool accept_sse, double* ttfb, double* total) {
     std::string response;
     long http_code = 0;
     double t0 = 0, t1 = 0;
-    curl_exec(cfg, dialect, payload, accept_sse, 300L,
-              write_cb, &response,
-              http_code, t0, t1, "error");
-    if (ttfb) *ttfb = t0;
-    if (total) *total = t1;
+    curl_exec(cfg, dialect, payload, accept_sse, 300L, write_cb, &response, http_code, t0, t1,
+              "error");
+    if (ttfb)
+        *ttfb = t0;
+    if (total)
+        *total = t1;
     if (http_code < 200 || http_code >= 300) {
         // Try to learn context_size from HTTP 400 overflow errors. The
         // rejection is the runtime truth — it clamps even an explicitly
@@ -148,13 +149,11 @@ std::string post_completion(Config& cfg, const Dialect& dialect,
 // Run a streaming completion: POST `payload`, feed response bytes to
 // `decoder`, and finalize. Fills `stats` (timings + token counts). Throws on
 // transport error.
-void stream_completion(Config& cfg, const Dialect& dialect,
-                       const std::string& payload, StreamDecoder& decoder,
-                       Stats* stats, long& status_out) {
+void stream_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
+                       StreamDecoder& decoder, Stats* stats, long& status_out) {
     double ttfb = 0, total = 0;
-    curl_exec(cfg, dialect, payload, true, 300L,
-              stream_write_cb, &decoder,
-              status_out, ttfb, total, "error-stream");
+    curl_exec(cfg, dialect, payload, true, 300L, stream_write_cb, &decoder, status_out, ttfb, total,
+              "error-stream");
     if (status_out < 200 || status_out >= 300) {
         // Same overflow learning as the buffered path: the rejection teaches
         // the runtime window regardless of any configured value.
@@ -166,8 +165,7 @@ void stream_completion(Config& cfg, const Dialect& dialect,
             }
         }
         bool retryable = dialect.is_retryable(status_out, decoder.raw_body());
-        throw ApiError(status_out, retryable,
-                       describe_http_error(status_out, decoder.raw_body()));
+        throw ApiError(status_out, retryable, describe_http_error(status_out, decoder.raw_body()));
     }
     decoder.finalize();
     if (stats) {
@@ -182,9 +180,8 @@ void stream_completion(Config& cfg, const Dialect& dialect,
 // Fill `stats` from a buffered response body and its transfer timings
 // (seconds), mapping the dialect's token usage. Mirrors the telemetry that
 // stream_completion() produces for the streamed path.
-void fill_buffered_stats(Stats& stats, const Dialect& dialect,
-                         const std::string& response, double ttfb,
-                         double total) {
+void fill_buffered_stats(Stats& stats, const Dialect& dialect, const std::string& response,
+                         double ttfb, double total) {
     stats.valid = true;
     stats.latency_ms = ttfb * 1000.0;
     const TokenUsage usage = dialect.parse_usage(response);

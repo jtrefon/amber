@@ -43,7 +43,7 @@ struct PluginInfo {
     std::string dir;
     std::string version;
     PluginState state = PluginState::Disabled;
-    std::string error;  // load / handshake failure detail
+    std::string error; // load / handshake failure detail
     json settings;
     PluginManifest manifest;
 };
@@ -54,7 +54,7 @@ struct PluginInfo {
 class PluginManager {
 public:
     PluginManager() = default;
-    ~PluginManager();  // shuts down all live plugin processes
+    ~PluginManager(); // shuts down all live plugin processes
 
     PluginManager(const PluginManager&) = delete;
     PluginManager& operator=(const PluginManager&) = delete;
@@ -76,8 +76,7 @@ public:
 
     // Persisted key/value settings (state.json in the user config dir).
     std::string get_setting(const std::string& id, const std::string& key) const;
-    bool set_setting(const std::string& id, const std::string& key,
-                     const std::string& value);
+    bool set_setting(const std::string& id, const std::string& key, const std::string& value);
 
     // Install a plugin from a local tar.gz path or an http(s) URL. Returns
     // "" on success or a human-readable error. Installed plugins are staged
@@ -99,18 +98,16 @@ private:
     // disable() (which erases and shuts it down).
     std::shared_ptr<Session> session(PluginInfo& info);
     bool spawn_and_handshake(PluginInfo& info, Session& s);
-    ToolResult call_tool(const PluginInfo& info, const std::string& name,
-                         const json& args);
+    ToolResult call_tool(const PluginInfo& info, const std::string& name, const json& args);
 
-    static bool parse_manifest(const std::string& dir, PluginManifest& out,
-                               std::string& err);
+    static bool parse_manifest(const std::string& dir, PluginManifest& out, std::string& err);
     void load_state();
     void save_state();
     void shutdown_session(Session& s);
 
     std::vector<PluginInfo> plugins_;
     std::map<std::string, std::shared_ptr<Session>> sessions_;
-    std::mutex sessions_mtx_;   // guards sessions_ (parallel tool dispatch)
+    std::mutex sessions_mtx_; // guards sessions_ (parallel tool dispatch)
     json state_;
 };
 

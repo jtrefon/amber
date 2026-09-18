@@ -1,7 +1,6 @@
 
 #include "agent/plugin_registry.h"
 
-
 namespace agent {
 
 void PluginRegistry::register_plugin(std::shared_ptr<IPlugin> plugin) {
@@ -13,8 +12,10 @@ void PluginRegistry::register_plugin(std::shared_ptr<IPlugin> plugin) {
 
 bool PluginRegistry::activate(const std::string& id) {
     auto it = entries_.find(id);
-    if (it == entries_.end()) return false;
-    if (it->second.state == State::Active) return true;
+    if (it == entries_.end())
+        return false;
+    if (it->second.state == State::Active)
+        return true;
     if (!ctx_) {
         return false;
     }
@@ -25,8 +26,10 @@ bool PluginRegistry::activate(const std::string& id) {
 
 bool PluginRegistry::deactivate(const std::string& id) {
     auto it = entries_.find(id);
-    if (it == entries_.end()) return false;
-    if (it->second.state != State::Active) return false;
+    if (it == entries_.end())
+        return false;
+    if (it->second.state != State::Active)
+        return false;
 
     it->second.plugin->shutdown();
     it->second.state = State::Deactivated;
@@ -44,7 +47,8 @@ void PluginRegistry::shutdown_all() {
 
 PluginRegistry::State PluginRegistry::state(const std::string& id) const {
     auto it = entries_.find(id);
-    if (it == entries_.end()) return State::Discovered;
+    if (it == entries_.end())
+        return State::Discovered;
     return it->second.state;
 }
 
@@ -59,12 +63,17 @@ std::vector<PluginRegistry::PluginInfo> PluginRegistry::list() const {
 
 std::shared_ptr<IPlugin> PluginRegistry::find(const std::string& id) const {
     auto it = entries_.find(id);
-    if (it == entries_.end()) return nullptr;
+    if (it == entries_.end())
+        return nullptr;
     return it->second.plugin;
 }
 
-EventBus& PluginRegistry::event_bus() { return bus_; }
+EventBus& PluginRegistry::event_bus() {
+    return bus_;
+}
 
-void PluginRegistry::set_context(PluginContext* ctx) { ctx_ = ctx; }
+void PluginRegistry::set_context(PluginContext* ctx) {
+    ctx_ = ctx;
+}
 
 } // namespace agent

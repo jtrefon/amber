@@ -45,20 +45,19 @@ void add(ToolRegistry& reg, const std::string& name, const std::string& descript
                       ToolMeta{"running", role});
 }
 
-std::size_t count_of(const std::vector<AuditFinding>& findings,
-                     AuditFinding::Kind kind) {
+std::size_t count_of(const std::vector<AuditFinding>& findings, AuditFinding::Kind kind) {
     std::size_t n = 0;
     for (const auto& f : findings)
-        if (f.kind == kind) ++n;
+        if (f.kind == kind)
+            ++n;
     return n;
 }
 
 } // namespace
 
 TEST(audit_role_names_round_trip) {
-    for (ToolRole role : {ToolRole::Other, ToolRole::Read, ToolRole::Write,
-                          ToolRole::Search, ToolRole::Execute, ToolRole::Plan,
-                          ToolRole::Delegate}) {
+    for (ToolRole role : {ToolRole::Other, ToolRole::Read, ToolRole::Write, ToolRole::Search,
+                          ToolRole::Execute, ToolRole::Plan, ToolRole::Delegate}) {
         ASSERT_EQ(parse_tool_role(to_string(role)), role);
     }
     ASSERT_EQ(parse_tool_role("nonsense"), ToolRole::Other);
@@ -103,8 +102,8 @@ TEST(audit_allows_two_tools_that_distinguish_themselves) {
     ToolRegistry reg;
     add(reg, "read", "Read a file from the workspace.", ToolRole::Read);
     add(reg, "search", "Fast regex scan across files using grep.", ToolRole::Search);
-    add(reg, "search_semantic",
-        "Dependency-free lexical index ranked by term frequency.", ToolRole::Search);
+    add(reg, "search_semantic", "Dependency-free lexical index ranked by term frequency.",
+        ToolRole::Search);
 
     ASSERT_TRUE(audit_toolset(reg).empty());
 }
@@ -132,7 +131,8 @@ TEST(audit_the_shipped_tool_set_is_clean) {
 
     auto findings = audit_toolset(reg);
     std::string joined;
-    for (const auto& f : findings) joined += to_string(f.kind) + ": " + f.message + "\n";
+    for (const auto& f : findings)
+        joined += to_string(f.kind) + ": " + f.message + "\n";
     ASSERT_EQ(findings.size(), 0u);
 
     // Every shipped tool also declares a role, so none of them is invisible to

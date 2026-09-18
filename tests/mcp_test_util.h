@@ -45,7 +45,8 @@ public:
 
     bool notify(const std::string& method, const json& params) override {
         (void)params;
-        if (method == "notifications/initialized") ++initialized_notifications;
+        if (method == "notifications/initialized")
+            ++initialized_notifications;
         return true;
     }
 
@@ -62,12 +63,11 @@ public:
     }
 
     void shutdown() override {}
-    std::string failure_reason() const override {
-        return fail_requests ? "fake failure" : "";
-    }
+    std::string failure_reason() const override { return fail_requests ? "fake failure" : ""; }
 
     void deliver_server_message(const agent::McpMessage& m) {
-        if (on_server_message_) on_server_message_(m);
+        if (on_server_message_)
+            on_server_message_(m);
     }
 };
 

@@ -16,9 +16,7 @@ class ApprovalModel;
 // Returns the selected Approval value.
 class ApprovalPanel : public Panel {
 public:
-    ApprovalPanel(const std::string& summary,
-                  int timeout_sec,
-                  int default_idx);
+    ApprovalPanel(const std::string& summary, int timeout_sec, int default_idx);
 
     agent::Approval run();
 
@@ -28,7 +26,7 @@ private:
     bool handle_dialog_key(int ch, ApprovalModel& model);
     std::string summary_;
     int timeout_sec_;
-    int sel_ = 0;           // 0=AllowOnce, 1=AllowSession, 2=AlwaysAllow, 3=AlwaysDeny
+    int sel_ = 0; // 0=AllowOnce, 1=AllowSession, 2=AlwaysAllow, 3=AlwaysDeny
     int remaining_ = 0;
 
     void draw();
@@ -39,15 +37,15 @@ private:
 // Convenience wrapper: shows the approval dialog and returns the decision.
 // If timeout_sec == 0 the dialog waits indefinitely.
 // default_idx 0-3 selects the initially highlighted option.
-agent::Approval approve_dialog(const std::string& summary,
-                                int timeout_sec = 60,
-                                int default_idx = 0);
+agent::Approval approve_dialog(const std::string& summary, int timeout_sec = 60,
+                               int default_idx = 0);
 
 // Simple yes/no confirmation dialog.
 class ConfirmPanel : public Panel {
 public:
     ConfirmPanel(const std::string& title, const std::string& message);
     bool run();
+
 private:
     std::string message_;
     bool yes_ = false;

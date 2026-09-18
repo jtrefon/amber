@@ -6,7 +6,9 @@
 
 namespace agent::plugins {
 
-bool HelloPlugin::initialize(const PluginContext&) { return true; }
+bool HelloPlugin::initialize(const PluginContext&) {
+    return true;
+}
 
 std::vector<std::unique_ptr<Capability>> HelloPlugin::capabilities() {
     // The namespace: one root ("hello") and its child nodes, in the same shape

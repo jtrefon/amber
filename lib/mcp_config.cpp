@@ -22,16 +22,13 @@ std::unique_ptr<McpTransport> make_transport(const McpServerConfig& cfg) {
     int timeout_ms = cfg.timeout_s * 1000;
     if (cfg.type == "stdio") {
         std::string cwd = cfg.cwd.empty() ? Workspace::root() : cfg.cwd;
-        return std::make_unique<StdioTransport>(cfg.command, cfg.args, cwd,
-                                                nullptr, timeout_ms);
+        return std::make_unique<StdioTransport>(cfg.command, cfg.args, cwd, nullptr, timeout_ms);
     }
-    return std::make_unique<HttpTransport>(cfg.url, cfg.auth_token, timeout_ms,
-                                           nullptr);
+    return std::make_unique<HttpTransport>(cfg.url, cfg.auth_token, timeout_ms, nullptr);
 }
 
 std::string mcp_dir(bool project) {
-    return project ? Workspace::local_dir() + "/mcp"
-                   : global_config_dir() + "/mcp";
+    return project ? Workspace::local_dir() + "/mcp" : global_config_dir() + "/mcp";
 }
 
 bool parse_bool(const std::string& val) {
@@ -42,37 +39,47 @@ std::vector<std::string> split_args(const std::string& line) {
     std::vector<std::string> out;
     std::stringstream ss(line);
     std::string tok;
-    while (ss >> tok) out.push_back(tok);
+    while (ss >> tok)
+        out.push_back(tok);
     return out;
 }
 
 // Reject names that could traverse the filesystem when used in a path.
 // Allows kebab-case identifiers: [a-zA-Z0-9._-] but no leading dot or slash.
 bool valid_server_name(const std::string& name) {
-    if (name.empty() || name[0] == '.') return false;
-    if (name.find("..") != std::string::npos) return false;
+    if (name.empty() || name[0] == '.')
+        return false;
+    if (name.find("..") != std::string::npos)
+        return false;
     auto allowed = [](char c) {
-        if (c == '/' || c == '\\' || c == '\0') return false;
-        bool is_alnum = (c >= 'a' && c <= 'z') ||
-                        (c >= 'A' && c <= 'Z') ||
-                        (c >= '0' && c <= '9');
+        if (c == '/' || c == '\\' || c == '\0')
+            return false;
+        bool is_alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
         return is_alnum || c == '-' || c == '_' || c == '.';
     };
     return std::all_of(name.begin(), name.end(), allowed);
 }
 
 // Apply one KEY=VALUE line to the config under construction.
-void apply_field(McpServerConfig& cfg, const std::string& key,
-                 const std::string& val) {
-    if (key == "type") cfg.type = val;
-    else if (key == "command") cfg.command = val;
-    else if (key == "args") cfg.args = split_args(val);
-    else if (key == "cwd") cfg.cwd = val;
-    else if (key == "url") cfg.url = val;
-    else if (key == "auth_token") cfg.auth_token = val;
-    else if (key == "enabled") cfg.enabled = parse_bool(val);
-    else if (key == "auto_connect") cfg.auto_connect = parse_bool(val);
-    else if (key == "trusted") cfg.trusted = parse_bool(val);
+void apply_field(McpServerConfig& cfg, const std::string& key, const std::string& val) {
+    if (key == "type")
+        cfg.type = val;
+    else if (key == "command")
+        cfg.command = val;
+    else if (key == "args")
+        cfg.args = split_args(val);
+    else if (key == "cwd")
+        cfg.cwd = val;
+    else if (key == "url")
+        cfg.url = val;
+    else if (key == "auth_token")
+        cfg.auth_token = val;
+    else if (key == "enabled")
+        cfg.enabled = parse_bool(val);
+    else if (key == "auto_connect")
+        cfg.auto_connect = parse_bool(val);
+    else if (key == "trusted")
+        cfg.trusted = parse_bool(val);
     else if (key == "timeout_s") {
         // One bad value must not fail every server's config load.
         try {
@@ -105,7 +112,8 @@ void validate(McpServerConfig& cfg) {
             cfg.cwd = resolved;
         }
     }
-    if (cfg.timeout_s <= 0) cfg.timeout_s = 60;
+    if (cfg.timeout_s <= 0)
+        cfg.timeout_s = 60;
 }
 
 McpServerConfig parse_file(const std::string& path) {
@@ -118,9 +126,11 @@ McpServerConfig parse_file(const std::string& path) {
     }
     std::string line;
     while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty() || line[0] == '#')
+            continue;
         size_t eq = line.find('=');
-        if (eq == std::string::npos) continue;
+        if (eq == std::string::npos)
+            continue;
         apply_field(cfg, line.substr(0, eq), line.substr(eq + 1));
     }
     validate(cfg);
@@ -131,12 +141,15 @@ McpServerConfig parse_file(const std::string& path) {
 // absent keys keep their global values.
 void overlay_file(const std::string& path, McpServerConfig& cfg) {
     std::ifstream f(path);
-    if (!f.is_open()) return;
+    if (!f.is_open())
+        return;
     std::string line;
     while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty() || line[0] == '#')
+            continue;
         size_t eq = line.find('=');
-        if (eq == std::string::npos) continue;
+        if (eq == std::string::npos)
+            continue;
         apply_field(cfg, line.substr(0, eq), line.substr(eq + 1));
     }
     validate(cfg);
@@ -144,19 +157,23 @@ void overlay_file(const std::string& path, McpServerConfig& cfg) {
 
 // Load one directory's configs into `out`; `overlay` merges fields onto
 // existing entries (project wins per key), otherwise entries are replaced.
-void load_dir(const std::string& dir, bool overlay,
-              std::map<std::string, McpServerConfig>& out) {
+void load_dir(const std::string& dir, bool overlay, std::map<std::string, McpServerConfig>& out) {
     std::error_code ec;
-    if (!fs::exists(dir, ec)) return;
+    if (!fs::exists(dir, ec))
+        return;
     for (const auto& entry : fs::directory_iterator(dir, ec)) {
         std::error_code e2;
-        if (!entry.is_regular_file(e2)) continue;
+        if (!entry.is_regular_file(e2))
+            continue;
         // Reject symlinks: a symlinked config could read from outside the
         // config directory.
-        if (entry.is_symlink(e2)) continue;
-        if (entry.path().extension() != ".conf") continue;
+        if (entry.is_symlink(e2))
+            continue;
+        if (entry.path().extension() != ".conf")
+            continue;
         std::string name = entry.path().stem().string();
-        if (name.empty()) continue;
+        if (name.empty())
+            continue;
         auto it = out.find(name);
         if (overlay && it != out.end()) {
             overlay_file(entry.path().string(), it->second);
@@ -179,40 +196,47 @@ std::map<std::string, McpServerConfig> load_mcp_servers() {
         std::string name;
         std::vector<std::string> enabled_names;
         while (std::getline(ss, name, ',')) {
-            if (!name.empty()) enabled_names.push_back(name);
+            if (!name.empty())
+                enabled_names.push_back(name);
         }
         for (auto& kv : out)
-            kv.second.enabled =
-                std::find(enabled_names.begin(), enabled_names.end(),
-                          kv.first) != enabled_names.end();
+            kv.second.enabled = std::find(enabled_names.begin(), enabled_names.end(), kv.first) !=
+                                enabled_names.end();
     }
     return out;
 }
 
 bool save_mcp_server(const McpServerConfig& cfg) {
-    if (!valid_server_name(cfg.name)) return false;
+    if (!valid_server_name(cfg.name))
+        return false;
     std::error_code ec;
     fs::path dir = mcp_dir(true);
     fs::create_directories(dir, ec);
-    if (ec) return false;
+    if (ec)
+        return false;
     std::ofstream f(dir / (cfg.name + ".conf"), std::ios::trunc);
-    if (!f) return false;
+    if (!f)
+        return false;
     f << "type=" << cfg.type << "\n";
-    if (!cfg.command.empty()) f << "command=" << cfg.command << "\n";
+    if (!cfg.command.empty())
+        f << "command=" << cfg.command << "\n";
     if (!cfg.args.empty()) {
         f << "args=";
         for (size_t i = 0; i < cfg.args.size(); ++i) {
-            if (i) f << " ";
+            if (i)
+                f << " ";
             f << cfg.args[i];
         }
         f << "\n";
     }
-    fs::permissions(dir / (cfg.name + ".conf"), fs::perms::owner_read |
-                                                    fs::perms::owner_write,
+    fs::permissions(dir / (cfg.name + ".conf"), fs::perms::owner_read | fs::perms::owner_write,
                     fs::perm_options::replace, ec);
-    if (!cfg.cwd.empty()) f << "cwd=" << cfg.cwd << "\n";
-    if (!cfg.url.empty()) f << "url=" << cfg.url << "\n";
-    if (!cfg.auth_token.empty()) f << "auth_token=" << cfg.auth_token << "\n";
+    if (!cfg.cwd.empty())
+        f << "cwd=" << cfg.cwd << "\n";
+    if (!cfg.url.empty())
+        f << "url=" << cfg.url << "\n";
+    if (!cfg.auth_token.empty())
+        f << "auth_token=" << cfg.auth_token << "\n";
     f << "enabled=" << (cfg.enabled ? 1 : 0) << "\n";
     f << "auto_connect=" << (cfg.auto_connect ? 1 : 0) << "\n";
     f << "trusted=" << (cfg.trusted ? 1 : 0) << "\n";
@@ -221,7 +245,8 @@ bool save_mcp_server(const McpServerConfig& cfg) {
 }
 
 bool delete_mcp_server(const std::string& name) {
-    if (!valid_server_name(name)) return false;
+    if (!valid_server_name(name))
+        return false;
     std::error_code ec;
     return fs::remove(fs::path(mcp_dir(true)) / (name + ".conf"), ec);
 }
@@ -232,7 +257,8 @@ ServerManager::ServerManager(std::map<std::string, McpServerConfig> servers,
 
 void ServerManager::connect_all() {
     for (const auto& kv : configs_) {
-        if (kv.second.enabled && kv.second.auto_connect) connect(kv.first);
+        if (kv.second.enabled && kv.second.auto_connect)
+            connect(kv.first);
     }
 }
 
@@ -246,25 +272,25 @@ std::string ServerManager::connect(const std::string& name) {
     {
         std::scoped_lock lk(mtx_);
         auto it = configs_.find(name);
-        if (it == configs_.end()) return "unknown server '" + name + "'";
-        if (!it->second.enabled) return "server '" + name + "' is disabled";
-        if (!it->second.error.empty()) return it->second.error;
+        if (it == configs_.end())
+            return "unknown server '" + name + "'";
+        if (!it->second.enabled)
+            return "server '" + name + "' is disabled";
+        if (!it->second.error.empty())
+            return it->second.error;
         cfg = it->second;
         gen = ++connect_gen_[name];
     }
     disconnect(name);
     auto transport = make_transport(cfg);
-    auto client = std::make_shared<MCPClient>(name, std::move(transport), "",
-                                              cancel_token_);
+    auto client = std::make_shared<MCPClient>(name, std::move(transport), "", cancel_token_);
     std::string err = client->connect();
     {
         std::scoped_lock lk(mtx_);
         auto it = configs_.find(name);
-        if (it == configs_.end() || !it->second.enabled ||
-            connect_gen_[name] != gen) {
+        if (it == configs_.end() || !it->second.enabled || connect_gen_[name] != gen) {
             client->disconnect();
-            return "server '" + name +
-                   "' was disabled or reconfigured while connecting";
+            return "server '" + name + "' was disabled or reconfigured while connecting";
         }
         clients_[name] = std::move(client);
     }
@@ -276,7 +302,8 @@ void ServerManager::disconnect(const std::string& name) {
     {
         std::scoped_lock lk(mtx_);
         auto it = clients_.find(name);
-        if (it == clients_.end()) return;
+        if (it == clients_.end())
+            return;
         client = it->second;
         clients_.erase(it);
     }
@@ -287,20 +314,22 @@ void ServerManager::disconnect(const std::string& name) {
 
 std::string ServerManager::refresh(const std::string& name) const {
     auto client = this->client(name);
-    if (!client) return "server '" + name + "' not connected";
+    if (!client)
+        return "server '" + name + "' not connected";
     return client->refresh();
 }
 
 std::string ServerManager::set_trusted(const std::string& name, bool trusted) {
     std::scoped_lock lk(mtx_);
     auto it = configs_.find(name);
-    if (it == configs_.end()) return "unknown server '" + name + "'";
+    if (it == configs_.end())
+        return "unknown server '" + name + "'";
     // Persist the candidate first; a failed write must leave the active
     // session unchanged.
     McpServerConfig candidate = it->second;
     candidate.trusted = trusted;
-    if (!save_mcp_server(candidate)) return "could not save config for '" +
-                                                 name + "'";
+    if (!save_mcp_server(candidate))
+        return "could not save config for '" + name + "'";
     it->second = std::move(candidate);
     return "";
 }
@@ -309,23 +338,27 @@ std::string ServerManager::set_enabled(const std::string& name, bool enabled) {
     {
         std::scoped_lock lk(mtx_);
         auto it = configs_.find(name);
-        if (it == configs_.end()) return "unknown server '" + name + "'";
+        if (it == configs_.end())
+            return "unknown server '" + name + "'";
         McpServerConfig candidate = it->second;
         candidate.enabled = enabled;
-        if (!save_mcp_server(candidate)) return "could not save config for '" +
-                                                     name + "'";
+        if (!save_mcp_server(candidate))
+            return "could not save config for '" + name + "'";
         it->second = std::move(candidate);
     }
-    if (!enabled) disconnect(name);
+    if (!enabled)
+        disconnect(name);
     return "";
 }
 
 std::string ServerManager::add_server(McpServerConfig cfg) {
     validate(cfg);
-    if (cfg.name.empty()) return "missing server name";
-    if (!cfg.error.empty()) return cfg.error;
-    if (!save_mcp_server(cfg)) return "could not save config for '" +
-                                          cfg.name + "'";
+    if (cfg.name.empty())
+        return "missing server name";
+    if (!cfg.error.empty())
+        return cfg.error;
+    if (!save_mcp_server(cfg))
+        return "could not save config for '" + cfg.name + "'";
     std::scoped_lock lk(mtx_);
     configs_[cfg.name] = std::move(cfg);
     return "";
@@ -334,11 +367,12 @@ std::string ServerManager::add_server(McpServerConfig cfg) {
 std::string ServerManager::remove_server(const std::string& name) {
     {
         std::scoped_lock lk(mtx_);
-        if (configs_.count(name) == 0) return "unknown server '" + name + "'";
+        if (configs_.count(name) == 0)
+            return "unknown server '" + name + "'";
     }
     // Delete persistence first; on failure keep the active entry.
-    if (!delete_mcp_server(name)) return "could not delete config for '" +
-                                             name + "'";
+    if (!delete_mcp_server(name))
+        return "could not delete config for '" + name + "'";
     {
         std::scoped_lock lk(mtx_);
         configs_.erase(name);
@@ -359,14 +393,13 @@ std::vector<McpServerStatus> ServerManager::snapshot() const {
         st.error = kv.second.error;
         auto it = clients_.find(kv.first);
         if (it != clients_.end()) {
-            if (!it->second->error().empty()) st.error = it->second->error();
+            if (!it->second->error().empty())
+                st.error = it->second->error();
             if (it->second->connected()) {
                 st.connected = true;
                 st.tool_count = static_cast<int>(it->second->tools().size());
-                st.resource_count =
-                    static_cast<int>(it->second->resources().size());
-                st.prompt_count =
-                    static_cast<int>(it->second->prompts().size());
+                st.resource_count = static_cast<int>(it->second->resources().size());
+                st.prompt_count = static_cast<int>(it->second->prompts().size());
             }
         }
         out.push_back(std::move(st));
@@ -401,10 +434,12 @@ void ServerManager::shutdown_all() {
     std::vector<std::shared_ptr<MCPClient>> all;
     {
         std::scoped_lock lk(mtx_);
-        for (auto& kv : clients_) all.push_back(kv.second);
+        for (auto& kv : clients_)
+            all.push_back(kv.second);
         clients_.clear();
     }
-    for (auto& c : all) c->disconnect();
+    for (auto& c : all)
+        c->disconnect();
 }
 
 } // namespace agent

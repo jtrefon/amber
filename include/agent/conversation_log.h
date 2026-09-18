@@ -19,7 +19,6 @@ public:
     void open(const std::string& path);
     bool enabled() const { return out_.is_open(); }
 
-
     // event: "session_start", "user", "assistant", "reasoning",
     //        "tool_call", "tool_result", "error", "session_end".
     void event(const std::string& type, const json& fields);

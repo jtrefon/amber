@@ -54,8 +54,7 @@ struct McpMessage {
 // Encode helpers: compact JSON, single line, no raw newlines (stdio framing
 // invariant — payload newlines are JSON-escaped). Never throw.
 std::string mcp_encode_request(const McpRequest& req);
-std::string mcp_encode_notification(const std::string& method,
-                                    const json& params);
+std::string mcp_encode_notification(const std::string& method, const json& params);
 std::string mcp_encode_response(int id, const json& result);
 std::string mcp_encode_error_response(int id, const McpError& error);
 
@@ -87,16 +86,14 @@ struct McpTransportResult {
 // callback registered at construction.
 class McpTransport {
 public:
-    explicit McpTransport(
-        std::function<void(const McpMessage&)> on_server_message = {})
+    explicit McpTransport(std::function<void(const McpMessage&)> on_server_message = {})
         : on_server_message_(std::move(on_server_message)) {}
     virtual ~McpTransport() = default;
     McpTransport(const McpTransport&) = delete;
     McpTransport& operator=(const McpTransport&) = delete;
 
     // Send a request and wait for the matching response (or error response).
-    virtual McpTransportResult request(int id, const std::string& method,
-                                       const json& params) = 0;
+    virtual McpTransportResult request(int id, const std::string& method, const json& params) = 0;
 
     // Send a notification; returns false on transport failure.
     virtual bool notify(const std::string& method, const json& params) = 0;
@@ -119,8 +116,7 @@ public:
 
     // (Re)bind the server-message callback (used when the transport is
     // constructed before its owner exists).
-    void set_on_server_message(
-        std::function<void(const McpMessage&)> cb) {
+    void set_on_server_message(std::function<void(const McpMessage&)> cb) {
         on_server_message_ = std::move(cb);
     }
 

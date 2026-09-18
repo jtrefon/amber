@@ -15,12 +15,12 @@
 namespace bench {
 
 struct ProbeResult {
-    std::string family;     // parse | extract | dispatch | context | recovery | ...
+    std::string family; // parse | extract | dispatch | context | recovery | ...
     std::string name;
     bool passed = false;
-    std::string detail;     // what the engine produced
-    std::string expected;   // what was required
-    double ms = 0.0;        // execution time
+    std::string detail;   // what the engine produced
+    std::string expected; // what was required
+    double ms = 0.0;      // execution time
 };
 
 struct ProbeFamily {
@@ -32,9 +32,8 @@ struct ProbeFamily {
 // Families that must be covered for the harness scorecard to be complete.
 inline const std::vector<std::string>& required_probe_families() noexcept {
     static const std::vector<std::string> f = {
-        "parse", "extract", "dispatch", "context", "recovery",
-        "envelope", "budget", "confinement", "oracle", "loop",
-        "fidelity", "output",
+        "parse",  "extract",     "dispatch", "context", "recovery", "envelope",
+        "budget", "confinement", "oracle",   "loop",    "fidelity", "output",
     };
     return f;
 }
@@ -44,10 +43,10 @@ std::vector<ProbeResult> run_all_probes();
 
 struct HarnessScorecard {
     std::vector<ProbeResult> probes;
-    std::map<std::string, std::pair<int, int>> families;  // name -> (passed, total)
+    std::map<std::string, std::pair<int, int>> families; // name -> (passed, total)
     int passed = 0;
     int total = 0;
-    double integrity = 0.0;   // passed / total
+    double integrity = 0.0; // passed / total
 
     double family_integrity(const std::string& family) const noexcept;
 };

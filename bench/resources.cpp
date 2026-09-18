@@ -31,16 +31,19 @@ long rusage_cpu_ms(const struct rusage& ru) noexcept {
 
 void ResourceMeter::start() noexcept {
     struct rusage ru;
-    if (getrusage(RUSAGE_SELF, &ru) != 0) return;
+    if (getrusage(RUSAGE_SELF, &ru) != 0)
+        return;
     baseline_kb_ = maxrss_kb(ru);
     cpu_ms_ = rusage_cpu_ms(ru);
     started_ = true;
 }
 
 void ResourceMeter::stop() noexcept {
-    if (!started_) return;
+    if (!started_)
+        return;
     struct rusage ru;
-    if (getrusage(RUSAGE_SELF, &ru) != 0) return;
+    if (getrusage(RUSAGE_SELF, &ru) != 0)
+        return;
     // ru_maxrss is monotonic — the value at stop is the process peak.
     peak_kb_ = maxrss_kb(ru);
     cpu_ms_ = rusage_cpu_ms(ru) - cpu_ms_;

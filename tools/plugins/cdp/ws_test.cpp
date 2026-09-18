@@ -15,12 +15,21 @@
 #include <thread>
 
 int failed = 0;
-#define ASSERT(cond) do { \
-    if (!(cond)) { std::cerr << "FAIL: " << #cond << "\n"; failed++; } \
-} while(0)
-#define ASSERT_EQ(a,b) do { \
-    if ((a) != (b)) { std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a) << " expected: " << (b) << "\n"; failed++; } \
-} while(0)
+#define ASSERT(cond)                                                                               \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "FAIL: " << #cond << "\n";                                                \
+            failed++;                                                                              \
+        }                                                                                          \
+    } while (0)
+#define ASSERT_EQ(a, b)                                                                            \
+    do {                                                                                           \
+        if ((a) != (b)) {                                                                          \
+            std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a)                        \
+                      << " expected: " << (b) << "\n";                                             \
+            failed++;                                                                              \
+        }                                                                                          \
+    } while (0)
 
 namespace {
 
@@ -36,20 +45,23 @@ void server_main() {
     sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     sa.sin_port = 0;
     auto* sa_ptr = reinterpret_cast<struct sockaddr*>(&sa);
-    if (bind(server_fd, sa_ptr, sizeof sa) != 0) return;
+    if (bind(server_fd, sa_ptr, sizeof sa) != 0)
+        return;
     socklen_t slen = sizeof sa;
     getsockname(server_fd, sa_ptr, &slen);
     listen(server_fd, 1);
     listening.store(true);
     client_fd = accept(server_fd, nullptr, nullptr);
-    if (client_fd < 0) return;
+    if (client_fd < 0)
+        return;
 
     // Read the HTTP handshake, reply 101 (accept value unverified by client).
     std::string req;
     std::array<char, 1024> tmp{};
     while (req.find("\r\n\r\n") == std::string::npos) {
         ssize_t n = recv(client_fd, tmp.data(), tmp.size(), 0);
-        if (n <= 0) return;
+        if (n <= 0)
+            return;
         req.append(tmp.data(), (size_t)n);
     }
     std::string resp = "HTTP/1.1 101 Switching Protocols\r\n"
@@ -62,20 +74,27 @@ void server_main() {
     while (!server_done.load()) {
         std::array<unsigned char, 2> hdr{};
         ssize_t n = recv(client_fd, hdr.data(), hdr.size(), 0);
-        if (n <= 0) return;
+        if (n <= 0)
+            return;
         size_t len = hdr[1] & 0x7f;
         if (len == 126) {
             std::array<unsigned char, 2> ext{};
-            if (recv(client_fd, ext.data(), ext.size(), 0) != 2) return;
+            if (recv(client_fd, ext.data(), ext.size(), 0) != 2)
+                return;
             len = (static_cast<size_t>(ext[0]) << 8) | ext[1];
         }
         std::array<unsigned char, 4> mask{};
-        if (recv(client_fd, mask.data(), mask.size(), 0) != 4) return;
+        if (recv(client_fd, mask.data(), mask.size(), 0) != 4)
+            return;
         std::string payload(len, '\0');
-        if (recv(client_fd, payload.data(), len, 0) != static_cast<ssize_t>(len)) return;
-        for (size_t i = 0; i < len; ++i) payload[i] ^= mask[i % 4];
-        if ((hdr[0] & 0x0f) == 0x8) return;  // close
-        if ((hdr[0] & 0x0f) != 0x1) continue;
+        if (recv(client_fd, payload.data(), len, 0) != static_cast<ssize_t>(len))
+            return;
+        for (size_t i = 0; i < len; ++i)
+            payload[i] ^= mask[i % 4];
+        if ((hdr[0] & 0x0f) == 0x8)
+            return; // close
+        if ((hdr[0] & 0x0f) != 0x1)
+            continue;
         echo_payload = payload;
         std::string frame;
         frame += static_cast<char>(0x81);
@@ -99,7 +118,8 @@ int main() {
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     ASSERT(server_fd >= 0);
     std::thread server(server_main);
-    while (!listening.load()) usleep(2000);
+    while (!listening.load())
+        usleep(2000);
     ASSERT(listening.load());
 
     cdp::WsClient ws;
@@ -117,7 +137,8 @@ int main() {
     ::close(client_fd);
     ::close(server_fd);
 
-    if (failed) std::cerr << failed << " FAILED\n";
+    if (failed)
+        std::cerr << failed << " FAILED\n";
     std::cout << (failed ? "FAILED" : "ALL PASSED") << " (0 failures)\n";
     return failed ? 1 : 0;
 }

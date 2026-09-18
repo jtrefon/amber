@@ -5,12 +5,10 @@
 
 namespace agent {
 
-MemoryRetriever::MemoryRetriever(const MemoryStore& store)
-    : store_(store) {}
+MemoryRetriever::MemoryRetriever(const MemoryStore& store) : store_(store) {}
 
-std::string MemoryRetriever::build_system_prompt_suffix(
-    const std::string& user_message,
-    size_t max_tokens) const {
+std::string MemoryRetriever::build_system_prompt_suffix(const std::string& user_message,
+                                                        size_t max_tokens) const {
     auto memories = store_.top_memories(20, user_message);
     auto skills = store_.top_skills(10, user_message);
 

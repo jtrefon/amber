@@ -81,11 +81,10 @@ TEST(anthropic_request_body_translates_internal_messages) {
     agent::Message assistant;
     assistant.role = "assistant";
     assistant.content = "on it";
-    assistant.tool_calls = agent::json::array({
-        {{"id", "toolu_1"},
-         {"type", "function"},
-         {"function",
-          {{"name", "read"}, {"arguments", R"({"path":"a.txt"})"}}}}});
+    assistant.tool_calls = agent::json::array(
+        {{{"id", "toolu_1"},
+          {"type", "function"},
+          {"function", {{"name", "read"}, {"arguments", R"({"path":"a.txt"})"}}}}});
 
     std::vector<agent::Message> msgs = {system_a, system_b, user, assistant,
                                         tool_result_msg("toolu_1", "file body")};
@@ -159,8 +158,7 @@ TEST(anthropic_parse_completion_maps_blocks_and_usage) {
     // Tool arguments come back as a JSON string on the internal model.
     ASSERT_TRUE(m.tool_calls[0]["function"]["arguments"].is_string());
     agent::json args = agent::json::parse(
-        m.tool_calls[0]["function"]["arguments"].get<std::string>(), nullptr,
-        false);
+        m.tool_calls[0]["function"]["arguments"].get<std::string>(), nullptr, false);
     ASSERT_EQ(args["path"], "b.txt");
 
     agent::TokenUsage usage = d->parse_usage(raw);
@@ -181,8 +179,10 @@ TEST(anthropic_stream_decodes_named_events) {
     agent::Message out;
     std::string streamed;
     auto decoder = d->make_decoder(
-        out, [&streamed](const agent::StreamChunk& ch) {
-            if (!ch.done) streamed += ch.delta;
+        out,
+        [&streamed](const agent::StreamChunk& ch) {
+            if (!ch.done)
+                streamed += ch.delta;
         },
         "");
 
@@ -190,21 +190,35 @@ TEST(anthropic_stream_decodes_named_events) {
         "event: message_start\n"
         "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":77}}}\n\n"
         "event: content_block_start\n"
-        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\","
+        "\"text\":\"\"}}\n\n"
         "event: content_block_delta\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello \"}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":"
+        "\"Hello \"}}\n\n"
         "event: content_block_delta\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":"
+        "\"world\"}}\n\n"
         "event: content_block_stop\n"
         "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
         "event: content_block_start\n"
-        "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_7\",\"name\":\"search\"}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\","
+        "\"id\":\"toolu_7\",\"name\":\"search\"}}\n\n"
         "event: content_block_delta\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"pattern\\\":\"}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\","
+        "\"partial_json\":\"{\\\"pattern\\\":\"}}\n\n"
         "event: content_block_delta\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"ncurses\\\"}\"}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\","
+        "\"partial_json\":\"\\\"ncurses\\\"}\"}}\n\n"
         "event: message_delta\n"
-        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":9}}\n\n"
+        "data: "
+        "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_"
+        "tokens\":9}}\n\n"
         "event: message_stop\n"
         "data: {\"type\":\"message_stop\"}\n\n";
     decoder->on_write(sse.c_str(), sse.size(), 1);
@@ -219,8 +233,7 @@ TEST(anthropic_stream_decodes_named_events) {
     ASSERT_EQ(out.tool_calls.size(), 1u);
     ASSERT_EQ(out.tool_calls[0]["function"]["name"], "search");
     agent::json args = agent::json::parse(
-        out.tool_calls[0]["function"]["arguments"].get<std::string>(), nullptr,
-        false);
+        out.tool_calls[0]["function"]["arguments"].get<std::string>(), nullptr, false);
     ASSERT_FALSE(args.is_discarded());
     ASSERT_EQ(args["pattern"], "ncurses");
 }
@@ -231,11 +244,14 @@ TEST(anthropic_stream_drops_nameless_tool_blocks) {
     auto d = anthropic();
     agent::Message out;
     auto decoder = d->make_decoder(out, [](const agent::StreamChunk&) {}, "");
-    const std::string sse =
-        "event: content_block_start\n"
-        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_x\"}}\n\n"
-        "event: nope\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{}\"}}\n\n";
+    const std::string sse = "event: content_block_start\n"
+                            "data: "
+                            "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{"
+                            "\"type\":\"tool_use\",\"id\":\"toolu_x\"}}\n\n"
+                            "event: nope\n"
+                            "data: "
+                            "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":"
+                            "\"input_json_delta\",\"partial_json\":\"{}\"}}\n\n";
     decoder->on_write(sse.c_str(), sse.size(), 1);
     decoder->finalize();
     ASSERT(out.tool_calls.is_null() || out.tool_calls.empty());
@@ -250,7 +266,7 @@ TEST(anthropic_model_list_and_probe_parse) {
     auto models = d->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "claude-sonnet-4-5");
-    ASSERT_EQ(models[0].context, 0);   // the API does not report a window
+    ASSERT_EQ(models[0].context, 0); // the API does not report a window
 
     agent::ServerInfo info = d->parse_models_response(body, "claude-haiku-4-5");
     ASSERT_TRUE(info.ok);
@@ -259,11 +275,11 @@ TEST(anthropic_model_list_and_probe_parse) {
 
 TEST(anthropic_error_classification) {
     auto d = anthropic();
-    ASSERT_TRUE(d->is_retryable(429, "{}"));       // rate limited
+    ASSERT_TRUE(d->is_retryable(429, "{}")); // rate limited
     ASSERT_TRUE(d->is_retryable(500, "{}"));
-    ASSERT_TRUE(d->is_retryable(529, "{}"));       // overloaded
-    ASSERT_FALSE(d->is_retryable(400, "{}"));      // bad request
-    ASSERT_FALSE(d->is_retryable(401, "{}"));      // bad key
+    ASSERT_TRUE(d->is_retryable(529, "{}"));  // overloaded
+    ASSERT_FALSE(d->is_retryable(400, "{}")); // bad request
+    ASSERT_FALSE(d->is_retryable(401, "{}")); // bad key
 
     // "prompt is too long: 213456 tokens > 200000 maximum"
     const std::string overflow =
@@ -302,9 +318,15 @@ TEST(anthropic_malformed_fields_do_not_throw) {
     auto decoder = d->make_decoder(out, [](const agent::StreamChunk&) {}, "");
     const std::string sse =
         "data: {\"type\": 5}\n\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":77}}\n\n"
-        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":1,\"name\":2}}\n\n"
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":9}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":"
+        "77}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\","
+        "\"id\":1,\"name\":2}}\n\n"
+        "data: "
+        "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\","
+        "\"partial_json\":9}}\n\n"
         "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":\"x\"}}\n\n"
         "data: [DONE]\n\n";
     decoder->on_write(sse.c_str(), sse.size(), 1);
@@ -328,9 +350,8 @@ TEST(dialect_registry_resolves_and_falls_back) {
 
     // Registering it (what the plugin does on activation) makes the flavor
     // resolve, and switching the plugin off makes it refuse loudly instead.
-    agent::register_dialect("anthropic",
-                            [] { return agent::make_anthropic_dialect(); },
-                            "anthropic");
+    agent::register_dialect(
+        "anthropic", [] { return agent::make_anthropic_dialect(); }, "anthropic");
     ASSERT_EQ(agent::make_dialect("anthropic")->flavor(), "anthropic");
     ASSERT_TRUE(agent::flavor_unavailable_reason("anthropic").empty());
 
@@ -342,7 +363,7 @@ TEST(dialect_registry_resolves_and_falls_back) {
 
 TEST(dialect_registry_accepts_new_factories) {
     agent::register_dialect("testflavor", []() {
-        return agent::make_anthropic_dialect();   // any Dialect works
+        return agent::make_anthropic_dialect(); // any Dialect works
     });
     ASSERT_EQ(agent::make_dialect("testflavor")->flavor(), "anthropic");
 }
