@@ -9,15 +9,8 @@
 #include <iostream>
 #include <string>
 
-// Minimal test framework (mirrors tests/completions_test.cpp).
-#define TEST(name) void name()
-#define ASSERT(cond)                                                                               \
-    do {                                                                                           \
-        if (!(cond)) {                                                                             \
-            std::cerr << "FAIL: " << #cond << "\n";                                                \
-            failed++;                                                                              \
-        }                                                                                          \
-    } while (0)
+#include "tests/minitest.h"
+
 #define REQUIRE(cond)                                                                              \
     do {                                                                                           \
         if (!(cond)) {                                                                             \
@@ -26,16 +19,6 @@
             return;                                                                                \
         }                                                                                          \
     } while (0)
-#define ASSERT_EQ(a, b)                                                                            \
-    do {                                                                                           \
-        if ((a) != (b)) {                                                                          \
-            std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a)                        \
-                      << " expected: " << (b) << "\n";                                             \
-            failed++;                                                                              \
-        }                                                                                          \
-    } while (0)
-
-int failed = 0;
 
 namespace {
 

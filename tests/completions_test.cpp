@@ -3,26 +3,6 @@
 #include <string>
 #include <vector>
 
-// Minimal test framework
-#define TEST(name) void name()
-#define ASSERT(cond)                                                                               \
-    do {                                                                                           \
-        if (!(cond)) {                                                                             \
-            std::cerr << "FAIL: " << #cond << "\n";                                                \
-            failed++;                                                                              \
-        }                                                                                          \
-    } while (0)
-#define ASSERT_EQ(a, b)                                                                            \
-    do {                                                                                           \
-        if ((a) != (b)) {                                                                          \
-            std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a)                        \
-                      << " expected: " << (b) << "\n";                                             \
-            failed++;                                                                              \
-        }                                                                                          \
-    } while (0)
-
-int failed = 0;
-
 // cppcheck cannot see through the ASSERT macro; a real guard keeps the
 // container-access checks provably safe.
 #define REQUIRE_NONEMPTY(v)                                                                        \
@@ -37,6 +17,7 @@ int failed = 0;
 #include "tui/drawer_rows.h"
 #include "tui/plugin_feed.h"
 #include "tui/setting_registry.h"
+#include "tests/minitest.h"
 
 // ── Test: JSON loads and produces expected actions ─────────────────
 

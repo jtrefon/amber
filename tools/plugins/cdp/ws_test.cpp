@@ -13,23 +13,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
-
-int failed = 0;
-#define ASSERT(cond)                                                                               \
-    do {                                                                                           \
-        if (!(cond)) {                                                                             \
-            std::cerr << "FAIL: " << #cond << "\n";                                                \
-            failed++;                                                                              \
-        }                                                                                          \
-    } while (0)
-#define ASSERT_EQ(a, b)                                                                            \
-    do {                                                                                           \
-        if ((a) != (b)) {                                                                          \
-            std::cerr << "FAIL: " << #a << " == " << #b << "  got: " << (a)                        \
-                      << " expected: " << (b) << "\n";                                             \
-            failed++;                                                                              \
-        }                                                                                          \
-    } while (0)
+#include "tests/minitest.h"
 
 namespace {
 

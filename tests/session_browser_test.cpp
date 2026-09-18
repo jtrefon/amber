@@ -4,26 +4,7 @@
 #include <vector>
 
 #include "tui/session_browser_core.h"
-
-// Minimal test framework
-#define TEST(name) void name()
-#define ASSERT(cond)                                                                               \
-    do {                                                                                           \
-        if (!(cond)) {                                                                             \
-            std::cerr << "FAIL: " << #cond << " at " << __LINE__ << "\n";                          \
-            failed++;                                                                              \
-        }                                                                                          \
-    } while (0)
-#define ASSERT_EQ(a, b)                                                                            \
-    do {                                                                                           \
-        if (!((a) == (b))) {                                                                       \
-            std::cerr << "FAIL: " << #a << " got " << (a) << " want " << (b) << " at " << __LINE__ \
-                      << "\n";                                                                     \
-            failed++;                                                                              \
-        }                                                                                          \
-    } while (0)
-
-int failed = 0;
+#include "tests/minitest.h"
 
 namespace {
 
