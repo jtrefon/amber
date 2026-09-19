@@ -6393,6 +6393,260 @@ TEST(run_scope_record_activation_goes_to_agent_sink) {
 }
 
 // ---------------------------------------------------------------------------
+// FIX-033 (RED): the run scope must survive the tool-dispatch thread hop.
+// dispatch_tool_calls runs every approved tool on a std::async worker, so the
+// worker must observe the CALLING agent's RunScope — its cancel token, skill
+// catalog and activation sink — not the registration-bound fallbacks. Every
+// test below fails today because the worker's t_run_scope is nullptr.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct ScopeObservation {
+    bool saw_scope = false;
+    bool cancelled = false;
+    const agent::SkillCatalog* resolved_catalog = nullptr;
+    // Never requested: isolates the scope chain from the fallback path, so a
+    // true `cancelled` can only come from the scoped token surviving the hop.
+    agent::CancellationToken inert;
+};
+
+// Reports what the run scope resolved to for THIS worker thread.
+class ScopeProbeTool : public agent::Tool {
+public:
+    ScopeProbeTool(ScopeObservation& obs, agent::SkillCatalog& bound)
+        : obs_(obs), bound_(bound) {}
+
+    std::string name() const noexcept override { return "probe"; }
+    bool is_read_only() const noexcept override { return true; }
+    std::string description() const noexcept override { return "run-scope probe"; }
+    agent::json parameters_schema() const override {
+        return {{"type", "object"}, {"properties", agent::json::object()}};
+    }
+
+    agent::ToolResult execute(const agent::json& args) const override {
+        obs_.saw_scope = agent::current_run_scope() != nullptr;
+        obs_.cancelled = agent::run_cancelled(obs_.inert);
+        obs_.resolved_catalog = &agent::effective_catalog(bound_);
+        agent::record_activation(skill_name(args), "body");
+        agent::ToolResult r;
+        r.ok = true;
+        r.output = "probe";
+        return r;
+    }
+
+private:
+    static std::string skill_name(const agent::json& args) {
+        if (args.contains("skill") && args["skill"].is_string()) {
+            std::string s = args["skill"].get<std::string>();
+            if (!s.empty())
+                return s;
+        }
+        return "probe-skill";
+    }
+    ScopeObservation& obs_;
+    agent::SkillCatalog& bound_;
+};
+
+// Installs a nested scope on the worker, the way a sub-agent's Agent::run does
+// inside the task tool, and reports whether an ANCESTOR token still answers.
+class NestedScopeProbeTool : public agent::Tool {
+public:
+    explicit NestedScopeProbeTool(ScopeObservation& obs) : obs_(obs) {}
+
+    std::string name() const noexcept override { return "probe"; }
+    bool is_read_only() const noexcept override { return true; }
+    std::string description() const noexcept override { return "nested run-scope probe"; }
+    agent::json parameters_schema() const override {
+        return {{"type", "object"}, {"properties", agent::json::object()}};
+    }
+
+    agent::ToolResult execute(const agent::json&) const override {
+        agent::RunScope inner;
+        inner.cancel_token = &inner_token_; // this sub-run's own token, never requested
+        agent::ScopedRunScope guard(&inner);
+        obs_.cancelled = agent::run_cancelled(obs_.inert);
+        agent::ToolResult r;
+        r.ok = true;
+        r.output = "probe";
+        return r;
+    }
+
+private:
+    ScopeObservation& obs_;
+    agent::CancellationToken inner_token_;
+};
+
+// Drive one approved probe call through the real dispatch path.
+bool run_probe_dispatch(agent::ToolRegistry& reg, agent::Config& cfg,
+                        const std::string& skill = {}) {
+    agent::ConversationLog log;
+    agent::AgentHooks hooks;
+    std::set<std::string> approved;
+    agent::Context ctx;
+    agent::json tc;
+    tc["id"] = "c1";
+    tc["type"] = "function";
+    tc["function"] = {{"name", "probe"}, {"arguments", {{"skill", skill}}}};
+    agent::json calls = agent::json::array({tc});
+    return agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &ctx);
+}
+
+} // namespace
+
+TEST(dispatch_worker_sees_installed_run_scope) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_bound");
+    ScopeObservation obs;
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+
+    agent::CancellationToken token;
+    agent::RunScope scope;
+    scope.cancel_token = &token;
+    agent::ScopedRunScope guard(&scope);
+
+    ASSERT(run_probe_dispatch(reg, cfg));
+    ASSERT(obs.saw_scope); // worker inherited the calling thread's scope
+}
+
+TEST(dispatch_worker_cancel_reads_scoped_token) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_bound2");
+    ScopeObservation obs;
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+
+    agent::CancellationToken token;
+    token.request(); // the calling agent's run was cancelled
+    agent::RunScope scope;
+    scope.cancel_token = &token;
+    agent::ScopedRunScope guard(&scope);
+
+    ASSERT(run_probe_dispatch(reg, cfg));
+    ASSERT(obs.cancelled); // fallback is inert: only the scoped token can answer
+}
+
+TEST(dispatch_worker_resolves_scoped_catalog) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_bound3");
+    agent::SkillCatalog scoped(cfg, {}, "/tmp/amber_fix033_scoped3");
+    ScopeObservation obs;
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+
+    agent::RunScope scope;
+    scope.skills = &scoped;
+    agent::ScopedRunScope guard(&scope);
+
+    ASSERT(run_probe_dispatch(reg, cfg));
+    ASSERT(obs.resolved_catalog == &scoped);
+}
+
+TEST(dispatch_worker_records_activation_in_scope) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_bound4");
+    ScopeObservation obs;
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+
+    std::vector<agent::ActivatedSkill> sink;
+    agent::RunScope scope;
+    scope.activated = &sink;
+    agent::ScopedRunScope guard(&scope);
+
+    ASSERT(run_probe_dispatch(reg, cfg));
+    ASSERT_EQ(sink.size(), 1u);
+    ASSERT_EQ(sink[0].name, "probe-skill");
+}
+
+TEST(dispatch_worker_nested_scope_keeps_ancestor_token) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    ScopeObservation obs;
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<NestedScopeProbeTool>(obs));
+
+    agent::CancellationToken outer;
+    outer.request(); // the window's run was cancelled
+    agent::RunScope scope;
+    scope.cancel_token = &outer;
+    agent::ScopedRunScope guard(&scope);
+
+    ASSERT(run_probe_dispatch(reg, cfg));
+    // Only the ancestor chain can answer: the inner scope's own token was never
+    // requested. This is a sub-agent cancelled through its parent.
+    ASSERT(obs.cancelled);
+}
+
+TEST(dispatch_sibling_scopes_do_not_cross_cancel) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::SkillCatalog bound_a(cfg, {}, "/tmp/amber_fix033_sib_a");
+    agent::SkillCatalog bound_b(cfg, {}, "/tmp/amber_fix033_sib_b");
+    ScopeObservation obs_a, obs_b;
+    agent::ToolRegistry reg_a, reg_b;
+    reg_a.register_tool(std::make_unique<ScopeProbeTool>(obs_a, bound_a));
+    reg_b.register_tool(std::make_unique<ScopeProbeTool>(obs_b, bound_b));
+
+    agent::CancellationToken token_a, token_b;
+    agent::Config cfg_a = cfg, cfg_b = cfg;
+    std::thread ta([&] {
+        agent::RunScope s;
+        s.cancel_token = &token_a;
+        agent::ScopedRunScope g(&s);
+        run_probe_dispatch(reg_a, cfg_a);
+    });
+    std::thread tb([&] {
+        agent::RunScope s;
+        s.cancel_token = &token_b;
+        agent::ScopedRunScope g(&s);
+        run_probe_dispatch(reg_b, cfg_b);
+    });
+    token_a.request(); // cancel A only
+    ta.join();
+    tb.join();
+
+    ASSERT(obs_a.cancelled);       // A sees its own cancel
+    ASSERT_FALSE(obs_b.cancelled); // B is untouched (its fallback is inert)
+}
+
+TEST(dispatch_concurrent_workers_share_zero_activation_loss) {
+    // Many concurrent workers, each a distinct activation into ONE sink: the
+    // propagated scope must deliver every record, and the sink must be safe
+    // once it is reachable from workers.
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_act");
+    std::vector<agent::ActivatedSkill> sink;
+    std::atomic<int> next{0};
+    constexpr int kThreads = 8, kPerThread = 8;
+
+    std::vector<std::thread> pool;
+    for (int t = 0; t < kThreads; ++t) {
+        pool.emplace_back([&] {
+            agent::RunScope scope;
+            scope.activated = &sink;
+            agent::ScopedRunScope guard(&scope);
+            for (int i = 0; i < kPerThread; ++i) {
+                ScopeObservation obs;
+                agent::ToolRegistry reg;
+                reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+                agent::Config local = cfg;
+                run_probe_dispatch(reg, local, "skill-" + std::to_string(next.fetch_add(1)));
+            }
+        });
+    }
+    for (auto& th : pool)
+        th.join();
+    ASSERT_EQ(sink.size(), static_cast<size_t>(kThreads * kPerThread));
+}
+
+// ---------------------------------------------------------------------------
 // M1: per-window cancel — each window's Agent owns an independent token.
 // ---------------------------------------------------------------------------
 
