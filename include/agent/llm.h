@@ -145,12 +145,12 @@ private:
 // the auto-detect policy can be unit-tested. A non-ok / empty info is a no-op.
 void merge_server_info(Config& cfg, const ServerInfo& info);
 
-// Probe the configured server and fill in any auto-detectable Config values
-// (model, context_size) that were NOT set explicitly by the user. Returns the
-// ServerInfo probed (ok == false if the server was unreachable). Safe to call
-// once at startup; never throws. Delegates the merge policy to
-// merge_server_info().
-ServerInfo apply_server_autodetect(Config& cfg);
+// Fill in any auto-detectable Config values (model, context_size) that were
+// NOT set explicitly by the user, from the model catalog. Returns the
+// ServerInfo parsed (ok == false when no catalog entry parses). Blocking
+// (cache-through, single-flight); force=true always revalidates over the
+// network — see model_probe.h for the cache and the non-blocking variants.
+ServerInfo apply_server_autodetect(Config& cfg, bool force = false);
 
 } // namespace agent
 

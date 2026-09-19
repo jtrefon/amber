@@ -1325,7 +1325,17 @@ void SlashDispatcher::cmd_model_set(const std::string& arg) {
                                        " \u2014 /model <name> or /set model to switch");
         return;
     }
-    auto models = agent::list_model_info(tui_.cfg_);
+    // Validate against the cached catalog — never a live fetch on the UI
+    // thread. A cold catalog kicks the background refresh and asks the user
+    // to retry once it lands.
+    auto models = agent::list_model_info_cached(tui_.cfg_);
+    auto entry = agent::model_catalog_read(tui_.cfg_);
+    if (!entry || !agent::model_catalog_fresh(*entry))
+        tui_.refresh_models_async(false);
+    if (models.empty() && !entry) {
+        tui_.append_line(P_STATUS, "model list not loaded yet - retry in a moment");
+        return;
+    }
     bool found = false;
     int window = 0;
     for (const auto& m : models) {
@@ -1361,8 +1371,11 @@ void SlashDispatcher::cmd_get_model() {
 
 void SlashDispatcher::cmd_get_model_list() {
     refresh_model_list();
+    auto entry = agent::model_catalog_read(tui_.cfg_);
+    if (!entry || !agent::model_catalog_fresh(*entry))
+        tui_.refresh_models_async(false);
     if (model_info_.empty()) {
-        tui_.append_line(P_STATUS, "no models available or server unreachable");
+        tui_.append_line(P_STATUS, "no cached model list yet - refresh running in background");
         return;
     }
     for (const auto& m : model_info_) {
@@ -1375,7 +1388,10 @@ void SlashDispatcher::cmd_get_model_list() {
 }
 
 void SlashDispatcher::cmd_get_model_context() {
-    agent::ServerInfo info = agent::probe_server(tui_.cfg_);
+    agent::ServerInfo info = agent::probe_server_cached(tui_.cfg_);
+    auto entry = agent::model_catalog_read(tui_.cfg_);
+    if (!entry || !agent::model_catalog_fresh(*entry))
+        tui_.refresh_models_async(false);
     std::string line = "model: " + tui_.cfg_.model;
     if (info.ok && info.context_size > 0) {
         line += "  ctx: " + std::to_string(info.context_size);
@@ -1704,9 +1720,25 @@ void SlashDispatcher::cmd_provider_test(const std::string& name) {
         tui_.append_line(P_STATUS, "usage: /provider test <name>");
         return;
     }
+    auto p = tui_.providers_->find(name);
+    if (!p) {
+        tui_.append_line(P_STATUS, name + ": unknown provider");
+        return;
+    }
+    if (p->api_base.empty()) {
+        tui_.append_line(P_STATUS, name + ": FAILED (no endpoint configured)");
+        return;
+    }
     tui_.append_line(P_STATUS, "testing " + name + "...");
-    const bool ok = tui_.providers_->validate(name);
-    tui_.append_line(P_STATUS, name + ": " + (ok ? "OK" : "FAILED"));
+    agent::Config pc;
+    pc.api_base = p->api_base;
+    pc.api_key = p->api_key;
+    pc.flavor = p->flavor;
+    agent::model_catalog_refresh_async(
+        pc, tui_.ui_poster(), [this, name, pc](bool fetched) {
+            const bool ok = fetched && !agent::list_model_info_cached(pc).empty();
+            tui_.append_line(P_STATUS, name + ": " + (ok ? "OK" : "FAILED"));
+        });
 }
 
 void SlashDispatcher::cmd_session_load(const std::string& id) {
@@ -2247,38 +2279,97 @@ void Tui::config_screen() const {
 }
 
 void Tui::detect_server(bool force) {
-    agent::ServerInfo info = agent::apply_server_autodetect(cfg_);
-    if (!info.ok) {
-        if (force)
-            append_line(P_STATUS, "detect: server unreachable at " + cfg_.api_base);
-        return;
+    // Cache-only on the UI thread (stale-while-revalidate): the disk catalog
+    // answers immediately and a stale or missing entry revalidates on a
+    // detached worker. The status line and model feed update when it lands.
+    agent::ServerInfo info = agent::apply_cached_server_autodetect(cfg_);
+    bool stale = true;
+    if (auto e = agent::model_catalog_read(cfg_))
+        stale = !agent::model_catalog_fresh(*e);
+    if (info.ok) {
+        last_detected_ = info;
+        std::string note =
+            "detected model=" + cfg_.model + " n_ctx=" + std::to_string(cfg_.context_size);
+        if (info.context_train > 0 && info.context_train != cfg_.context_size)
+            note += " (max " + std::to_string(info.context_train) + ")";
+        append_line(P_STATUS, note);
+        draw();
     }
-    last_detected_ = info;
-    std::string note =
-        "detected model=" + cfg_.model + " n_ctx=" + std::to_string(cfg_.context_size);
-    if (info.context_train > 0 && info.context_train != cfg_.context_size)
-        note += " (max " + std::to_string(info.context_train) + ")";
-    append_line(P_STATUS, note);
+    if (force || stale)
+        refresh_models_async(force);
+}
+
+void Tui::refresh_models_async(bool announce) {
+    if (models_refresh_inflight_.exchange(true))
+        return;
+    const std::string api_base = cfg_.api_base;
+    const std::string flavor = cfg_.flavor;
+    agent::model_catalog_refresh_async(cfg_, ui_poster(),
+                                       [this, announce, api_base, flavor](bool fetched) {
+                                           on_models_refreshed(fetched, announce, api_base, flavor);
+                                       });
+}
+
+void Tui::on_models_refreshed(bool fetched, bool announce, const std::string& api_base,
+                              const std::string& flavor) {
+    models_refresh_inflight_ = false;
+    // A provider switch while the fetch was in flight makes the result belong
+    // to a different endpoint; drop it rather than merge the wrong catalog.
+    if (cfg_.api_base != api_base || cfg_.flavor != flavor)
+        return;
+    if (!fetched && announce)
+        append_line(P_STATUS, "detect: server unreachable at " + api_base);
+    agent::ServerInfo info = agent::apply_cached_server_autodetect(cfg_);
+    if (info.ok) {
+        const bool changed =
+            info.model != last_detected_.model || info.context_size != last_detected_.context_size;
+        last_detected_ = info;
+        if (announce || changed) {
+            std::string note =
+                "detected model=" + cfg_.model + " n_ctx=" + std::to_string(cfg_.context_size);
+            if (info.context_train > 0 && info.context_train != cfg_.context_size)
+                note += " (max " + std::to_string(info.context_train) + ")";
+            append_line(P_STATUS, note);
+        }
+        // Windows opened before the catalog resolved still hold an empty
+        // model; adopt the detected one now.
+        for (auto& w : window_manager_->all())
+            if (w->agent && w->agent->config().model.empty())
+                w->agent->set_model(cfg_.model);
+        refresh_model_list();
+    }
     draw();
 }
 
-bool Tui::test_connection(bool announce) {
-    agent::ServerInfo info = agent::apply_server_autodetect(cfg_);
-    if (!info.ok) {
-        append_line(P_STATUS, "test: no response from " + cfg_.api_base +
-                                  " (check URL/token and that the server is running)");
+void Tui::test_connection(bool announce) {
+    append_line(P_STATUS, "testing " + cfg_.api_base + "...");
+    const std::string api_base = cfg_.api_base;
+    const std::string flavor = cfg_.flavor;
+    agent::model_catalog_refresh_async(cfg_, ui_poster(), [this, api_base, flavor](bool fetched) {
+        if (cfg_.api_base != api_base || cfg_.flavor != flavor)
+            return;
+        if (!fetched) {
+            append_line(P_STATUS, "test: no response from " + api_base +
+                                      " (check URL/token and that the server is running)");
+            draw();
+            return;
+        }
+        agent::ServerInfo info = agent::apply_cached_server_autodetect(cfg_);
+        if (!info.ok) {
+            append_line(P_STATUS, "test: " + api_base + " answered but listed no models");
+            draw();
+            return;
+        }
+        last_detected_ = info;
+        std::string note = "test: OK - " + cfg_.api_base + "  model=" + cfg_.model +
+                           " n_ctx=" + std::to_string(cfg_.context_size);
+        if (info.context_train > 0 && info.context_train != cfg_.context_size)
+            note += " (max " + std::to_string(info.context_train) + ")";
+        append_line(P_STATUS, note);
+        refresh_model_list();
         draw();
-        return false;
-    }
-    last_detected_ = info;
-    std::string note = "test: OK - " + cfg_.api_base + "  model=" + cfg_.model +
-                       " n_ctx=" + std::to_string(cfg_.context_size);
-    if (info.context_train > 0 && info.context_train != cfg_.context_size)
-        note += " (max " + std::to_string(info.context_train) + ")";
-    append_line(P_STATUS, note);
+    });
     (void)announce;
-    draw();
-    return true;
 }
 
 static bool edit_provider_form(agent::Config& cfg, const std::string& title) {

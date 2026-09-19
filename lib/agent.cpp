@@ -922,6 +922,13 @@ std::string Agent::run(const std::string& user_prompt) {
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
     ScopedRunScope scope_guard(&scope);
+    // The host may have started without a resolved model: interactive
+    // startup reads the model catalog from cache only and revalidates it in
+    // the background, so a cold first launch can reach here with no model.
+    // This is the agent worker — a bounded cache-through fetch is legal here,
+    // and a failure leaves the model empty for the normal error path.
+    if (cfg_.model.empty() && apply_server_autodetect(cfg_).ok)
+        client_ = make_client(cfg_, client_factory_);
     ensure_system_prompt();
     // The turn's opening event: fired before the prompt is sealed into the
     // context so an interceptor can still rewrite what the model will see.
