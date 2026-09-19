@@ -312,20 +312,20 @@ TEST(skill_tool_read_skill_activates) {
 
     // Activation is per-run state now: install a scope with a sink, like
     // Agent::run does for its worker thread.
-    std::vector<agent::ActivatedSkill> activated;
+    agent::ActivationSink activated;
     agent::RunScope scope;
     scope.skills = &catalog;
     scope.activated = &activated;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
 
     auto r1 = tool->execute({{"name", "checklist"}});
     ASSERT(r1.ok);
-    ASSERT_EQ(activated.size(), 1u);
-    ASSERT(activated[0].body.find("body of checklist") != std::string::npos);
+    ASSERT_EQ(activated.snapshot().size(), 1u);
+    ASSERT(activated.snapshot()[0].body.find("body of checklist") != std::string::npos);
 
     auto r2 = tool->execute({{"name", "checklist"}});
     ASSERT(r2.ok);
-    ASSERT_EQ(activated.size(), 1u);
+    ASSERT_EQ(activated.snapshot().size(), 1u);
 }
 
 // [SK-03] read_skill unknown name -> error, nothing activated.
@@ -336,15 +336,15 @@ TEST(skill_tool_read_skill_unknown) {
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
     auto tool = agent::make_read_skill_tool(catalog);
-    std::vector<agent::ActivatedSkill> activated;
+    agent::ActivationSink activated;
     agent::RunScope scope;
     scope.skills = &catalog;
     scope.activated = &activated;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
     auto r = tool->execute({{"name", "nope"}});
     ASSERT_FALSE(r.ok);
     ASSERT_EQ(r.error, "unknown skill: nope");
-    ASSERT_EQ(activated.size(), 0u);
+    ASSERT_EQ(activated.snapshot().size(), 0u);
 }
 
 // [SK-14] read_skill oversized body -> rejected, nothing activated.
@@ -357,15 +357,15 @@ TEST(skill_tool_read_skill_oversized) {
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
     auto tool = agent::make_read_skill_tool(catalog);
-    std::vector<agent::ActivatedSkill> activated;
+    agent::ActivationSink activated;
     agent::RunScope scope;
     scope.skills = &catalog;
     scope.activated = &activated;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
     auto r = tool->execute({{"name", "mega"}});
     ASSERT_FALSE(r.ok);
     ASSERT_EQ(r.error, "skill body exceeds skills_body_budget_tokens");
-    ASSERT_EQ(activated.size(), 0u);
+    ASSERT_EQ(activated.snapshot().size(), 0u);
 }
 
 // [SK-15] list_skills filters by origin.
@@ -602,14 +602,14 @@ TEST(skill_trust_malicious_body_no_privilege) {
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
     auto read = agent::make_read_skill_tool(catalog);
-    std::vector<agent::ActivatedSkill> activated;
+    agent::ActivationSink activated;
     agent::RunScope scope;
     scope.skills = &catalog;
     scope.activated = &activated;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
     auto r = read->execute({{"name", "evil-cmd"}});
     ASSERT(r.ok);
-    ASSERT_EQ(activated.size(), 1u);
+    ASSERT_EQ(activated.snapshot().size(), 1u);
 
     agent::JobService jobs;
     agent::ToolRegistry reg;

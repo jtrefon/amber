@@ -5,6 +5,7 @@
 #include "agent/context.h"
 #include "agent/policy.h"
 #include "agent/policy_engine.h"
+#include "agent/run_scope.h"
 #include "agent/subagent.h"
 
 #include <chrono>
@@ -282,20 +283,28 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& reg
     // sub-agents on dispatch workers, and a nested task call would otherwise
     // bypass the in_subagent guard. Each worker inherits the caller's state.
     const bool caller_in_subagent = in_subagent();
+    // The run scope lives on the calling (agent) thread; tools execute on
+    // workers that would otherwise see none. Capture it once and install it on
+    // each worker so cancellation, catalog resolution and activation recording
+    // follow the CALLING agent rather than the registration-bound objects.
+    const RunScopeChain active_scope = capture_run_scope();
     std::vector<Pending> pending;
     for (size_t i = 0; i < todo.size(); ++i) {
         if (!todo[i].approved)
             continue;
-        pending.push_back({i, std::async(std::launch::async, [&todo, i, caller_in_subagent]() {
-                               set_subagent_inherited(caller_in_subagent);
-                               try {
-                                   return todo[i].tool->execute(todo[i].args);
-                               } catch (const std::exception& e) {
-                                   return ToolResult{false, "",
-                                                     std::string("tool threw: ") + e.what(),
-                                                     agent::json{}};
-                               }
-                           })});
+        pending.push_back({i, std::async(std::launch::async,
+                                         [&todo, i, caller_in_subagent, active_scope]() {
+                                             ScopedRunScope scope_guard(active_scope);
+                                             set_subagent_inherited(caller_in_subagent);
+                                             try {
+                                                 return todo[i].tool->execute(todo[i].args);
+                                             } catch (const std::exception& e) {
+                                                 return ToolResult{false, "",
+                                                                   std::string("tool threw: ") +
+                                                                       e.what(),
+                                                                   agent::json{}};
+                                             }
+                                         })});
     }
 
     bool all_ok = true;

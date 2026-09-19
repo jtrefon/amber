@@ -6325,7 +6325,7 @@ TEST(run_scope_run_cancelled_uses_scoped_token) {
     agent::CancellationToken host, scoped;
     agent::RunScope scope;
     scope.cancel_token = &scoped;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
     scoped.request();
     // The scoped token answers; the host fallback is untouched.
     ASSERT_TRUE(agent::run_cancelled(host));
@@ -6339,8 +6339,8 @@ TEST(run_scope_run_cancelled_walks_parent_chain) {
     agent::RunScope outer, inner;
     outer.cancel_token = &t_outer;
     inner.cancel_token = &t_inner;
-    agent::ScopedRunScope g1(&outer);
-    agent::ScopedRunScope g2(&inner);
+    agent::ScopedRunScope g1(outer);
+    agent::ScopedRunScope g2(inner);
     ASSERT_FALSE(agent::run_cancelled(host));
     t_outer.request();
     ASSERT_TRUE(agent::run_cancelled(host));
@@ -6353,13 +6353,14 @@ TEST(run_scope_nested_restores_outer) {
     inner.cancel_token = &t_inner;
     ASSERT_EQ(agent::current_run_scope(), nullptr);
     {
-        agent::ScopedRunScope g1(&outer);
-        ASSERT_EQ(agent::current_run_scope(), &outer);
+        agent::ScopedRunScope g1(outer);
+        ASSERT(agent::current_run_scope() != nullptr);
+        ASSERT_EQ(agent::current_run_scope()->leaf.cancel_token, &t_outer);
         {
-            agent::ScopedRunScope g2(&inner);
-            ASSERT_EQ(agent::current_run_scope(), &inner);
+            agent::ScopedRunScope g2(inner);
+            ASSERT_EQ(agent::current_run_scope()->leaf.cancel_token, &t_inner);
         }
-        ASSERT_EQ(agent::current_run_scope(), &outer);
+        ASSERT_EQ(agent::current_run_scope()->leaf.cancel_token, &t_outer);
     }
     ASSERT_EQ(agent::current_run_scope(), nullptr);
 }
@@ -6372,24 +6373,25 @@ TEST(run_scope_resolves_scoped_skill_catalog) {
     ASSERT_EQ(&agent::effective_catalog(a), &a);
     agent::RunScope scope;
     scope.skills = &b;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
     ASSERT_EQ(&agent::effective_catalog(a), &b);
 }
 
 TEST(run_scope_record_activation_goes_to_agent_sink) {
-    std::vector<agent::ActivatedSkill> sink;
+    agent::ActivationSink sink;
     // Outside a run: a no-op (body still served; only bookkeeping skipped).
     agent::record_activation("x", "body");
-    ASSERT_TRUE(sink.empty());
+    ASSERT_TRUE(sink.snapshot().empty());
     agent::RunScope scope;
     scope.activated = &sink;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
     agent::record_activation("x", "body");
     agent::record_activation("x", "body"); // dedup: already active
     agent::record_activation("y", "body2");
-    ASSERT_EQ(sink.size(), 2u);
-    ASSERT_EQ(sink[0].name, "x");
-    ASSERT_EQ(sink[1].name, "y");
+    auto snap = sink.snapshot();
+    ASSERT_EQ(snap.size(), 2u);
+    ASSERT_EQ(snap[0].name, "x");
+    ASSERT_EQ(snap[1].name, "y");
 }
 
 // ---------------------------------------------------------------------------
@@ -6464,7 +6466,7 @@ public:
     agent::ToolResult execute(const agent::json&) const override {
         agent::RunScope inner;
         inner.cancel_token = &inner_token_; // this sub-run's own token, never requested
-        agent::ScopedRunScope guard(&inner);
+        agent::ScopedRunScope guard(inner);
         obs_.cancelled = agent::run_cancelled(obs_.inert);
         agent::ToolResult r;
         r.ok = true;
@@ -6505,7 +6507,7 @@ TEST(dispatch_worker_sees_installed_run_scope) {
     agent::CancellationToken token;
     agent::RunScope scope;
     scope.cancel_token = &token;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
 
     ASSERT(run_probe_dispatch(reg, cfg));
     ASSERT(obs.saw_scope); // worker inherited the calling thread's scope
@@ -6523,7 +6525,7 @@ TEST(dispatch_worker_cancel_reads_scoped_token) {
     token.request(); // the calling agent's run was cancelled
     agent::RunScope scope;
     scope.cancel_token = &token;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
 
     ASSERT(run_probe_dispatch(reg, cfg));
     ASSERT(obs.cancelled); // fallback is inert: only the scoped token can answer
@@ -6540,7 +6542,7 @@ TEST(dispatch_worker_resolves_scoped_catalog) {
 
     agent::RunScope scope;
     scope.skills = &scoped;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
 
     ASSERT(run_probe_dispatch(reg, cfg));
     ASSERT(obs.resolved_catalog == &scoped);
@@ -6554,14 +6556,15 @@ TEST(dispatch_worker_records_activation_in_scope) {
     agent::ToolRegistry reg;
     reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
 
-    std::vector<agent::ActivatedSkill> sink;
+    agent::ActivationSink sink;
     agent::RunScope scope;
     scope.activated = &sink;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
 
     ASSERT(run_probe_dispatch(reg, cfg));
-    ASSERT_EQ(sink.size(), 1u);
-    ASSERT_EQ(sink[0].name, "probe-skill");
+    auto snap = sink.snapshot();
+    ASSERT_EQ(snap.size(), 1u);
+    ASSERT_EQ(snap[0].name, "probe-skill");
 }
 
 TEST(dispatch_worker_nested_scope_keeps_ancestor_token) {
@@ -6575,7 +6578,7 @@ TEST(dispatch_worker_nested_scope_keeps_ancestor_token) {
     outer.request(); // the window's run was cancelled
     agent::RunScope scope;
     scope.cancel_token = &outer;
-    agent::ScopedRunScope guard(&scope);
+    agent::ScopedRunScope guard(scope);
 
     ASSERT(run_probe_dispatch(reg, cfg));
     // Only the ancestor chain can answer: the inner scope's own token was never
@@ -6598,13 +6601,13 @@ TEST(dispatch_sibling_scopes_do_not_cross_cancel) {
     std::thread ta([&] {
         agent::RunScope s;
         s.cancel_token = &token_a;
-        agent::ScopedRunScope g(&s);
+        agent::ScopedRunScope g(s);
         run_probe_dispatch(reg_a, cfg_a);
     });
     std::thread tb([&] {
         agent::RunScope s;
         s.cancel_token = &token_b;
-        agent::ScopedRunScope g(&s);
+        agent::ScopedRunScope g(s);
         run_probe_dispatch(reg_b, cfg_b);
     });
     token_a.request(); // cancel A only
@@ -6622,7 +6625,7 @@ TEST(dispatch_concurrent_workers_share_zero_activation_loss) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
     agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_act");
-    std::vector<agent::ActivatedSkill> sink;
+    agent::ActivationSink sink;
     std::atomic<int> next{0};
     constexpr int kThreads = 8, kPerThread = 8;
 
@@ -6631,7 +6634,7 @@ TEST(dispatch_concurrent_workers_share_zero_activation_loss) {
         pool.emplace_back([&] {
             agent::RunScope scope;
             scope.activated = &sink;
-            agent::ScopedRunScope guard(&scope);
+            agent::ScopedRunScope guard(scope);
             for (int i = 0; i < kPerThread; ++i) {
                 ScopeObservation obs;
                 agent::ToolRegistry reg;
@@ -6643,7 +6646,7 @@ TEST(dispatch_concurrent_workers_share_zero_activation_loss) {
     }
     for (auto& th : pool)
         th.join();
-    ASSERT_EQ(sink.size(), static_cast<size_t>(kThreads * kPerThread));
+    ASSERT_EQ(sink.snapshot().size(), static_cast<size_t>(kThreads * kPerThread));
 }
 
 // ---------------------------------------------------------------------------

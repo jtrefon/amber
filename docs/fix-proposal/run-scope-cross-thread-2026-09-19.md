@@ -422,6 +422,27 @@ they are not lost:
 Red (8 failing tests) → Proposal (this doc) → **Sign-off** → Green → PR.
 No production code is written until this proposal is approved.
 
+## Implementation status (2026-09-19)
+
+**Landed** on `fix/run-scope-cross-thread`:
+
+- `docs:` this proposal.
+- `test:` the 8 RED tests, all failing on the intended assertions (suite
+  797 pass / 8 fail).
+- `fix:` the implementation — `RunScopeChain` value + `capture_run_scope()`
+  and the two install forms of `ScopedRunScope`; `ActivationSink` (internally
+  synchronized; movable so `Agent` stays movable for `make_unique`); dispatch
+  captures the chain once and installs it on every worker; `Agent` holds the
+  sink and snapshots it for the prompt copy and `fork_from`.
+
+Verification: 805/805 tests pass; `make` builds lib, cli, tui, bench clean;
+`make check` green (AGENTS.md audit count synced 6498 → 6755). `make analyze`
+(cppcheck) and `make lint` (clang-tidy) are at the pre-existing baseline (27
+findings each, none in the changed files — the reported `agent.cpp:825/826`
+and `dispatch.cpp:279` are pre-existing structs). Not run locally: the
+ASan+UBSan CI job, the real `g++` leg, and a TSan pass (no CI job exists for
+it); the design was TSan-clean in the standalone prototype.
+
 ## Sign-off decisions requested
 
 1. **Design:** flattened value chain (`RunScopeChain`) with per-worker install —
