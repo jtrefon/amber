@@ -292,19 +292,17 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& reg
     for (size_t i = 0; i < todo.size(); ++i) {
         if (!todo[i].approved)
             continue;
-        pending.push_back({i, std::async(std::launch::async,
-                                         [&todo, i, caller_in_subagent, active_scope]() {
-                                             ScopedRunScope scope_guard(active_scope);
-                                             set_subagent_inherited(caller_in_subagent);
-                                             try {
-                                                 return todo[i].tool->execute(todo[i].args);
-                                             } catch (const std::exception& e) {
-                                                 return ToolResult{false, "",
-                                                                   std::string("tool threw: ") +
-                                                                       e.what(),
-                                                                   agent::json{}};
-                                             }
-                                         })});
+        pending.push_back(
+            {i, std::async(std::launch::async, [&todo, i, caller_in_subagent, active_scope]() {
+                 ScopedRunScope scope_guard(active_scope);
+                 set_subagent_inherited(caller_in_subagent);
+                 try {
+                     return todo[i].tool->execute(todo[i].args);
+                 } catch (const std::exception& e) {
+                     return ToolResult{false, "", std::string("tool threw: ") + e.what(),
+                                       agent::json{}};
+                 }
+             })});
     }
 
     bool all_ok = true;

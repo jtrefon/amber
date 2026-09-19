@@ -35,7 +35,9 @@ struct RunScopeChain {
 
 inline thread_local const RunScopeChain* t_run_scope = nullptr;
 
-inline const RunScopeChain* current_run_scope() noexcept { return t_run_scope; }
+inline const RunScopeChain* current_run_scope() noexcept {
+    return t_run_scope;
+}
 
 // Snapshot the calling thread's chain. Empty when no scope is installed.
 inline RunScopeChain capture_run_scope() {

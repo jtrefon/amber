@@ -6416,8 +6416,7 @@ struct ScopeObservation {
 // Reports what the run scope resolved to for THIS worker thread.
 class ScopeProbeTool : public agent::Tool {
 public:
-    ScopeProbeTool(ScopeObservation& obs, agent::SkillCatalog& bound)
-        : obs_(obs), bound_(bound) {}
+    ScopeProbeTool(ScopeObservation& obs, agent::SkillCatalog& bound) : obs_(obs), bound_(bound) {}
 
     std::string name() const noexcept override { return "probe"; }
     bool is_read_only() const noexcept override { return true; }
@@ -6491,7 +6490,8 @@ bool run_probe_dispatch(agent::ToolRegistry& reg, agent::Config& cfg,
     tc["type"] = "function";
     tc["function"] = {{"name", "probe"}, {"arguments", {{"skill", skill}}}};
     agent::json calls = agent::json::array({tc});
-    return agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &ctx);
+    return agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
+                                      &ctx);
 }
 
 } // namespace
