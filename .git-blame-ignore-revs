@@ -1,0 +1,6 @@
+# Revisions that git blame should skip. GitHub reads this file for blame
+# annotations; locally use `git blame --ignore-revs-file=.git-blame-ignore-revs`
+# or `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+
+# clang-format sweep across project sources (#138) — whitespace-only reformat.
+d31574a1521a708c0e855c76ef92cbe8b46234d6
