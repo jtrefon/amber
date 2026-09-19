@@ -32,7 +32,10 @@ driven by an OpenAI-compatible LLM API.
   Codecov (needs the `CODECOV_TOKEN` secret), and a separate CodeQL
   workflow (`security-and-quality` queries). The `changes` job gates every
   heavyweight job on which paths a PR touched — docs-only PRs skip the C++
-  suite entirely.
+  suite entirely. Branch protection requires only the `ci-gate` job, which
+  aggregates the gating jobs and passes when they succeed or are legitimately
+  skipped — a skipped job never reports a check run, so requiring the matrix
+  jobs directly would leave meta-only PRs blocked on "Expected" forever.
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops
   the generated `Makefile`.
 
