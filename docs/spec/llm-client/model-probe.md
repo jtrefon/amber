@@ -10,7 +10,7 @@ Results are merged into Config only for fields NOT marked explicit by the user.
 
 ### Ownership
 - **Source files**: `lib/model_probe.cpp`, `include/agent/model_probe.h`; parsing lives in the dialects (`Dialect::parse_models_response` / `parse_model_list_response`)
-- **Consumers**: `LLMClient::probe_server()`, `agent::list_model_info()` / `list_models()` (TUI model drawer, `/provider test` via `HttpModelCatalog`)
+- **Consumers**: `LLMClient::probe_server()`, `agent::list_model_info()` / `list_models()` (agent recovery, `HttpModelCatalog`), and the cache-only variants `probe_server_cached()` / `list_model_info_cached()` / `apply_cached_server_autodetect()` (all TUI paths)
 - **Test files**: `tests/run_tests.cpp` — probe pins (`probe_parse_*`, `probe_prefers_*`, `probe_autodetect_*`, `probe_active_model_without_meta_is_unknown`) and `tests/dialect_anthropic_test.cpp` (`anthropic_model_list_and_probe_parse`)
 
 ---
@@ -23,7 +23,7 @@ Results are merged into Config only for fields NOT marked explicit by the user.
 | **Output** | `ServerInfo{ok, model, context_size}` from the dialect's parsing of the listing response |
 | **Error states** | Connection failure → `ok=false`. Malformed JSON → `ok=false`. Empty data → `ok=false`. |
 | **Invariants** | See below. |
-| **Thread safety** | Startup only. |
+| **Thread safety** | Cache reads are disk-only and safe anywhere. Fetches are single-flight per endpoint (a shared slot coalesces concurrent callers); `model_catalog_refresh_async()` runs the fetch on a detached worker and reports through the host's post queue — the UI thread never touches the network. |
 
 ### Invariants
 
@@ -32,8 +32,41 @@ Results are merged into Config only for fields NOT marked explicit by the user.
 3. Probe returns `ok=true` only if at least model name or context size is found.
 4. Probes use raw `curl_easy_init/cleanup` (NOT RAII — known leak on exception).
 5. Timeout: 10s total, 5s connect.
+6. `CURLOPT_FAILONERROR` rejects HTTP >= 400 at the transport; a 3xx body fails
+   catalog parsing downstream (it is not a model list).
 
 ---
+
+### Model catalog cache (stale-while-revalidate)
+
+Every `GET {api_base}/models` response is persisted to
+`~/.config/amber/cache/models-<fnv1a(api_base+flavor)>.json` as
+`{fetched_ms, body}` — atomic tmp+rename, keyed per endpoint so provider
+switches never contaminate each other. The TTL is 24h.
+
+- **Interactive paths are disk-only.** `model_catalog_read`,
+  `probe_server_cached`, `list_model_info_cached`, and
+  `apply_cached_server_autodetect` never touch the network; the TUI startup
+  path uses them exclusively.
+- **Stale entries are served, then revalidated.** `detect_server()` and the
+  model/context commands answer from the cache immediately and schedule
+  `model_catalog_refresh_async()` when the entry is stale or missing; the
+  result lands on the UI thread through the posted-work queue.
+- **Stale-if-error.** A failed refresh preserves the last good entry;
+  `CatalogFetchResult::fetched` distinguishes "the network answered" from
+  "served the fallback" so explicit tests report the truth.
+- **Single-flight.** Concurrent fetchers for one endpoint join a shared
+  in-flight request (mutex + condvar slot keyed by api_base+flavor), so a
+  startup burst or repeated feed rebuilds issue at most one HTTP request.
+- **Blocking callers.** `model_catalog_fetch()` (used by `probe_server`,
+  `list_model_info`, `apply_server_autodetect`) is the cache-through blocking
+  API for non-UI threads: agent workers (`Agent::run` cold-model resolution,
+  `chat_with_recovery`) and the headless CLI.
+
+Regression guards: `model_catalog_freshness_ttl`,
+`model_catalog_reads_are_disk_only`, `model_catalog_stale_serve_and_stale_if_error`,
+`model_catalog_refresh_async_populates_cache`,
+`model_catalog_singleflight_coalesces_concurrent_fetches`.
 
 ### Scenarios
 
@@ -91,4 +124,3 @@ Results are merged into Config only for fields NOT marked explicit by the user.
 
 1. **Raw CURL without RAII** — `CURL*` and `curl_slist*` are raw pointers. Exception between init and cleanup leaks handles. Contrast with `http_transport.cpp` which uses `unique_ptr`.
 2. **No cancellation support** — Probe requests lack `CURLOPT_XFERINFOFUNCTION` — cannot be cancelled via `CancellationToken`.
-3. **No HTTP status check** — Even a 404/500 response body is passed to `parse_models()` and parsed (likely returning `ok=false`, but no explicit check).

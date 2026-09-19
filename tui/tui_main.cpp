@@ -2,12 +2,14 @@
 #include <agent.h>
 
 #include "agent/workspace.h"
+#include "agent/model_probe.h"
 #include "agent/plugin_runtime.h"
 #include "agent/bootstrap.h"
 #include "agent/data_path.h"
 
 #include "tui.h"
 
+#include <algorithm>
 #include <clocale>
 #include <cstdio>
 #include <filesystem>
@@ -134,9 +136,17 @@ int main(int argc, char** argv) {
     }
     cfg.apply_environment();
 
-    agent::apply_server_autodetect(cfg);
+    // Startup is paint-first: the model catalog is read from the disk cache
+    // only, so no network I/O ever blocks this path. A missing or stale
+    // catalog revalidates on a background worker from Tui::detect_server().
+    agent::apply_cached_server_autodetect(cfg);
 
-    if (auto errs = cfg.validate(); !errs.empty()) {
+    auto errs = cfg.validate();
+    // An unresolved model is recoverable inside the TUI (the background
+    // catalog refresh or /set model); it must not gate startup on a
+    // network round-trip.
+    errs.erase(std::remove(errs.begin(), errs.end(), "model is empty"), errs.end());
+    if (!errs.empty()) {
         std::fprintf(stderr, "error: invalid configuration:\n");
         for (const auto& e : errs)
             std::fprintf(stderr, "  - %s\n", e.c_str());

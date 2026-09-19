@@ -78,7 +78,7 @@ public:
     void redraw_after_modal();
     void config_screen() const;
     void detect_server(bool force);
-    bool test_connection(bool announce);
+    void test_connection(bool announce);
     void settings_screen();
     void send(const std::string& prompt);
 
@@ -116,9 +116,16 @@ private:
     void compress_worker(Window& my_win, size_t window_id);
     AgentEvent run_compression(Window& my_win, size_t window_id);
     std::unique_ptr<EventRouter> router_;
-    // Posted work from plugins, drained on the tick like the other queues.
-    std::mutex ui_post_mtx_;
-    std::vector<std::function<void()>> ui_post_;
+    // Posted work from plugins and detached catalog workers, drained on the
+    // tick like the other queues. Heap-held and shared: a worker whose result
+    // lands after ~Tui still touches a live mutex/queue and its post is
+    // dropped on the closed gate — never a torn member.
+    struct UiPostQueue {
+        std::mutex mtx;
+        std::vector<std::function<void()>> queue;
+        std::atomic<bool> alive{true};
+    };
+    std::shared_ptr<UiPostQueue> ui_posts_ = std::make_shared<UiPostQueue>();
     // The port itself, handed to the runtime so plugins can ask the user.
     std::unique_ptr<TuiUiServices> ui_services_;
     bool modal_open_ = false;
@@ -175,6 +182,16 @@ private:
                          std::function<void(const std::string&)> handler);
     bool busy_reject(const std::string& what);
     void refresh_model_list();
+    // Cache-first model catalog: detection and forced probes never block the
+    // UI thread. The catalog revalidates on a detached worker (single-flight
+    // in the core); the result lands here via the ui_posts_ queue.
+    void refresh_models_async(bool announce);
+    void on_models_refreshed(bool fetched, bool announce, const std::string& api_base,
+                             const std::string& flavor);
+    // A post_to_ui_thread variant for background catalog work: the post is
+    // dropped once destruction begins, so a late worker can never touch a
+    // torn-down Tui.
+    std::function<void(std::function<void()>)> ui_poster();
     void refresh_policy_feed();
     void refresh_provider_feed();
     void refresh_job_feed();
@@ -210,6 +227,7 @@ private:
 
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;
+    std::atomic<bool> models_refresh_inflight_{false};
 };
 
 } // namespace tui

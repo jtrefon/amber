@@ -1,5 +1,6 @@
 
 #include <agent.h>
+#include <agent/model_probe.h>
 #include <agent/compressor.h>
 #include <agent/experience.h>
 #include <agent/data_path.h>
@@ -273,11 +274,15 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Auto-detect model / context window from the server first, filling only
-    // values the user did not set explicitly. Done before validation so a blank
-    // (auto) model can be resolved from the server rather than failing.
+    // Auto-detect model / context window, filling only values the user did
+    // not set explicitly. Cache-first: a fresh catalog answers from disk
+    // instantly; a stale or missing one revalidates here — the CLI is
+    // headless, so one bounded fetch per TTL is the paid round-trip.
     {
-        agent::ServerInfo info = agent::apply_server_autodetect(cfg);
+        bool stale = true;
+        if (auto e = agent::model_catalog_read(cfg))
+            stale = !agent::model_catalog_fresh(*e);
+        agent::ServerInfo info = agent::apply_server_autodetect(cfg, stale);
         if (info.ok)
             std::cerr << "[server] model=" << cfg.model << " n_ctx=" << cfg.context_size << "\n";
     }

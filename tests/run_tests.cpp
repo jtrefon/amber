@@ -29,10 +29,14 @@
 #include "tests/test_util.h"
 
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -1840,7 +1844,60 @@ int spawn_stall_server(int port) {
     t.detach();
     return fd;
 }
+
+// Serve every connection after a fixed hold and count the requests. Lets the
+// single-flight tests observe whether concurrent fetchers issued duplicate
+// HTTP requests (hits > 1 means coalescing failed).
+int spawn_counting_slow_mock(int port, std::atomic<int>& hits, int hold_ms,
+                             const std::string& payload) {
+    int fd = bind_listener(port);
+    if (fd < 0)
+        return -1;
+    std::thread([fd, &hits, hold_ms, payload]() {
+        while (true) {
+            int c = accept(fd, nullptr, nullptr);
+            if (c < 0)
+                return;
+            std::thread([c, &hits, hold_ms, payload]() {
+                drain_request(c);
+                std::this_thread::sleep_for(std::chrono::milliseconds(hold_ms));
+                std::string http = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                                   "Content-Length: " +
+                                   std::to_string(payload.size()) + "\r\n\r\n" + payload;
+                send(c, http.c_str(), http.size(), 0);
+                ++hits;
+                usleep(50000);
+                close(c);
+            }).detach();
+        }
+    }).detach();
+    return fd;
+}
 } // namespace
+
+// Redirect XDG_CONFIG_HOME to a scratch tree for the test body: the model
+// catalog cache lives under it, and tests must never read or write the
+// developer's real ~/.config/amber.
+struct XdgGuard {
+    explicit XdgGuard(const std::string& name) : dir("/tmp/amber_xdg_" + name) {
+        std::filesystem::remove_all(dir);
+        const char* old = std::getenv("XDG_CONFIG_HOME");
+        was_set = old != nullptr;
+        if (old)
+            saved = old;
+        setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+    }
+    ~XdgGuard() {
+        if (was_set)
+            setenv("XDG_CONFIG_HOME", saved.c_str(), 1);
+        else
+            unsetenv("XDG_CONFIG_HOME");
+        std::filesystem::remove_all(dir);
+    }
+    std::string dir;
+    std::string saved;
+    bool was_set = false;
+};
 
 // Router-style /models listing (kilocode et al.): kilo-auto/frontier (1M)
 // is listed BEFORE kilo-auto/free (256k). The autodetect probe must adopt the
@@ -1848,6 +1905,7 @@ int spawn_stall_server(int port) {
 // a context window — the wrong-model adoption sized the gauge and the
 // compression budget to 1M while running kilo-auto/free.
 TEST(probe_autodetect_prefers_explicit_active_model) {
+    XdgGuard xdg("autodetect_explicit");
     std::string dummy;
     int srv = spawn_mock_sse(8924, dummy, R"({"data":[
         {"id":"kilo-auto/frontier","object":"model","owned_by":"kilo",
@@ -1872,6 +1930,7 @@ TEST(probe_autodetect_prefers_explicit_active_model) {
 // first entry reporting a window wins (auto-detect mode picks the server's
 // lead model, e.g. llama.cpp's single listing).
 TEST(probe_autodetect_first_with_context_when_auto) {
+    XdgGuard xdg("autodetect_auto");
     std::string dummy;
     int srv = spawn_mock_sse(8925, dummy, R"({"data":[
         {"id":"kilo-auto/frontier","object":"model","owned_by":"kilo",
@@ -1889,6 +1948,185 @@ TEST(probe_autodetect_first_with_context_when_auto) {
 
     ASSERT_EQ(cfg.context_size, 1000000);
     ASSERT_EQ(cfg.model, "kilo-auto/frontier");
+}
+
+// ---------------------------------------------------------------------------
+// Model catalog cache: stale-while-revalidate, single-flight, disk-only reads
+// ---------------------------------------------------------------------------
+
+TEST(model_catalog_freshness_ttl) {
+    agent::ModelCatalogEntry e;
+    e.body = "{}";
+    e.fetched_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    ASSERT(agent::model_catalog_fresh(e));
+    e.fetched_ms -= 25LL * 3600 * 1000;
+    ASSERT_FALSE(agent::model_catalog_fresh(e));
+}
+
+// The startup path's only data source is the disk catalog: every cache-only
+// read must return without touching the network. The stall server accepts
+// the connection and never replies, so any real fetch would burn the full
+// 10s curl timeout — the bound below is what the UI main thread can afford.
+TEST(model_catalog_reads_are_disk_only) {
+    XdgGuard xdg("catalog_diskonly");
+    int srv = spawn_stall_server(8926);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8926/v1";
+    auto t0 = std::chrono::steady_clock::now();
+    ASSERT_FALSE(agent::model_catalog_read(cfg).has_value());
+    ASSERT_FALSE(agent::probe_server_cached(cfg).ok);
+    ASSERT(agent::list_model_info_cached(cfg).empty());
+    agent::Config c2 = cfg;
+    ASSERT_FALSE(agent::apply_cached_server_autodetect(c2).ok);
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+            .count();
+    ASSERT(ms < 1000);
+    close(srv);
+}
+
+TEST(model_catalog_stale_serve_and_stale_if_error) {
+    XdgGuard xdg("catalog_stale");
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:1/v1"; // nothing listens: refused instantly
+    const std::string body = R"({"data":[{"id":"m1","context_length":4096}]})";
+
+    agent::model_catalog_write(cfg, body);
+    auto e = agent::model_catalog_read(cfg);
+    ASSERT(e.has_value());
+    ASSERT_EQ(e->body, body);
+    ASSERT(agent::model_catalog_fresh(*e));
+
+    // Fresh cache: the cache-through fetch serves disk without the network.
+    auto r = agent::model_catalog_fetch(cfg);
+    ASSERT(r.has_value());
+    ASSERT_EQ(r->entry.body, body);
+    ASSERT_FALSE(r->fetched);
+
+    // Age the entry past the TTL by rewriting its timestamp in place.
+    std::string cache_file;
+    for (const auto& de : std::filesystem::directory_iterator(xdg.dir + "/amber/cache"))
+        cache_file = de.path().string();
+    ASSERT(!cache_file.empty());
+    {
+        std::ofstream f(cache_file, std::ios::trunc);
+        f << agent::json{{"fetched_ms", 0}, {"body", body}}.dump();
+    }
+    e = agent::model_catalog_read(cfg);
+    ASSERT(e.has_value());
+    ASSERT_FALSE(agent::model_catalog_fresh(*e));
+
+    // Stale is still served cache-through (SWR: revalidation is async).
+    r = agent::model_catalog_fetch(cfg);
+    ASSERT(r.has_value());
+    ASSERT_EQ(r->entry.body, body);
+
+    // Forced revalidation fails (refused) but the stale entry survives
+    // (stale-if-error).
+    r = agent::model_catalog_fetch(cfg, /*force=*/true);
+    ASSERT(r.has_value());
+    ASSERT_EQ(r->entry.body, body);
+    ASSERT_FALSE(r->fetched);
+}
+
+// The background refresh writes the catalog and reports through the host's
+// post queue; the fresh entry then serves every cache-only read.
+TEST(model_catalog_refresh_async_populates_cache) {
+    XdgGuard xdg("catalog_async");
+    std::string dummy;
+    const std::string body = R"({"data":[{"id":"m1","context_length":4096}]})";
+    int srv = spawn_mock_sse(8927, dummy, body);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8927/v1";
+
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::vector<std::function<void()>> posted;
+    bool done_fetched = false;
+    bool done_called = false;
+    auto post = [&](std::function<void()> fn) {
+        std::scoped_lock lk(mtx);
+        posted.push_back(std::move(fn));
+        cv.notify_all();
+    };
+    auto done = [&](bool fetched) {
+        std::scoped_lock lk(mtx);
+        done_called = true;
+        done_fetched = fetched;
+        cv.notify_all();
+    };
+
+    agent::model_catalog_refresh_async(cfg, post, done);
+
+    // Pump the posted work like the UI event loop would.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (true) {
+        std::function<void()> fn;
+        {
+            std::unique_lock lk(mtx);
+            cv.wait_until(lk, deadline, [&] { return !posted.empty() || done_called; });
+            if (posted.empty())
+                break;
+            fn = std::move(posted.front());
+            posted.erase(posted.begin());
+        }
+        fn();
+    }
+    ASSERT(done_called);
+    ASSERT(done_fetched);
+    close(srv);
+
+    auto e = agent::model_catalog_read(cfg);
+    ASSERT(e.has_value());
+    ASSERT_EQ(e->body, body);
+    auto infos = agent::list_model_info_cached(cfg);
+    ASSERT_EQ(infos.size(), (size_t)1);
+    ASSERT_EQ(infos[0].id, "m1");
+    ASSERT_EQ(infos[0].context, 4096);
+}
+
+// Concurrent forced fetches for one endpoint must share a single HTTP
+// request — the slow mock keeps the first fetch in flight long enough for
+// the joiners to arrive, so hits == 1 is deterministic.
+TEST(model_catalog_singleflight_coalesces_concurrent_fetches) {
+    XdgGuard xdg("catalog_singleflight");
+    std::atomic<int> hits{0};
+    const std::string body = R"({"data":[{"id":"m1","context_length":4096}]})";
+    int srv = spawn_counting_slow_mock(8928, hits, 400, body);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8928/v1";
+
+    constexpr int kCallers = 4;
+    std::vector<std::optional<agent::CatalogFetchResult>> results(kCallers);
+    std::atomic<int> ready{0};
+    std::vector<std::thread> ts;
+    for (int i = 0; i < kCallers; ++i)
+        ts.emplace_back([&, i] {
+            ++ready;
+            while (ready.load() < kCallers)
+                std::this_thread::yield();
+            results[i] = agent::model_catalog_fetch(cfg, /*force=*/true);
+        });
+    for (auto& t : ts)
+        t.join();
+    close(srv);
+
+    ASSERT_EQ(hits.load(), 1);
+    for (const auto& r : results) {
+        ASSERT(r.has_value());
+        ASSERT_EQ(r->entry.body, body);
+    }
 }
 
 TEST(llm_streaming_tool_call_object_arguments_preserved) {

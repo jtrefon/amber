@@ -161,6 +161,14 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
 }
 
 Tui::~Tui() {
+    // Detached catalog workers post results through ui_poster(); closing the
+    // gate under the queue lock guarantees no post can interleave with the
+    // member teardown below. The queue itself is shared, so a late worker
+    // still lands on live memory.
+    {
+        std::scoped_lock lk(ui_posts_->mtx);
+        ui_posts_->alive = false;
+    }
     cancel_all_runs();
     {
         std::scoped_lock lk(router_->mutex());
@@ -1070,17 +1078,25 @@ void Tui::notify_from_plugin(agent::UiLevel level, const std::string& message) {
 }
 
 void Tui::post_to_ui_thread(std::function<void()> work) {
-    std::scoped_lock lk(ui_post_mtx_);
-    ui_post_.push_back(std::move(work));
+    std::scoped_lock lk(ui_posts_->mtx);
+    ui_posts_->queue.push_back(std::move(work));
+}
+
+std::function<void(std::function<void()>)> Tui::ui_poster() {
+    return [posts = ui_posts_](std::function<void()> work) {
+        std::scoped_lock lk(posts->mtx);
+        if (posts->alive)
+            posts->queue.push_back(std::move(work));
+    };
 }
 
 void Tui::drain_ui_posts() {
     std::vector<std::function<void()>> work;
     {
-        std::scoped_lock lk(ui_post_mtx_);
-        if (ui_post_.empty())
+        std::scoped_lock lk(ui_posts_->mtx);
+        if (ui_posts_->queue.empty())
             return;
-        work.swap(ui_post_);
+        work.swap(ui_posts_->queue);
     }
     for (auto& fn : work) {
         try {
