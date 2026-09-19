@@ -32,7 +32,8 @@ Results are merged into Config only for fields NOT marked explicit by the user.
 3. Probe returns `ok=true` only if at least model name or context size is found.
 4. Probes use raw `curl_easy_init/cleanup` (NOT RAII — known leak on exception).
 5. Timeout: 10s total, 5s connect.
-6. HTTP status must be 2xx; a non-2xx response is a fetch failure, never parsed.
+6. `CURLOPT_FAILONERROR` rejects HTTP >= 400 at the transport; a 3xx body fails
+   catalog parsing downstream (it is not a model list).
 
 ---
 

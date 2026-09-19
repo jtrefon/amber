@@ -1734,11 +1734,10 @@ void SlashDispatcher::cmd_provider_test(const std::string& name) {
     pc.api_base = p->api_base;
     pc.api_key = p->api_key;
     pc.flavor = p->flavor;
-    agent::model_catalog_refresh_async(
-        pc, tui_.ui_poster(), [this, name, pc](bool fetched) {
-            const bool ok = fetched && !agent::list_model_info_cached(pc).empty();
-            tui_.append_line(P_STATUS, name + ": " + (ok ? "OK" : "FAILED"));
-        });
+    agent::model_catalog_refresh_async(pc, tui_.ui_poster(), [this, name, pc](bool fetched) {
+        const bool ok = fetched && !agent::list_model_info_cached(pc).empty();
+        tui_.append_line(P_STATUS, name + ": " + (ok ? "OK" : "FAILED"));
+    });
 }
 
 void SlashDispatcher::cmd_session_load(const std::string& id) {

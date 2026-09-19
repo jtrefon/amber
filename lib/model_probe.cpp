@@ -47,14 +47,10 @@ CURLcode fetch_models(const Config& cfg, const Dialect& dialect, std::string& bo
     curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
+    // Fail on HTTP errors: an error page is not a usable model catalog.
+    curl_easy_setopt(c, CURLOPT_FAILONERROR, 1L);
 
     CURLcode rc = curl_easy_perform(c);
-    if (rc == CURLE_OK) {
-        long code = 0;
-        curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &code);
-        if (code < 200 || code >= 300)
-            rc = CURLE_HTTP_RETURNED_ERROR;
-    }
     curl_slist_free_all(headers);
     curl_easy_cleanup(c);
     return rc;
