@@ -503,3 +503,35 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  # ---------------------------------------------------------------------------
+  # Merge gate. Branch protection requires only this check: a job skipped by
+  # the changes filter never reports a check run, so required matrix checks
+  # (build-and-test (g++), lint, ...) would sit "Expected" forever on PRs that
+  # touch no gated paths. This job always runs and fails unless the gating
+  # jobs succeeded or legitimately skipped, so protection sees exactly one
+  # always-reporting check. `changes` itself must succeed -- its failure also
+  # skips the dependents, and that must never merge green.
+  # ---------------------------------------------------------------------------
+  ci-gate:
+    needs: [changes, build-and-test, lint, analyze]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify gating jobs
+        env:
+          NEEDS: ${{ toJson(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries | map("\(.key): \(.value.result)") | join("\n")'
+          bad="$(echo "$NEEDS" | jq -r '
+            to_entries
+            | map(select(
+                (.key == "changes" and .value.result != "success") or
+                (.key != "changes" and
+                  .value.result != "success" and .value.result != "skipped")))
+            | map("\(.key): \(.value.result)") | join(", ")')"
+          if [ -n "$bad" ]; then
+            echo "::error::gating jobs did not pass: $bad"
+            exit 1
+          fi
+          echo "All gating jobs succeeded or were skipped."
