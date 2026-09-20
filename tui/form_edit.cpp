@@ -44,7 +44,6 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     set_form_win(form, w);
     WINDOW* fsub = derwin(w, frows, fcols, 2, 2);
     set_form_sub(form, fsub);
-    keypad(w, TRUE);
     post_form(form);
 
     for (int i = 0; i < n; ++i)

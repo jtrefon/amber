@@ -43,7 +43,6 @@ void info_dialog(const std::string& title, const std::vector<std::string>& rows)
     menu_opts_off(menu, O_SHOWDESC);
     set_menu_fore(menu, COLOR_PAIR(P_DIALOG));
     set_menu_back(menu, COLOR_PAIR(P_DIALOG));
-    keypad(w, TRUE);
     post_menu(menu);
     update_panels();
     doupdate();

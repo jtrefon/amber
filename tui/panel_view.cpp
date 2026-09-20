@@ -83,7 +83,6 @@ std::string panel_view(const agent::PanelRegistry& panels, const std::string& st
         dlg.set_footer(footer);
         WINDOW* content = dlg.win();
         WINDOW* body = derwin(content, dh - 4, dw - 4, 2, 2);
-        keypad(content, TRUE);
         Scroll scroll;
         scroll.visible = dh - 4;
 
