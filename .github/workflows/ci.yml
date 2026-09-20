@@ -260,6 +260,7 @@ jobs:
         run: |
           rm -rf conftest*
           gcovr --root . \
+            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
             --filter 'lib/.*' --filter 'tools/.*' --filter 'tui/.*' \
             --filter 'src/.*' --filter 'bench/.*' --filter 'plugins/.*' \
             --exclude '.*tests/.*' --exclude '.*third_party/.*' \

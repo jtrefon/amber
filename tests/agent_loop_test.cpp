@@ -18,6 +18,7 @@
 #include "agent/plugin_runtime.h"
 #include "agent/todo.h"
 #include "agent/session_brief.h"
+#include "agent/run_scope.h"
 #include "fake_llm.h"
 #include "tests/test_util.h"
 
@@ -2076,4 +2077,63 @@ TEST(agent_registers_skill_tools_even_with_an_empty_registry) {
 
     ASSERT(!raw->tool_counts.empty());
     ASSERT_EQ(raw->tool_counts.front(), static_cast<std::size_t>(3));
+}
+
+// ---------------------------------------------------------------------------
+// FIX-033 (RED): a cancel requested while a tool is mid-execution must reach
+// that tool on its dispatch worker. Today the worker has no RunScope, so the
+// tool only ever sees the registration-bound fallback and never observes it.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+class WaitCancelProbe : public agent::Tool {
+public:
+    std::string name() const noexcept override { return "wait_cancel"; }
+    bool is_read_only() const noexcept override { return true; }
+    std::string description() const noexcept override { return "waits for cancellation"; }
+    agent::json parameters_schema() const override {
+        return {{"type", "object"}, {"properties", agent::json::object()}};
+    }
+
+    agent::ToolResult execute(const agent::json&) const override {
+        agent::CancellationToken inert; // never requested
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(750);
+        while (!agent::run_cancelled(inert) && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        observed.store(agent::run_cancelled(inert));
+        agent::ToolResult r;
+        r.ok = true;
+        r.output = "probe done";
+        return r;
+    }
+
+    mutable std::atomic<bool> observed{false};
+};
+
+} // namespace
+
+TEST(agent_loop_cancel_reaches_in_flight_tool) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::ToolRegistry reg;
+    auto probe = std::make_unique<WaitCancelProbe>();
+    WaitCancelProbe* p = probe.get();
+    reg.register_tool(std::move(probe));
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_tool_call(*fake, "wait_cancel", {{"x", 1}});
+    push_text(*fake, "done");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::thread canceller([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        ag.request_cancel();
+    });
+    ag.run("go");
+    canceller.join();
+
+    ASSERT(p->observed.load());
 }

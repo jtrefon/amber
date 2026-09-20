@@ -25,6 +25,12 @@
 |----|-----|-------|--------|----------|
 | M1 | 🟠 High | **Single-flight run machinery blocks multi-window sessions**: `EventRouter` owns one thread/busy/cancel for all windows; `KeyBinder` + `WindowOps` gate switching on it; global status fields and shared cancel token couple windows; `register_skill_tools` rebinds shared registry to newest window's catalog; `/set policy.mode` never reaches existing agents. Includes `/session fork` (context-cloned window for KV-prefix reuse). | ✅ Fixed | `docs/fix-proposal/multi-window-concurrent-sessions-2026-09-13.md` |
 
+## 🆕 Current Open Issues, 2026-09-19 Run-Scope Tool-Dispatch Handoff (R1)
+
+| ID | Sev | Issue | Status | Proposal |
+|----|-----|-------|--------|----------|
+| R1 | 🟠 High | **RunScope does not survive the tool-dispatch thread hop (FIX-033)**: `RunScope` is thread-local and installed only on the agent thread, but every approved tool runs on a `std::async` dispatch worker (`lib/dispatch.cpp:289`) where `t_run_scope == nullptr`. In-flight tool cancellation, sub-agent cancellation via the ancestor chain (`lib/subagent.cpp:87`), skill-catalog resolution and activation bookkeeping silently fall back to the registration-bound objects / host template token. | ✅ Fixed | `docs/fix-proposal/run-scope-cross-thread-2026-09-19.md` |
+
 ## 🆕 Current Open Issues, 2026-08-27 Clean Architecture Audit (N1..N11)
 
 Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md`, 9 FIXes `FIX-017..025`, 4 phases, `main` green `33075234503` after `7a0e69d`.

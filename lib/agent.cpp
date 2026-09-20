@@ -283,7 +283,7 @@ void Agent::fork_from(const Agent& src) {
     model_windows_ = src.model_windows_;
     turn_counter_ = src.turn_counter_;
     brief_store_ = src.brief_store_;
-    activated_skills_ = src.activated_skills_;
+    activated_skills_.assign(src.activated_skills_.snapshot());
     last_compression_ = src.last_compression_;
     experience_cfg_ = src.experience_cfg_;
     // A fork stays on the parent's project: adopt its shared catalog and
@@ -444,7 +444,7 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     scope.cancel_token = &cfg_.cancel_token;
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
-    ScopedRunScope scope_guard(&scope);
+    ScopedRunScope scope_guard(scope);
     // Snapshot BEFORE compression — immutable, never mutate live stack.
     if (!compression_) {
         CompressionResult r;
@@ -854,7 +854,7 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
                 text += line + "\n";
             head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
         }
-        for (const auto& act : activated_skills_)
+        for (const auto& act : activated_skills_.snapshot())
             tail.push_back({prompt_priority::kActivatedSkills, seq++,
                             "[activated skill: " + act.name + "]\n" + act.body});
     }
@@ -921,7 +921,7 @@ std::string Agent::run(const std::string& user_prompt) {
     scope.cancel_token = &cfg_.cancel_token;
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
-    ScopedRunScope scope_guard(&scope);
+    ScopedRunScope scope_guard(scope);
     // The host may have started without a resolved model: interactive
     // startup reads the model catalog from cache only and revalidates it in
     // the background, so a cold first launch can reach here with no model.
