@@ -13,20 +13,36 @@ failures=0
 warn() { echo "FAIL: $1"; failures=$((failures + 1)); }
 ok() { echo "  ok: $1"; }
 
+# P1/P2 share one dry run of `make test`.
+#
+# A dry run that aborts reports itself here. That matters because the greps below
+# then see a truncated command list: a prerequisite with no rule (e.g. a bare
+# binary name instead of its $(BUILD_DIR) path) is satisfied by the file already
+# on disk in a built tree, so it only aborts in a fresh checkout — and without
+# this line the only symptom is two unrelated-looking P1 failures.
+dry_err_file=$(mktemp 2>/dev/null || echo "/tmp/amber-hygiene-dry-$$.err")
+test_out=$(make -n -B test 2>"$dry_err_file")
+dry_status=$?
+if [ "$dry_status" -eq 0 ]; then
+    ok "'make -n -B test' completes"
+else
+    warn "P2: 'make -n -B test' exited $dry_status: $(head -1 "$dry_err_file")"
+fi
+rm -f "$dry_err_file"
+
 # P1
-if make -n -B test 2>/dev/null | grep -q 'sysinfo-plugin'; then
+if echo "$test_out" | grep -q 'sysinfo-plugin'; then
     ok "make test builds sysinfo-plugin"
 else
     warn "P1: 'make test' does not build sysinfo-plugin (tests/plugin_test.cpp requires it)"
 fi
-if make -n -B test 2>/dev/null | grep -q 'cdp-plugin'; then
+if echo "$test_out" | grep -q 'cdp-plugin'; then
     ok "make test builds cdp-plugin"
 else
     warn "P1: 'make test' does not build cdp-plugin (tests/plugin_test.cpp requires it)"
 fi
 
 # P2
-test_out=$(make -n -B test 2>/dev/null)
 if echo "$test_out" | grep -E 'ws_test' | grep -q -- '-MMD'; then
     ok "ws_test compiles with -MMD"
 else

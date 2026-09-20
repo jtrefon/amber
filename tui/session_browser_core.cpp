@@ -124,7 +124,7 @@ SessionBrowserCore::Result SessionBrowserCore::key(int ch) {
     case '\n':
     case '\r':
     case KEY_ENTER:
-        r.closed = true;
+        r.action = Result::Action::Accept;
         break;
     case KEY_DC:
     case 4:
@@ -142,7 +142,7 @@ SessionBrowserCore::Result SessionBrowserCore::key(int ch) {
         snap_sel();
         break;
     case 27:
-        r.closed = true;
+        r.action = Result::Action::Cancel;
         break;
     default:
         if (ch >= 32 && ch <= 126) {
