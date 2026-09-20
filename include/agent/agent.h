@@ -22,6 +22,7 @@
 #include "agent/policy.h"
 #include "agent/session_brief.h"
 #include "agent/skill_catalog.h"
+#include "agent/activation_sink.h"
 #include "agent/tool_recovery.h"
 
 namespace agent {
@@ -226,7 +227,8 @@ public:
     void set_thinking(const std::string& thinking) { cfg_.thinking = thinking; }
 
     // Session-activated skill bodies (own list — see inject_prompt_blocks).
-    const std::vector<ActivatedSkill>& activated_skills() const { return activated_skills_; }
+    // Snapshot, not a reference: the sink is written from tool workers.
+    std::vector<ActivatedSkill> activated_skills() const { return activated_skills_.snapshot(); }
 
     // Policy store for tool approval rules.
     PolicyStore& policy() { return policy_; }
@@ -389,7 +391,7 @@ private:
     // Session-activated skill bodies, in activation order. Per-agent state
     // even though the catalog is shared: a skill read in this session is
     // injected into THIS session's prompt copy only.
-    std::vector<ActivatedSkill> activated_skills_;
+    ActivationSink activated_skills_;
     SessionBriefStore brief_store_;
     ExperienceConfig experience_cfg_;
     PolicyStore policy_;
