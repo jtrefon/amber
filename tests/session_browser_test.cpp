@@ -8,6 +8,8 @@
 
 namespace {
 
+using Action = tui::SessionBrowserCore::Result::Action;
+
 std::vector<tui::BrowserItem> sample_items() {
     return {
         {"id1", "alpha", 1797000000},                               // same day pair
@@ -38,14 +40,14 @@ TEST(layout_small_dialog_keeps_one_list_row) {
 TEST(down_moves_selection_and_stays_open) {
     tui::SessionBrowserCore core(sample_items(), 5);
     auto r = core.key(KEY_DOWN);
-    ASSERT(!r.closed);
+    ASSERT(r.action == Action::None);
     ASSERT_EQ(core.sel(), 2);
 }
 
 TEST(up_at_top_is_noop_and_stays_open) {
     tui::SessionBrowserCore core(sample_items(), 5);
     auto r = core.key(KEY_UP);
-    ASSERT(!r.closed);
+    ASSERT(r.action == Action::None);
     ASSERT_EQ(core.sel(), 1); // sel starts on first session row (below its date header)
 }
 
@@ -53,7 +55,7 @@ TEST(page_down_jumps_by_page) {
     tui::SessionBrowserCore core(sample_items(), 3);
     core.key(KEY_NPAGE);
     ASSERT(core.sel() >= 4);
-    ASSERT(!core.key(KEY_NPAGE).closed);
+    ASSERT(core.key(KEY_NPAGE).action == Action::None);
     core.key(KEY_NPAGE);
     core.key(KEY_NPAGE); // clamp at end
     ASSERT(core.sel() <= core.display_count() - 1);
@@ -102,12 +104,18 @@ TEST(delete_targets_snapped_session) {
     ASSERT_EQ(core.load_index(), 0);
 }
 
-// ── Esc closes ──
+// ── Enter accepts the selection, Esc dismisses: the host must tell them apart ──
 
-TEST(esc_closes) {
+TEST(enter_accepts_the_selection) {
+    tui::SessionBrowserCore core(sample_items(), 5);
+    auto r = core.key('\n');
+    ASSERT(r.action == Action::Accept);
+}
+
+TEST(esc_cancels) {
     tui::SessionBrowserCore core(sample_items(), 5);
     auto r = core.key(27);
-    ASSERT(r.closed);
+    ASSERT(r.action == Action::Cancel);
 }
 
 int main() {
@@ -121,7 +129,8 @@ int main() {
     backspace_pops_filter();
     load_index_skips_date_header_rows();
     delete_targets_snapped_session();
-    esc_closes();
+    enter_accepts_the_selection();
+    esc_cancels();
 
     if (failed)
         std::cout << "FAILED (" << failed << " failures)\n";

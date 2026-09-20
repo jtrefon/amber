@@ -10,11 +10,15 @@
 
 namespace tui {
 
-// One saved session as shown in the browser.
+// One saved session as shown in the browser: the list is owned by the core,
+// the renderer paints from these fields.
 struct BrowserItem {
     std::string id;
     std::string title;
-    long updated_ms = 0;
+    long long updated_ms = 0;
+    std::string model;
+    int message_count = 0;
+    size_t file_size = 0;
 };
 
 // Dialog geometry: the list fills the inner area above the search bar,
@@ -33,7 +37,9 @@ public:
     SessionBrowserCore(std::vector<BrowserItem> items, int list_h);
 
     struct Result {
-        bool closed = false;
+        // Enter accepts the selection (the host loads it); Esc dismisses.
+        enum class Action { None, Accept, Cancel };
+        Action action = Action::None;
         bool delete_pending = false;
     };
 
@@ -49,6 +55,9 @@ public:
     int display_kind(int row) const;
     // Items index behind a session row (-1 for headers/out of range).
     int display_item(int row) const;
+
+    // The item behind an items index (valid for indexes from display_item()).
+    const BrowserItem& item(int index) const { return items_[index]; }
 
     // Index into items_ the current selection resolves to (-1 if none).
     int load_index() const;

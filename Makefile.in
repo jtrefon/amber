@@ -212,6 +212,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 SB_TEST_OBJ  = $(BUILD_DIR)/tests/session_browser_test.o
+PTY_TEST_OBJ = $(BUILD_DIR)/tests/tui_pty_test.o
 E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
 COMP_TEST_OBJ = $(BUILD_DIR)/tests/completions_test.o
 PLUGIN_TEST_OBJ = $(BUILD_DIR)/tests/plugin_test.o
@@ -421,8 +422,8 @@ check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 	sh $(SRC_DIR)/tests/build_hygiene.sh
 
-test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
-	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test
+test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
+	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test && $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
 
 $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
@@ -432,6 +433,11 @@ $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 
 $(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
 	$(CXX) $(CXXFLAGS) -o $@ $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
+
+# Drives the real TUI in a pty. The fixture is written with SessionStore, so the
+# test links the core library the same way plugin_test does.
+$(BUILD_DIR)/tui_pty_test: $(PTY_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(PTY_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 	$(CXX) $(CXXFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
@@ -529,6 +535,7 @@ $(BUILD_DIR)/tests/fixtures/%: $(SRC_DIR)/tests/fixtures/%.cpp
 -include $(BENCH_TEST_OBJ:.o=.d)
 -include $(CL_TEST_OBJ:.o=.d)
 -include $(SB_TEST_OBJ:.o=.d)
+-include $(PTY_TEST_OBJ:.o=.d)
 -include $(E2E_TEST_OBJ:.o=.d)
 -include $(COMP_TEST_OBJ:.o=.d)
 -include $(TUI_TEST_OBJ:.o=.d)
@@ -599,7 +606,7 @@ clean:
 	rm -f $(BUILD_DIR)/ws_test.d
 	rm -f $(BUILD_DIR)/url_test $(BUILD_DIR)/url_test.d
 	rm -f $(CORE_LIB) $(TOOLS_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)
-	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/smoketest
+	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/smoketest
 	rm -f $(BUILD_DIR)/tests/fixtures/mcp_echo $(BUILD_DIR)/tests/fixtures/mcp_http $(BUILD_DIR)/tests/fixtures/mcp_ignore_sigterm
 	rm -rf $(BUILD_DIR)/tests/fixtures/*.dSYM $(BUILD_DIR)/*.dSYM
 	rm -f $(BUILD_DIR)/run_command_line_test $(BUILD_DIR)/run_completions_test $(BUILD_DIR)/run_e2e_test

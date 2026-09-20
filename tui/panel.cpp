@@ -22,8 +22,11 @@ Panel::Panel(int h, int w, std::string title, std::vector<FooterKey> footer)
         shadow_panel_ = new_panel(shadow_win_);
     }
 
-    // Main window
+    // Main window. Keypad translation is enabled here, not per dialog: a
+    // modal that reads its own window would otherwise see raw escape bytes
+    // (arrow keys arrive as ESC [ B, i.e. a spurious "cancel").
     win_ = newwin(h_, w_, top_, left_);
+    keypad(win_, TRUE);
     wbkgd(win_, COLOR_PAIR(PP_BORDER));
     panel_ = new_panel(win_);
 
@@ -149,6 +152,7 @@ void Panel::show_help() {
     int x = (sw - w) / 2;
 
     WINDOW* help_win = newwin(h, w, y, x);
+    keypad(help_win, TRUE);
     wbkgd(help_win, COLOR_PAIR(P_DIALOG));
     box(help_win, 0, 0);
     mvwaddstr(help_win, 0, 2, " Help ");

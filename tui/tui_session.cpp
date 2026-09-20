@@ -2,6 +2,7 @@
 #include "tui.h"
 #include "tui/dialog.h"
 #include "tui/confirm_panel.h"
+#include "tui/session_browser_core.h"
 #include "tui/window_ops.h"
 #include "tool_display.h"
 
@@ -248,27 +249,6 @@ std::string fmt_time(long long ms) {
     return buf;
 }
 
-// Case-insensitive contains.
-bool matches_filter(const std::string& title, const std::string& filter) {
-    if (filter.empty())
-        return true;
-    auto ci_find = [](const std::string& hay, const std::string& needle) {
-        if (needle.size() > hay.size())
-            return false;
-        for (size_t h = 0; h <= hay.size() - needle.size(); ++h) {
-            bool ok = true;
-            for (size_t n = 0; n < needle.size() && ok; ++n)
-                if (std::tolower(static_cast<unsigned char>(hay[h + n])) !=
-                    std::tolower(static_cast<unsigned char>(needle[n])))
-                    ok = false;
-            if (ok)
-                return true;
-        }
-        return false;
-    };
-    return ci_find(title, filter);
-}
-
 } // namespace
 
 void SessionController::session_browser() {
@@ -277,6 +257,11 @@ void SessionController::session_browser() {
         tui_.append_line(P_STATUS, "no saved sessions");
         return;
     }
+
+    std::vector<BrowserItem> items;
+    items.reserve(all.size());
+    for (const auto& m : all)
+        items.push_back({m.id, m.title, m.updated_ms, m.model, m.message_count, m.file_size});
 
     int sh = tui_.render_engine_->height(), sw = tui_.render_engine_->width();
     int dw = std::min(sw - 4, 120);
@@ -291,83 +276,33 @@ void SessionController::session_browser() {
     WINDOW* w = dlg.win();
     int aw = dlg.cols() - 2; // content width
     int ah = dlg.rows() - 2; // content height
-    int list_h = ah - 1;     // rows for list (minus search bar)
 
-    std::string filter;
-    int sel = 0;
-    int scroll_off = 0;
+    // All list/filter/selection semantics live in the core (which is what the
+    // unit tests exercise); this loop only paints it and acts on its verdicts.
+    SessionBrowserCore core(std::move(items), browser_layout(dlg.rows()).list_h);
     curs_set(1); // visible cursor for the search bar
-
-    auto rebuild = [&]() -> std::vector<std::pair<int, int>> {
-        std::vector<std::pair<int, int>> out;
-        std::string last_date;
-        for (int i = 0; i < static_cast<int>(all.size()); ++i) {
-            if (!matches_filter(all[i].title, filter))
-                continue;
-            std::string d = date_label(all[i].updated_ms);
-            if (d != last_date) {
-                out.emplace_back(0, i);
-                last_date = d;
-            }
-            out.emplace_back(1, i);
-        }
-        return out;
-    };
-
-    // Snap sel to the nearest session row, or -1 if none exist.
-    auto snap_sel = [&](auto& disp, int& s) {
-        int n = static_cast<int>(disp.size());
-        if (n == 0) {
-            s = -1;
-            return;
-        }
-        if (s < 0)
-            s = 0;
-        if (s >= n)
-            s = n - 1;
-        // Walk forward/backward to the nearest session row.
-        for (int step = 0; step < n; ++step) {
-            if (s + step < n && disp[s + step].first == 1) {
-                s += step;
-                return;
-            }
-            if (s - step >= 0 && disp[s - step].first == 1) {
-                s -= step;
-                return;
-            }
-        }
-        s = -1;
-    };
 
     bool done = false;
     while (!done) {
-        auto disp = rebuild();
-        int nd = static_cast<int>(disp.size());
-        snap_sel(disp, sel);
-        if (sel < scroll_off)
-            scroll_off = sel;
-        if (sel >= scroll_off + list_h)
-            scroll_off = sel - list_h + 1;
-
         // Render list — clear each row with its own attribute so highlights
         // extend full-width. The date header rows and blank rows use the
         // dialog background pair inherited from wbkgd.
         int title_w = std::max(16, aw - 34);
-        for (int i = 0; i < list_h; ++i) {
+        for (int i = 0; i < core.list_h(); ++i) {
             int row = 1 + i;
-            int disp_idx = scroll_off + i;
-            bool has_item = (disp_idx < nd);
-            if (!has_item)
+            int disp_idx = core.scroll_off() + i;
+            int kind = core.display_kind(disp_idx);
+            if (kind < 0)
                 continue; // past end — wbkgd shows through
 
-            auto& [typ, idx] = disp[disp_idx];
-            if (typ == 0) {
+            const BrowserItem& m = core.item(core.display_item(disp_idx));
+            if (kind == 0) {
                 // Date header
                 wattron(w, COLOR_PAIR(P_BAR_DIM) | A_BOLD);
-                mvwaddstr(w, row, 1, ("  " + date_label(all[idx].updated_ms)).c_str());
+                mvwaddstr(w, row, 1, ("  " + date_label(m.updated_ms)).c_str());
                 wattroff(w, COLOR_PAIR(P_BAR_DIM) | A_BOLD);
             } else {
-                bool cur = (disp_idx == sel);
+                bool cur = (disp_idx == core.sel());
                 if (cur) {
                     wattron(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
                     mvwaddstr(w, row, 1, std::string(aw, ' ').c_str());
@@ -376,7 +311,6 @@ void SessionController::session_browser() {
                 }
                 mvwaddstr(w, row, 1, "  ");
                 int x = 3;
-                auto& m = all[idx];
                 std::string title = m.title;
                 if (static_cast<int>(title.size()) > title_w) {
                     title.resize(title_w - 1);
@@ -415,82 +349,43 @@ void SessionController::session_browser() {
         }
 
         // Search bar
-        std::string search_prompt = "/ " + filter;
+        std::string search_prompt = "/ " + core.filter();
         wattron(w, COLOR_PAIR(P_STATUS));
         mvwaddstr(w, ah - 1, 1, std::string(aw, ' ').c_str());
         mvwaddnstr(w, ah - 1, 1, search_prompt.c_str(), aw);
-        wmove(w, ah - 1, 2 + static_cast<int>(filter.size()));
+        wmove(w, ah - 1, 2 + static_cast<int>(core.filter().size()));
         wattroff(w, COLOR_PAIR(P_STATUS));
 
         // Scroll indicators
-        if (scroll_off > 0)
+        if (core.scroll_off() > 0)
             mvwaddch(w, 1, aw, ACS_UARROW);
-        if (scroll_off + list_h < nd)
-            mvwaddch(w, list_h, aw, ACS_DARROW);
+        if (core.scroll_off() + core.list_h() < core.display_count())
+            mvwaddch(w, core.list_h(), aw, ACS_DARROW);
 
         update_panels();
         doupdate();
 
-        int c = wgetch(w);
-        // Handle navigation and action keys BEFORE filter input so they
-        // don't get swallowed by printable-character matching.
-        if (nd > 0 && (c == KEY_DOWN || c == KEY_UP || c == KEY_NPAGE || c == KEY_PPAGE ||
-                       c == '\n' || c == '\r' || c == KEY_ENTER || c == KEY_DC || c == 4)) {
-            switch (c) {
-            case KEY_DOWN:
-                ++sel;
-                break;
-            case KEY_UP:
-                --sel;
-                break;
-            case KEY_NPAGE:
-                sel += list_h;
-                break;
-            case KEY_PPAGE:
-                sel -= list_h;
-                break;
-            default:
-                break;
-            case '\n':
-            case '\r':
-            case KEY_ENTER:
-                if (sel >= 0) {
-                    load_session(all[disp[sel].second].id);
-                    done = true;
-                }
-                break;
-            case KEY_DC:
-            case 4: { // Delete or Ctrl+D
-                if (sel >= 0) {
-                    int del_idx = disp[sel].second;
-                    std::string msg = "Delete \"";
-                    msg += all[del_idx].title;
-                    msg += "\"?";
-                    tui::ConfirmPanel confirm("Delete Session", msg);
-                    if (confirm.run()) {
-                        store_.remove(all[del_idx].id);
-                        all.erase(all.begin() + del_idx);
-                        sel = 0;
-                        scroll_off = 0;
-                        if (all.empty()) {
-                            tui_.append_line(P_STATUS, "no saved sessions");
-                            done = true;
-                        }
+        auto r = core.key(wgetch(w));
+        if (r.action == SessionBrowserCore::Result::Action::Accept) {
+            if (int idx = core.load_index(); idx >= 0)
+                load_session(core.item(idx).id);
+            done = true;
+        } else if (r.action == SessionBrowserCore::Result::Action::Cancel) {
+            done = true;
+        }
+        if (r.delete_pending) {
+            if (int idx = core.load_index(); idx >= 0) {
+                std::string msg = "Delete \"" + core.item(idx).title + "\"?";
+                tui::ConfirmPanel confirm("Delete Session", msg);
+                if (confirm.run()) {
+                    store_.remove(core.item(idx).id);
+                    core.erase_current();
+                    if (core.display_count() == 0) {
+                        tui_.append_line(P_STATUS, "no saved sessions");
+                        done = true;
                     }
                 }
-                break;
             }
-            }
-        } else if (c >= 32 && c <= 126) {
-            filter += static_cast<char>(c);
-            sel = 0;
-            scroll_off = 0;
-        } else if ((c == KEY_BACKSPACE || c == 127 || c == 8) && !filter.empty()) {
-            filter.pop_back();
-            sel = 0;
-            scroll_off = 0;
-        } else if (c == 27 || c == 'q') {
-            done = true;
         }
     }
 
