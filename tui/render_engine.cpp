@@ -13,7 +13,24 @@
 
 namespace tui {
 
-RenderEngine::RenderEngine(Tui& tui) : tui_(tui) {}
+RenderEngine::RenderEngine(Tui& tui) : tui_(tui) {
+    // Seed the project name (getcwd, no fork) so the prompt is complete on the
+    // first paint; branch and diff counts arrive from the worker.
+    auto seed = std::make_shared<GitState>();
+    seed->project = current_project_name();
+    std::atomic_store_explicit(&git_pub_->state, std::shared_ptr<const GitState>(std::move(seed)),
+                               std::memory_order_release);
+}
+
+std::string RenderEngine::current_project_name() {
+    std::string cwd;
+    std::array<char, 4096> buf;
+    if (getcwd(buf.data(), buf.size()))
+        cwd = buf.data();
+    size_t slash = cwd.rfind('/');
+    std::string project = (slash == std::string::npos) ? cwd : cwd.substr(slash + 1);
+    return project.empty() ? std::string("project") : project;
+}
 
 void RenderEngine::mark_working() noexcept {
     working_since_ = std::chrono::steady_clock::now();
@@ -538,19 +555,20 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
         x += display_cols(text);
     };
 
+    const auto git = git_state(); // one immutable snapshot for this frame
     auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
     decor("\u2514\u2500[");
-    put(git_project_, P_USER);
-    if (!git_branch_.empty()) {
+    put(git ? git->project : std::string(), P_USER);
+    if (git && !git->branch.empty()) {
         decor("]\u2500[");
-        put(git_branch_, P_ASSISTANT);
-        if (git_ins_ > 0 || git_del_ > 0) {
+        put(git->branch, P_ASSISTANT);
+        if (git->ins > 0 || git->del > 0) {
             decor("]\u2500[");
-            if (git_ins_ > 0)
-                put("+" + std::to_string(git_ins_), P_GIT_PLUS);
+            if (git->ins > 0)
+                put("+" + std::to_string(git->ins), P_GIT_PLUS);
             decor("/");
-            if (git_del_ > 0)
-                put("-" + std::to_string(git_del_), P_GIT_MINUS);
+            if (git->del > 0)
+                put("-" + std::to_string(git->del), P_GIT_MINUS);
         }
     }
     decor("]\u2500\u276f ");
@@ -695,7 +713,26 @@ void RenderEngine::draw_drawer(const std::string& input) {
     }
 }
 
-void RenderEngine::git_refresh() {
+void RenderEngine::request_git_refresh() {
+    // Non-blocking: git is two subprocesses, and this runs at startup (before the
+    // first paint) and after every tool result. One refresh at a time; a request
+    // that arrives while one is in flight is satisfied by it.
+    if (git_pub_->in_flight.exchange(true))
+        return;
+    auto pub = git_pub_; // by value: the worker never touches this RenderEngine
+    std::thread([pub] {
+        auto next = std::make_shared<GitState>(read_git_state());
+        std::atomic_store_explicit(&pub->state, std::shared_ptr<const GitState>(std::move(next)),
+                                   std::memory_order_release);
+        pub->in_flight.store(false);
+    }).detach();
+}
+
+std::shared_ptr<const RenderEngine::GitState> RenderEngine::git_state() const {
+    return std::atomic_load_explicit(&git_pub_->state, std::memory_order_acquire);
+}
+
+RenderEngine::GitState RenderEngine::read_git_state() {
     auto read_stdout = [](const char* cmd) -> std::string {
         std::string result;
         FILE* pipe = popen(cmd, "r");
@@ -708,47 +745,34 @@ void RenderEngine::git_refresh() {
         return result;
     };
 
-    {
-        std::string cwd;
-        std::array<char, 4096> buf;
-        if (getcwd(buf.data(), buf.size()))
-            cwd = buf.data();
-        size_t slash = cwd.rfind('/');
-        git_project_ = (slash == std::string::npos) ? cwd : cwd.substr(slash + 1);
-        if (git_project_.empty())
-            git_project_ = "project";
-    }
+    GitState st;
+    st.project = current_project_name();
 
     std::string ref = read_stdout("git symbolic-ref HEAD 2>/dev/null");
-    if (ref.empty()) {
-        git_branch_.clear();
-        git_ins_ = 0;
-        git_del_ = 0;
-        return;
-    }
+    if (ref.empty())
+        return st;
     ref.erase(ref.find_last_not_of(" \n\r") + 1);
     if (ref.compare(0, 11, "refs/heads/") == 0)
-        git_branch_ = ref.substr(11);
+        st.branch = ref.substr(11);
     else
-        git_branch_ = ref;
+        st.branch = ref;
 
     std::string stat = read_stdout(
         "git diff --shortstat -- . ':!bench/results' ':!*.o' ':!*.a' ':!*.d' 2>/dev/null");
-    git_ins_ = 0;
-    git_del_ = 0;
     if (!stat.empty()) {
         auto extract = [&](const std::string& needle) -> int {
             size_t pos = stat.find(needle);
             if (pos == std::string::npos)
                 return 0;
-            size_t start = pos;
-            while (start > 0 && isdigit(static_cast<unsigned char>(stat[start - 1])))
-                --start;
-            return std::stoi(stat.substr(start, pos - start));
+            size_t begin = pos;
+            while (begin > 0 && isdigit(static_cast<unsigned char>(stat[begin - 1])))
+                --begin;
+            return std::stoi(stat.substr(begin, pos - begin));
         };
-        git_ins_ = extract(" insertion");
-        git_del_ = extract(" deletion");
+        st.ins = extract(" insertion");
+        st.del = extract(" deletion");
     }
+    return st;
 }
 
 } // namespace tui

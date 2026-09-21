@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -80,7 +81,8 @@ struct Tui {
 
     ~Tui() { stop(); }
 
-    bool start(const std::string& binary, const std::string& workspace) {
+    bool start(const std::string& binary, const std::string& workspace,
+               const std::string& path_prefix = "") {
         master = posix_openpt(O_RDWR | O_NOCTTY);
         if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0)
             return false;
@@ -103,6 +105,12 @@ struct Tui {
             if (slave > STDERR_FILENO)
                 close(slave);
             setenv("TERM", "xterm-256color", 1);
+            if (!path_prefix.empty()) {
+                std::string path = path_prefix;
+                if (const char* inherited = getenv("PATH"))
+                    path += std::string(":") + inherited;
+                setenv("PATH", path.c_str(), 1);
+            }
             if (chdir(workspace.c_str()) != 0) {
                 std::fprintf(stderr, "pty child: chdir(%s): %s\n", workspace.c_str(),
                              std::strerror(errno));
@@ -278,7 +286,41 @@ bool build_fixture(Fixture& fx) {
             return false;
     }
     store.rebuild_index();
+    // Restore a chat window at startup: the first-launch window is a welcome
+    // window, which renders art instead of scrollback lines, so command output
+    // (append_line) would be invisible there.
+    agent::WorkspaceState ws;
+    agent::WorkspaceState::WindowEntry we;
+    we.session_id = fx.newer_id;
+    we.title = "pty-beta";
+    ws.windows.push_back(we);
+    ws.active = 0;
+    if (!store.save_workspace(ws))
+        return false;
     return true;
+}
+
+// A stand-in command that blocks for `seconds`. Used to make "did the UI thread
+// wait on this?" measurable: prepend the directory to PATH.
+bool write_slow_command(const std::string& dir, const std::string& name, int seconds) {
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec)
+        return false;
+    const std::string path = dir + "/" + name;
+    std::ofstream f(path, std::ios::trunc);
+    if (!f)
+        return false;
+    f << "#!/bin/sh\nsleep " << seconds << "\n";
+    f.close();
+    fs::permissions(path, fs::perms::owner_all, ec);
+    return !ec;
+}
+
+// A `git` that blocks for `seconds`: makes "did the UI thread fork git?" a
+// measurable question rather than an inspection.
+bool write_slow_git(const std::string& dir, int seconds) {
+    return write_slow_command(dir, "git", seconds);
 }
 
 Fixture& fixture() {
@@ -296,9 +338,18 @@ Fixture& fixture() {
 // "the UI is up" marker — the TUI ticks its clock, so waiting for quiet never
 // settles.
 bool wait_ready(Tui& tui) {
-    if (!tui.wait_for("[" + fixture().workspace_name + "]", 20000))
+    // "loaded completions" means the command tree is in place. Typing before it
+    // lands can be dispatched against a stale drawer selection, and the prompt
+    // marker alone appears earlier than that (the workspace path shows up in
+    // startup output too).
+    if (!tui.wait_for("loaded completions", 20000))
         return false;
-    tui.pump(200);
+    if (!tui.wait_for("[" + fixture().workspace_name + "]\u2500", 10000))
+        return false;
+    // Settle: the tree is loaded, but plugin registration and the first feeds
+    // still land after the prompt appears, and typing into a half-built tree is
+    // dispatched against a stale drawer.
+    tui.pump(1000);
     return true;
 }
 
@@ -389,6 +440,65 @@ TEST(delete_arrow_opens_the_confirmation_instead_of_cancelling) {
     tui.pump(400);
 }
 
+// ── T2: the UI thread never forks git, and never waits on a command ──
+
+TEST(startup_paints_before_git_returns) {
+    // A git that blocks for 5 s. `git_refresh()` runs two of them, so a startup
+    // that waits on git cannot paint before ~10 s. The first paint must not wait.
+    ASSERT(write_slow_git(fixture().workspace + "/slowbin", 5));
+    Tui tui;
+    ASSERT(tui.start(fixture().binary, fixture().workspace, fixture().workspace + "/slowbin"));
+
+    auto t0 = std::chrono::steady_clock::now();
+    const bool up = tui.wait_for("[" + fixture().workspace_name + "]", 15000);
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+            .count();
+    if (!require(up, "the UI never painted", tui))
+        return;
+    require(ms < 3000, "the first paint waited on git (startup forked it)", tui);
+}
+
+TEST(system_commands_do_not_freeze_the_ui) {
+    // `/system ps` dispatches reliably (a leaf, no argument). A `ps` shim that
+    // blocks for 4 s turns it into a long job, so "did the UI wait on it?" is
+    // measurable: a UI that polls the job cannot acknowledge the start, and
+    // cannot echo a keystroke, before the command finishes.
+    ASSERT(write_slow_command(fixture().workspace + "/slowbin", "ps", 4));
+    Tui tui;
+    ASSERT(tui.start(fixture().binary, fixture().workspace, fixture().workspace + "/slowbin"));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    tui.pump(4000); // settle to idle: the ack window below measures the app's
+                    // latency, not its startup
+
+    // Two Enters, deliberately: the drawer's first Enter can select/descend and
+    // the second dispatches. On an already-dispatched (now empty) prompt the
+    // extra Enter is a no-op, so this is robust to either semantics.
+    tui.send("/system ps");
+    tui.pump(400);
+    tui.send("\r");
+    tui.pump(400);
+    tui.send("\r");
+    if (!require(tui.wait_for("ps: started", 3000),
+                 "/system ps did not acknowledge the start within 1.5 s", tui))
+        return;
+
+    // The UI stays live while the job runs: a keystroke still reaches the prompt.
+    size_t mark = tui.raw.size();
+    tui.send("z");
+    bool echoed = false;
+    for (int waited = 0; waited < 1500 && !echoed; waited += 50) {
+        tui.pump(50);
+        echoed = text_since(tui, mark).find("z") != std::string::npos;
+    }
+    if (!require(echoed, "the UI stopped accepting input while a command ran", tui))
+        return;
+
+    // ...and the result is reported when the job finishes, on the drain.
+    require(tui.wait_for("ps: exit 0", 20000), "the job result never arrived", tui);
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -401,6 +511,8 @@ int main(int argc, char** argv) {
     down_arrow_selects_the_next_session();
     up_arrow_keeps_the_first_session_selected();
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
+    startup_paints_before_git_returns();
+    system_commands_do_not_freeze_the_ui();
 
     if (failed)
         std::cout << "FAILED (" << failed << " failures)\n";

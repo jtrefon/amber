@@ -109,6 +109,12 @@ private:
     void send_async_to(Window& w, const std::string& raw_prompt);
     // Dequeue prompts on windows whose agents finished (UI thread, per tick).
     void drain_pending_prompts();
+
+    // Run a shell command through the job service and report its output when it
+    // finishes. The UI thread starts the job and returns; a per-tick drain
+    // reports the result. (The UI thread never polls or forks.)
+    void run_command_async(const std::string& label, const std::string& cmd);
+    void drain_pending_jobs();
     // Cancel every window's run: per-agent tokens + per-slot flags.
     void cancel_all_runs();
     std::string expand_at_references(const std::string& raw) const;
@@ -167,6 +173,14 @@ private:
     void draw();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
     std::unique_ptr<RenderEngine> render_engine_;
+
+    // Commands started by the UI and not yet reported. Job handles are
+    // shared_ptrs, so a job that outlives the drain is still safe to read.
+    struct WatchedJob {
+        std::shared_ptr<agent::Job> job;
+        std::string label;
+    };
+    std::vector<WatchedJob> watched_jobs_;
 
     // ---- session persistence (owned by SessionController) ----------------
     void autosave();

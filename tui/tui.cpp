@@ -299,6 +299,40 @@ void Tui::drain_pending_prompts() {
     }
 }
 
+void Tui::run_command_async(const std::string& label, const std::string& cmd) {
+    // The job service owns execution: timeout-bounded, output-capped, visible in
+    // /jobs and killable. This returns immediately — the UI thread must never
+    // wait on a subprocess.
+    std::string id = jobs_.start(cmd, agent::Workspace::root(), 60, 30);
+    if (id.empty()) {
+        append_line(P_STATUS, label + ": failed to start: " + cmd);
+        return;
+    }
+    append_line(P_STATUS, label + ": started " + id + " \u2014 output when it finishes");
+    if (auto job = jobs_.get(id))
+        watched_jobs_.push_back({std::move(job), label});
+    draw();
+}
+
+void Tui::drain_pending_jobs() {
+    for (auto it = watched_jobs_.begin(); it != watched_jobs_.end();) {
+        if (!it->job || !it->job->is_done()) {
+            ++it;
+            continue;
+        }
+        // Job::output() is incremental, so the first read after completion is
+        // the whole transcript.
+        std::string out = it->job->output();
+        if (out.size() > 4096)
+            out.resize(4096);
+        append_line(P_STATUS, it->label + ": exit " + std::to_string(it->job->exit_code()));
+        if (!out.empty())
+            append_line(P_ASSISTANT, out);
+        draw(); // the result is on screen, not merely in the scrollback
+        it = watched_jobs_.erase(it);
+    }
+}
+
 void Tui::cancel_all_runs() {
     // Two channels per window: the agent's own token aborts its run loop
     // and in-flight cancellable tools (RunScope); the slot flag drops its
@@ -378,7 +412,7 @@ AgentEvent Tui::run_compression(Window& my_win, size_t window_id) {
 }
 
 void Tui::run() {
-    render_engine_->git_refresh();
+    render_engine_->request_git_refresh(); // worker-side: never blocks the first paint
     render_engine_->draw();
     render_engine_->draw_input("");
     render_engine_->flush();
@@ -480,6 +514,7 @@ void Tui::run() {
         bool had_events = drain_events();
         drain_ui_posts();
         jobs_.check_timeouts();
+        drain_pending_jobs();
         // Time-driven plugin work (a provider's balance refresh, say). The bar
         // reads what the tick cached; segments themselves never fetch.
         plugin_runtime_.tick();
