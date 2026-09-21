@@ -91,6 +91,16 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
     }
     if (register_skills)
         register_skill_tools(registry_, *skills_);
+    publish_config(); // readers must never see a null snapshot
+}
+
+void Agent::publish_config() {
+    // Copy-on-write: the worker keeps mutating its private `cfg_`; readers on
+    // other threads (the UI renders from this every frame) get an immutable
+    // snapshot. Atomic, so an idle-window UI write publishes without a lock and
+    // a reader can never observe a half-written std::string.
+    std::atomic_store_explicit(&published_cfg_, std::make_shared<const Config>(cfg_),
+                               std::memory_order_release);
 }
 
 void Agent::set_model(const std::string& model, int window) {
@@ -99,6 +109,7 @@ void Agent::set_model(const std::string& model, int window) {
     if (window > 0)
         model_windows_[model] = window;
     client_ = make_client(cfg_, client_factory_);
+    publish_config();
 }
 
 void Agent::resolve_window() {
@@ -117,11 +128,13 @@ void Agent::resolve_window() {
         if (learned > 0 && (cfg_.context_size == 0 || learned < cfg_.context_size))
             cfg_.context_size = learned;
     }
+    publish_config();
 }
 
 void Agent::set_reasoning_effort(const std::string& effort) {
     cfg_.reasoning_effort = effort;
     client_ = make_client(cfg_, client_factory_);
+    publish_config();
 }
 
 void Agent::set_connection(const std::string& api_base, const std::string& api_key,
@@ -134,6 +147,7 @@ void Agent::set_connection(const std::string& api_base, const std::string& api_k
         cfg_.model_explicit = true;
     }
     client_ = make_client(cfg_, client_factory_);
+    publish_config();
 }
 
 std::string Agent::render_system_prompt() const {
@@ -278,6 +292,7 @@ void Agent::fork_from(const Agent& src) {
     cfg_ = src.cfg_;
     // The fork is its own run: cancelling it must never touch the parent.
     cfg_.cancel_token = CancellationToken{};
+    publish_config();
     meta_ = src.meta_;
     session_approved_ = src.session_approved_;
     model_windows_ = src.model_windows_;
@@ -927,8 +942,10 @@ std::string Agent::run(const std::string& user_prompt) {
     // the background, so a cold first launch can reach here with no model.
     // This is the agent worker — a bounded cache-through fetch is legal here,
     // and a failure leaves the model empty for the normal error path.
-    if (cfg_.model.empty() && apply_server_autodetect(cfg_).ok)
+    if (cfg_.model.empty() && apply_server_autodetect(cfg_).ok) {
         client_ = make_client(cfg_, client_factory_);
+        publish_config();
+    }
     ensure_system_prompt();
     // The turn's opening event: fired before the prompt is sealed into the
     // context so an interceptor can still rewrite what the model will see.

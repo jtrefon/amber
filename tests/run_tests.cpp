@@ -5842,7 +5842,10 @@ TEST(agent_config_read_is_race_free) {
     std::atomic<int> unpublished{0};
     std::thread reader([&] {
         while (!stop.load(std::memory_order_relaxed)) {
-            const std::string& m = ag.config().model; // the render-path read
+            const auto live = ag.config_snapshot(); // the render-path read
+            if (!live)
+                continue;
+            const std::string& m = live->model;
             if (m != "gpt-4o-mini" && m != "model-a" && m != "model-b")
                 unpublished.fetch_add(1);
         }
@@ -6767,8 +6770,8 @@ TEST(agent_request_cancel_is_per_agent) {
     agent::Agent a(cfg_a, reg);
     agent::Agent b(cfg_b, reg, {}, {}, {}, {}, {}, {}, {}, false);
     a.request_cancel();
-    ASSERT_TRUE(a.config().cancel_token.is_requested());
-    ASSERT_FALSE(b.config().cancel_token.is_requested());
+    ASSERT_TRUE(a.config_snapshot()->cancel_token.is_requested());
+    ASSERT_FALSE(b.config_snapshot()->cancel_token.is_requested());
 }
 
 // ---------------------------------------------------------------------------
@@ -6840,7 +6843,7 @@ TEST(agent_fork_copies_runtime_state) {
     agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
     dst.fork_from(src);
     // Same wire prefix requires the same model/mode/thinking — cfg follows.
-    ASSERT_EQ(dst.config().model, "parent-model");
+    ASSERT_EQ(dst.config_snapshot()->model, "parent-model");
     ASSERT_EQ(dst.meta_["origin"], "test");
 }
 
@@ -6852,6 +6855,6 @@ TEST(agent_fork_keeps_own_cancel_token) {
     dst.fork_from(src);
     // Cancelling the fork must not cancel the parent — tokens stay separate.
     dst.request_cancel();
-    ASSERT_TRUE(dst.config().cancel_token.is_requested());
-    ASSERT_FALSE(src.config().cancel_token.is_requested());
+    ASSERT_TRUE(dst.config_snapshot()->cancel_token.is_requested());
+    ASSERT_FALSE(src.config_snapshot()->cancel_token.is_requested());
 }

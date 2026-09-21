@@ -28,7 +28,10 @@ driven by an OpenAI-compatible LLM API.
   (`tools/duplicate_detector.py`); it is a gating CI job. `make
   format-check-changed BASE=origin/main` is the incremental clang-format gate
   (changed files only); full-tree `make format-check` stays informational.
-- CI also runs an ASan+UBSan `make test` job, a gcov coverage job uploading to
+- CI also runs an ASan+UBSan `make test` job, a **ThreadSanitizer** `make test`
+  job (data races: the UI thread, per-window agent workers, the tool-dispatch
+  hop and the detached catalog/plugin workers all share state, and ASan+UBSan
+  cannot see races), a gcov coverage job uploading to
   Codecov (needs the `CODECOV_TOKEN` secret), and a separate CodeQL
   workflow (`security-and-quality` queries). The `changes` job gates every
   heavyweight job on which paths a PR touched — docs-only PRs skip the C++
@@ -490,10 +493,10 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 6818 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 6860 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 309 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 123 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 2833 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2842 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),
