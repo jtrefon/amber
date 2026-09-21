@@ -3,6 +3,7 @@
 #include "agent/dialect.h"
 
 #include <algorithm>
+#include <mutex>
 #include <utility>
 
 namespace agent {
@@ -13,6 +14,7 @@ namespace agent {
 
 Contribution PromptRegistry::add(const std::string& owner, const std::string& id, int priority,
                                  Render render, PromptPlacement placement) {
+    std::scoped_lock lk(mtx_);
     Block block;
     block.owner = owner;
     block.id = id;
@@ -33,6 +35,7 @@ Contribution PromptRegistry::add(const std::string& owner, const std::string& id
     c.kind = CapabilityKind::PromptBlock;
     c.name = id;
     c.remove = [this, owner, id] {
+        std::scoped_lock lk(mtx_);
         blocks_.erase(
             std::remove_if(blocks_.begin(), blocks_.end(),
                            [&](const Block& b) { return b.owner == owner && b.id == id; }),
@@ -42,11 +45,19 @@ Contribution PromptRegistry::add(const std::string& owner, const std::string& id
 }
 
 std::vector<std::string> PromptRegistry::render_all(PromptPlacement placement) const {
+    // Snapshot the callables under the lock, then invoke them outside it: a
+    // render callback that re-entered the registry must not deadlock, and
+    // plugin code never runs while the registry lock is held.
+    std::vector<Render> pending;
+    {
+        std::scoped_lock lk(mtx_);
+        for (const auto& block : blocks_)
+            if (block.placement == placement && block.render)
+                pending.push_back(block.render);
+    }
     std::vector<std::string> out;
-    for (const auto& block : blocks_) {
-        if (block.placement != placement || !block.render)
-            continue;
-        std::string text = block.render();
+    for (const auto& render : pending) {
+        std::string text = render();
         if (!text.empty())
             out.push_back(std::move(text));
     }
@@ -54,6 +65,7 @@ std::vector<std::string> PromptRegistry::render_all(PromptPlacement placement) c
 }
 
 std::vector<ExtensionItem> PromptRegistry::items() const {
+    std::scoped_lock lk(mtx_);
     std::vector<ExtensionItem> out;
     out.reserve(blocks_.size());
     for (const auto& block : blocks_) {
@@ -61,6 +73,11 @@ std::vector<ExtensionItem> PromptRegistry::items() const {
                        "priority " + std::to_string(block.priority)});
     }
     return out;
+}
+
+std::size_t PromptRegistry::size() const {
+    std::scoped_lock lk(mtx_);
+    return blocks_.size();
 }
 
 // ---------------------------------------------------------------------------

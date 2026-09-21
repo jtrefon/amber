@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <mutex>
 #include <string>
 namespace agent {
 
@@ -18,7 +19,8 @@ public:
     explicit DefaultCompressionGate(const CompressionConfig& cfg) : cfg_(cfg) {}
 
     bool should_compress(const Context& context, const Config& agent_cfg) const override {
-        if (is_within_cooldown(agent_cfg.turn_counter))
+        std::scoped_lock lk(mtx_);
+        if (cooldown_active(agent_cfg.turn_counter))
             return false;
         if (!threshold_exceeded(context, agent_cfg))
             return false;
@@ -27,17 +29,25 @@ public:
         return true;
     }
 
-    void set_last_compress_turn(size_t turn) override { last_compress_turn_ = turn; }
+    void set_last_compress_turn(size_t turn) override {
+        std::scoped_lock lk(mtx_);
+        last_compress_turn_ = turn;
+    }
 
     void set_threshold(double t) override {
+        std::scoped_lock lk(mtx_);
         if (t > 0.0)
             cfg_.threshold = t;
     }
 
-    void set_min_turns(int n) override { cfg_.min_turns = n; }
+    void set_min_turns(int n) override {
+        std::scoped_lock lk(mtx_);
+        cfg_.min_turns = n;
+    }
 
     // Last decision inputs, for the host's gate-fire debug log.
     void last_decision(double& tokens, double& budget, double& threshold) const override {
+        std::scoped_lock lk(mtx_);
         tokens = last_tokens_;
         budget = last_budget_;
         threshold = last_threshold_;
@@ -68,17 +78,23 @@ private:
     }
 
     bool is_within_cooldown(size_t current_turn) const override {
-        // last_compress_turn_ == 0 means "never compressed": only the very
-        // first turn of a freshly loaded session counts as cooldown (so a
-        // restored large session is not compressed immediately); any later
-        // turn is free to trigger the first compression. After the first
-        // compression, normal cooldown applies.
+        std::scoped_lock lk(mtx_);
+        return cooldown_active(current_turn);
+    }
+
+    // last_compress_turn_ == 0 means "never compressed": only the very first
+    // turn of a freshly loaded session counts as cooldown (so a restored large
+    // session is not compressed immediately); any later turn is free to trigger
+    // the first compression. After the first compression, normal cooldown
+    // applies. Callers hold mtx_.
+    bool cooldown_active(size_t current_turn) const {
         if (last_compress_turn_ == 0)
             return current_turn == 0 && cfg_.cooldown_turns > 0;
         return (current_turn - last_compress_turn_) < static_cast<size_t>(cfg_.cooldown_turns);
     }
 
     CompressionConfig cfg_;
+    mutable std::mutex mtx_;
     mutable size_t last_compress_turn_ = 0;
     mutable double last_tokens_ = 0;
     mutable double last_budget_ = 0;

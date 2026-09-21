@@ -6395,6 +6395,69 @@ TEST(run_scope_record_activation_goes_to_agent_sink) {
 }
 
 // ---------------------------------------------------------------------------
+// FIX-034 Phase 1: PromptRegistry is written by the host thread (plugin
+// install/unwind) and read by the agent thread (prompt rendering), so it must
+// be internally synchronized and must never invoke plugin callables while its
+// lock is held.
+// ---------------------------------------------------------------------------
+
+TEST(prompt_registry_concurrent_add_remove_and_render) {
+    agent::PromptRegistry reg;
+    agent::Contribution stable = reg.add("core", "stable", 0, [] { return std::string("S"); });
+    std::atomic<bool> missing{false};
+
+    std::thread writer([&] {
+        for (int i = 0; i < 2000; ++i) {
+            agent::Contribution c = reg.add("plugin", "p", 10, [] { return std::string("P"); });
+            c.remove();
+        }
+    });
+    std::thread reader([&] {
+        for (int i = 0; i < 2000; ++i) {
+            auto out = reg.render_all(agent::PromptPlacement::Tail);
+            bool found = false;
+            for (const auto& s : out)
+                if (s == "S")
+                    found = true;
+            if (!found)
+                missing.store(true);
+        }
+    });
+    writer.join();
+    reader.join();
+    stable.remove();
+    ASSERT_FALSE(missing.load()); // the stable block is never removed
+    ASSERT_EQ(reg.size(), 0u);
+}
+
+TEST(prompt_registry_render_does_not_hold_lock_during_callback) {
+    agent::PromptRegistry reg;
+    // A render callback that re-enters the registry would deadlock if the
+    // callable were invoked while the registry lock is held.
+    agent::Contribution c = reg.add("p", "reentrant", 0, [&reg] {
+        (void)reg.size();
+        (void)reg.items();
+        return std::string("R");
+    });
+    auto out = reg.render_all(agent::PromptPlacement::Tail);
+    ASSERT_EQ(out.size(), 1u);
+    ASSERT_EQ(out[0], "R");
+    c.remove();
+}
+
+TEST(prompt_registry_size_tracks_add_and_remove) {
+    agent::PromptRegistry reg;
+    ASSERT_EQ(reg.size(), 0u);
+    agent::Contribution a = reg.add("a", "1", 0, [] { return std::string("a"); });
+    agent::Contribution b = reg.add("b", "2", 0, [] { return std::string("b"); });
+    ASSERT_EQ(reg.size(), 2u);
+    a.remove();
+    ASSERT_EQ(reg.size(), 1u);
+    b.remove();
+    ASSERT_EQ(reg.size(), 0u);
+}
+
+// ---------------------------------------------------------------------------
 // FIX-033 (RED): the run scope must survive the tool-dispatch thread hop.
 // dispatch_tool_calls runs every approved tool on a std::async worker, so the
 // worker must observe the CALLING agent's RunScope — its cancel token, skill
