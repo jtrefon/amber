@@ -396,6 +396,9 @@ void SessionController::session_browser() {
 void SessionController::save_window_sessions() {
     for (const auto& window : tui_.window_manager_->all()) {
         Window& w = *window;
+        // Context is single-owner: never snapshot one the worker is mutating.
+        if (tui_.runs_.busy(w.id))
+            continue;
         if (!w.dirty || !w.agent || w.agent->context().get_all().empty())
             continue;
         std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
