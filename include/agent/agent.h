@@ -200,10 +200,19 @@ public:
         cfg_.compression_keep_last_prompts_explicit = true;
     }
 
-    // Read-only view of the resolved runtime config (model, mode, thinking)
-    // — per-agent, so a window's status bar and session snapshot describe
-    // THIS agent, not the host template.
-    const Config& config() const { return cfg_; }
+    // Immutable snapshot of the resolved runtime config (model, mode, thinking)
+    // — per-agent, so a window's status bar and session snapshot describe THIS
+    // agent, not the host template.
+    //
+    // The agent's worker owns `cfg_` outright (single ownership, not locking), so
+    // readers on other threads — the UI renders from this every frame — must take
+    // the snapshot instead of a reference. Every display-relevant mutator
+    // publishes a fresh copy, so a reader can never observe a half-written
+    // std::string. Internal counters (turn_counter, prompt_tokens_used) are
+    // deliberately not published: nothing outside the worker reads them.
+    std::shared_ptr<const Config> config_snapshot() const {
+        return std::atomic_load_explicit(&published_cfg_, std::memory_order_acquire);
+    }
 
     // Ask the running turn to stop (the loop polls between iterations and
     // cancellable tools consult it through RunScope). Each agent owns its
@@ -273,6 +282,11 @@ public:
     std::string learn_pin(const std::string& id, bool pinned);
 
 private:
+    // Publish the display-relevant config for other threads. Copy-on-write:
+    // `cfg_` stays the worker's private working copy, readers get an immutable
+    // snapshot. Atomic so an idle-window UI write (set_model) can publish too.
+    void publish_config();
+    std::shared_ptr<const Config> published_cfg_; // atomic access only
     // Assemble every injected prompt block into `prompt_copy`, in one ordered
     // pass. Called exactly once per request and only AFTER the compression
     // gate: a block injected before the rebuild is discarded when the rebuild

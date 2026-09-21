@@ -71,7 +71,8 @@ agent::Session SessionController::snapshot(Window& w) const {
     s.id = w.session_id;
     // The session file describes THIS window: model and telemetry come from
     // its own agent/run state, never the global template or a sibling.
-    s.model = w.agent ? w.agent->config().model : tui_.cfg_.model;
+    const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
+    s.model = acfg ? acfg->model : tui_.cfg_.model;
     if (w.agent) {
         const auto& ctx = w.agent->context().get_all();
         s.messages.assign(ctx.begin(), ctx.end());
@@ -79,7 +80,7 @@ agent::Session SessionController::snapshot(Window& w) const {
     }
     // Persist UI state so it survives exit/reload.
     s.meta["ctx_used"] = w.ctx_used.load();
-    s.meta["ctx_size"] = w.agent ? w.agent->config().context_size : tui_.cfg_.context_size;
+    s.meta["ctx_size"] = acfg ? acfg->context_size : tui_.cfg_.context_size;
     if (w.stats.valid) {
         s.meta["latency_ms"] = w.stats.latency_ms;
         s.meta["tps"] = w.stats.tps;
