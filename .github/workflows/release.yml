@@ -18,6 +18,10 @@ jobs:
   release:
     needs: [release-macos-arm64]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v7
 
@@ -164,6 +168,28 @@ jobs:
           name: amber-macos-tarball-arm64
           path: dist
 
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign release artifacts
+        run: |
+          shopt -s nullglob
+          for file in dist/*; do
+            case "$file" in
+              *.sha256|*.tar.gz|*.deb|*.rpm|*.sig|*.pem) ;;
+              *) continue ;;
+            esac
+            cosign sign-blob --yes \
+              --output-signature "${file}.sig" \
+              --output-certificate "${file}.pem" \
+              "$file"
+          done
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -179,6 +205,8 @@ jobs:
             dist/*.rpm
             dist/*.rpm.sha256
             dist/amber-plugin-cdp*
+            dist/*.sig
+            dist/*.pem
 
   # ---------------------------------------------------------------------------
   # macOS release — builds the darwin tarball in parallel with the Linux job.
