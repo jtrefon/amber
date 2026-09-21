@@ -210,10 +210,12 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     // The bar describes the ACTIVE window: model/mode/telemetry are that
     // window's agent state, not process globals.
     const Window& w = tui_.win();
-    snapshot.model = w.agent ? w.agent->config().model : tui_.cfg_.model;
-    snapshot.reasoning_effort =
-        w.agent ? w.agent->config().reasoning_effort : tui_.cfg_.reasoning_effort;
-    snapshot.mode = w.agent ? w.agent->config().mode : tui_.cfg_.mode;
+    // One immutable snapshot for the whole bar: the agent's worker may be
+    // running, and cfg_ is its private working copy.
+    const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
+    snapshot.model = acfg ? acfg->model : tui_.cfg_.model;
+    snapshot.reasoning_effort = acfg ? acfg->reasoning_effort : tui_.cfg_.reasoning_effort;
+    snapshot.mode = acfg ? acfg->mode : tui_.cfg_.mode;
     snapshot.scroll_mode = scroll_mode_;
     snapshot.latency_ms = static_cast<long>(w.stats.latency_ms);
     snapshot.tps = w.stats.tps;

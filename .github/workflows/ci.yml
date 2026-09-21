@@ -221,6 +221,37 @@ jobs:
         run: make test
 
   # ---------------------------------------------------------------------------
+  # ThreadSanitizer — data-race detection. The UI thread, the per-window agent
+  # workers, the tool-dispatch thread hop and the detached catalog/plugin workers
+  # all share state; ASan+UBSan cannot see races, so three separate race fixes
+  # (FIX-033, FIX-034, FIX-035) landed with no detector able to catch the class.
+  # ---------------------------------------------------------------------------
+  tsan:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+
+      - name: Configure (TSan)
+        run: |
+          CXX=clang++ \
+          CXXFLAGS="-O1 -g -fsanitize=thread -fno-omit-frame-pointer -std=c++17" \
+          CFLAGS="-O1 -g -fsanitize=thread -fno-omit-frame-pointer -std=c99" \
+          ./configure
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Test (TSan)
+        env:
+          # Report every race instead of stopping at the first one: a green job
+          # then means "no races at all", not "no race early".
+          TSAN_OPTIONS: halt_on_error=0:second_deadlock_stack=1:history_size=7
+        run: make test
+
+  # ---------------------------------------------------------------------------
   # Coverage — gcov build + test run, Cobertura XML uploaded to Codecov.
   # Uploads via GitHub OIDC (use_oidc) so no CODECOV_TOKEN secret is needed
   # on this public repo. The upload is best-effort (fail_ci_if_error: false)
@@ -521,7 +552,7 @@ jobs:
   # website jobs are delivery/path jobs, not code gates.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, coverage]
+    needs: [changes, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, tsan, coverage]
     if: always()
     runs-on: ubuntu-latest
     steps:
