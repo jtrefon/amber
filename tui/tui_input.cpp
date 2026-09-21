@@ -1881,20 +1881,9 @@ void SlashDispatcher::cmd_system_exec(const std::string& rest) {
         return;
     }
     // Route through JobService so the command is visible in /jobs, killable,
-    // timeout-bounded, and output-capped — no untracked raw popen.
-    std::string id = tui_.jobs_.start(rest, agent::Workspace::root(), 60, 30);
-    // Wait for completion (synchronous UX: the user typed the command and
-    // expects the output inline). Poll until the job exits.
-    for (int i = 0; i < 600; ++i) {
-        auto job = tui_.jobs_.get(id);
-        if (!job || job->is_done())
-            break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    std::string out = tui_.jobs_.output(id);
-    if (out.size() > 4096)
-        out.resize(4096);
-    tui_.append_line(P_ASSISTANT, out);
+    // timeout-bounded, and output-capped — no untracked raw popen. The UI thread
+    // starts it and returns; the output lands when the job finishes.
+    tui_.run_command_async("exec", rest);
 }
 
 void SlashDispatcher::cmd_system_delete(const std::string& rest) {
@@ -2004,15 +1993,7 @@ void SlashDispatcher::cmd_system_info(const std::string& rest) {
 }
 
 void SlashDispatcher::cmd_system_ps() {
-    FILE* f = popen("ps -eo pid,comm,args --no-headers | head -30", "r");
-    if (!f)
-        return;
-    std::string out;
-    char buf[4096];
-    while (fgets(buf, sizeof buf, f))
-        out += buf;
-    pclose(f);
-    tui_.append_line(P_ASSISTANT, out.empty() ? "(no processes)" : out);
+    tui_.run_command_async("ps", "ps -eo pid,comm,args --no-headers | head -30");
 }
 
 void SlashDispatcher::cmd_system_kill(const std::string& rest) {
@@ -2029,39 +2010,15 @@ void SlashDispatcher::cmd_system_kill(const std::string& rest) {
 }
 
 void SlashDispatcher::cmd_system_df() {
-    FILE* f = popen("df -h | head -20", "r");
-    if (!f)
-        return;
-    std::string out;
-    char buf[4096];
-    while (fgets(buf, sizeof buf, f))
-        out += buf;
-    pclose(f);
-    tui_.append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+    tui_.run_command_async("df", "df -h | head -20");
 }
 
 void SlashDispatcher::cmd_system_uptime() {
-    FILE* f = popen("uptime", "r");
-    if (!f)
-        return;
-    std::string out;
-    char buf[4096];
-    while (fgets(buf, sizeof buf, f))
-        out += buf;
-    pclose(f);
-    tui_.append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+    tui_.run_command_async("uptime", "uptime");
 }
 
 void SlashDispatcher::cmd_system_uname() {
-    FILE* f = popen("uname -a", "r");
-    if (!f)
-        return;
-    std::string out;
-    char buf[4096];
-    while (fgets(buf, sizeof buf, f))
-        out += buf;
-    pclose(f);
-    tui_.append_line(P_ASSISTANT, out.empty() ? "(no output)" : out);
+    tui_.run_command_async("uname", "uname -a");
 }
 
 void SlashDispatcher::cmd_help(const std::string& arg) {

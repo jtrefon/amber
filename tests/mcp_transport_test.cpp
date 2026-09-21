@@ -113,9 +113,15 @@ namespace {
 bool wait_for_file(const std::string& path, int attempts = 300) {
     // ~3s budget: the Python fixture server can take >1s to boot on slow CI
     // runners (macOS), where a 1s wait raced the statefile write.
+    //
+    // The file must also be non-empty: the fixtures open their statefile/pidfile
+    // and *then* write, so existence alone still races the write. Reading an
+    // empty file leaves the caller's port/pid at its sentinel and the assertion
+    // fails — observed as a flake in the ASan job, where instrumented startup
+    // widens the window.
     for (int i = 0; i < attempts; ++i) {
         std::ifstream f(path);
-        if (f.is_open())
+        if (f.is_open() && f.peek() != std::ifstream::traits_type::eof())
             return true;
         usleep(10 * 1000);
     }
