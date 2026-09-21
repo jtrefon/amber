@@ -574,6 +574,7 @@ jobs:
       - name: Check routes and internal links
         env:
           SMOKE_BASE_URL: http://127.0.0.1:4173/amber/
+          SMOKE_DIST: /tmp/site-root/amber
         run: node website/scripts/smoke.mjs
       - name: Stop static server
         if: always()

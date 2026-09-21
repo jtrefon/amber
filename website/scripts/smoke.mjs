@@ -33,7 +33,7 @@ async function htmlFiles(directory) {
   return files;
 }
 
-const dist = new URL('../dist/', import.meta.url).pathname;
+const dist = process.env.SMOKE_DIST ?? new URL('../dist/', import.meta.url).pathname;
 for (const route of routes) await request(route);
 
 const links = new Set();
