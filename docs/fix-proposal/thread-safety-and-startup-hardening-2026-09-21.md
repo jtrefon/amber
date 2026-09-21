@@ -1,6 +1,6 @@
 # Thread Safety and Startup Hardening — Proposal
 
-- **Status:** 🟢 Signed off 2026-09-21 — FIX-035 (T1) landed; FIX-036..039 pending
+- **Status:** 🟢 Signed off 2026-09-21 — FIX-035 (T1) and FIX-036 (T2) landed; FIX-037..039 pending
 - **Date:** 2026-09-21
 - **Register:** `docs/issues.md` (T1..T5)
 - **Proposed FIX ids:** FIX-035 (T1 + TSan), FIX-036 (T2), FIX-037 (T3), FIX-038 (T4), FIX-039 (T5)
@@ -86,6 +86,40 @@ The class removed from startup in `#142` is still present elsewhere:
 The `git_refresh` case contradicts the stated trademark directly: startup work is
 supposed to be local-only and bounded, and here the UI forks two processes before
 it has painted once.
+
+#### Outcome (FIX-036)
+
+- **`git_refresh()` is gone from the UI thread.** Git state (project, branch,
+  diff counts) is now published as an immutable snapshot by a detached worker
+  (`request_git_refresh()`), which is what runs at startup — before the first
+  paint — and after every tool result. The prompt renders from the snapshot, so
+  a slow `git status` can no longer delay a frame. The worker holds the
+  publication by `shared_ptr`, so a refresh in flight during teardown writes
+  into live memory rather than a destroyed `RenderEngine`.
+- **All five TUI command paths go through the job service** (`/system exec`,
+  `ps`, `df`, `uptime`, `uname`). `run_command_async()` starts the job, reports
+  `started <id>`, and returns; `drain_pending_jobs()` — called next to the
+  existing `jobs_.check_timeouts()` — reports the exit code and output when the
+  job finishes. The 30 s UI-thread poll loop is gone, and with it four
+  duplicated `popen` blocks (`tui_input.cpp` shrank by 43 lines).
+- Reds verified both ways: with the pre-fix synchronous git and the pre-fix
+  `popen`, the pty tests fail ("the first paint waited on git", "/system ps did
+  not acknowledge the start within 1.5 s"); with the fix they pass, plain and
+  under TSan (full suite, 0 races).
+
+#### Observations found while building the tests (not fixed here)
+
+1. **Command output is invisible on a first-launch window.** The first window is
+   a welcome window, and `render_engine.cpp:283` renders welcome art instead of
+   scrollback lines, so `append_line` output from any slash command is not shown
+   until a chat window exists. Pre-existing; it makes `/system ps` look broken on
+   first launch.
+2. **The drawer's Enter is fragile.** A burst of text followed by Enter (a paste)
+   can be dispatched against a stale drawer selection — observed dispatching
+   `/system` instead of `/system ps` — and for some paths the first Enter
+   selects/descends and a second is needed to dispatch. Both are pre-existing
+   input-path behaviours; the pty harness works around them (it types the command
+   and presses Enter twice, which is a no-op when the first Enter dispatched).
 
 ### T3 — 🟠 High (security): secret-bearing files are world-readable
 

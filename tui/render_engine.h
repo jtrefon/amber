@@ -1,9 +1,11 @@
 #ifndef AMBER_TUI_RENDER_ENGINE_H
 #define AMBER_TUI_RENDER_ENGINE_H
 
+#include <atomic>
+#include <chrono>
+#include <memory>
 #include <string>
 #include <vector>
-#include <chrono>
 
 #include "canvas.h"
 #include "markdown.h"
@@ -51,12 +53,21 @@ public:
     static bool drawer_has_arg(const std::string& input);
     std::vector<const palette::Command*> filter_commands(const std::string& token);
 
-    void git_refresh();
+    // Git state for the prompt (project, branch, diff counts). Refresh runs on a
+    // detached worker: git is a subprocess and the UI thread must never fork, so
+    // request_git_refresh() returns immediately and the renderer reads whatever
+    // snapshot is published. The worker holds the publication by shared_ptr, so a
+    // refresh in flight during teardown writes into live memory, not into a
+    // destroyed RenderEngine.
+    struct GitState {
+        std::string project;
+        std::string branch;
+        int ins = 0;
+        int del = 0;
+    };
+    void request_git_refresh();
+    std::shared_ptr<const GitState> git_state() const;
     md::Style& md_style() noexcept { return md_style_; }
-    const std::string& git_project() const noexcept { return git_project_; }
-    const std::string& git_branch() const noexcept { return git_branch_; }
-    int git_ins() const noexcept { return git_ins_; }
-    int git_del() const noexcept { return git_del_; }
 
     // UI-state accessors (state lives here; Tui facade forwards).
     bool dirty() const noexcept { return dirty_; }
@@ -107,10 +118,16 @@ private:
     Tui& tui_;
     Canvas chat_canvas_;
     md::Style md_style_;
-    std::string git_project_;
-    std::string git_branch_;
-    int git_ins_ = 0;
-    int git_del_ = 0;
+    // Worker-side: the only place that forks git. current_project_name() is a
+    // getcwd (no fork), used to seed the prompt before the first refresh lands.
+    static GitState read_git_state();
+    static std::string current_project_name();
+
+    struct GitPublication {
+        std::shared_ptr<const GitState> state;
+        std::atomic<bool> in_flight{false};
+    };
+    std::shared_ptr<GitPublication> git_pub_ = std::make_shared<GitPublication>();
     bool drawer_open_ = false;
     int drawer_sel_ = 0;
     bool scroll_mode_ = false;
