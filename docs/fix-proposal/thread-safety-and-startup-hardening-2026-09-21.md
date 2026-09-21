@@ -1,6 +1,6 @@
 # Thread Safety and Startup Hardening — Proposal
 
-- **Status:** 🟡 Awaiting sign-off
+- **Status:** 🟢 Signed off 2026-09-21 — FIX-035 (T1) landed; FIX-036..039 pending
 - **Date:** 2026-09-21
 - **Register:** `docs/issues.md` (T1..T5)
 - **Proposed FIX ids:** FIX-035 (T1 + TSan), FIX-036 (T2), FIX-037 (T3), FIX-038 (T4), FIX-039 (T5)
@@ -47,6 +47,31 @@ state it does not own.
 **Why the existing gates did not catch it:** CI runs ASan+UBSan only
 (`.github/workflows/ci.yml:199-223`). Neither detects data races; only
 ThreadSanitizer does, and there is no TSan job.
+
+#### Outcome (FIX-035)
+
+Implemented as proposed (D1 copy-on-write, D2 gating TSan):
+
+- `Agent` publishes an immutable `shared_ptr<const Config>`; the worker keeps
+  mutating its private `cfg_` and every display-relevant mutator re-publishes.
+  `config()` is gone, so the compiler forced every reader to migrate — the eight
+  UI sites (render bar, two settings readouts, session snapshot, catalog
+  callback) and five test sites.
+- The catalog callback now skips windows whose run is busy, matching the
+  `busy_reject` guard every other UI-side writer already had. A busy window with
+  no model resolves it in `Agent::run()` against the now-warm catalog.
+- **The Red needed correcting, and that is worth recording.** The first version
+  asserted the reader never sees a value outside {"model-a", "model-b"} — but
+  `Config::model` defaults to `gpt-4o-mini`, so the *initial* published value was
+  counted as torn. That was a false positive: it failed identically before and
+  after the fix (30/32 vs 33 observations). The valid invariant is "never
+  observe a value that was never published", with the default included. Verified
+  as a true red by aliasing the snapshot to live state (pre-fix read semantics):
+  8 and 6 never-published observations in two runs; and at the red commit
+  itself, 38. Green at the fix: 0, deterministically.
+- `tsan` CI job added (gating, full `make test`): ~3 min locally, 0 races on the
+  fixed tree. It is the detector for this class — ASan+UBSan cannot see races,
+  which is why T1 lived unnoticed.
 
 ### T2 — 🟠 High: UI-thread blocking remains in three paths
 

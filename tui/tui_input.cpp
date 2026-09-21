@@ -2331,10 +2331,17 @@ void Tui::on_models_refreshed(bool fetched, bool announce, const std::string& ap
             append_line(P_STATUS, note);
         }
         // Windows opened before the catalog resolved still hold an empty
-        // model; adopt the detected one now.
-        for (auto& w : window_manager_->all())
-            if (w->agent && w->agent->config().model.empty())
+        // model; adopt the detected one now — but only for idle windows: while a
+        // run or compression is in flight the agent owns its config (single
+        // ownership, not locking). A busy window with no model resolves it in
+        // Agent::run() against this now-warm catalog.
+        for (auto& w : window_manager_->all()) {
+            if (!w->agent || runs_.busy(w->id))
+                continue;
+            const auto acfg = w->agent->config_snapshot();
+            if (!acfg || acfg->model.empty())
                 w->agent->set_model(cfg_.model);
+        }
         refresh_model_list();
     }
     draw();
@@ -2745,7 +2752,8 @@ void SlashDispatcher::build_settings() {
         "policy.mode", "Agent mode", "<read|write|yolo>", Setting::Choice, 0, 0,
         [this]() -> std::string {
             const auto& w = tui_.win();
-            return mode_name(w.agent ? w.agent->config().mode : tui_.cfg_.mode);
+            const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
+            return mode_name(acfg ? acfg->mode : tui_.cfg_.mode);
         },
         [this](const std::string& v) {
             agent::AgentMode m = agent::AgentMode::Write;
@@ -2794,7 +2802,8 @@ void SlashDispatcher::build_settings() {
         "think", "Thinking mode", "<on|off|auto>", Setting::Choice, 0, 0,
         [this]() -> std::string {
             const auto& w = tui_.win();
-            return w.agent ? w.agent->config().thinking : tui_.cfg_.thinking;
+            const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
+            return acfg ? acfg->thinking : tui_.cfg_.thinking;
         },
         [this](const std::string& v) {
             tui_.cfg_.thinking = v;
