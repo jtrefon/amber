@@ -78,8 +78,11 @@ public:
     // Blocks in priority order, skipping any that render empty.
     std::vector<std::string> render_all(PromptPlacement placement = PromptPlacement::Tail) const;
 
+    // Written by the host thread (plugin install/unwind) and read by the agent
+    // thread (prompt rendering), so the registry locks; render callables are
+    // snapshotted under the lock and invoked outside it.
     std::vector<ExtensionItem> items() const;
-    std::size_t size() const noexcept { return blocks_.size(); }
+    std::size_t size() const;
 
 private:
     struct Block {
@@ -90,6 +93,7 @@ private:
         std::size_t seq = 0;
         Render render;
     };
+    mutable std::mutex mtx_;
     std::vector<Block> blocks_;
     std::size_t next_seq_ = 0;
 };
