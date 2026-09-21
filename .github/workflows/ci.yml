@@ -513,9 +513,15 @@ jobs:
   # jobs succeeded or legitimately skipped, so protection sees exactly one
   # always-reporting check. `changes` itself must succeed -- its failure also
   # skips the dependents, and that must never merge green.
+  #
+  # Every gating job is aggregated here, not just the fast ones: a red
+  # sanitizer, coverage or macOS run must block a merge. `lint` is PR-only and
+  # reports `skipped` on pushes (allowed). `complexity` and `lint-full` are
+  # intentionally excluded -- both are informational. `cd`/`cd-macos` and the
+  # website jobs are delivery/path jobs, not code gates.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, build-and-test, lint, analyze]
+    needs: [changes, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, coverage]
     if: always()
     runs-on: ubuntu-latest
     steps:
