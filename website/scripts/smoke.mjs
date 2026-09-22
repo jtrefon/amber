@@ -1,5 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
+import http from 'node:http';
+import https from 'node:https';
 
 const base = new URL(process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:4173/amber/');
 const routes = [
@@ -14,12 +16,22 @@ const routes = [
   'report/',
 ];
 
-async function request(path) {
-  const url = new URL(path, base);
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`${response.status} ${url}`);
-  }
+function request(path) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, base);
+    const client = url.protocol === 'https:' ? https : http;
+    const req = client.get(url, (response) => {
+      response.resume();
+      if (response.statusCode >= 400) {
+        reject(new Error(`${response.statusCode} ${url}`));
+        return;
+      }
+      resolve();
+    });
+
+    req.setTimeout(10_000, () => req.destroy(new Error(`timeout ${url}`)));
+    req.on('error', reject);
+  });
 }
 
 async function htmlFiles(directory) {
