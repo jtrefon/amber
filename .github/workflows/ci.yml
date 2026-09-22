@@ -48,6 +48,22 @@ jobs:
           echo "website=$web" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
+  # Dependency review — inspect manifest and lockfile changes on pull requests.
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  # ---------------------------------------------------------------------------
   # Static analysis — clang-tidy (per-file). On PRs, runs incrementally: only
   # the .cpp files changed in the PR are analyzed (headers/.clang-tidy changes
   # trigger a full scan as fallback). On main pushes, the full lint runs as a
@@ -287,14 +303,16 @@ jobs:
       - name: Generate coverage report
         # conftest.gcno is left by configure's compile probes (built with the
         # coverage CXXFLAGS) and has no surviving source — remove it or gcovr
-        # aborts on the orphan note file.
+        # aborts on the orphan note file. The threshold covers the tested
+        # library and tool production surface; clients, benchmarks, plugins,
+        # and UI adapters have separate or integration-oriented coverage.
         run: |
           rm -rf conftest*
           gcovr --root . \
             --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
-            --filter 'lib/.*' --filter 'tools/.*' --filter 'tui/.*' \
-            --filter 'src/.*' --filter 'bench/.*' --filter 'plugins/.*' \
+            --filter 'lib/.*' --filter 'tools/.*' \
             --exclude '.*tests/.*' --exclude '.*third_party/.*' \
+            --fail-under-line 80 \
             --xml-pretty -o coverage.xml
 
       - name: Upload to Codecov
@@ -509,14 +527,59 @@ jobs:
       - name: Install dependencies
         run: cd website && npm ci
 
+      - name: Audit dependencies
+        run: cd website && npm audit --audit-level=high
+
       - name: Build
         run: cd website && npm run build
+
+      - name: Upload dist for smoke checks
+        uses: actions/upload-artifact@v7
+        with:
+          name: website-dist
+          path: website/dist
+          retention-days: 1
 
       - name: Upload dist artifact (for deploy)
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v5
         with:
           path: website/dist
+
+  # ---------------------------------------------------------------------------
+  # Website smoke checks — serve the deployed layout and verify representative
+  # routes plus every same-site link emitted into the static HTML.
+  # ---------------------------------------------------------------------------
+  website-smoke:
+    needs: [changes, website-build]
+    if: needs.changes.outputs.website == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          name: website-dist
+          path: /tmp/site-root/amber
+      - name: Start static server
+        run: |
+          python3 -m http.server 4173 --directory /tmp/site-root >/tmp/website-server.log 2>&1 &
+          echo $! > /tmp/website-server.pid
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:4173/amber/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:4173/amber/ >/dev/null
+      - name: Check routes and internal links
+        env:
+          SMOKE_BASE_URL: http://127.0.0.1:4173/amber/
+          SMOKE_DIST: /tmp/site-root/amber
+        run: node website/scripts/smoke.mjs
+      - name: Stop static server
+        if: always()
+        run: kill "$(cat /tmp/website-server.pid)"
 
   # ---------------------------------------------------------------------------
   # Website deploy — pushes the built site to GitHub Pages on main.
@@ -549,10 +612,10 @@ jobs:
   # sanitizer, coverage or macOS run must block a merge. `lint` is PR-only and
   # reports `skipped` on pushes (allowed). `complexity` and `lint-full` are
   # intentionally excluded -- both are informational. `cd`/`cd-macos` and the
-  # website jobs are delivery/path jobs, not code gates.
+  # website deploy are delivery jobs; website smoke checks are gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, tsan, coverage]
+    needs: [changes, dependency-review, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, tsan, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-latest
     steps:
