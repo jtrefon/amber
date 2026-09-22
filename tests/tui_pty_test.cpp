@@ -110,6 +110,10 @@ struct Tui {
             if (slave > STDERR_FILENO)
                 close(slave);
             setenv("TERM", "xterm-256color", 1);
+            // Deliver a lone Esc promptly: ncurses otherwise waits ESCDELAY
+            // (1 s by default) to decide it is not an escape-sequence prefix,
+            // which would stall the teardown below.
+            setenv("ESCDELAY", "25", 1);
             if (!path_prefix.empty()) {
                 std::string path = path_prefix;
                 if (const char* inherited = getenv("PATH"))
@@ -205,6 +209,32 @@ struct Tui {
     void send_delete() { write_raw("\x1b[3~"); }
 
     void stop() {
+        // Ask the app to exit through its own quit path (Ctrl+C) instead of
+        // killing it: a normal return runs the atexit handlers, which is where
+        // gcov flushes. Keep draining the pty while waiting — the app blocks on
+        // write once the terminal buffer fills, and a blocked app never reads
+        // the quit key. SIGKILL stays as a bounded last resort so the suite can
+        // never hang, but a session that needs it is a failure (see main()).
+        if (master >= 0 && pid > 0) {
+            // Esc first: a test may end inside a modal (e.g. the session
+            // browser), which reads its own window and would swallow Ctrl+C.
+            // The pty child runs with a short ESCDELAY so a lone Esc lands, but
+            // the gap must outlast it — pump() returns as soon as input drains,
+            // so hold the pause explicitly.
+            write_raw("\x1b");
+            for (int i = 0; i < 8; ++i) { // ~0.8 s, draining throughout
+                pump(kPumpMs);
+                usleep(kPumpMs * 1000);
+            }
+            write_raw("\x03");
+            for (int i = 0; i < 200 && pid > 0; ++i) { // up to ~10 s
+                pump(kPumpMs);
+                int status = 0;
+                pid_t reaped = waitpid(pid, &status, WNOHANG);
+                if (reaped == pid || reaped < 0)
+                    pid = -1;
+            }
+        }
         // Close the master before reaping: a child still holding the controlling
         // terminal as it exits stays in the kernel's "trying to exit" state on
         // macOS and a blocking waitpid() never returns.
@@ -442,7 +472,8 @@ TEST(delete_arrow_opens_the_confirmation_instead_of_cancelling) {
         return;
     assert_no_escape_tail(text_since(tui, mark), "[3~");
 
-    tui.send("n"); // decline; the fixture must survive for the other tests
+    tui.send("\r"); // Enter on the default "No" declines; the fixture must
+                    // survive for the other tests, and the modal must close.
     tui.pump(400);
 }
 
