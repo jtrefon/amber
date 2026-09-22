@@ -38,6 +38,11 @@ namespace fs = std::filesystem;
 
 constexpr int kPumpMs = 50;
 
+// Sessions that had to be force-killed instead of exiting through the app's own
+// quit path. A killed session never runs its atexit handlers, so gcov cannot
+// flush the TUI's coverage (tui/ would report 0%); this must stay zero.
+int killed_sessions = 0;
+
 // Drop terminal control sequences so assertions can look at rendered text.
 std::string strip_ansi(const std::string& in) {
     std::string out;
@@ -208,6 +213,7 @@ struct Tui {
             master = -1;
         }
         if (pid > 0) {
+            ++killed_sessions;
             kill(pid, SIGKILL);
             for (int i = 0; i < 200; ++i) { // bounded reap: never hang the suite
                 int status = 0;
@@ -513,6 +519,14 @@ int main(int argc, char** argv) {
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
     system_commands_do_not_freeze_the_ui();
+
+    // The TUI must terminate through its own quit path: a force-killed session
+    // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.
+    if (killed_sessions) {
+        std::cerr << "FAIL: " << killed_sessions
+                  << " TUI session(s) were force-killed instead of exiting through the quit path\n";
+        failed += killed_sessions;
+    }
 
     if (failed)
         std::cout << "FAILED (" << failed << " failures)\n";
