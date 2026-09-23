@@ -12,6 +12,7 @@
 #include "tui/palette.h"
 #include "tui/reasoning_block.h"
 #include "tui/rich.h"
+#include "tui/info_dialog_layout.h"
 #include "tui/markdown.h"
 #include "tui/markdown_normalize.h"
 #include "tui/tool_display.h"
@@ -1865,6 +1866,45 @@ TEST(markdown_normalize_pads_ragged_table) {
 
 TEST(markdown_normalize_splits_glued_separator_run) {
     ASSERT_EQ(tui::markdown_normalize::normalize("text------------"), "text\n\n------------");
+}
+
+// --- InfoDialogLayout (L1): info popup geometry and scroll hints ---
+
+TEST(info_dialog_layout_geometry_from_rows_and_title) {
+    auto l = tui::info_dialog_layout::compute({"a", "bb"}, "T", 40, 80);
+    ASSERT_EQ(l.width, 9); // min(80-4, max(2+6, 1+8))
+    ASSERT_EQ(l.height, 6);
+    ASSERT_EQ(l.list_h, 2);
+}
+
+TEST(info_dialog_layout_long_title_widens_the_dialog) {
+    auto l = tui::info_dialog_layout::compute({"x"}, "A very long dialog title", 40, 80);
+    ASSERT_EQ(l.width, 32); // min(76, max(1+6, 24+8))
+}
+
+TEST(info_dialog_layout_empty_row_becomes_a_space) {
+    auto l = tui::info_dialog_layout::compute({"", "x"}, "T", 40, 80);
+    ASSERT_EQ(l.rows.size(), 2u);
+    ASSERT_EQ(l.rows[0], " ");
+    ASSERT_EQ(l.rows[1], "x");
+}
+
+TEST(info_dialog_layout_scroll_hint_when_content_fits) {
+    auto h = tui::info_dialog_layout::scroll_hint(0, 10, 5);
+    ASSERT_FALSE(h.draw);
+}
+
+TEST(info_dialog_layout_scroll_hint_at_top_middle_and_bottom) {
+    auto top = tui::info_dialog_layout::scroll_hint(0, 2, 5);
+    ASSERT_TRUE(top.draw);
+    ASSERT_FALSE(top.up);
+    ASSERT_TRUE(top.down);
+    auto mid = tui::info_dialog_layout::scroll_hint(1, 2, 5);
+    ASSERT_TRUE(mid.up);
+    ASSERT_TRUE(mid.down);
+    auto bot = tui::info_dialog_layout::scroll_hint(3, 2, 5);
+    ASSERT_TRUE(bot.up);
+    ASSERT_FALSE(bot.down); // 3 + 2 == 5: the last page
 }
 
 // ---------------------------------------------------------------------------
