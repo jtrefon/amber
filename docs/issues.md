@@ -44,6 +44,20 @@ Findings verified against source at `bf98d4d`; measurements taken on macOS.
 | T4 | 🟡 Medium | **Local logs grow without bound**: `lib/agent.cpp:613-618` opens `<workspace>/.amber/logs/{ts}.jsonl` per `Agent`; no retention code exists anywhere (`prune|retention|rotate|max_age|keep_last` matches only unrelated skill-install cleanups). Measured in this project: **11,910 files, 214 MB**. | 🟡 Proposed | FIX-038 |
 | T5 | 🟡 Medium | **MCP auto-connect blocks startup before first paint**: `tui/tui.cpp:140` calls `mcp_servers_.connect_all()` on the startup path, a blocking handshake per enabled + `auto_connect` server (`lib/mcp_config.cpp:258-260`). Inert for the current config; a startup blocker for anyone who configures MCP servers. | 🟡 Proposed | FIX-039 |
 
+## 🆕 Current Open Issues, 2026-09-22 Coverage Gate Scoping (CV1..CV3)
+
+Full proposal: `docs/fix-proposal/coverage-gate-scoping-2026-09-22.md`.
+Reproduced locally at `main` `c5ac158`: full production surface **61.0%**
+(15,918 / 26,079 lines); unit-testable core `lib`+`tools`+`plugins` **82.7%**.
+All three landed 2026-09-22 on `fix/coverage-gate-scoping`; after FIX-040 the
+full surface measures **68.7%** and the gated core **83.8%**.
+
+| ID | Sev | Issue | Status | FIX |
+|----|-----|-------|--------|-----|
+| CV1 | 🟠 High | **The TUI's coverage is measured as 0% because the pty test kills it**: `tests/tui_pty_test.cpp:211` `kill(pid, SIGKILL)`; gcov flushes from `atexit`, which `SIGKILL` bypasses, so every unit reachable only through the real binary reports 0% — `tui_input.cpp` (2,239), `tui.cpp` (814), `render_engine.cpp` (607), `event_router.cpp` (393), `tui_session.cpp` (386), ~5,700 lines the pty suite drives but the report never sees. Measured: clean exit via `/quit` gives `tui_input.cpp` 14.7% and `tui.cpp` 27.5% vs 0%. | ✅ Fixed: `Tui::stop()` exits through the app's own quit path (cancel any modal, drain the pty, Ctrl+C, bounded wait) so gcov flushes; `SIGKILL` kept only as a fallback. `tui/` 26.5% → 48.1%, overall 61.0% → 68.7%. | FIX-040 |
+| CV2 | 🟠 High | **The documented 80% is a new-code rule applied as a whole-tree floor**: PR template:28 and `docs/fix-tracker.md:494` say "new code paths must have ≥80% line coverage"; `a70da98` added `--fail-under-line 80` across the entire production tree and CI failed at ~60%. A project-wide 80% floor was never a stated requirement. | ✅ Fixed: coverage job split into a gated core run (`lib`+`tools`+`plugins`, `--fail-under-line 80`, 83.8%) plus an ungated full-surface report for Codecov; entry-point exclusions named and justified. | FIX-041 |
+| CV3 | 🟡 Medium | **The unblocking change is arbitrary and undocumented**: `3f1f8f2` narrowed filters to `lib/`+`tools/` only, silently dropping `plugins/` (measured 86.5%, better than the gate), `tui`, `bench` and `src`. A filter list tuned to make one run green. | ✅ Fixed: `.codecov.yml` enforces `patch.target: 80%` (the documented new-code rule) and keeps `project.target: auto` as a no-regression ratchet. | FIX-042 |
+
 ## 🆕 Current Open Issues, 2026-08-27 Clean Architecture Audit (N1..N11)
 
 Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md`, 9 FIXes `FIX-017..025`, 4 phases, `main` green `33075234503` after `7a0e69d`.
