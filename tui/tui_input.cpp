@@ -2434,105 +2434,81 @@ std::string Tui::prompt_api_key(const std::string& reason) {
     return key;
 }
 
-void Tui::settings_screen() {
-    // Step 1: Build provider list from saved + built-in presets
+// Build the provider picker rows: one per provider (the active one marked, with
+// its key hint) plus a trailing "Add new provider..." sentinel. `ids` is the
+// parallel id list; its last entry is "" for the sentinel.
+void Tui::build_provider_picker(std::vector<std::string>& rows,
+                                std::vector<std::string>& ids) const {
     const auto providers = providers_->available();
 
     std::vector<std::string> prov_display;
-    std::vector<std::string> prov_id;
-
     for (const auto& p : providers) {
         std::string label =
             p.name + "  (" + (p.api_base.empty() ? "unconfigured" : p.api_base) + ")";
         prov_display.push_back((cfg_.provider_name == p.name ? "> " : "  ") + label);
-        prov_id.push_back(p.name);
+        ids.push_back(p.name);
     }
-
-    // Add "Add new..." option at the end
-    int add_new_idx = static_cast<int>(prov_id.size());
-    prov_display.emplace_back("  + Add new provider...");
-    prov_id.emplace_back(""); // sentinel
-
-    // Step 2: Select provider or action
-    ModalScope scope;
-    curs_set(0);
-    int sel;
-    {
-        // Show provider list with summary info
-        std::vector<std::string> rich_display;
-        for (size_t i = 0; i < prov_id.size(); ++i) {
-            std::string id = prov_id[i];
-            if (id.empty()) {
-                rich_display.push_back(prov_display[i]);
-                continue;
-            }
-            const bool active = (id == cfg_.provider_name);
-            // Only the active provider's key tells us anything about the
-            // others, so the hint is reported for it alone.
-            const char* key_hint = (active && cfg_.api_key.empty()) ? "no-key" : "key-set";
-            std::string line;
-            line.reserve(id.size() + 12);
-            line.append(active ? "> " : "  ").append(id);
-            line.append("  (").append(key_hint).push_back(')');
-            rich_display.push_back(std::move(line));
+    // Only the active provider's key tells us anything about the others, so the
+    // hint is reported for it alone.
+    rows.clear();
+    for (size_t i = 0; i < ids.size(); ++i) {
+        const std::string& id = ids[i];
+        if (id.empty()) {
+            rows.push_back(prov_display[i]);
+            continue;
         }
-        rich_display.back() = "  + Add new provider...";
-
-        ListPanel lp("Providers (" + std::to_string(prov_id.size() - 1) + " configured)",
-                     rich_display);
-        sel = lp.run();
+        const bool active = (id == cfg_.provider_name);
+        const char* key_hint = (active && cfg_.api_key.empty()) ? "no-key" : "key-set";
+        std::string line;
+        line.reserve(id.size() + 12);
+        line.append(active ? "> " : "  ").append(id);
+        line.append("  (").append(key_hint).push_back(')');
+        rows.push_back(std::move(line));
     }
-    if (sel < 0)
+    rows.emplace_back("  + Add new provider...");
+    ids.emplace_back(""); // sentinel
+}
+
+void Tui::add_new_provider() {
+    // Ask for provider name
+    std::vector<FieldSpec> name_field = {{"Provider name", "", false}};
+    if (!form_edit("New Provider", name_field))
+        return;
+    std::string new_name = name_field[0].value;
+    if (new_name.empty())
         return;
 
-    // Handle "Add new provider..."
-    if (sel == add_new_idx) {
-        // Ask for provider name
-        std::vector<FieldSpec> name_field = {{"Provider name", "", false}};
-        if (!form_edit("New Provider", name_field))
-            return;
-        std::string new_name = name_field[0].value;
-        if (new_name.empty())
-            return;
-
-        // Seed from the provider domain (built-in or saved).
-        agent::Config prov_cfg;
-        prov_cfg.provider_name = new_name;
-        if (auto p = providers_->find(new_name)) {
-            prov_cfg.api_base = p->api_base;
-            prov_cfg.api_key = p->api_key;
-            prov_cfg.model = p->default_model;
-        }
-        if (!edit_provider_form(prov_cfg, "Edit: " + new_name))
-            return;
-        prov_cfg.provider_name = new_name;
-        providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
-                                         prov_cfg.api_key, !prov_cfg.api_key.empty(),
-                                         prov_cfg.model, prov_cfg.context_size, false});
-        cfg_.provider_name = new_name;
-        cfg_.api_base = prov_cfg.api_base;
-        cfg_.api_key = prov_cfg.api_key;
-        cfg_.model = prov_cfg.model;
-        cfg_.model_explicit = !prov_cfg.model.empty();
-        cfg_.save_global(agent::global_config_path());
-        refresh_provider_feed();
-        append_line(P_STATUS, "provider '" + new_name + "' added and activated");
-        return;
+    // Seed from the provider domain (built-in or saved).
+    agent::Config prov_cfg;
+    prov_cfg.provider_name = new_name;
+    if (auto p = providers_->find(new_name)) {
+        prov_cfg.api_base = p->api_base;
+        prov_cfg.api_key = p->api_key;
+        prov_cfg.model = p->default_model;
     }
-
-    // Handle built-in / saved provider selection
-    std::string selected_id = prov_id[sel];
-    if (selected_id.empty())
+    if (!edit_provider_form(prov_cfg, "Edit: " + new_name))
         return;
+    prov_cfg.provider_name = new_name;
+    providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+                                     !prov_cfg.api_key.empty(), prov_cfg.model,
+                                     prov_cfg.context_size, false});
+    cfg_.provider_name = new_name;
+    cfg_.api_base = prov_cfg.api_base;
+    cfg_.api_key = prov_cfg.api_key;
+    cfg_.model = prov_cfg.model;
+    cfg_.model_explicit = !prov_cfg.model.empty();
+    cfg_.save_global(agent::global_config_path());
+    refresh_provider_feed();
+    append_line(P_STATUS, "provider '" + new_name + "' added and activated");
+}
 
-    // Step 3: Show actions for selected provider
+void Tui::provider_actions(const std::string& selected_id) {
     auto sel_provider = providers_->find(selected_id);
     const bool is_preset = sel_provider && sel_provider->builtin;
     std::vector<std::string> actions = {"Activate & edit", "Test connection"};
-    if (!is_preset) {
+    if (!is_preset)
         actions.emplace_back("Delete provider");
-    }
-    int action = menu_select("Provider: " + selected_id, actions);
+    const int action = menu_select("Provider: " + selected_id, actions);
     if (action < 0)
         return;
 
@@ -2585,6 +2561,37 @@ void Tui::settings_screen() {
             append_line(P_STATUS, "provider '" + selected_id + "' deleted");
         }
     }
+}
+
+void Tui::settings_screen() {
+    // Step 1: build the provider picker (saved + built-in presets).
+    std::vector<std::string> rows;
+    std::vector<std::string> ids;
+    build_provider_picker(rows, ids);
+    const int add_new_idx = static_cast<int>(ids.size()) - 1; // the sentinel row
+
+    // Step 2: select a provider, or the "Add new" action.
+    ModalScope scope;
+    curs_set(0);
+    int sel;
+    {
+        ListPanel lp("Providers (" + std::to_string(ids.size() - 1) + " configured)", rows);
+        sel = lp.run();
+    }
+    if (sel < 0)
+        return;
+
+    if (sel == add_new_idx) {
+        add_new_provider();
+        return;
+    }
+
+    const std::string selected_id = ids[sel];
+    if (selected_id.empty())
+        return;
+
+    // Step 3: act on the selected provider.
+    provider_actions(selected_id);
 }
 
 void SlashDispatcher::apply_compression_threshold(const std::string& v) {

@@ -237,6 +237,11 @@ private:
     std::string input_fill_;                    // /prompt result applied to the input line
     tui::SettingRegistry settings_;
     void build_settings();
+    // Provider management (the /settings screen): build the picker rows, add a
+    // provider, and act on the selected one. settings_screen() orchestrates.
+    void build_provider_picker(std::vector<std::string>& rows, std::vector<std::string>& ids) const;
+    void add_new_provider();
+    void provider_actions(const std::string& selected_id);
     bool quit_ = false;
 
     agent::ServerInfo last_detected_;
