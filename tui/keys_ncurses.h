@@ -14,6 +14,7 @@ static_assert(tui::keys::kDown == KEY_DOWN, "ncurses KEY_DOWN drifted from tui::
 static_assert(tui::keys::kLeft == KEY_LEFT, "ncurses KEY_LEFT drifted from tui::keys");
 static_assert(tui::keys::kRight == KEY_RIGHT, "ncurses KEY_RIGHT drifted from tui::keys");
 static_assert(tui::keys::kHome == KEY_HOME, "ncurses KEY_HOME drifted from tui::keys");
+static_assert(tui::keys::kEnd == KEY_END, "ncurses KEY_END drifted from tui::keys");
 static_assert(tui::keys::kBackspace == KEY_BACKSPACE,
               "ncurses KEY_BACKSPACE drifted from tui::keys");
 static_assert(tui::keys::kDelete == KEY_DC, "ncurses KEY_DC drifted from tui::keys");

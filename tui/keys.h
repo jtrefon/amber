@@ -22,6 +22,7 @@ enum : int {
     kLeft = 260,      // KEY_LEFT
     kRight = 261,     // KEY_RIGHT
     kHome = 262,      // KEY_HOME
+    kEnd = 360,       // KEY_END
     kBackspace = 263, // KEY_BACKSPACE
     kDelete = 330,    // KEY_DC
     kNPage = 338,     // KEY_NPAGE
