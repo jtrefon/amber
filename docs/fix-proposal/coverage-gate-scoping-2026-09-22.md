@@ -1,10 +1,10 @@
 # Coverage Gate Scoping — Proposal
 
-- **Status:** 🟡 Proposed — awaiting sign-off
+- **Status:** 🟢 Landed 2026-09-22 — FIX-040, FIX-041, FIX-042 shipped
 - **Date:** 2026-09-22
 - **Register:** `docs/issues.md` (CV1..CV3)
-- **Proposed FIX ids:** FIX-040 (CV1, TUI capture), FIX-041 (CV2, project gate scope), FIX-042 (CV3, patch gate)
-- **Branch:** `fix/coverage-gate-scoping` (one branch per FIX thereafter)
+- **FIX ids:** FIX-040 (CV1, TUI capture), FIX-041 (CV2, project gate scope), FIX-042 (CV3, patch gate)
+- **Branch:** `fix/coverage-gate-scoping`
 
 Findings below were reproduced locally on macOS by building the tree with the
 same gcov instrumentation CI uses (`CXXFLAGS="-O0 -g --coverage -std=c++17"`)
@@ -206,3 +206,47 @@ unit-testable directory, excludes only entry points, documents why, and keeps
   the real number visible).
 - The `bench/` harness's own coverage.
 - Any change to the `llama-turboq` inference service or model evaluation.
+
+---
+
+## Implementation status (landed)
+
+All three FIXes shipped on `fix/coverage-gate-scoping`.
+
+| FIX | commits | change |
+|---|---|---|
+| FIX-040 (CV1) | `31c6e58` (red), `30079f9` (green) | `Tui::stop()` exits through the app's own quit path (cancel any modal, drain the pty, Ctrl+C, bounded wait) so gcov flushes; `SIGKILL` retained only as a last-resort fallback. `ESCDELAY=25` in the pty child so a lone Escape is delivered promptly. |
+| FIX-041 (CV2) | `26bed5e` | Coverage job split: a gated run over `lib` + `tools` + `plugins` (`--fail-under-line 80`) plus an ungated full-surface run (`lib tools tui src bench plugins`) writing `coverage.xml` for Codecov, with named entry-point exclusions and a rationale comment. |
+| FIX-042 (CV3) | `1066aed` | `.codecov.yml` enforces `patch.target: 80%` (the documented new-code rule) and keeps `project.target: auto` as a no-regression ratchet. |
+
+Measured effect of FIX-040 on the full production surface (exact repo source,
+instrumented build outside the tree):
+
+| dir | before | after |
+|---|---|---|
+| `tui/` | 26.5% | **48.1%** |
+| `lib/` | 83.8% | 85.1% |
+| overall | 61.0% | **68.7%** |
+| functions | 66.7% | 74.9% |
+
+The gated core (`lib` + `tools` + `plugins`) passes at **83.8%** with headroom.
+
+Along the way the delete-confirmation pty test's decline key was found to be
+wrong: `ConfirmPanel` accepts only Tab/Enter/Esc, so the test's `"n"` left the
+modal open (a latent test bug, not a product bug). It now uses Enter, which
+selects the default "No".
+
+### Verification
+
+- `make test` — green (`rc=0`); the FIX-040 red commit failed as intended
+  (`FAIL: 5 TUI session(s) were force-killed`), the green commit makes all five
+  pty sessions exit cleanly.
+- `make check` — green.
+- `make format-check-changed BASE=origin/main` — clean.
+- Both modified YAML files parse.
+- The gated gcovr run passes at 83.8%; the full-report run generates
+  `coverage.xml`.
+
+Caveat: local `make lint` / `make analyze` report findings in pre-existing code
+and in Homebrew LLVM's own libc++ headers; no findings were reported for the
+changed `tests/tui_pty_test.cpp`.
