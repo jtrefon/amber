@@ -100,6 +100,18 @@ Order: **P0 keystone first (alone)**, then P1 → P8. Characterization-first (pi
 behaviour, move, keep green); L2 tested with mock ports against the existing
 EL-01..EL-18 scenarios; `tui_pty_test` is the loop's behavioural backstop.
 
+Removed during the P0 test cleanup: eight `ASSERT_TRUE(true)` placeholder tests
+in `tests/tui_tests.cpp`, added by `1b57586` "to keep the test count stable".
+The three `help_page_builder_*` and three `completion_provider_*` are now
+replaced by real tests in `tests/completions_test.cpp` (11 tests total for the
+two extracted units); the two window-command placeholders were deleted outright.
+Two gaps they pointed at are real and tracked here:
+
+| ID | Sev | Gap | Status |
+|----|-----|-----|--------|
+| G10 | 🔵 Low | `/window set <non-numeric>` rejection (`cmd_window_set`, `tui_input.cpp:2086`) has no unit-testable seam: the parse (`std::stoul`) sits behind `Tui`. Needs a pure `parse_window_index` before it can be asserted. | 🔓 Open |
+| G11 | 🔵 Low | No `refresh_window_feed`: `/window set <Tab>` lists nothing, so the "window list" completions the placeholder expected do not exist. | 🔓 Open |
+
 ## 🆕 Current Open Issues, 2026-08-27 Clean Architecture Audit (N1..N11)
 
 Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md`, 9 FIXes `FIX-017..025`, 4 phases, `main` green `33075234503` after `7a0e69d`.
