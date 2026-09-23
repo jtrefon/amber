@@ -137,6 +137,21 @@ Refactoring has no new behaviour to fail on, so red→green is applied as
    compiling the L1/L2 test binaries **without** `NCURSES_CFLAGS`.
 5. **Placement**: per-area files (`tests/status_bar_layout_test.cpp` …) wired
    into the Makefile's test objects, following `tests/command_line_test.cpp`.
+6. **Test migration and cleanup — part of "done".** A move is not finished until
+   the old tests are reconciled, not merely left passing:
+   - tests that referenced the moved code **move** to the owning unit's test file
+     (e.g. the `scroll_dispatch`/`session_browser_core` cases migrate to the pure
+     input vocabulary when those modules stop including ncurses);
+   - tests made **redundant** by a new pure core are **deleted**, not left
+     duplicated (two tests asserting one behaviour is debt);
+   - **obsolete doubles are removed with their call sites** (e.g. `View` when it
+     is retired), and any test-only code that no longer has a production
+     counterpart goes with it;
+   - no test may be left asserting on an implementation detail that no longer
+     exists.
+   Each FIX reports the before/after test count and must **not lose a behaviour
+   assertion** — the number of asserted behaviours is what is preserved, not the
+   number of `TEST` blocks.
 
 **Gates per FIX:** `make test` (unit + e2e + pty), `make check` (layering + P5),
 `make lint`, `make analyze`, `make duplicates`,

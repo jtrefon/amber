@@ -7,9 +7,9 @@ namespace {
 constexpr int kWheelStep = 3;
 } // namespace
 
-int wheel_delta(mmask_t bstate) {
-    const bool up = (bstate & BUTTON4_PRESSED) != 0;
-    const bool down = (bstate & BUTTON5_PRESSED) != 0;
+int wheel_delta(keys::MouseMask bstate) {
+    const bool up = (bstate & keys::kButton4) != 0;
+    const bool down = (bstate & keys::kButton5) != 0;
     // Neither, or both buttons at once: no single-direction wheel scroll.
     if (up == down)
         return 0;

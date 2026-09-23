@@ -1,6 +1,8 @@
 
 #include "tui/session_browser_core.h"
 
+#include "tui/keys.h"
+
 namespace tui {
 
 namespace {
@@ -93,28 +95,28 @@ void SessionBrowserCore::clamp_scroll() {
 SessionBrowserCore::Result SessionBrowserCore::key(int ch) {
     Result r;
     switch (ch) {
-    case KEY_DOWN:
+    case keys::kDown:
         if (sel_ >= 0) {
             ++sel_;
             snap_sel();
             clamp_scroll();
         }
         break;
-    case KEY_UP:
+    case keys::kUp:
         if (sel_ >= 0) {
             --sel_;
             snap_sel();
             clamp_scroll();
         }
         break;
-    case KEY_NPAGE:
+    case keys::kNPage:
         if (sel_ >= 0) {
             sel_ += list_h_;
             snap_sel();
             clamp_scroll();
         }
         break;
-    case KEY_PPAGE:
+    case keys::kPPage:
         if (sel_ >= 0) {
             sel_ -= list_h_;
             snap_sel();
@@ -123,15 +125,15 @@ SessionBrowserCore::Result SessionBrowserCore::key(int ch) {
         break;
     case '\n':
     case '\r':
-    case KEY_ENTER:
+    case keys::kEnter:
         r.action = Result::Action::Accept;
         break;
-    case KEY_DC:
+    case keys::kDelete:
     case 4:
         if (sel_ >= 0)
             r.delete_pending = true;
         break;
-    case KEY_BACKSPACE:
+    case keys::kBackspace:
     case 127:
     case 8:
         if (!filter_.empty())

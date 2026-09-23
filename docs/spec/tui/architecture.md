@@ -162,6 +162,11 @@ and never mutates it.* No event handler paints; no painter mutates.
    "context.h has no mutex" invariant.
 5. **One more guard**: compile the L1+L2 unit-test binaries **without**
    `NCURSES_CFLAGS`; if they need it, the layer is leaking.
+6. **Test ownership.** Every L1/L2 unit's tests live in that unit's test file.
+   When a unit moves, its tests move with it; tests made redundant by a new pure
+   core are deleted, not duplicated; retired doubles (e.g. `View`) are removed
+   with their call sites. No test may assert on an implementation detail that no
+   longer exists.
 
 ---
 
