@@ -44,6 +44,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 
 | File | Covers |
 |------|--------|
+| `tui/architecture.md` | TUI internal layers (L1 domain / L2 application / L3 ports / L4 adapters / L5 composition), port inventory, unidirectional dataflow, isolation rules |
 | `tui/layout-engine.md` | Panel hierarchy, flex split, resize constraints, minimum sizes |
 | `tui/event-loop.md` | 20 fps loop, AgentEvent queue drain, ncurses getch/timeout |
 | `tui/scroll-system.md` | Scrollback buffer, viewport, page-up/down, search-in-scroll, cursor tracking |

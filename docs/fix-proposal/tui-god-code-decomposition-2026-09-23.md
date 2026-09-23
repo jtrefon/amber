@@ -1,292 +1,191 @@
-# TUI God-Code Decomposition — Proposal
+# TUI God-Code Decomposition — Architecture-First Refactoring Strategy
 
 - **Status:** 🟡 Proposed — awaiting sign-off
 - **Date:** 2026-09-23
+- **Architecture contract:** `docs/spec/tui/architecture.md` (the layers, ports,
+  dataflow and isolation rules this strategy implements)
 - **Register:** `docs/issues.md` (G1..G9)
-- **FIX ids:** FIX-043 (G1) … FIX-051 (G9). FIX-040..042 are taken (coverage
-  scoping, PR #151, merged).
-- **Branch:** one branch per FIX; `tui/run-decomposition` first
+- **FIX ids:** FIX-043 (P0 keystone) … FIX-051 (P8). FIX-040..042 are taken
+  (coverage scoping, PR #151, merged).
+- **Branch:** one branch per FIX; `tui/architecture-keystone` first
 - **Prior art:** `docs/fix-proposal/phase2-tui-facade-2026-08-30.md`
-  (FIX-022/023), `docs/fix-proposal/tui-issues-2026-09-10.md`
+  (FIX-022/023 — the component split this layers), `tui-issues-2026-09-10.md`
 
-Measured on `main` at `cb9d054` (2026-09-23) with the tooling described in
-**How the numbers were produced**. Function lengths are physical lines
-(`awk '/^<sig>/,/^}/'`-equivalent); coverage figures are instrumented lines
-from the CI gcovr recipe. This proposal covers only what is listed; see
-**Not in scope**.
+Measured on `main` at `cb9d054` (2026-09-23). Function lengths are physical
+lines; coverage figures are instrumented lines from the CI gcovr recipe. This
+proposal covers only what is listed; see **Not in scope**.
 
 ---
 
 ## Problem
 
-`tui/` carries the repository's largest concentration of over-limit functions.
-The repo's own audit already declares this:
+Two facts, and the second is the important one.
 
-- `AGENTS.md:486` — **"Architecture audit (status: NON-CONFORMING on size limits)"**.
-- `AGENTS.md:296` — "A method/function should stay **under 10 lines** with
-  **minimal branching**"; `docs/fix-tracker.md:533` — "classes ≤200 lines,
-  methods ≤10 lines".
+**1. The god units.** `tui/` has **37 functions over 50 lines (4,343 lines)**;
+`Tui::run()` is **599** (the FIX-022/023 facade target was 60), `tui/tui.h` is
+**248** (target <200), and `register_builtin_actions()` is 291. Eight real,
+referenced files sit at **0%** coverage because their logic is welded to
+ncurses. `AGENTS.md:486` already declares the size limits **NON-CONFORMING**.
 
-### Measured inventory
+**2. The architecture was designed and never built.** Six port headers exist —
+`display_port.h`, `key_source_port.h`, `modal_port.h`, `session_port.h`,
+`prompt_port.h`, `view.h` — and their comments say *"the domain core uses this
+to … without depending on ncurses"*. **There is no domain core.** Four of the six
+are included by *nobody*; `view.h`/`key_source_port.h` only by tests. Exactly one
+port is real: `WindowOpsPort` → `WindowOps` → `TuiWindowOpsHooks`. Meanwhile
+`scroll_dispatch.h:5` and `session_browser_core.h:5` `#include <ncurses.h>` for
+key/mouse constants, so "pure" logic cannot even compile without ncurses.
 
-**37 functions in `tui/` exceed 50 lines; together they are 4,343 lines.** The
-top 20:
-
-| unit | site | lines |
-|---|---|---:|
-| `Tui::run()` | `tui/tui.cpp:414` | **599** |
-| `SlashDispatcher::register_builtin_actions()` | `tui/tui_input.cpp:940` | **291** |
-| `normalize_markdown()` | `tui/markdown_md4c.cpp:688` | **263** |
-| `RenderEngine::draw_status_bar()` | `tui/render_engine.cpp:341` | 172 |
-| `form_edit()` | `tui/form_edit.cpp:12` | 171 |
-| `main()` | `tui/tui_main.cpp:41` | 165 |
-| `SlashDispatcher::build_settings()` | `tui/tui_input.cpp:2633` | 165 |
-| `Tui::settings_screen()` | `tui/tui_input.cpp:2412` | 152 |
-| `SessionController::session_browser()` | `tui/tui_session.cpp:255` | 141 |
-| `RenderEngine::draw_input()` | `tui/render_engine.cpp:528` | 132 |
-| `append_styled()` | `tui/markdown_md4c.cpp:316` | 130 |
-| `EventRouter::make_hooks()` | `tui/event_router.cpp:45` | 108 |
-| `Tui::Tui()` | `tui/tui.cpp:64` | 98 |
-| `flush_table()` | `tui/markdown_md4c.cpp:215` | 98 |
-| `info_dialog()` | `tui/info_dialog.cpp:11` | 96 |
-| `EventRouter::drain_events()` | `tui/event_router.cpp:154` | 92 |
-| `text::wrap()` | `tui/textutil.cpp:191` | 90 |
-| `panel_view()` | `tui/panel_view.cpp:47` | 89 |
-| `leave_block()` | `tui/markdown_md4c.cpp:518` | 87 |
-| `drawer_rows()` | `tui/drawer_rows.cpp:64` | 86 |
-
-(…plus `cmd_provider` 85, `SettingRegistry::index_node` 85, `rich::wrap` 85,
-`ListPanel::handle_key` 80, `handle_slash` 79, `enter_block` 70,
-`SessionBrowserCore::key` 66, `CommandLine::on_char` 62, `cmd_set` 61,
-`build_view_without_working` 61, `on_tab` 61, `RenderEngine::draw` 59,
-`markdown::hl_runs` 55, `draw_drawer` 54, `Canvas::render` 53,
-`load_session` 51, `recompute` 51.)
-
-### G1 — 🔴 `Tui::run()` is a 599-line loop, and it is not new debt
-
-`phase2-tui-facade-2026-08-30.md` (FIX-022/023) extracted `WindowManager`,
-`EventRouter`, `RenderEngine`, `SessionController` and set two verification
-targets: **`Tui::run` < 60 lines** and **`tui/tui.h` < 200 lines**.
-
-Measured today: the components exist and `Tui` forwards to them, but
-
-- `Tui::run()` is **599 lines** (target 60), and
-- `tui/tui.h` is **248 lines** (target <200).
-
-The loop decomposition the facade proposal promised — `poll_signals +
-process_input + idle_tick`, each <15 — **never landed**, and `run()` has since
-absorbed more (macOS Option-key decoding, the help-page renderer, the popup
-builders). This proposal is that work, completed and measured.
-
-`run()` mixes at least twelve responsibilities in one scope:
-
-| # | responsibility | lines |
-|---|---|---:|
-| 1 | startup: first paint, `detect_server`, `build_settings`, `refresh_completions` | 415–431 |
-| 2 | completion-context resolution (`update_completions` lambda) | 439–481 |
-| 3 | signal-driven graceful shutdown | 487–513 |
-| 4 | per-tick housekeeping (drains, plugin tick, `input_fill`) | 514–524 |
-| 5 | idle branch (ERR tick, spinner, clock) | 527–546 |
-| 6 | macOS Option-as-text UTF-8 assembly + digit normalisation | 554–583 |
-| 7 | Alt+0 panels | 587–592 |
-| 8 | KeyBinder hotkey dispatch (Alt+1..9, Ctrl+N, ESC stateful) | 594–672 |
-| 9 | Ctrl+C cancel/quit semantics | 677–700 |
-| 10 | mouse-wheel scroll | 705–717 |
-| 11 | CommandLine key routing (the big switch) | 720–817 |
-| 12 | result handling: Dispatch / ShowPopup / ShowHelpPage | 819–992 |
-
-Plus a 20-call-site repetition of
-`render_engine_->draw(); render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());`.
-
-### G2/G3 — the slash layer registers 456 lines in two functions
-
-`register_builtin_actions()` (291) is a flat sequence of `register_action(...)`
-lambdas already grouped by domain comments (core, session, window, job,
-provider, `os.files`, `os.system`, `config.get`, `config.set`, plugin, mcp,
-model). `build_settings()` (165) builds the `SettingRegistry` tree in one scope.
-These are the two largest functions outside `run()`.
-
-### G4–G9 — drawing, markdown, widgets, events, sessions, remainder
-
-- `RenderEngine::draw_status_bar()` (172) fuses **layout maths** (zone widths,
-  budget, drop-priority pruning), **gauge formatting**, **spinner animation
-  state** and **ncurses painting** in one function. `draw_input()` (132) fuses
-  cursor/shadow maths with painting.
-- `markdown_md4c.cpp` holds four large pure transforms (`normalize_markdown`
-  263, `append_styled` 130, `flush_table` 98, `enter_block` 70, `leave_block`
-  87) — pure `string → string`, the cheapest possible thing to test.
-- The **widgets are at 0% coverage** (see below): `form_edit`, `info_dialog`,
-  `list_panel`, `menu_select`, `panel_view`.
-- `EventRouter::make_hooks` (108) / `drain_events` (92);
-  `SessionController::session_browser` (141) / `load_session` (51).
-- Remainder: `SettingRegistry::index_node` (85), `textutil::wrap` (90),
-  `rich::wrap` (85), `CommandLine` internals (62/61/51), `drawer_rows` (86),
-  `Canvas::render` (53), `tui_main.cpp main` (165).
-
-### Why this matters (two costs, one cause)
-
-**1. Untestable logic, hidden behind ncurses.** Eight `tui/` files are real,
-referenced features that measure **0%** because their logic is welded to
-ncurses calls:
-
-| file | instrumented lines | 0% because | actually used by |
-|---|---:|---|---|
-| `form_edit.cpp` | 126 | ncurses FORMS driver loop | `tui_input.cpp:2347,2391,2467`, `event_router.cpp:310` |
-| `list_panel.cpp` | 137 | ncurses menu loop | `tui_input.cpp`, `menu_select.cpp` |
-| `panel_view.cpp` | 85 | ncurses window painting | `tui.cpp:1086` |
-| `info_dialog.cpp` | 73 | ncurses paging | `tui.cpp:946`, `tui_input.cpp:2221` |
-| `welcome.cpp` | 48 | ncurses art raster | `tui.cpp:33,159` |
-| `tui_ui_services.cpp` | 36 | — (thin forwarder) | `tui.cpp:105` |
-| `menu_select.cpp` | 6 | ncurses menu | `tui.cpp:861,877`, `tui_input.cpp:2510` |
-| `tui_window_ops_hooks.cpp` | 26 | — | `tui.cpp` |
-
-These are **not dead code** (each is included/called, verified above) — they are
-*untestable as written*. Extracting the pure state machines behind them is what
-turns 537 lines from 0% into covered, and is the whole point of this proposal.
-
-**2. Change risk.** A 599-line loop with twelve responsibilities is where a
-one-line edit breaks an unrelated flow. The pty suite only drives a handful of
-paths, so regressions in the un-driven branches are invisible.
+So `tui/` is not a codebase that needs a decomposition invented for it. It is a
+codebase with a **designed hexagon whose ports were never wired**, and god
+functions that bypass them. Decomposing the functions *without* wiring the
+architecture would produce many small ncurses-coupled files — same untestability,
+more of it. **The architecture comes first; the extractions then have somewhere
+correct to land.**
 
 ---
 
-## Principle (already proven in this codebase — extend it, do not invent)
+## Strategy
 
-The TUI already follows **"pure, ncurses-free core + thin shell"**, with the
-pure cores unit-tested directly:
+**Architecture first, then extract into layers.** Three moves, in order:
 
-| pure module | test |
-|---|---|
-| `tui/command_line.h` | `tests/command_line_test.cpp` |
-| `tui/setting_registry.h` | `tests/completions_test.cpp` |
-| `tui/session_browser_core.h` | `tests/session_browser_test.cpp` |
-| `tui/drawer_rows.h` | `tests/tui_tests.cpp` |
-| `tui/key_binder.h`, `key_action.h`, `input_state.h`, `key_read.h` | `tests/tui_tests.cpp` |
-| `tui/scroll_dispatch.h`, `run_registry.h`, `textutil.h`, `rich.h`, `palette.h`, `path_confine.h`, `tool_display.h`, `approval_model.h` | `tests/tui_tests.cpp` |
+1. **Wire the hexagon** — the ports already exist. Give each one an adapter,
+   make `EventLoop` depend on the ports, and enforce the dependency rules so
+   they cannot rot again. (`docs/spec/tui/architecture.md` is the contract.)
+2. **Introduce the missing layers' vocabulary** — a pure `tui/keys.h` (so L1
+   stops including ncurses), `UiState` (so the loop's ~20 locals become one
+   testable model), and the L2 services.
+3. **Extract each god unit into its layer**, with the pattern the spec assigns
+   it. Behaviour-preserving; characterization-first.
 
-`Tui::run()` even carries the note at `tui.cpp:433`: *"CommandLine is pure logic
-(no ncurses) and fully tested via e2e tests."* This proposal applies that same
-move to the remaining god units.
+The end state is the spec's five layers: L1 Domain (pure, unit-tested) → L2
+Application (use cases, mock-port-tested) → L3 Ports → L4 Adapters (thin
+ncurses) → L5 Composition (`Tui` as a ≤40-line facade).
 
-**Hard constraints (unchanged):**
+### Why this order (and not "extract pure helpers as we go")
 
-- `tui/` is never depended on by `lib/` (`AGENTS.md`).
-- Slash commands stay JSON-driven: `register_action` closures are handlers for
-  tree nodes, **not** hardcoded command paths — splitting the registration into
-  per-domain methods preserves that rule exactly.
-- Behaviour-preserving: no feature, prompt, or wire-format change.
-- No test-only production code; no new test framework; no live service.
-- Every new unit **< 200 LoC, target ≤ 150**; new methods **≤ 30 lines**, and
-  ≤ 10 where practical.
+| | Helpers-only (rejected) | Architecture-first (this proposal) |
+|---|---|---|
+| Result | many small files, still ncurses-coupled | layered, ports isolated, adapters thin |
+| Testability | only the extracted helpers | **all of L1 + L2**, no TTY |
+| The dead ports | stay dead | become the seam |
+| The 0% files | stay 0% (logic still welded) | logic moves to L1/L2 and is covered |
+| Regression risk | each move is ad hoc | each move is verified against a layer contract |
 
 ---
 
-## Decomposition plan
+## Phase plan
 
-| FIX | god unit(s) | now | target | new pure cores (unit-tested) |
-|---|---|---:|---:|---|
-| **FIX-043** (G1) | `Tui::run()` | 599 | loop ~40 + 12 methods | `completion_context`, `option_key_decode`, `help_page` |
-| **FIX-044** (G2) | `register_builtin_actions()` | 291 | ~10 domain methods <60 each | — (structure only) |
-| **FIX-045** (G3) | `build_settings()` 165, `settings_screen()` 152 | 317 | ≤4 methods <80 | `settings_tree` builder |
-| **FIX-046** (G4) | `draw_status_bar()` 172, `draw_input()` 132 | 304 | thin painters <40 | `status_bar_layout`, `gauge_text`, `input_line_layout` |
-| **FIX-047** (G5) | `markdown_md4c` (263+130+98+70+87) | 648 | ≤6 methods <80 | `md_normalize`, `md_table`, `md_block` |
-| **FIX-048** (G6) | widgets at 0%: `form_edit` 171, `list_panel` 80, `panel_view` 89, `info_dialog` 96, `menu_select` | 436 | thin shells <40 | `form_focus`, `list_state`, `dialog_pager`, `panel_view_text` |
-| **FIX-049** (G7) | `make_hooks()` 108, `drain_events()` 92 | 200 | ≤5 methods <50 | `hook_wiring`, `event_dispatch` |
-| **FIX-050** (G8) | `session_browser()` 141, `load_session()` 51 | 192 | ≤4 methods <60 | `session_browser_view` |
-| **FIX-051** (G9) | `index_node` 85, `text/rich::wrap` 90/85, `CommandLine` 62/61/51, `drawer_rows` 86, `Canvas::render` 53, `tui_main` 165 | 667 | <200 each | `wrap_columns`, `cmdline_edit`, `main_args` |
+Each phase is one FIX on one branch. P0 is the keystone; every later phase lands
+its units in the layer the spec assigns.
 
-### FIX-043 detail — the loop
+| FIX | Phase | God unit(s) (now) | Target layer | Pattern | Extracted units | Tests |
+|---|---|---|---|---|---|---|
+| **FIX-043** | **P0 keystone** | `Tui::run()` 599, `tui.h` 248 | L2+L3+L5 | Ports & Adapters, Composition Root, State | `event_loop` (L2), `ui_state` (L1), `keys.h` (L1), 4 adapter shims (L4), `Tui` → facade | `tui_event_loop_test.cpp` (mock ports); layering check |
+| **FIX-044** | P1 loop domain | rest of `run()` | L1 | Builder, Strategy | `completion_context`, `help_page`, `option_key_decode`, `input_line_layout` | new L1 unit files |
+| **FIX-045** | P2 command | `register_builtin_actions()` 291, `build_settings()` 165, `settings_screen()` 152 | L2 + L1 | Command, Registry | `command_service` + per-domain registration (L2); `settings_tree` (L1) | command_line/completions tests + new |
+| **FIX-046** | P3 display | `draw_status_bar()` 172, `draw_input()` 132 | L1 + L4 | Builder, View-Model | `status_bar_layout`, `gauge_text`, `input_line_layout` (L1); `RenderEngine` → `DisplayPort` adapter (L4) | `status_bar_layout_test.cpp` |
+| **FIX-047** | P4 markdown | `markdown_md4c.cpp` 648 | L1 | View-Model | `md_normalize`, `md_table`, `md_block` | new L1 unit file |
+| **FIX-048** | P5 widgets | `form_edit` 171, `list_panel` 80, `panel_view` 89, `info_dialog` 96, `menu_select` | L1 + L4 | State, Ports & Adapters | `form_focus`, `list_state`, `dialog_pager`, `panel_view_text` (L1); widgets → `ModalPort` adapters (L4) | new L1 unit files (**the 0% → covered win**) |
+| **FIX-049** | P6 events | `make_hooks()` 108, `drain_events()` 92 | L2 + L4 | Mediator, Observer | `agent_event_handlers` (L2); `EventRouter` stays the L4 mediator | `tui_event_loop_test.cpp` extensions |
+| **FIX-050** | P7 sessions | `session_browser()` 141, `load_session()` 51 | L1 + L4 | Builder, Ports & Adapters | `session_browser_view` (L1); `SessionController` → `SessionPort` adapter (L4) | `session_browser_test.cpp` extensions |
+| **FIX-051** | P8 remainder | `index_node` 85, `wrap` 90/85, `CommandLine` 62/61/51, `drawer_rows` 86, `Canvas::render` 53, `tui_main` 165 | L1 + L5 | Builder, Strategy | `wrap_columns`, `cmdline_edit`, `main_args`; retire dead ports | new L1 unit files |
 
-Extract, in order (each a private method or a pure module):
+### P0 detail — the keystone (FIX-043)
 
-| extracted | from | lines | testable |
-|---|---|---:|---|
-| `CompletionContext::for_input(input, settings)` | 439–481 | ~45 | **pure** |
-| `Tui::graceful_shutdown(sig)` | 487–513 | ~27 | no |
-| `Tui::tick_housekeeping()` | 514–524 | ~11 | no |
-| `Tui::on_idle_tick(cl)` | 527–546 | ~20 | no |
-| `option_key_decode::read(...)` + `macos_option_digit` | 554–583 | ~30 | **pure** |
-| `Tui::handle_hotkeys(ch, cl)` | 594–672 | ~79 | thin |
-| `Tui::handle_ctrl_c(cl)` | 677–700 | ~24 | no |
-| `Tui::handle_mouse()` | 705–717 | ~13 | no |
-| `Tui::route_edit_key(ch, cl)` | 720–817 | ~98 | thin |
-| `Tui::handle_result(result, cl)` | 819–992 | ~60 | thin |
-| `Tui::show_reference_popup()` / `show_palette_popup()` | 846–883 | ~40 | thin |
-| `HelpPage::build(node, settings)` + `Tui::show_help_page(node)` | 884–981 | ~100 | **pure core** |
-| `Tui::redraw_prompt(cl)` (DRYs ~20 call sites) | throughout | ~4 | no |
-| `Tui::scroll_unhandled(ch)` | 994–1010 | ~12 | no |
+The one phase that touches `Tui::run()` wholesale. It is **pure wiring + move**,
+no behaviour change:
 
-The loop body becomes roughly: `if (signal) shutdown(); tick_housekeeping();
-ch = getch(); if (ch == ERR) { on_idle_tick(cl); continue; } if (handle_hotkeys(ch, cl)) continue; …route_edit_key → handle_result…`. Target **≤ 40 lines**.
+1. **L1 vocabulary**: add `tui/keys.h` (pure `Key`/mouse constants mirroring
+   `View::Key`); make `scroll_dispatch.h` and `session_browser_core.h` include it
+   instead of `<ncurses.h>`; translate ncurses codes in L4.
+2. **L1 state**: add `ui_state.h` — the loop's accumulated state (input fill,
+   last status tick, drawer state, scroll mode, quit flag, anim phase) as one
+   explicit model.
+3. **L2 use case**: add `event_loop.{h,cpp}` holding the tick sequence
+   (`poll_signal → housekeeping → read_key → dispatch_intent → handle_result →
+   render`), depending only on the ports.
+4. **L4 adapters**: `NcursesKeySource` (`KeySourcePort`), `NcursesTerminal`
+   (`TerminalPort`), `NcursesDisplay` (`DisplayPort`, delegating to
+   `RenderEngine`), `NcursesModals` (`ModalPort`, delegating to the widgets).
+5. **L5**: `Tui::run()` constructs the adapters, injects them into `EventLoop`,
+   and calls it. Target **≤ 40 lines**.
+6. **Guard**: the `tests/build_hygiene.sh` layering check (ARCH-01..ARCH-05).
+
+After P0 the god function is gone, the ports are real, and P1–P8 are mechanical
+extractions into a structure that already exists.
 
 ---
 
 ## Test strategy (characterization-first red → green)
 
-Refactoring is not feature work, so the red→green discipline is applied as
+Refactoring has no new behaviour to fail on, so red→green is applied as
 **characterization tests**:
 
-1. **Red first, honestly.** Before extracting a unit, add a test that pins the
-   behaviour the unit must preserve. Where the behaviour is currently untested,
-   that test is genuinely new coverage; where it is already covered (e.g. the
-   pty flows), the test is a guard. If the code is already correct the test
-   passes on first run — and that is stated, not dressed up as a fix.
-2. **Extract.** The extraction must leave every characterization test green.
-   Any accidental behaviour change turns a test red — that is the gate.
-3. **Test the new pure cores directly** (no ncurses, no TTY):
-   - `completion_context`, `option_key_decode`, `help_page`
-   - `status_bar_layout`, `gauge_text`, `input_line_layout`
-   - `md_normalize`, `md_table`, `md_block`
-   - `form_focus`, `list_state`, `dialog_pager`, `panel_view_text`
-   - `hook_wiring`, `event_dispatch`, `session_browser_view`, `wrap_columns`
-4. **Placement:** per-area files following the existing convention
-   (`tests/command_line_test.cpp` → e.g. `tests/status_bar_layout_test.cpp`),
-   wired into the Makefile's test objects; `tests/tui_tests.cpp` for anything
-   that stays in the TUI's own suite.
+1. **Red first, honestly.** Before moving a unit, add the test that pins the
+   behaviour it must preserve. Where behaviour is already covered (pty flows),
+   the test is a guard; where it is not, it is genuinely new coverage. If the
+   code is already correct the test passes on first run — **stated, not dressed
+   up as a fix**.
+2. **Move.** The move must leave every characterization test green; any
+   accidental change turns one red. That is the gate.
+3. **L2 gets mock ports.** `EventLoop` is tested against mock
+   `DisplayPort`/`KeySourcePort`/`ModalPort`/`ClockPort` using the **existing
+   EL-01..EL-18 scenarios** from `docs/spec/tui/event-loop.md` — which is what
+   the ports were designed for and never used for.
+4. **Architecture guards run in CI**: the layering check (ARCH-01..ARCH-05) plus
+   compiling the L1/L2 test binaries **without** `NCURSES_CFLAGS`.
+5. **Placement**: per-area files (`tests/status_bar_layout_test.cpp` …) wired
+   into the Makefile's test objects, following `tests/command_line_test.cpp`.
 
-**Gates per FIX (all must be green):** `make test` (unit + e2e + pty),
-`make check` (P5 audit table refreshed), `make lint`, `make analyze`,
-`make duplicates`, `make format-check-changed BASE=origin/main`, and the
-`sanitizers`/`tsan` jobs. `tui_pty_test` is the behaviour backstop for the loop.
+**Gates per FIX:** `make test` (unit + e2e + pty), `make check` (layering + P5),
+`make lint`, `make analyze`, `make duplicates`,
+`make format-check-changed BASE=origin/main`, and the `sanitizers`/`tsan` jobs.
+`tui_pty_test` is the behavioural backstop for the loop.
 
-**Coverage expectation.** The 537 instrumented lines currently at 0% are the
-guaranteed win: extracting their pure cores puts a large fraction of them under
-test. The pure cores from G1/G4/G5/G9 add more. Each FIX records its own delta
-(the `coverage` job's full-surface run already reports `tui/`). No target is
-promised here beyond "strictly increasing"; the honest floor is set per FIX from
-the measurement.
+---
+
+## Coverage expectation
+
+The 0% files (537 instrumented lines) are the guaranteed win: their logic moves
+into L1/L2 and is covered. P0 alone lifts the loop's pure pieces; P5 covers the
+widgets. Each FIX records its own delta (the `coverage` job reports `tui/`).
+No fixed target is promised beyond "strictly increasing" — the floor is set per
+FIX from the measurement.
 
 ---
 
 ## Risks and mitigations
 
-- **ncurses entanglement.** Some code is genuine glue (`attron`/`mvaddnwstr`
-  sequences). Do not force-extract it; extract only the pure decision logic and
-  leave the painting thin.
-- **Behaviour drift in the loop.** The highest-risk item (G1). Mitigation:
-  characterization tests + the real-TTY `tui_pty_test` flows + `make test` under
-  both compilers and the sanitizers before any commit.
-- **Scope creep.** Bound each FIX to the units in its row; the changed-file
-  `format-check`/`lint` ratchet keeps the diff to what was touched.
-- **`tui.h` still >200 (248).** Trimming the facade header (moving per-domain
-  declarations next to their owning component) is a small follow-up, not a
-  blocker for the function-level work.
-- **Prior art conflict.** FIX-022/023's facade is *kept*, not relitigated; this
-  proposal completes the loop decomposition those FIXes specified but did not
-  finish.
+- **P0 is a big move.** Highest-risk phase. Mitigation: it is wiring-only, gated
+  by `tui_pty_test` + EL scenarios + `make test` under both compilers and the
+  sanitizers; land it alone, before any extraction.
+- **Over-abstraction.** Do not invent ports with one impl and no test value.
+  The port set is fixed by the spec; `View` is retired, not extended.
+- **Adapter thinness drift.** A "thin" adapter that grows logic is caught by
+  ARCH-04/ARCH-05 and the per-file line budget.
+- **L2 ↔ L4 direction.** Adapters must not call use cases; ARCH-04 gates it.
+- **Scope creep.** Bound each FIX to its row; the changed-file
+  `format-check`/`lint` ratchet keeps the diff honest.
+- **Prior art.** FIX-022/023's component split is *kept*; this completes the
+  loop decomposition those FIXes specified but did not finish.
 
 ---
 
 ## Sequencing and definition of done
 
-**Order:** FIX-043 (biggest + pure wins) → FIX-044/045 (slash layer) →
-FIX-046 (drawing) → FIX-047 (markdown, cheapest) → FIX-048 (widgets, biggest
-coverage win) → FIX-049/050 (events/sessions) → FIX-051 (remainder).
+**Order:** P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 (as tabled). P0 lands
+alone first.
 
-**Done when:** every unit in the table is **< 200 LoC** with no function
-**> 50 lines**; the extracted pure cores are unit-tested; `tui/` coverage is
-strictly up; the `AGENTS.md:486` audit table is refreshed and no longer lists
-`tui_input.cpp`; all gates green.
+**Done when:**
+- the spec's five layers exist and the dependency rules hold (ARCH-01..05 green);
+- every unit in the table is **< 200 LoC**, no function **> 50 lines**;
+- `Tui::run()` **≤ 40 lines**, `tui/tui.h` **< 200**;
+- every port in the inventory has exactly one adapter and L2 depends only on
+  ports;
+- L1 + L2 are unit-tested without ncurses; `tui/` coverage is strictly up;
+- `AGENTS.md:486` audit table refreshed (no `tui_input.cpp` entry); all gates
+  green.
 
 ---
 
@@ -295,17 +194,17 @@ strictly up; the `AGENTS.md:486` audit table is refreshed and no longer lists
 - Any behaviour, feature, prompt or wire-format change.
 - `lib/` or `include/agent/` (the core is already clean: `lib/` 85%).
 - A rewrite of the ncurses drawing layer.
-- Re-litigating the FIX-022/023 facade split (it stays).
-- Test-suite splitting beyond the per-area files a FIX needs.
+- Re-litigating the FIX-022/023 facade split (it stays; this layers it).
+- New ports beyond the spec's inventory.
 
 ---
 
 ## How the numbers were produced
 
-- Function lengths: a brace-matching scan over `tui/*.cpp` top-level
-  definitions (523 functions; 37 over 50 lines).
+- Function lengths: a brace-matching scan over `tui/*.cpp` top-level definitions
+  (523 functions; 37 over 50 lines).
 - Coverage: the CI recipe — `--coverage` build, `make test`, then `gcovr
-  --root . --filter 'tui/.*' --exclude '.*tests/.*'`; `tui/` sits at 48.1%
-  with the FIX-040 pty-capture fix applied.
-- The "actually used by" column is `grep` evidence for each 0% file's
-  include/call sites.
+  --root . --filter 'tui/.*' --exclude '.*tests/.*'`; `tui/` is 48.1% with the
+  FIX-040 pty-capture fix applied.
+- Port usage: `grep` for each `*_port.h` include site; the 0% files' "actually
+  used by" column is the same method.

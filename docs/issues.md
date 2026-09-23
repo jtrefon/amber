@@ -60,7 +60,9 @@ full surface measures **68.7%** and the gated core **83.8%**.
 
 ## 🆕 Current Open Issues, 2026-09-23 TUI God-Code Decomposition (G1..G9)
 
-Full proposal: `docs/fix-proposal/tui-god-code-decomposition-2026-09-23.md`.
+Strategy: `docs/fix-proposal/tui-god-code-decomposition-2026-09-23.md`.
+Architecture contract: **`docs/spec/tui/architecture.md`** (five layers, ports,
+unidirectional dataflow, isolation rules).
 This **completes N3** (God Class `Tui`) and the TUI portion of **N4** (systemic
 >10-line methods): the FIX-022/023 facade landed the components but **never met
 its own targets**. Measured on `main` `cb9d054`: `Tui::run()` is **599 lines**
@@ -68,26 +70,35 @@ its own targets**. Measured on `main` `cb9d054`: `Tui::run()` is **599 lines**
 **37 functions exceed 50 lines** (4,343 lines), and eight real, referenced files
 sit at **0%** coverage because their logic is welded to ncurses.
 
-Method: extract **pure, ncurses-free cores** (the pattern already proven by
-`command_line`, `key_binder`, `session_browser_core`, `setting_registry`,
-`drawer_rows`), unit-test them, leave thin shells. Every new unit <200 LoC
-(target ≤150); new methods ≤30 (≤10 where practical). Behaviour-preserving;
-`tui/` never depended on by `lib/`; slash commands stay JSON-driven.
+**Root cause: the hexagon was designed and never built.** Six port headers exist
+(`display_port`, `key_source_port`, `modal_port`, `session_port`, `prompt_port`,
+`view`) whose comments say *"the domain core uses this"* — there is no domain
+core; four are included by **nobody**, two only by tests. Only `WindowOpsPort` is
+wired. `scroll_dispatch.h:5` and `session_browser_core.h:5` `#include
+<ncurses.h>` for key constants, so "pure" logic cannot compile without ncurses.
 
-| ID | Sev | God unit (site) | Now | FIX |
-|----|-----|-----------------|----:|-----|
-| G1 | 🔴 Critical | `Tui::run()` `tui/tui.cpp:414` — 12 responsibilities in one loop | 599 | FIX-043 |
-| G2 | 🟠 High | `SlashDispatcher::register_builtin_actions()` `tui/tui_input.cpp:940` | 291 | FIX-044 |
-| G3 | 🟠 High | `SlashDispatcher::build_settings()` 165 + `Tui::settings_screen()` 152 | 317 | FIX-045 |
-| G4 | 🟠 High | `RenderEngine::draw_status_bar()` 172 + `draw_input()` 132 `tui/render_engine.cpp` | 304 | FIX-046 |
-| G5 | 🟡 Medium | `tui/markdown_md4c.cpp`: `normalize_markdown` 263, `append_styled` 130, `flush_table` 98, `enter/leave_block` 157 | 648 | FIX-047 |
-| G6 | 🟠 High | 0%-covered widgets: `form_edit` 171, `list_panel` 80, `panel_view` 89, `info_dialog` 96, `menu_select` | 436 | FIX-048 |
-| G7 | 🟡 Medium | `EventRouter::make_hooks()` 108 + `drain_events()` 92 `tui/event_router.cpp` | 200 | FIX-049 |
-| G8 | 🟡 Medium | `SessionController::session_browser()` 141 + `load_session()` 51 | 192 | FIX-050 |
-| G9 | 🟡 Medium | `SettingRegistry::index_node` 85, `text::wrap` 90 / `rich::wrap` 85, `CommandLine` internals 62/61/51, `drawer_rows` 86, `Canvas::render` 53, `tui_main.cpp main` 165 | 667 | FIX-051 |
+**Approach: architecture first, then extract into layers.** P0 wires the ports
+(they exist), adds a pure `keys.h` + `UiState`, extracts the `EventLoop` use case
+into L2, and adds a `build_hygiene.sh` layering check so the rules cannot rot.
+Each later FIX lands its unit in the layer/pattern the spec assigns. Every unit
+<200 LoC (target ≤150), methods ≤30; behaviour-preserving; slash commands stay
+JSON-driven.
 
-Order: G1 → G2/G3 → G4 → G5 → G6 → G7/G8 → G9. Each FIX is characterization-first
-(pin behaviour, extract, keep green) with its own coverage delta recorded.
+| ID | Sev | God unit (site) | Now | Layer | FIX |
+|----|-----|-----------------|----:|-------|-----|
+| G1 | 🔴 Critical | `Tui::run()` `tui/tui.cpp:414` — 12 responsibilities in one loop | 599 | L2+L3+L5 | FIX-043 (P0) |
+| G2 | 🟠 High | `SlashDispatcher::register_builtin_actions()` `tui/tui_input.cpp:940` | 291 | L2 | FIX-044 (P1) |
+| G3 | 🟠 High | `SlashDispatcher::build_settings()` 165 + `Tui::settings_screen()` 152 | 317 | L2+L1 | FIX-045 (P2) |
+| G4 | 🟠 High | `RenderEngine::draw_status_bar()` 172 + `draw_input()` 132 | 304 | L1+L4 | FIX-046 (P3) |
+| G5 | 🟡 Medium | `tui/markdown_md4c.cpp`: `normalize_markdown` 263 + 4 more | 648 | L1 | FIX-047 (P4) |
+| G6 | 🟠 High | 0%-covered widgets: `form_edit` 171, `list_panel` 80, `panel_view` 89, `info_dialog` 96, `menu_select` | 436 | L1+L4 | FIX-048 (P5) |
+| G7 | 🟡 Medium | `EventRouter::make_hooks()` 108 + `drain_events()` 92 | 200 | L2+L4 | FIX-049 (P6) |
+| G8 | 🟡 Medium | `SessionController::session_browser()` 141 + `load_session()` 51 | 192 | L1+L4 | FIX-050 (P7) |
+| G9 | 🟡 Medium | `index_node` 85, `text/rich::wrap` 90/85, `CommandLine` internals, `drawer_rows` 86, `Canvas::render` 53, `tui_main` 165 | 667 | L1+L5 | FIX-051 (P8) |
+
+Order: **P0 keystone first (alone)**, then P1 → P8. Characterization-first (pin
+behaviour, move, keep green); L2 tested with mock ports against the existing
+EL-01..EL-18 scenarios; `tui_pty_test` is the loop's behavioural backstop.
 
 ## 🆕 Current Open Issues, 2026-08-27 Clean Architecture Audit (N1..N11)
 
