@@ -13,6 +13,7 @@
 #include "tui/reasoning_block.h"
 #include "tui/panel_view_state.h"
 #include "tui/rich.h"
+#include "tui/form_focus.h"
 #include "tui/info_dialog_layout.h"
 #include "tui/list_state.h"
 #include "tui/markdown.h"
@@ -2076,6 +2077,68 @@ TEST(panel_view_state_apply_key_moves_and_reports) {
 TEST(panel_view_state_start_index) {
     ASSERT_EQ(PVS::start_index({"a", "b", "c"}, "b"), 1);
     ASSERT_EQ(PVS::start_index({"a", "b"}, "z"), 0); // unknown id -> first
+}
+
+// --- FormFocus (L1): the form dialog's key -> intent decision ---
+
+namespace FF = tui::form_focus;
+
+TEST(form_focus_tab_moves_between_fields_until_the_last) {
+    auto a = FF::key('\t', FF::Zone::Fields, false);
+    ASSERT(a.intent == FF::Intent::NextField);
+    ASSERT(a.zone == FF::Zone::Fields);
+    auto b = FF::key('\t', FF::Zone::Fields, true); // off the last field -> buttons
+    ASSERT(b.intent == FF::Intent::None);
+    ASSERT(b.zone == FF::Zone::Ok);
+    ASSERT(FF::key(tui::keys::kBtab, FF::Zone::Fields, false).intent == FF::Intent::PrevField);
+}
+
+TEST(form_focus_field_editing_keys) {
+    ASSERT(FF::key(tui::keys::kLeft, FF::Zone::Fields, false).intent == FF::Intent::PrevChar);
+    ASSERT(FF::key(tui::keys::kDelete, FF::Zone::Fields, false).intent == FF::Intent::DelChar);
+    ASSERT(FF::key(tui::keys::kBackspace, FF::Zone::Fields, false).intent == FF::Intent::DelPrev);
+    ASSERT(FF::key(8, FF::Zone::Fields, false).intent == FF::Intent::DelPrev);
+}
+
+TEST(form_focus_printable_inserts_and_others_do_nothing) {
+    auto a = FF::key('a', FF::Zone::Fields, false);
+    ASSERT(a.intent == FF::Intent::InsertChar);
+    ASSERT_EQ(a.insert, 'a');
+    ASSERT(FF::key(300, FF::Zone::Fields, false).intent == FF::Intent::None);
+}
+
+TEST(form_focus_enter_from_fields_reaches_the_ok_button) {
+    auto d = FF::key('\n', FF::Zone::Fields, false);
+    ASSERT(d.zone == FF::Zone::Ok);
+    ASSERT_FALSE(d.done);
+}
+
+TEST(form_focus_buttons_toggle_and_return_to_the_last_field) {
+    ASSERT(FF::key('\t', FF::Zone::Ok, false).zone == FF::Zone::Cancel);
+    ASSERT(FF::key('\t', FF::Zone::Cancel, false).zone == FF::Zone::Ok);
+    auto up = FF::key(tui::keys::kUp, FF::Zone::Ok, false);
+    ASSERT(up.intent == FF::Intent::ToLastField);
+    ASSERT(up.zone == FF::Zone::Fields);
+}
+
+TEST(form_focus_accept_carries_the_button_choice) {
+    auto ok = FF::key('\n', FF::Zone::Ok, false);
+    ASSERT(ok.intent == FF::Intent::Accept);
+    ASSERT_TRUE(ok.done);
+    ASSERT_TRUE(ok.result); // OK button
+    auto cancel = FF::key('\n', FF::Zone::Cancel, false);
+    ASSERT(cancel.intent == FF::Intent::Accept);
+    ASSERT_TRUE(cancel.done);
+    ASSERT_FALSE(cancel.result); // Cancel button
+}
+
+TEST(form_focus_esc_cancels_from_both_zones) {
+    auto f = FF::key(27, FF::Zone::Fields, false);
+    ASSERT_TRUE(f.done);
+    ASSERT_FALSE(f.result);
+    auto b = FF::key(27, FF::Zone::Ok, false);
+    ASSERT_TRUE(b.done);
+    ASSERT_FALSE(b.result);
 }
 
 // ---------------------------------------------------------------------------

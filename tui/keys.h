@@ -28,6 +28,7 @@ enum : int {
     kNPage = 338,     // KEY_NPAGE
     kPPage = 339,     // KEY_PPAGE
     kEnter = 343,     // KEY_ENTER
+    kBtab = 353,      // KEY_BTAB (shift-Tab)
     kMouse = 409,     // KEY_MOUSE
     kResize = 410,    // KEY_RESIZE
 };

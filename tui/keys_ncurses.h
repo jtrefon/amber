@@ -21,6 +21,7 @@ static_assert(tui::keys::kDelete == KEY_DC, "ncurses KEY_DC drifted from tui::ke
 static_assert(tui::keys::kNPage == KEY_NPAGE, "ncurses KEY_NPAGE drifted from tui::keys");
 static_assert(tui::keys::kPPage == KEY_PPAGE, "ncurses KEY_PPAGE drifted from tui::keys");
 static_assert(tui::keys::kEnter == KEY_ENTER, "ncurses KEY_ENTER drifted from tui::keys");
+static_assert(tui::keys::kBtab == KEY_BTAB, "ncurses KEY_BTAB drifted from tui::keys");
 static_assert(tui::keys::kMouse == KEY_MOUSE, "ncurses KEY_MOUSE drifted from tui::keys");
 static_assert(tui::keys::kResize == KEY_RESIZE, "ncurses KEY_RESIZE drifted from tui::keys");
 static_assert(tui::keys::kButton1 == BUTTON1_PRESSED,
