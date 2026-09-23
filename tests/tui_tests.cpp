@@ -13,6 +13,7 @@
 #include "tui/reasoning_block.h"
 #include "tui/rich.h"
 #include "tui/info_dialog_layout.h"
+#include "tui/list_state.h"
 #include "tui/markdown.h"
 #include "tui/markdown_normalize.h"
 #include "tui/tool_display.h"
@@ -1905,6 +1906,97 @@ TEST(info_dialog_layout_scroll_hint_at_top_middle_and_bottom) {
     auto bot = tui::info_dialog_layout::scroll_hint(3, 2, 5);
     ASSERT_TRUE(bot.up);
     ASSERT_FALSE(bot.down); // 3 + 2 == 5: the last page
+}
+
+// --- ListState (L1): selection / filter / scroll behind ListPanel ---
+
+static tui::ListState make_list() {
+    return tui::ListState({"alpha", "beta", "gamma", "delta"});
+}
+
+TEST(list_state_filtered_returns_all_without_a_filter) {
+    tui::ListState s = make_list();
+    ASSERT_EQ(s.filtered().size(), 4u);
+}
+
+TEST(list_state_slash_enters_filter_mode_and_resets) {
+    tui::ListState s = make_list();
+    ASSERT(s.key(tui::keys::kDown, 10) == tui::ListState::Action::Redraw);
+    ASSERT_EQ(s.selection(), 1);
+    ASSERT(s.key('/', 10) == tui::ListState::Action::Redraw);
+    ASSERT_TRUE(s.filter_mode());
+    ASSERT_EQ(s.selection(), 0);
+    ASSERT_EQ(s.scroll_offset(), 0);
+}
+
+TEST(list_state_typing_filters_and_backspace_removes) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    s.key('a', 10);
+    ASSERT_EQ(s.filter(), "a");
+    ASSERT_EQ(s.filtered().size(), 4u); // every item contains 'a'
+    s.key('l', 10);
+    ASSERT_EQ(s.filter(), "al");
+    ASSERT_EQ(s.filtered().size(), 1u); // only "alpha"
+    ASSERT(s.key(tui::keys::kBackspace, 10) == tui::ListState::Action::Redraw);
+    ASSERT_EQ(s.filter(), "a");
+}
+
+TEST(list_state_esc_in_filter_mode_clears_it) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    s.key('x', 10);
+    ASSERT(s.key(27, 10) == tui::ListState::Action::Redraw);
+    ASSERT_FALSE(s.filter_mode());
+    ASSERT_EQ(s.filter(), "");
+}
+
+TEST(list_state_enter_selects_and_esc_cancels) {
+    tui::ListState a = make_list();
+    ASSERT(a.key('\n', 10) == tui::ListState::Action::Select);
+    tui::ListState b = make_list();
+    ASSERT(b.key(27, 10) == tui::ListState::Action::Cancel);
+    ASSERT_EQ(b.selection(), -1);
+}
+
+TEST(list_state_up_at_top_is_a_noop) {
+    tui::ListState s = make_list();
+    ASSERT(s.key(tui::keys::kUp, 10) == tui::ListState::Action::None);
+    ASSERT_EQ(s.selection(), 0);
+}
+
+TEST(list_state_down_scrolls_when_past_the_viewport) {
+    tui::ListState s = make_list();
+    s.key(tui::keys::kDown, 2); // sel 1, still on screen
+    ASSERT_EQ(s.scroll_offset(), 0);
+    s.key(tui::keys::kDown, 2); // sel 2 -> off screen, scroll follows
+    ASSERT_EQ(s.selection(), 2);
+    ASSERT_EQ(s.scroll_offset(), 1);
+}
+
+TEST(list_state_window_bounds) {
+    tui::ListState fresh = make_list();
+    int start = -1, end = -1;
+    fresh.window(2, start, end);
+    ASSERT_EQ(start, 0);
+    ASSERT_EQ(end, 2);
+
+    tui::ListState scrolled = make_list();
+    scrolled.key(tui::keys::kDown, 2);
+    scrolled.key(tui::keys::kDown, 2);
+    scrolled.window(2, start, end);
+    ASSERT_EQ(start, 1);
+    ASSERT_EQ(end, 3);
+}
+
+TEST(list_state_remap_maps_filtered_index_to_original) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    s.key('g', 10); // only "gamma"
+    ASSERT_EQ(s.filtered().size(), 1u);
+    ASSERT_EQ(s.selection(), 0);
+    s.remap_selection();
+    ASSERT_EQ(s.selection(), 2); // gamma is items_[2]
 }
 
 // ---------------------------------------------------------------------------
