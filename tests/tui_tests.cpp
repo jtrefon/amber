@@ -16,6 +16,7 @@
 #include "tui/tool_display.h"
 #include "tui/scroll_dispatch.h"
 #include "tui/keys.h"
+#include "tui/option_key_decode.h"
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
 #include "tui/event_router.h"
@@ -1754,6 +1755,33 @@ TEST(window_set_rejects_out_of_range) {
     auto r = ops.set_window(99);
     ASSERT_FALSE(r.ok);
     ASSERT_FALSE(r.msg.empty());
+}
+
+// --- OptionKeyDecode (L1): macOS Option-as-text UTF-8 assembly ---
+
+TEST(option_key_decode_lead_and_continuation_counts) {
+    ASSERT_TRUE(tui::option_key_decode::is_lead(0xC2));
+    ASSERT_TRUE(tui::option_key_decode::is_lead(0xE2));
+    ASSERT_TRUE(tui::option_key_decode::is_lead(0xF0));
+    ASSERT_FALSE(tui::option_key_decode::is_lead(0x41)); // ASCII
+    ASSERT_FALSE(tui::option_key_decode::is_lead(0xBF)); // continuation byte
+    ASSERT_FALSE(tui::option_key_decode::is_lead(0xF5)); // beyond the range
+
+    ASSERT_EQ(tui::option_key_decode::continuation_bytes(0xC2), 1);
+    ASSERT_EQ(tui::option_key_decode::continuation_bytes(0xE2), 2);
+    ASSERT_EQ(tui::option_key_decode::continuation_bytes(0xF0), 3);
+    ASSERT_EQ(tui::option_key_decode::continuation_bytes(0x41), 0);
+}
+
+TEST(option_key_decode_assembles_codepoints) {
+    const unsigned char inverted[2] = {0xC2, 0xA1};          // U+00A1 '¡'
+    const unsigned char e_acute[2] = {0xC3, 0xA9};           // U+00E9 'é'
+    const unsigned char euro[3] = {0xE2, 0x82, 0xAC};        // U+20AC '€'
+    const unsigned char emoji[4] = {0xF0, 0x9F, 0x98, 0x80}; // U+1F600
+    ASSERT_EQ(tui::option_key_decode::codepoint(inverted, 1), 0xA1u);
+    ASSERT_EQ(tui::option_key_decode::codepoint(e_acute, 1), 0xE9u);
+    ASSERT_EQ(tui::option_key_decode::codepoint(euro, 2), 0x20ACu);
+    ASSERT_EQ(tui::option_key_decode::codepoint(emoji, 3), 0x1F600u);
 }
 
 // ---------------------------------------------------------------------------
