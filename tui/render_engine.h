@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "canvas.h"
+#include "input_line_layout.h"
 #include "markdown.h"
 #include "rich.h"
 #include "palette.h"
@@ -106,6 +107,11 @@ private:
     static std::wstring to_wide(const std::string& s);
     static std::string kfmt(long n);
     static int gauge_pair(double f);
+    // Draw one input-line piece at `x`, advancing it (truncated to the width).
+    void put_input(int y, int w, int& x, const std::string& text, int pair, int attrs = 0);
+    // Draw the dim completion hint after the input, when the cursor is at the end.
+    void draw_input_shadow(int y, int w, int prompt_w, int scroll_off, const std::string& input,
+                           std::size_t cursor, const std::string& shadow);
 
     // The activity word leading the working indicator ("thinking", "talking",
     // "compressing", "searching", "working", ...) derived from the agent's

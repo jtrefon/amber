@@ -15,6 +15,7 @@
 #include "tui/rich.h"
 #include "tui/form_focus.h"
 #include "tui/info_dialog_layout.h"
+#include "tui/input_line_layout.h"
 #include "tui/list_state.h"
 #include "tui/markdown.h"
 #include "tui/markdown_normalize.h"
@@ -2174,6 +2175,47 @@ TEST(session_row_file_size_units) {
     ASSERT_EQ(SR::file_size(512), "512B");
     ASSERT_EQ(SR::file_size(2048), "2KB");
     ASSERT_EQ(SR::file_size(3 * 1024 * 1024), "3.0MB");
+}
+
+// --- InputLineLayout (L1): prompt decor, scroll, UTF-8 slicing ---
+
+namespace ILL = tui::input_line_layout;
+
+TEST(input_line_layout_prompt_pieces_omit_empty_parts) {
+    ASSERT_EQ(ILL::prompt_pieces("proj", "", 0, 0).size(), 3u);
+    ASSERT_EQ(ILL::prompt_pieces("proj", "main", 0, 0).size(), 5u);
+    ASSERT_EQ(ILL::prompt_pieces("proj", "main", 3, 2).size(), 9u);
+    ASSERT_EQ(ILL::prompt_pieces("proj", "main", 3, 0).size(), 8u); // no "-del"
+}
+
+TEST(input_line_layout_prompt_pieces_roles) {
+    auto p = ILL::prompt_pieces("proj", "main", 3, 2);
+    ASSERT(p[0].role == ILL::Role::Decor);
+    ASSERT_EQ(p[0].text, "\u2514\u2500[");
+    ASSERT(p[1].role == ILL::Role::Project);
+    ASSERT_EQ(p[1].text, "proj");
+    ASSERT(p[3].role == ILL::Role::Branch);
+    ASSERT_EQ(p[3].text, "main");
+    ASSERT(p[5].role == ILL::Role::Plus);
+    ASSERT_EQ(p[5].text, "+3");
+    ASSERT(p[7].role == ILL::Role::Minus);
+    ASSERT_EQ(p[7].text, "-2");
+}
+
+TEST(input_line_layout_scroll_keeps_cursor_visible) {
+    auto fit = ILL::scroll_for(10, "hello", 5, "", 80);
+    ASSERT_EQ(fit.offset, 0);
+    ASSERT_EQ(fit.cursor_col, 15);
+    ASSERT_EQ(fit.total_w, 15);
+
+    auto scrolled = ILL::scroll_for(10, std::string(31, '0'), 31, "", 20);
+    ASSERT_EQ(scrolled.cursor_col, 41);
+    ASSERT_EQ(scrolled.offset, 22); // cursor_col - width + 1
+}
+
+TEST(input_line_layout_visible_bytes_stops_at_the_column_budget) {
+    ASSERT_EQ(ILL::visible_bytes("abcdef", 0, 4), 4);
+    ASSERT_EQ(ILL::visible_bytes("abcdef", 2, 10), 4); // to the end of the string
 }
 
 // ---------------------------------------------------------------------------

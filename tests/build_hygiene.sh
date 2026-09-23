@@ -178,7 +178,7 @@ key_action input_state key_read drawer_rows textutil rich palette tool_display
 path_confine approval_model run_registry setting_registry markdown markdown_md4c
 reasoning_block help_page completion_context option_key_decode status_bar_layout
 markdown_normalize info_dialog_layout list_state panel_view_state form_focus
-session_row"
+session_row input_line_layout"
 NC_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"](ncurses|panel|form|menu)\.h'
 PORT_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^">]*_port\.h'
 p7_bad=0
