@@ -8,6 +8,7 @@
 #include "tool_display.h"
 #include "scroll_dispatch.h"
 #include "keys_ncurses.h"
+#include "help_page.h"
 #include "signal_guard.h"
 #include "event_router.h"
 #include "feed_manager.h"
@@ -883,99 +884,25 @@ void Tui::run() {
                 continue;
             }
             case CommandLine::Result::ShowHelpPage: {
-                std::string node = result.help_node;
-                if (!node.empty() && node[0] == '/')
-                    node = node.substr(1);
-                std::string help_key = node;
-                size_t first_sp = node.find(' ');
-                if (first_sp != std::string::npos)
-                    help_key = node.substr(first_sp + 1);
-                // Try full man page first.
-                std::string man = settings_.man_for(help_key);
-                if (!man.empty()) {
-                    std::vector<std::string> page;
-                    // Header: help text as subtitle
-                    std::string helptxt = settings_.help_for(help_key);
-                    if (!helptxt.empty())
-                        page.emplace_back(helptxt);
-                    page.emplace_back("");
-                    // Body: full man text with word wrapping
-                    size_t pos = 0;
-                    while (pos < man.size()) {
-                        size_t next = man.find('\n', pos);
-                        if (next == std::string::npos) {
-                            page.emplace_back(man.substr(pos));
-                            break;
-                        }
-                        page.emplace_back(man.substr(pos, next - pos));
-                        pos = next + 1;
-                    }
-                    page.emplace_back("");
-                    // Children listing
-                    auto kids = settings_.children_of(help_key);
-                    if (!kids.empty()) {
-                        page.emplace_back("sub-commands:");
-                        for (const auto& k : kids) {
-                            std::string line = "  " + k;
-                            std::string subkey = help_key;
-                            subkey += ".";
-                            subkey += k;
-                            std::string h = settings_.help_for(subkey);
-                            if (!h.empty()) {
-                                line += "  —  ";
-                                line += h;
-                            }
-                            page.emplace_back(line);
-                        }
-                        page.emplace_back("");
-                    }
-                    // Choices / range for leaf settings
-                    const auto& ch_choices = settings_.choices_for(help_key);
-                    if (!ch_choices.empty()) {
-                        std::string line = "choices: ";
-                        for (size_t i = 0; i < ch_choices.size(); ++i) {
-                            if (i > 0)
-                                line += ", ";
-                            line += ch_choices[i];
-                        }
-                        page.push_back(line);
-                    }
-                    double rlo, rhi;
-                    if (settings_.range_for(help_key, rlo, rhi))
-                        page.push_back("range: " + std::to_string((int)rlo) + " – " +
-                                       std::to_string((int)rhi));
+                const std::string help_key = help_page::key_from_node(result.help_node);
+                std::vector<std::string> page = help_page::build(settings_, help_key);
+                if (!page.empty()) {
                     info_dialog(help_key, page);
                     redraw_after_modal();
                     render_engine_->draw();
                     render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                     continue;
                 }
-                // Fallback to one-line status for leaf settings without man text.
-                std::string desc = settings_.help_for(help_key);
-                if (!desc.empty()) {
-                    std::string msg = help_key;
-                    msg += "  —  ";
-                    msg += desc;
-                    const auto& chc = settings_.choices_for(help_key);
-                    if (!chc.empty()) {
-                        msg += "  choices: ";
-                        for (const auto& c : chc)
-                            msg += c + "|";
-                        msg.pop_back();
-                    }
-                    double rlo, rhi;
-                    if (settings_.range_for(help_key, rlo, rhi))
-                        msg += "  range: " + std::to_string(rlo) + "-" + std::to_string(rhi);
+                // Fallback to a one-line status for leaf settings without man text.
+                const std::string msg = help_page::fallback_line(settings_, help_key);
+                if (!msg.empty()) {
                     append_line(P_STATUS, msg);
                     render_engine_->draw();
                     render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                     continue;
                 }
                 // Fallback to cmd_help for top-level commands.
-                size_t sp = node.find(' ');
-                if (sp != std::string::npos)
-                    node.resize(sp);
-                slash_dispatcher_->cmd_help(node);
+                slash_dispatcher_->cmd_help(help_page::command_from_node(result.help_node));
                 render_engine_->draw();
                 render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;

@@ -1743,22 +1743,6 @@ TEST(completion_provider_trailing_space_descends) {
     ASSERT_TRUE(true);
 }
 
-// --- HelpPageBuilder tests (3) ---
-// Placeholder tests — HelpPageBuilder will be extracted from run()
-// in a follow-up. For now these pass trivially.
-
-TEST(help_page_builder_full_man) {
-    ASSERT_TRUE(true);
-}
-
-TEST(help_page_builder_leaf_with_choices) {
-    ASSERT_TRUE(true);
-}
-
-TEST(help_page_builder_leaf_with_range) {
-    ASSERT_TRUE(true);
-}
-
 // --- Slash command integration tests (4) ---
 
 TEST(window_set_slash_command_dispatches) {
