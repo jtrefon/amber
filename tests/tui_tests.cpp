@@ -13,6 +13,7 @@
 #include "tui/reasoning_block.h"
 #include "tui/rich.h"
 #include "tui/markdown.h"
+#include "tui/markdown_normalize.h"
 #include "tui/tool_display.h"
 #include "tui/scroll_dispatch.h"
 #include "tui/keys.h"
@@ -1835,6 +1836,35 @@ TEST(status_bar_layout_keeps_undroppable_segment) {
     auto p = tui::status_bar_layout::plan(segs, 20, false, 0);
     ASSERT_EQ(p.left.size(), 1u);
     ASSERT_EQ(p.left[0].text, "aaaaaaaaaa");
+}
+
+// --- MarkdownNormalize (L1): near-markdown repair ---
+
+TEST(markdown_normalize_blanks_before_table_after_prose) {
+    // A table row glued onto prose gets a blank line (md4c needs the break).
+    ASSERT_EQ(tui::markdown_normalize::normalize("prose\n| a | b |\n| c | d |"),
+              "prose\n\n| a | b |\n|---|---|\n| c | d |");
+}
+
+TEST(markdown_normalize_keeps_existing_blank_before_table) {
+    ASSERT_EQ(tui::markdown_normalize::normalize("prose\n\n| a | b |\n| c | d |"),
+              "prose\n\n| a | b |\n|---|---|\n| c | d |");
+}
+
+TEST(markdown_normalize_synthesizes_missing_delimiter) {
+    // No |---| row: md4c would collapse the rows, so one is synthesized.
+    ASSERT_EQ(tui::markdown_normalize::normalize("| h1 | h2 |\n| a | b |"),
+              "| h1 | h2 |\n|---|---|\n| a | b |");
+}
+
+TEST(markdown_normalize_pads_ragged_table) {
+    // Header 2 cols, body 3: every row is expanded to the block's max.
+    ASSERT_EQ(tui::markdown_normalize::normalize("| h1 | h2 |\n|---|---|\n| a | b | c |"),
+              "| h1 | h2 | |\n|---|---|---|\n| a | b | c |");
+}
+
+TEST(markdown_normalize_splits_glued_separator_run) {
+    ASSERT_EQ(tui::markdown_normalize::normalize("text------------"), "text\n\n------------");
 }
 
 // ---------------------------------------------------------------------------
