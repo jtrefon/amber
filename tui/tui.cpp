@@ -4,11 +4,11 @@
 #include "tui.h"
 #include "command_line.h"
 #include "confirm_panel.h"
-#include "drawer_rows.h"
 #include "tool_display.h"
 #include "scroll_dispatch.h"
 #include "keys_ncurses.h"
 #include "help_page.h"
+#include "completion_context.h"
 #include "signal_guard.h"
 #include "event_router.h"
 #include "feed_manager.h"
@@ -436,49 +436,11 @@ void Tui::run() {
     CommandLine cl;
     cl.set_history(win().prompt_history);
 
-    // Helper: update CommandLine's completion context from the command tree and JSON.
-    // This is the SINGLE source of completions — no duplicate logic in draw_drawer.
+    // Completion context from the command tree. This is the SINGLE source of
+    // completions — no duplicate logic in draw_drawer (see completion_context).
     auto update_completions = [&]() {
-        std::string input = cl.text();
-        if (!input.empty() && input[0] == '/') {
-            // The drawer is the visible contract: feed exactly its entry
-            // names so arrow selection and Enter dispatch index the same
-            // rows the user sees (aliases are not drawer rows).
-            auto names = drawer_entry_names(input, settings_);
-            // Dispatch prefix Enter prepends to the selected row:
-            //   "/window"        (namespace descend) -> "/window "  (keep ns)
-            //   "/c"             (partial)           -> "/"         (replace)
-            //   "/set model "    (trailing space)    -> "/set model "
-            std::string prefix;
-            if (!input.empty() && input.back() == ' ') {
-                prefix = input; // explicit descend
-            } else {
-                size_t tok_start = input.rfind(' ');
-                tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
-                std::string last_tok = input.substr(tok_start);
-                // drawer_entry_names descends into a namespace when the
-                // trailing token resolves to children (drawer_rows.cpp); in
-                // that case the namespace is KEPT (prefix = input + " ").
-                // Otherwise the token is a partial being typed and is
-                // REPLACED (prefix = input minus the token).
-                std::string ns_so_far = input.substr(1, tok_start - 1);
-                while (!ns_so_far.empty() && ns_so_far.back() == ' ')
-                    ns_so_far.pop_back();
-                std::string probe = ns_so_far.empty() ? last_tok : ns_so_far + "." + last_tok;
-                if (!settings_.children_of(probe).empty())
-                    prefix = input + " ";
-                else
-                    prefix = input.substr(0, tok_start);
-            }
-            cl.set_completions(names, prefix);
-            return;
-        }
-        // Non-slash text: top-level command names from the tree, including
-        // JSON-declared aliases — never a hardcoded list.
-        std::vector<std::string> names = settings_.complete("");
-        for (const auto& a : settings_.top_level_aliases())
-            names.push_back(a);
-        cl.set_completions(names);
+        completion_context::Context ctx = completion_context::for_input(cl.text(), settings_);
+        cl.set_completions(ctx.rows, ctx.prefix);
     };
     update_completions();
 
