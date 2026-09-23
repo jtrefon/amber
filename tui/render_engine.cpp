@@ -482,128 +482,86 @@ void RenderEngine::tick_clock() {
     wnoutrefresh(stdscr);
 }
 
+namespace {
+
+int role_pair(input_line_layout::Role r) {
+    switch (r) {
+    case input_line_layout::Role::Branch:
+        return P_ASSISTANT;
+    case input_line_layout::Role::Plus:
+        return P_GIT_PLUS;
+    case input_line_layout::Role::Minus:
+        return P_GIT_MINUS;
+    case input_line_layout::Role::Project:
+    case input_line_layout::Role::Decor:
+    default:
+        return P_USER;
+    }
+}
+
+int role_attrs(input_line_layout::Role r) {
+    return r == input_line_layout::Role::Decor ? A_DIM : 0;
+}
+
+} // namespace
+
+void RenderEngine::put_input(int y, int w, int& x, const std::string& text, int pair, int attrs) {
+    if (x >= w)
+        return;
+    std::wstring ws = to_wide(text);
+    const int room = w - x;
+    if (static_cast<int>(ws.size()) > room)
+        ws.resize(static_cast<std::size_t>(room));
+    if (attrs)
+        attron(COLOR_PAIR(pair) | attrs);
+    else
+        attron(COLOR_PAIR(pair));
+    mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
+    if (attrs)
+        attroff(COLOR_PAIR(pair) | attrs);
+    else
+        attroff(COLOR_PAIR(pair));
+    x += display_cols(text);
+}
+
 void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
     dirty_ = true;
     draw_drawer(s);
-    int y = height() - 1;
-    int w = width();
+    const int y = height() - 1;
+    const int w = width();
     int x = 0;
-    int prompt_w = 0;
 
     move(y, 0);
     clrtoeol();
 
-    auto put = [&](const std::string& text, int pair, int attrs = 0) {
-        if (x >= w)
-            return;
-        std::wstring ws = to_wide(text);
-        int room = w - x;
-        if (static_cast<int>(ws.size()) > room)
-            ws.resize(room);
-        if (attrs)
-            attron(COLOR_PAIR(pair) | attrs);
-        else
-            attron(COLOR_PAIR(pair));
-        mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
-        if (attrs)
-            attroff(COLOR_PAIR(pair) | attrs);
-        else
-            attroff(COLOR_PAIR(pair));
-        x += display_cols(text);
-    };
-
     const auto git = git_state(); // one immutable snapshot for this frame
-    auto decor = [&](const std::string& t) { put(t, P_USER, A_DIM); };
-    decor("\u2514\u2500[");
-    put(git ? git->project : std::string(), P_USER);
-    if (git && !git->branch.empty()) {
-        decor("]\u2500[");
-        put(git->branch, P_ASSISTANT);
-        if (git->ins > 0 || git->del > 0) {
-            decor("]\u2500[");
-            if (git->ins > 0)
-                put("+" + std::to_string(git->ins), P_GIT_PLUS);
-            decor("/");
-            if (git->del > 0)
-                put("-" + std::to_string(git->del), P_GIT_MINUS);
-        }
-    }
-    decor("]\u2500\u276f ");
+    for (const auto& piece : input_line_layout::prompt_pieces(
+             git ? git->project : std::string(), git ? git->branch : std::string(),
+             git ? git->ins : 0, git ? git->del : 0))
+        put_input(y, w, x, piece.text, role_pair(piece.role), role_attrs(piece.role));
 
-    prompt_w = x;
-    int total_w = prompt_w + display_cols(s) + display_cols(shadow);
-    int cursor_col = prompt_w + display_cols(s.substr(0, cursor));
-    int scroll_off = 0;
-    if (cursor_col >= w)
-        scroll_off = cursor_col - w + 1;
-    if (scroll_off < prompt_w)
-        scroll_off = 0;
-    if (total_w - scroll_off <= 0) {
-        scroll_off = std::max(0, total_w - w);
-    }
+    const int prompt_w = x;
+    const input_line_layout::Scroll sc =
+        input_line_layout::scroll_for(prompt_w, s, cursor, shadow, w);
+    const int scroll_off = sc.offset;
+    const int cursor_col = sc.cursor_col;
 
     int input_start = prompt_w - scroll_off;
     if (input_start < 0)
         input_start = 0;
-    if (input_start < w && scroll_off > prompt_w) {
-        auto skip = text::col_to_byte(s, scroll_off - prompt_w);
-        int input_len;
-        if (skip < s.size()) {
-            input_len = static_cast<int>(s.size()) - static_cast<int>(skip);
-        } else {
-            input_len = 0;
-        }
-        if (input_len > 0) {
-            int room = w - input_start;
-            int visible_cols = 0;
-            std::size_t end = skip;
-            while (end < s.size() && visible_cols < room) {
-                std::size_t adv = text::utf8_len(s, end);
-                std::string cp = s.substr(end, adv);
-                int cw = display_cols(cp);
-                if (visible_cols + cw > room)
-                    break;
-                visible_cols += cw;
-                end += adv;
-            }
-            input_len = static_cast<int>(end - skip);
-            if (input_len > 0) {
-                attron(COLOR_PAIR(P_USER));
-                mvaddnstr(y, input_start, s.c_str() + skip, input_len);
-                attroff(COLOR_PAIR(P_USER));
-            }
-        }
-    } else if (input_start < w && scroll_off <= prompt_w) {
-        int room = w - input_start;
-        int visible_cols = 0;
-        std::size_t end = 0;
-        while (end < s.size() && visible_cols < room) {
-            std::size_t adv = text::utf8_len(s, end);
-            std::string cp = s.substr(end, adv);
-            int cw = display_cols(cp);
-            if (visible_cols + cw > room)
-                break;
-            visible_cols += cw;
-            end += adv;
-        }
-        int input_len = static_cast<int>(end);
+
+    if (input_start < w) {
+        const std::size_t skip =
+            scroll_off > prompt_w ? text::col_to_byte(s, scroll_off - prompt_w) : 0;
+        const int input_len = input_line_layout::visible_bytes(s, skip, w - input_start);
         if (input_len > 0) {
             attron(COLOR_PAIR(P_USER));
-            mvaddnstr(y, input_start, s.c_str(), input_len);
+            mvaddnstr(y, input_start, s.c_str() + skip, input_len);
             attroff(COLOR_PAIR(P_USER));
         }
     }
 
-    if (!shadow.empty() && cursor == s.size()) {
-        int input_w = prompt_w + display_cols(s);
-        int shadow_start = input_w - scroll_off;
-        if (shadow_start >= 0 && shadow_start < w) {
-            attron(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
-            mvaddnstr(y, shadow_start, shadow.c_str(),
-                      std::min(static_cast<int>(shadow.size()), w - shadow_start));
-            attroff(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
-        }
-    }
+    draw_input_shadow(y, w, prompt_w, scroll_off, s, cursor, shadow);
 
     int cx = cursor_col - scroll_off;
     if (cx < 0)
@@ -613,6 +571,21 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
     curs_set(1);
     move(y, cx);
     wnoutrefresh(stdscr);
+}
+
+void RenderEngine::draw_input_shadow(int y, int w, int prompt_w, int scroll_off,
+                                     const std::string& input, std::size_t cursor,
+                                     const std::string& shadow) {
+    if (shadow.empty() || cursor != input.size())
+        return;
+    const int input_w = prompt_w + display_cols(input);
+    const int shadow_start = input_w - scroll_off;
+    if (shadow_start < 0 || shadow_start >= w)
+        return;
+    attron(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
+    mvaddnstr(y, shadow_start, shadow.c_str(),
+              std::min(static_cast<int>(shadow.size()), w - shadow_start));
+    attroff(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
 }
 
 void RenderEngine::draw_drawer(const std::string& input) {
