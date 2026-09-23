@@ -18,6 +18,7 @@
 #include <ctime>
 #include <fstream>
 #include <stdexcept>
+#include <sstream>
 #include <thread>
 #include <unistd.h>
 #include <agent/job.h>
@@ -249,7 +250,7 @@ void SlashDispatcher::cmd_get(const std::string& arg) {
     if (!subs.empty()) {
         for (const auto& sub : subs) {
             std::string key = arg;
-            key += ".";
+            key += '.';
             key += sub;
             cmd_get(key);
         }
@@ -635,7 +636,7 @@ std::string plugin_ids(const agent::PluginRuntime& runtime) {
     std::string ids;
     for (const auto& p : runtime.list()) {
         if (!ids.empty())
-            ids += " ";
+            ids += ' ';
         ids += p.id;
     }
     return ids.empty() ? std::string("(none registered)") : ids;
@@ -920,7 +921,7 @@ void SlashDispatcher::build_commands() {
             std::string args;
             for (size_t i = 0; i < kids.size(); ++i) {
                 if (i > 0)
-                    args += "|";
+                    args += '|';
                 args += kids[i];
             }
             if (args.size() > 40)
@@ -938,6 +939,15 @@ void SlashDispatcher::register_action(const std::string& action,
 }
 
 void SlashDispatcher::register_builtin_actions() {
+    register_core_actions();
+    register_provider_actions();
+    register_os_actions();
+    register_config_set_actions();
+    register_config_get_actions();
+    register_mcp_actions();
+}
+
+void SlashDispatcher::register_core_actions() {
     register_action("core.help", [this](const std::string& a) { cmd_help(a); });
     register_action("core.settings", [this](const std::string&) {
         tui_.settings_screen();
@@ -998,6 +1008,9 @@ void SlashDispatcher::register_builtin_actions() {
         tui_.session_controller_->session_browser();
     });
     register_action("core.quit", [this](const std::string&) { request_quit(); });
+}
+
+void SlashDispatcher::register_provider_actions() {
     // provider
     register_action("core.provider", [this](const std::string& a) { cmd_provider(a); });
     register_action("core.provider.list", [this](const std::string&) { cmd_provider_list(); });
@@ -1005,6 +1018,9 @@ void SlashDispatcher::register_builtin_actions() {
                     [this](const std::string& a) { cmd_provider_delete(a); });
     register_action("core.provider.test", [this](const std::string& a) { cmd_provider_test(a); });
     // model (get/set accessor — see completions.json get.model/set.model)
+}
+
+void SlashDispatcher::register_os_actions() {
     // files
     register_action("os.files", [this](const std::string& a) {
         if (!a.empty())
@@ -1036,6 +1052,9 @@ void SlashDispatcher::register_builtin_actions() {
     register_action("os.system.df", [this](const std::string&) { cmd_system_df(); });
     register_action("os.system.uptime", [this](const std::string&) { cmd_system_uptime(); });
     register_action("os.system.uname", [this](const std::string&) { cmd_system_uname(); });
+}
+
+void SlashDispatcher::register_config_set_actions() {
     // set namespace + children
     register_action("core.config.set", [this](const std::string& a) { cmd_set(a); });
     register_action("core.config.set.detection.loop",
@@ -1122,6 +1141,9 @@ void SlashDispatcher::register_builtin_actions() {
                     [this](const std::string& a) { cmd_skills_install(a); });
     register_action("core.config.set.skills.uninstall",
                     [this](const std::string& a) { cmd_skills_uninstall(a); });
+}
+
+void SlashDispatcher::register_config_get_actions() {
     // get namespace + children
     register_action("core.config.get", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.config", [this](const std::string&) { cmd_get_config(); });
@@ -1214,6 +1236,9 @@ void SlashDispatcher::register_builtin_actions() {
     register_action("core.config.get.skills", [this](const std::string& a) { cmd_skills_get(a); });
     register_action("core.config.get.skills.show",
                     [this](const std::string&) { cmd_skills_get("show"); });
+}
+
+void SlashDispatcher::register_mcp_actions() {
     // mcp
     register_action("core.mcp", [this](const std::string& a) { cmd_mcp(a); });
     register_action("core.mcp.list", [this](const std::string&) { cmd_mcp(""); });
@@ -1290,7 +1315,7 @@ bool SlashDispatcher::handle_slash(const std::string& line) {
     std::string arg;
     for (size_t i = consumed; i < tokens.size(); ++i) {
         if (!arg.empty())
-            arg += " ";
+            arg += ' ';
         arg += tokens[i];
     }
 

@@ -139,6 +139,15 @@ public:
     void set_model_info(std::vector<agent::ModelInfo> v) { model_info_ = std::move(v); }
 
 private:
+    // register_builtin_actions() is a facade over these per-domain groups, so
+    // each stays well under the size limit and a domain is edited in one place.
+    void register_core_actions();
+    void register_provider_actions();
+    void register_os_actions();
+    void register_config_set_actions();
+    void register_config_get_actions();
+    void register_mcp_actions();
+
     Tui& tui_;
     std::vector<palette::Command> commands_;
     tui::ActionRegistry action_registry_;
