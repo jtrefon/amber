@@ -11,6 +11,7 @@
 
 #include "action_registry.h"
 #include "palette.h"
+#include "setting_registry.h"
 
 namespace tui {
 class Tui;
@@ -147,6 +148,20 @@ private:
     void register_config_set_actions();
     void register_config_get_actions();
     void register_mcp_actions();
+
+    // build_settings() is likewise a facade: one group per setting namespace,
+    // and add_setting() is the single registration helper they share.
+    void add_setting(const std::string& key, const std::string& help,
+                     const std::string& placeholder, Setting::Type type, double rmin, double rmax,
+                     std::function<std::string()> getter,
+                     std::function<void(const std::string&)> setter);
+    void add_detection_settings();
+    void add_reasoning_settings();
+    void add_subagent_settings();
+    void add_display_settings();
+    void add_policy_settings();
+    void add_think_settings();
+    void add_compression_settings();
 
     Tui& tui_;
     std::vector<palette::Command> commands_;

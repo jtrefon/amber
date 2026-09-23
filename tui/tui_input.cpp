@@ -2655,16 +2655,27 @@ void SlashDispatcher::apply_compression_keep_last_prompts(const std::string& v) 
     tui_.draw();
 }
 
+void SlashDispatcher::add_setting(const std::string& key, const std::string& help,
+                                  const std::string& placeholder, Setting::Type type, double rmin,
+                                  double rmax, std::function<std::string()> getter,
+                                  std::function<void(const std::string&)> setter) {
+    tui_.settings_.add(
+        {key, help, placeholder, type, rmin, rmax, std::move(getter), std::move(setter)});
+}
+
 void SlashDispatcher::build_settings() {
     tui_.settings_ = tui::SettingRegistry{};
-    auto add = [&](const std::string& key, const std::string& help, const std::string& placeholder,
-                   Setting::Type type, double rmin, double rmax,
-                   std::function<std::string()> getter,
-                   std::function<void(const std::string&)> setter) {
-        tui_.settings_.add(
-            {key, help, placeholder, type, rmin, rmax, std::move(getter), std::move(setter)});
-    };
-    add(
+    add_detection_settings();
+    add_reasoning_settings();
+    add_subagent_settings();
+    add_display_settings();
+    add_policy_settings();
+    add_think_settings();
+    add_compression_settings();
+}
+
+void SlashDispatcher::add_detection_settings() {
+    add_setting(
         "detection.loop", "Tool-loop detection", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.cfg_.detection_loop ? "on" : "off"; },
         [this](const std::string& v) {
@@ -2676,7 +2687,7 @@ void SlashDispatcher::build_settings() {
             if (tui_.win().agent)
                 tui_.win().agent->set_detection_loop(tui_.cfg_.detection_loop);
         });
-    add(
+    add_setting(
         "detection.duplicate", "Duplicate call detection", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.cfg_.detection_duplicate ? "on" : "off"; },
         [this](const std::string& v) {
@@ -2686,7 +2697,10 @@ void SlashDispatcher::build_settings() {
                 tui_.cfg_.detection_duplicate = (v == "on");
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_reasoning_settings() {
+    add_setting(
         "reasoning.effort", "Reasoning effort", "<off|low|medium|high>", Setting::Choice, 0, 0,
         [this]() { return tui_.cfg_.reasoning_effort; },
         [this](const std::string& v) {
@@ -2699,7 +2713,10 @@ void SlashDispatcher::build_settings() {
                 tui_.win().agent->set_reasoning_effort(v);
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_subagent_settings() {
+    add_setting(
         "subagent.parallel", "Sub-agent parallelism", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.subagents_.parallel() ? "on" : "off"; },
         [this](const std::string& v) {
@@ -2710,7 +2727,7 @@ void SlashDispatcher::build_settings() {
             tui_.cfg_.subagent_parallel = tui_.subagents_.parallel();
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+    add_setting(
         "subagent.max", "Max concurrent sub-agents", "<1-16>", Setting::Int, 1, 16,
         [this]() { return std::to_string(tui_.subagents_.max()); },
         [this](const std::string& v) {
@@ -2723,14 +2740,20 @@ void SlashDispatcher::build_settings() {
             tui_.cfg_.subagent_max = *n;
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_display_settings() {
+    add_setting(
         "display.markdown", "Markdown rendering", "<on|off>", Setting::Choice, 0, 0,
         [this]() { return tui_.win().markdown_on ? "on" : "off"; },
         [this](const std::string& v) {
             tui_.win().markdown_on = (v == "on");
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_policy_settings() {
+    add_setting(
         "policy.mode", "Agent mode", "<read|write|yolo>", Setting::Choice, 0, 0,
         [this]() -> std::string {
             const auto& w = tui_.win();
@@ -2750,7 +2773,7 @@ void SlashDispatcher::build_settings() {
             if (tui_.win().agent)
                 tui_.win().agent->set_mode(m);
         });
-    add(
+    add_setting(
         "policy.timeout", "Approval dialog timeout", "<0-999>", Setting::Int, 0, 999,
         [this]() -> std::string { return std::to_string(tui_.policy_timeout_); },
         [this](const std::string& v) {
@@ -2762,7 +2785,7 @@ void SlashDispatcher::build_settings() {
             tui_.policy_timeout_ = *n;
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+    add_setting(
         "policy.approval", "Enable permission gating in Write mode", "<on|off|toggle>",
         Setting::Choice, 0, 0,
         [this]() -> std::string { return tui_.cfg_.policy_approval ? "on" : "off"; },
@@ -2776,11 +2799,13 @@ void SlashDispatcher::build_settings() {
                                            (tui_.cfg_.policy_approval ? "on" : "off"));
         });
     // Namespace root for /get policy (no setter — children handle values).
-    add(
+    add_setting(
         "policy", "Permission rules and approval settings", "", Setting::String, 0, 0,
         []() -> std::string { return ""; }, nullptr);
+}
 
-    add(
+void SlashDispatcher::add_think_settings() {
+    add_setting(
         "think", "Thinking mode", "<on|off|auto>", Setting::Choice, 0, 0,
         [this]() -> std::string {
             const auto& w = tui_.win();
@@ -2793,11 +2818,14 @@ void SlashDispatcher::build_settings() {
                 tui_.win().agent->set_thinking(v);
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_compression_settings() {
+    add_setting(
         "compression.threshold", "Context utilisation threshold", "<0.1-1.0>", Setting::Float, 0.1,
         1.0, [this]() -> std::string { return std::to_string(compression_threshold_effective()); },
         [this](const std::string& v) { apply_compression_threshold(v); });
-    add(
+    add_setting(
         "compression.min_turns", "Minimum turns before compression", "<0-999> (0 = disabled)",
         Setting::Int, 0, 999,
         [this]() -> std::string {
@@ -2805,14 +2833,14 @@ void SlashDispatcher::build_settings() {
                 tui_.cfg_.compression_min_turns > 0 ? tui_.cfg_.compression_min_turns : 10);
         },
         [this](const std::string& v) { apply_compression_min_turns(v); });
-    add(
+    add_setting(
         "compression.target_pct", "Target context usage after compression (% of window)", "<1-90>",
         Setting::Int, 1, 90,
         [this]() -> std::string {
             return std::to_string(agent::load_compression_config(tui_.cfg_).target_pct);
         },
         [this](const std::string& v) { apply_compression_target_pct(v); });
-    add(
+    add_setting(
         "compression.keep_last_prompts", "Most-recent prompts kept verbatim after compression",
         "<1-100>", Setting::Int, 1, 100,
         [this]() -> std::string {
