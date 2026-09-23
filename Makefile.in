@@ -153,6 +153,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/scroll_dispatch.o \
              $(BUILD_DIR)/tui/setting_registry.o \
              $(BUILD_DIR)/tui/help_page.o \
+             $(BUILD_DIR)/tui/completion_context.o \
              $(BUILD_DIR)/tui/plugin_commands.o \
              $(BUILD_DIR)/tui/reasoning_block.o \
              $(BUILD_DIR)/tui/plugin_feed.o \
@@ -443,8 +444,8 @@ $(BUILD_DIR)/tui_pty_test: $(PTY_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)
 $(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 	$(CXX) $(CXXFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 
-$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o
-	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o
+$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o
+	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o
 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)

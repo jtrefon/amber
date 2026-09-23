@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <string>
@@ -14,6 +15,7 @@
         }                                                                                          \
     } while (0)
 
+#include "tui/completion_context.h"
 #include "tui/drawer_rows.h"
 #include "tui/help_page.h"
 #include "tui/plugin_feed.h"
@@ -1036,6 +1038,46 @@ TEST(test_help_page_fallback_line) {
     ASSERT(tui::help_page::fallback_line(reg, "missing").empty());
 }
 
+// ── completion_context (L1): the completion context from the command tree ──
+
+TEST(test_completion_context_slash_lists_top_level) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/", reg);
+    ASSERT(!ctx.rows.empty());
+    ASSERT(ctx.prefix == "/ "); // "" resolves to children, so the namespace is kept
+}
+
+TEST(test_completion_context_partial_replaces_token) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/hel", reg);
+    ASSERT(ctx.prefix == "/"); // the partial token is replaced, not kept
+}
+
+TEST(test_completion_context_namespace_descend_keeps_ns) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/window", reg);
+    ASSERT(ctx.prefix == "/window "); // an exact namespace descends
+}
+
+TEST(test_completion_context_trailing_space_descends) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/set ", reg);
+    ASSERT(ctx.prefix == "/set ");
+    ASSERT(!ctx.rows.empty());
+}
+
+TEST(test_completion_context_non_slash_uses_top_level_names) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("hello", reg);
+    ASSERT(ctx.prefix.empty());
+    ASSERT(std::find(ctx.rows.begin(), ctx.rows.end(), "help") != ctx.rows.end());
+}
+
 int main() {
     try {
         test_json_loads_all_commands();
@@ -1089,6 +1131,11 @@ int main() {
         test_help_page_builds_choices_and_range();
         test_help_page_empty_without_man();
         test_help_page_fallback_line();
+        test_completion_context_slash_lists_top_level();
+        test_completion_context_partial_replaces_token();
+        test_completion_context_namespace_descend_keeps_ns();
+        test_completion_context_trailing_space_descends();
+        test_completion_context_non_slash_uses_top_level_names();
     } catch (const std::exception& e) {
         std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
         failed++;

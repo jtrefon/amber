@@ -1727,22 +1727,6 @@ TEST(run_registry_join_all_does_not_block_worker_cancel_check) {
     ASSERT_TRUE(joined.load());
 }
 
-// --- CompletionProvider tests (3) ---
-// Placeholder tests — CompletionProvider will be extracted from run()
-// in a follow-up. For now these pass trivially to keep the test count stable.
-
-TEST(completion_provider_slash_input) {
-    ASSERT_TRUE(true);
-}
-
-TEST(completion_provider_non_slash_input) {
-    ASSERT_TRUE(true);
-}
-
-TEST(completion_provider_trailing_space_descends) {
-    ASSERT_TRUE(true);
-}
-
 // --- Slash command integration tests (4) ---
 
 TEST(window_set_slash_command_dispatches) {
