@@ -15,6 +15,7 @@
 
 #include "tests/test_util.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -2032,4 +2033,363 @@ TEST(harness_scorecard_aggregation_math) {
     ASSERT_EQ(sc.families["parse"].second, 2); // total
     ASSERT_EQ(sc.family_integrity("extract"), 1.0);
     ASSERT_EQ(sc.family_integrity("parse"), 0.5);
+}
+
+// ---------------------------------------------------------------------------
+// Runner paths (workspace setup, plugin/registry guards, report assembly)
+// ---------------------------------------------------------------------------
+
+// A hermetic reply step that issues one tool call with the given name/args.
+static agent::json one_tool_call(const std::string& name, const agent::json& args) {
+    agent::json fn{{"name", name}, {"arguments", args.dump()}};
+    agent::json call{{"id", "call_1"}, {"type", "function"}, {"function", fn}};
+    return agent::json{{"tool_calls", agent::json::array({call})}};
+}
+
+TEST(runner_rejects_unknown_plugin) {
+    Scenario s;
+    s.name = "unknown-plugin";
+    s.prompt = "hello";
+    s.fake_replies = agent::json::parse(R"([{"content": "done"}])");
+    bench::RunOptions opts;
+    opts.disable_plugins = {"no_such_plugin"};
+    bench::RunMeta meta;
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
+    ASSERT_EQ(err, "unknown plugin: no_such_plugin");
+    ASSERT(rep.name.empty()); // refused before the scenario was named
+}
+
+TEST(runner_skips_unsupported_platform) {
+    Scenario s;
+    s.name = "unsupported-platform";
+    s.platforms = {"plan9"};
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(rep.name, "unsupported-platform");
+    ASSERT_EQ(rep.failures.size(), 1u);
+    ASSERT(rep.failures[0].find("platform not supported") != std::string::npos);
+}
+
+// setup.shell runs after setup.files, so a shell step can consume a seeded file
+// and the agent can read its output. This is the only path that exercises
+// run_setup_shell.
+TEST(runner_runs_setup_shell) {
+    Scenario s;
+    s.name = "setup-shell";
+    s.prompt = "read out.txt";
+    s.setup = agent::json{{"files", agent::json{{"seed.txt", "42"}}},
+                          {"shell", agent::json::array({"cat seed.txt > out.txt"})}};
+    s.fake_replies = agent::json::array({one_tool_call("read", agent::json{{"path", "out.txt"}}),
+                                         agent::json{{"content", "out.txt contains 42"}}});
+    s.oracle = {{"read", {{"path", "out.txt"}}}};
+    s.checks.must_contain = {"42"};
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(rep.failures.size(), 0u);
+    ASSERT(rep.kpi.success); // the shell step produced the file the read consumed
+    ASSERT_EQ(rep.kpi.bullseye, 1.0);
+}
+
+TEST(runner_writes_debug_logs) {
+    Scenario s;
+    s.name = "debug-run";
+    s.prompt = "say hi";
+    s.fake_replies = agent::json::parse(R"([{"content": "hi"}])");
+    s.checks.must_contain = {"hi"};
+
+    std::string dir = tmp_dir("debugdir");
+    bench::RunOptions opts;
+    opts.debug_dir = dir + "/dbg";
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT(fs::is_directory(opts.debug_dir));
+    ASSERT(fs::is_regular_file(opts.debug_dir + "/debug-run.jsonl"));
+}
+
+// Tool args longer than the report's 160-char budget are elided, so a stored
+// run stays readable without losing the call identity.
+TEST(runner_truncates_long_tool_args) {
+    const std::string long_path(200, 'a');
+    Scenario s;
+    s.name = "long-args";
+    s.prompt = "read it";
+    s.fake_replies = agent::json::array({one_tool_call("read", agent::json{{"path", long_path}}),
+                                         agent::json{{"content", "done"}}});
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(rep.tool_calls.size(), 1u);
+    ASSERT_EQ(rep.tool_calls[0].second.size(), 160u);
+    ASSERT_EQ(rep.tool_calls[0].second.substr(157), "...");
+}
+
+// Every call to a forbidden tool subtracts 0.25 from prompt adherence.
+TEST(runner_penalizes_forbidden_tools) {
+    auto run = [](bool forbid) {
+        Scenario s;
+        s.name = "forbidden";
+        s.prompt = "read a.txt";
+        s.setup = agent::json{{"files", agent::json{{"a.txt", "hello"}}}};
+        s.fake_replies = agent::json::array({one_tool_call("read", agent::json{{"path", "a.txt"}}),
+                                             agent::json{{"content", "done"}}});
+        if (forbid)
+            s.forbidden_tools = {"read"};
+        bench::RunOptions opts;
+        bench::RunMeta meta;
+        meta.mode = "hermetic";
+        std::string err;
+        return bench::run_one_scenario(s, opts, meta, err);
+    };
+    bench::ScenarioReport plain = run(false);
+    bench::ScenarioReport forbidden = run(true);
+    ASSERT_EQ(plain.failures.size(), 0u);
+    ASSERT_EQ(forbidden.failures.size(), 0u);
+    ASSERT_NEAR(forbidden.score.adherence, plain.score.adherence - 25.0, 0.001);
+}
+
+TEST(runner_records_failed_checks) {
+    Scenario s;
+    s.name = "failed-checks";
+    s.prompt = "answer";
+    s.fake_replies = agent::json::parse(R"([{"content": "no keyword here"}])");
+    s.checks.must_contain = {"required-phrase"};
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_FALSE(rep.kpi.success);
+    ASSERT(std::find(rep.failures.begin(), rep.failures.end(),
+                     "final answer failed scenario checks") != rep.failures.end());
+}
+
+// run_scenarios runs only the scenarios that can execute in the current mode
+// (no hermetic script -> skipped) and collapses repeats into a median report.
+TEST(run_scenarios_aggregates_repeats) {
+    Scenario runnable;
+    runnable.name = "batch-runnable";
+    runnable.prompt = "read a.txt";
+    runnable.setup = agent::json{{"files", agent::json{{"a.txt", "hello"}}}};
+    runnable.fake_replies = agent::json::array(
+        {one_tool_call("read", agent::json{{"path", "a.txt"}}), agent::json{{"content", "ok"}}});
+    runnable.checks.must_contain = {"ok"};
+
+    Scenario scriptless; // no fake_replies -> skipped in hermetic mode
+    scriptless.name = "batch-scriptless";
+
+    std::vector<Scenario> scenarios = {runnable, scriptless};
+    bench::RunOptions opts;
+    opts.repeat = 2;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    std::vector<bench::ScenarioReport> out = bench::run_scenarios(scenarios, opts, meta);
+    ASSERT_EQ(out.size(), 1u);
+    ASSERT_EQ(out[0].name, "batch-runnable");
+    ASSERT_EQ(out[0].repeat_n, 2);
+    ASSERT_EQ(out[0].repeat_scores.size(), 2u);
+    ASSERT(!meta.plugins.empty()); // recorded once for the run
+}
+
+// ---------------------------------------------------------------------------
+// Report rendering (pure: crafted reports exercise each branch)
+// ---------------------------------------------------------------------------
+
+// A failed scenario prints its failure list, a truncated call trace and a
+// truncated final answer — the post-mortem detail render_text exists for.
+TEST(report_text_renders_failure_detail) {
+    bench::ScenarioReport r;
+    r.name = "bad";
+    r.suite = "tools";
+    r.failures = {"oracle not matched", "final answer failed scenario checks"};
+    for (int i = 0; i < 14; ++i)
+        r.tool_calls.emplace_back("read", std::string(90, 'x')); // args over the 80-char budget
+    r.final_text = std::string(200, 'y');                        // over the 140-char budget
+
+    bench::RunMeta meta;
+    meta.model = "m";
+    std::string txt = bench::render_text({r}, meta);
+    ASSERT(txt.find("FAIL  bad (tools)") != std::string::npos);
+    ASSERT(txt.find("    - oracle not matched") != std::string::npos);
+    ASSERT(txt.find("    call: read ") != std::string::npos);
+    ASSERT(txt.find("... 2 more calls") != std::string::npos); // 14 - 12
+    ASSERT(txt.find("    final: ") != std::string::npos);
+}
+
+// The plan-adherence section renders only when at least one scenario has a
+// plan, and lists unplanned tools (plan 0) separately.
+TEST(report_markdown_renders_plan_adherence) {
+    bench::ScenarioReport r;
+    r.name = "planned";
+    r.suite = "s";
+    r.kpi.success = true;
+    r.kpi.tool_calls = 4;
+    r.kpi.steps = 3;
+    r.agentic.has_plan = true;
+    r.agentic.score = 90.0;
+    r.agentic.plan_tools = 3;
+    r.agentic.plan_by_tool = {{"read", 2}, {"write", 1}};
+    r.agentic.actual_by_tool = {{"read", 2}, {"write", 1}, {"bash", 1}};
+
+    bench::RunMeta meta;
+    meta.model = "m";
+    std::string md = bench::render_markdown({r}, meta);
+    ASSERT(md.find("**Plan adherence**") != std::string::npos);
+    ASSERT(md.find("**Tool mix (plan vs actual") != std::string::npos);
+    ASSERT(md.find("| bash | 0 | 1 | 1 | 0 |") != std::string::npos); // unplanned tool
+}
+
+// The scorecard's diagnosis section names each failure and prints the run-wide
+// signals derived from the aggregates.
+TEST(report_scorecard_diagnoses_failures) {
+    bench::ScenarioReport r;
+    r.name = "failing";
+    r.suite = "tools";
+    r.failures = {"oracle not matched"};
+    r.kpi.steps = 2;
+    r.kpi.tool_calls = 5;
+    r.kpi.wasted = 3;
+    r.kpi.redundant = 2;
+    r.kpi.tool_failures = 1;
+    r.kpi.hard_stop = true;
+    r.replan_adapted = true;
+    r.dependency_violation = true;
+    r.breakout_latency = 2;
+    r.steer_effective = true;
+    r.tool_details.push_back({"read", "{}", "error", "boom", false, false, 5});
+
+    bench::RunMeta meta;
+    meta.model = "m";
+    std::string sc = bench::render_scorecard({r}, meta);
+    ASSERT(sc.find("### failing") != std::string::npos);
+    ASSERT(sc.find("  failure: oracle not matched") != std::string::npos);
+    ASSERT(sc.find("HARD_STOP") != std::string::npos);
+    ASSERT(sc.find("replan=adapted") != std::string::npos);
+    ASSERT(sc.find("DEP_VIOLATION") != std::string::npos);
+    ASSERT(sc.find("breakout@2") != std::string::npos);
+    ASSERT(sc.find("steer=effective") != std::string::npos);
+    ASSERT(sc.find("  trace: read[error:boom]") != std::string::npos);
+    ASSERT(sc.find("**Tool economy**") != std::string::npos);
+    ASSERT(sc.find("**Redundancy**") != std::string::npos);
+    ASSERT(sc.find("**Tool failures**") != std::string::npos);
+    ASSERT(sc.find("**Dependency violations**") != std::string::npos);
+}
+
+TEST(report_scorecard_clean_run_signals) {
+    bench::ScenarioReport r;
+    r.name = "clean";
+    r.suite = "tools";
+    r.kpi.success = true;
+    r.kpi.tool_calls = 2;
+    r.kpi.recoveries = 1; // recovery without a steer -> the "steers ineffective" signal
+
+    bench::RunMeta meta;
+    meta.model = "m";
+    std::string sc = bench::render_scorecard({r}, meta);
+    ASSERT(sc.find("no failures — clean run") != std::string::npos);
+    ASSERT(sc.find("Loop detection never fired") != std::string::npos);
+    ASSERT(sc.find("Steers ineffective") != std::string::npos);
+}
+
+TEST(report_scorecard_caps_failure_list) {
+    std::vector<bench::ScenarioReport> many;
+    for (int i = 0; i < 13; ++i) {
+        bench::ScenarioReport r;
+        r.name = "f" + std::to_string(i);
+        r.suite = "tools";
+        r.failures = {"x"};
+        r.kpi.tool_calls = 1;
+        many.push_back(r);
+    }
+    bench::RunMeta meta;
+    meta.model = "m";
+    std::string sc = bench::render_scorecard(many, meta);
+    ASSERT(sc.find("more failures; run") != std::string::npos); // 13 > 12 cap
+}
+
+TEST(report_markdown_comparison_renders_resolution) {
+    auto run = [](const std::string& model, double total) {
+        bench::ScenarioReport r;
+        r.name = "s1";
+        r.suite = "tools";
+        r.difficulty = 3;
+        r.score.total = total;
+        r.kpi.success = true;
+        r.kpi.tool_calls = 4;
+        r.repeat_n = 2;
+        r.repeat_scores = {total, total};
+        r.score_median = total;
+        bench::RunMeta meta;
+        meta.model = model;
+        return std::make_pair(meta, std::vector<bench::ScenarioReport>{r});
+    };
+    std::vector<std::pair<bench::RunMeta, std::vector<bench::ScenarioReport>>> runs = {
+        run("m1", 90.0), run("m2", 40.0)};
+    std::string md = bench::render_markdown_comparison(runs);
+    ASSERT(md.find("# Benchmark: harness score by model") != std::string::npos);
+    ASSERT(md.find("**Resolution**") != std::string::npos);
+    ASSERT(md.find("m1 vs m2") != std::string::npos);
+    ASSERT(md.find("| model | score | agentic | plan %") != std::string::npos);
+}
+
+// A plan larger than the actual call count clamps plan efficiency at 100.
+TEST(report_markdown_comparison_plan_columns) {
+    bench::ScenarioReport r;
+    r.name = "s1";
+    r.suite = "tools";
+    r.difficulty = 3;
+    r.score.total = 70.0;
+    r.kpi.success = true;
+    r.kpi.tool_calls = 2;
+    r.agentic.has_plan = true;
+    r.agentic.score = 80.0;
+    r.agentic.plan_tools = 10; // > actual -> clamp
+
+    bench::RunMeta meta;
+    meta.model = "m1";
+    std::vector<std::pair<bench::RunMeta, std::vector<bench::ScenarioReport>>> runs = {{meta, {r}}};
+    std::string md = bench::render_markdown_comparison(runs);
+    ASSERT(md.find("| m1 |") != std::string::npos);
+    ASSERT(md.find("| 100 |") != std::string::npos); // clamped plan efficiency
+}
+
+// A scenario that cannot be set up is still named and carries the reason, so a
+// batch never reports an anonymous zero.
+TEST(run_scenarios_names_a_failed_setup) {
+    Scenario s;
+    s.name = "broken";
+    s.prompt = "hi";
+    s.fake_replies = agent::json::parse(R"([{"content": "x"}])");
+    bench::RunOptions opts;
+    opts.disable_plugins = {"no_such_plugin"};
+    bench::RunMeta meta;
+    std::vector<bench::ScenarioReport> out = bench::run_scenarios({s}, opts, meta);
+    ASSERT_EQ(out.size(), 1u);
+    ASSERT_EQ(out[0].name, "broken");
+    ASSERT_EQ(out[0].failures.size(), 1u);
+    ASSERT(out[0].failures[0].find("unknown plugin") != std::string::npos);
+}
+
+TEST(harness_scorecard_family_integrity_defaults_to_zero) {
+    bench::HarnessScorecard sc;
+    ASSERT_EQ(sc.family_integrity("absent"), 0.0); // unknown family
+    sc.families["empty"] = {0, 0};
+    ASSERT_EQ(sc.family_integrity("empty"), 0.0); // known family, zero total
 }
