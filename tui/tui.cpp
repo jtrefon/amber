@@ -9,6 +9,7 @@
 #include "keys_ncurses.h"
 #include "help_page.h"
 #include "completion_context.h"
+#include "option_key_decode.h"
 #include "signal_guard.h"
 #include "event_router.h"
 #include "feed_manager.h"
@@ -515,8 +516,8 @@ void Tui::run() {
         // normalize digit-row glyphs to the meta-digit path so Alt+number
         // works with no terminal configuration. Other Option glyphs stay
         // non-insertable, matching the prior drop of non-ASCII input.
-        if (ch >= 0xC2 && ch <= 0xF4) {
-            int need = (ch < 0xE0) ? 1 : (ch < 0xF0) ? 2 : 3;
+        if (option_key_decode::is_lead(static_cast<unsigned char>(ch))) {
+            const int need = option_key_decode::continuation_bytes(static_cast<unsigned char>(ch));
             unsigned char seq[4] = {static_cast<unsigned char>(ch)};
             int got = 0;
             timeout(50);
@@ -533,9 +534,7 @@ void Tui::run() {
             timeout(kTickTimeoutMs);
             if (got != need)
                 continue;
-            uint32_t cp = seq[0] & ((need == 1) ? 0x1F : (need == 2) ? 0x0F : 0x07);
-            for (int i = 1; i <= need; ++i)
-                cp = (cp << 6) | (seq[i] & 0x3F);
+            const uint32_t cp = option_key_decode::codepoint(seq, need);
             if (int d = macos_option_digit(cp); d >= 0)
                 ch = 0xB0 + d;
             else if (cp == kMacosOptionB) {
