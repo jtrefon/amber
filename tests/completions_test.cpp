@@ -15,6 +15,7 @@
     } while (0)
 
 #include "tui/drawer_rows.h"
+#include "tui/help_page.h"
 #include "tui/plugin_feed.h"
 #include "tui/setting_registry.h"
 #include "tests/minitest.h"
@@ -959,6 +960,82 @@ TEST(test_plugin_command_subtree_merges_and_resolves) {
 // Every TEST above must be called here: definitions placed after main() were
 // silently dead until this list covered them.
 
+// ── help_page (L1): the `?` help page assembly ─────────────────────
+//
+// Built from an in-memory subtree so these pin the assembly logic, not
+// whatever completions.json happens to contain today.
+
+namespace {
+
+tui::SettingRegistry help_fixture() {
+    tui::SettingRegistry reg;
+    reg.merge_completions_json(nlohmann::json{
+        {"demo",
+         {{"action", "demo.act"},
+          {"help", "demo help"},
+          {"man", "line one\nline two"},
+          {"children",
+           {{"alpha", {{"action", "demo.alpha"}, {"help", "alpha help"}}},
+            {"beta", {{"action", "demo.beta"}, {"help", "beta help"}}}}}}},
+        {"choice",
+         {{"action", "choice.act"},
+          {"help", "choose one"},
+          {"man", "choose"},
+          {"choices", {"on", "off"}},
+          {"range", {1, 9}}}},
+        {"leaf", {{"action", "leaf.act"}, {"help", "leaf help"}}},
+        {"leafc", {{"action", "leafc.act"}, {"help", "h"}, {"choices", {"a", "b"}}}},
+    });
+    return reg;
+}
+
+} // namespace
+
+TEST(test_help_page_key_from_node) {
+    ASSERT(tui::help_page::key_from_node("/set demo") == "demo");
+    ASSERT(tui::help_page::key_from_node("demo") == "demo");
+    ASSERT(tui::help_page::key_from_node("/demo") == "demo");
+}
+
+TEST(test_help_page_command_from_node) {
+    ASSERT(tui::help_page::command_from_node("/set demo") == "set");
+    ASSERT(tui::help_page::command_from_node("demo") == "demo");
+}
+
+TEST(test_help_page_builds_man_page_with_children) {
+    tui::SettingRegistry reg = help_fixture();
+    std::vector<std::string> want = {"demo help",
+                                     "",
+                                     "line one",
+                                     "line two",
+                                     "",
+                                     "sub-commands:",
+                                     "  alpha  —  alpha help",
+                                     "  beta  —  beta help",
+                                     ""};
+    ASSERT(tui::help_page::build(reg, "demo") == want);
+}
+
+TEST(test_help_page_builds_choices_and_range) {
+    tui::SettingRegistry reg = help_fixture();
+    std::vector<std::string> want = {"choose one",  "", "choose", "", "choices: on, off",
+                                     "range: 1 – 9"};
+    ASSERT(tui::help_page::build(reg, "choice") == want);
+}
+
+TEST(test_help_page_empty_without_man) {
+    tui::SettingRegistry reg = help_fixture();
+    ASSERT(tui::help_page::build(reg, "leaf").empty());
+    ASSERT(tui::help_page::build(reg, "missing").empty());
+}
+
+TEST(test_help_page_fallback_line) {
+    tui::SettingRegistry reg = help_fixture();
+    ASSERT(tui::help_page::fallback_line(reg, "leaf") == "leaf  —  leaf help");
+    ASSERT(tui::help_page::fallback_line(reg, "leafc") == "leafc  —  h  choices: a|b");
+    ASSERT(tui::help_page::fallback_line(reg, "missing").empty());
+}
+
 int main() {
     try {
         test_json_loads_all_commands();
@@ -1006,6 +1083,12 @@ int main() {
         test_get_mcp_learn_tree_nodes();
         test_get_provider_list_node();
         test_plugin_command_subtree_merges_and_resolves();
+        test_help_page_key_from_node();
+        test_help_page_command_from_node();
+        test_help_page_builds_man_page_with_children();
+        test_help_page_builds_choices_and_range();
+        test_help_page_empty_without_man();
+        test_help_page_fallback_line();
     } catch (const std::exception& e) {
         std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
         failed++;
