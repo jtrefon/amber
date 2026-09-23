@@ -1,0 +1,13 @@
+coverage:
+  status:
+    project:
+      default:
+        # No-regression ratchet: the project may not drop more than 1%.
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        # The documented rule (PULL_REQUEST_TEMPLATE.md, docs/fix-tracker.md):
+        # new code paths must have >=80% line coverage.
+        target: 80%
+        threshold: 0%
