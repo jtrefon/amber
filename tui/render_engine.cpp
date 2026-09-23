@@ -348,66 +348,23 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     // readout of its own: it does not know a clock exists.
 
     constexpr int kIW = 12;
-    int activity_w = kIW + 1;
 
     attron(COLOR_PAIR(P_BANNER));
     mvhline(y, 0, ' ', w);
     attroff(COLOR_PAIR(P_BANNER));
-
-    std::vector<Seg> segs = bar_segments();
-    std::vector<Seg> left_zone, right_zone;
-    for (auto& s : segs)
-        (s.align == agent::StatusAlign::Right ? right_zone : left_zone).push_back(s);
 
     bool have_ctx = (tui_.cfg_.context_size > 0);
     const Window& aw = tui_.win();
     long ctx_used =
         tool_display::gauge_tokens(aw.ctx_used.load(), aw.ctx_estimate.load(), aw.live_ctx_offset);
     double frac = have_ctx ? static_cast<double>(ctx_used) / tui_.cfg_.context_size : 0.0;
-    // Reserve room for the gauge whether or not the window is known: the
-    // count is meaningful on its own ("ctx 44.7k"), the fraction only once a
-    // window exists. Keeping gauge_min constant stops the bar layout from
-    // jumping when the window is detected mid-session.
-    int gauge_min = (have_ctx || ctx_used > 0) ? 12 : 0;
 
-    // A zone's width, with one column between neighbours.
-    auto zone_cols = [](const std::vector<Seg>& zone) {
-        int c = 0;
-        for (size_t i = 0; i < zone.size(); ++i)
-            c += display_cols(zone[i].text) + (i ? 1 : 0);
-        return c;
-    };
-
-    // The right zone is reserved whatever it holds: with the clock switched
-    // off the space goes back to the left zone instead of staying reserved.
-    auto reserve = [&] {
-        const int r = zone_cols(right_zone);
-        return r > 0 ? r + 1 + activity_w : activity_w;
-    };
-    int budget = w - reserve();
-    if (budget < 0)
-        budget = 0;
-
-    // One drop rule for both zones: the highest drop_priority goes first when
-    // the bar cannot hold everything, wherever the segment attaches.
-    while (zone_cols(left_zone) + gauge_min > budget &&
-           (!left_zone.empty() || !right_zone.empty())) {
-        std::vector<Seg>* zone = &left_zone;
-        int worst = -1, worst_i = -1;
-        for (std::vector<Seg>* z : {&left_zone, &right_zone})
-            for (size_t i = 0; i < z->size(); ++i)
-                if ((*z)[i].drop > worst) {
-                    worst = (*z)[i].drop;
-                    worst_i = (int)i;
-                    zone = z;
-                }
-        if (worst <= 0)
-            break;
-        zone->erase(zone->begin() + worst_i);
-        budget = w - reserve();
-        if (budget < 0)
-            budget = 0;
-    }
+    // Width arbitration is pure (status_bar_layout); this function only paints
+    // the plan it returns.
+    status_bar_layout::Plan bar = status_bar_layout::plan(bar_segments(), w, have_ctx, ctx_used);
+    const std::vector<Seg>& left_zone = bar.left;
+    const std::vector<Seg>& right_zone = bar.right;
+    const int budget = bar.budget;
 
     int x = 0;
     auto put = [&](const std::string& s, int pair) {
@@ -458,7 +415,7 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     if (!tail.empty() && x + display_cols(tail) + 1 < budget)
         put("  " + tail, P_BAR_DIM);
 
-    const int right_w = zone_cols(right_zone);
+    const int right_w = bar.right_cols;
     int ix = right_w > 0 ? w - right_w - kIW - 1 : w - kIW - 1;
     if (ix > x + 4) {
         wattron(stdscr, COLOR_PAIR(P_BAR_DIM));

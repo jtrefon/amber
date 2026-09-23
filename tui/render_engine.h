@@ -11,6 +11,7 @@
 #include "markdown.h"
 #include "rich.h"
 #include "palette.h"
+#include "status_bar_layout.h"
 
 #include "agent/extensions.h"
 #include "agent/plugin_runtime.h"
@@ -95,12 +96,9 @@ public:
     int anim_phase() const noexcept { return anim_phase_; }
 
 private:
-    struct Seg {
-        std::string text;
-        int pair;
-        int drop;
-        agent::StatusAlign align = agent::StatusAlign::Left;
-    };
+    // A status segment is the L1 layout's type: the bar is laid out purely
+    // (status_bar_layout) and this class only paints the plan.
+    using Seg = status_bar_layout::Segment;
     std::vector<Seg> bar_segments() const;
     agent::StatusSnapshot build_status_snapshot() const;
     static int tone_pair(agent::StatusTone tone);
