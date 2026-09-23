@@ -1756,19 +1756,6 @@ TEST(window_set_rejects_out_of_range) {
     ASSERT_FALSE(r.msg.empty());
 }
 
-TEST(window_set_rejects_non_numeric) {
-    // Non-numeric argument should be rejected with usage message.
-    // set_window takes size_t; non-numeric parsing happens in SlashDispatcher.
-    // Will be wired when cmd_window_set is implemented.
-    ASSERT_TRUE(true);
-}
-
-TEST(window_feed_lists_open_windows) {
-    // /window set <Tab> should list 1, 2, 3 for 3 windows.
-    // Will be wired when refresh_window_feed is implemented.
-    ASSERT_TRUE(true);
-}
-
 // ---------------------------------------------------------------------------
 // Reasoning view: the live thinking block. A tool-calling turn reasons once per
 // LLM round-trip, so every episode must stream in dim text and then fold to its
