@@ -38,6 +38,11 @@ namespace fs = std::filesystem;
 
 constexpr int kPumpMs = 50;
 
+// Sessions that had to be force-killed instead of exiting through the app's own
+// quit path. A killed session never runs its atexit handlers, so gcov cannot
+// flush the TUI's coverage (tui/ would report 0%); this must stay zero.
+int killed_sessions = 0;
+
 // Drop terminal control sequences so assertions can look at rendered text.
 std::string strip_ansi(const std::string& in) {
     std::string out;
@@ -105,6 +110,10 @@ struct Tui {
             if (slave > STDERR_FILENO)
                 close(slave);
             setenv("TERM", "xterm-256color", 1);
+            // Deliver a lone Esc promptly: ncurses otherwise waits ESCDELAY
+            // (1 s by default) to decide it is not an escape-sequence prefix,
+            // which would stall the teardown below.
+            setenv("ESCDELAY", "25", 1);
             if (!path_prefix.empty()) {
                 std::string path = path_prefix;
                 if (const char* inherited = getenv("PATH"))
@@ -133,7 +142,7 @@ struct Tui {
             fd_set rfds;
             FD_ZERO(&rfds);
             FD_SET(master, &rfds);
-            timeval tv{0, kPumpMs * 1000};
+            timeval tv{0, static_cast<suseconds_t>(kPumpMs) * 1000};
             int ready = select(master + 1, &rfds, nullptr, nullptr, &tv);
             if (ready <= 0)
                 break;
@@ -200,6 +209,32 @@ struct Tui {
     void send_delete() { write_raw("\x1b[3~"); }
 
     void stop() {
+        // Ask the app to exit through its own quit path (Ctrl+C) instead of
+        // killing it: a normal return runs the atexit handlers, which is where
+        // gcov flushes. Keep draining the pty while waiting — the app blocks on
+        // write once the terminal buffer fills, and a blocked app never reads
+        // the quit key. SIGKILL stays as a bounded last resort so the suite can
+        // never hang, but a session that needs it is a failure (see main()).
+        if (master >= 0 && pid > 0) {
+            // Esc first: a test may end inside a modal (e.g. the session
+            // browser), which reads its own window and would swallow Ctrl+C.
+            // The pty child runs with a short ESCDELAY so a lone Esc lands, but
+            // the gap must outlast it — pump() returns as soon as input drains,
+            // so hold the pause explicitly.
+            write_raw("\x1b");
+            for (int i = 0; i < 8; ++i) { // ~0.8 s, draining throughout
+                pump(kPumpMs);
+                usleep(kPumpMs * 1000);
+            }
+            write_raw("\x03");
+            for (int i = 0; i < 200 && pid > 0; ++i) { // up to ~10 s
+                pump(kPumpMs);
+                int status = 0;
+                pid_t reaped = waitpid(pid, &status, WNOHANG);
+                if (reaped == pid || reaped < 0)
+                    pid = -1;
+            }
+        }
         // Close the master before reaping: a child still holding the controlling
         // terminal as it exits stays in the kernel's "trying to exit" state on
         // macOS and a blocking waitpid() never returns.
@@ -208,6 +243,7 @@ struct Tui {
             master = -1;
         }
         if (pid > 0) {
+            ++killed_sessions;
             kill(pid, SIGKILL);
             for (int i = 0; i < 200; ++i) { // bounded reap: never hang the suite
                 int status = 0;
@@ -295,9 +331,7 @@ bool build_fixture(Fixture& fx) {
     we.title = "pty-beta";
     ws.windows.push_back(we);
     ws.active = 0;
-    if (!store.save_workspace(ws))
-        return false;
-    return true;
+    return store.save_workspace(ws);
 }
 
 // A stand-in command that blocks for `seconds`. Used to make "did the UI thread
@@ -436,7 +470,8 @@ TEST(delete_arrow_opens_the_confirmation_instead_of_cancelling) {
         return;
     assert_no_escape_tail(text_since(tui, mark), "[3~");
 
-    tui.send("n"); // decline; the fixture must survive for the other tests
+    tui.send("\r"); // Enter on the default "No" declines; the fixture must
+                    // survive for the other tests, and the modal must close.
     tui.pump(400);
 }
 
@@ -490,7 +525,7 @@ TEST(system_commands_do_not_freeze_the_ui) {
     bool echoed = false;
     for (int waited = 0; waited < 1500 && !echoed; waited += 50) {
         tui.pump(50);
-        echoed = text_since(tui, mark).find("z") != std::string::npos;
+        echoed = text_since(tui, mark).find('z') != std::string::npos;
     }
     if (!require(echoed, "the UI stopped accepting input while a command ran", tui))
         return;
@@ -513,6 +548,14 @@ int main(int argc, char** argv) {
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
     system_commands_do_not_freeze_the_ui();
+
+    // The TUI must terminate through its own quit path: a force-killed session
+    // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.
+    if (killed_sessions) {
+        std::cerr << "FAIL: " << killed_sessions
+                  << " TUI session(s) were force-killed instead of exiting through the quit path\n";
+        failed += killed_sessions;
+    }
 
     if (failed)
         std::cout << "FAILED (" << failed << " failures)\n";
