@@ -11,6 +11,7 @@
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/reasoning_block.h"
+#include "tui/panel_view_state.h"
 #include "tui/rich.h"
 #include "tui/info_dialog_layout.h"
 #include "tui/list_state.h"
@@ -1997,6 +1998,84 @@ TEST(list_state_remap_maps_filtered_index_to_original) {
     ASSERT_EQ(s.selection(), 0);
     s.remap_selection();
     ASSERT_EQ(s.selection(), 2); // gamma is items_[2]
+}
+
+// --- PanelViewState (L1): contributed-panel scroll and geometry ---
+
+namespace PVS = tui::panel_view_state;
+
+TEST(panel_view_state_geometry_and_floor) {
+    auto g = PVS::geometry(40, 80);
+    ASSERT_EQ(g.dh, 36);
+    ASSERT_EQ(g.dw, 74);
+    ASSERT_EQ(g.body_h, 32);
+    ASSERT_EQ(g.body_w, 70);
+    auto small = PVS::geometry(5, 10); // both floors apply
+    ASSERT_EQ(small.dh, 6);
+    ASSERT_EQ(small.dw, 20);
+}
+
+TEST(panel_view_state_footer_hides_tab_for_a_single_panel) {
+    ASSERT_EQ(PVS::footer(3).size(), 3u);
+    ASSERT_EQ(PVS::footer(3)[0].first, "Tab");
+    ASSERT_EQ(PVS::footer(1).size(), 2u);
+    ASSERT_EQ(PVS::footer(1)[0].first, "Up/Down");
+}
+
+TEST(panel_view_state_scroll_clamps) {
+    PVS::Scroll s;
+    s.total = 10;
+    s.visible = 3;
+    s.top = 5;
+    s.clamp();
+    ASSERT_EQ(s.top, 5);
+    s.top = 100;
+    s.clamp();
+    ASSERT_EQ(s.top, 7); // total - visible
+    s.top = -4;
+    s.clamp();
+    ASSERT_EQ(s.top, 0);
+}
+
+TEST(panel_view_state_arrows) {
+    PVS::Scroll s;
+    s.total = 10;
+    s.visible = 3;
+    s.top = 2;
+    auto a = PVS::arrows(s);
+    ASSERT_TRUE(a.up);
+    ASSERT_TRUE(a.down);
+    s.top = 0;
+    ASSERT_FALSE(PVS::arrows(s).up);
+}
+
+TEST(panel_view_state_visible_rows_truncate_to_width) {
+    std::vector<std::string> lines = {"abcdefghij", "short", "x"};
+    PVS::Scroll s;
+    s.total = 3;
+    s.visible = 3;
+    s.top = 0;
+    auto rows = PVS::visible_rows(lines, 4, s);
+    ASSERT_EQ(rows.size(), 3u);
+    ASSERT_EQ(rows[0], "abcd");
+    ASSERT_EQ(rows[1], "shor");
+    ASSERT_EQ(rows[2], "x");
+}
+
+TEST(panel_view_state_apply_key_moves_and_reports) {
+    PVS::Scroll s;
+    s.total = 3;
+    s.visible = 3;
+    ASSERT_TRUE(PVS::apply_key(tui::keys::kEnd, s));
+    ASSERT_EQ(s.top, 3);
+    ASSERT_TRUE(PVS::apply_key(tui::keys::kNPage, s));
+    ASSERT_EQ(s.top, 6);
+    ASSERT_FALSE(PVS::apply_key('x', s));
+}
+
+TEST(panel_view_state_start_index) {
+    ASSERT_EQ(PVS::start_index({"a", "b", "c"}, "b"), 1);
+    ASSERT_EQ(PVS::start_index({"a", "b"}, "z"), 0); // unknown id -> first
 }
 
 // ---------------------------------------------------------------------------
