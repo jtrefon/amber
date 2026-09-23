@@ -1,5 +1,6 @@
 
 #include "tui/dialog.h"
+#include "tui/form_focus.h"
 #include "widgets.h"
 
 #include <form.h>
@@ -64,7 +65,7 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     };
 
     dlg.set_footer({{"Tab/Arrows", "move"}, {"Enter", "confirm"}, {"Esc", "cancel"}});
-    int focus = 0;
+    form_focus::Zone zone = form_focus::Zone::Fields;
     curs_set(1);
     set_current_field(form, fs[0]);
     form_driver(form, REQ_END_LINE);
@@ -72,6 +73,8 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     bool result = false;
     bool done = false;
     while (!done) {
+        const int focus =
+            (zone == form_focus::Zone::Fields) ? 0 : (zone == form_focus::Zone::Ok ? 1 : 2);
         draw_buttons(focus);
         if (focus == 0) {
             curs_set(1);
@@ -82,83 +85,50 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
         update_panels();
         doupdate();
 
-        int c = wgetch(w);
-        if (focus == 0) {
-            switch (c) {
-            case '\t':
-            case KEY_DOWN:
-                if (field_index(current_field(form)) == n - 1) {
-                    focus = 1;
-                } else {
-                    form_driver(form, REQ_NEXT_FIELD);
-                    form_driver(form, REQ_END_LINE);
-                }
-                break;
-            case KEY_BTAB:
-            case KEY_UP:
-                form_driver(form, REQ_PREV_FIELD);
-                form_driver(form, REQ_END_LINE);
-                break;
-            case KEY_LEFT:
-                form_driver(form, REQ_PREV_CHAR);
-                break;
-            case KEY_RIGHT:
-                form_driver(form, REQ_NEXT_CHAR);
-                break;
-            case KEY_HOME:
-                form_driver(form, REQ_BEG_LINE);
-                break;
-            case KEY_END:
-                form_driver(form, REQ_END_LINE);
-                break;
-            case KEY_DC:
-                form_driver(form, REQ_DEL_CHAR);
-                break;
-            case KEY_BACKSPACE:
-            case 127:
-            case 8:
-                form_driver(form, REQ_DEL_PREV);
-                break;
-            case '\n':
-            case '\r':
-            case KEY_ENTER:
-                focus = 1;
-                break;
-            case 27:
-                result = false;
-                done = true;
-                break;
-            default:
-                if (c >= 32 && c <= 126)
-                    form_driver(form, c);
-                break;
-            }
-        } else {
-            switch (c) {
-            case '\t':
-            case KEY_RIGHT:
-            case KEY_BTAB:
-            case KEY_LEFT:
-                focus = (focus == 1) ? 2 : 1;
-                break;
-            case KEY_UP:
-                focus = 0;
-                set_current_field(form, fs[n - 1]);
-                form_driver(form, REQ_END_LINE);
-                break;
-            case '\n':
-            case '\r':
-            case KEY_ENTER:
-                result = (focus == 1);
-                done = true;
-                break;
-            case 27:
-                result = false;
-                done = true;
-                break;
-            default:
-                break;
-            }
+        const int c = wgetch(w);
+        const bool at_last_field = (field_index(current_field(form)) == n - 1);
+        const form_focus::Decision d = form_focus::key(c, zone, at_last_field);
+        zone = d.zone;
+        switch (d.intent) {
+        case form_focus::Intent::NextField:
+            form_driver(form, REQ_NEXT_FIELD);
+            form_driver(form, REQ_END_LINE);
+            break;
+        case form_focus::Intent::PrevField:
+            form_driver(form, REQ_PREV_FIELD);
+            form_driver(form, REQ_END_LINE);
+            break;
+        case form_focus::Intent::PrevChar:
+            form_driver(form, REQ_PREV_CHAR);
+            break;
+        case form_focus::Intent::NextChar:
+            form_driver(form, REQ_NEXT_CHAR);
+            break;
+        case form_focus::Intent::BegLine:
+            form_driver(form, REQ_BEG_LINE);
+            break;
+        case form_focus::Intent::EndLine:
+            form_driver(form, REQ_END_LINE);
+            break;
+        case form_focus::Intent::DelChar:
+            form_driver(form, REQ_DEL_CHAR);
+            break;
+        case form_focus::Intent::DelPrev:
+            form_driver(form, REQ_DEL_PREV);
+            break;
+        case form_focus::Intent::InsertChar:
+            form_driver(form, d.insert);
+            break;
+        case form_focus::Intent::ToLastField:
+            set_current_field(form, fs[n - 1]);
+            form_driver(form, REQ_END_LINE);
+            break;
+        default:
+            break;
+        }
+        if (d.done) {
+            result = d.result;
+            done = true;
         }
     }
 
