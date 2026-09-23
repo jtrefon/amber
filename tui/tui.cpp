@@ -7,6 +7,7 @@
 #include "drawer_rows.h"
 #include "tool_display.h"
 #include "scroll_dispatch.h"
+#include "keys_ncurses.h"
 #include "signal_guard.h"
 #include "event_router.h"
 #include "feed_manager.h"

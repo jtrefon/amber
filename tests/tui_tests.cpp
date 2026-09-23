@@ -15,6 +15,7 @@
 #include "tui/markdown.h"
 #include "tui/tool_display.h"
 #include "tui/scroll_dispatch.h"
+#include "tui/keys.h"
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
 #include "tui/event_router.h"
@@ -953,21 +954,21 @@ TEST(tool_display_activity_verb_mcp_prefix_calls) {
 }
 
 TEST(scroll_dispatch_wheel_up_delta) {
-    // BUTTON4_PRESSED = wheel up: scroll back (negative delta).
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED), -3);
+    // keys::kButton4 = wheel up: scroll back (negative delta).
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(tui::keys::kButton4), -3);
 }
 
 TEST(scroll_dispatch_wheel_down_delta) {
-    // BUTTON5_PRESSED = wheel down: scroll forward (positive delta).
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON5_PRESSED), 3);
+    // keys::kButton5 = wheel down: scroll forward (positive delta).
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(tui::keys::kButton5), 3);
 }
 
 TEST(scroll_dispatch_non_wheel_is_zero) {
     // The disconnect pin: non-wheel input (arrow keys, clicks, drags) never
     // produces a scroll delta, so prompt-history Up/Down is unaffected.
     ASSERT_EQ(tui::scroll_dispatch::wheel_delta(0), 0);
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON1_PRESSED), 0);
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED | BUTTON5_PRESSED), 0);
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(tui::keys::kButton1), 0);
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(tui::keys::kButton4 | tui::keys::kButton5), 0);
 }
 
 TEST(scroll_dispatch_clamp_bounds) {

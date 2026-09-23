@@ -3,6 +3,7 @@
 #include "tui/dialog.h"
 #include "tui/confirm_panel.h"
 #include "tui/session_browser_core.h"
+#include "tui/keys_ncurses.h"
 #include "tui/window_ops.h"
 #include "tool_display.h"
 
