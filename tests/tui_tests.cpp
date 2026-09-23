@@ -17,6 +17,7 @@
 #include "tui/scroll_dispatch.h"
 #include "tui/keys.h"
 #include "tui/option_key_decode.h"
+#include "tui/status_bar_layout.h"
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
 #include "tui/event_router.h"
@@ -1782,6 +1783,58 @@ TEST(option_key_decode_assembles_codepoints) {
     ASSERT_EQ(tui::option_key_decode::codepoint(e_acute, 1), 0xE9u);
     ASSERT_EQ(tui::option_key_decode::codepoint(euro, 2), 0x20ACu);
     ASSERT_EQ(tui::option_key_decode::codepoint(emoji, 3), 0x1F600u);
+}
+
+// --- StatusBarLayout (L1): status-bar width arbitration ---
+
+using BarSeg = tui::status_bar_layout::Segment;
+
+TEST(status_bar_layout_splits_by_alignment) {
+    std::vector<BarSeg> segs = {
+        {"left1", 0, 0, agent::StatusAlign::Left},
+        {"right1", 0, 0, agent::StatusAlign::Right},
+        {"left2", 0, 0, agent::StatusAlign::Left},
+    };
+    auto p = tui::status_bar_layout::plan(segs, 80, false, 0);
+    ASSERT_EQ(p.left.size(), 2u);
+    ASSERT_EQ(p.right.size(), 1u);
+    ASSERT_EQ(p.left[0].text, "left1");
+    ASSERT_EQ(p.left[1].text, "left2");
+    ASSERT_EQ(p.right[0].text, "right1");
+}
+
+TEST(status_bar_layout_budget_reserves_right_zone_and_activity) {
+    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Right}};
+    auto p = tui::status_bar_layout::plan(segs, 80, false, 0);
+    ASSERT_EQ(p.right_cols, 3);
+    ASSERT_EQ(p.budget, 80 - (3 + 1 + 13)); // right + separator + activity
+}
+
+TEST(status_bar_layout_no_right_zone_reserves_only_activity) {
+    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Left}};
+    auto p = tui::status_bar_layout::plan(segs, 40, false, 0);
+    ASSERT_EQ(p.right_cols, 0);
+    ASSERT_EQ(p.budget, 40 - 13);
+}
+
+TEST(status_bar_layout_drops_highest_priority_first) {
+    // Two 10-column left segments (21 columns with the separator) in a budget
+    // of 7: the drop-5 segment goes first, then the loop stops on drop 0.
+    std::vector<BarSeg> segs = {
+        {"aaaaaaaaaa", 0, 5, agent::StatusAlign::Left},
+        {"bbbbbbbbbb", 0, 0, agent::StatusAlign::Left},
+    };
+    auto p = tui::status_bar_layout::plan(segs, 20, false, 0);
+    ASSERT_EQ(p.left.size(), 1u);
+    ASSERT_EQ(p.left[0].text, "bbbbbbbbbb");
+}
+
+TEST(status_bar_layout_keeps_undroppable_segment) {
+    // A segment with drop 0 is never removed, even when it overflows the budget.
+    std::vector<BarSeg> segs = {{"aaaaaaaaaa", 0, 0, agent::StatusAlign::Left}};
+    auto p = tui::status_bar_layout::plan(segs, 20, false, 0);
+    ASSERT_EQ(p.left.size(), 1u);
+    ASSERT_EQ(p.left[0].text, "aaaaaaaaaa");
 }
 
 // ---------------------------------------------------------------------------
