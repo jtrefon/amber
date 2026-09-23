@@ -12,6 +12,8 @@ namespace tui {
 class Tui;
 struct Window;
 
+class SessionBrowserCore;
+
 class SessionController {
 public:
     explicit SessionController(Tui& tui);
@@ -41,6 +43,12 @@ public:
     void restore_message_lines(const agent::Message& m, std::vector<RestoredCall>& pending);
 
 private:
+    // The browser's key step (takes the raw key so the header needs no ncurses):
+    // returns true when the dialog should close.
+    bool session_browser_key(int ch, SessionBrowserCore& core);
+    // Confirm and delete the selected session; true when the list became empty.
+    bool confirm_delete_session(SessionBrowserCore& core);
+
     Tui& tui_;
     agent::SessionStore store_;
     std::string settings_path_;

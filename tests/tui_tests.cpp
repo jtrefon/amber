@@ -18,6 +18,7 @@
 #include "tui/list_state.h"
 #include "tui/markdown.h"
 #include "tui/markdown_normalize.h"
+#include "tui/session_row.h"
 #include "tui/tool_display.h"
 #include "tui/scroll_dispatch.h"
 #include "tui/keys.h"
@@ -2139,6 +2140,40 @@ TEST(form_focus_esc_cancels_from_both_zones) {
     auto b = FF::key(27, FF::Zone::Ok, false);
     ASSERT_TRUE(b.done);
     ASSERT_FALSE(b.result);
+}
+
+// --- SessionRow (L1): session browser row text and geometry ---
+
+namespace SR = tui::session_row;
+
+TEST(session_row_dialog_size_clamps) {
+    auto a = SR::dialog_size(40, 200);
+    ASSERT_EQ(a.dw, 120); // capped
+    ASSERT_EQ(a.dh, 34);
+    auto b = SR::dialog_size(10, 50);
+    ASSERT_EQ(b.dw, 46);
+    ASSERT_EQ(b.dh, 4);
+}
+
+TEST(session_row_title_ellipsises_when_too_wide) {
+    ASSERT_EQ(SR::title("short", 20), "short");
+    ASSERT_EQ(SR::title("a very long session title here", 10), "a very lo\u2026");
+}
+
+TEST(session_row_model_truncates_at_ten) {
+    ASSERT_EQ(SR::model("gpt-4"), "gpt-4");
+    ASSERT_EQ(SR::model("claude-3-5-sonnet"), "claude-3-\u2026");
+}
+
+TEST(session_row_message_count) {
+    ASSERT_EQ(SR::message_count(12), "12 msgs");
+}
+
+TEST(session_row_file_size_units) {
+    ASSERT_EQ(SR::file_size(0), ""); // the caller draws nothing
+    ASSERT_EQ(SR::file_size(512), "512B");
+    ASSERT_EQ(SR::file_size(2048), "2KB");
+    ASSERT_EQ(SR::file_size(3 * 1024 * 1024), "3.0MB");
 }
 
 // ---------------------------------------------------------------------------
