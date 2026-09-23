@@ -142,7 +142,7 @@ struct Tui {
             fd_set rfds;
             FD_ZERO(&rfds);
             FD_SET(master, &rfds);
-            timeval tv{0, kPumpMs * 1000};
+            timeval tv{0, static_cast<suseconds_t>(kPumpMs) * 1000};
             int ready = select(master + 1, &rfds, nullptr, nullptr, &tv);
             if (ready <= 0)
                 break;
@@ -331,9 +331,7 @@ bool build_fixture(Fixture& fx) {
     we.title = "pty-beta";
     ws.windows.push_back(we);
     ws.active = 0;
-    if (!store.save_workspace(ws))
-        return false;
-    return true;
+    return store.save_workspace(ws);
 }
 
 // A stand-in command that blocks for `seconds`. Used to make "did the UI thread
@@ -527,7 +525,7 @@ TEST(system_commands_do_not_freeze_the_ui) {
     bool echoed = false;
     for (int waited = 0; waited < 1500 && !echoed; waited += 50) {
         tui.pump(50);
-        echoed = text_since(tui, mark).find("z") != std::string::npos;
+        echoed = text_since(tui, mark).find('z') != std::string::npos;
     }
     if (!require(echoed, "the UI stopped accepting input while a command ran", tui))
         return;
