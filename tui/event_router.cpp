@@ -42,9 +42,8 @@ void EventRouter::shutdown_queues(std::queue<AgentEvent>& pending_approvals,
     deny_all_pending_asks(pending_asks);
 }
 
-agent::AgentHooks EventRouter::make_hooks(size_t window_id, const std::atomic<bool>& cancel) {
-    agent::AgentHooks hooks;
-    auto push_event = [this, window_id, &cancel](AgentEvent ev) {
+EventRouter::PushFn EventRouter::make_push(size_t window_id, const std::atomic<bool>& cancel) {
+    return [this, window_id, &cancel](AgentEvent ev) {
         // A cancelled window's trailing events are dropped; sibling windows
         // keep streaming — cancel is per-slot, never global. Read the slot's
         // atomic directly: the registry map lock is held across joins.
@@ -54,59 +53,55 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id, const std::atomic<bo
         std::scoped_lock lk(mtx_);
         queue_.push(std::move(ev));
     };
+}
 
-    hooks.on_reasoning = [push_event](const std::string& d) {
+std::function<void(const std::string&)> EventRouter::emit_text(const PushFn& push,
+                                                               AgentEvent::Type type) {
+    return [push, type](const std::string& text) {
         AgentEvent ev;
-        ev.type = AgentEvent::Reasoning;
-        ev.text = d;
-        push_event(std::move(ev));
+        ev.type = type;
+        ev.text = text;
+        push(std::move(ev));
     };
-    hooks.on_token = [push_event](const std::string& d) {
-        AgentEvent ev;
-        ev.type = AgentEvent::Token;
-        ev.text = d;
-        push_event(std::move(ev));
-    };
-    hooks.on_state = [push_event](agent::RunState s) {
+}
+
+void EventRouter::wire_stream_hooks(agent::AgentHooks& hooks, const PushFn& push) {
+    hooks.on_reasoning = emit_text(push, AgentEvent::Reasoning);
+    hooks.on_token = emit_text(push, AgentEvent::Token);
+    hooks.on_status = emit_text(push, AgentEvent::Status);
+    hooks.on_assistant = emit_text(push, AgentEvent::Assistant);
+    hooks.on_state = [push](agent::RunState s) {
         AgentEvent ev;
         ev.type = AgentEvent::StateChange;
         ev.state = s;
-        push_event(std::move(ev));
+        push(std::move(ev));
     };
-    hooks.on_stats = [push_event](const agent::Stats& s) {
+    hooks.on_stats = [push](const agent::Stats& s) {
         AgentEvent ev;
         ev.type = AgentEvent::Stats;
         ev.stats = s;
-        push_event(std::move(ev));
+        push(std::move(ev));
     };
-    hooks.on_status = [push_event](const std::string& s) {
-        AgentEvent ev;
-        ev.type = AgentEvent::Status;
-        ev.text = s;
-        push_event(std::move(ev));
-    };
-    hooks.on_tool_call = [push_event](const std::string& n, const agent::json& a) {
+    hooks.on_tool_call = [push](const std::string& n, const agent::json& a) {
         AgentEvent ev;
         ev.type = AgentEvent::ToolCall;
         ev.tool_name = n;
         ev.tool_args = a;
-        push_event(std::move(ev));
+        push(std::move(ev));
     };
-    hooks.on_tool_result = [push_event](const std::string& n, const agent::ToolResult& r,
-                                        const agent::json& a) {
+    hooks.on_tool_result = [push](const std::string& n, const agent::ToolResult& r,
+                                  const agent::json& a) {
         AgentEvent ev;
         ev.type = AgentEvent::ToolResult;
         ev.tool_name = n;
         ev.tool_args = a;
         ev.tool_result = r;
-        push_event(std::move(ev));
+        push(std::move(ev));
     };
-    hooks.on_assistant = [push_event](const std::string& s) {
-        AgentEvent ev;
-        ev.type = AgentEvent::Assistant;
-        ev.text = s;
-        push_event(std::move(ev));
-    };
+}
+
+void EventRouter::wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id,
+                                      const std::atomic<bool>& cancel) {
     hooks.on_approval = [this, window_id, &cancel](const std::string& name, const agent::json& args,
                                                    const std::string& summary) -> agent::Approval {
         if (cancel.load())
@@ -147,7 +142,13 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id, const std::atomic<bo
         }
         return f.get();
     };
+}
 
+agent::AgentHooks EventRouter::make_hooks(size_t window_id, const std::atomic<bool>& cancel) {
+    agent::AgentHooks hooks;
+    const PushFn push = make_push(window_id, cancel);
+    wire_stream_hooks(hooks, push);
+    wire_blocking_hooks(hooks, window_id, cancel);
     return hooks;
 }
 
@@ -161,11 +162,7 @@ bool EventRouter::drain_events() {
         Window* w = route_event(tui_.window_manager_->all(), ev, tui_.window_manager_->active());
         switch (ev.type) {
         case AgentEvent::StateChange:
-            if (w) {
-                w->state = ev.state;
-                if (ev.state == agent::RunState::Idle || ev.state == agent::RunState::Error)
-                    w->running_tool.clear();
-            }
+            handle_state_change(w, ev);
             break;
         case AgentEvent::Reasoning:
             on_reasoning(w, ev);
@@ -174,9 +171,7 @@ bool EventRouter::drain_events() {
             on_token(w, ev);
             break;
         case AgentEvent::Status:
-            // Worker status belongs to the conversation that emitted it.
-            if (w)
-                tui_.append_line_to(*w, P_STATUS, ev.text);
+            handle_status(w, ev);
             break;
         case AgentEvent::ToolCall:
             on_tool_call(w, ev);
@@ -188,13 +183,7 @@ bool EventRouter::drain_events() {
             on_assistant(w, ev);
             break;
         case AgentEvent::Stats:
-            if (w) {
-                w->stats = ev.stats;
-                if (ev.stats.prompt_tokens >= 0) {
-                    w->ctx_used.store(ev.stats.prompt_tokens);
-                    w->live_ctx_offset = 0;
-                }
-            }
+            handle_stats(w, ev);
             break;
         case AgentEvent::Error:
             on_error(w, ev);
@@ -205,36 +194,15 @@ bool EventRouter::drain_events() {
         case AgentEvent::CompressResult:
             on_compress_result(w, ev);
             break;
-        case AgentEvent::Approval: {
-            // While a modal dialog is open the main thread is not in the event
-            // loop; queue the approval so we don't nest ncurses dialogs or
-            // deadlock the worker on its promise. Resolved in
-            // redraw_after_modal() once the modal closes.
-            if (tui_.modal_open_) {
-                pending_approvals_.push(std::move(ev));
-                break;
-            }
-            resolve_approval(ev);
+        case AgentEvent::Approval:
+            defer_or_resolve_approval(std::move(ev));
             break;
-        }
-        case AgentEvent::ApiKey: {
-            if (tui_.modal_open_) {
-                pending_api_keys_.push(std::move(ev));
-                break;
-            }
-            resolve_api_key(ev);
+        case AgentEvent::ApiKey:
+            defer_or_resolve_api_key(std::move(ev));
             break;
-        }
-        case AgentEvent::Ask: {
-            // A plugin's question while a modal is already up queue the same
-            // way, so we never nest ncurses dialogs or deadlock its worker.
-            if (tui_.modal_open_) {
-                pending_asks_.push(std::move(ev));
-                break;
-            }
-            resolve_ask(ev);
+        case AgentEvent::Ask:
+            defer_or_resolve_ask(std::move(ev));
             break;
-        }
         }
     }
 
@@ -242,6 +210,60 @@ bool EventRouter::drain_events() {
     pump_pending_api_keys();
     pump_pending_asks();
     return true;
+}
+
+void EventRouter::handle_state_change(Window* w, const AgentEvent& ev) {
+    if (!w)
+        return;
+    w->state = ev.state;
+    if (ev.state == agent::RunState::Idle || ev.state == agent::RunState::Error)
+        w->running_tool.clear();
+}
+
+void EventRouter::handle_status(Window* w, const AgentEvent& ev) {
+    // Worker status belongs to the conversation that emitted it.
+    if (w)
+        tui_.append_line_to(*w, P_STATUS, ev.text);
+}
+
+void EventRouter::handle_stats(Window* w, const AgentEvent& ev) {
+    if (!w)
+        return;
+    w->stats = ev.stats;
+    if (ev.stats.prompt_tokens >= 0) {
+        w->ctx_used.store(ev.stats.prompt_tokens);
+        w->live_ctx_offset = 0;
+    }
+}
+
+void EventRouter::defer_or_resolve_approval(AgentEvent ev) {
+    // While a modal dialog is open the main thread is not in the event loop;
+    // queue the approval so we don't nest ncurses dialogs or deadlock the
+    // worker on its promise. Resolved in redraw_after_modal() once the modal
+    // closes.
+    if (tui_.modal_open_) {
+        pending_approvals_.push(std::move(ev));
+        return;
+    }
+    resolve_approval(ev);
+}
+
+void EventRouter::defer_or_resolve_api_key(AgentEvent ev) {
+    if (tui_.modal_open_) {
+        pending_api_keys_.push(std::move(ev));
+        return;
+    }
+    resolve_api_key(ev);
+}
+
+void EventRouter::defer_or_resolve_ask(AgentEvent ev) {
+    // A plugin's question while a modal is already up queues the same way, so we
+    // never nest ncurses dialogs or deadlock its worker.
+    if (tui_.modal_open_) {
+        pending_asks_.push(std::move(ev));
+        return;
+    }
+    resolve_ask(ev);
 }
 
 void EventRouter::pump_pending_approvals() {

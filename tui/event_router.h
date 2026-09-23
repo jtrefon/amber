@@ -127,6 +127,15 @@ public:
     // as a plain atomic — never through RunRegistry, whose map lock is held
     // across joins (a lock here would deadlock quit-while-busy).
     agent::AgentHooks make_hooks(size_t window_id, const std::atomic<bool>& cancel);
+    // make_hooks is a facade over these: the push queue, the text-hook factory,
+    // and the stream / blocking hook groups.
+    using PushFn = std::function<void(AgentEvent)>;
+    PushFn make_push(size_t window_id, const std::atomic<bool>& cancel);
+    static std::function<void(const std::string&)> emit_text(const PushFn& push,
+                                                             AgentEvent::Type type);
+    void wire_stream_hooks(agent::AgentHooks& hooks, const PushFn& push);
+    void wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id,
+                             const std::atomic<bool>& cancel);
 
     void shutdown_queues(std::queue<AgentEvent>& pending_approvals,
                          std::queue<AgentEvent>& pending_api_keys,
@@ -139,6 +148,13 @@ public:
 
     // ---- event dispatch (drain_events machinery) -------------------------
     bool drain_events();
+    void handle_state_change(Window* w, const AgentEvent& ev);
+    void handle_status(Window* w, const AgentEvent& ev);
+    void handle_stats(Window* w, const AgentEvent& ev);
+    // Queue while a modal is open (never nest ncurses dialogs), else resolve.
+    void defer_or_resolve_approval(AgentEvent ev);
+    void defer_or_resolve_api_key(AgentEvent ev);
+    void defer_or_resolve_ask(AgentEvent ev);
     void on_reasoning(Window* w, const AgentEvent& ev);
     void on_token(Window* w, const AgentEvent& ev);
     void on_tool_call(Window* w, const AgentEvent& ev);
