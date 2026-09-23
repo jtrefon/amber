@@ -199,6 +199,26 @@ if [ "$p7_bad" -eq 0 ]; then
     ok "P7: $(echo $L1_MODULES | wc -w | tr -d ' ') L1 modules are ncurses-free and port-free"
 fi
 
+# P7b
+# Transitive purity. The grep above only sees direct includes, so a header that
+# pulls <ncurses.h> indirectly (e.g. rich.h -> widgets.h) slips through. Check
+# the *preprocessed* TU for an ncurses-family include marker: comments are gone
+# by then, so a mention in prose cannot false-positive. (Compiling without
+# ncurses flags is not enough here: the system headers resolve anyway.)
+p7c_bad=0
+for m in $L1_MODULES; do
+    f="tui/$m.cpp"
+    [ -f "$f" ] || continue
+    if "${CXX:-c++}" -std=c++17 -E -Iinclude -Isrc -Itools -I. "$f" 2>/dev/null |
+        grep -qE '^# [0-9]+ "[^"]*/(ncurses|panel|form|menu)\.h"'; then
+        warn "P7: L1 module $f pulls in ncurses transitively (preprocessed TU)"
+        p7c_bad=1
+    fi
+done
+if [ "$p7c_bad" -eq 0 ]; then
+    ok "P7: no L1 module pulls in ncurses transitively"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
     exit 1

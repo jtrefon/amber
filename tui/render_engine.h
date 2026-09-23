@@ -1,6 +1,8 @@
 #ifndef AMBER_TUI_RENDER_ENGINE_H
 #define AMBER_TUI_RENDER_ENGINE_H
 
+#include <ncurses.h>
+
 #include <atomic>
 #include <chrono>
 #include <memory>
