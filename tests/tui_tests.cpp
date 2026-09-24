@@ -2262,6 +2262,38 @@ TEST(ansi_sgr_handles_bare_reset_unterminated_and_non_sgr) {
     ASSERT_EQ(c[0], 0);
 }
 
+TEST(ansi_sgr_apply_toggles_and_resets) {
+    tui::md::Style st;
+    tui::md::RunStyle base;
+    base.pair = st.text_pair;
+
+    auto cur = base;
+    SGR::apply(1, cur, base, st);
+    ASSERT_TRUE(cur.bold);
+    SGR::apply(0, cur, base, st);
+    ASSERT_FALSE(cur.bold); // 0 resets to base
+    ASSERT_EQ(cur.pair, st.text_pair);
+
+    cur.bold = cur.dim = true;
+    SGR::apply(22, cur, base, st);
+    ASSERT_FALSE(cur.bold);
+    ASSERT_FALSE(cur.dim);
+}
+
+TEST(ansi_sgr_apply_maps_colours_through_the_style) {
+    tui::md::Style st;
+    tui::md::RunStyle base;
+    base.pair = st.text_pair;
+
+    auto cur = base;
+    SGR::apply(32, cur, base, st);
+    ASSERT_EQ(cur.pair, st.code_pair);
+    SGR::apply(36, cur, base, st);
+    ASSERT_EQ(cur.pair, st.quote_pair);
+    SGR::apply(999, cur, base, st); // an unknown code is a no-op
+    ASSERT_EQ(cur.pair, st.quote_pair);
+}
+
 // ---------------------------------------------------------------------------
 // Reasoning view: the live thinking block. A tool-calling turn reasons once per
 // LLM round-trip, so every episode must stream in dim text and then fold to its
