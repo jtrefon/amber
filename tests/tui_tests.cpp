@@ -15,6 +15,7 @@
 #include "tui/rich.h"
 #include "tui/form_focus.h"
 #include "tui/info_dialog_layout.h"
+#include "tui/ansi_sgr.h"
 #include "tui/input_line_layout.h"
 #include "tui/list_state.h"
 #include "tui/markdown.h"
@@ -2216,6 +2217,49 @@ TEST(input_line_layout_scroll_keeps_cursor_visible) {
 TEST(input_line_layout_visible_bytes_stops_at_the_column_budget) {
     ASSERT_EQ(ILL::visible_bytes("abcdef", 0, 4), 4);
     ASSERT_EQ(ILL::visible_bytes("abcdef", 2, 10), 4); // to the end of the string
+}
+
+// --- AnsiSgr (L1): SGR sequence parsing ---
+
+namespace SGR = tui::ansi_sgr;
+
+TEST(ansi_sgr_parses_single_and_multi_codes) {
+    std::size_t next = 0;
+    auto a = SGR::parse("\x1b[0m", 0, next);
+    ASSERT_EQ(a.size(), 1u);
+    ASSERT_EQ(a[0], 0);
+    ASSERT_EQ(next, 4u);
+
+    auto b = SGR::parse("\x1b[1;31m", 0, next);
+    ASSERT_EQ(b.size(), 2u);
+    ASSERT_EQ(b[0], 1);
+    ASSERT_EQ(b[1], 31);
+    ASSERT_EQ(next, 7u);
+}
+
+TEST(ansi_sgr_treats_empty_parameters_as_zero) {
+    std::size_t next = 0;
+    auto v = SGR::parse("\x1b[;1m", 0, next);
+    ASSERT_EQ(v.size(), 2u);
+    ASSERT_EQ(v[0], 0);
+    ASSERT_EQ(v[1], 1);
+}
+
+TEST(ansi_sgr_handles_bare_reset_unterminated_and_non_sgr) {
+    std::size_t next = 0;
+    auto a = SGR::parse("\x1b[m", 0, next); // bare reset
+    ASSERT_EQ(a.size(), 1u);
+    ASSERT_EQ(a[0], 0);
+    ASSERT_EQ(next, 3u);
+
+    auto b = SGR::parse("\x1b[31", 0, next); // unterminated
+    ASSERT_EQ(b.size(), 1u);
+    ASSERT_EQ(b[0], 0);
+    ASSERT_EQ(next, 4u);
+
+    auto c = SGR::parse("\x1b[2J", 0, next); // a CSI that is not SGR
+    ASSERT_EQ(c.size(), 1u);
+    ASSERT_EQ(c[0], 0);
 }
 
 // ---------------------------------------------------------------------------
