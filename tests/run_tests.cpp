@@ -66,6 +66,25 @@ TEST(config_defaults) {
               "http://localhost:8000/v1/chat/completions");
 }
 
+TEST(config_global_dir_honours_absolute_xdg) {
+    setenv("XDG_CONFIG_HOME", "/tmp/amber_cfg_abs", 1);
+    ASSERT_EQ(agent::global_config_dir(), "/tmp/amber_cfg_abs/amber");
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+TEST(config_global_dir_ignores_a_hostile_xdg) {
+    // The root comes from the environment, so a relative or traversal value
+    // must not redirect where amber reads and writes: fall back to HOME.
+    const char* home = std::getenv("HOME");
+    ASSERT(home != nullptr);
+    const std::string expect = std::string(home) + "/.config/amber";
+    setenv("XDG_CONFIG_HOME", "relative/path", 1);
+    ASSERT_EQ(agent::global_config_dir(), expect);
+    setenv("XDG_CONFIG_HOME", "/tmp/../etc", 1);
+    ASSERT_EQ(agent::global_config_dir(), expect);
+    unsetenv("XDG_CONFIG_HOME");
+}
+
 TEST(config_validate_accepts_defaults) {
     agent::Config c;
     ASSERT_TRUE(c.validate().empty());
