@@ -361,10 +361,10 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
 
     // Width arbitration is pure (status_bar_layout); this function only paints
     // the plan it returns.
-    status_bar_layout::Plan bar = status_bar_layout::plan(bar_segments(), w, have_ctx, ctx_used);
-    const std::vector<Seg>& left_zone = bar.left;
-    const std::vector<Seg>& right_zone = bar.right;
-    const int budget = bar.budget;
+    status_bar_layout::Plan plan = status_bar_layout::plan(bar_segments(), w, have_ctx, ctx_used);
+    const std::vector<Seg>& left_zone = plan.left;
+    const std::vector<Seg>& right_zone = plan.right;
+    const int budget = plan.budget;
 
     int x = 0;
     auto put = [&](const std::string& s, int pair) {
@@ -415,7 +415,7 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     if (!tail.empty() && x + display_cols(tail) + 1 < budget)
         put("  " + tail, P_BAR_DIM);
 
-    const int right_w = bar.right_cols;
+    const int right_w = plan.right_cols;
     int ix = right_w > 0 ? w - right_w - kIW - 1 : w - kIW - 1;
     if (ix > x + 4) {
         wattron(stdscr, COLOR_PAIR(P_BAR_DIM));
