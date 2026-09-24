@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "textutil.h"
+#include "tui/ansi_sgr.h"
 #include "tui/markdown_normalize.h"
 #include "third_party/md4c/md4c.h"
 
@@ -335,30 +336,8 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
         if (static_cast<unsigned char>(s[i]) == 0x1b && i + 1 < n && s[i + 1] == '[') {
             flush();
             // parse SGR; mutate cur; advance i past the sequence
-            size_t j = i + 2;
-            std::vector<int> nums;
-            std::string num;
-            while (j < n) {
-                char ch = s[j];
-                if (std::isdigit(static_cast<unsigned char>(ch)) || ch == ';') {
-                    if (ch == ';') {
-                        nums.push_back(num.empty() ? 0 : std::stoi(num));
-                        num.clear();
-                    } else
-                        num += ch;
-                    ++j;
-                } else if (ch == 'm') {
-                    if (!num.empty())
-                        nums.push_back(std::stoi(num));
-                    ++j;
-                    break;
-                } else {
-                    ++j;
-                    break;
-                }
-            }
-            if (nums.empty())
-                nums.push_back(0);
+            std::size_t j = i;
+            const std::vector<int> nums = ansi_sgr::parse(s, i, j);
             for (int code : nums) {
                 switch (code) {
                 case 0:
