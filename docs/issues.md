@@ -58,6 +58,60 @@ full surface measures **68.7%** and the gated core **83.8%**.
 | CV2 | 🟠 High | **The documented 80% is a new-code rule applied as a whole-tree floor**: PR template:28 and `docs/fix-tracker.md:494` say "new code paths must have ≥80% line coverage"; `a70da98` added `--fail-under-line 80` across the entire production tree and CI failed at ~60%. A project-wide 80% floor was never a stated requirement. | ✅ Fixed: coverage job split into a gated core run (`lib`+`tools`+`plugins`, `--fail-under-line 80`, 83.8%) plus an ungated full-surface report for Codecov; entry-point exclusions named and justified. | FIX-041 |
 | CV3 | 🟡 Medium | **The unblocking change is arbitrary and undocumented**: `3f1f8f2` narrowed filters to `lib/`+`tools/` only, silently dropping `plugins/` (measured 86.5%, better than the gate), `tui`, `bench` and `src`. A filter list tuned to make one run green. | ✅ Fixed: `.codecov.yml` enforces `patch.target: 80%` (the documented new-code rule) and keeps `project.target: auto` as a no-regression ratchet. | FIX-042 |
 
+## 🆕 Current Open Issues, 2026-09-23 TUI God-Code Decomposition (G1..G9)
+
+Strategy: `docs/fix-proposal/tui-god-code-decomposition-2026-09-23.md`.
+Architecture contract: **`docs/spec/tui/architecture.md`** (five layers, ports,
+unidirectional dataflow, isolation rules).
+This **completes N3** (God Class `Tui`) and the TUI portion of **N4** (systemic
+>10-line methods): the FIX-022/023 facade landed the components but **never met
+its own targets**. Measured on `main` `cb9d054`: `Tui::run()` is **599 lines**
+(target was 60) and `tui/tui.h` is **248** (target was <200). Across `tui/`,
+**37 functions exceed 50 lines** (4,343 lines), and eight real, referenced files
+sit at **0%** coverage because their logic is welded to ncurses.
+
+**Root cause: the hexagon was designed and never built.** Six port headers exist
+(`display_port`, `key_source_port`, `modal_port`, `session_port`, `prompt_port`,
+`view`) whose comments say *"the domain core uses this"* — there is no domain
+core; four are included by **nobody**, two only by tests. Only `WindowOpsPort` is
+wired. `scroll_dispatch.h:5` and `session_browser_core.h:5` `#include
+<ncurses.h>` for key constants, so "pure" logic cannot compile without ncurses.
+
+**Approach: architecture first, then extract into layers.** P0 wires the ports
+(they exist), adds a pure `keys.h` + `UiState`, extracts the `EventLoop` use case
+into L2, and adds a `build_hygiene.sh` layering check so the rules cannot rot.
+Each later FIX lands its unit in the layer/pattern the spec assigns. Every unit
+<200 LoC (target ≤150), methods ≤30; behaviour-preserving; slash commands stay
+JSON-driven.
+
+| ID | Sev | God unit (site) | Now | Layer | FIX |
+|----|-----|-----------------|----:|-------|-----|
+| G1 | 🔴 Critical | `Tui::run()` `tui/tui.cpp:414` — 12 responsibilities in one loop | 599 | L2+L3+L5 | FIX-043 (P0) |
+| G2 | 🟠 High | `SlashDispatcher::register_builtin_actions()` `tui/tui_input.cpp:940` | 291 | L2 | FIX-044 (P1) |
+| G3 | 🟠 High | `SlashDispatcher::build_settings()` 165 + `Tui::settings_screen()` 152 | 317 | L2+L1 | FIX-045 (P2) |
+| G4 | 🟠 High | `RenderEngine::draw_status_bar()` 172 + `draw_input()` 132 | 304 | L1+L4 | FIX-046 (P3) |
+| G5 | 🟡 Medium | `tui/markdown_md4c.cpp`: `normalize_markdown` 263 + 4 more | 648 | L1 | FIX-047 (P4) |
+| G6 | 🟠 High | 0%-covered widgets: `form_edit` 171, `list_panel` 80, `panel_view` 89, `info_dialog` 96, `menu_select` | 436 | L1+L4 | FIX-048 (P5) |
+| G7 | 🟡 Medium | `EventRouter::make_hooks()` 108 + `drain_events()` 92 | 200 | L2+L4 | FIX-049 (P6) |
+| G8 | 🟡 Medium | `SessionController::session_browser()` 141 + `load_session()` 51 | 192 | L1+L4 | FIX-050 (P7) |
+| G9 | 🟡 Medium | `index_node` 85, `text/rich::wrap` 90/85, `CommandLine` internals, `drawer_rows` 86, `Canvas::render` 53, `tui_main` 165 | 667 | L1+L5 | FIX-051 (P8) |
+
+Order: **P0 keystone first (alone)**, then P1 → P8. Characterization-first (pin
+behaviour, move, keep green); L2 tested with mock ports against the existing
+EL-01..EL-18 scenarios; `tui_pty_test` is the loop's behavioural backstop.
+
+Removed during the P0 test cleanup: eight `ASSERT_TRUE(true)` placeholder tests
+in `tests/tui_tests.cpp`, added by `1b57586` "to keep the test count stable".
+The three `help_page_builder_*` and three `completion_provider_*` are now
+replaced by real tests in `tests/completions_test.cpp` (11 tests total for the
+two extracted units); the two window-command placeholders were deleted outright.
+Two gaps they pointed at are real and tracked here:
+
+| ID | Sev | Gap | Status |
+|----|-----|-----|--------|
+| G10 | 🔵 Low | `/window set <non-numeric>` rejection (`cmd_window_set`, `tui_input.cpp:2086`) has no unit-testable seam: the parse (`std::stoul`) sits behind `Tui`. Needs a pure `parse_window_index` before it can be asserted. | 🔓 Open |
+| G11 | 🔵 Low | No `refresh_window_feed`: `/window set <Tab>` lists nothing, so the "window list" completions the placeholder expected do not exist. | 🔓 Open |
+
 ## 🆕 Current Open Issues, 2026-08-27 Clean Architecture Audit (N1..N11)
 
 Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md`, 9 FIXes `FIX-017..025`, 4 phases, `main` green `33075234503` after `7a0e69d`.
@@ -66,8 +120,8 @@ Full proposal: `docs/fix-proposal/clean-architecture-2026-08-27.md`, 9 FIXes `FI
 |----|-----|-------|--------|-----|
 | N1 | 🔴 Critical | **Build drift `Makefile.in:394` vs `Makefile:406`, 9 objects only in generated `Makefile` ( `lib/event_bus.o:lib/event_bus.cpp:57`, `lib/plugin_registry.o:lib/plugin_registry.cpp:87`, `plugins/metrics/metrics_plugin.o:plugins/metrics/metrics_plugin.cpp:51`, `tui/session_browser_core.o:tui/session_browser_core.cpp:145`, `tests/event_bus_test.o`, `tests/plugin_core_test.o`, `tests/metrics_plugin_test.o`, `SB_TEST_OBJ` + `session_browser_test` + `completions_test:command_line.o` ), fresh `./configure` lost them; `tui/tui.h:10` `plugin_registry.h` committed but headers `include/agent/event_bus.h:67`, `plugin_registry.h:74`, `plugin_core.h:58` untracked → `lint` `file not found` | **Done `7a0e69d`**: `Makefile.in` synced, headers tracked, `AGENTS.md:428` / `P5` fixed | FIX-016 |
 | N2 | 🟡 Medium | **Audit table drift `AGENTS.md:428` `tui/tui_input.cpp` 2308 vs `wc -l:2295`**: `make check` P5 `tests/build_hygiene.sh:110` failed every push | **Done `7a0e69d`**: 2308→2295 | FIX-016 |
-| N3 | 🟠 High | **God Class `tui/tui.h:46` 394 lines** (`tui/tui.h:46-439` 394, `tui/tui.cpp:750` `run` 394), 7 responsibilities (ncurses, windows, threads, rendering, git, sessions, feeds); `register_builtin_actions:941` 318 lines | 🔓 Open, `FIX-021..023` Facade → `WindowManager`/`EventRouter`/`RenderEngine`/`FeedManager`/`SessionController` (each <200/10) | FIX-021-023 |
-| N4 | 🟠 High | **Systemic `>10`-line methods**: every `lib/*.cpp` (`agent.cpp:227` `chat_once 116`, `123` `ensure_system_prompt 78`, `686` `run 71`; `compressor_parser.cpp:58:91`; `tool_call_parser.cpp:111:150`; `config.cpp:27:110` etc), `tui/tui_input.cpp:941` 318 | 🔓 Open, Boy Scout helper extraction per PR (no bulk) | FIX (Boy Scout) |
+| N3 | 🟠 High | **God Class `tui/tui.h:46` 394 lines** (`tui/tui.h:46-439` 394, `tui/tui.cpp:750` `run` 394), 7 responsibilities (ncurses, windows, threads, rendering, git, sessions, feeds); `register_builtin_actions:941` 318 lines | 🔓 Open — facade components (FIX-022/023) landed but **not** their own targets: `Tui::run` is now **599** (target 60), `tui/tui.h` **248**. Completion plan: **G1..G9** | FIX-043..051 |
+| N4 | 🟠 High | **Systemic `>10`-line methods**: every `lib/*.cpp` (`agent.cpp:227` `chat_once 116`, `123` `ensure_system_prompt 78`, `686` `run 71`; `compressor_parser.cpp:58:91`; `tool_call_parser.cpp:111:150`; `config.cpp:27:110` etc), `tui/tui_input.cpp:941` 318 | 🔓 Open — TUI portion tracked as **G1..G9** (FIX-043..051); `lib/*` stays Boy Scout helper extraction per PR (no bulk) | FIX (Boy Scout) |
 | N5 | 🟠 High | **`JsonMemoryStore` `lib/memory_store.cpp:115` 287 lines** (`115-401`) + `save:329` `std::system("mkdir -p "+dir)`, scoring + persistence + evidence + migration in one class | 🔓 Open, `FIX-019` split `memory_scoring.cpp`/`memory_persistence.cpp`, `JsonMemoryStore<150`, `fs::create_directories` | FIX-019 |
 | N6 | 🟡 Medium | **`EventBus::fire` `lib/event_bus.cpp:22` holds `scoped_lock:23` while invoking**: re-entrancy `subscribe/unsubscribe/fire` deadlocks; 13 types `include/agent/event_bus.h:67` declared, only `MetricsPlugin` uses | 🔓 Open, `FIX-017` snapshot under lock | FIX-017 |
 | N7 | 🟡 Medium | **`PluginRegistry` `lib/plugin_registry.cpp:24` static `s_bus/s_tools` fallback masks `ctx_==nullptr`; `Capability void* impl` `include/agent/plugin_core.h:46`** anticipates 8 types, only `Tool`/`Hook` wired | 🔓 Open, `FIX-018` `assert(ctx_)` + comment `void*`→`variant` deferred (YAGNI) | FIX-018 |

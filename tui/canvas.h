@@ -2,6 +2,8 @@
 #ifndef AMBER_TUI_CANVAS_H
 #define AMBER_TUI_CANVAS_H
 
+#include <ncurses.h>
+
 #include <string>
 #include <vector>
 

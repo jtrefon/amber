@@ -2,21 +2,14 @@
 #ifndef AMBER_TUI_SCROLL_DISPATCH_H
 #define AMBER_TUI_SCROLL_DISPATCH_H
 
-#include <ncurses.h>
-
-// macOS system ncurses does not define BUTTON5_PRESSED (wheel-down). Fall
-// back to the standard ncurses value (NCURSES_BUTTON_PRESSED << 24) so the
-// build and tests stay green on both platforms.
-#ifndef BUTTON5_PRESSED
-#define BUTTON5_PRESSED 0x2000000
-#endif
+#include "tui/keys.h"
 
 namespace tui::scroll_dispatch {
 
 // Lines to scroll the chat log for one mouse-wheel event. Wheel-up is
-// BUTTON4_PRESSED, wheel-down BUTTON5_PRESSED; any other bstate (arrow keys,
-// clicks, drags) maps to 0 so the wheel can never alias keyboard navigation.
-int wheel_delta(mmask_t bstate);
+// kButton4, wheel-down kButton5; any other mask (arrow keys, clicks, drags)
+// maps to 0 so the wheel can never alias keyboard navigation.
+int wheel_delta(keys::MouseMask bstate);
 
 // Clamp scroll_top + delta into [0, max_top]. Shared by wheel and PgUp/PgDn
 // so every scroll path bounds the viewport identically.

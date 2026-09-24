@@ -4,9 +4,12 @@
 #include "tui.h"
 #include "command_line.h"
 #include "confirm_panel.h"
-#include "drawer_rows.h"
 #include "tool_display.h"
 #include "scroll_dispatch.h"
+#include "keys_ncurses.h"
+#include "help_page.h"
+#include "completion_context.h"
+#include "option_key_decode.h"
 #include "signal_guard.h"
 #include "event_router.h"
 #include "feed_manager.h"
@@ -434,49 +437,11 @@ void Tui::run() {
     CommandLine cl;
     cl.set_history(win().prompt_history);
 
-    // Helper: update CommandLine's completion context from the command tree and JSON.
-    // This is the SINGLE source of completions — no duplicate logic in draw_drawer.
+    // Completion context from the command tree. This is the SINGLE source of
+    // completions — no duplicate logic in draw_drawer (see completion_context).
     auto update_completions = [&]() {
-        std::string input = cl.text();
-        if (!input.empty() && input[0] == '/') {
-            // The drawer is the visible contract: feed exactly its entry
-            // names so arrow selection and Enter dispatch index the same
-            // rows the user sees (aliases are not drawer rows).
-            auto names = drawer_entry_names(input, settings_);
-            // Dispatch prefix Enter prepends to the selected row:
-            //   "/window"        (namespace descend) -> "/window "  (keep ns)
-            //   "/c"             (partial)           -> "/"         (replace)
-            //   "/set model "    (trailing space)    -> "/set model "
-            std::string prefix;
-            if (!input.empty() && input.back() == ' ') {
-                prefix = input; // explicit descend
-            } else {
-                size_t tok_start = input.rfind(' ');
-                tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
-                std::string last_tok = input.substr(tok_start);
-                // drawer_entry_names descends into a namespace when the
-                // trailing token resolves to children (drawer_rows.cpp); in
-                // that case the namespace is KEPT (prefix = input + " ").
-                // Otherwise the token is a partial being typed and is
-                // REPLACED (prefix = input minus the token).
-                std::string ns_so_far = input.substr(1, tok_start - 1);
-                while (!ns_so_far.empty() && ns_so_far.back() == ' ')
-                    ns_so_far.pop_back();
-                std::string probe = ns_so_far.empty() ? last_tok : ns_so_far + "." + last_tok;
-                if (!settings_.children_of(probe).empty())
-                    prefix = input + " ";
-                else
-                    prefix = input.substr(0, tok_start);
-            }
-            cl.set_completions(names, prefix);
-            return;
-        }
-        // Non-slash text: top-level command names from the tree, including
-        // JSON-declared aliases — never a hardcoded list.
-        std::vector<std::string> names = settings_.complete("");
-        for (const auto& a : settings_.top_level_aliases())
-            names.push_back(a);
-        cl.set_completions(names);
+        completion_context::Context ctx = completion_context::for_input(cl.text(), settings_);
+        cl.set_completions(ctx.rows, ctx.prefix);
     };
     update_completions();
 
@@ -551,8 +516,8 @@ void Tui::run() {
         // normalize digit-row glyphs to the meta-digit path so Alt+number
         // works with no terminal configuration. Other Option glyphs stay
         // non-insertable, matching the prior drop of non-ASCII input.
-        if (ch >= 0xC2 && ch <= 0xF4) {
-            int need = (ch < 0xE0) ? 1 : (ch < 0xF0) ? 2 : 3;
+        if (option_key_decode::is_lead(static_cast<unsigned char>(ch))) {
+            const int need = option_key_decode::continuation_bytes(static_cast<unsigned char>(ch));
             unsigned char seq[4] = {static_cast<unsigned char>(ch)};
             int got = 0;
             timeout(50);
@@ -569,9 +534,7 @@ void Tui::run() {
             timeout(kTickTimeoutMs);
             if (got != need)
                 continue;
-            uint32_t cp = seq[0] & ((need == 1) ? 0x1F : (need == 2) ? 0x0F : 0x07);
-            for (int i = 1; i <= need; ++i)
-                cp = (cp << 6) | (seq[i] & 0x3F);
+            const uint32_t cp = option_key_decode::codepoint(seq, need);
             if (int d = macos_option_digit(cp); d >= 0)
                 ch = 0xB0 + d;
             else if (cp == kMacosOptionB) {
@@ -882,99 +845,25 @@ void Tui::run() {
                 continue;
             }
             case CommandLine::Result::ShowHelpPage: {
-                std::string node = result.help_node;
-                if (!node.empty() && node[0] == '/')
-                    node = node.substr(1);
-                std::string help_key = node;
-                size_t first_sp = node.find(' ');
-                if (first_sp != std::string::npos)
-                    help_key = node.substr(first_sp + 1);
-                // Try full man page first.
-                std::string man = settings_.man_for(help_key);
-                if (!man.empty()) {
-                    std::vector<std::string> page;
-                    // Header: help text as subtitle
-                    std::string helptxt = settings_.help_for(help_key);
-                    if (!helptxt.empty())
-                        page.emplace_back(helptxt);
-                    page.emplace_back("");
-                    // Body: full man text with word wrapping
-                    size_t pos = 0;
-                    while (pos < man.size()) {
-                        size_t next = man.find('\n', pos);
-                        if (next == std::string::npos) {
-                            page.emplace_back(man.substr(pos));
-                            break;
-                        }
-                        page.emplace_back(man.substr(pos, next - pos));
-                        pos = next + 1;
-                    }
-                    page.emplace_back("");
-                    // Children listing
-                    auto kids = settings_.children_of(help_key);
-                    if (!kids.empty()) {
-                        page.emplace_back("sub-commands:");
-                        for (const auto& k : kids) {
-                            std::string line = "  " + k;
-                            std::string subkey = help_key;
-                            subkey += ".";
-                            subkey += k;
-                            std::string h = settings_.help_for(subkey);
-                            if (!h.empty()) {
-                                line += "  —  ";
-                                line += h;
-                            }
-                            page.emplace_back(line);
-                        }
-                        page.emplace_back("");
-                    }
-                    // Choices / range for leaf settings
-                    const auto& ch_choices = settings_.choices_for(help_key);
-                    if (!ch_choices.empty()) {
-                        std::string line = "choices: ";
-                        for (size_t i = 0; i < ch_choices.size(); ++i) {
-                            if (i > 0)
-                                line += ", ";
-                            line += ch_choices[i];
-                        }
-                        page.push_back(line);
-                    }
-                    double rlo, rhi;
-                    if (settings_.range_for(help_key, rlo, rhi))
-                        page.push_back("range: " + std::to_string((int)rlo) + " – " +
-                                       std::to_string((int)rhi));
+                const std::string help_key = help_page::key_from_node(result.help_node);
+                std::vector<std::string> page = help_page::build(settings_, help_key);
+                if (!page.empty()) {
                     info_dialog(help_key, page);
                     redraw_after_modal();
                     render_engine_->draw();
                     render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                     continue;
                 }
-                // Fallback to one-line status for leaf settings without man text.
-                std::string desc = settings_.help_for(help_key);
-                if (!desc.empty()) {
-                    std::string msg = help_key;
-                    msg += "  —  ";
-                    msg += desc;
-                    const auto& chc = settings_.choices_for(help_key);
-                    if (!chc.empty()) {
-                        msg += "  choices: ";
-                        for (const auto& c : chc)
-                            msg += c + "|";
-                        msg.pop_back();
-                    }
-                    double rlo, rhi;
-                    if (settings_.range_for(help_key, rlo, rhi))
-                        msg += "  range: " + std::to_string(rlo) + "-" + std::to_string(rhi);
+                // Fallback to a one-line status for leaf settings without man text.
+                const std::string msg = help_page::fallback_line(settings_, help_key);
+                if (!msg.empty()) {
                     append_line(P_STATUS, msg);
                     render_engine_->draw();
                     render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                     continue;
                 }
                 // Fallback to cmd_help for top-level commands.
-                size_t sp = node.find(' ');
-                if (sp != std::string::npos)
-                    node.resize(sp);
-                slash_dispatcher_->cmd_help(node);
+                slash_dispatcher_->cmd_help(help_page::command_from_node(result.help_node));
                 render_engine_->draw();
                 render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
                 continue;

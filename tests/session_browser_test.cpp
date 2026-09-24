@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "tui/session_browser_core.h"
+#include "tui/keys.h"
 #include "tests/minitest.h"
 
 namespace {
@@ -39,35 +40,35 @@ TEST(layout_small_dialog_keeps_one_list_row) {
 
 TEST(down_moves_selection_and_stays_open) {
     tui::SessionBrowserCore core(sample_items(), 5);
-    auto r = core.key(KEY_DOWN);
+    auto r = core.key(tui::keys::kDown);
     ASSERT(r.action == Action::None);
     ASSERT_EQ(core.sel(), 2);
 }
 
 TEST(up_at_top_is_noop_and_stays_open) {
     tui::SessionBrowserCore core(sample_items(), 5);
-    auto r = core.key(KEY_UP);
+    auto r = core.key(tui::keys::kUp);
     ASSERT(r.action == Action::None);
     ASSERT_EQ(core.sel(), 1); // sel starts on first session row (below its date header)
 }
 
 TEST(page_down_jumps_by_page) {
     tui::SessionBrowserCore core(sample_items(), 3);
-    core.key(KEY_NPAGE);
+    core.key(tui::keys::kNPage);
     ASSERT(core.sel() >= 4);
-    ASSERT(core.key(KEY_NPAGE).action == Action::None);
-    core.key(KEY_NPAGE);
-    core.key(KEY_NPAGE); // clamp at end
+    ASSERT(core.key(tui::keys::kNPage).action == Action::None);
+    core.key(tui::keys::kNPage);
+    core.key(tui::keys::kNPage); // clamp at end
     ASSERT(core.sel() <= core.display_count() - 1);
 }
 
 TEST(page_up_jumps_back) {
     tui::SessionBrowserCore core(sample_items(), 3);
-    core.key(KEY_PPAGE);
-    core.key(KEY_NPAGE);
-    core.key(KEY_NPAGE);
+    core.key(tui::keys::kPPage);
+    core.key(tui::keys::kNPage);
+    core.key(tui::keys::kNPage);
     int before = core.sel();
-    core.key(KEY_PPAGE);
+    core.key(tui::keys::kPPage);
     ASSERT(core.sel() < before);
 }
 
@@ -84,7 +85,7 @@ TEST(backspace_pops_filter) {
     tui::SessionBrowserCore core(sample_items(), 5);
     core.key('a');
     core.key('l');
-    core.key(KEY_BACKSPACE);
+    core.key(tui::keys::kBackspace);
     ASSERT_EQ(core.filter(), "a");
 }
 
@@ -99,7 +100,7 @@ TEST(load_index_skips_date_header_rows) {
 
 TEST(delete_targets_snapped_session) {
     tui::SessionBrowserCore core(sample_items(), 8);
-    auto r = core.key(KEY_DC);
+    auto r = core.key(tui::keys::kDelete);
     ASSERT(r.delete_pending);
     ASSERT_EQ(core.load_index(), 0);
 }

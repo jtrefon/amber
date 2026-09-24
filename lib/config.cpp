@@ -154,14 +154,29 @@ void Config::load(const std::string& path) {
     }
 }
 
+namespace {
+
+// An environment-provided config root is only honoured when it is a sane
+// absolute path with no parent-directory component. The value comes from the
+// environment, so a malformed or hostile one must not redirect where amber
+// reads and writes.
+bool is_sane_config_root(const std::filesystem::path& p) {
+    if (!p.is_absolute())
+        return false;
+    return std::all_of(p.begin(), p.end(),
+                       [](const std::filesystem::path& part) { return part != ".."; });
+}
+
+} // namespace
+
 std::string global_config_dir() {
     const char* xdg = std::getenv("XDG_CONFIG_HOME");
-    if (xdg && *xdg)
-        return std::string(xdg) + "/amber";
+    if (xdg && *xdg && is_sane_config_root(xdg))
+        return (std::filesystem::path(xdg) / "amber").string();
     const char* home = std::getenv("HOME");
-    if (!home)
-        return ".amber";
-    return std::string(home) + "/.config/amber";
+    if (home && *home && is_sane_config_root(home))
+        return (std::filesystem::path(home) / ".config" / "amber").string();
+    return ".amber";
 }
 
 std::string global_config_path() {

@@ -3,6 +3,8 @@
 #include "tui/dialog.h"
 #include "tui/confirm_panel.h"
 #include "tui/session_browser_core.h"
+#include "tui/session_row.h"
+#include "tui/keys_ncurses.h"
 #include "tui/window_ops.h"
 #include "tool_display.h"
 
@@ -252,6 +254,11 @@ std::string fmt_time(long long ms) {
 
 } // namespace
 
+static void draw_session_rows(WINDOW* w, SessionBrowserCore& core, int aw);
+static void draw_date_header(WINDOW* w, int row, const BrowserItem& m);
+static void draw_search_bar(WINDOW* w, int ah, int aw, const std::string& filter);
+static void draw_scroll_indicators(WINDOW* w, int aw, const SessionBrowserCore& core);
+
 void SessionController::session_browser() {
     auto all = store_.list();
     if (all.empty()) {
@@ -264,19 +271,17 @@ void SessionController::session_browser() {
     for (const auto& m : all)
         items.push_back({m.id, m.title, m.updated_ms, m.model, m.message_count, m.file_size});
 
-    int sh = tui_.render_engine_->height(), sw = tui_.render_engine_->width();
-    int dw = std::min(sw - 4, 120);
-    int dh = std::min(sh - 6, sh - 2);
-
-    Dialog dlg(dh, dw, "Sessions");
+    const session_row::Size sz =
+        session_row::dialog_size(tui_.render_engine_->height(), tui_.render_engine_->width());
+    Dialog dlg(sz.dh, sz.dw, "Sessions");
     dlg.set_footer({{"Up/Down", "nav"},
                     {"Enter", "load"},
                     {"Del", "remove"},
                     {"/", "search"},
                     {"Esc", "back"}});
     WINDOW* w = dlg.win();
-    int aw = dlg.cols() - 2; // content width
-    int ah = dlg.rows() - 2; // content height
+    const int aw = dlg.cols() - 2; // content width
+    const int ah = dlg.rows() - 2; // content height
 
     // All list/filter/selection semantics live in the core (which is what the
     // unit tests exercise); this loop only paints it and acts on its verdicts.
@@ -285,113 +290,119 @@ void SessionController::session_browser() {
 
     bool done = false;
     while (!done) {
-        // Render list — clear each row with its own attribute so highlights
-        // extend full-width. The date header rows and blank rows use the
-        // dialog background pair inherited from wbkgd.
-        int title_w = std::max(16, aw - 34);
-        for (int i = 0; i < core.list_h(); ++i) {
-            int row = 1 + i;
-            int disp_idx = core.scroll_off() + i;
-            int kind = core.display_kind(disp_idx);
-            if (kind < 0)
-                continue; // past end — wbkgd shows through
-
-            const BrowserItem& m = core.item(core.display_item(disp_idx));
-            if (kind == 0) {
-                // Date header
-                wattron(w, COLOR_PAIR(P_BAR_DIM) | A_BOLD);
-                mvwaddstr(w, row, 1, ("  " + date_label(m.updated_ms)).c_str());
-                wattroff(w, COLOR_PAIR(P_BAR_DIM) | A_BOLD);
-            } else {
-                bool cur = (disp_idx == core.sel());
-                if (cur) {
-                    wattron(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
-                    mvwaddstr(w, row, 1, std::string(aw, ' ').c_str());
-                } else {
-                    wattron(w, COLOR_PAIR(P_ASSISTANT));
-                }
-                mvwaddstr(w, row, 1, "  ");
-                int x = 3;
-                std::string title = m.title;
-                if (static_cast<int>(title.size()) > title_w) {
-                    title.resize(title_w - 1);
-                    title += text::glyph::ellipsis();
-                }
-                mvwaddnstr(w, row, x, title.c_str(), title_w);
-                x += title_w + 1;
-                std::string mod = m.model;
-                if (mod.size() > 10) {
-                    mod.resize(9);
-                    mod += text::glyph::ellipsis();
-                }
-                mvwaddstr(w, row, x, mod.c_str());
-                x += static_cast<int>(mod.size()) + 1;
-                char cnt[24];
-                std::snprintf(cnt, sizeof(cnt), "%d msgs", m.message_count);
-                mvwaddstr(w, row, x, cnt);
-                x += static_cast<int>(std::strlen(cnt)) + 1;
-                if (m.file_size > 0) {
-                    char sz[16];
-                    if (m.file_size > static_cast<long>(1024) * 1024)
-                        std::snprintf(sz, sizeof(sz), "%.1fMB", m.file_size / (1024.0 * 1024.0));
-                    else if (m.file_size > 1024)
-                        std::snprintf(sz, sizeof(sz), "%.0fKB", m.file_size / 1024.0);
-                    else
-                        std::snprintf(sz, sizeof(sz), "%zuB", m.file_size);
-                    mvwaddstr(w, row, x, sz);
-                }
-                std::string ts = fmt_time(m.updated_ms);
-                mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
-                if (cur)
-                    wattroff(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
-                else
-                    wattroff(w, COLOR_PAIR(P_ASSISTANT));
-            }
-        }
-
-        // Search bar
-        std::string search_prompt = "/ " + core.filter();
-        wattron(w, COLOR_PAIR(P_STATUS));
-        mvwaddstr(w, ah - 1, 1, std::string(aw, ' ').c_str());
-        mvwaddnstr(w, ah - 1, 1, search_prompt.c_str(), aw);
-        wmove(w, ah - 1, 2 + static_cast<int>(core.filter().size()));
-        wattroff(w, COLOR_PAIR(P_STATUS));
-
-        // Scroll indicators
-        if (core.scroll_off() > 0)
-            mvwaddch(w, 1, aw, ACS_UARROW);
-        if (core.scroll_off() + core.list_h() < core.display_count())
-            mvwaddch(w, core.list_h(), aw, ACS_DARROW);
+        draw_session_rows(w, core, aw);
+        draw_search_bar(w, ah, aw, core.filter());
+        draw_scroll_indicators(w, aw, core);
 
         update_panels();
         doupdate();
 
-        auto r = core.key(wgetch(w));
-        if (r.action == SessionBrowserCore::Result::Action::Accept) {
-            if (int idx = core.load_index(); idx >= 0)
-                load_session(core.item(idx).id);
+        if (session_browser_key(wgetch(w), core))
             done = true;
-        } else if (r.action == SessionBrowserCore::Result::Action::Cancel) {
-            done = true;
-        }
-        if (r.delete_pending) {
-            if (int idx = core.load_index(); idx >= 0) {
-                std::string msg = "Delete \"" + core.item(idx).title + "\"?";
-                tui::ConfirmPanel confirm("Delete Session", msg);
-                if (confirm.run()) {
-                    store_.remove(core.item(idx).id);
-                    core.erase_current();
-                    if (core.display_count() == 0) {
-                        tui_.append_line(P_STATUS, "no saved sessions");
-                        done = true;
-                    }
-                }
-            }
-        }
     }
 
     curs_set(1);
     tui_.draw();
+}
+
+static void draw_session_rows(WINDOW* w, SessionBrowserCore& core, int aw) {
+    // Render list — clear each row with its own attribute so highlights extend
+    // full-width. The date header rows and blank rows use the dialog background
+    // pair inherited from wbkgd.
+    const int title_w = std::max(16, aw - 34);
+    for (int i = 0; i < core.list_h(); ++i) {
+        const int row = 1 + i;
+        const int disp_idx = core.scroll_off() + i;
+        const int kind = core.display_kind(disp_idx);
+        if (kind < 0)
+            continue; // past end — wbkgd shows through
+
+        const BrowserItem& m = core.item(core.display_item(disp_idx));
+        if (kind == 0) {
+            draw_date_header(w, row, m);
+            continue;
+        }
+        const bool cur = (disp_idx == core.sel());
+        if (cur) {
+            wattron(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
+            mvwaddstr(w, row, 1, std::string(aw, ' ').c_str());
+        } else {
+            wattron(w, COLOR_PAIR(P_ASSISTANT));
+        }
+        mvwaddstr(w, row, 1, "  ");
+        int x = 3;
+        const std::string t = session_row::title(m.title, title_w);
+        mvwaddnstr(w, row, x, t.c_str(), title_w);
+        x += title_w + 1;
+        const std::string mod = session_row::model(m.model);
+        mvwaddstr(w, row, x, mod.c_str());
+        x += static_cast<int>(mod.size()) + 1;
+        const std::string cnt = session_row::message_count(m.message_count);
+        mvwaddstr(w, row, x, cnt.c_str());
+        x += static_cast<int>(cnt.size()) + 1;
+        const std::string size = session_row::file_size(m.file_size);
+        if (!size.empty())
+            mvwaddstr(w, row, x, size.c_str());
+        const std::string ts = fmt_time(m.updated_ms);
+        mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
+        if (cur)
+            wattroff(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
+        else
+            wattroff(w, COLOR_PAIR(P_ASSISTANT));
+    }
+}
+
+static void draw_date_header(WINDOW* w, int row, const BrowserItem& m) {
+    wattron(w, COLOR_PAIR(P_BAR_DIM) | A_BOLD);
+    mvwaddstr(w, row, 1, ("  " + date_label(m.updated_ms)).c_str());
+    wattroff(w, COLOR_PAIR(P_BAR_DIM) | A_BOLD);
+}
+
+static void draw_search_bar(WINDOW* w, int ah, int aw, const std::string& filter) {
+    const std::string search_prompt = "/ " + filter;
+    wattron(w, COLOR_PAIR(P_STATUS));
+    mvwaddstr(w, ah - 1, 1, std::string(aw, ' ').c_str());
+    mvwaddnstr(w, ah - 1, 1, search_prompt.c_str(), aw);
+    wmove(w, ah - 1, 2 + static_cast<int>(filter.size()));
+    wattroff(w, COLOR_PAIR(P_STATUS));
+}
+
+static void draw_scroll_indicators(WINDOW* w, int aw, const SessionBrowserCore& core) {
+    if (core.scroll_off() > 0)
+        mvwaddch(w, 1, aw, ACS_UARROW);
+    if (core.scroll_off() + core.list_h() < core.display_count())
+        mvwaddch(w, core.list_h(), aw, ACS_DARROW);
+}
+
+bool SessionController::session_browser_key(int ch, SessionBrowserCore& core) {
+    const auto r = core.key(ch);
+    if (r.action == SessionBrowserCore::Result::Action::Accept) {
+        if (int idx = core.load_index(); idx >= 0)
+            load_session(core.item(idx).id);
+        return true;
+    }
+    if (r.action == SessionBrowserCore::Result::Action::Cancel)
+        return true;
+    if (r.delete_pending && confirm_delete_session(core))
+        return true;
+    return false;
+}
+
+bool SessionController::confirm_delete_session(SessionBrowserCore& core) {
+    const int idx = core.load_index();
+    if (idx < 0)
+        return false;
+    std::string msg = "Delete \"" + core.item(idx).title + "\"?";
+    tui::ConfirmPanel confirm("Delete Session", msg);
+    if (!confirm.run())
+        return false;
+    store_.remove(core.item(idx).id);
+    core.erase_current();
+    if (core.display_count() == 0) {
+        tui_.append_line(P_STATUS, "no saved sessions");
+        return true;
+    }
+    return false;
 }
 
 void SessionController::save_window_sessions() {

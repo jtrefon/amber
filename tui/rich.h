@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "widgets.h" // color pair ids
+#include "pairs.h" // color pair ids
 
 namespace tui {
 namespace rich {

@@ -1,93 +1,67 @@
 #include "panel_view.h"
 
 #include "tui/dialog.h"
+#include "tui/panel_view_state.h"
 #include "tui/widgets.h"
 
-#include <algorithm>
 #include <ncurses.h>
 
 #include "agent/extensions.h"
 
 namespace tui {
 
-namespace {
-
-struct Scroll {
-    int top = 0;
-    int total = 0;
-    int visible = 1;
-    void clamp() {
-        const int max_top = std::max(0, total - visible);
-        top = std::max(0, std::min(top, max_top));
-    }
-};
-
-void draw_lines(WINDOW* w, int width, const std::vector<std::string>& lines, Scroll& scroll) {
-    scroll.total = static_cast<int>(lines.size());
-    scroll.clamp();
-    werase(w);
-    for (int i = 0; i < scroll.visible; ++i) {
-        const int idx = scroll.top + i;
-        if (idx >= scroll.total)
-            break;
-        std::string text = lines[idx];
-        if (static_cast<int>(text.size()) > width)
-            text.resize(width);
-        mvwaddstr(w, i, 0, text.c_str());
-    }
-    if (scroll.top > 0)
-        mvwaddch(w, 0, width - 1, ACS_UARROW);
-    if (scroll.top + scroll.visible < scroll.total)
-        mvwaddch(w, scroll.visible - 1, width - 1, ACS_DARROW);
-    wrefresh(w);
-}
-
-} // namespace
-
 std::string panel_view(const agent::PanelRegistry& panels, const std::string& start_id) {
     auto specs = panels.all();
     if (specs.empty())
         return {};
 
-    // Start on the requested panel, else the first one (the registry
-    // guarantees that is the console).
-    int index = 0;
-    for (std::size_t i = 0; i < specs.size(); ++i)
-        if (specs[i].id == start_id)
-            index = static_cast<int>(i);
+    std::vector<std::string> ids;
+    ids.reserve(specs.size());
+    for (const auto& s : specs)
+        ids.push_back(s.id);
+    int index = panel_view_state::start_index(ids, start_id);
 
     ModalScope scope;
     curs_set(0);
 
     int sh = 0, sw = 0;
     getmaxyx(stdscr, sh, sw);
-    const int dh = std::max(6, sh - 4);
-    const int dw = std::max(20, sw - 6);
+    const panel_view_state::Geometry g = panel_view_state::geometry(sh, sw);
 
     // The frame is drawn per panel (the title changes when cycling), so the
     // dialog is constructed inside the loop. `specs` is a local copy and never
-    // changes here, so the loop only has to watch for the user closing it.
-    // The footer depends only on how many panels there are, so it is built once
+    // changes here, so the loop only has to watch for the user closing it. The
+    // footer depends only on how many panels there are, so it is built once
     // instead of on every keypress.
     std::vector<FooterKey> footer;
-    if (specs.size() > 1)
-        footer.push_back({"Tab", "next panel"});
-    footer.push_back({"Up/Down", "scroll"});
-    footer.push_back({"Esc/q", "close"});
+    for (const auto& f : panel_view_state::footer(static_cast<int>(specs.size())))
+        footer.push_back({f.first, f.second});
 
     bool done = false;
     while (!done) {
         const agent::PanelSpec& spec = specs[static_cast<std::size_t>(index)];
 
-        Dialog dlg(dh, dw, spec.title.empty() ? spec.id : spec.title);
+        Dialog dlg(g.dh, g.dw, spec.title.empty() ? spec.id : spec.title);
         dlg.set_footer(footer);
         WINDOW* content = dlg.win();
-        WINDOW* body = derwin(content, dh - 4, dw - 4, 2, 2);
-        Scroll scroll;
-        scroll.visible = dh - 4;
+        WINDOW* body = derwin(content, g.body_h, g.body_w, 2, 2);
+        panel_view_state::Scroll scroll;
+        scroll.visible = g.body_h;
 
-        const auto lines = spec.lines ? spec.lines(dw - 4) : std::vector<std::string>{};
-        draw_lines(body, dw - 4, lines, scroll);
+        const auto lines = spec.lines ? spec.lines(g.body_w) : std::vector<std::string>{};
+        scroll.total = static_cast<int>(lines.size());
+        scroll.clamp();
+        const std::vector<std::string> rows =
+            panel_view_state::visible_rows(lines, g.body_w, scroll);
+        const panel_view_state::Arrows ar = panel_view_state::arrows(scroll);
+        werase(body);
+        for (std::size_t i = 0; i < rows.size(); ++i)
+            mvwaddstr(body, static_cast<int>(i), 0, rows[i].c_str());
+        if (ar.up)
+            mvwaddch(body, 0, g.body_w - 1, ACS_UARROW);
+        if (ar.down)
+            mvwaddch(body, scroll.visible - 1, g.body_w - 1, ACS_DARROW);
+        wrefresh(body);
         update_panels();
         doupdate();
 
@@ -106,25 +80,8 @@ std::string panel_view(const agent::PanelRegistry& panels, const std::string& st
             if (specs.size() > 1)
                 index = (index + 1) % static_cast<int>(specs.size());
             break;
-        case KEY_UP:
-            --scroll.top;
-            break;
-        case KEY_DOWN:
-            ++scroll.top;
-            break;
-        case KEY_PPAGE:
-            scroll.top -= scroll.visible;
-            break;
-        case KEY_NPAGE:
-            scroll.top += scroll.visible;
-            break;
-        case KEY_HOME:
-            scroll.top = 0;
-            break;
-        case KEY_END:
-            scroll.top = scroll.total;
-            break;
         default:
+            panel_view_state::apply_key(ch, scroll);
             break;
         }
 
