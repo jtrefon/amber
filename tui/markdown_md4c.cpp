@@ -24,15 +24,6 @@ namespace {
 using rich::Line;
 using rich::Run;
 
-struct RunStyle {
-    int pair = 0;
-    bool bold = false, dim = false, italic = false, under = false;
-    bool operator==(const RunStyle& o) const {
-        return pair == o.pair && bold == o.bold && dim == o.dim && italic == o.italic &&
-               under == o.under;
-    }
-};
-
 struct ListFrame {
     bool ordered;
     unsigned index;
@@ -338,82 +329,8 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
             // parse SGR; mutate cur; advance i past the sequence
             std::size_t j = i;
             const std::vector<int> nums = ansi_sgr::parse(s, i, j);
-            for (int code : nums) {
-                switch (code) {
-                case 0:
-                    cur = base;
-                    break;
-                case 1:
-                    cur.bold = true;
-                    break;
-                case 2:
-                    cur.dim = true;
-                    break;
-                case 3:
-                    cur.italic = true;
-                    break;
-                case 4:
-                    cur.under = true;
-                    break;
-                case 22:
-                    cur.bold = cur.dim = false;
-                    break;
-                case 23:
-                    cur.italic = false;
-                    break;
-                case 24:
-                    cur.under = false;
-                    break;
-                case 30:
-                    cur.pair = c.st->text_pair;
-                    break;
-                case 31:
-                    cur.pair = P_GAUGE_CRIT;
-                    break;
-                case 32:
-                    cur.pair = c.st->code_pair;
-                    break;
-                case 33:
-                    cur.pair = P_MD_CODESTR;
-                    break;
-                case 34:
-                    cur.pair = P_MD_CODECMT;
-                    break;
-                case 35:
-                    cur.pair = P_MD_CODEKEY;
-                    break;
-                case 36:
-                    cur.pair = c.st->quote_pair;
-                    break;
-                case 37:
-                case 90:
-                    cur.pair = c.st->text_pair;
-                    break;
-                case 91:
-                    cur.pair = P_GAUGE_CRIT;
-                    break;
-                case 92:
-                    cur.pair = c.st->code_pair;
-                    break;
-                case 93:
-                    cur.pair = P_MD_CODESTR;
-                    break;
-                case 94:
-                    cur.pair = P_MD_CODECMT;
-                    break;
-                case 95:
-                    cur.pair = P_MD_CODEKEY;
-                    break;
-                case 96:
-                    cur.pair = c.st->quote_pair;
-                    break;
-                case 97:
-                    cur.pair = c.st->text_pair;
-                    break;
-                default:
-                    break;
-                }
-            }
+            for (int code : nums)
+                ansi_sgr::apply(code, cur, base, *c.st);
             i = j;
             continue;
         }
