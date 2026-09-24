@@ -1,6 +1,8 @@
 #ifndef AMBER_TUI_RENDER_ENGINE_H
 #define AMBER_TUI_RENDER_ENGINE_H
 
+#include <ncurses.h>
+
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -8,9 +10,11 @@
 #include <vector>
 
 #include "canvas.h"
+#include "input_line_layout.h"
 #include "markdown.h"
 #include "rich.h"
 #include "palette.h"
+#include "status_bar_layout.h"
 
 #include "agent/extensions.h"
 #include "agent/plugin_runtime.h"
@@ -95,12 +99,9 @@ public:
     int anim_phase() const noexcept { return anim_phase_; }
 
 private:
-    struct Seg {
-        std::string text;
-        int pair;
-        int drop;
-        agent::StatusAlign align = agent::StatusAlign::Left;
-    };
+    // A status segment is the L1 layout's type: the bar is laid out purely
+    // (status_bar_layout) and this class only paints the plan.
+    using Seg = status_bar_layout::Segment;
     std::vector<Seg> bar_segments() const;
     agent::StatusSnapshot build_status_snapshot() const;
     static int tone_pair(agent::StatusTone tone);
@@ -108,6 +109,11 @@ private:
     static std::wstring to_wide(const std::string& s);
     static std::string kfmt(long n);
     static int gauge_pair(double f);
+    // Draw one input-line piece at `x`, advancing it (truncated to the width).
+    void put_input(int y, int w, int& x, const std::string& text, int pair, int attrs = 0);
+    // Draw the dim completion hint after the input, when the cursor is at the end.
+    void draw_input_shadow(int y, int w, int prompt_w, int scroll_off, const std::string& input,
+                           std::size_t cursor, const std::string& shadow);
 
     // The activity word leading the working indicator ("thinking", "talking",
     // "compressing", "searching", "working", ...) derived from the agent's

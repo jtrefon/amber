@@ -11,6 +11,7 @@
 
 #include "action_registry.h"
 #include "palette.h"
+#include "setting_registry.h"
 
 namespace tui {
 class Tui;
@@ -139,6 +140,29 @@ public:
     void set_model_info(std::vector<agent::ModelInfo> v) { model_info_ = std::move(v); }
 
 private:
+    // register_builtin_actions() is a facade over these per-domain groups, so
+    // each stays well under the size limit and a domain is edited in one place.
+    void register_core_actions();
+    void register_provider_actions();
+    void register_os_actions();
+    void register_config_set_actions();
+    void register_config_get_actions();
+    void register_mcp_actions();
+
+    // build_settings() is likewise a facade: one group per setting namespace,
+    // and add_setting() is the single registration helper they share.
+    void add_setting(const std::string& key, const std::string& help,
+                     const std::string& placeholder, Setting::Type type, double rmin, double rmax,
+                     std::function<std::string()> getter,
+                     std::function<void(const std::string&)> setter);
+    void add_detection_settings();
+    void add_reasoning_settings();
+    void add_subagent_settings();
+    void add_display_settings();
+    void add_policy_settings();
+    void add_think_settings();
+    void add_compression_settings();
+
     Tui& tui_;
     std::vector<palette::Command> commands_;
     tui::ActionRegistry action_registry_;

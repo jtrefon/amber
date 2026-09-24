@@ -2,8 +2,6 @@
 #ifndef AMBER_TUI_SESSION_BROWSER_CORE_H
 #define AMBER_TUI_SESSION_BROWSER_CORE_H
 
-#include <ncurses.h>
-
 #include <string>
 #include <utility>
 #include <vector>

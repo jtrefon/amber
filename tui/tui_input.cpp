@@ -18,6 +18,7 @@
 #include <ctime>
 #include <fstream>
 #include <stdexcept>
+#include <sstream>
 #include <thread>
 #include <unistd.h>
 #include <agent/job.h>
@@ -249,7 +250,7 @@ void SlashDispatcher::cmd_get(const std::string& arg) {
     if (!subs.empty()) {
         for (const auto& sub : subs) {
             std::string key = arg;
-            key += ".";
+            key += '.';
             key += sub;
             cmd_get(key);
         }
@@ -635,7 +636,7 @@ std::string plugin_ids(const agent::PluginRuntime& runtime) {
     std::string ids;
     for (const auto& p : runtime.list()) {
         if (!ids.empty())
-            ids += " ";
+            ids += ' ';
         ids += p.id;
     }
     return ids.empty() ? std::string("(none registered)") : ids;
@@ -920,7 +921,7 @@ void SlashDispatcher::build_commands() {
             std::string args;
             for (size_t i = 0; i < kids.size(); ++i) {
                 if (i > 0)
-                    args += "|";
+                    args += '|';
                 args += kids[i];
             }
             if (args.size() > 40)
@@ -938,6 +939,15 @@ void SlashDispatcher::register_action(const std::string& action,
 }
 
 void SlashDispatcher::register_builtin_actions() {
+    register_core_actions();
+    register_provider_actions();
+    register_os_actions();
+    register_config_set_actions();
+    register_config_get_actions();
+    register_mcp_actions();
+}
+
+void SlashDispatcher::register_core_actions() {
     register_action("core.help", [this](const std::string& a) { cmd_help(a); });
     register_action("core.settings", [this](const std::string&) {
         tui_.settings_screen();
@@ -998,6 +1008,9 @@ void SlashDispatcher::register_builtin_actions() {
         tui_.session_controller_->session_browser();
     });
     register_action("core.quit", [this](const std::string&) { request_quit(); });
+}
+
+void SlashDispatcher::register_provider_actions() {
     // provider
     register_action("core.provider", [this](const std::string& a) { cmd_provider(a); });
     register_action("core.provider.list", [this](const std::string&) { cmd_provider_list(); });
@@ -1005,6 +1018,9 @@ void SlashDispatcher::register_builtin_actions() {
                     [this](const std::string& a) { cmd_provider_delete(a); });
     register_action("core.provider.test", [this](const std::string& a) { cmd_provider_test(a); });
     // model (get/set accessor — see completions.json get.model/set.model)
+}
+
+void SlashDispatcher::register_os_actions() {
     // files
     register_action("os.files", [this](const std::string& a) {
         if (!a.empty())
@@ -1036,6 +1052,9 @@ void SlashDispatcher::register_builtin_actions() {
     register_action("os.system.df", [this](const std::string&) { cmd_system_df(); });
     register_action("os.system.uptime", [this](const std::string&) { cmd_system_uptime(); });
     register_action("os.system.uname", [this](const std::string&) { cmd_system_uname(); });
+}
+
+void SlashDispatcher::register_config_set_actions() {
     // set namespace + children
     register_action("core.config.set", [this](const std::string& a) { cmd_set(a); });
     register_action("core.config.set.detection.loop",
@@ -1122,6 +1141,9 @@ void SlashDispatcher::register_builtin_actions() {
                     [this](const std::string& a) { cmd_skills_install(a); });
     register_action("core.config.set.skills.uninstall",
                     [this](const std::string& a) { cmd_skills_uninstall(a); });
+}
+
+void SlashDispatcher::register_config_get_actions() {
     // get namespace + children
     register_action("core.config.get", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.config", [this](const std::string&) { cmd_get_config(); });
@@ -1214,6 +1236,9 @@ void SlashDispatcher::register_builtin_actions() {
     register_action("core.config.get.skills", [this](const std::string& a) { cmd_skills_get(a); });
     register_action("core.config.get.skills.show",
                     [this](const std::string&) { cmd_skills_get("show"); });
+}
+
+void SlashDispatcher::register_mcp_actions() {
     // mcp
     register_action("core.mcp", [this](const std::string& a) { cmd_mcp(a); });
     register_action("core.mcp.list", [this](const std::string&) { cmd_mcp(""); });
@@ -1290,7 +1315,7 @@ bool SlashDispatcher::handle_slash(const std::string& line) {
     std::string arg;
     for (size_t i = consumed; i < tokens.size(); ++i) {
         if (!arg.empty())
-            arg += " ";
+            arg += ' ';
         arg += tokens[i];
     }
 
@@ -2409,105 +2434,81 @@ std::string Tui::prompt_api_key(const std::string& reason) {
     return key;
 }
 
-void Tui::settings_screen() {
-    // Step 1: Build provider list from saved + built-in presets
+// Build the provider picker rows: one per provider (the active one marked, with
+// its key hint) plus a trailing "Add new provider..." sentinel. `ids` is the
+// parallel id list; its last entry is "" for the sentinel.
+void Tui::build_provider_picker(std::vector<std::string>& rows,
+                                std::vector<std::string>& ids) const {
     const auto providers = providers_->available();
 
     std::vector<std::string> prov_display;
-    std::vector<std::string> prov_id;
-
     for (const auto& p : providers) {
         std::string label =
             p.name + "  (" + (p.api_base.empty() ? "unconfigured" : p.api_base) + ")";
         prov_display.push_back((cfg_.provider_name == p.name ? "> " : "  ") + label);
-        prov_id.push_back(p.name);
+        ids.push_back(p.name);
     }
-
-    // Add "Add new..." option at the end
-    int add_new_idx = static_cast<int>(prov_id.size());
-    prov_display.emplace_back("  + Add new provider...");
-    prov_id.emplace_back(""); // sentinel
-
-    // Step 2: Select provider or action
-    ModalScope scope;
-    curs_set(0);
-    int sel;
-    {
-        // Show provider list with summary info
-        std::vector<std::string> rich_display;
-        for (size_t i = 0; i < prov_id.size(); ++i) {
-            std::string id = prov_id[i];
-            if (id.empty()) {
-                rich_display.push_back(prov_display[i]);
-                continue;
-            }
-            const bool active = (id == cfg_.provider_name);
-            // Only the active provider's key tells us anything about the
-            // others, so the hint is reported for it alone.
-            const char* key_hint = (active && cfg_.api_key.empty()) ? "no-key" : "key-set";
-            std::string line;
-            line.reserve(id.size() + 12);
-            line.append(active ? "> " : "  ").append(id);
-            line.append("  (").append(key_hint).push_back(')');
-            rich_display.push_back(std::move(line));
+    // Only the active provider's key tells us anything about the others, so the
+    // hint is reported for it alone.
+    rows.clear();
+    for (size_t i = 0; i < ids.size(); ++i) {
+        const std::string& id = ids[i];
+        if (id.empty()) {
+            rows.push_back(prov_display[i]);
+            continue;
         }
-        rich_display.back() = "  + Add new provider...";
-
-        ListPanel lp("Providers (" + std::to_string(prov_id.size() - 1) + " configured)",
-                     rich_display);
-        sel = lp.run();
+        const bool active = (id == cfg_.provider_name);
+        const char* key_hint = (active && cfg_.api_key.empty()) ? "no-key" : "key-set";
+        std::string line;
+        line.reserve(id.size() + 12);
+        line.append(active ? "> " : "  ").append(id);
+        line.append("  (").append(key_hint).push_back(')');
+        rows.push_back(std::move(line));
     }
-    if (sel < 0)
+    rows.emplace_back("  + Add new provider...");
+    ids.emplace_back(""); // sentinel
+}
+
+void Tui::add_new_provider() {
+    // Ask for provider name
+    std::vector<FieldSpec> name_field = {{"Provider name", "", false}};
+    if (!form_edit("New Provider", name_field))
+        return;
+    std::string new_name = name_field[0].value;
+    if (new_name.empty())
         return;
 
-    // Handle "Add new provider..."
-    if (sel == add_new_idx) {
-        // Ask for provider name
-        std::vector<FieldSpec> name_field = {{"Provider name", "", false}};
-        if (!form_edit("New Provider", name_field))
-            return;
-        std::string new_name = name_field[0].value;
-        if (new_name.empty())
-            return;
-
-        // Seed from the provider domain (built-in or saved).
-        agent::Config prov_cfg;
-        prov_cfg.provider_name = new_name;
-        if (auto p = providers_->find(new_name)) {
-            prov_cfg.api_base = p->api_base;
-            prov_cfg.api_key = p->api_key;
-            prov_cfg.model = p->default_model;
-        }
-        if (!edit_provider_form(prov_cfg, "Edit: " + new_name))
-            return;
-        prov_cfg.provider_name = new_name;
-        providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
-                                         prov_cfg.api_key, !prov_cfg.api_key.empty(),
-                                         prov_cfg.model, prov_cfg.context_size, false});
-        cfg_.provider_name = new_name;
-        cfg_.api_base = prov_cfg.api_base;
-        cfg_.api_key = prov_cfg.api_key;
-        cfg_.model = prov_cfg.model;
-        cfg_.model_explicit = !prov_cfg.model.empty();
-        cfg_.save_global(agent::global_config_path());
-        refresh_provider_feed();
-        append_line(P_STATUS, "provider '" + new_name + "' added and activated");
-        return;
+    // Seed from the provider domain (built-in or saved).
+    agent::Config prov_cfg;
+    prov_cfg.provider_name = new_name;
+    if (auto p = providers_->find(new_name)) {
+        prov_cfg.api_base = p->api_base;
+        prov_cfg.api_key = p->api_key;
+        prov_cfg.model = p->default_model;
     }
-
-    // Handle built-in / saved provider selection
-    std::string selected_id = prov_id[sel];
-    if (selected_id.empty())
+    if (!edit_provider_form(prov_cfg, "Edit: " + new_name))
         return;
+    prov_cfg.provider_name = new_name;
+    providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+                                     !prov_cfg.api_key.empty(), prov_cfg.model,
+                                     prov_cfg.context_size, false});
+    cfg_.provider_name = new_name;
+    cfg_.api_base = prov_cfg.api_base;
+    cfg_.api_key = prov_cfg.api_key;
+    cfg_.model = prov_cfg.model;
+    cfg_.model_explicit = !prov_cfg.model.empty();
+    cfg_.save_global(agent::global_config_path());
+    refresh_provider_feed();
+    append_line(P_STATUS, "provider '" + new_name + "' added and activated");
+}
 
-    // Step 3: Show actions for selected provider
+void Tui::provider_actions(const std::string& selected_id) {
     auto sel_provider = providers_->find(selected_id);
     const bool is_preset = sel_provider && sel_provider->builtin;
     std::vector<std::string> actions = {"Activate & edit", "Test connection"};
-    if (!is_preset) {
+    if (!is_preset)
         actions.emplace_back("Delete provider");
-    }
-    int action = menu_select("Provider: " + selected_id, actions);
+    const int action = menu_select("Provider: " + selected_id, actions);
     if (action < 0)
         return;
 
@@ -2560,6 +2561,37 @@ void Tui::settings_screen() {
             append_line(P_STATUS, "provider '" + selected_id + "' deleted");
         }
     }
+}
+
+void Tui::settings_screen() {
+    // Step 1: build the provider picker (saved + built-in presets).
+    std::vector<std::string> rows;
+    std::vector<std::string> ids;
+    build_provider_picker(rows, ids);
+    const int add_new_idx = static_cast<int>(ids.size()) - 1; // the sentinel row
+
+    // Step 2: select a provider, or the "Add new" action.
+    ModalScope scope;
+    curs_set(0);
+    int sel;
+    {
+        ListPanel lp("Providers (" + std::to_string(ids.size() - 1) + " configured)", rows);
+        sel = lp.run();
+    }
+    if (sel < 0)
+        return;
+
+    if (sel == add_new_idx) {
+        add_new_provider();
+        return;
+    }
+
+    const std::string selected_id = ids[sel];
+    if (selected_id.empty())
+        return;
+
+    // Step 3: act on the selected provider.
+    provider_actions(selected_id);
 }
 
 void SlashDispatcher::apply_compression_threshold(const std::string& v) {
@@ -2630,16 +2662,27 @@ void SlashDispatcher::apply_compression_keep_last_prompts(const std::string& v) 
     tui_.draw();
 }
 
+void SlashDispatcher::add_setting(const std::string& key, const std::string& help,
+                                  const std::string& placeholder, Setting::Type type, double rmin,
+                                  double rmax, std::function<std::string()> getter,
+                                  std::function<void(const std::string&)> setter) {
+    tui_.settings_.add(
+        {key, help, placeholder, type, rmin, rmax, std::move(getter), std::move(setter)});
+}
+
 void SlashDispatcher::build_settings() {
     tui_.settings_ = tui::SettingRegistry{};
-    auto add = [&](const std::string& key, const std::string& help, const std::string& placeholder,
-                   Setting::Type type, double rmin, double rmax,
-                   std::function<std::string()> getter,
-                   std::function<void(const std::string&)> setter) {
-        tui_.settings_.add(
-            {key, help, placeholder, type, rmin, rmax, std::move(getter), std::move(setter)});
-    };
-    add(
+    add_detection_settings();
+    add_reasoning_settings();
+    add_subagent_settings();
+    add_display_settings();
+    add_policy_settings();
+    add_think_settings();
+    add_compression_settings();
+}
+
+void SlashDispatcher::add_detection_settings() {
+    add_setting(
         "detection.loop", "Tool-loop detection", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.cfg_.detection_loop ? "on" : "off"; },
         [this](const std::string& v) {
@@ -2651,7 +2694,7 @@ void SlashDispatcher::build_settings() {
             if (tui_.win().agent)
                 tui_.win().agent->set_detection_loop(tui_.cfg_.detection_loop);
         });
-    add(
+    add_setting(
         "detection.duplicate", "Duplicate call detection", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.cfg_.detection_duplicate ? "on" : "off"; },
         [this](const std::string& v) {
@@ -2661,7 +2704,10 @@ void SlashDispatcher::build_settings() {
                 tui_.cfg_.detection_duplicate = (v == "on");
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_reasoning_settings() {
+    add_setting(
         "reasoning.effort", "Reasoning effort", "<off|low|medium|high>", Setting::Choice, 0, 0,
         [this]() { return tui_.cfg_.reasoning_effort; },
         [this](const std::string& v) {
@@ -2674,7 +2720,10 @@ void SlashDispatcher::build_settings() {
                 tui_.win().agent->set_reasoning_effort(v);
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_subagent_settings() {
+    add_setting(
         "subagent.parallel", "Sub-agent parallelism", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.subagents_.parallel() ? "on" : "off"; },
         [this](const std::string& v) {
@@ -2685,7 +2734,7 @@ void SlashDispatcher::build_settings() {
             tui_.cfg_.subagent_parallel = tui_.subagents_.parallel();
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+    add_setting(
         "subagent.max", "Max concurrent sub-agents", "<1-16>", Setting::Int, 1, 16,
         [this]() { return std::to_string(tui_.subagents_.max()); },
         [this](const std::string& v) {
@@ -2698,14 +2747,20 @@ void SlashDispatcher::build_settings() {
             tui_.cfg_.subagent_max = *n;
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_display_settings() {
+    add_setting(
         "display.markdown", "Markdown rendering", "<on|off>", Setting::Choice, 0, 0,
         [this]() { return tui_.win().markdown_on ? "on" : "off"; },
         [this](const std::string& v) {
             tui_.win().markdown_on = (v == "on");
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_policy_settings() {
+    add_setting(
         "policy.mode", "Agent mode", "<read|write|yolo>", Setting::Choice, 0, 0,
         [this]() -> std::string {
             const auto& w = tui_.win();
@@ -2725,7 +2780,7 @@ void SlashDispatcher::build_settings() {
             if (tui_.win().agent)
                 tui_.win().agent->set_mode(m);
         });
-    add(
+    add_setting(
         "policy.timeout", "Approval dialog timeout", "<0-999>", Setting::Int, 0, 999,
         [this]() -> std::string { return std::to_string(tui_.policy_timeout_); },
         [this](const std::string& v) {
@@ -2737,7 +2792,7 @@ void SlashDispatcher::build_settings() {
             tui_.policy_timeout_ = *n;
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+    add_setting(
         "policy.approval", "Enable permission gating in Write mode", "<on|off|toggle>",
         Setting::Choice, 0, 0,
         [this]() -> std::string { return tui_.cfg_.policy_approval ? "on" : "off"; },
@@ -2751,11 +2806,13 @@ void SlashDispatcher::build_settings() {
                                            (tui_.cfg_.policy_approval ? "on" : "off"));
         });
     // Namespace root for /get policy (no setter — children handle values).
-    add(
+    add_setting(
         "policy", "Permission rules and approval settings", "", Setting::String, 0, 0,
         []() -> std::string { return ""; }, nullptr);
+}
 
-    add(
+void SlashDispatcher::add_think_settings() {
+    add_setting(
         "think", "Thinking mode", "<on|off|auto>", Setting::Choice, 0, 0,
         [this]() -> std::string {
             const auto& w = tui_.win();
@@ -2768,11 +2825,14 @@ void SlashDispatcher::build_settings() {
                 tui_.win().agent->set_thinking(v);
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
-    add(
+}
+
+void SlashDispatcher::add_compression_settings() {
+    add_setting(
         "compression.threshold", "Context utilisation threshold", "<0.1-1.0>", Setting::Float, 0.1,
         1.0, [this]() -> std::string { return std::to_string(compression_threshold_effective()); },
         [this](const std::string& v) { apply_compression_threshold(v); });
-    add(
+    add_setting(
         "compression.min_turns", "Minimum turns before compression", "<0-999> (0 = disabled)",
         Setting::Int, 0, 999,
         [this]() -> std::string {
@@ -2780,14 +2840,14 @@ void SlashDispatcher::build_settings() {
                 tui_.cfg_.compression_min_turns > 0 ? tui_.cfg_.compression_min_turns : 10);
         },
         [this](const std::string& v) { apply_compression_min_turns(v); });
-    add(
+    add_setting(
         "compression.target_pct", "Target context usage after compression (% of window)", "<1-90>",
         Setting::Int, 1, 90,
         [this]() -> std::string {
             return std::to_string(agent::load_compression_config(tui_.cfg_).target_pct);
         },
         [this](const std::string& v) { apply_compression_target_pct(v); });
-    add(
+    add_setting(
         "compression.keep_last_prompts", "Most-recent prompts kept verbatim after compression",
         "<1-100>", Setting::Int, 1, 100,
         [this]() -> std::string {

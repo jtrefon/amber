@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <string>
@@ -14,7 +15,9 @@
         }                                                                                          \
     } while (0)
 
+#include "tui/completion_context.h"
 #include "tui/drawer_rows.h"
+#include "tui/help_page.h"
 #include "tui/plugin_feed.h"
 #include "tui/setting_registry.h"
 #include "tests/minitest.h"
@@ -959,6 +962,122 @@ TEST(test_plugin_command_subtree_merges_and_resolves) {
 // Every TEST above must be called here: definitions placed after main() were
 // silently dead until this list covered them.
 
+// ── help_page (L1): the `?` help page assembly ─────────────────────
+//
+// Built from an in-memory subtree so these pin the assembly logic, not
+// whatever completions.json happens to contain today.
+
+namespace {
+
+tui::SettingRegistry help_fixture() {
+    tui::SettingRegistry reg;
+    reg.merge_completions_json(nlohmann::json{
+        {"demo",
+         {{"action", "demo.act"},
+          {"help", "demo help"},
+          {"man", "line one\nline two"},
+          {"children",
+           {{"alpha", {{"action", "demo.alpha"}, {"help", "alpha help"}}},
+            {"beta", {{"action", "demo.beta"}, {"help", "beta help"}}}}}}},
+        {"choice",
+         {{"action", "choice.act"},
+          {"help", "choose one"},
+          {"man", "choose"},
+          {"choices", {"on", "off"}},
+          {"range", {1, 9}}}},
+        {"leaf", {{"action", "leaf.act"}, {"help", "leaf help"}}},
+        {"leafc", {{"action", "leafc.act"}, {"help", "h"}, {"choices", {"a", "b"}}}},
+    });
+    return reg;
+}
+
+} // namespace
+
+TEST(test_help_page_key_from_node) {
+    ASSERT(tui::help_page::key_from_node("/set demo") == "demo");
+    ASSERT(tui::help_page::key_from_node("demo") == "demo");
+    ASSERT(tui::help_page::key_from_node("/demo") == "demo");
+}
+
+TEST(test_help_page_command_from_node) {
+    ASSERT(tui::help_page::command_from_node("/set demo") == "set");
+    ASSERT(tui::help_page::command_from_node("demo") == "demo");
+}
+
+TEST(test_help_page_builds_man_page_with_children) {
+    tui::SettingRegistry reg = help_fixture();
+    std::vector<std::string> want = {"demo help",
+                                     "",
+                                     "line one",
+                                     "line two",
+                                     "",
+                                     "sub-commands:",
+                                     "  alpha  —  alpha help",
+                                     "  beta  —  beta help",
+                                     ""};
+    ASSERT(tui::help_page::build(reg, "demo") == want);
+}
+
+TEST(test_help_page_builds_choices_and_range) {
+    tui::SettingRegistry reg = help_fixture();
+    std::vector<std::string> want = {"choose one",  "", "choose", "", "choices: on, off",
+                                     "range: 1 – 9"};
+    ASSERT(tui::help_page::build(reg, "choice") == want);
+}
+
+TEST(test_help_page_empty_without_man) {
+    tui::SettingRegistry reg = help_fixture();
+    ASSERT(tui::help_page::build(reg, "leaf").empty());
+    ASSERT(tui::help_page::build(reg, "missing").empty());
+}
+
+TEST(test_help_page_fallback_line) {
+    tui::SettingRegistry reg = help_fixture();
+    ASSERT(tui::help_page::fallback_line(reg, "leaf") == "leaf  —  leaf help");
+    ASSERT(tui::help_page::fallback_line(reg, "leafc") == "leafc  —  h  choices: a|b");
+    ASSERT(tui::help_page::fallback_line(reg, "missing").empty());
+}
+
+// ── completion_context (L1): the completion context from the command tree ──
+
+TEST(test_completion_context_slash_lists_top_level) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/", reg);
+    ASSERT(!ctx.rows.empty());
+    ASSERT(ctx.prefix == "/ "); // "" resolves to children, so the namespace is kept
+}
+
+TEST(test_completion_context_partial_replaces_token) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/hel", reg);
+    ASSERT(ctx.prefix == "/"); // the partial token is replaced, not kept
+}
+
+TEST(test_completion_context_namespace_descend_keeps_ns) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/window", reg);
+    ASSERT(ctx.prefix == "/window "); // an exact namespace descends
+}
+
+TEST(test_completion_context_trailing_space_descends) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/set ", reg);
+    ASSERT(ctx.prefix == "/set ");
+    ASSERT(!ctx.rows.empty());
+}
+
+TEST(test_completion_context_non_slash_uses_top_level_names) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("hello", reg);
+    ASSERT(ctx.prefix.empty());
+    ASSERT(std::find(ctx.rows.begin(), ctx.rows.end(), "help") != ctx.rows.end());
+}
+
 int main() {
     try {
         test_json_loads_all_commands();
@@ -1006,6 +1125,17 @@ int main() {
         test_get_mcp_learn_tree_nodes();
         test_get_provider_list_node();
         test_plugin_command_subtree_merges_and_resolves();
+        test_help_page_key_from_node();
+        test_help_page_command_from_node();
+        test_help_page_builds_man_page_with_children();
+        test_help_page_builds_choices_and_range();
+        test_help_page_empty_without_man();
+        test_help_page_fallback_line();
+        test_completion_context_slash_lists_top_level();
+        test_completion_context_partial_replaces_token();
+        test_completion_context_namespace_descend_keeps_ns();
+        test_completion_context_trailing_space_descends();
+        test_completion_context_non_slash_uses_top_level_names();
     } catch (const std::exception& e) {
         std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
         failed++;

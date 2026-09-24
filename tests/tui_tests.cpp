@@ -11,10 +11,21 @@
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/reasoning_block.h"
+#include "tui/panel_view_state.h"
 #include "tui/rich.h"
+#include "tui/form_focus.h"
+#include "tui/info_dialog_layout.h"
+#include "tui/ansi_sgr.h"
+#include "tui/input_line_layout.h"
+#include "tui/list_state.h"
 #include "tui/markdown.h"
+#include "tui/markdown_normalize.h"
+#include "tui/session_row.h"
 #include "tui/tool_display.h"
 #include "tui/scroll_dispatch.h"
+#include "tui/keys.h"
+#include "tui/option_key_decode.h"
+#include "tui/status_bar_layout.h"
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
 #include "tui/event_router.h"
@@ -953,21 +964,21 @@ TEST(tool_display_activity_verb_mcp_prefix_calls) {
 }
 
 TEST(scroll_dispatch_wheel_up_delta) {
-    // BUTTON4_PRESSED = wheel up: scroll back (negative delta).
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED), -3);
+    // keys::kButton4 = wheel up: scroll back (negative delta).
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(tui::keys::kButton4), -3);
 }
 
 TEST(scroll_dispatch_wheel_down_delta) {
-    // BUTTON5_PRESSED = wheel down: scroll forward (positive delta).
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON5_PRESSED), 3);
+    // keys::kButton5 = wheel down: scroll forward (positive delta).
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(tui::keys::kButton5), 3);
 }
 
 TEST(scroll_dispatch_non_wheel_is_zero) {
     // The disconnect pin: non-wheel input (arrow keys, clicks, drags) never
     // produces a scroll delta, so prompt-history Up/Down is unaffected.
     ASSERT_EQ(tui::scroll_dispatch::wheel_delta(0), 0);
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON1_PRESSED), 0);
-    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(BUTTON4_PRESSED | BUTTON5_PRESSED), 0);
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(tui::keys::kButton1), 0);
+    ASSERT_EQ(tui::scroll_dispatch::wheel_delta(tui::keys::kButton4 | tui::keys::kButton5), 0);
 }
 
 TEST(scroll_dispatch_clamp_bounds) {
@@ -1726,38 +1737,6 @@ TEST(run_registry_join_all_does_not_block_worker_cancel_check) {
     ASSERT_TRUE(joined.load());
 }
 
-// --- CompletionProvider tests (3) ---
-// Placeholder tests — CompletionProvider will be extracted from run()
-// in a follow-up. For now these pass trivially to keep the test count stable.
-
-TEST(completion_provider_slash_input) {
-    ASSERT_TRUE(true);
-}
-
-TEST(completion_provider_non_slash_input) {
-    ASSERT_TRUE(true);
-}
-
-TEST(completion_provider_trailing_space_descends) {
-    ASSERT_TRUE(true);
-}
-
-// --- HelpPageBuilder tests (3) ---
-// Placeholder tests — HelpPageBuilder will be extracted from run()
-// in a follow-up. For now these pass trivially.
-
-TEST(help_page_builder_full_man) {
-    ASSERT_TRUE(true);
-}
-
-TEST(help_page_builder_leaf_with_choices) {
-    ASSERT_TRUE(true);
-}
-
-TEST(help_page_builder_leaf_with_range) {
-    ASSERT_TRUE(true);
-}
-
 // --- Slash command integration tests (4) ---
 
 TEST(window_set_slash_command_dispatches) {
@@ -1787,17 +1766,532 @@ TEST(window_set_rejects_out_of_range) {
     ASSERT_FALSE(r.msg.empty());
 }
 
-TEST(window_set_rejects_non_numeric) {
-    // Non-numeric argument should be rejected with usage message.
-    // set_window takes size_t; non-numeric parsing happens in SlashDispatcher.
-    // Will be wired when cmd_window_set is implemented.
-    ASSERT_TRUE(true);
+// --- OptionKeyDecode (L1): macOS Option-as-text UTF-8 assembly ---
+
+TEST(option_key_decode_lead_and_continuation_counts) {
+    ASSERT_TRUE(tui::option_key_decode::is_lead(0xC2));
+    ASSERT_TRUE(tui::option_key_decode::is_lead(0xE2));
+    ASSERT_TRUE(tui::option_key_decode::is_lead(0xF0));
+    ASSERT_FALSE(tui::option_key_decode::is_lead(0x41)); // ASCII
+    ASSERT_FALSE(tui::option_key_decode::is_lead(0xBF)); // continuation byte
+    ASSERT_FALSE(tui::option_key_decode::is_lead(0xF5)); // beyond the range
+
+    ASSERT_EQ(tui::option_key_decode::continuation_bytes(0xC2), 1);
+    ASSERT_EQ(tui::option_key_decode::continuation_bytes(0xE2), 2);
+    ASSERT_EQ(tui::option_key_decode::continuation_bytes(0xF0), 3);
+    ASSERT_EQ(tui::option_key_decode::continuation_bytes(0x41), 0);
 }
 
-TEST(window_feed_lists_open_windows) {
-    // /window set <Tab> should list 1, 2, 3 for 3 windows.
-    // Will be wired when refresh_window_feed is implemented.
-    ASSERT_TRUE(true);
+TEST(option_key_decode_assembles_codepoints) {
+    const unsigned char inverted[2] = {0xC2, 0xA1};          // U+00A1 '¡'
+    const unsigned char e_acute[2] = {0xC3, 0xA9};           // U+00E9 'é'
+    const unsigned char euro[3] = {0xE2, 0x82, 0xAC};        // U+20AC '€'
+    const unsigned char emoji[4] = {0xF0, 0x9F, 0x98, 0x80}; // U+1F600
+    ASSERT_EQ(tui::option_key_decode::codepoint(inverted, 1), 0xA1u);
+    ASSERT_EQ(tui::option_key_decode::codepoint(e_acute, 1), 0xE9u);
+    ASSERT_EQ(tui::option_key_decode::codepoint(euro, 2), 0x20ACu);
+    ASSERT_EQ(tui::option_key_decode::codepoint(emoji, 3), 0x1F600u);
+}
+
+// --- StatusBarLayout (L1): status-bar width arbitration ---
+
+using BarSeg = tui::status_bar_layout::Segment;
+
+TEST(status_bar_layout_splits_by_alignment) {
+    std::vector<BarSeg> segs = {
+        {"left1", 0, 0, agent::StatusAlign::Left},
+        {"right1", 0, 0, agent::StatusAlign::Right},
+        {"left2", 0, 0, agent::StatusAlign::Left},
+    };
+    auto p = tui::status_bar_layout::plan(segs, 80, false, 0);
+    ASSERT_EQ(p.left.size(), 2u);
+    ASSERT_EQ(p.right.size(), 1u);
+    ASSERT_EQ(p.left[0].text, "left1");
+    ASSERT_EQ(p.left[1].text, "left2");
+    ASSERT_EQ(p.right[0].text, "right1");
+}
+
+TEST(status_bar_layout_budget_reserves_right_zone_and_activity) {
+    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Right}};
+    auto p = tui::status_bar_layout::plan(segs, 80, false, 0);
+    ASSERT_EQ(p.right_cols, 3);
+    ASSERT_EQ(p.budget, 80 - (3 + 1 + 13)); // right + separator + activity
+}
+
+TEST(status_bar_layout_no_right_zone_reserves_only_activity) {
+    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Left}};
+    auto p = tui::status_bar_layout::plan(segs, 40, false, 0);
+    ASSERT_EQ(p.right_cols, 0);
+    ASSERT_EQ(p.budget, 40 - 13);
+}
+
+TEST(status_bar_layout_drops_highest_priority_first) {
+    // Two 10-column left segments (21 columns with the separator) in a budget
+    // of 7: the drop-5 segment goes first, then the loop stops on drop 0.
+    std::vector<BarSeg> segs = {
+        {"aaaaaaaaaa", 0, 5, agent::StatusAlign::Left},
+        {"bbbbbbbbbb", 0, 0, agent::StatusAlign::Left},
+    };
+    auto p = tui::status_bar_layout::plan(segs, 20, false, 0);
+    ASSERT_EQ(p.left.size(), 1u);
+    ASSERT_EQ(p.left[0].text, "bbbbbbbbbb");
+}
+
+TEST(status_bar_layout_keeps_undroppable_segment) {
+    // A segment with drop 0 is never removed, even when it overflows the budget.
+    std::vector<BarSeg> segs = {{"aaaaaaaaaa", 0, 0, agent::StatusAlign::Left}};
+    auto p = tui::status_bar_layout::plan(segs, 20, false, 0);
+    ASSERT_EQ(p.left.size(), 1u);
+    ASSERT_EQ(p.left[0].text, "aaaaaaaaaa");
+}
+
+// --- MarkdownNormalize (L1): near-markdown repair ---
+
+TEST(markdown_normalize_blanks_before_table_after_prose) {
+    // A table row glued onto prose gets a blank line (md4c needs the break).
+    ASSERT_EQ(tui::markdown_normalize::normalize("prose\n| a | b |\n| c | d |"),
+              "prose\n\n| a | b |\n|---|---|\n| c | d |");
+}
+
+TEST(markdown_normalize_keeps_existing_blank_before_table) {
+    ASSERT_EQ(tui::markdown_normalize::normalize("prose\n\n| a | b |\n| c | d |"),
+              "prose\n\n| a | b |\n|---|---|\n| c | d |");
+}
+
+TEST(markdown_normalize_synthesizes_missing_delimiter) {
+    // No |---| row: md4c would collapse the rows, so one is synthesized.
+    ASSERT_EQ(tui::markdown_normalize::normalize("| h1 | h2 |\n| a | b |"),
+              "| h1 | h2 |\n|---|---|\n| a | b |");
+}
+
+TEST(markdown_normalize_pads_ragged_table) {
+    // Header 2 cols, body 3: every row is expanded to the block's max.
+    ASSERT_EQ(tui::markdown_normalize::normalize("| h1 | h2 |\n|---|---|\n| a | b | c |"),
+              "| h1 | h2 | |\n|---|---|---|\n| a | b | c |");
+}
+
+TEST(markdown_normalize_splits_glued_separator_run) {
+    ASSERT_EQ(tui::markdown_normalize::normalize("text------------"), "text\n\n------------");
+}
+
+// --- InfoDialogLayout (L1): info popup geometry and scroll hints ---
+
+TEST(info_dialog_layout_geometry_from_rows_and_title) {
+    auto l = tui::info_dialog_layout::compute({"a", "bb"}, "T", 40, 80);
+    ASSERT_EQ(l.width, 9); // min(80-4, max(2+6, 1+8))
+    ASSERT_EQ(l.height, 6);
+    ASSERT_EQ(l.list_h, 2);
+}
+
+TEST(info_dialog_layout_long_title_widens_the_dialog) {
+    auto l = tui::info_dialog_layout::compute({"x"}, "A very long dialog title", 40, 80);
+    ASSERT_EQ(l.width, 32); // min(76, max(1+6, 24+8))
+}
+
+TEST(info_dialog_layout_empty_row_becomes_a_space) {
+    auto l = tui::info_dialog_layout::compute({"", "x"}, "T", 40, 80);
+    ASSERT_EQ(l.rows.size(), 2u);
+    ASSERT_EQ(l.rows[0], " ");
+    ASSERT_EQ(l.rows[1], "x");
+}
+
+TEST(info_dialog_layout_scroll_hint_when_content_fits) {
+    auto h = tui::info_dialog_layout::scroll_hint(0, 10, 5);
+    ASSERT_FALSE(h.draw);
+}
+
+TEST(info_dialog_layout_scroll_hint_at_top_middle_and_bottom) {
+    auto top = tui::info_dialog_layout::scroll_hint(0, 2, 5);
+    ASSERT_TRUE(top.draw);
+    ASSERT_FALSE(top.up);
+    ASSERT_TRUE(top.down);
+    auto mid = tui::info_dialog_layout::scroll_hint(1, 2, 5);
+    ASSERT_TRUE(mid.up);
+    ASSERT_TRUE(mid.down);
+    auto bot = tui::info_dialog_layout::scroll_hint(3, 2, 5);
+    ASSERT_TRUE(bot.up);
+    ASSERT_FALSE(bot.down); // 3 + 2 == 5: the last page
+}
+
+// --- ListState (L1): selection / filter / scroll behind ListPanel ---
+
+static tui::ListState make_list() {
+    return tui::ListState({"alpha", "beta", "gamma", "delta"});
+}
+
+TEST(list_state_filtered_returns_all_without_a_filter) {
+    tui::ListState s = make_list();
+    ASSERT_EQ(s.filtered().size(), 4u);
+}
+
+TEST(list_state_slash_enters_filter_mode_and_resets) {
+    tui::ListState s = make_list();
+    ASSERT(s.key(tui::keys::kDown, 10) == tui::ListState::Action::Redraw);
+    ASSERT_EQ(s.selection(), 1);
+    ASSERT(s.key('/', 10) == tui::ListState::Action::Redraw);
+    ASSERT_TRUE(s.filter_mode());
+    ASSERT_EQ(s.selection(), 0);
+    ASSERT_EQ(s.scroll_offset(), 0);
+}
+
+TEST(list_state_typing_filters_and_backspace_removes) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    s.key('a', 10);
+    ASSERT_EQ(s.filter(), "a");
+    ASSERT_EQ(s.filtered().size(), 4u); // every item contains 'a'
+    s.key('l', 10);
+    ASSERT_EQ(s.filter(), "al");
+    ASSERT_EQ(s.filtered().size(), 1u); // only "alpha"
+    ASSERT(s.key(tui::keys::kBackspace, 10) == tui::ListState::Action::Redraw);
+    ASSERT_EQ(s.filter(), "a");
+}
+
+TEST(list_state_esc_in_filter_mode_clears_it) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    s.key('x', 10);
+    ASSERT(s.key(27, 10) == tui::ListState::Action::Redraw);
+    ASSERT_FALSE(s.filter_mode());
+    ASSERT_EQ(s.filter(), "");
+}
+
+TEST(list_state_enter_selects_and_esc_cancels) {
+    tui::ListState a = make_list();
+    ASSERT(a.key('\n', 10) == tui::ListState::Action::Select);
+    tui::ListState b = make_list();
+    ASSERT(b.key(27, 10) == tui::ListState::Action::Cancel);
+    ASSERT_EQ(b.selection(), -1);
+}
+
+TEST(list_state_up_at_top_is_a_noop) {
+    tui::ListState s = make_list();
+    ASSERT(s.key(tui::keys::kUp, 10) == tui::ListState::Action::None);
+    ASSERT_EQ(s.selection(), 0);
+}
+
+TEST(list_state_down_scrolls_when_past_the_viewport) {
+    tui::ListState s = make_list();
+    s.key(tui::keys::kDown, 2); // sel 1, still on screen
+    ASSERT_EQ(s.scroll_offset(), 0);
+    s.key(tui::keys::kDown, 2); // sel 2 -> off screen, scroll follows
+    ASSERT_EQ(s.selection(), 2);
+    ASSERT_EQ(s.scroll_offset(), 1);
+}
+
+TEST(list_state_window_bounds) {
+    tui::ListState fresh = make_list();
+    int start = -1, end = -1;
+    fresh.window(2, start, end);
+    ASSERT_EQ(start, 0);
+    ASSERT_EQ(end, 2);
+
+    tui::ListState scrolled = make_list();
+    scrolled.key(tui::keys::kDown, 2);
+    scrolled.key(tui::keys::kDown, 2);
+    scrolled.window(2, start, end);
+    ASSERT_EQ(start, 1);
+    ASSERT_EQ(end, 3);
+}
+
+TEST(list_state_remap_maps_filtered_index_to_original) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    s.key('g', 10); // only "gamma"
+    ASSERT_EQ(s.filtered().size(), 1u);
+    ASSERT_EQ(s.selection(), 0);
+    s.remap_selection();
+    ASSERT_EQ(s.selection(), 2); // gamma is items_[2]
+}
+
+// --- PanelViewState (L1): contributed-panel scroll and geometry ---
+
+namespace PVS = tui::panel_view_state;
+
+TEST(panel_view_state_geometry_and_floor) {
+    auto g = PVS::geometry(40, 80);
+    ASSERT_EQ(g.dh, 36);
+    ASSERT_EQ(g.dw, 74);
+    ASSERT_EQ(g.body_h, 32);
+    ASSERT_EQ(g.body_w, 70);
+    auto small = PVS::geometry(5, 10); // both floors apply
+    ASSERT_EQ(small.dh, 6);
+    ASSERT_EQ(small.dw, 20);
+}
+
+TEST(panel_view_state_footer_hides_tab_for_a_single_panel) {
+    ASSERT_EQ(PVS::footer(3).size(), 3u);
+    ASSERT_EQ(PVS::footer(3)[0].first, "Tab");
+    ASSERT_EQ(PVS::footer(1).size(), 2u);
+    ASSERT_EQ(PVS::footer(1)[0].first, "Up/Down");
+}
+
+TEST(panel_view_state_scroll_clamps) {
+    PVS::Scroll s;
+    s.total = 10;
+    s.visible = 3;
+    s.top = 5;
+    s.clamp();
+    ASSERT_EQ(s.top, 5);
+    s.top = 100;
+    s.clamp();
+    ASSERT_EQ(s.top, 7); // total - visible
+    s.top = -4;
+    s.clamp();
+    ASSERT_EQ(s.top, 0);
+}
+
+TEST(panel_view_state_arrows) {
+    PVS::Scroll s;
+    s.total = 10;
+    s.visible = 3;
+    s.top = 2;
+    auto a = PVS::arrows(s);
+    ASSERT_TRUE(a.up);
+    ASSERT_TRUE(a.down);
+    s.top = 0;
+    ASSERT_FALSE(PVS::arrows(s).up);
+}
+
+TEST(panel_view_state_visible_rows_truncate_to_width) {
+    std::vector<std::string> lines = {"abcdefghij", "short", "x"};
+    PVS::Scroll s;
+    s.total = 3;
+    s.visible = 3;
+    s.top = 0;
+    auto rows = PVS::visible_rows(lines, 4, s);
+    ASSERT_EQ(rows.size(), 3u);
+    ASSERT_EQ(rows[0], "abcd");
+    ASSERT_EQ(rows[1], "shor");
+    ASSERT_EQ(rows[2], "x");
+}
+
+TEST(panel_view_state_apply_key_moves_and_reports) {
+    PVS::Scroll s;
+    s.total = 3;
+    s.visible = 3;
+    ASSERT_TRUE(PVS::apply_key(tui::keys::kEnd, s));
+    ASSERT_EQ(s.top, 3);
+    ASSERT_TRUE(PVS::apply_key(tui::keys::kNPage, s));
+    ASSERT_EQ(s.top, 6);
+    ASSERT_FALSE(PVS::apply_key('x', s));
+}
+
+TEST(panel_view_state_start_index) {
+    ASSERT_EQ(PVS::start_index({"a", "b", "c"}, "b"), 1);
+    ASSERT_EQ(PVS::start_index({"a", "b"}, "z"), 0); // unknown id -> first
+}
+
+// --- FormFocus (L1): the form dialog's key -> intent decision ---
+
+namespace FF = tui::form_focus;
+
+TEST(form_focus_tab_moves_between_fields_until_the_last) {
+    auto a = FF::key('\t', FF::Zone::Fields, false);
+    ASSERT(a.intent == FF::Intent::NextField);
+    ASSERT(a.zone == FF::Zone::Fields);
+    auto b = FF::key('\t', FF::Zone::Fields, true); // off the last field -> buttons
+    ASSERT(b.intent == FF::Intent::None);
+    ASSERT(b.zone == FF::Zone::Ok);
+    ASSERT(FF::key(tui::keys::kBtab, FF::Zone::Fields, false).intent == FF::Intent::PrevField);
+}
+
+TEST(form_focus_field_editing_keys) {
+    ASSERT(FF::key(tui::keys::kLeft, FF::Zone::Fields, false).intent == FF::Intent::PrevChar);
+    ASSERT(FF::key(tui::keys::kDelete, FF::Zone::Fields, false).intent == FF::Intent::DelChar);
+    ASSERT(FF::key(tui::keys::kBackspace, FF::Zone::Fields, false).intent == FF::Intent::DelPrev);
+    ASSERT(FF::key(8, FF::Zone::Fields, false).intent == FF::Intent::DelPrev);
+}
+
+TEST(form_focus_printable_inserts_and_others_do_nothing) {
+    auto a = FF::key('a', FF::Zone::Fields, false);
+    ASSERT(a.intent == FF::Intent::InsertChar);
+    ASSERT_EQ(a.insert, 'a');
+    ASSERT(FF::key(300, FF::Zone::Fields, false).intent == FF::Intent::None);
+}
+
+TEST(form_focus_enter_from_fields_reaches_the_ok_button) {
+    auto d = FF::key('\n', FF::Zone::Fields, false);
+    ASSERT(d.zone == FF::Zone::Ok);
+    ASSERT_FALSE(d.done);
+}
+
+TEST(form_focus_buttons_toggle_and_return_to_the_last_field) {
+    ASSERT(FF::key('\t', FF::Zone::Ok, false).zone == FF::Zone::Cancel);
+    ASSERT(FF::key('\t', FF::Zone::Cancel, false).zone == FF::Zone::Ok);
+    auto up = FF::key(tui::keys::kUp, FF::Zone::Ok, false);
+    ASSERT(up.intent == FF::Intent::ToLastField);
+    ASSERT(up.zone == FF::Zone::Fields);
+}
+
+TEST(form_focus_accept_carries_the_button_choice) {
+    auto ok = FF::key('\n', FF::Zone::Ok, false);
+    ASSERT(ok.intent == FF::Intent::Accept);
+    ASSERT_TRUE(ok.done);
+    ASSERT_TRUE(ok.result); // OK button
+    auto cancel = FF::key('\n', FF::Zone::Cancel, false);
+    ASSERT(cancel.intent == FF::Intent::Accept);
+    ASSERT_TRUE(cancel.done);
+    ASSERT_FALSE(cancel.result); // Cancel button
+}
+
+TEST(form_focus_esc_cancels_from_both_zones) {
+    auto f = FF::key(27, FF::Zone::Fields, false);
+    ASSERT_TRUE(f.done);
+    ASSERT_FALSE(f.result);
+    auto b = FF::key(27, FF::Zone::Ok, false);
+    ASSERT_TRUE(b.done);
+    ASSERT_FALSE(b.result);
+}
+
+// --- SessionRow (L1): session browser row text and geometry ---
+
+namespace SR = tui::session_row;
+
+TEST(session_row_dialog_size_clamps) {
+    auto a = SR::dialog_size(40, 200);
+    ASSERT_EQ(a.dw, 120); // capped
+    ASSERT_EQ(a.dh, 34);
+    auto b = SR::dialog_size(10, 50);
+    ASSERT_EQ(b.dw, 46);
+    ASSERT_EQ(b.dh, 4);
+}
+
+TEST(session_row_title_ellipsises_when_too_wide) {
+    ASSERT_EQ(SR::title("short", 20), "short");
+    ASSERT_EQ(SR::title("a very long session title here", 10), "a very lo\u2026");
+}
+
+TEST(session_row_model_truncates_at_ten) {
+    ASSERT_EQ(SR::model("gpt-4"), "gpt-4");
+    ASSERT_EQ(SR::model("claude-3-5-sonnet"), "claude-3-\u2026");
+}
+
+TEST(session_row_message_count) {
+    ASSERT_EQ(SR::message_count(12), "12 msgs");
+}
+
+TEST(session_row_file_size_units) {
+    ASSERT_EQ(SR::file_size(0), ""); // the caller draws nothing
+    ASSERT_EQ(SR::file_size(512), "512B");
+    ASSERT_EQ(SR::file_size(2048), "2KB");
+    ASSERT_EQ(SR::file_size(3 * 1024 * 1024), "3.0MB");
+}
+
+// --- InputLineLayout (L1): prompt decor, scroll, UTF-8 slicing ---
+
+namespace ILL = tui::input_line_layout;
+
+TEST(input_line_layout_prompt_pieces_omit_empty_parts) {
+    ASSERT_EQ(ILL::prompt_pieces("proj", "", 0, 0).size(), 3u);
+    ASSERT_EQ(ILL::prompt_pieces("proj", "main", 0, 0).size(), 5u);
+    ASSERT_EQ(ILL::prompt_pieces("proj", "main", 3, 2).size(), 9u);
+    ASSERT_EQ(ILL::prompt_pieces("proj", "main", 3, 0).size(), 8u); // no "-del"
+}
+
+TEST(input_line_layout_prompt_pieces_roles) {
+    auto p = ILL::prompt_pieces("proj", "main", 3, 2);
+    ASSERT(p[0].role == ILL::Role::Decor);
+    ASSERT_EQ(p[0].text, "\u2514\u2500[");
+    ASSERT(p[1].role == ILL::Role::Project);
+    ASSERT_EQ(p[1].text, "proj");
+    ASSERT(p[3].role == ILL::Role::Branch);
+    ASSERT_EQ(p[3].text, "main");
+    ASSERT(p[5].role == ILL::Role::Plus);
+    ASSERT_EQ(p[5].text, "+3");
+    ASSERT(p[7].role == ILL::Role::Minus);
+    ASSERT_EQ(p[7].text, "-2");
+}
+
+TEST(input_line_layout_scroll_keeps_cursor_visible) {
+    auto fit = ILL::scroll_for(10, "hello", 5, "", 80);
+    ASSERT_EQ(fit.offset, 0);
+    ASSERT_EQ(fit.cursor_col, 15);
+    ASSERT_EQ(fit.total_w, 15);
+
+    auto scrolled = ILL::scroll_for(10, std::string(31, '0'), 31, "", 20);
+    ASSERT_EQ(scrolled.cursor_col, 41);
+    ASSERT_EQ(scrolled.offset, 22); // cursor_col - width + 1
+}
+
+TEST(input_line_layout_visible_bytes_stops_at_the_column_budget) {
+    ASSERT_EQ(ILL::visible_bytes("abcdef", 0, 4), 4);
+    ASSERT_EQ(ILL::visible_bytes("abcdef", 2, 10), 4); // to the end of the string
+}
+
+// --- AnsiSgr (L1): SGR sequence parsing ---
+
+namespace SGR = tui::ansi_sgr;
+
+TEST(ansi_sgr_parses_single_and_multi_codes) {
+    std::size_t next = 0;
+    auto a = SGR::parse("\x1b[0m", 0, next);
+    ASSERT_EQ(a.size(), 1u);
+    ASSERT_EQ(a[0], 0);
+    ASSERT_EQ(next, 4u);
+
+    auto b = SGR::parse("\x1b[1;31m", 0, next);
+    ASSERT_EQ(b.size(), 2u);
+    ASSERT_EQ(b[0], 1);
+    ASSERT_EQ(b[1], 31);
+    ASSERT_EQ(next, 7u);
+}
+
+TEST(ansi_sgr_treats_empty_parameters_as_zero) {
+    std::size_t next = 0;
+    auto v = SGR::parse("\x1b[;1m", 0, next);
+    ASSERT_EQ(v.size(), 2u);
+    ASSERT_EQ(v[0], 0);
+    ASSERT_EQ(v[1], 1);
+}
+
+TEST(ansi_sgr_handles_bare_reset_unterminated_and_non_sgr) {
+    std::size_t next = 0;
+    auto a = SGR::parse("\x1b[m", 0, next); // bare reset
+    ASSERT_EQ(a.size(), 1u);
+    ASSERT_EQ(a[0], 0);
+    ASSERT_EQ(next, 3u);
+
+    auto b = SGR::parse("\x1b[31", 0, next); // unterminated
+    ASSERT_EQ(b.size(), 1u);
+    ASSERT_EQ(b[0], 0);
+    ASSERT_EQ(next, 4u);
+
+    auto c = SGR::parse("\x1b[2J", 0, next); // a CSI that is not SGR
+    ASSERT_EQ(c.size(), 1u);
+    ASSERT_EQ(c[0], 0);
+}
+
+TEST(ansi_sgr_apply_toggles_and_resets) {
+    tui::md::Style st;
+    tui::md::RunStyle base;
+    base.pair = st.text_pair;
+
+    auto cur = base;
+    SGR::apply(1, cur, base, st);
+    ASSERT_TRUE(cur.bold);
+    SGR::apply(0, cur, base, st);
+    ASSERT_FALSE(cur.bold); // 0 resets to base
+    ASSERT_EQ(cur.pair, st.text_pair);
+
+    cur.bold = cur.dim = true;
+    SGR::apply(22, cur, base, st);
+    ASSERT_FALSE(cur.bold);
+    ASSERT_FALSE(cur.dim);
+}
+
+TEST(ansi_sgr_apply_maps_colours_through_the_style) {
+    tui::md::Style st;
+    tui::md::RunStyle base;
+    base.pair = st.text_pair;
+
+    auto cur = base;
+    SGR::apply(32, cur, base, st);
+    ASSERT_EQ(cur.pair, st.code_pair);
+    SGR::apply(36, cur, base, st);
+    ASSERT_EQ(cur.pair, st.quote_pair);
+    SGR::apply(999, cur, base, st); // an unknown code is a no-op
+    ASSERT_EQ(cur.pair, st.quote_pair);
 }
 
 // ---------------------------------------------------------------------------

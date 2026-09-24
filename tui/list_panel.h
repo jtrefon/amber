@@ -1,7 +1,7 @@
-
 #ifndef AMBER_TUI_LIST_PANEL_H
 #define AMBER_TUI_LIST_PANEL_H
 
+#include "tui/list_state.h"
 #include "tui/panel.h"
 
 #include <string>
@@ -10,7 +10,8 @@
 namespace tui {
 
 // Scrollable selection list panel. Items are displayed with a highlight bar.
-// Keyboard: Up/Down to navigate, Enter to select, Esc to cancel.
+// Keyboard: Up/Down to navigate, Enter to select, Esc to cancel. The
+// selection/filter/scroll model is pure (ListState); this class paints it.
 class ListPanel : public Panel {
 public:
     ListPanel(const std::string& title, const std::vector<std::string>& items);
@@ -22,15 +23,8 @@ public:
 private:
     bool handle_key(int ch) override;
     void run_input_loop();
-    void remap_filtered_selection();
 
-    std::vector<std::string> items_;
-    std::string filter_;
-    int selection_ = 0;
-    int scroll_offset_ = 0;
-    bool filter_mode_ = false;
-
-    std::vector<std::string> filtered() const;
+    ListState state_;
     void draw_items();
     void draw_filter_bar();
 };

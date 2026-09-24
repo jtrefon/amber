@@ -13,6 +13,8 @@
 #include <vector>
 
 #include "textutil.h"
+#include "tui/ansi_sgr.h"
+#include "tui/markdown_normalize.h"
 #include "third_party/md4c/md4c.h"
 
 namespace tui::md {
@@ -21,15 +23,6 @@ namespace {
 
 using rich::Line;
 using rich::Run;
-
-struct RunStyle {
-    int pair = 0;
-    bool bold = false, dim = false, italic = false, under = false;
-    bool operator==(const RunStyle& o) const {
-        return pair == o.pair && bold == o.bold && dim == o.dim && italic == o.italic &&
-               under == o.under;
-    }
-};
 
 struct ListFrame {
     bool ordered;
@@ -334,106 +327,10 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
         if (static_cast<unsigned char>(s[i]) == 0x1b && i + 1 < n && s[i + 1] == '[') {
             flush();
             // parse SGR; mutate cur; advance i past the sequence
-            size_t j = i + 2;
-            std::vector<int> nums;
-            std::string num;
-            while (j < n) {
-                char ch = s[j];
-                if (std::isdigit(static_cast<unsigned char>(ch)) || ch == ';') {
-                    if (ch == ';') {
-                        nums.push_back(num.empty() ? 0 : std::stoi(num));
-                        num.clear();
-                    } else
-                        num += ch;
-                    ++j;
-                } else if (ch == 'm') {
-                    if (!num.empty())
-                        nums.push_back(std::stoi(num));
-                    ++j;
-                    break;
-                } else {
-                    ++j;
-                    break;
-                }
-            }
-            if (nums.empty())
-                nums.push_back(0);
-            for (int code : nums) {
-                switch (code) {
-                case 0:
-                    cur = base;
-                    break;
-                case 1:
-                    cur.bold = true;
-                    break;
-                case 2:
-                    cur.dim = true;
-                    break;
-                case 3:
-                    cur.italic = true;
-                    break;
-                case 4:
-                    cur.under = true;
-                    break;
-                case 22:
-                    cur.bold = cur.dim = false;
-                    break;
-                case 23:
-                    cur.italic = false;
-                    break;
-                case 24:
-                    cur.under = false;
-                    break;
-                case 30:
-                    cur.pair = c.st->text_pair;
-                    break;
-                case 31:
-                    cur.pair = P_GAUGE_CRIT;
-                    break;
-                case 32:
-                    cur.pair = c.st->code_pair;
-                    break;
-                case 33:
-                    cur.pair = P_MD_CODESTR;
-                    break;
-                case 34:
-                    cur.pair = P_MD_CODECMT;
-                    break;
-                case 35:
-                    cur.pair = P_MD_CODEKEY;
-                    break;
-                case 36:
-                    cur.pair = c.st->quote_pair;
-                    break;
-                case 37:
-                case 90:
-                    cur.pair = c.st->text_pair;
-                    break;
-                case 91:
-                    cur.pair = P_GAUGE_CRIT;
-                    break;
-                case 92:
-                    cur.pair = c.st->code_pair;
-                    break;
-                case 93:
-                    cur.pair = P_MD_CODESTR;
-                    break;
-                case 94:
-                    cur.pair = P_MD_CODECMT;
-                    break;
-                case 95:
-                    cur.pair = P_MD_CODEKEY;
-                    break;
-                case 96:
-                    cur.pair = c.st->quote_pair;
-                    break;
-                case 97:
-                    cur.pair = c.st->text_pair;
-                    break;
-                default:
-                    break;
-                }
-            }
+            std::size_t j = i;
+            const std::vector<int> nums = ansi_sgr::parse(s, i, j);
+            for (int code : nums)
+                ansi_sgr::apply(code, cur, base, *c.st);
             i = j;
             continue;
         }
@@ -681,274 +578,6 @@ int text_cb(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* ud) {
     return 0;
 }
 
-// Heuristically repair the kind of near-markdown LLMs emit: GFM tables that
-// have no blank line before them (md4c requires one) and stray separator runs
-// (model-emitted "─------─" rules) glued onto a paragraph. Returns markdown
-// that md4c can parse into proper tables / horizontal rules.
-std::string normalize_markdown(const std::string& md) {
-    std::vector<std::string> in, out;
-    std::string line;
-    for (char i : md) {
-        if (i == '\n') {
-            in.push_back(line);
-            line.clear();
-        } else
-            line += i;
-    }
-    if (!line.empty())
-        in.push_back(line);
-
-    auto is_blank = [](const std::string& s) {
-        return std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isspace(c); });
-    };
-    auto is_heading = [](const std::string& s) {
-        size_t i = 0;
-        while (i < s.size() && (s[i] == ' ' || s[i] == '#'))
-            ++i;
-        return i > 0 && i < s.size() && s[i] != '#';
-    };
-    // A table row: starts (modulo indent) with '|' and has a second '|'.
-    auto is_table_row = [](const std::string& s) {
-        size_t i = 0;
-        while (i < s.size() && s[i] == ' ')
-            ++i;
-        if (i >= s.size() || s[i] != '|')
-            return false;
-        return s.find('|', i + 1) != std::string::npos;
-    };
-    // A long run of rule glyphs (- ─ ━ ═) glued onto a paragraph (a model that
-    // emits ");─------─" instead of a blank line + rule). Splits it onto its own
-    // line so is_separator_line() turns it into a clean horizontal rule. Other
-    // decorative runs (7777, ...., ||||) are handled standalone by
-    // is_separator_line(); only genuine rule-glyph runs are split here.
-    auto split_sep_runs = [](const std::string& s) -> std::vector<std::string> {
-        std::vector<std::string> parts;
-        std::string text, run;
-        auto is_sep = [](char c) {
-            auto u = static_cast<unsigned char>(c);
-            if (u >= 0x80)
-                return true; // box-drawing / bullets
-            return c == '-' || c == '=';
-        };
-        bool broke = false;
-        for (char c : s) {
-            if (is_sep(c)) {
-                run += c;
-            } else {
-                if (run.size() >= 12) {
-                    if (!text.empty())
-                        parts.push_back(text);
-                    parts.push_back(run);
-                    text.clear();
-                    broke = true;
-                } else if (!run.empty()) {
-                    text += run;
-                }
-                run.clear();
-                text += c;
-            }
-        }
-        if (run.size() >= 12) {
-            if (!text.empty()) {
-                parts.push_back(text);
-                text.clear();
-            }
-            parts.push_back(run);
-            broke = true;
-        } else if (!run.empty()) {
-            text += run;
-        }
-        if (!broke)
-            return {s};
-        if (!text.empty())
-            parts.push_back(text);
-        return parts;
-    };
-
-    for (size_t i = 0; i < in.size(); ++i) {
-        std::string l = in[i];
-        // Break a long embedded separator run onto its own line so the existing
-        // is_separator_line() turns it into a clean horizontal rule.
-        auto parts = split_sep_runs(l);
-        if (parts.size() > 1) {
-            auto all_rule = [](const std::string& s) {
-                if (s.empty())
-                    return false;
-                return std::all_of(s.begin(), s.end(), [](unsigned char c) {
-                    if (c >= 0x80)
-                        return true; // box-drawing / bullets
-                    return c == '-' || c == '=';
-                });
-            };
-            for (auto& p : parts) {
-                if (all_rule(p)) {
-                    out.emplace_back(""); // blank line so it renders as a rule
-                    out.push_back(p);
-                } else {
-                    out.push_back(p);
-                }
-            }
-            continue;
-        }
-        // Insert a blank line before a table row that directly follows prose,
-        // a heading, or another table row (md4c needs the break to detect it).
-        if (is_table_row(l) && i > 0) {
-            const std::string& prev = in[i - 1];
-            if (!is_blank(prev) && !is_heading(prev) && !is_table_row(prev))
-                out.emplace_back("");
-        }
-        // Repair tables the model emits without a delimiter row (|---|).
-        // md4c requires the separator to recognize a table; without it the
-        // rows collapse into one garbage line. Synthesize a matching
-        // delimiter row immediately after this (header) row when the next
-        // non-blank row is a data table row and no delimiter sits between
-        // them. We only do this at the start of a table block (the previous
-        // emitted line is not itself a table/delimiter row) so we don't emit
-        // a delimiter before every body row.
-        auto is_delimiter = [](const std::string& s) {
-            size_t i = 0;
-            while (i < s.size() && (s[i] == ' ' || s[i] == '|'))
-                ++i;
-            if (i == 0)
-                return false;
-            bool ok = true, saw = false;
-            for (size_t j = i; j < s.size(); ++j) {
-                char c = s[j];
-                if (c == '|' || c == ' ' || c == ':' || c == '-') {
-                    saw = true;
-                    continue;
-                }
-                ok = false;
-                break;
-            }
-            return ok && saw;
-        };
-        if (is_table_row(l) && i + 1 < in.size()) {
-            size_t n = i + 1;
-            while (n < in.size() && is_blank(in[n]))
-                ++n;
-            if (n < in.size() && is_table_row(in[n]) && !is_delimiter(in[n])) {
-                bool prev_is_table =
-                    !out.empty() && (is_table_row(out.back()) || is_delimiter(out.back()));
-                if (!prev_is_table) {
-                    int cols = 0;
-                    for (char p : l)
-                        if (p == '|')
-                            ++cols;
-                    if (l.front() == '|')
-                        --cols;
-                    if (cols < 1)
-                        cols = 1;
-                    std::string sep;
-                    for (int c = 0; c < cols; ++c)
-                        sep += "|---";
-                    sep += "|";
-                    out.push_back(l);
-                    out.push_back(sep);
-                    continue;
-                }
-            }
-        }
-        out.push_back(l);
-    }
-
-    // Pad ragged tables where the header has fewer columns than body rows.
-    // The LLM sometimes emits `| Vuln | Real path |` (2 cols) followed by
-    // 5-col body rows; md4c then locks the table to 2 cols and the extra
-    // body cells are lost, appearing as raw `| ... |` paragraphs. Fix by
-    // expanding every row in the table block to the block's max column count.
-    {
-        auto count_cols = [](const std::string& s) -> int {
-            int pipes = 0;
-            for (size_t i = 0; i < s.size(); ++i) {
-                if (s[i] == '|' && (i == 0 || s[i - 1] != '\\'))
-                    ++pipes;
-            }
-            if (pipes == 0)
-                return 0;
-            size_t first = s.find_first_not_of(' ');
-            size_t last = s.find_last_not_of(' ');
-            if (first == std::string::npos || last == std::string::npos)
-                return 0;
-            bool starts_pipe = s[first] == '|';
-            bool ends_pipe = s[last] == '|';
-            if (starts_pipe && ends_pipe)
-                return std::max(0, pipes - 1);
-            if (starts_pipe || ends_pipe)
-                return pipes;
-            return pipes + 1;
-        };
-        auto is_delim = [](const std::string& s) -> bool {
-            size_t j = 0;
-            while (j < s.size() && (s[j] == ' ' || s[j] == '|'))
-                ++j;
-            if (j == 0)
-                return false;
-            bool ok = true, saw = false;
-            for (size_t k = j; k < s.size(); ++k) {
-                char c = s[k];
-                if (c == '|' || c == ' ' || c == ':' || c == '-') {
-                    saw = true;
-                    continue;
-                }
-                ok = false;
-                break;
-            }
-            return ok && saw;
-        };
-        for (size_t i = 0; i < out.size();) {
-            if (!is_table_row(out[i]) && !is_delim(out[i])) {
-                ++i;
-                continue;
-            }
-            size_t start = i;
-            while (i < out.size() && (is_table_row(out[i]) || is_delim(out[i])))
-                ++i;
-            size_t end = i;
-            int max_cols = 0;
-            for (size_t k = start; k < end; ++k) {
-                if (is_blank(out[k]))
-                    continue;
-                max_cols = std::max(max_cols, count_cols(out[k]));
-            }
-            if (max_cols <= 0)
-                continue;
-            for (size_t k = start; k < end; ++k) {
-                if (is_blank(out[k]))
-                    continue;
-                int cur = count_cols(out[k]);
-                if (cur >= max_cols)
-                    continue;
-                bool delim = is_delim(out[k]);
-                std::string s = out[k];
-                size_t f = s.find_first_not_of(' ');
-                size_t l = s.find_last_not_of(' ');
-                if (f == std::string::npos)
-                    continue;
-                s = s.substr(f, l - f + 1);
-                if (s.front() != '|')
-                    s.insert(0, "| ");
-                if (s.back() != '|')
-                    s += " |";
-                cur = count_cols(s);
-                while (cur < max_cols) {
-                    s += delim ? "---|" : " |";
-                    ++cur;
-                }
-                out[k] = s;
-            }
-        }
-    }
-
-    std::string res;
-    for (size_t i = 0; i < out.size(); ++i) {
-        res += out[i];
-        if (i + 1 < out.size())
-            res += '\n';
-    }
-    return res;
-}
-
 } // namespace
 
 std::vector<Line> render(const std::string& md, const Style& st) {
@@ -968,7 +597,7 @@ std::vector<Line> render(const std::string& md, const Style& st) {
     parser.leave_span = leave_span;
     parser.text = text_cb;
 
-    const std::string norm = normalize_markdown(md);
+    const std::string norm = markdown_normalize::normalize(md);
     md_parse(norm.c_str(), static_cast<MD_SIZE>(norm.size()), &parser, &c);
     return out;
 }

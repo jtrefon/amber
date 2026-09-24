@@ -7,6 +7,8 @@
 #   P3  `make clean` removes every build artifact.
 #   P4  compile_commands.json is never committed (stale machine-specific flags).
 #   P5  AGENTS.md audit-table line counts match the tree.
+#   P6  the Context deque single-owner contract holds (no mutex/mutation).
+#   P7  TUI L1 "domain" modules are pure (no ncurses, no port headers).
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -164,6 +166,57 @@ for m in replace insert update set_message set_content edit modify; do
 done
 if grep -qE '\b(mutex|recursive_mutex)\b' "$ctx_hdr"; then
     warn "P6: $ctx_hdr must not include <mutex> or declare a mutex member"
+fi
+
+# P7
+# Layering (docs/spec/tui/architecture.md, isolation rule 1 + ARCH-01/02): the
+# L1 "domain" modules are pure — they must not pull in ncurses, and must not
+# depend on the L3 ports. The list grows as phases migrate modules; a new L1
+# file that leaks ncurses (or a port) fails here, so the rule cannot rot.
+L1_MODULES="keys scroll_dispatch session_browser_core command_line key_binder
+key_action input_state key_read drawer_rows textutil rich palette tool_display
+path_confine approval_model run_registry setting_registry markdown markdown_md4c
+reasoning_block help_page completion_context option_key_decode status_bar_layout
+markdown_normalize info_dialog_layout list_state panel_view_state form_focus
+session_row input_line_layout ansi_sgr"
+NC_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"](ncurses|panel|form|menu)\.h'
+PORT_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^">]*_port\.h'
+p7_bad=0
+for m in $L1_MODULES; do
+    for f in "tui/$m.h" "tui/$m.cpp"; do
+        [ -f "$f" ] || continue
+        if grep -qE "$NC_INCLUDE" "$f"; then
+            warn "P7: L1 module $f includes ncurses (isolation rule 1)"
+            p7_bad=1
+        fi
+        if grep -qE "$PORT_INCLUDE" "$f"; then
+            warn "P7: L1 module $f includes a port header (L1 must not depend on L3)"
+            p7_bad=1
+        fi
+    done
+done
+if [ "$p7_bad" -eq 0 ]; then
+    ok "P7: $(echo $L1_MODULES | wc -w | tr -d ' ') L1 modules are ncurses-free and port-free"
+fi
+
+# P7b
+# Transitive purity. The grep above only sees direct includes, so a header that
+# pulls <ncurses.h> indirectly (e.g. rich.h -> widgets.h) slips through. Check
+# the *preprocessed* TU for an ncurses-family include marker: comments are gone
+# by then, so a mention in prose cannot false-positive. (Compiling without
+# ncurses flags is not enough here: the system headers resolve anyway.)
+p7c_bad=0
+for m in $L1_MODULES; do
+    f="tui/$m.cpp"
+    [ -f "$f" ] || continue
+    if "${CXX:-c++}" -std=c++17 -E -Iinclude -Isrc -Itools -I. "$f" 2>/dev/null |
+        grep -qE '^# [0-9]+ "[^"]*/(ncurses|panel|form|menu)\.h"'; then
+        warn "P7: L1 module $f pulls in ncurses transitively (preprocessed TU)"
+        p7c_bad=1
+    fi
+done
+if [ "$p7c_bad" -eq 0 ]; then
+    ok "P7: no L1 module pulls in ncurses transitively"
 fi
 
 if [ "$failures" -gt 0 ]; then
