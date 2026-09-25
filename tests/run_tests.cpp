@@ -31,7 +31,6 @@
 #include "tests/test_util.h"
 
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -41,7 +40,6 @@
 #include <mutex>
 #include <sstream>
 #include <string>
-#include <thread>
 #include <cstdlib>
 #include <unistd.h>
 #include <arpa/inet.h>
