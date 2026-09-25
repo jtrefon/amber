@@ -28,7 +28,10 @@ driven by an OpenAI-compatible LLM API.
   exist from 2.21, so an older cppcheck reports fewer findings and the gate is
   quietly weaker. `CPPCHECK_MIN_VERSION` (Makefile.in) is the pinned floor —
   `make analyze` fails closed below it — and CI installs exactly that version
-  from conda-forge, so bump the two together.
+  from conda-forge, so bump the two together. Its build dir
+  (`/tmp/cppcheck_amber`) is kept between runs and cached in CI: only changed
+  files are re-analyzed, which is the difference between ~7 min and ~40 s.
+  `rm -rf /tmp/cppcheck_amber` for a from-scratch run.
 - `make duplicates` runs the cross-file duplicate-block detector
   (`tools/duplicate_detector.py`); it is a gating CI job. `make
   format-check-changed BASE=origin/main` is the incremental clang-format gate

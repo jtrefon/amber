@@ -133,6 +133,16 @@ jobs:
           create-args: cppcheck=2.22.0
           cache-environment: true
 
+      # cppcheck re-analyzes only files whose hash changed, so a warm build dir
+      # takes the job from ~25 min to a couple of minutes. restore-keys falls
+      # back to the newest cache when sources changed, which is the point.
+      - name: Cache cppcheck analysis
+        uses: actions/cache@v6
+        with:
+          path: /tmp/cppcheck_amber
+          key: cppcheck-2.22.0-${{ hashFiles('**/*.cpp', '**/*.h', 'cppcheck_suppressions.txt') }}
+          restore-keys: cppcheck-2.22.0-
+
       - name: Configure
         run: ./configure
 

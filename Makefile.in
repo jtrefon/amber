@@ -336,6 +336,9 @@ lint-changed:
 # in parallel and ignores the vendored nlohmann/json header (known-good, slow to
 # parse). Slower than lint; run explicitly rather than on every build.
 ANALYZE_JOBS = $(NPROC)
+# cppcheck's build dir is deliberately kept between runs: it re-analyzes only
+# files whose hash changed, which turns a ~7 min cold run into ~40 s warm (and
+# CI caches it). `rm -rf $(ANALYZE_BUILD_DIR)` for a from-scratch analysis.
 ANALYZE_BUILD_DIR = /tmp/cppcheck_amber
 # Pinned cppcheck. Checks such as uninitMemberVarNoCtor only exist from 2.21, so
 # an older cppcheck silently reports fewer findings and the gate ends up weaker
@@ -370,7 +373,6 @@ analyze:
 	    -i$(SRC_DIR)/bench/scenarios \
 	    $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/bench $(SRC_DIR)/src $(SRC_DIR)/plugins $(SRC_DIR)/tests 2>/tmp/cp_$$$$.log; rc=$$?; \
 	grep -v "^Checking\|^nofile\|^cppcheck: progress" /tmp/cp_$$$$.log || true; rm -f /tmp/cp_$$$$.log; \
-	rm -rf $(ANALYZE_BUILD_DIR); \
 	exit $$rc
 
 DUPLICATE_MIN_LINES ?= 6
