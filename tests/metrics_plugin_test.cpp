@@ -24,15 +24,15 @@ TEST(metrics_plugin_initialize_subscribes) {
     MetricsPlugin p;
     ASSERT_TRUE(p.initialize(ctx));
 
-    Event start_ev{EventType::AgentTurnStart, nullptr};
+    Event start_ev{nullptr};
     bus.fire(EventType::AgentTurnStart, start_ev);
     ASSERT_EQ(p.stats().turns, 1);
 
-    Event tool_ev{EventType::ToolCallBefore, nullptr};
+    Event tool_ev{nullptr};
     bus.fire(EventType::ToolCallBefore, tool_ev);
     ASSERT_EQ(p.stats().tool_calls, 1);
 
-    Event end_ev{EventType::AgentTurnEnd, nullptr};
+    Event end_ev{nullptr};
     bus.fire(EventType::AgentTurnEnd, end_ev);
     ASSERT(p.stats().total_ms >= 0);
 }
@@ -48,9 +48,9 @@ TEST(metrics_plugin_tracks_multiple_turns) {
     p.initialize(ctx);
 
     for (int i = 0; i < 5; ++i) {
-        Event start{EventType::AgentTurnStart, nullptr};
+        Event start{nullptr};
         bus.fire(EventType::AgentTurnStart, start);
-        Event end{EventType::AgentTurnEnd, nullptr};
+        Event end{nullptr};
         bus.fire(EventType::AgentTurnEnd, end);
     }
     ASSERT_EQ(p.stats().turns, 5);
@@ -66,7 +66,7 @@ TEST(metrics_plugin_shutdown_resets) {
     MetricsPlugin p;
     p.initialize(ctx);
 
-    Event start{EventType::AgentTurnStart, nullptr};
+    Event start{nullptr};
     bus.fire(EventType::AgentTurnStart, start);
     ASSERT_EQ(p.stats().turns, 1);
 

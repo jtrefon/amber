@@ -753,7 +753,7 @@ TEST(runtime_turn_end_requests_a_wallet_refresh) {
 
     WalletProbePlugin::fetches = 0;
     TurnEndedEvent ended;
-    Event raw{EventType::AgentTurnEnd, &ended, false};
+    Event raw{&ended, false};
     runtime.events().fire(EventType::AgentTurnEnd, raw);
     // The turn boundary only marks it stale; the tick (which the host drives)
     // is what performs the fetch, so no I/O happens on the agent thread.

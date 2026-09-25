@@ -37,7 +37,7 @@ struct AgentEvent {
         Done,
         CompressResult,
     };
-    Type type;
+    Type type = Token;
     std::string text;
     agent::RunState state = agent::RunState::Idle;
     agent::Stats stats{};

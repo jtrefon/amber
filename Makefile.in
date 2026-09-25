@@ -20,6 +20,7 @@ includedir = @includedir@
 datarootdir = @datarootdir@
 docdir    = $(datarootdir)/doc/amber
 
+COMPLEXITY_PYTHON ?= python3
 SRC_DIR   = @srcdir@
 BUILD_DIR = @builddir@
 
@@ -335,23 +336,43 @@ lint-changed:
 # in parallel and ignores the vendored nlohmann/json header (known-good, slow to
 # parse). Slower than lint; run explicitly rather than on every build.
 ANALYZE_JOBS = $(NPROC)
+# cppcheck's build dir is deliberately kept between runs: it re-analyzes only
+# files whose hash changed, which turns a ~7 min cold run into ~40 s warm (and
+# CI caches it). `rm -rf $(ANALYZE_BUILD_DIR)` for a from-scratch analysis.
 ANALYZE_BUILD_DIR = /tmp/cppcheck_amber
+# Pinned cppcheck. Checks such as uninitMemberVarNoCtor only exist from 2.21, so
+# an older cppcheck silently reports fewer findings and the gate ends up weaker
+# than the one CI runs. Fail closed on a stale toolchain rather than pass quietly.
+# CI installs exactly this version (see the analyze job in .github/workflows).
+CPPCHECK ?= cppcheck
+CPPCHECK_MIN_VERSION ?= 2.22.0
+CPPCHECK_MIN_MAJOR := $(word 1,$(subst ., ,$(CPPCHECK_MIN_VERSION)))
+CPPCHECK_MIN_MINOR := $(word 2,$(subst ., ,$(CPPCHECK_MIN_VERSION)))
 # Scanned dirs mirror LINT_SRCS, minus bench/: its scenarios/ hold deliberately
 # broken skeletons and references, so analyzing them is pure noise. src/ and
 # plugins/ were missing — every plugin was unanalyzed until they were added.
 analyze:
 	@echo "cppcheck (warning/style/performance/portability/unusedFunction)..."
+	@have="$$($(CPPCHECK) --version 2>/dev/null | awk '{print $$NF}')"; \
+	if [ -z "$$have" ]; then \
+	    echo "analyze: $(CPPCHECK) not found; need >= $(CPPCHECK_MIN_VERSION)"; exit 2; \
+	fi; \
+	hmaj=$${have%%.*}; hmin=$${have#*.}; hmin=$${hmin%%.*}; \
+	if [ "$$hmaj" -lt $(CPPCHECK_MIN_MAJOR) ] || \
+	   { [ "$$hmaj" -eq $(CPPCHECK_MIN_MAJOR) ] && [ "$$hmin" -lt $(CPPCHECK_MIN_MINOR) ]; }; then \
+	    echo "analyze: cppcheck $$have is older than $(CPPCHECK_MIN_VERSION); newer checks would be skipped"; \
+	    exit 2; \
+	fi
 	@mkdir -p $(ANALYZE_BUILD_DIR)
-	@cppcheck --enable=warning,style,performance,portability,unusedFunction --std=c++17 \
+	@$(CPPCHECK) --enable=warning,style,performance,portability,unusedFunction --std=c++17 \
 	    --cppcheck-build-dir=$(ANALYZE_BUILD_DIR) \
 	    --max-ctu-depth=0 -j$(ANALYZE_JOBS) \
 	    --suppressions-list=$(SRC_DIR)/cppcheck_suppressions.txt \
 	    --suppress=missingIncludeSystem --error-exitcode=1 \
 	    -I$(SRC_DIR)/include -I$(SRC_DIR)/src -I$(SRC_DIR)/tools -I$(SRC_DIR) \
 	    -i$(SRC_DIR)/bench/scenarios \
-	    $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/bench $(SRC_DIR)/src $(SRC_DIR)/plugins $(SRC_DIR)/tests 2>/tmp/cp_$$.log; rc=$$?; \
-	grep -v "^Checking\|^nofile\|^cppcheck: progress" /tmp/cp_$$.log || true; rm -f /tmp/cp_$$.log; \
-	rm -rf $(ANALYZE_BUILD_DIR); \
+	    $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/bench $(SRC_DIR)/src $(SRC_DIR)/plugins $(SRC_DIR)/tests 2>/tmp/cp_$$$$.log; rc=$$?; \
+	grep -v "^Checking\|^nofile\|^cppcheck: progress" /tmp/cp_$$$$.log || true; rm -f /tmp/cp_$$$$.log; \
 	exit $$rc
 
 DUPLICATE_MIN_LINES ?= 6
@@ -360,12 +381,19 @@ duplicates:
 	@python3 "$(SRC_DIR)/tools/duplicate_detector.py" --min-lines=$(DUPLICATE_MIN_LINES) $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/tests $(SRC_DIR)/src
 	@echo "  clean"
 
+# Complexity ratchet: a method stays small (<=50 lines) and does not branch
+# excessively (CCN<=15). tests/complexity_baseline.json records the accepted
+# count per file, so existing debt cannot grow and a new file must be clean.
+# Fails closed when lizard is unavailable, rather than reporting success.
+# Override COMPLEXITY_PYTHON when lizard lives in a virtualenv.
 complexity:
-	@echo "lizard complexity (informational, CCN>15 or length>50)..."
-	@python3 -m lizard -l cpp --CCN 15 -L 50 --exclude third_party --exclude bench/results $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/bench $(SRC_DIR)/plugins 2>&1 | tee /tmp/lizard.log; \
-	n=$$(grep -c WARN /tmp/lizard.log 2>/dev/null || true); n=$${n:-0}; \
-	if [ "$$n" -gt 0 ]; then echo "complexity: $$n functions exceed CCN>15 or length>50 (informational)"; grep WARN /tmp/lizard.log | head -n 30; fi; \
-	echo "  clean (informational)"
+	@$(COMPLEXITY_PYTHON) tools/complexity_gate.py --check
+
+complexity-report:
+	@$(COMPLEXITY_PYTHON) tools/complexity_gate.py --report
+
+complexity-update:
+	@$(COMPLEXITY_PYTHON) tools/complexity_gate.py --update
 
 # clang-format. The tree predates enforcement, so the full-tree run stays
 # informational; format-check-changed is the merge gate — files a PR touches

@@ -837,8 +837,8 @@ std::string Agent::finish_turn(std::string final_reply) {
 
 void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
     struct Block {
-        int priority;
-        std::size_t seq;
+        int priority = 0;
+        std::size_t seq = 0;
         std::string text;
     };
     std::vector<Block> head;

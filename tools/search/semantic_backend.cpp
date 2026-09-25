@@ -84,7 +84,7 @@ private:
         std::unordered_map<std::string, double> df;
         struct RawLine {
             std::string path;
-            long no;
+            long no = 0;
             std::string text;
             std::vector<std::string> toks;
         };

@@ -31,7 +31,6 @@
 #include "tests/test_util.h"
 
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -41,7 +40,6 @@
 #include <mutex>
 #include <sstream>
 #include <string>
-#include <thread>
 #include <cstdlib>
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -3592,7 +3590,7 @@ TEST(parse_compression_response_invalid_json) {
 }
 
 TEST(parse_compression_response_valid) {
-    std::string json = R"({
+    std::string payload = R"({
         "classification": [
             {"turns": "0-0", "tag": "core", "summary": ""},
             {"turns": "1-3", "tag": "context", "summary": "explored layout"},
@@ -3605,7 +3603,7 @@ TEST(parse_compression_response_valid) {
             {"content": "run make test", "tags": ["test"], "trigger_phrase": "test", "action": "upsert"}
         ]
     })";
-    auto cr = agent::parse_compression_response(json);
+    auto cr = agent::parse_compression_response(payload);
     ASSERT(cr.segments.size() == 3u);
     ASSERT(cr.segments[0].tag == agent::Classification::core);
     ASSERT(cr.segments[1].tag == agent::Classification::context);
@@ -6316,7 +6314,7 @@ TEST(session_brief_merge_intent_replace) {
 // [SB-05] parse_compression_response extracts the brief field alongside
 // memories and skills. A malformed brief does not affect memories/skills.
 TEST(session_brief_parse_extracts_brief) {
-    std::string json = R"({
+    std::string payload = R"({
         "classification": [{"turns": "0-0", "tag": "core", "summary": ""}],
         "memories": [{"content": "uses make", "tags": ["build"], "action": "upsert"}],
         "skills": [],
@@ -6328,7 +6326,7 @@ TEST(session_brief_parse_extracts_brief) {
             "avoid": ["rewriting parser — too risky"]
         }
     })";
-    auto cr = agent::parse_compression_response(json);
+    auto cr = agent::parse_compression_response(payload);
     ASSERT(cr.segments.size() == 1u);
     ASSERT(cr.memory_ops.size() == 1u);
     ASSERT(cr.brief.has_value());
@@ -6342,12 +6340,12 @@ TEST(session_brief_parse_extracts_brief) {
 // [SB-06] A malformed or missing brief in the extract response does not
 // affect memories/skills — the brief store retains its last good state.
 TEST(session_brief_parse_failure_nonfatal) {
-    std::string json = R"({
+    std::string payload = R"({
         "classification": [{"turns": "0-0", "tag": "core", "summary": ""}],
         "memories": [{"content": "uses make", "tags": ["build"], "action": "upsert"}],
         "skills": [{"content": "run tests", "trigger_phrase": "test", "action": "upsert"}]
     })";
-    auto cr = agent::parse_compression_response(json);
+    auto cr = agent::parse_compression_response(payload);
     // Memories and skills parsed fine.
     ASSERT(cr.memory_ops.size() == 1u);
     ASSERT(cr.skill_ops.size() == 1u);

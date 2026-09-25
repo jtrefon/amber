@@ -112,6 +112,12 @@ jobs:
   # ---------------------------------------------------------------------------
   # Static analysis — cppcheck (cross-TU, compiler-agnostic). Independent of
   # the compiler matrix; runs once. Includes unusedFunction detection.
+  #
+  # cppcheck is pinned deliberately: the distro package is older than the checks
+  # the gate relies on (uninitMemberVarNoCtor and friends arrived in 2.21), so
+  # apt would quietly analyze less than a developer's toolchain and pass. Keep
+  # this in step with CPPCHECK_MIN_VERSION in Makefile.in, which fails closed
+  # below it.
   # ---------------------------------------------------------------------------
   analyze:
     needs: [changes]
@@ -120,14 +126,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
+
+      - uses: mamba-org/setup-micromamba@v3
         with:
-          extra: cppcheck
+          environment-name: cppcheck
+          create-args: cppcheck=2.22.0
+          cache-environment: true
+
+      # cppcheck re-analyzes only files whose hash changed, so a warm build dir
+      # takes the job from ~25 min to a couple of minutes. restore-keys falls
+      # back to the newest cache when sources changed, which is the point.
+      - name: Cache cppcheck analysis
+        uses: actions/cache@v6
+        with:
+          path: /tmp/cppcheck_amber
+          key: cppcheck-2.22.0-${{ hashFiles('**/*.cpp', '**/*.h', 'cppcheck_suppressions.txt') }}
+          restore-keys: cppcheck-2.22.0-
 
       - name: Configure
         run: ./configure
 
       - name: Static analysis (cppcheck)
         run: make analyze
+        shell: micromamba-shell {0}
 
   # ---------------------------------------------------------------------------
   # Build hygiene — smoketest + static invariant checks (P1–P5).
