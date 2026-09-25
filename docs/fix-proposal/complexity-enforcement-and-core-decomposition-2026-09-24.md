@@ -98,13 +98,51 @@ branching are orthogonal — of 121 violations, **63 are both, 19 branching-only
 rule: an entry in the `AGENTS.md` audit table stating *why* (table/serializer)
 and carrying its CCN. Every exception becomes a visible, argued decision.
 
-### 3.1 Still staged
+### 3.1 The nesting/cognitive caps: blocker and revised approach
 
-The two clang-tidy checks (nesting, cognitive) are **not yet enabled**: enabling
-them makes the `lint` job fail on *any touched file* with an over-limit
-function, including currently-open work. Recommendation: enable them now and
-fix findings as files are touched — the attrition ratchet — because the point is
-to stop debt at the moment it is written.
+The first plan was to enable both checks in `.clang-tidy`. **That is not
+landable**, and the reason is worth recording:
+
+`make lint-changed` (the gating PR lint job) falls back to a **full-tree** lint
+whenever the diff touches `.clang-tidy` *or any header*:
+
+```
+hdr_changed = git diff --name-only BASE...HEAD -- '*.h' '*.hpp'
+cfg_changed = git diff --name-only BASE...HEAD -- '.clang-tidy'
+if [ -n "$hdr_changed" ] || [ -n "$cfg_changed" ]; then
+    echo "  header or .clang-tidy changed — full lint"
+    $(MAKE) lint        # full tree
+    exit $?
+fi
+```
+
+So enabling the caps in `.clang-tidy` would make (a) the C1 PR itself fail — its
+own diff trips `cfg_changed` — and (b) **every future header change** fail on the
+same 121 findings. That is a landmine, not a ratchet. (`lint-full` on main is
+fine: `continue-on-error: true`.)
+
+**Revised C1**: keep `.clang-tidy` unchanged and enforce all four axes through
+the ratcheted gate instead. Two constraints shaped the mechanism:
+
+- clang-tidy tree-wide is far too slow for a per-PR gate (~70 s/TU: the
+  incremental `lint` job needs ~24 min for ~20 changed TUs), so a per-PR
+  clang-tidy pass over every file is not viable;
+- a hand-rolled nesting scanner without a real parser would produce false
+  positives, which is worse than no gate.
+
+Therefore:
+
+1. **now** — the gate enforces **size + CCN** (lizard, fast, exact);
+2. **when the baseline reaches 0** — move `NestingThreshold: 4` and
+   `Threshold: 25` into `.clang-tidy`. At that point the full-lint fallback is
+   harmless because there is nothing left to report, and editors get the
+   feedback too.
+
+**Separately, the fallback itself is a defect.** "Any header change ⇒ lint the
+whole tree" makes the lint gate all-or-nothing, so it can never be tightened
+incrementally. It is the same class of fault as the original complexity target:
+a gate that cannot be turned up. Fixing it is a prerequisite for ever enabling
+the caps safely.
 
 ## 4. Target architecture: the core
 
@@ -161,10 +199,17 @@ improve.
 - Branch coverage rises (CCN ≈ the minimum number of paths to test; today it is
   **43.8%**).
 
-## 7. Decisions needed
+## 7. Decisions (settled 2026-09-24)
 
-1. **Enable the clang-tidy nesting/cognitive caps now (C1) or after C2?**
-2. **Exemption format** — extend the `AGENTS.md` audit table, or a dedicated
-   `docs/complexity-exemptions.md`?
-3. **Core first or TUI first?** `lib/` has more violations and more risk; the
-   TUI keystone (`Tui::run`, CCN 109) is already designed.
+1. **Nesting/cognitive caps: enable now, but through the ratcheted gate** — not
+   via `.clang-tidy`, for the reason in 3.1. Size + CCN are enforced today; the
+   nesting/cognitive caps move into `.clang-tidy` once the baseline reaches 0.
+2. **Exemption format: extend the `AGENTS.md` audit table** — the existing
+   P5-enforced mechanism, so an exemption is a visible, argued entry rather than
+   a second list to keep in sync.
+3. **Core first.** `lib/` carries the most violations (47) and the most risk
+   (correctness-critical paths). Worst-first: `Config::load` (129/**72**),
+   `classify_shell` (200/**61**), `dispatch_tool_calls` (185/38). The TUI
+   keystone (`Tui::run`, CCN 109) follows in C3 with G1..G9.
+4. **Also fix the full-scan fallback** (3.1) — a prerequisite for tightening the
+   lint gate at all; registered as CX8.
