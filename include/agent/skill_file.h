@@ -36,7 +36,7 @@ struct SkillMeta {
 struct SkillFile {
     std::string name;
     std::string path;
-    SkillScope scope;
+    SkillScope scope = SkillScope::Project;
     SkillMeta meta;
 };
 

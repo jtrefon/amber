@@ -194,7 +194,7 @@ public:
     template <class E> bool publish(E& e) {
         if (!bus_.has_subscribers(EventTraits<E>::type))
             return true;
-        Event ev{EventTraits<E>::type, &e, false};
+        Event ev{&e, false};
         return bus_.fire(EventTraits<E>::type, ev);
     }
 

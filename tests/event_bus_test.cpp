@@ -15,7 +15,7 @@ TEST(event_bus_subscribe_and_fire) {
     int count = 0;
     bus.subscribe(EventType::AgentTurnStart, [&](const Event&) { ++count; });
 
-    Event e{EventType::AgentTurnStart, nullptr};
+    Event e{nullptr};
     bus.fire(EventType::AgentTurnStart, e);
     ASSERT_EQ(count, 1);
 }
@@ -26,7 +26,7 @@ TEST(event_bus_multiple_observers) {
     bus.subscribe(EventType::ToolCallAfter, [&](const Event&) { ++a; });
     bus.subscribe(EventType::ToolCallAfter, [&](const Event&) { ++b; });
 
-    Event e{EventType::ToolCallAfter, nullptr};
+    Event e{nullptr};
     bus.fire(EventType::ToolCallAfter, e);
     ASSERT_EQ(a, 1);
     ASSERT_EQ(b, 1);
@@ -37,7 +37,7 @@ TEST(event_bus_unsubscribe) {
     int count = 0;
     size_t id = bus.subscribe(EventType::AgentTurnEnd, [&](const Event&) { ++count; });
 
-    Event e{EventType::AgentTurnEnd, nullptr};
+    Event e{nullptr};
     bus.fire(EventType::AgentTurnEnd, e);
     ASSERT_EQ(count, 1);
 
@@ -55,7 +55,7 @@ TEST(event_bus_intercept_modifies) {
         return true;
     });
 
-    Event e{EventType::AgentTurnStart, nullptr};
+    Event e{nullptr};
     bus.fire(EventType::AgentTurnStart, e);
     ASSERT_EQ(value, 42);
 }
@@ -72,7 +72,7 @@ TEST(event_bus_intercept_cancels) {
     });
     bus.subscribe(EventType::ToolCallBefore, [&](const Event&) { ++observer_count; });
 
-    Event e{EventType::ToolCallBefore, nullptr};
+    Event e{nullptr};
     bool continued = bus.fire(EventType::ToolCallBefore, e);
     ASSERT_FALSE(continued);
     ASSERT_TRUE(interceptor_ran);
@@ -92,7 +92,7 @@ TEST(event_bus_intercept_order) {
         return true;
     });
 
-    Event e{EventType::AgentTurnStart, nullptr};
+    Event e{nullptr};
     bus.fire(EventType::AgentTurnStart, e);
     ASSERT_EQ(order.size(), 2u);
     ASSERT_EQ(order[0], 2);
@@ -109,7 +109,7 @@ TEST(event_bus_clear_removes_all) {
     });
 
     bus.clear();
-    Event e{EventType::AgentTurnEnd, nullptr};
+    Event e{nullptr};
     bus.fire(EventType::AgentTurnEnd, e);
     ASSERT_EQ(count, 0);
 }
@@ -120,12 +120,12 @@ TEST(event_bus_different_types_independent) {
     bus.subscribe(EventType::AgentTurnStart, [&](const Event&) { ++start_count; });
     bus.subscribe(EventType::AgentTurnEnd, [&](const Event&) { ++end_count; });
 
-    Event e1{EventType::AgentTurnStart, nullptr};
+    Event e1{nullptr};
     bus.fire(EventType::AgentTurnStart, e1);
     ASSERT_EQ(start_count, 1);
     ASSERT_EQ(end_count, 0);
 
-    Event e2{EventType::AgentTurnEnd, nullptr};
+    Event e2{nullptr};
     bus.fire(EventType::AgentTurnEnd, e2);
     ASSERT_EQ(start_count, 1);
     ASSERT_EQ(end_count, 1);
@@ -137,7 +137,7 @@ TEST(event_bus_fire_reentrancy_subscribe_inside_handler) {
     bus->subscribe(EventType::AgentTurnStart, [bus_ptr](const Event&) {
         bus_ptr->subscribe(EventType::AgentTurnStart, [](const Event&) {});
     });
-    Event e{EventType::AgentTurnStart, nullptr};
+    Event e{nullptr};
     std::atomic<bool> fired{false};
     std::thread fire_thread([bus, e, &fired]() mutable {
         bus->fire(EventType::AgentTurnStart, e);
@@ -155,10 +155,10 @@ TEST(event_bus_fire_reentrancy_fire_inside_handler) {
     bus->subscribe(EventType::AgentTurnEnd, [&inner](const Event&) { ++inner; });
     bus->subscribe(EventType::AgentTurnStart, [bus_ptr, &outer](const Event&) {
         ++outer;
-        Event e2{EventType::AgentTurnEnd, nullptr};
+        Event e2{nullptr};
         bus_ptr->fire(EventType::AgentTurnEnd, e2);
     });
-    Event e{EventType::AgentTurnStart, nullptr};
+    Event e{nullptr};
     std::atomic<bool> done{false};
     std::thread t([bus, e, &done]() mutable {
         bus->fire(EventType::AgentTurnStart, e);

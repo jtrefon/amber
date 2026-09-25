@@ -33,8 +33,10 @@ enum class EventType : std::uint8_t {
 
 inline constexpr std::size_t kEventTypeCount = static_cast<std::size_t>(EventType::Count);
 
+// Internal envelope handed to observers and interceptors. The type is carried
+// by the fire()/subscribe() call, not the envelope: this is the transport, not
+// the plugin-facing API (plugins use the typed events in events.h).
 struct Event {
-    EventType type;
     void* data = nullptr;
     bool cancelled = false;
 };
@@ -59,14 +61,14 @@ public:
 
 private:
     struct ObserverEntry {
-        size_t id;
-        EventType type;
+        size_t id = 0;
+        EventType type = EventType::AgentTurnStart;
         Observer handler;
     };
 
     struct InterceptorEntry {
-        size_t id;
-        EventType type;
+        size_t id = 0;
+        EventType type = EventType::AgentTurnStart;
         Interceptor handler;
     };
 

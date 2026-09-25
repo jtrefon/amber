@@ -548,9 +548,9 @@ TEST(report_text_renders_scenario_and_verdict) {
     ASSERT(text.find("demo-scenario") != std::string::npos);
     ASSERT(text.find("PASS") != std::string::npos);
 
-    std::string json = bench::render_json({rep}, meta);
-    ASSERT(json.find("demo-scenario") != std::string::npos);
-    ASSERT(json.find("success") != std::string::npos);
+    std::string rendered = bench::render_json({rep}, meta);
+    ASSERT(rendered.find("demo-scenario") != std::string::npos);
+    ASSERT(rendered.find("success") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -1410,10 +1410,10 @@ TEST(repeat_json_emits_median_and_ci) {
     bench::RunMeta meta;
     meta.mode = "hermetic";
     meta.model = "fake";
-    std::string json = bench::render_json(agg, meta);
-    ASSERT(json.find("score_median") != std::string::npos);
-    ASSERT(json.find("score_stddev") != std::string::npos);
-    ASSERT(json.find("model_score_ci") != std::string::npos);
+    std::string rendered = bench::render_json(agg, meta);
+    ASSERT(rendered.find("score_median") != std::string::npos);
+    ASSERT(rendered.find("score_stddev") != std::string::npos);
+    ASSERT(rendered.find("model_score_ci") != std::string::npos);
 }
 
 // A stored JSON report round-trips: the repeat fields and the model CI

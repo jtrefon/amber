@@ -276,7 +276,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& reg
     }
 
     struct Pending {
-        size_t idx;
+        size_t idx = 0;
         std::future<ToolResult> future;
     };
     // Nesting state must survive the thread hop: the task tool runs inside
