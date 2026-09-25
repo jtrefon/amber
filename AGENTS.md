@@ -52,7 +52,9 @@ driven by an OpenAI-compatible LLM API.
   `version.h.in`; do not hand-edit it, and don't commit a stale one.
 - On macOS, `./configure` needs Homebrew ncurses on `PKG_CONFIG_PATH` or the
   TUI silently falls back to the SDK's non-wide ncurses and `mvaddnwstr`
-  fails to compile. Re-run configure as
+  fails to compile. `GNUmakefile` sets this automatically when brew has ncurses,
+  so a plain `make` works from a fresh checkout; a *manual* `./configure` still
+  needs
   `PKG_CONFIG_PATH=/opt/homebrew/opt/ncurses/lib/pkgconfig ./configure`
   (check the emitted `NCURSES_CFLAGS` line mentions `ncursesw` + `-DNCURSES_WIDECHAR`).
 - `compile_flags.txt` (for clangd/editors) is minimal; the real include paths
