@@ -24,6 +24,11 @@ driven by an OpenAI-compatible LLM API.
 - `make lint` (clang-tidy) and `make analyze` (cppcheck) gate CI as separate
   compiler-agnostic jobs (single run each, independent of the compiler matrix).
   `.clang-tidy` also enables the `misc-unused-*` family (dead-code surface).
+  cppcheck is version-sensitive: checks such as `uninitMemberVarNoCtor` only
+  exist from 2.21, so an older cppcheck reports fewer findings and the gate is
+  quietly weaker. `CPPCHECK_MIN_VERSION` (Makefile.in) is the pinned floor —
+  `make analyze` fails closed below it — and CI installs exactly that version
+  from conda-forge, so bump the two together.
 - `make duplicates` runs the cross-file duplicate-block detector
   (`tools/duplicate_detector.py`); it is a gating CI job. `make
   format-check-changed BASE=origin/main` is the incremental clang-format gate

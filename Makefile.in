@@ -337,13 +337,31 @@ lint-changed:
 # parse). Slower than lint; run explicitly rather than on every build.
 ANALYZE_JOBS = $(NPROC)
 ANALYZE_BUILD_DIR = /tmp/cppcheck_amber
+# Pinned cppcheck. Checks such as uninitMemberVarNoCtor only exist from 2.21, so
+# an older cppcheck silently reports fewer findings and the gate ends up weaker
+# than the one CI runs. Fail closed on a stale toolchain rather than pass quietly.
+# CI installs exactly this version (see the analyze job in .github/workflows).
+CPPCHECK ?= cppcheck
+CPPCHECK_MIN_VERSION ?= 2.22.0
+CPPCHECK_MIN_MAJOR := $(word 1,$(subst ., ,$(CPPCHECK_MIN_VERSION)))
+CPPCHECK_MIN_MINOR := $(word 2,$(subst ., ,$(CPPCHECK_MIN_VERSION)))
 # Scanned dirs mirror LINT_SRCS, minus bench/: its scenarios/ hold deliberately
 # broken skeletons and references, so analyzing them is pure noise. src/ and
 # plugins/ were missing — every plugin was unanalyzed until they were added.
 analyze:
 	@echo "cppcheck (warning/style/performance/portability/unusedFunction)..."
+	@have="$$($(CPPCHECK) --version 2>/dev/null | awk '{print $$NF}')"; \
+	if [ -z "$$have" ]; then \
+	    echo "analyze: $(CPPCHECK) not found; need >= $(CPPCHECK_MIN_VERSION)"; exit 2; \
+	fi; \
+	hmaj=$${have%%.*}; hmin=$${have#*.}; hmin=$${hmin%%.*}; \
+	if [ "$$hmaj" -lt $(CPPCHECK_MIN_MAJOR) ] || \
+	   { [ "$$hmaj" -eq $(CPPCHECK_MIN_MAJOR) ] && [ "$$hmin" -lt $(CPPCHECK_MIN_MINOR) ]; }; then \
+	    echo "analyze: cppcheck $$have is older than $(CPPCHECK_MIN_VERSION); newer checks would be skipped"; \
+	    exit 2; \
+	fi
 	@mkdir -p $(ANALYZE_BUILD_DIR)
-	@cppcheck --enable=warning,style,performance,portability,unusedFunction --std=c++17 \
+	@$(CPPCHECK) --enable=warning,style,performance,portability,unusedFunction --std=c++17 \
 	    --cppcheck-build-dir=$(ANALYZE_BUILD_DIR) \
 	    --max-ctu-depth=0 -j$(ANALYZE_JOBS) \
 	    --suppressions-list=$(SRC_DIR)/cppcheck_suppressions.txt \
