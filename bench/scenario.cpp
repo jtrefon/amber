@@ -16,7 +16,7 @@ bool is_darwin() noexcept {
 #endif
 }
 
-std::string current_platform() noexcept {
+std::string current_platform() {
     return is_darwin() ? "darwin" : "linux";
 }
 
@@ -167,7 +167,7 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     return s;
 }
 
-bool platform_supported(const Scenario& s) noexcept {
+bool platform_supported(const Scenario& s) {
     if (s.platforms.empty())
         return true;
     const std::string host = current_platform();

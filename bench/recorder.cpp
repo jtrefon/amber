@@ -27,7 +27,7 @@ long parse_attempt(const std::string& text) noexcept {
 // True when a bash command starts with `cd <workspace-root> && ...` — the
 // redundant cwd-anchor habit the environment card teaches away. Other `cd`
 // targets (e.g. `cd /tmp && ...`) are not counted.
-bool is_workspace_cd(const std::string& cmd) noexcept {
+bool is_workspace_cd(const std::string& cmd) {
     const std::string root = agent::Workspace::root();
     if (root.empty())
         return false;
@@ -152,7 +152,7 @@ long Recorder::now_ms() noexcept {
                                  .count());
 }
 
-void parse_status(const std::string& text, EventStream& out) noexcept {
+void parse_status(const std::string& text, EventStream& out) {
     if (text.find("compressing ") != std::string::npos) {
         ++out.compressions;
     } else if (text.find("LLM error - retrying (") != std::string::npos) {

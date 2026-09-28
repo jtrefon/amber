@@ -268,7 +268,7 @@ json dispatch(const std::string& name, const json& args) {
 
 } // namespace
 
-int main() {
+int main() try {
     std::string line;
     while (std::getline(std::cin, line)) {
         try {
@@ -309,4 +309,7 @@ int main() {
         }
     }
     return 0;
+} catch (const std::exception& e) {
+    std::cerr << "fatal: " << e.what() << "\n";
+    return 1;
 }
