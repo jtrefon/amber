@@ -49,7 +49,7 @@ std::vector<Line> wrap(const Line& in, int width) {
     // keeps the correct style for every piece of text.
     struct Piece {
         std::string text;
-        size_t run;
+        size_t run = 0;
     };
     std::vector<Piece> pieces;
     pieces.reserve(in.runs.size() * 2);

@@ -21,7 +21,7 @@ namespace test {
 
 struct Case {
     std::string name;
-    void (*fn)();
+    void (*fn)() = nullptr;
 };
 
 inline std::vector<Case>& registry() {

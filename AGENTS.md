@@ -24,6 +24,14 @@ driven by an OpenAI-compatible LLM API.
 - `make lint` (clang-tidy) and `make analyze` (cppcheck) gate CI as separate
   compiler-agnostic jobs (single run each, independent of the compiler matrix).
   `.clang-tidy` also enables the `misc-unused-*` family (dead-code surface).
+  cppcheck is version-sensitive: checks such as `uninitMemberVarNoCtor` only
+  exist from 2.21, so an older cppcheck reports fewer findings and the gate is
+  quietly weaker. `CPPCHECK_MIN_VERSION` (Makefile.in) is the pinned floor —
+  `make analyze` fails closed below it — and CI installs exactly that version
+  from conda-forge, so bump the two together. Its build dir
+  (`/tmp/cppcheck_amber`) is kept between runs and cached in CI: only changed
+  files are re-analyzed, which is the difference between ~7 min and ~40 s.
+  `rm -rf /tmp/cppcheck_amber` for a from-scratch run.
 - `make duplicates` runs the cross-file duplicate-block detector
   (`tools/duplicate_detector.py`); it is a gating CI job. `make
   format-check-changed BASE=origin/main` is the incremental clang-format gate
@@ -52,7 +60,9 @@ driven by an OpenAI-compatible LLM API.
   `version.h.in`; do not hand-edit it, and don't commit a stale one.
 - On macOS, `./configure` needs Homebrew ncurses on `PKG_CONFIG_PATH` or the
   TUI silently falls back to the SDK's non-wide ncurses and `mvaddnwstr`
-  fails to compile. Re-run configure as
+  fails to compile. `GNUmakefile` sets this automatically when brew has ncurses,
+  so a plain `make` works from a fresh checkout; a *manual* `./configure` still
+  needs
   `PKG_CONFIG_PATH=/opt/homebrew/opt/ncurses/lib/pkgconfig ./configure`
   (check the emitted `NCURSES_CFLAGS` line mentions `ncursesw` + `-DNCURSES_WIDECHAR`).
 - `compile_flags.txt` (for clangd/editors) is minimal; the real include paths
@@ -493,7 +503,7 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 6879 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 6877 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 309 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 123 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
 | `tui/tui_input.cpp` | 2859 | Method implementations (not a class); exempt from class-size rule. |

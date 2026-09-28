@@ -423,3 +423,21 @@ were applied across 11 PRs and 3 documentation updates:
 - [x] `tui/widgets.cpp` (333 lines)
 - [x] `tools/search/semantic_backend.cpp` (227→126 lines)
 - [x] `tools/bash_tool.cpp` (191→196 lines)
+
+## Complexity debt (measured 2026-09-24)
+
+Proposal: `docs/fix-proposal/complexity-enforcement-and-core-decomposition-2026-09-24.md`.
+Baseline: `tests/complexity_baseline.json` — **121** functions over the standard
+(CCN > 15 or length > 50), ratcheted by `make complexity` (now a real,
+fail-closed gate).
+
+| id | item | scope | status |
+|---|---|---|---|
+| CX1 | Nesting (`NestingThreshold: 4`) + cognitive (`Threshold: 25`) caps | `.clang-tidy` | 🔓 Open — enabling them fails on the 121 existing findings in any TU that gets analysed, so they wait for the baseline to reach 0 (CX8, which would have made it worse, is fixed) |
+| CX2 | `lib/` core cluster: `Config::load` 129/**72**, `classify_shell` 200/**61**, `dispatch_tool_calls` 185/38 | `lib/` (47 violations) | 🔓 Open |
+| CX3 | `lib/` branching-only cases: `output_redirect_target` 20/16, `header_cb` 23/16, `decode_payload` 29/18 | `lib/` | 🔓 Open |
+| CX4 | `tui/` remainder | see G1..G9 | 🔓 Open |
+| CX5 | `bench/` `run_one_scenario` 416/95, `render_scorecard` 170/42 | `bench/` (18) | 🔓 Open |
+| CX6 | Entry points: `src/main` 373/82, `tui/tui_main` 165/38 | `src/`, `tui/` | 🔓 Open |
+| CX7 | Branch coverage 43.8% — CCN is the minimum path count; gating CCN is the prerequisite | repo-wide | 🔓 Open |
+| CX8 | `lint-changed` full-scan fallback ("any header change ⇒ full tree lint") made the lint gate all-or-nothing, so it could never be tightened incrementally. Same class as the original complexity target | `Makefile.in` | ✅ Fixed — `tools/affected_tus.py` derives the changed TUs from the compiler's own `-MM` dependency scan (preprocess only, ~0.4 s/TU): a header change now lints the TUs that include it (80 of 176 on this branch, selected in ~4 s) instead of the whole tree, and a TU whose deps cannot be computed is always analysed. Guarded by P8 |

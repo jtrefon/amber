@@ -40,8 +40,9 @@ constexpr int kPumpMs = 50;
 
 // Sessions that had to be force-killed instead of exiting through the app's own
 // quit path. A killed session never runs its atexit handlers, so gcov cannot
-// flush the TUI's coverage (tui/ would report 0%); this must stay zero.
-int killed_sessions = 0;
+// flush the TUI's coverage (tui/ would report 0%); this must stay empty. Each
+// entry names the scenario so a failure points at the session that misbehaved.
+std::vector<std::string> killed_sessions;
 
 // Drop terminal control sequences so assertions can look at rendered text.
 std::string strip_ansi(const std::string& in) {
@@ -83,6 +84,7 @@ struct Tui {
     int master = -1;
     pid_t pid = -1;
     std::string raw;
+    std::string name; // scenario name, reported if the session is force-killed
 
     ~Tui() { stop(); }
 
@@ -227,7 +229,10 @@ struct Tui {
                 usleep(kPumpMs * 1000);
             }
             write_raw("\x03");
-            for (int i = 0; i < 200 && pid > 0; ++i) { // up to ~10 s
+            // Bounded, but generous: a slow CI runner needs room to process the
+            // quit key and unwind, and the SIGKILL below is a failure, not a
+            // normal path. Draining throughout is what lets the app read the key.
+            for (int i = 0; i < 300 && pid > 0; ++i) { // up to ~15 s
                 pump(kPumpMs);
                 int status = 0;
                 pid_t reaped = waitpid(pid, &status, WNOHANG);
@@ -242,8 +247,20 @@ struct Tui {
             close(master);
             master = -1;
         }
+        // Re-check now the master is closed. A child that exited through its own
+        // quit path while the master was still open can only become reapable at
+        // this point, so counting it as force-killed here would be a false
+        // positive — exactly the slow-runner case where the exit lands late.
+        for (int i = 0; i < 50 && pid > 0; ++i) {
+            int status = 0;
+            pid_t reaped = waitpid(pid, &status, WNOHANG);
+            if (reaped == pid || reaped < 0)
+                pid = -1;
+            else
+                usleep(20000);
+        }
         if (pid > 0) {
-            ++killed_sessions;
+            killed_sessions.push_back(name.empty() ? "<unnamed>" : name);
             kill(pid, SIGKILL);
             for (int i = 0; i < 200; ++i) { // bounded reap: never hang the suite
                 int status = 0;
@@ -421,6 +438,7 @@ void assert_no_escape_tail(const std::string& delta, const std::string& tail) {
 
 TEST(down_arrow_selects_the_next_session) {
     Tui tui;
+    tui.name = "down_arrow_selects_the_next_session";
     ASSERT(tui.start(fixture().binary, fixture().workspace));
     if (!require(open_browser(tui), "session browser did not open", tui))
         return;
@@ -440,6 +458,7 @@ TEST(down_arrow_selects_the_next_session) {
 
 TEST(up_arrow_keeps_the_first_session_selected) {
     Tui tui;
+    tui.name = "up_arrow_keeps_the_first_session_selected";
     ASSERT(tui.start(fixture().binary, fixture().workspace));
     if (!require(open_browser(tui), "session browser did not open", tui))
         return;
@@ -459,6 +478,7 @@ TEST(up_arrow_keeps_the_first_session_selected) {
 
 TEST(delete_arrow_opens_the_confirmation_instead_of_cancelling) {
     Tui tui;
+    tui.name = "delete_arrow_opens_the_confirmation_instead_of_cancelling";
     ASSERT(tui.start(fixture().binary, fixture().workspace));
     if (!require(open_browser(tui), "session browser did not open", tui))
         return;
@@ -482,6 +502,7 @@ TEST(startup_paints_before_git_returns) {
     // that waits on git cannot paint before ~10 s. The first paint must not wait.
     ASSERT(write_slow_git(fixture().workspace + "/slowbin", 5));
     Tui tui;
+    tui.name = "startup_paints_before_git_returns";
     ASSERT(tui.start(fixture().binary, fixture().workspace, fixture().workspace + "/slowbin"));
 
     auto t0 = std::chrono::steady_clock::now();
@@ -501,6 +522,7 @@ TEST(system_commands_do_not_freeze_the_ui) {
     // cannot echo a keystroke, before the command finishes.
     ASSERT(write_slow_command(fixture().workspace + "/slowbin", "ps", 4));
     Tui tui;
+    tui.name = "system_commands_do_not_freeze_the_ui";
     ASSERT(tui.start(fixture().binary, fixture().workspace, fixture().workspace + "/slowbin"));
     if (!require(wait_ready(tui), "the UI never came up", tui))
         return;
@@ -551,10 +573,11 @@ int main(int argc, char** argv) {
 
     // The TUI must terminate through its own quit path: a force-killed session
     // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.
-    if (killed_sessions) {
-        std::cerr << "FAIL: " << killed_sessions
-                  << " TUI session(s) were force-killed instead of exiting through the quit path\n";
-        failed += killed_sessions;
+    if (!killed_sessions.empty()) {
+        for (const std::string& session : killed_sessions)
+            std::cerr << "FAIL: session '" << session
+                      << "' was force-killed instead of exiting through the quit path\n";
+        failed += static_cast<int>(killed_sessions.size());
     }
 
     if (failed)

@@ -78,7 +78,7 @@ private:
         std::string fingerprint;
         std::string name;
         agent::json args;
-        long t0_ms;
+        long t0_ms = 0;
     };
 
     static std::string fingerprint(const std::string& name, const agent::json& args) noexcept;
