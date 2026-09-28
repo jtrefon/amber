@@ -9,6 +9,7 @@
 #   P5  AGENTS.md audit-table line counts match the tree.
 #   P6  the Context deque single-owner contract holds (no mutex/mutation).
 #   P7  TUI L1 "domain" modules are pure (no ncurses, no port headers).
+#   P8  the incremental-lint TU selector keeps its rules (tools/affected_tus.py).
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -217,6 +218,17 @@ for m in $L1_MODULES; do
 done
 if [ "$p7c_bad" -eq 0 ]; then
     ok "P7: no L1 module pulls in ncurses transitively"
+fi
+
+# ---------------------------------------------------------------------------
+# P8  The incremental-lint TU selector decides what the gating lint job
+#     analyses, so a wrong answer silently weakens the gate: too few TUs and a
+#     finding escapes, too many and the gate stops being incremental.
+# ---------------------------------------------------------------------------
+if python3 tools/affected_tus.py --selftest >/dev/null 2>&1; then
+    ok "P8: lint-changed TU selector passes its self-test"
+else
+    warn "P8: lint-changed TU selector self-test failed (tools/affected_tus.py)"
 fi
 
 if [ "$failures" -gt 0 ]; then

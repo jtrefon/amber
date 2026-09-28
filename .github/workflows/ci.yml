@@ -64,10 +64,12 @@ jobs:
           fail-on-severity: high
 
   # ---------------------------------------------------------------------------
-  # Static analysis — clang-tidy (per-file). On PRs, runs incrementally: only
-  # the .cpp files changed in the PR are analyzed (headers/.clang-tidy changes
-  # trigger a full scan as fallback). On main pushes, the full lint runs as a
-  # non-gating safety net (see lint-full below).
+  # Static analysis — clang-tidy (per-file). On PRs, runs incrementally over the
+  # TUs the diff can affect: the changed .cpp files plus every TU whose includes
+  # reach a changed header, resolved from the compiler's own dependency scan
+  # (-MM) by tools/affected_tus.py. A .clang-tidy change still lints everything,
+  # since it changes how every TU is checked. On main pushes the full lint runs
+  # as a non-gating safety net (see lint-full below).
   # ---------------------------------------------------------------------------
   lint:
     needs: [changes]
@@ -88,9 +90,10 @@ jobs:
         run: make lint-changed BASE=origin/${{ github.base_ref }}
 
   # ---------------------------------------------------------------------------
-  # Full lint — runs on main pushes as a non-gating safety net. Catches issues
-  # that incremental lint might miss (e.g. a header change that affects TUs not
-  # included in the PR diff). Does not block the pipeline.
+  # Full lint — runs on main pushes as a non-gating safety net. Independent of
+  # the incremental selector: if tools/affected_tus.py ever under-selects (a
+  # dependency the compiler does not see, a wrong diff base), this still sees
+  # the whole tree. Does not block the pipeline.
   # ---------------------------------------------------------------------------
   lint-full:
     needs: [changes]

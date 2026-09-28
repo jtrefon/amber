@@ -299,23 +299,21 @@ lint:
 	 if [ $$rc -ne 0 ]; then echo "clang-tidy reported findings"; exit 1; fi; \
 	 echo "  clean"
 
-# Incremental lint: only analyze .cpp files changed since BASE.
-# Falls back to full lint if .clang-tidy or any header changed (headers
-# affect all TUs — we can't cheaply compute the include graph).
+# Incremental lint: only the TUs the change can actually affect.
+# A header change is not a reason to lint the whole tree — tools/affected_tus.py
+# asks the compiler for each TU's real dependency list (-MM: preprocess only, no
+# codegen, ~0.4 s per TU) and selects the changed .cpp files plus every TU that
+# includes a changed header. A .clang-tidy change still lints everything, because
+# it changes how every TU is checked.
 # Usage: make lint-changed BASE=origin/main
-# No C++ changes → exits 0 immediately.
+# Nothing affected → exits 0 immediately.
 lint-changed:
 	@echo "clang-tidy (incremental, base=$(BASE))..."
-	@hdr_changed=$$(git diff --name-only $(BASE)...HEAD -- '*.h' '*.hpp' 2>/dev/null | grep -v third_party || true); \
-	 cfg_changed=$$(git diff --name-only $(BASE)...HEAD -- '.clang-tidy' 2>/dev/null || true); \
-	 if [ -n "$$hdr_changed" ] || [ -n "$$cfg_changed" ]; then \
-	   echo "  header or .clang-tidy changed — full lint"; \
-	   $(MAKE) --no-print-directory lint; \
-	   exit $$?; \
-	 fi; \
-	 changed=$$(git diff --name-only $(BASE)...HEAD -- '*.cpp' 2>/dev/null | grep -v third_party || true); \
-	 if [ -z "$$changed" ]; then echo "  no C++ changes, skipping"; exit 0; fi; \
-	 echo "  changed files:"; echo "$$changed" | sed 's/^/    /'; \
+	@changed=$$(python3 "$(SRC_DIR)/tools/affected_tus.py" \
+	    --base $(BASE) --cxx "$(CXX)" --cxxflags "$(LINT_CXXFLAGS)" $(LINT_SRCS)); \
+	 if [ -z "$$changed" ]; then echo "  nothing affected, skipping"; exit 0; fi; \
+	 echo "  linting $$(echo "$$changed" | wc -l | tr -d ' ') of $(words $(LINT_SRCS)) TU(s):"; \
+	 echo "$$changed" | sed 's/^/    /'; \
 	 if [ -f compile_commands.json ]; then export CTIDY_FLAGS="-p compile_commands.json"; else export CTIDY_FLAGS="-- $(LINT_CXXFLAGS)"; fi; \
 	 printf '%s\0' $$changed | \
 	 xargs -0 -P$(NPROC) sh -c ' \
