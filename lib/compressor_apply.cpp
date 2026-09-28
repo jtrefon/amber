@@ -9,123 +9,136 @@
 
 namespace agent {
 
-std::vector<Message> apply_classification(const std::vector<Message>& history,
-                                          const CompressionResponse& response,
-                                          const CompressionConfig* cfg) {
-    if (history.empty())
-        return history;
-    if (response.segments.empty())
-        return history;
+namespace {
 
-    // How many of the most-recent user prompts survive verbatim (the active
-    // task guard). The pipeline passes cfg (default 10); direct callers
-    // without cfg keep the legacy 2.
-    const int keep_prompts = cfg && cfg->keep_last_prompts > 0 ? cfg->keep_last_prompts : 2;
+// A message that begins with the compressed-context marker is a previous
+// compression pass, not conversation.
+bool is_compressed_context(const std::string& content) {
+    return content.compare(0, sizeof(kCompressedContextPrefix) - 1, kCompressedContextPrefix) == 0;
+}
 
-    // Build per-turn tag array from segments
-    std::vector<Classification> tags(history.size(), Classification::core);
-    std::vector<std::string> summaries(history.size());
+// Per-turn tags and summaries from the classifier's segments. Indices are
+// clamped to the history: the classifier counts turns, and may overrun.
+struct TaggedTurns {
+    std::vector<Classification> tags;
+    std::vector<std::string> summaries;
+};
 
+TaggedTurns tag_turns(const std::vector<Message>& history, const CompressionResponse& response) {
+    TaggedTurns out;
+    out.tags.assign(history.size(), Classification::core);
+    out.summaries.resize(history.size());
     for (const auto& seg : response.segments) {
-        size_t start = std::min(seg.turn_start, history.size() - 1);
-        size_t end = std::min(seg.turn_end, history.size() - 1);
+        const size_t start = std::min(seg.turn_start, history.size() - 1);
+        const size_t end = std::min(seg.turn_end, history.size() - 1);
         for (size_t i = start; i <= end; ++i) {
-            tags[i] = seg.tag;
-            summaries[i] = seg.summary.size() > kMaxSummaryChars
-                               ? seg.summary.substr(0, kMaxSummaryChars)
-                               : seg.summary;
+            out.tags[i] = seg.tag;
+            out.summaries[i] = seg.summary.size() > kMaxSummaryChars
+                                   ? seg.summary.substr(0, kMaxSummaryChars)
+                                   : seg.summary;
         }
     }
+    return out;
+}
 
-    // Safety net: the last `keep_prompts` REAL user prompts and everything
-    // after them survive verbatim — a misclassification must never drop the
-    // active task. Internal confirmation probes ("Are you finished?") are not
-    // real prompts and must not count toward (or inflate) the protected tail.
-    // (Legacy default 2; pipeline default 10, configurable.)
+// Safety net: the last `keep_prompts` REAL user prompts and everything after
+// them survive verbatim — a misclassification must never drop the active task.
+// Internal confirmation probes ("Are you finished?") are not real prompts and
+// must not count toward (or inflate) the protected tail.
+void protect_active_task(const std::vector<Message>& history, std::vector<Classification>& tags,
+                         int keep_prompts) {
     std::vector<size_t> user_positions;
     for (size_t i = 1; i < history.size(); ++i)
         if (history[i].role == "user" && !is_confirmation_probe(history[i]))
             user_positions.push_back(i);
-    size_t guard_start = history.size();
-    if (!user_positions.empty()) {
-        auto protect = static_cast<size_t>(keep_prompts);
-        if (protect > user_positions.size())
-            protect = user_positions.size();
-        guard_start = user_positions[user_positions.size() - protect];
-    }
-    for (size_t i = guard_start; i < history.size(); ++i)
+    if (user_positions.empty())
+        return;
+    auto protect = static_cast<size_t>(keep_prompts);
+    if (protect > user_positions.size())
+        protect = user_positions.size();
+    for (size_t i = user_positions[user_positions.size() - protect]; i < tags.size(); ++i)
         tags[i] = Classification::core;
+}
 
-    // Always preserve the system prompt (index 0) regardless of how the
-    // classifier tagged it — the classifier treats message indices as "turn"
-    // numbers and may accidentally prune or archive the system message.
-    Message saved_system;
-    if (!history.empty() && history[0].role == "system")
-        saved_system = history[0];
-
-    // Separate messages by tag, skipping the saved system prompt (it will
-    // be prepended before returning so the classifier cannot prune/archive it).
-    std::vector<Message> core;
-    struct ArchiveSeg {
-        size_t start = 0;
-        size_t end = 0;
-        std::string summary;
-    };
-    std::vector<ArchiveSeg> archive_segments;
-
-    // Archive entries from a previous compressed-context message carry over:
-    // re-compression updates the archive instead of replacing it. The old
-    // compressed message itself is consumed (never duplicated in the output).
-    json previous_archive = json::array();
-    size_t start_idx = saved_system.role == "system" ? 1 : 0;
+// Archive entries carried over from a previous compressed-context message:
+// re-compression updates the archive instead of replacing it. The last such
+// message wins.
+json carried_archive(const std::vector<Message>& history, size_t start_idx) {
+    json previous = json::array();
     for (size_t i = start_idx; i < history.size(); ++i) {
-        if (history[i].content.compare(0, sizeof(kCompressedContextPrefix) - 1,
-                                       kCompressedContextPrefix) == 0) {
-            auto prev = json::parse(history[i].content.substr(sizeof(kCompressedContextPrefix) - 1),
-                                    nullptr, false);
-            if (!prev.is_discarded() && prev.is_object() && prev.contains("archive") &&
-                prev["archive"].is_array())
-                previous_archive = prev["archive"];
+        if (!is_compressed_context(history[i].content))
             continue;
-        }
+        auto prev = json::parse(history[i].content.substr(sizeof(kCompressedContextPrefix) - 1),
+                                nullptr, false);
+        if (!prev.is_discarded() && prev.is_object() && prev.contains("archive") &&
+            prev["archive"].is_array())
+            previous = prev["archive"];
+    }
+    return previous;
+}
+
+// One run of contiguous context-tagged messages, summarised in the archive.
+struct ArchiveSeg {
+    size_t start = 0;
+    size_t end = 0;
+    std::string summary;
+};
+
+// Split the history into what survives verbatim (core) and what is summarised
+// into archive segments. The saved system prompt is skipped (it is prepended
+// again later) and a previous compressed-context message is consumed, never
+// duplicated in the output.
+struct Partition {
+    std::vector<Message> core;
+    std::vector<ArchiveSeg> archive;
+};
+
+Partition partition_messages(const std::vector<Message>& history,
+                             const std::vector<Classification>& tags,
+                             const std::vector<std::string>& summaries, size_t start_idx) {
+    Partition out;
+    for (size_t i = start_idx; i < history.size(); ++i) {
+        if (is_compressed_context(history[i].content))
+            continue;
         switch (tags[i]) {
         case Classification::core:
-            core.push_back(history[i]);
+            out.core.push_back(history[i]);
             break;
         case Classification::context:
-            if (archive_segments.empty() || archive_segments.back().end != i - 1) {
-                // Non-contiguous: start a new segment
-                archive_segments.push_back({i, i, summaries[i]});
-            } else {
-                // Contiguous: extend the current segment
-                archive_segments.back().end = i;
-            }
+            if (out.archive.empty() || out.archive.back().end != i - 1)
+                out.archive.push_back({i, i, summaries[i]}); // non-contiguous: new segment
+            else
+                out.archive.back().end = i; // contiguous: extend
             break;
         case Classification::prune:
             break;
         }
     }
+    return out;
+}
 
-    // Build archive JSON: previous entries first (re-compression carries
-    // them forward), then the new segments from this pass.
-    json archive_json = previous_archive;
-    for (const auto& seg : archive_segments) {
-        json entry;
-        std::string range = (seg.start == seg.end)
-                                ? std::to_string(seg.start)
-                                : std::to_string(seg.start) + "-" + std::to_string(seg.end);
-        entry["turns"] = range;
-        entry["summary"] = seg.summary.empty() ? "(compressed)" : seg.summary;
-        archive_json.push_back(entry);
+// The archive carried on the compressed-context message: previous entries first
+// (re-compression carries them forward), then this pass's segments.
+json archive_json_for(const json& previous, const std::vector<ArchiveSeg>& segments) {
+    json out = previous;
+    for (const auto& seg : segments) {
+        const std::string range = (seg.start == seg.end)
+                                      ? std::to_string(seg.start)
+                                      : std::to_string(seg.start) + "-" + std::to_string(seg.end);
+        out.push_back(
+            {{"turns", range}, {"summary", seg.summary.empty() ? "(compressed)" : seg.summary}});
     }
+    return out;
+}
 
-    // Build compressed context message
+// The classifier's work-state summary is the anchor the agent continues from
+// after compression; carry it, plus the last short user goal, on the message.
+Message compressed_context_message(const CompressionResponse& response, const json& archive,
+                                   const std::vector<Message>& core) {
     json ctx;
     ctx["type"] = "compressed_context";
     ctx["version"] = 1;
-    ctx["archive"] = archive_json;
-    // The classifier's work-state summary is the anchor the agent continues
-    // from after compression; carry it on the compressed-context message.
+    ctx["archive"] = archive;
     if (!response.summary.empty())
         ctx["summary"] = response.summary;
 
@@ -138,36 +151,170 @@ std::vector<Message> apply_classification(const std::vector<Message>& history,
     }
     ctx["facts"] = facts;
 
-    Message compressed_msg;
-    compressed_msg.role = "system";
-    compressed_msg.content = std::string(kCompressedContextPrefix) + "\n" + ctx.dump(2);
-    core.push_back(compressed_msg);
+    Message out;
+    out.role = "system";
+    out.content = std::string(kCompressedContextPrefix) + "\n" + ctx.dump(2);
+    return out;
+}
 
-    // Minimum context invariant: ensure at least one user message survives.
-    bool has_user = false;
-    for (const auto& msg : core)
-        if (msg.role == "user") {
-            has_user = true;
-            break;
-        }
-    if (!has_user && !history.empty()) {
-        for (auto it = history.rbegin(); it != history.rend(); ++it) {
-            if (it->role == "user") {
-                core.push_back(*it);
-                break;
-            }
+// Minimum context invariant: at least one user message must survive, or the
+// agent has no task to continue from.
+void ensure_user_message(std::vector<Message>& core, const std::vector<Message>& history) {
+    if (std::any_of(core.begin(), core.end(), [](const Message& m) { return m.role == "user"; }))
+        return;
+    for (auto it = history.rbegin(); it != history.rend(); ++it) {
+        if (it->role == "user") {
+            core.push_back(*it);
+            return;
         }
     }
+}
+
+// Token budget a compression pass targets: `pct` of the context window.
+size_t target_tokens(size_t context_size, int pct) {
+    const int p = pct > 0 ? pct : kDefaultCompressionTargetPct;
+    return static_cast<size_t>(static_cast<double>(context_size) * static_cast<double>(p) / 100.0);
+}
+
+// Index of the compressed-context archive message, or size() when absent.
+size_t find_compressed_context(const std::vector<Message>& messages) {
+    for (size_t i = 0; i < messages.size(); ++i)
+        if (is_compressed_context(messages[i].content))
+            return i;
+    return messages.size();
+}
+
+// Boundary of the protected tail: the last `keep` real user messages (and
+// everything after them) stay verbatim — the same rule as the classify guard.
+// The compressed-context message is a trailing system message; ignore it.
+size_t protected_tail_start(const std::vector<Message>& messages, int keep) {
+    std::vector<size_t> users;
+    for (size_t i = 1; i < messages.size(); ++i)
+        if (messages[i].role == "user" && !is_confirmation_probe(messages[i]))
+            users.push_back(i);
+    auto protect = static_cast<size_t>(keep);
+    if (protect > users.size())
+        protect = users.size();
+    return protect > 0 ? users[users.size() - protect] : messages.size();
+}
+
+// Append the dropped messages to the archive block as compact entries, so the
+// carried summary still reflects what was removed.
+void append_archived_turns(std::vector<Message>& messages, size_t ctx_idx,
+                           const std::vector<size_t>& archived, const char* note) {
+    const std::string json_part =
+        messages[ctx_idx].content.substr(sizeof(kCompressedContextPrefix) - 1);
+    json body = json::parse(json_part, nullptr, false);
+    if (body.is_discarded() || !body.is_object())
+        return;
+    json archive = body.value("archive", json::array());
+    for (const size_t idx : archived)
+        archive.push_back({{"turns", std::to_string(idx)}, {"summary", note}});
+    body["archive"] = std::move(archive);
+    messages[ctx_idx].content = std::string(kCompressedContextPrefix) + "\n" + body.dump(2);
+}
+
+// Drop oldest non-system messages until the estimated tokens fit `budget`, then
+// record each dropped message in the compressed-context archive under `note`.
+// Messages at or after `tail_start` are never touched. The archive message is a
+// system role, so the walk never reaches it.
+void archive_until_under_budget(std::vector<Message>& compressed, size_t budget, size_t tail_start,
+                                const char* note) {
+    size_t used = estimate_tokens(compressed);
+    if (used <= budget)
+        return;
+    std::vector<size_t> dropped;
+    for (size_t i = 1; i < tail_start && i < compressed.size(); ++i) {
+        if (compressed[i].role == "system")
+            continue;
+        used -= message_tokens(compressed[i]);
+        dropped.push_back(i);
+        if (used <= budget)
+            break;
+    }
+    if (dropped.empty())
+        return;
+
+    // Remove dropped messages (descending so indices stay valid).
+    for (auto it = dropped.rbegin(); it != dropped.rend(); ++it)
+        compressed.erase(compressed.begin() + static_cast<ptrdiff_t>(*it));
+
+    // Re-locate the archive message after the erase (indices shifted) and
+    // record what went. A missing archive block still leaves the drops in place.
+    const size_t ctx_idx = find_compressed_context(compressed);
+    if (ctx_idx == compressed.size())
+        return;
+    append_archived_turns(compressed, ctx_idx, dropped, note);
+}
+
+// An assistant message carrying a usable tool_calls array.
+bool is_assistant_tool_call(const Message& m) {
+    return m.role == "assistant" && !m.tool_calls.is_null() && m.tool_calls.is_array() &&
+           !m.tool_calls.empty();
+}
+
+// A tool result is only valid directly after an assistant message carrying
+// tool_calls; anything else is an orphan and must be dropped.
+bool is_orphan_tool_result(const std::vector<Message>& out) {
+    return out.empty() || !is_assistant_tool_call(out.back());
+}
+
+// The stand-in result for an assistant tool_calls message whose real result was
+// pruned, so the rebuilt history stays API-valid.
+Message tool_stub_for(const Message& m) {
+    Message stub;
+    stub.role = "tool";
+    stub.content = kToolOutputOmitted;
+    if (m.tool_calls[0].is_object() && m.tool_calls[0].contains("id") &&
+        m.tool_calls[0]["id"].is_string())
+        stub.tool_call_id = m.tool_calls[0]["id"].get<std::string>();
+    return stub;
+}
+
+} // namespace
+
+// Rebuild a conversation from the classifier's per-turn tags: core turns
+// survive verbatim, context turns collapse into an archive, prune turns are
+// dropped. The active task, the system prompt and at least one user message are
+// protected regardless of how the classifier tagged them.
+std::vector<Message> apply_classification(const std::vector<Message>& history,
+                                          const CompressionResponse& response,
+                                          const CompressionConfig* cfg) {
+    if (history.empty() || response.segments.empty())
+        return history;
+
+    // How many of the most-recent user prompts survive verbatim (the active
+    // task guard). The pipeline passes cfg (default 10); direct callers
+    // without cfg keep the legacy 2.
+    const int keep_prompts = cfg && cfg->keep_last_prompts > 0 ? cfg->keep_last_prompts : 2;
+
+    TaggedTurns turns = tag_turns(history, response);
+    protect_active_task(history, turns.tags, keep_prompts);
+
+    // Always preserve the system prompt (index 0) regardless of how the
+    // classifier tagged it — the classifier treats message indices as "turn"
+    // numbers and may accidentally prune or archive the system message.
+    Message saved_system;
+    if (history[0].role == "system")
+        saved_system = history[0];
+    const size_t start_idx = saved_system.role == "system" ? 1 : 0;
+
+    Partition part = partition_messages(history, turns.tags, turns.summaries, start_idx);
+    // The facts scan sees the core turns only, so the message is built before
+    // it is appended.
+    Message compressed = compressed_context_message(
+        response, archive_json_for(carried_archive(history, start_idx), part.archive), part.core);
+    part.core.push_back(std::move(compressed));
+    ensure_user_message(part.core, history);
 
     // Prepend the saved system prompt so the classifier cannot remove it.
     if (saved_system.role == "system")
-        core.insert(core.begin(), std::move(saved_system));
+        part.core.insert(part.core.begin(), std::move(saved_system));
 
     // Repair tool_call/tool_result group splits introduced by pruning or
     // misclassification so the rebuilt history stays API-valid.
-    sanitize_tool_pairs(core);
-
-    return core;
+    sanitize_tool_pairs(part.core);
+    return part.core;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,97 +334,20 @@ std::vector<Message> enforce_target_budget(std::vector<Message> compressed, size
                                            const CompressionConfig& cfg) {
     if (context_size == 0)
         return compressed;
-    const int pct = cfg.target_pct > 0 ? cfg.target_pct : kDefaultCompressionTargetPct;
-    const auto target =
-        static_cast<size_t>(static_cast<double>(context_size) * static_cast<double>(pct) / 100.0);
+    const size_t target = target_tokens(context_size, cfg.target_pct);
     if (target == 0)
         return compressed;
 
-    size_t used = estimate_tokens(compressed);
-    if (used <= target)
+    // The compressed-context archive message carries the JSON block we extend.
+    // It must exist (apply_classification always emits one); if not, bail — do
+    // not fabricate.
+    if (find_compressed_context(compressed) == compressed.size())
         return compressed;
 
-    // Locate the compressed-context archive message (system role, carries the
-    // JSON block we extend). It must exist (apply_classification always emits
-    // one); if not, bail — do not fabricate.
-    size_t ctx_idx = compressed.size();
-    for (size_t i = 0; i < compressed.size(); ++i) {
-        if (compressed[i].content.compare(0, sizeof(kCompressedContextPrefix) - 1,
-                                          kCompressedContextPrefix) == 0) {
-            ctx_idx = i;
-            break;
-        }
-    }
-    if (ctx_idx == compressed.size())
-        return compressed;
-
-    // Protected tail boundary: the last `keep_last_prompts` user messages (and
-    // everything after them) stay verbatim — same rule as the classify guard.
-    // The compressed-context message is a trailing system message; ignore it.
     const int keep =
         cfg.keep_last_prompts > 0 ? cfg.keep_last_prompts : kDefaultCompressionKeepLastPrompts;
-    size_t tail_start = compressed.size();
-    {
-        std::vector<size_t> users;
-        for (size_t i = 1; i < compressed.size(); ++i)
-            if (compressed[i].role == "user" && !is_confirmation_probe(compressed[i]))
-                users.push_back(i);
-        auto protect = static_cast<size_t>(keep);
-        if (protect > users.size())
-            protect = users.size();
-        if (protect > 0)
-            tail_start = users[users.size() - protect];
-    }
-
-    // Archive eligible core messages oldest-first until under budget. Eligible
-    // = before the protected tail, not the system prompt, not the archive msg.
-    std::vector<size_t> to_archive;
-    for (size_t i = 1; i < tail_start && i < compressed.size(); ++i) {
-        if (i == ctx_idx)
-            continue;
-        if (compressed[i].role == "system")
-            continue;
-        used -= message_tokens(compressed[i]);
-        to_archive.push_back(i);
-        if (used <= target)
-            break;
-    }
-    if (to_archive.empty())
-        return compressed;
-
-    // Remove archived messages (descending keeps indices valid).
-    for (auto it = to_archive.rbegin(); it != to_archive.rend(); ++it)
-        compressed.erase(compressed.begin() + static_cast<ptrdiff_t>(*it));
-
-    // Re-locate the compressed-context message AFTER the erase (indices
-    // shifted left by every removed message that preceded it).
-    size_t ctx_idx2 = compressed.size();
-    for (size_t i = 0; i < compressed.size(); ++i) {
-        if (compressed[i].content.compare(0, sizeof(kCompressedContextPrefix) - 1,
-                                          kCompressedContextPrefix) == 0) {
-            ctx_idx2 = i;
-            break;
-        }
-    }
-    if (ctx_idx2 == compressed.size())
-        return compressed;
-
-    // Append each archived message to the archive block as a compact entry so
-    // the carried summary still reflects what was dropped.
-    std::string json_part =
-        compressed[ctx_idx2].content.substr(sizeof(kCompressedContextPrefix) - 1);
-    json body = json::parse(json_part, nullptr, false);
-    if (!body.is_discarded() && body.is_object()) {
-        json archive = body.value("archive", json::array());
-        for (const size_t idx : to_archive) {
-            json entry;
-            entry["turns"] = std::to_string(idx);
-            entry["summary"] = "(compressed to meet target budget)";
-            archive.push_back(std::move(entry));
-        }
-        body["archive"] = std::move(archive);
-        compressed[ctx_idx2].content = std::string(kCompressedContextPrefix) + "\n" + body.dump(2);
-    }
+    archive_until_under_budget(compressed, target, protected_tail_start(compressed, keep),
+                               "(compressed to meet target budget)");
     return compressed;
 }
 
@@ -318,27 +388,15 @@ void sanitize_tool_pairs(std::vector<Message>& history) {
     for (size_t i = 0; i < history.size(); ++i) {
         const Message& m = history[i];
         if (m.role == "tool") {
-            // A tool result is only valid directly after an assistant
-            // message carrying tool_calls; anything else is an orphan.
-            if (out.empty() || out.back().role != "assistant" || out.back().tool_calls.is_null() ||
-                !out.back().tool_calls.is_array() || out.back().tool_calls.empty())
-                continue;
-            out.push_back(m);
+            if (!is_orphan_tool_result(out))
+                out.push_back(m);
             continue;
         }
         out.push_back(m);
-        // An assistant tool_calls message whose result was pruned gets a
-        // stub result before the next non-tool message.
-        if (m.role == "assistant" && !m.tool_calls.is_null() && m.tool_calls.is_array() &&
-            !m.tool_calls.empty() && (i + 1 >= history.size() || history[i + 1].role != "tool")) {
-            Message stub;
-            stub.role = "tool";
-            stub.content = kToolOutputOmitted;
-            if (m.tool_calls[0].is_object() && m.tool_calls[0].contains("id") &&
-                m.tool_calls[0]["id"].is_string())
-                stub.tool_call_id = m.tool_calls[0]["id"].get<std::string>();
-            out.push_back(std::move(stub));
-        }
+        // An assistant tool_calls message whose result was pruned gets a stub
+        // result before the next non-tool message.
+        if (is_assistant_tool_call(m) && (i + 1 >= history.size() || history[i + 1].role != "tool"))
+            out.push_back(tool_stub_for(m));
     }
     history.swap(out);
 }
@@ -428,57 +486,10 @@ void apply_skill_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
 std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size) {
     if (context_size == 0)
         return compressed;
-    auto budget = static_cast<size_t>(static_cast<double>(context_size) * 0.75);
-
-    // Drop oldest non-system messages (the compressed-context message is a
-    // system role, so the walk never touches it) until the budget fits.
-    size_t used = estimate_tokens(compressed);
-    if (used <= budget)
-        return compressed;
-
-    std::vector<size_t> dropped;
-    for (size_t i = 1; i < compressed.size(); ++i) {
-        if (compressed[i].role == "system")
-            continue;
-        used -= message_tokens(compressed[i]);
-        dropped.push_back(i);
-        if (used <= budget)
-            break;
-    }
-    if (dropped.empty())
-        return compressed;
-
-    // Remove dropped messages (descending so indices stay valid).
-    for (auto it = dropped.rbegin(); it != dropped.rend(); ++it)
-        compressed.erase(compressed.begin() + static_cast<ptrdiff_t>(*it));
-
-    // Re-locate the compressed-context message AFTER the erase (indices
-    // shifted) and record each dropped message in its archive block.
-    size_t ctx_idx = compressed.size();
-    for (size_t i = 0; i < compressed.size(); ++i) {
-        if (compressed[i].content.compare(0, sizeof(kCompressedContextPrefix) - 1,
-                                          kCompressedContextPrefix) == 0) {
-            ctx_idx = i;
-            break;
-        }
-    }
-    if (ctx_idx == compressed.size())
-        return compressed;
-
-    std::string json_part =
-        compressed[ctx_idx].content.substr(sizeof(kCompressedContextPrefix) - 1);
-    json body = json::parse(json_part, nullptr, false);
-    if (!body.is_discarded() && body.is_object()) {
-        json archive = body.value("archive", json::array());
-        for (const size_t idx : dropped) {
-            json entry;
-            entry["turns"] = std::to_string(idx);
-            entry["summary"] = "(over-budget archived)";
-            archive.push_back(std::move(entry));
-        }
-        body["archive"] = std::move(archive);
-        compressed[ctx_idx].content = std::string(kCompressedContextPrefix) + "\n" + body.dump(2);
-    }
+    // Last-resort guard: a fixed 75% of the window. The compressed-context
+    // message is a system role, so the walk never reaches it.
+    const auto budget = static_cast<size_t>(static_cast<double>(context_size) * 0.75);
+    archive_until_under_budget(compressed, budget, compressed.size(), "(over-budget archived)");
     return compressed;
 }
 
