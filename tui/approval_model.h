@@ -31,7 +31,7 @@ public:
           sel_(default_idx < 0 ? 0 : (default_idx > 3 ? 3 : default_idx)) {}
 
     // Advance time; sets timed_out() when the deadline passes.
-    void poll() noexcept {
+    void poll() {
         if (timed_out_ || timeout_sec_ <= 0)
             return;
         if (clock_() >= deadline_)
@@ -44,7 +44,7 @@ public:
 
     void select(int idx) noexcept { sel_ = idx < 0 ? 0 : (idx > 3 ? 3 : idx); }
 
-    int remaining_sec() const noexcept {
+    int remaining_sec() const {
         if (timeout_sec_ <= 0 || timed_out_)
             return 0;
         double rem = deadline_ - clock_();

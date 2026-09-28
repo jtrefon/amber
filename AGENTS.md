@@ -36,6 +36,10 @@ driven by an OpenAI-compatible LLM API.
   (`tools/duplicate_detector.py`); it is a gating CI job. `make
   format-check-changed BASE=origin/main` is the incremental clang-format gate
   (changed files only); full-tree `make format-check` stays informational.
+  clang-format is version-sensitive and the runner pins **18.1.3** (Ubuntu's
+  `clang-format`), which disagrees with 23.x *and* with 18.1.8 on braced-init
+  and line-break placement — so a locally "clean" tree can fail CI. Match the
+  runner (`pip install clang-format==18.1.3`) before reformatting.
 - CI also runs an ASan+UBSan `make test` job, a **ThreadSanitizer** `make test`
   job (data races: the UI thread, per-window agent workers, the tool-dispatch
   hop and the detached catalog/plugin workers all share state, and ASan+UBSan
@@ -414,6 +418,13 @@ behavior change: prove it with a before/after benchmark run (see
   never throw as `noexcept`. Only omit `noexcept` when the function legitimately
   throws. Every `Tool::name()`, `is_read_only()`, `requires_approval()`,
   `SearchBackend::name()`, `StreamDecoder::prompt_tokens()` should be `noexcept`.
+  The accessors returning `std::string` are `noexcept` **by convention** even
+  though allocating the result can throw `bad_alloc`: the convention is
+  deliberate, so a mutating or allocating function that is *not* an accessor
+  (`Context::push`, `parse_status`, `current_platform`, a `main()`, a
+  destructor) must not claim `noexcept` — that is the case the rule forbids.
+  `bugprone-exception-escape` cannot tell the two apart and is disabled for it
+  (`.clang-tidy`), see `docs/issues.md` CX9.
 - **Const-correctness**: mark member functions and parameters `const` wherever
   possible. Use `const&` for read-only parameters of non-trivial types.
 

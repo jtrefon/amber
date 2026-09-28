@@ -7,9 +7,27 @@
 # Note: no '#' comment lines are allowed inside the folded 'Checks: >' scalar.
 # Struct field reordering for padding is churn with no functional gain
 # (clang-analyzer-optin.performance.Padding is disabled below).
+#
+# bugprone-exception-escape is off deliberately. It reports two categories that
+# are not defects in this codebase:
+#   1. The noexcept accessors AGENTS.md mandates ("Every Tool::name(),
+#      is_read_only(), requires_approval(), SearchBackend::name() ... should be
+#      noexcept"). They return std::string, so the convention is noexcept even
+#      though allocation can throw bad_alloc.
+#   2. Lambdas that capture a throwing-copy type by value and are stored in a
+#      std::function. The closure's *copy* constructor is analysed as if it were
+#      a move constructor, and only move constructors must not throw. Repro:
+#      `[owner] {}` capturing a std::string is flagged with an empty body, while
+#      `[n] {}` (int) and `[&owner]` are not, and marking the lambda `noexcept`
+#      does not help.
+# It is also libc++-dependent: CI (libstdc++) reports zero findings where macOS
+# reports ~57. Everything that was a genuine lie — noexcept on allocating
+# non-accessor functions, throwing main()s and a destructor — was fixed rather
+# than suppressed; see docs/issues.md CX9.
 Checks: >
   -*,
   bugprone-*,
+  -bugprone-exception-escape,
   performance-*,
   modernize-*,
   readability-*,

@@ -58,7 +58,7 @@ inline size_t estimate_tokens(const std::vector<Message>& msgs) noexcept {
 class Context {
 public:
     // Push a sealed message onto the top of the stack.
-    void push(Message msg) noexcept {
+    void push(Message msg) {
         uint64_t h = chain_hash(chain_hash_, msg);
         hashes_.push_back(h);
         chain_hash_ = h;

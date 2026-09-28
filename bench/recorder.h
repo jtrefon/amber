@@ -89,7 +89,7 @@ private:
 };
 
 // Parse one status line into the stream (retries, repairs, steers, hard stops).
-void parse_status(const std::string& text, EventStream& out) noexcept;
+void parse_status(const std::string& text, EventStream& out);
 
 // Parse one debug line (iteration counters) into the stream.
 void parse_debug(const std::string& text, EventStream& out) noexcept;

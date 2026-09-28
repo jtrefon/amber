@@ -34,7 +34,7 @@ scenario_totals(const std::vector<std::vector<ScenarioReport>>& population) {
 } // namespace
 
 std::map<std::string, double>
-discrimination_weights(const std::vector<std::vector<ScenarioReport>>& population) noexcept {
+discrimination_weights(const std::vector<std::vector<ScenarioReport>>& population) {
     std::map<std::string, double> weights;
     const auto totals = scenario_totals(population);
     for (const auto& [name, scores] : totals)
@@ -137,7 +137,7 @@ uint32_t lcg(uint32_t& state) noexcept {
 // per-scenario median, and return the (discrimination x difficulty) weighted
 // model score. An empty weight map reproduces the plain difficulty weighting.
 double bootstrap_weighted_score(const std::vector<ScenarioReport>& reports, uint32_t& rng,
-                                const std::map<std::string, double>& weights) noexcept {
+                                const std::map<std::string, double>& weights) {
     double weighted = 0.0;
     double weight = 0.0;
     for (const auto& r : reports) {
@@ -164,7 +164,7 @@ double bootstrap_weighted_score(const std::vector<ScenarioReport>& reports, uint
 // when any scenario lacks repeat data — the CI is missing, never silently
 // zero (a single run must not claim precision).
 double model_score_ci(const std::vector<ScenarioReport>& reports,
-                      const std::map<std::string, double>& weights) noexcept {
+                      const std::map<std::string, double>& weights) {
     for (const auto& r : reports)
         if (r.repeat_n < 2 || r.repeat_scores.size() < 2)
             return -1.0;
@@ -732,7 +732,7 @@ double reference_score(const std::vector<std::vector<ScenarioReport>>& populatio
 }
 
 std::vector<double> anchor_weights(const std::vector<std::vector<ScenarioReport>>& population,
-                                   size_t reference, double target) noexcept {
+                                   size_t reference, double target) {
     std::vector<double> w;
     if (reference >= population.size())
         return w;
@@ -753,7 +753,7 @@ std::vector<double> anchor_weights(const std::vector<std::vector<ScenarioReport>
 }
 
 std::vector<int> suggest_difficulties(const std::vector<std::vector<ScenarioReport>>& population,
-                                      size_t reference, double target) noexcept {
+                                      size_t reference, double target) {
     const std::vector<double> w = anchor_weights(population, reference, target);
     std::vector<int> out;
     out.reserve(w.size());
@@ -857,8 +857,8 @@ std::string render_scorecard(const std::vector<ScenarioReport>& reports, const R
     const double score = run_score(reports) * 10.0;
 
     out << "# Harness Scorecard — " << meta.model << " (run " << meta.run_id << ")\n\n";
-    out << "model score: " << static_cast<int>(score) << "/1000"
-        << "  pass: " << passed << "/" << total << "\n";
+    out << "model score: " << static_cast<int>(score) << "/1000" << "  pass: " << passed << "/"
+        << total << "\n";
     out << plugins_line(meta) << "\n";
 
     // ------------------------------------------------------------------
