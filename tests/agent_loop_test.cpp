@@ -447,6 +447,51 @@ TEST(compression_pipeline_failure_returns_history_unchanged) {
         ASSERT(out[i].content == before[i].content);
 }
 
+// CP-08: a failed EXTRACTION is non-fatal. The classification has already been
+// applied, so the caller still gets the compressed history and the
+// classification result — only the memory/skill ops are missing.
+TEST(compression_extract_failure_keeps_classification) {
+    agent::CompressionConfig cc;
+    auto compressor = agent::make_compressor(cc);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+
+    // First call (classify): a valid response that keeps both turns.
+    agent_test::FakeReply classify;
+    classify.content = R"({"classification":[{"turns":"0-1","tag":"core","summary":""}]})";
+    fake->script.push_back(std::move(classify));
+    // Second call (extract): fail.
+    agent_test::FakeReply boom;
+    boom.error = "extract exploded";
+    fake->script.push_back(std::move(boom));
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "search for x";
+    ctx.push(std::move(user));
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
+
+    // Classification succeeded, so there is no error and the segments are there.
+    ASSERT_TRUE(cr.error.empty());
+    ASSERT_FALSE(cr.segments.empty());
+    // The extraction failed, so no ops were merged in.
+    ASSERT_TRUE(cr.memory_ops.empty());
+    ASSERT_TRUE(cr.skill_ops.empty());
+    ASSERT_FALSE(cr.brief.has_value());
+    // And the compressed history — not the original — is what the caller gets.
+    bool has_compressed_context = false;
+    for (const auto& m : out)
+        if (m.content.rfind(agent::kCompressedContextPrefix, 0) == 0)
+            has_compressed_context = true;
+    ASSERT_TRUE(has_compressed_context);
+}
+
 // A failed compression must report the REAL error (with the before-stats) —
 // not a zeroed CompressionResult that the TUI misreads as "no compressor
 // configured". Regression: run_compression returned before setting
