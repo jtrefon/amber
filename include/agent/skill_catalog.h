@@ -17,8 +17,8 @@ namespace agent {
 // applied; `state` says how the skill surfaces to the agent and user.
 struct SkillEntry {
     std::string name;
-    SkillScope scope;
-    SkillOrigin origin;
+    SkillScope scope = SkillScope::Project;
+    SkillOrigin origin = SkillOrigin::Authored;
     std::string path;  // authored directory; empty for learned
     SkillMeta meta;    // authored frontmatter+body cache; learned fills body
     std::string state; // enabled | force-enabled | disabled | blocked | suppressed

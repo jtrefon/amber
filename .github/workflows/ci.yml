@@ -64,10 +64,12 @@ jobs:
           fail-on-severity: high
 
   # ---------------------------------------------------------------------------
-  # Static analysis — clang-tidy (per-file). On PRs, runs incrementally: only
-  # the .cpp files changed in the PR are analyzed (headers/.clang-tidy changes
-  # trigger a full scan as fallback). On main pushes, the full lint runs as a
-  # non-gating safety net (see lint-full below).
+  # Static analysis — clang-tidy (per-file). On PRs, runs incrementally over the
+  # TUs the diff can affect: the changed .cpp files plus every TU whose includes
+  # reach a changed header, resolved from the compiler's own dependency scan
+  # (-MM) by tools/affected_tus.py. A .clang-tidy change still lints everything,
+  # since it changes how every TU is checked. On main pushes the full lint runs
+  # as a non-gating safety net (see lint-full below).
   # ---------------------------------------------------------------------------
   lint:
     needs: [changes]
@@ -88,9 +90,10 @@ jobs:
         run: make lint-changed BASE=origin/${{ github.base_ref }}
 
   # ---------------------------------------------------------------------------
-  # Full lint — runs on main pushes as a non-gating safety net. Catches issues
-  # that incremental lint might miss (e.g. a header change that affects TUs not
-  # included in the PR diff). Does not block the pipeline.
+  # Full lint — runs on main pushes as a non-gating safety net. Independent of
+  # the incremental selector: if tools/affected_tus.py ever under-selects (a
+  # dependency the compiler does not see, a wrong diff base), this still sees
+  # the whole tree. Does not block the pipeline.
   # ---------------------------------------------------------------------------
   lint-full:
     needs: [changes]
@@ -112,6 +115,12 @@ jobs:
   # ---------------------------------------------------------------------------
   # Static analysis — cppcheck (cross-TU, compiler-agnostic). Independent of
   # the compiler matrix; runs once. Includes unusedFunction detection.
+  #
+  # cppcheck is pinned deliberately: the distro package is older than the checks
+  # the gate relies on (uninitMemberVarNoCtor and friends arrived in 2.21), so
+  # apt would quietly analyze less than a developer's toolchain and pass. Keep
+  # this in step with CPPCHECK_MIN_VERSION in Makefile.in, which fails closed
+  # below it.
   # ---------------------------------------------------------------------------
   analyze:
     needs: [changes]
@@ -120,14 +129,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
+
+      - uses: mamba-org/setup-micromamba@v3
         with:
-          extra: cppcheck
+          environment-name: cppcheck
+          create-args: cppcheck=2.22.0
+          cache-environment: true
+
+      # cppcheck re-analyzes only files whose hash changed, so a warm build dir
+      # takes the job from ~25 min to a couple of minutes. restore-keys falls
+      # back to the newest cache when sources changed, which is the point.
+      - name: Cache cppcheck analysis
+        uses: actions/cache@v6
+        with:
+          path: /tmp/cppcheck_amber
+          key: cppcheck-2.22.0-${{ hashFiles('**/*.cpp', '**/*.h', 'cppcheck_suppressions.txt') }}
+          restore-keys: cppcheck-2.22.0-
 
       - name: Configure
         run: ./configure
 
       - name: Static analysis (cppcheck)
         run: make analyze
+        shell: micromamba-shell {0}
 
   # ---------------------------------------------------------------------------
   # Build hygiene — smoketest + static invariant checks (P1–P5).

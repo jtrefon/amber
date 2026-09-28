@@ -67,8 +67,8 @@ std::vector<Message> apply_classification(const std::vector<Message>& history,
     // be prepended before returning so the classifier cannot prune/archive it).
     std::vector<Message> core;
     struct ArchiveSeg {
-        size_t start;
-        size_t end;
+        size_t start = 0;
+        size_t end = 0;
         std::string summary;
     };
     std::vector<ArchiveSeg> archive_segments;

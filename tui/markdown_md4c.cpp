@@ -30,8 +30,8 @@ struct ListFrame {
 };
 
 struct Ctx {
-    const Style* st;
-    std::vector<Line>* out;
+    const Style* st = nullptr;
+    std::vector<Line>* out = nullptr;
 
     std::vector<RunStyle> style_stack; // active inline style (nested spans)
     Line cur;                          // current block's accumulated line
