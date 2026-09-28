@@ -118,7 +118,7 @@ private:
 
 } // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     agent::Config cfg;
     std::string prompt;
     std::string config_file;
@@ -490,4 +490,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     return 0;
+} catch (const std::exception& e) {
+    std::cerr << "fatal: " << e.what() << "\n";
+    return 1;
 }

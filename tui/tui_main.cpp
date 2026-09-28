@@ -38,7 +38,7 @@ void print_usage(const char* argv0) {
 
 } // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     // ncursesw (wide-char) only operates in UTF-8 mode once the process locale
     // is set; without this it stays in the "C" locale and drops/mangles every
     // multi-byte glyph (em dash, bullets, box-drawing, CJK), which read as
@@ -202,4 +202,9 @@ int main(int argc, char** argv) {
     tui::Tui tui(cfg, registry, jobs, subagents, plugins, plugin_runtime);
     tui.run();
     return 0;
+} catch (const std::exception& e) {
+    // Tui's destructor has already run endwin() by the time this executes, so
+    // the terminal is restored and a plain message is safe.
+    std::fprintf(stderr, "fatal: %s\n", e.what());
+    return 1;
 }

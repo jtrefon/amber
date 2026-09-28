@@ -73,7 +73,7 @@ struct Scenario {
 std::optional<Scenario> load_scenario(const std::string& path, std::string& err);
 
 // Whether the scenario can run on the current host (platforms gate).
-bool platform_supported(const Scenario& s) noexcept;
+bool platform_supported(const Scenario& s);
 
 // Whether all textual checks hold for the given text (must/must-not contain).
 bool checks_pass(const Checks& c, const std::string& text) noexcept;

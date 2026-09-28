@@ -485,7 +485,7 @@ int cmd_calibrate(const std::vector<std::string>& files) {
 }
 } // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     if (argc < 2) {
         print_usage(argv[0]);
         return 1;
@@ -568,5 +568,8 @@ int main(int argc, char** argv) {
         return 1;
     }
     print_usage(argv[0]);
+    return 1;
+} catch (const std::exception& e) {
+    std::cerr << "fatal: " << e.what() << "\n";
     return 1;
 }

@@ -93,7 +93,7 @@ double run_score(const std::vector<ScenarioReport>& reports) noexcept;
 // a vector of ScenarioReport). Weights are KEYED BY SCENARIO NAME — a
 // reordered or incomplete run still aligns correctly.
 std::map<std::string, double>
-discrimination_weights(const std::vector<std::vector<ScenarioReport>>& population) noexcept;
+discrimination_weights(const std::vector<std::vector<ScenarioReport>>& population);
 
 // Difficulty x discrimination weighted score. A scenario missing from the
 // weight map contributes nothing (weight 0). An empty map falls back to the
@@ -106,7 +106,7 @@ double run_score_discriminative(const std::vector<ScenarioReport>& reports,
 // plain difficulty-weighted CI; with discrimination weights it matches
 // run_score_discriminative. Returns -1.0 when any scenario lacks repeat data.
 double model_score_ci(const std::vector<ScenarioReport>& reports,
-                      const std::map<std::string, double>& weights = {}) noexcept;
+                      const std::map<std::string, double>& weights = {});
 
 // Median of a sample.
 double median(std::vector<double> values) noexcept;
@@ -140,12 +140,12 @@ double reference_score(const std::vector<std::vector<ScenarioReport>>& populatio
 // Continuous per-scenario weights centering the reference exactly at the
 // anchor for a balanced population (w = target / |score - target|, clamped).
 std::vector<double> anchor_weights(const std::vector<std::vector<ScenarioReport>>& population,
-                                   size_t reference, double target = 50.0) noexcept;
+                                   size_t reference, double target = 50.0);
 
 // Integer difficulty suggestions in [1, 6], monotonic in the reference score;
 // applying them never worsens the anchor deviation.
 std::vector<int> suggest_difficulties(const std::vector<std::vector<ScenarioReport>>& population,
-                                      size_t reference, double target = 50.0) noexcept;
+                                      size_t reference, double target = 50.0);
 
 // |reference_score - target|.
 double reference_anchor_deviation(const std::vector<std::vector<ScenarioReport>>& population,

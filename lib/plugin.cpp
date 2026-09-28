@@ -666,8 +666,15 @@ std::string plugin_tools_advertisement(const ToolRegistry& reg) {
 }
 
 PluginManager::~PluginManager() {
-    for (auto& [id, s] : sessions_)
-        shutdown_session(*s);
+    // A destructor must not let an exception escape, and shutdown_session runs
+    // arbitrary plugin teardown, so contain any failure here: terminating the
+    // process during unwinding would be worse than a session left half-closed.
+    for (auto& [id, s] : sessions_) {
+        try {
+            shutdown_session(*s);
+        } catch (...) {
+        }
+    }
 }
 
 } // namespace agent
