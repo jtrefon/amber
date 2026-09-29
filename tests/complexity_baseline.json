@@ -31,7 +31,6 @@
     "lib/skill_file.cpp": 2,
     "lib/skill_install.cpp": 1,
     "lib/subagent.cpp": 1,
-    "lib/tool_call_parser.cpp": 1,
     "lib/workspace.cpp": 1,
     "plugins/commandcode/commandcode_plugin.cpp": 1,
     "src/smoketest.cpp": 1,

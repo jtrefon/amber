@@ -5712,6 +5712,94 @@ TEST(tool_schema_sanitizer_repairs_null_required) {
 //   </parameter>
 //   </function>
 //   </tool_call>
+// ---------------------------------------------------------------------------
+// Patterns 1 (<tool_call><name>/<arguments>) and 2 (<function><name>) had no
+// test coverage at all before the parser was split into one function per
+// dialect. Every expectation below was recorded from the implementation
+// *before* the split, so this table is the equivalence check for it.
+// ---------------------------------------------------------------------------
+
+TEST(tool_call_parser_xml_name_arguments) {
+    std::string text = "<tool_call><name>bash</name>"
+                       "<arguments>{\"command\":\"ls\"}</arguments></tool_call>";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "bash");
+    // The arguments stay the raw JSON *string*: the caller parses them.
+    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(), "{\"command\":\"ls\"}");
+}
+
+TEST(tool_call_parser_xml_name_arguments_multiple) {
+    std::string text = "<tool_call><name>bash</name>"
+                       "<arguments>{\"command\":\"ls\"}</arguments></tool_call>"
+                       "<tool_call><name>read</name>"
+                       "<arguments>{\"path\":\"a\"}</arguments></tool_call>";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 2u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "bash");
+    ASSERT_EQ(calls[1]["function"]["name"].get<std::string>(), "read");
+}
+
+TEST(tool_call_parser_xml_name_without_arguments_is_not_a_call) {
+    // A <name> with no <arguments> falls through to the JSON sub-pattern, which
+    // cannot parse XML — so nothing is extracted.
+    ASSERT_TRUE(
+        agent::extract_tool_calls_from_text("<tool_call><name>bash</name></tool_call>").is_null());
+}
+
+TEST(tool_call_parser_json_inside_tool_call) {
+    // The whole <tool_call> block may be JSON instead of <name>/<arguments>.
+    std::string text =
+        "<tool_call>{\"name\":\"bash\",\"arguments\":{\"command\":\"ls\"}}</tool_call>";
+    auto calls = agent::extract_tool_calls_from_text(text);
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "bash");
+    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(), "{\"command\":\"ls\"}");
+}
+
+TEST(tool_call_parser_function_block) {
+    // Pattern 2: <function><name>X</name>BODY</function>, with BODY as JSON.
+    auto calls = agent::extract_tool_calls_from_text(
+        "<function><name>bash</name>{\"command\":\"ls\"}</function>");
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["name"].get<std::string>(), "bash");
+    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(), "{\"command\":\"ls\"}");
+}
+
+TEST(tool_call_parser_function_block_json_wrapper) {
+    // A body of {"json": {...}} unwraps to the inner object.
+    auto calls = agent::extract_tool_calls_from_text(
+        "<function><name>bash</name>{\"json\":{\"command\":\"ls\"}}</function>");
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 1u);
+    ASSERT_EQ(calls[0]["function"]["arguments"].get<std::string>(), "{\"command\":\"ls\"}");
+}
+
+TEST(tool_call_parser_function_block_multiple_and_unclosed) {
+    auto calls = agent::extract_tool_calls_from_text(
+        "<function><name>bash</name>{\"command\":\"a\"}</function>"
+        "<function><name>read</name>{\"path\":\"b\"}</function>");
+    ASSERT_TRUE(!calls.is_null());
+    ASSERT_EQ(calls.size(), 2u);
+    ASSERT_EQ(calls[1]["function"]["name"].get<std::string>(), "read");
+
+    // A call the model cut off mid-stream still parses; the body is whatever
+    // remains, which here is empty.
+    auto unclosed = agent::extract_tool_calls_from_text("<function><name>bash</name>");
+    ASSERT_TRUE(!unclosed.is_null());
+    ASSERT_EQ(unclosed.size(), 1u);
+    ASSERT_EQ(unclosed[0]["function"]["arguments"].get<std::string>(), "");
+}
+
+TEST(tool_call_parser_no_dialect_found_returns_null) {
+    ASSERT_TRUE(agent::extract_tool_calls_from_text("").is_null());
+    ASSERT_TRUE(agent::extract_tool_calls_from_text("just prose, no calls").is_null());
+}
+
 TEST(tool_call_parser_attribute_style) {
     std::string text = "I'll review the app.\n"
                        "<tool_call>\n"

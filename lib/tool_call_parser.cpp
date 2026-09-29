@@ -111,49 +111,36 @@ bool scan_bare_json_call(const std::string& text, size_t& i, json& out) {
     return true;
 }
 
-} // namespace
-
-json extract_tool_calls_from_text(const std::string& text) {
-    json result = json::array();
+// Pattern 1: <tool_call><name>X</name><arguments>...</arguments></tool_call>,
+// or a JSON object inside the <tool_call> block. Common in Qwen/Jinja
+// templates. Appends to `result`; reports whether anything was found.
+bool extract_xml_tool_calls(const std::string& text, json& result) {
+    bool found = false;
     size_t i = 0;
-    bool found_any = false;
-
-    // Pattern 1: <tool_call><name>X</name><arguments>...</arguments></tool_call>
-    // Common in Qwen/Jinja templates.
     while (i < text.size()) {
         size_t start = text.find("<tool_call>", i);
         if (start == std::string::npos)
             break;
         i = start + 11; // past "<tool_call>"
 
-        // Look for two possible sub-structures:
-        //   <name>X</name><arguments>JSON</arguments>
-        //   or JSON inside the tool_call block directly.
-
         json tc;
         tc["type"] = "function";
         auto& fn = tc["function"];
 
-        // Try <name>...</name> + <arguments>...</arguments>
+        // <name>X</name> + <arguments>JSON</arguments>
         size_t ni = i;
-        bool has_name = skip_tag(text, ni, "name");
-        if (has_name) {
-            std::string name = read_until(text, ni, "name");
-            fn["name"] = name;
-            has_name = skip_tag(text, ni, "arguments");
-            if (has_name) {
-                std::string args = read_until(text, ni, "arguments");
-                fn["arguments"] = args;
+        if (skip_tag(text, ni, "name")) {
+            fn["name"] = read_until(text, ni, "name");
+            if (skip_tag(text, ni, "arguments")) {
+                fn["arguments"] = read_until(text, ni, "arguments");
                 i = ni; // advance past the close tag
                 result.push_back(std::move(tc));
-                found_any = true;
+                found = true;
                 continue;
             }
         }
 
-        // Sub-pattern inside <tool_call>: parse the entire block as JSON
-        //   <tool_call>{"name":"X","arguments":{...}}</tool_call>
-        // Find the closing tag from current position.
+        // Sub-pattern: the whole block is JSON.
         size_t close = text.find("</tool_call>", i);
         if (close == std::string::npos)
             break;
@@ -163,112 +150,136 @@ json extract_tool_calls_from_text(const std::string& text) {
         auto json_tc = parse_json_tool_call(block);
         if (!json_tc.is_null()) {
             result.push_back(std::move(json_tc));
-            found_any = true;
+            found = true;
         }
     }
+    return found;
+}
 
-    // Pattern 2: <function><name>X</name>...</function> (some legacy templates)
-    if (!found_any) {
-        i = 0;
-        while (i < text.size()) {
-            size_t start = text.find("<function>", i);
-            if (start == std::string::npos)
-                break;
-            i = start + 10; // past "<function>"
-            size_t ni = i;
-            if (!skip_tag(text, ni, "name"))
-                break;
-            std::string name = read_until(text, ni, "name");
-            // Look for <parameter> or just slurp the rest as JSON
-            size_t close = text.find("</function>", ni);
-            std::string rest =
-                (close != std::string::npos) ? text.substr(ni, close - ni) : text.substr(ni);
-            auto jrest = json::parse(rest, nullptr, false);
-            i = (close != std::string::npos) ? close + 11 : text.size();
+// Pattern 2: <function><name>X</name>...</function> (some legacy templates).
+// The body is JSON, optionally wrapped as {"json": {...}}.
+bool extract_function_blocks(const std::string& text, json& result) {
+    bool found = false;
+    size_t i = 0;
+    while (i < text.size()) {
+        size_t start = text.find("<function>", i);
+        if (start == std::string::npos)
+            break;
+        i = start + 10; // past "<function>"
+        size_t ni = i;
+        if (!skip_tag(text, ni, "name"))
+            break;
+        std::string name = read_until(text, ni, "name");
 
-            json tc;
-            tc["type"] = "function";
-            auto& fn = tc["function"];
-            fn["name"] = name;
-            if (!jrest.is_discarded() && jrest.contains("json"))
-                fn["arguments"] = jrest["json"].dump();
-            else
-                fn["arguments"] = rest;
-            result.push_back(std::move(tc));
-            found_any = true;
-        }
+        // Look for <parameter>, or just slurp the rest as JSON.
+        size_t close = text.find("</function>", ni);
+        std::string rest =
+            (close != std::string::npos) ? text.substr(ni, close - ni) : text.substr(ni);
+        auto jrest = json::parse(rest, nullptr, false);
+        i = (close != std::string::npos) ? close + 11 : text.size();
+
+        json tc;
+        tc["type"] = "function";
+        auto& fn = tc["function"];
+        fn["name"] = name;
+        if (!jrest.is_discarded() && jrest.contains("json"))
+            fn["arguments"] = jrest["json"].dump();
+        else
+            fn["arguments"] = rest;
+        result.push_back(std::move(tc));
+        found = true;
     }
+    return found;
+}
 
-    // Pattern 3: attribute-style tool calls (ornith template):
-    //   <tool_call>
-    //   <function=bash>
-    //   <parameter=command>
-    //   find . -type f
-    //   </parameter>
-    //   </function>
-    //   </tool_call>
-    // The parameter VALUE is the raw content until </parameter>; multiple
-    // <parameter> blocks merge into one arguments object. Unclosed blocks
-    // (the model cut off mid-call) still parse.
-    if (!found_any) {
-        i = 0;
-        while (i < text.size()) {
-            size_t start = text.find("<tool_call>", i);
-            if (start == std::string::npos)
-                break;
-            i = start + 11; // past "<tool_call>"
-            size_t ni = i;
-            std::string fname = read_attr_tag(text, ni, "function");
-            if (fname.empty())
-                continue; // not the attribute style
-            // Parameters belong to THIS call: never search past </function>.
-            size_t fn_end = text.find("</function>", ni);
-            if (fn_end == std::string::npos)
-                fn_end = text.size();
-            json args = json::object();
-            size_t pi = ni;
-            size_t param_pos = text.find("<parameter=", pi);
-            while (param_pos != std::string::npos && param_pos < fn_end) {
-                pi = param_pos;
-                std::string key = read_attr_tag(text, pi, "parameter");
-                std::string value = read_until(text, pi, "parameter");
-                while (!value.empty() && (value.back() == ' ' || value.back() == '\n' ||
-                                          value.back() == '\r' || value.back() == '\t'))
-                    value.pop_back();
-                size_t lead = value.find_first_not_of(" \n\r\t");
-                if (lead != std::string::npos)
-                    value = value.substr(lead);
-                else
-                    value.clear();
-                args[key] = value;
-                param_pos = text.find("<parameter=", pi);
-            }
-            json tc;
-            tc["type"] = "function";
-            tc["function"] = {{"name", fname}, {"arguments", args}};
-            result.push_back(std::move(tc));
-            found_any = true;
-            size_t close = text.find("</tool_call>", pi);
-            i = (close == std::string::npos) ? text.size() : close + 12;
+// Attribute-style parameter values are raw text; trim the surrounding
+// whitespace (trailing first, then leading).
+std::string trim_parameter_value(std::string value) {
+    while (!value.empty() && (value.back() == ' ' || value.back() == '\n' || value.back() == '\r' ||
+                              value.back() == '\t'))
+        value.pop_back();
+    const size_t lead = value.find_first_not_of(" \n\r\t");
+    return lead == std::string::npos ? std::string() : value.substr(lead);
+}
+
+// Pattern 3: attribute-style calls (ornith template):
+//   <tool_call>
+//   <function=bash>
+//   <parameter=command>
+//   find . -type f
+//   </parameter>
+//   </function>
+//   </tool_call>
+// The parameter VALUE is the raw content until </parameter>; multiple
+// <parameter> blocks merge into one arguments object. Unclosed blocks (the
+// model cut off mid-call) still parse.
+bool extract_attr_tool_calls(const std::string& text, json& result) {
+    bool found = false;
+    size_t i = 0;
+    while (i < text.size()) {
+        size_t start = text.find("<tool_call>", i);
+        if (start == std::string::npos)
+            break;
+        i = start + 11; // past "<tool_call>"
+        size_t ni = i;
+        std::string fname = read_attr_tag(text, ni, "function");
+        if (fname.empty())
+            continue; // not the attribute style
+
+        // Parameters belong to THIS call: never search past </function>.
+        size_t fn_end = text.find("</function>", ni);
+        if (fn_end == std::string::npos)
+            fn_end = text.size();
+
+        json args = json::object();
+        size_t pi = ni;
+        size_t param_pos = text.find("<parameter=", pi);
+        while (param_pos != std::string::npos && param_pos < fn_end) {
+            pi = param_pos;
+            std::string key = read_attr_tag(text, pi, "parameter");
+            args[key] = trim_parameter_value(read_until(text, pi, "parameter"));
+            param_pos = text.find("<parameter=", pi);
         }
-    }
 
-    // Pattern 4: Hermes-style bare JSON tool calls (Qwen2.5-Coder via
-    // llama.cpp text-mode): {"name":"X","arguments":{...}} appears as plain
-    // content with no XML wrapper. Each block is scanned independently so
-    // multiple calls in one response are all extracted.
-    if (!found_any) {
-        i = 0;
-        while (i < text.size()) {
-            json tc;
-            if (!scan_bare_json_call(text, i, tc))
-                continue;
-            result.push_back(std::move(tc));
-            found_any = true;
-        }
+        json tc;
+        tc["type"] = "function";
+        tc["function"] = {{"name", fname}, {"arguments", args}};
+        result.push_back(std::move(tc));
+        found = true;
+        size_t close = text.find("</tool_call>", pi);
+        i = (close == std::string::npos) ? text.size() : close + 12;
     }
+    return found;
+}
 
-    return found_any ? result : json();
+// Pattern 4: Hermes-style bare JSON tool calls (Qwen2.5-Coder via llama.cpp
+// text-mode): {"name":"X","arguments":{...}} appears as plain content with no
+// XML wrapper. Each block is scanned independently so multiple calls in one
+// response are all extracted.
+bool extract_bare_json_calls(const std::string& text, json& result) {
+    bool found = false;
+    size_t i = 0;
+    while (i < text.size()) {
+        json tc;
+        if (!scan_bare_json_call(text, i, tc))
+            continue;
+        result.push_back(std::move(tc));
+        found = true;
+    }
+    return found;
+}
+
+} // namespace
+
+// Scan `text` for tool calls in any of the dialects below. The dialects are
+// mutually exclusive in practice: the first pattern that finds anything wins,
+// so a response is never double-parsed by a second one.
+json extract_tool_calls_from_text(const std::string& text) {
+    json result = json::array();
+    const bool found =
+        extract_xml_tool_calls(text, result) || extract_function_blocks(text, result) ||
+        extract_attr_tool_calls(text, result) || extract_bare_json_calls(text, result);
+    return found ? result : json();
 }
 
 } // namespace agent
