@@ -26,7 +26,6 @@
     "lib/process.cpp": 1,
     "lib/providers_repo_files.cpp": 1,
     "lib/session.cpp": 1,
-    "lib/shell_classify.cpp": 3,
     "lib/skill_catalog.cpp": 1,
     "lib/skill_file.cpp": 2,
     "lib/skill_install.cpp": 1,
