@@ -131,6 +131,211 @@ TEST(config_load_key_value) {
     std::remove(path.c_str());
 }
 
+// Every key the parser knows, in one file. Parsing is a dispatch over ~40 keys
+// split into per-domain appliers, so this is the test that a key cannot be
+// dropped or wired to the wrong field.
+TEST(config_load_covers_every_key) {
+    std::string path = "/tmp/amber_cfg_all_keys.conf";
+    {
+        std::ofstream f(path);
+        f << "api_base=http://example:1234/v1\n";
+        f << "api_key=sk-test\n";
+        f << "kilo_balance_token=kilo-tok\n";
+        f << "provider=openrouter\n";
+        f << "model=my-model\n";
+        f << "system_prompt=sys.md\n";
+        f << "tools_prompt=tools.md\n";
+        f << "git_prompt=git.md\n";
+        f << "temperature=0.75\n";
+        f << "max_tokens=4096\n";
+        f << "stream=false\n";
+        f << "thinking=off\n";
+        f << "thinking_budget=1234\n";
+        f << "reasoning_effort=high\n";
+        f << "show_reasoning=false\n";
+        f << "max_tool_iterations=7\n";
+        f << "subagent_parallel=false\n";
+        f << "subagent_max=2\n";
+        f << "context_size=8192\n";
+        f << "default_context_size=4096\n";
+        f << "policy_approval=false\n";
+        f << "detection_loop=true\n";
+        f << "detection_duplicate=true\n";
+        f << "wallet=false\n";
+        f << "compression_threshold=0.5\n";
+        f << "compression_min_turns=3\n";
+        f << "compression_cooldown_turns=4\n";
+        f << "compression_target_pct=12\n";
+        f << "compression_keep_last_prompts=5\n";
+        f << "experience_enabled=false\n";
+        f << "experience_store_path=/tmp/exp.json\n";
+        f << "experience_max_memories=11\n";
+        f << "experience_max_skills=12\n";
+        f << "experience_decay_rate=0.25\n";
+        f << "experience_promote_threshold=13\n";
+        f << "skills_interop=true\n";
+        f << "skills_max_discovery=14\n";
+        f << "skills_body_budget_tokens=15\n";
+        f << "log_path=/tmp/conv.jsonl\n";
+        f << "debug_log=/tmp/dbg.log\n";
+    }
+    agent::Config c;
+    c.load(path);
+
+    ASSERT_EQ(c.api_base, "http://example:1234/v1");
+    ASSERT_EQ(c.api_key, "sk-test");
+    ASSERT_EQ(c.kilo_balance_token, "kilo-tok");
+    ASSERT_EQ(c.provider_name, "openrouter");
+    ASSERT_EQ(c.model, "my-model");
+    ASSERT_TRUE(c.model_explicit);
+    ASSERT_EQ(c.system_prompt_path, "sys.md");
+    ASSERT_EQ(c.tools_prompt_path, "tools.md");
+    ASSERT_EQ(c.git_prompt_path, "git.md");
+    ASSERT_EQ(c.temperature, 0.75);
+    ASSERT_EQ(c.max_tokens, 4096u);
+    ASSERT_FALSE(c.stream);
+    ASSERT_EQ(c.thinking, "off");
+    ASSERT_EQ(c.thinking_budget, 1234);
+    ASSERT_EQ(c.reasoning_effort, "high");
+    ASSERT_FALSE(c.show_reasoning);
+    ASSERT_EQ(c.max_tool_iterations, 7);
+    ASSERT_FALSE(c.subagent_parallel);
+    ASSERT_EQ(c.subagent_max, 2);
+    ASSERT_EQ(c.context_size, 8192);
+    ASSERT_TRUE(c.context_explicit);
+    ASSERT_EQ(c.default_context_size, 4096);
+    ASSERT_FALSE(c.policy_approval);
+    ASSERT_TRUE(c.detection_loop);
+    ASSERT_TRUE(c.detection_duplicate);
+    ASSERT_FALSE(c.wallet_enabled);
+    ASSERT_EQ(c.compression_threshold, 0.5);
+    ASSERT_TRUE(c.compression_threshold_explicit);
+    ASSERT_EQ(c.compression_min_turns, 3);
+    ASSERT_TRUE(c.compression_min_turns_explicit);
+    ASSERT_EQ(c.compression_cooldown_turns, 4);
+    ASSERT_TRUE(c.compression_cooldown_turns_explicit);
+    ASSERT_EQ(c.compression_target_pct, 12);
+    ASSERT_TRUE(c.compression_target_pct_explicit);
+    ASSERT_EQ(c.compression_keep_last_prompts, 5);
+    ASSERT_TRUE(c.compression_keep_last_prompts_explicit);
+    ASSERT_FALSE(c.experience_enabled);
+    ASSERT_EQ(c.experience_store_path, "/tmp/exp.json");
+    ASSERT_EQ(c.experience_max_memories, 11);
+    ASSERT_EQ(c.experience_max_skills, 12);
+    ASSERT_EQ(c.experience_decay_rate, 0.25);
+    ASSERT_EQ(c.experience_promote_threshold, 13);
+    ASSERT_TRUE(c.skills_interop);
+    ASSERT_EQ(c.skills_max_discovery, 14);
+    ASSERT_EQ(c.skills_body_budget_tokens, 15);
+    ASSERT_EQ(c.log_path, "/tmp/conv.jsonl");
+    ASSERT_EQ(c.debug_log, "/tmp/dbg.log");
+    ASSERT_TRUE(c.warnings.empty());
+    std::remove(path.c_str());
+}
+
+// "1", "true" and "yes" are true; every other spelling (including empty) is
+// false. Pins the accepted vocabulary so a new spelling cannot slip through.
+TEST(config_load_bool_spellings) {
+    const char* path = "/tmp/amber_cfg_bool.conf";
+    struct Case {
+        const char* value;
+        bool expected;
+    };
+    const Case cases[] = {{"1", true},      {"true", true}, {"yes", true}, {"0", false},
+                          {"false", false}, {"no", false},  {"", false}};
+    for (const Case& tc : cases) {
+        std::ofstream f(path);
+        f << "stream=" << tc.value << "\n";
+        f.close();
+        agent::Config c; // stream defaults to true, so only an explicit false is visible
+        c.load(path);
+        ASSERT_EQ(c.stream, tc.expected);
+    }
+    std::remove(path);
+}
+
+// One bad value skips that key and warns; it never aborts the load or discards
+// the rest of the file.
+TEST(config_load_bad_number_warns_and_keeps_default) {
+    std::string path = "/tmp/amber_cfg_badnum.conf";
+    {
+        std::ofstream f(path);
+        f << "max_tool_iterations=abc\n";
+        f << "temperature=hot\n";
+        f << "thinking_budget=nope\n";
+        f << "subagent_max=2\n";
+    }
+    agent::Config c;
+    c.load(path);
+    ASSERT_EQ(c.max_tool_iterations, 100); // default kept
+    ASSERT_EQ(c.temperature, 0.2);         // default kept
+    ASSERT_EQ(c.thinking_budget, -1);      // default kept
+    ASSERT_EQ(c.subagent_max, 2);          // the good key still applied
+    ASSERT_EQ(c.warnings.size(), 3u);
+    std::remove(path.c_str());
+}
+
+// Blanks, comments, lines without '=' and unknown keys are all skipped quietly.
+TEST(config_load_ignores_blanks_comments_and_malformed_lines) {
+    std::string path = "/tmp/amber_cfg_noise.conf";
+    {
+        std::ofstream f(path);
+        f << "\n";
+        f << "# comment\n";
+        f << "#model=commented-out\n";
+        f << "no_equals_sign\n";
+        f << "unknown_key=value\n";
+        f << "model=kept\n";
+    }
+    agent::Config c;
+    c.load(path);
+    ASSERT_EQ(c.model, "kept");
+    ASSERT_TRUE(c.warnings.empty());
+    std::remove(path.c_str());
+}
+
+// One layer of *matching* double quotes is stripped; single or unbalanced
+// quotes are left alone. A lone quote strips to empty rather than throwing
+// (substr(1, size-2) with size 1 is the empty string).
+TEST(config_load_strips_matching_quotes_only) {
+    std::string path = "/tmp/amber_cfg_quotes.conf";
+    {
+        std::ofstream f(path);
+        f << "api_key=\"quoted\"\n";
+        f << "model='single'\n";
+        f << "log_path=\"unbalanced\n";
+        f << "thinking=\"\n";
+    }
+    agent::Config c;
+    c.load(path);
+    ASSERT_EQ(c.api_key, "quoted");
+    ASSERT_EQ(c.model, "'single'");
+    ASSERT_EQ(c.log_path, "\"unbalanced");
+    ASSERT_EQ(c.thinking, "");
+    std::remove(path.c_str());
+}
+
+// The numeric edges: a negative unsigned is ignored, an empty optional int is
+// ignored, and an explicit zero context stays "auto" (context_explicit false).
+// None of the three warns — a skipped value is not a malformed one.
+TEST(config_load_negative_and_empty_numbers) {
+    std::string path = "/tmp/amber_cfg_nums.conf";
+    {
+        std::ofstream f(path);
+        f << "max_tokens=-5\n";
+        f << "default_context_size=\n";
+        f << "context_size=0\n";
+    }
+    agent::Config c;
+    c.load(path);
+    ASSERT_EQ(c.max_tokens, 16384u); // default kept
+    ASSERT_EQ(c.default_context_size, 0);
+    ASSERT_EQ(c.context_size, 0);
+    ASSERT_FALSE(c.context_explicit);
+    ASSERT_TRUE(c.warnings.empty());
+    std::remove(path.c_str());
+}
+
 // Mirrors what the TUI F10 "save settings" writes for a llama.cpp server, and
 // that an optional (possibly empty) token survives a load round-trip. This
 // guards the settings-persistence contract used by the TUI.
