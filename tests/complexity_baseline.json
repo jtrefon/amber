@@ -10,7 +10,6 @@
     "bench/template.cpp": 1,
     "lib/agent.cpp": 8,
     "lib/agent_helpers.cpp": 1,
-    "lib/compressor.cpp": 1,
     "lib/compressor_apply.cpp": 4,
     "lib/compressor_parser.cpp": 1,
     "lib/compressor_request.cpp": 1,
