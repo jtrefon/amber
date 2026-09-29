@@ -3159,6 +3159,148 @@ TEST(sec01_input_redirect_outside) {
 }
 
 // ---------------------------------------------------------------------------
+// Characterisation tables for the classifier. It drives the approval gate, so
+// the split into helpers must not move a single verdict: every row below was
+// recorded from the behaviour *before* the split and is asserted unchanged
+// after it. Rows are grouped by what they exercise.
+// ---------------------------------------------------------------------------
+
+struct ShellRow {
+    const char* command;
+    agent::ShellEffect effect;
+    const char* scope;
+};
+
+static const char* shell_effect_name(agent::ShellEffect e) {
+    switch (e) {
+    case agent::ShellEffect::ReadOnly:
+        return "ReadOnly";
+    case agent::ShellEffect::Write:
+        return "Write";
+    case agent::ShellEffect::Destructive:
+        return "Destructive";
+    case agent::ShellEffect::Outside:
+        return "Outside";
+    }
+    return "?";
+}
+
+// Reports the command on failure, so a broken row names the case it broke.
+static void check_shell_class(const ShellRow& row) {
+    agent::ShellClass got = agent::classify_shell(row.command, "/tmp/amber_cls_ws");
+    if (got.effect == row.effect && got.scope_id == row.scope)
+        return;
+    std::ostringstream os;
+    os << "classify_shell(\"" << row.command << "\") = " << shell_effect_name(got.effect) << " '"
+       << got.scope_id << "', expected " << shell_effect_name(row.effect) << " '" << row.scope
+       << "'";
+    agent::test::fail(os.str());
+}
+
+static void check_shell_rows(const ShellRow* rows, std::size_t n) {
+    agent::Workspace::set_root("/tmp/amber_cls_ws");
+    for (std::size_t i = 0; i < n; ++i)
+        check_shell_class(rows[i]);
+    agent::Workspace::set_root(".");
+}
+
+// Reader heads, head shape, and git read-only subcommands. A head that is
+// qualified (contains '/'), flag-like or empty cannot be proven safe.
+TEST(shell_classify_table_heads_and_git) {
+    const ShellRow rows[] = {
+        {"ls", agent::ShellEffect::ReadOnly, ""},
+        {"ls -la", agent::ShellEffect::ReadOnly, ""},
+        {"wc -l file.txt", agent::ShellEffect::ReadOnly, ""},
+        {"pwd", agent::ShellEffect::ReadOnly, ""},
+        {"echo hi", agent::ShellEffect::ReadOnly, ""},
+        {"printf x", agent::ShellEffect::ReadOnly, ""},
+        {"export A=1", agent::ShellEffect::ReadOnly, ""},
+        {"cat file.txt", agent::ShellEffect::ReadOnly, ""},
+        {"ls .", agent::ShellEffect::ReadOnly, ""},
+        {"VAR=1 ls", agent::ShellEffect::ReadOnly, ""},
+        {"VAR=1 cat f", agent::ShellEffect::ReadOnly, ""},
+        {"./x.sh", agent::ShellEffect::Destructive, "bash:*"},
+        {"/bin/ls", agent::ShellEffect::Destructive, "bash:*"},
+        {"-x", agent::ShellEffect::Destructive, "bash:*"},
+        {"git status", agent::ShellEffect::ReadOnly, ""},
+        {"git log --oneline", agent::ShellEffect::ReadOnly, ""},
+        {"git rev-parse HEAD", agent::ShellEffect::ReadOnly, ""},
+        {"git help", agent::ShellEffect::ReadOnly, ""},
+        {"git add .", agent::ShellEffect::Write, "bash:git add"},
+        {"git commit -m x", agent::ShellEffect::Write, "bash:git commit"},
+        {"git", agent::ShellEffect::Write, "bash:git"},
+        {"git push", agent::ShellEffect::Destructive, "bash:git push"},
+        {"git push origin main", agent::ShellEffect::Destructive, "bash:git push"},
+        {"git push --force", agent::ShellEffect::Destructive, "bash:git push --force"},
+        {"git reset --hard", agent::ShellEffect::Destructive, "bash:git reset"},
+        {"git clean -fd", agent::ShellEffect::Destructive, "bash:git clean"},
+    };
+    check_shell_rows(rows, sizeof(rows) / sizeof(rows[0]));
+}
+
+// Redirects, fd dups, escapes, chain operators and the newline separator.
+// NOTE: `ls 2>&1` is a known false positive — an fd dup writes no file, but the
+// redirect scan treats "&1" as its target and calls the segment a write. It is
+// conservative (it prompts more, never less), and this refactor preserves it
+// deliberately rather than smuggling a behaviour change into a decomposition.
+TEST(shell_classify_table_redirects_and_escapes) {
+    const ShellRow rows[] = {
+        {"echo x > out.txt", agent::ShellEffect::Write, "bash:echo"},
+        {"echo x >> out.txt", agent::ShellEffect::Write, "bash:echo"},
+        {"echo hi >file.txt", agent::ShellEffect::Write, "bash:echo"},
+        {"echo x 2> err.txt", agent::ShellEffect::Write, "bash:echo"},
+        {"echo x >", agent::ShellEffect::Write, "bash:echo"},
+        {"ls 2>&1", agent::ShellEffect::Write, "bash:ls"},
+        {"echo x > /etc/out", agent::ShellEffect::Outside, "outside:/etc"},
+        {"cat < input.txt", agent::ShellEffect::ReadOnly, ""},
+        {"cat < /etc/passwd", agent::ShellEffect::Outside, "outside:/etc"},
+        {"ls &", agent::ShellEffect::Destructive, "bash:*"},
+        {"ls $(pwd)", agent::ShellEffect::Destructive, "bash:*"},
+        {"ls `pwd`", agent::ShellEffect::Destructive, "bash:*"},
+        {"ls;cat x", agent::ShellEffect::Destructive, "bash:*"},
+        {"ls;", agent::ShellEffect::Destructive, "bash:*"},
+        {"echo a|b", agent::ShellEffect::Destructive, "bash:*"},
+        {"echo 'a|b'", agent::ShellEffect::ReadOnly, ""},
+        {"echo \"a|b\"", agent::ShellEffect::ReadOnly, ""},
+        {"ls && cat x", agent::ShellEffect::Write, "bash:*"},
+        {"cat a | grep b", agent::ShellEffect::Write, "bash:*"},
+        {"echo a\ncat /etc/passwd", agent::ShellEffect::Outside, "outside:/etc"},
+        {"ls .\ncat file.txt", agent::ShellEffect::Write, "bash:*"},
+    };
+    check_shell_rows(rows, sizeof(rows) / sizeof(rows[0]));
+}
+
+// Mutating heads (destructive patterns, find/sed flags, plain writers) and
+// workspace-escaping paths.
+TEST(shell_classify_table_mutators_and_paths) {
+    const ShellRow rows[] = {
+        {"rm -rf build", agent::ShellEffect::Destructive, "bash:rm"},
+        {"rm build", agent::ShellEffect::Destructive, "bash:rm"},
+        {"rmdir d", agent::ShellEffect::Destructive, "bash:rmdir"},
+        {"sudo ls", agent::ShellEffect::Destructive, "bash:sudo"},
+        {"docker ps", agent::ShellEffect::Destructive, "bash:docker"},
+        {"chmod -R 777 x", agent::ShellEffect::Destructive, "bash:chmod -R"},
+        {"find . -delete", agent::ShellEffect::Write, "bash:find"},
+        {"find . -name x", agent::ShellEffect::Write, "bash:find"},
+        {"find . -exec rm {} ;", agent::ShellEffect::Write, "bash:find"},
+        {"sed -i s/a/b/ f", agent::ShellEffect::Write, "bash:sed"},
+        {"sed 's/a/b/' f", agent::ShellEffect::Write, "bash:sed"},
+        {"cp a b", agent::ShellEffect::Write, "bash:cp"},
+        {"mv a b", agent::ShellEffect::Write, "bash:mv"},
+        {"touch f", agent::ShellEffect::Write, "bash:touch"},
+        {"mkdir d", agent::ShellEffect::Write, "bash:mkdir"},
+        {"cat /etc/passwd", agent::ShellEffect::Outside, "outside:/etc"},
+        {"grep foo /etc/passwd", agent::ShellEffect::Outside, "outside:/etc"},
+        {"ls /tmp", agent::ShellEffect::Outside, "outside:/"},
+        {"head /etc/passwd", agent::ShellEffect::Outside, "outside:/etc"},
+        {"wc -l /etc/passwd", agent::ShellEffect::Outside, "outside:/etc"},
+        {"cd /tmp", agent::ShellEffect::Outside, "outside:/"},
+        {"cd /tmp && cat secret", agent::ShellEffect::Outside, "outside:/"},
+    };
+    check_shell_rows(rows, sizeof(rows) / sizeof(rows[0]));
+}
+
+// ---------------------------------------------------------------------------
 // SEC-02: approval-gate coverage for side-effecting tools (Red tests).
 // WriteTool (create/overwrite), TaskTool (sub-agent privilege escalation),
 // and PluginTool (external-process code execution) must opt into the
