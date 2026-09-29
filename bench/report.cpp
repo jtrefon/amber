@@ -439,26 +439,67 @@ std::string render_json(const std::vector<ScenarioReport>& reports, const RunMet
     return out.dump(2) + "\n";
 }
 
-std::string render_markdown(const std::vector<ScenarioReport>& reports, const RunMeta& meta) {
-    std::ostringstream out;
+// Run-wide economy/agentic totals for the markdown profile tables.
+struct EconomyTotals {
+    int tools = 0;
+    int failures = 0;
+    int denied = 0;
+    int redundant = 0;
+    int retries = 0;
+    int cd_prefix = 0;
+    long wall_ms = 0;
+    int plan_total = 0;
+    int deviation = 0;
+    int plan_runs = 0;
+    double agentic_sum = 0.0;
+};
+
+EconomyTotals economy_totals(const std::vector<ScenarioReport>& reports) {
+    EconomyTotals t;
+    for (const auto& r : reports) {
+        t.tools += r.kpi.tool_calls;
+        t.failures += r.kpi.tool_failures;
+        t.denied += r.kpi.tool_denied;
+        t.redundant += r.kpi.redundant;
+        t.retries += r.kpi.retries;
+        t.cd_prefix += r.kpi.bash_cd_prefix;
+        t.wall_ms += r.kpi.wall_ms;
+        if (!r.agentic.has_plan)
+            continue;
+        t.plan_total += r.agentic.plan_tools;
+        t.deviation += r.agentic.plan_deviation;
+        t.agentic_sum += r.agentic.score;
+        ++t.plan_runs;
+    }
+    return t;
+}
+
+void render_md_header(std::ostream& out, const std::vector<ScenarioReport>& reports,
+                      const RunMeta& meta) {
     out << "## " << meta.model << "\n\n";
     out << "- run: `" << meta.run_id << "` [" << meta.mode << ", engine " << meta.engine_version
         << ", reasoning " << (meta.reasoning.empty() ? "default" : meta.reasoning) << "]\n";
     out << "- **model score: " << static_cast<int>(run_score(reports) * 10.0) << "/1000** ("
         << reports.size() << " scenarios)\n\n";
-    out << "| scenario | d | score | bullseye | steps | wasted | wall (s) "
-           "| artifact |\n";
+}
+
+void render_md_scenario_table(std::ostream& out, const std::vector<ScenarioReport>& reports) {
+    out << "| scenario | d | score | bullseye | steps | wasted | wall (s) | artifact |\n";
     out << "|---|---|---|---|---|---|---|---|\n";
     for (const auto& r : reports) {
         out << "| " << r.name << " | " << r.difficulty << " | " << static_cast<int>(r.score.total)
             << " | " << r.kpi.bullseye << " | " << r.kpi.steps << " | " << r.kpi.wasted << " | "
             << (r.kpi.wall_ms / 1000.0) << " | ";
+        out << " | ";
         if (r.templated)
             out << r.kpi.artifact_score;
         else
             out << "-";
         out << " |\n";
     }
+}
+
+void render_md_failures(std::ostream& out, const std::vector<ScenarioReport>& reports) {
     out << "\n### Failures\n\n";
     bool any = false;
     for (const auto& r : reports) {
@@ -475,105 +516,95 @@ std::string render_markdown(const std::vector<ScenarioReport>& reports, const Ru
     }
     if (!any)
         out << "none\n";
+}
 
-    out << "\n### Agentic profile\n\n";
-    int tot_tools = 0, tot_fail = 0, tot_denied = 0, tot_red = 0, tot_retr = 0;
-    long tot_wall = 0;
-    int plan_total = 0, dev_total = 0, ag_n = 0;
-    double ag_sum = 0.0;
-    for (const auto& r : reports) {
-        tot_tools += r.kpi.tool_calls;
-        tot_fail += r.kpi.tool_failures;
-        tot_denied += r.kpi.tool_denied;
-        tot_red += r.kpi.redundant;
-        tot_retr += r.kpi.retries;
-        tot_wall += r.kpi.wall_ms;
-        if (r.agentic.has_plan) {
-            plan_total += r.agentic.plan_tools;
-            dev_total += r.agentic.plan_deviation;
-            ag_sum += r.agentic.score;
-            ++ag_n;
-        }
-    }
-    const int n = static_cast<int>(reports.size());
+// One "total | per scenario" row of the economy table.
+void md_economy_row(std::ostream& out, const std::string& label, double total, int n) {
+    out << "| " << label << " | " << total << " | " << (n ? total / n : 0.0) << " |\n";
+}
+
+void render_md_economy_table(std::ostream& out, const EconomyTotals& t, int n) {
     out << "| metric | total | per scenario |\n|---|---|---|\n";
-    out << "| tool calls | " << tot_tools << " | "
-        << (n ? (tot_tools / static_cast<double>(n)) : 0.0) << " |\n";
-    int tot_cd = 0;
-    for (const auto& r : reports)
-        tot_cd += r.kpi.bash_cd_prefix;
-    out << "| bash cd-prefix calls | " << tot_cd << " | "
-        << (n ? (tot_cd / static_cast<double>(n)) : 0.0) << " |\n";
-    out << "| tool failures | " << tot_fail << " | "
-        << (n ? (tot_fail / static_cast<double>(n)) : 0.0) << " |\n";
-    out << "| tool denials | " << tot_denied << " | "
-        << (n ? (tot_denied / static_cast<double>(n)) : 0.0) << " |\n";
-    out << "| redundant calls | " << tot_red << " | "
-        << (n ? (tot_red / static_cast<double>(n)) : 0.0) << " |\n";
-    out << "| LLM retries | " << tot_retr << " | "
-        << (n ? (tot_retr / static_cast<double>(n)) : 0.0) << " |\n";
-    out << "| wall time (s) | " << (tot_wall / 1000.0) << " | "
-        << (n ? (tot_wall / 1000.0 / n) : 0.0) << " |\n";
-    if (ag_n > 0) {
-        out << "\n**Plan adherence** (optimal tool plan vs actual):\n\n";
-        out << "| metric | value |\n|---|---|\n";
-        out << "| scenarios with a plan | " << ag_n << " |\n";
-        out << "| optimal tool calls (sum) | " << plan_total << " |\n";
-        out << "| actual tool calls | " << tot_tools << " |\n";
-        out << "| total deviation (extra calls) | " << dev_total << " |\n";
-        const double eff = tot_tools > 0 ? (100.0 * plan_total / tot_tools) : 0.0;
-        out << "| plan efficiency | " << static_cast<int>(eff > 100.0 ? 100.0 : eff) << "/100 |\n";
-        out << "| agentic score (mean plan adherence) | " << static_cast<int>(ag_sum / ag_n)
-            << "/100 |\n";
+    md_economy_row(out, "tool calls", t.tools, n);
+    md_economy_row(out, "bash cd-prefix calls", t.cd_prefix, n);
+    md_economy_row(out, "tool failures", t.failures, n);
+    md_economy_row(out, "tool denials", t.denied, n);
+    md_economy_row(out, "redundant calls", t.redundant, n);
+    md_economy_row(out, "LLM retries", t.retries, n);
+    md_economy_row(out, "wall time (s)", t.wall_ms / 1000.0, n);
+}
 
-        std::map<std::string, int> plan_mix, actual_mix;
-        for (const auto& r : reports) {
-            for (const auto& p : r.agentic.plan_by_tool)
-                plan_mix[p.first] += p.second;
-            for (const auto& a : r.agentic.actual_by_tool)
-                actual_mix[a.first] += a.second;
-        }
-        out << "\n**Tool mix (plan vs actual, summed across scenarios):**\n\n";
-        out << "| tool | plan | actual | deviation | efficiency % |\n"
-               "|---|---|---|---|---|\n";
-        for (const auto& p : plan_mix) {
-            const int act = actual_mix[p.first];
-            const double tool_eff = act > 0 ? (100.0 * p.second / act) : 0.0;
-            out << "| " << p.first << " | " << p.second << " | " << act << " | " << (act - p.second)
-                << " | " << static_cast<int>(tool_eff > 100.0 ? 100.0 : tool_eff) << " |\n";
-        }
-        for (const auto& a : actual_mix) {
-            if (plan_mix.count(a.first))
-                continue;
-            out << "| " << a.first << " | 0 | " << a.second << " | " << a.second << " | 0 |\n";
-        }
+// Only the runs that had a plan contribute to the adherence tables.
+void render_md_plan_adherence(std::ostream& out, const std::vector<ScenarioReport>& reports,
+                              const EconomyTotals& t) {
+    if (t.plan_runs <= 0)
+        return;
+    out << "\n**Plan adherence** (optimal tool plan vs actual):\n\n";
+    out << "| metric | value |\n|---|---|\n";
+    out << "| scenarios with a plan | " << t.plan_runs << " |\n";
+    out << "| optimal tool calls (sum) | " << t.plan_total << " |\n";
+    out << "| actual tool calls | " << t.tools << " |\n";
+    out << "| total deviation (extra calls) | " << t.deviation << " |\n";
+    const double eff = t.tools > 0 ? (100.0 * t.plan_total / t.tools) : 0.0;
+    out << "| plan efficiency | " << static_cast<int>(eff > 100.0 ? 100.0 : eff) << "/100 |\n";
+    out << "| agentic score (mean plan adherence) | "
+        << static_cast<int>(t.agentic_sum / t.plan_runs) << "/100 |\n";
+
+    std::map<std::string, int> plan_mix, actual_mix;
+    for (const auto& r : reports) {
+        for (const auto& p : r.agentic.plan_by_tool)
+            plan_mix[p.first] += p.second;
+        for (const auto& a : r.agentic.actual_by_tool)
+            actual_mix[a.first] += a.second;
     }
+    out << "\n**Tool mix (plan vs actual, summed across scenarios):**\n\n";
+    out << "| tool | plan | actual | deviation | efficiency % |\n"
+           "|---|---|---|---|---|\n";
+    for (const auto& p : plan_mix) {
+        const int act = actual_mix[p.first];
+        const double tool_eff = act > 0 ? (100.0 * p.second / act) : 0.0;
+        out << "| " << p.first << " | " << p.second << " | " << act << " | " << (act - p.second)
+            << " | " << static_cast<int>(tool_eff > 100.0 ? 100.0 : tool_eff) << " |\n";
+    }
+    for (const auto& a : actual_mix) {
+        if (plan_mix.count(a.first))
+            continue;
+        out << "| " << a.first << " | 0 | " << a.second << " | " << a.second << " | 0 |\n";
+    }
+}
+
+std::string render_markdown(const std::vector<ScenarioReport>& reports, const RunMeta& meta) {
+    std::ostringstream out;
+    render_md_header(out, reports, meta);
+    render_md_scenario_table(out, reports);
+    render_md_failures(out, reports);
+    out << "\n### Agentic profile\n\n";
+    const EconomyTotals t = economy_totals(reports);
+    render_md_economy_table(out, t, static_cast<int>(reports.size()));
+    render_md_plan_adherence(out, reports, t);
     return out.str();
 }
 
-std::string render_markdown_comparison(
-    const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs) {
-    if (runs.empty())
-        return "";
-    std::ostringstream out;
-    out << "# Benchmark: harness score by model\n\n";
-    // With a population of models, score by discrimination: participation
-    // trophies weigh ~0 and separators dominate the deltas (BENCH-02).
+// The population's discrimination weights: with several models, participation
+// trophies weigh ~0 and separators dominate the deltas (BENCH-02).
+std::map<std::string, double>
+comparison_weights(const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs) {
     std::vector<std::vector<ScenarioReport>> population;
     population.reserve(runs.size());
     for (const auto& run : runs)
         population.push_back(run.second);
-    const std::map<std::string, double> weights = discrimination_weights(population);
-    auto score_of = [&](const std::vector<ScenarioReport>& rep) {
-        return run_score_discriminative(rep, weights);
-    };
-    auto ci_of = [&](const std::vector<ScenarioReport>& rep) {
-        return model_score_ci(rep, weights);
-    };
+    return discrimination_weights(population);
+}
+
+// One line per model, with its CI when there is repeat data.
+void render_cmp_score_lines(
+    std::ostream& out, const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs,
+    const std::map<std::string, double>& weights) {
     for (const auto& run : runs) {
-        const double ci = ci_of(run.second);
-        out << "- **" << run.first.model << "**: " << static_cast<int>(score_of(run.second) * 10.0)
+        out << "- **" << run.first.model
+            << "**: " << static_cast<int>(run_score_discriminative(run.second, weights) * 10.0)
             << "/1000";
+        const double ci = model_score_ci(run.second, weights);
         if (ci > 0.0) {
             std::ostringstream ci_s;
             ci_s << std::fixed << std::setprecision(1) << (ci * 10.0);
@@ -581,67 +612,93 @@ std::string render_markdown_comparison(
         }
         out << "\n";
     }
-    // The resolution rule: differences within the combined CI are noise.
-    if (runs.size() >= 2) {
-        out << "\n**Resolution** (a gap is a finding only when it exceeds the "
-               "combined 95% CI):\n\n";
-        for (size_t i = 0; i < runs.size(); ++i)
-            for (size_t j = i + 1; j < runs.size(); ++j) {
-                const double sa = score_of(runs[i].second);
-                const double sb = score_of(runs[j].second);
-                const double ca = ci_of(runs[i].second);
-                const double cb = ci_of(runs[j].second);
-                std::string verdict;
-                if (ca < 0.0 || cb < 0.0)
-                    verdict = "insufficient repeat data (run --repeat)";
-                else
-                    verdict = resolvable(ca, sa, cb, sb) ? "**resolvable**" : "within noise";
-                out << "- " << runs[i].first.model << " vs " << runs[j].first.model
-                    << ": Δ=" << static_cast<int>(std::abs(sa - sb) * 10.0) << " → " << verdict
-                    << "\n";
-            }
-    }
+}
 
+// The resolution rule: differences within the combined CI are noise.
+void render_cmp_resolution(std::ostream& out,
+                           const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs,
+                           const std::map<std::string, double>& weights) {
+    if (runs.size() < 2)
+        return;
+    out << "\n**Resolution** (a gap is a finding only when it exceeds the "
+           "combined 95% CI):\n\n";
+    for (size_t i = 0; i < runs.size(); ++i)
+        for (size_t j = i + 1; j < runs.size(); ++j) {
+            const double sa = run_score_discriminative(runs[i].second, weights);
+            const double sb = run_score_discriminative(runs[j].second, weights);
+            const double ca = model_score_ci(runs[i].second, weights);
+            const double cb = model_score_ci(runs[j].second, weights);
+            const std::string verdict =
+                (ca < 0.0 || cb < 0.0)
+                    ? "insufficient repeat data (run --repeat)"
+                    : (resolvable(ca, sa, cb, sb) ? "**resolvable**" : "within noise");
+            out << "- " << runs[i].first.model << " vs " << runs[j].first.model
+                << ": Δ=" << static_cast<int>(std::abs(sa - sb) * 10.0) << " → " << verdict << "\n";
+        }
+}
+
+// One model's economy row. The plan percentage is computed over the runs that
+// HAD a plan, not over every tool call.
+struct ComparisonRow {
+    int agentic = 0;
+    int plan_pct = 0;
+    int tools = 0;
+    int fail_pct = 0;
+    int red_pct = 0;
+    int steps = 0;
+    long wall_ms = 0;
+};
+
+ComparisonRow comparison_row(const std::vector<ScenarioReport>& reports) {
+    ComparisonRow row;
+    int failures = 0;
+    int redundant = 0;
+    int plan_tools = 0;
+    int plan_calls = 0;
+    double ag_sum = 0.0;
+    int ag_n = 0;
+    for (const auto& r : reports) {
+        row.tools += r.kpi.tool_calls;
+        row.steps += r.kpi.steps;
+        row.wall_ms += r.kpi.wall_ms;
+        failures += r.kpi.tool_failures;
+        redundant += r.kpi.redundant;
+        if (!r.agentic.has_plan)
+            continue;
+        ag_sum += r.agentic.score;
+        plan_tools += r.agentic.plan_tools;
+        plan_calls += r.kpi.tool_calls;
+        ++ag_n;
+    }
+    row.agentic = ag_n ? static_cast<int>(ag_sum / ag_n) : 0;
+    row.fail_pct = row.tools > 0 ? (100 * failures / row.tools) : 0;
+    row.red_pct = row.tools > 0 ? (100 * redundant / row.tools) : 0;
+    double plan_pct = plan_calls > 0 ? (100.0 * plan_tools / plan_calls) : 0.0;
+    if (plan_pct > 100.0)
+        plan_pct = 100.0;
+    row.plan_pct = static_cast<int>(plan_pct);
+    return row;
+}
+
+void render_cmp_model_table(
+    std::ostream& out, const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs,
+    const std::map<std::string, double>& weights) {
     out << "\n| model | score | agentic | plan % | tools | fail % | redun % | "
            "steps | wall (s) |\n";
     out << "|---|---|---|---|---|---|---|---|---|\n";
     for (const auto& run : runs) {
-        int tools = 0, fail = 0, red = 0, steps = 0;
-        long wall = 0;
-        double ag_sum = 0.0;
-        int ag_n = 0;
-        for (const auto& r : run.second) {
-            tools += r.kpi.tool_calls;
-            fail += r.kpi.tool_failures;
-            red += r.kpi.redundant;
-            steps += r.kpi.steps;
-            wall += r.kpi.wall_ms;
-            if (r.agentic.has_plan) {
-                ag_sum += r.agentic.score;
-                ++ag_n;
-            }
-        }
-        double plan_pct = 0.0;
-        if (ag_n > 0) {
-            int pt = 0, at = 0;
-            for (const auto& r : run.second) {
-                if (!r.agentic.has_plan)
-                    continue;
-                pt += r.agentic.plan_tools;
-                at += r.kpi.tool_calls;
-            }
-            plan_pct = at > 0 ? (100.0 * pt / at) : 0.0;
-            if (plan_pct > 100.0)
-                plan_pct = 100.0;
-        }
-        const int fail_pct = tools > 0 ? (100 * fail / tools) : 0;
-        const int red_pct = tools > 0 ? (100 * red / tools) : 0;
-        out << "| " << run.first.model << " | " << static_cast<int>(score_of(run.second) * 10.0)
-            << " | " << (ag_n ? static_cast<int>(ag_sum / ag_n) : 0) << " | "
-            << static_cast<int>(plan_pct) << " | " << tools << " | " << fail_pct << " | " << red_pct
-            << " | " << steps << " | " << (wall / 1000.0) << " |\n";
+        const ComparisonRow row = comparison_row(run.second);
+        out << "| " << run.first.model << " | "
+            << static_cast<int>(run_score_discriminative(run.second, weights) * 10.0) << " | "
+            << row.agentic << " | " << row.plan_pct << " | " << row.tools << " | " << row.fail_pct
+            << " | " << row.red_pct << " | " << row.steps << " | " << (row.wall_ms / 1000.0)
+            << " |\n";
     }
+}
 
+// The per-scenario matrix: one row per scenario, one column per model.
+void render_cmp_scenario_matrix(
+    std::ostream& out, const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs) {
     out << "\n| scenario |";
     for (const auto& run : runs)
         out << " " << run.first.model << " |";
@@ -660,16 +717,27 @@ std::string render_markdown_comparison(
         }
         out << "\n";
     }
+}
 
+std::string render_markdown_comparison(
+    const std::vector<std::pair<RunMeta, std::vector<ScenarioReport>>>& runs) {
+    if (runs.empty())
+        return "";
+    std::ostringstream out;
+    out << "# Benchmark: harness score by model\n\n";
+    const std::map<std::string, double> weights = comparison_weights(runs);
+    render_cmp_score_lines(out, runs, weights);
+    render_cmp_resolution(out, runs, weights);
+    render_cmp_model_table(out, runs, weights);
+    render_cmp_scenario_matrix(out, runs);
     out << "\n---\n\n";
     for (const auto& run : runs)
         out << render_markdown(run.second, run.first) << "\n";
     return out.str();
 }
 
-bool parse_report_json(const agent::json& j, RunMeta& meta, std::vector<ScenarioReport>& reports) {
-    if (!j.contains("scenarios") || !j["scenarios"].is_array())
-        return false;
+// The run metadata, plus the plugin set that produced it.
+void parse_run_meta(const agent::json& j, RunMeta& meta) {
     meta.run_id = j.value("run_id", "");
     meta.mode = j.value("mode", "");
     meta.profile = j.value("profile", "");
@@ -677,84 +745,105 @@ bool parse_report_json(const agent::json& j, RunMeta& meta, std::vector<Scenario
     meta.engine_version = j.value("engine_version", "");
     meta.timestamp = j.value("timestamp", "");
     meta.reasoning = j.value("reasoning", "");
-    if (j.contains("plugins")) {
-        for (const auto& jp : j["plugins"]) {
-            PluginRecord p;
-            p.id = jp.value("id", "");
-            p.enabled = jp.value("enabled", false);
-            p.tier = jp.value("tier", "");
-            meta.plugins.push_back(std::move(p));
-        }
+    if (!j.contains("plugins"))
+        return;
+    for (const auto& jp : j["plugins"]) {
+        PluginRecord p;
+        p.id = jp.value("id", "");
+        p.enabled = jp.value("enabled", false);
+        p.tier = jp.value("tier", "");
+        meta.plugins.push_back(std::move(p));
     }
+}
+
+// A {tool: count} object, skipping anything that is not an integer.
+void parse_tool_counts(const agent::json& e, const char* key, std::map<std::string, int>& out) {
+    if (!e.contains(key) || !e[key].is_object())
+        return;
+    for (auto it = e[key].begin(); it != e[key].end(); ++it)
+        if (it.value().is_number_integer())
+            out[it.key()] = it.value().get<int>();
+}
+
+void parse_repeat_scores(const agent::json& e, ScenarioReport& rep) {
+    if (!e.contains("repeat_scores") || !e["repeat_scores"].is_array())
+        return;
+    for (const auto& v : e["repeat_scores"])
+        if (v.is_number())
+            rep.repeat_scores.push_back(v.get<double>());
+}
+
+// Failures + per-call telemetry must survive the round trip, or a stored report
+// cannot be diagnosed (the scorecard's section 3).
+void parse_failures_and_telemetry(const agent::json& e, ScenarioReport& rep) {
+    if (e.contains("failures") && e["failures"].is_array())
+        for (const auto& f : e["failures"])
+            if (f.is_string())
+                rep.failures.push_back(f.get<std::string>());
+    if (!e.contains("tool_details") || !e["tool_details"].is_array())
+        return;
+    for (const auto& d : e["tool_details"]) {
+        ScenarioReport::ToolDetail td;
+        td.name = d.value("tool", "");
+        td.args = d.value("args", "");
+        td.status = d.value("status", "");
+        td.error = d.value("error", "");
+        td.denied = d.value("denied", false);
+        td.timeout = d.value("timeout", false);
+        td.duration_ms = d.value("duration_ms", 0L);
+        rep.tool_details.push_back(std::move(td));
+    }
+}
+
+// One scenario's fields.
+void parse_scenario(const agent::json& e, ScenarioReport& rep) {
+    rep.name = e.value("name", "");
+    rep.suite = e.value("suite", "");
+    rep.kpi.success = e.value("success", false);
+    rep.kpi.bullseye = e.value("bullseye", 0.0);
+    rep.kpi.steps = e.value("steps", 0);
+    rep.kpi.tool_calls = e.value("tool_calls_total", 0);
+    rep.kpi.tool_failures = e.value("tool_failures", 0);
+    rep.kpi.tool_denied = e.value("tool_denied", 0);
+    rep.kpi.redundant = e.value("redundant", 0);
+    rep.kpi.retries = e.value("retries", 0);
+    rep.kpi.wasted = e.value("wasted", 0);
+    rep.kpi.recoveries = e.value("recoveries", 0);
+    rep.kpi.wall_ms = e.value("wall_ms", 0L);
+    rep.max_calls_per_step = e.value("max_calls_per_step", 0);
+    rep.total_steps = e.value("total_steps", 0);
+    rep.plan_adherence_ratio = e.value("plan_adherence_ratio", 0.0);
+    rep.replan_adapted = e.value("replan_adapted", false);
+    rep.dependency_violation = e.value("dependency_violation", false);
+    rep.breakout_latency = e.value("breakout_latency", 0);
+    rep.steer_effective = e.value("steer_effective", false);
+    rep.calls_per_step_mean = e.value("calls_per_step_mean", 0.0);
+    rep.calls_per_step_p95 = e.value("calls_per_step_p95", 0.0);
+    rep.difficulty = e.value("difficulty", 3);
+    rep.score.total = e.value("score", 0.0);
+    rep.repeat_n = e.value("repeat_n", 1);
+    rep.score_median = e.value("score_median", rep.score.total);
+    rep.score_stddev = e.value("score_stddev", 0.0);
+    parse_repeat_scores(e, rep);
+    rep.templated = e.value("templated", false);
+    rep.agentic.has_plan = e.value("agentic_has_plan", false);
+    rep.agentic.plan_tools = e.value("agentic_plan_tools", 0);
+    rep.agentic.plan_deviation = e.value("agentic_deviation", 0);
+    rep.agentic.plan_ratio = e.value("agentic_ratio", 0.0);
+    rep.agentic.efficiency_pct = e.value("agentic_efficiency_pct", 0.0);
+    rep.agentic.score = e.value("agentic_score", 0.0);
+    parse_tool_counts(e, "agentic_plan_by_tool", rep.agentic.plan_by_tool);
+    parse_tool_counts(e, "agentic_actual_by_tool", rep.agentic.actual_by_tool);
+    parse_failures_and_telemetry(e, rep);
+}
+
+bool parse_report_json(const agent::json& j, RunMeta& meta, std::vector<ScenarioReport>& reports) {
+    if (!j.contains("scenarios") || !j["scenarios"].is_array())
+        return false;
+    parse_run_meta(j, meta);
     for (const auto& e : j["scenarios"]) {
         ScenarioReport rep;
-        rep.name = e.value("name", "");
-        rep.suite = e.value("suite", "");
-        rep.kpi.success = e.value("success", false);
-        rep.kpi.bullseye = e.value("bullseye", 0.0);
-        rep.kpi.steps = e.value("steps", 0);
-        rep.kpi.tool_calls = e.value("tool_calls_total", 0);
-        rep.kpi.tool_failures = e.value("tool_failures", 0);
-        rep.kpi.tool_denied = e.value("tool_denied", 0);
-        rep.kpi.redundant = e.value("redundant", 0);
-        rep.kpi.retries = e.value("retries", 0);
-        rep.kpi.wasted = e.value("wasted", 0);
-        rep.kpi.recoveries = e.value("recoveries", 0);
-        rep.kpi.wall_ms = e.value("wall_ms", 0L);
-        rep.max_calls_per_step = e.value("max_calls_per_step", 0);
-        rep.total_steps = e.value("total_steps", 0);
-        rep.plan_adherence_ratio = e.value("plan_adherence_ratio", 0.0);
-        rep.replan_adapted = e.value("replan_adapted", false);
-        rep.dependency_violation = e.value("dependency_violation", false);
-        rep.breakout_latency = e.value("breakout_latency", 0);
-        rep.steer_effective = e.value("steer_effective", false);
-        rep.calls_per_step_mean = e.value("calls_per_step_mean", 0.0);
-        rep.calls_per_step_p95 = e.value("calls_per_step_p95", 0.0);
-        rep.difficulty = e.value("difficulty", 3);
-        rep.score.total = e.value("score", 0.0);
-        rep.repeat_n = e.value("repeat_n", 1);
-        rep.score_median = e.value("score_median", rep.score.total);
-        rep.score_stddev = e.value("score_stddev", 0.0);
-        if (e.contains("repeat_scores") && e["repeat_scores"].is_array())
-            for (const auto& v : e["repeat_scores"])
-                if (v.is_number())
-                    rep.repeat_scores.push_back(v.get<double>());
-        rep.templated = e.value("templated", false);
-        rep.agentic.has_plan = e.value("agentic_has_plan", false);
-        rep.agentic.plan_tools = e.value("agentic_plan_tools", 0);
-        rep.agentic.plan_deviation = e.value("agentic_deviation", 0);
-        rep.agentic.plan_ratio = e.value("agentic_ratio", 0.0);
-        rep.agentic.efficiency_pct = e.value("agentic_efficiency_pct", 0.0);
-        rep.agentic.score = e.value("agentic_score", 0.0);
-        if (e.contains("agentic_plan_by_tool") && e["agentic_plan_by_tool"].is_object())
-            for (auto it = e["agentic_plan_by_tool"].begin(); it != e["agentic_plan_by_tool"].end();
-                 ++it)
-                if (it.value().is_number_integer())
-                    rep.agentic.plan_by_tool[it.key()] = it.value().get<int>();
-        if (e.contains("agentic_actual_by_tool") && e["agentic_actual_by_tool"].is_object())
-            for (auto it = e["agentic_actual_by_tool"].begin();
-                 it != e["agentic_actual_by_tool"].end(); ++it)
-                if (it.value().is_number_integer())
-                    rep.agentic.actual_by_tool[it.key()] = it.value().get<int>();
-        // Failures + per-call telemetry must survive the round trip, or a
-        // stored report cannot be diagnosed (the scorecard's section 3).
-        if (e.contains("failures") && e["failures"].is_array())
-            for (const auto& f : e["failures"])
-                if (f.is_string())
-                    rep.failures.push_back(f.get<std::string>());
-        if (e.contains("tool_details") && e["tool_details"].is_array()) {
-            for (const auto& d : e["tool_details"]) {
-                ScenarioReport::ToolDetail td;
-                td.name = d.value("tool", "");
-                td.args = d.value("args", "");
-                td.status = d.value("status", "");
-                td.error = d.value("error", "");
-                td.denied = d.value("denied", false);
-                td.timeout = d.value("timeout", false);
-                td.duration_ms = d.value("duration_ms", 0L);
-                rep.tool_details.push_back(std::move(td));
-            }
-        }
+        parse_scenario(e, rep);
         reports.push_back(std::move(rep));
     }
     return true;
