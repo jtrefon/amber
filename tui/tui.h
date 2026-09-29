@@ -14,6 +14,8 @@
 #include "rich.h"
 #include "setting_registry.h"
 #include "agent_event.h"
+#include "command_line.h"
+#include "key_binder.h"
 #include "tui_ui_services.h"
 #include "event_router.h"
 #include "run_registry.h"
@@ -243,6 +245,45 @@ private:
     void add_new_provider();
     void provider_actions(const std::string& selected_id);
     bool quit_ = false;
+
+    // --- Construction. The constructor is a facade over these phases, which
+    // --- must stay in this order (the runtime needs the live config before it
+    // --- starts, and the managers exist before the workspace is restored).
+    void init_terminal();
+    void wire_plugin_runtime();
+    void build_managers();
+    void load_key_bindings();
+    void register_mcp_tools();
+    void restore_workspace();
+
+    // --- Event loop. run() is a facade over these steps, one per thing the
+    // --- loop does: start up, drain, dispatch a key, act on the result.
+    enum class PromptOutcome {
+        NotOurs,  // no layer claimed the key: just flush what is pending
+        Consumed, // already handled and redrawn
+        Routed,   // CommandLine produced a result to act on
+    };
+    void run_startup(CommandLine& cl);
+    void refresh_completion_context(CommandLine& cl);
+    [[noreturn]] void shutdown_from_signal();
+    bool pump_io(CommandLine& cl);
+    void idle_tick(bool had_events, CommandLine& cl);
+    bool handle_option_key(int& ch, CommandLine& cl);
+    bool handle_key_binding(int ch, CommandLine& cl);
+    bool apply_key_action(const KeyAction& act, int ch, const KeyRead& kr, CommandLine& cl);
+    bool cancel_active_run(int ch, CommandLine& cl);
+    bool handle_ctrl_c(int ch, CommandLine& cl);
+    bool handle_mouse_wheel(int ch, CommandLine& cl);
+    bool scroll_mode_nav(int ch);
+    void open_panels_and_redraw(CommandLine& cl);
+    PromptOutcome route_to_command_line(int ch, CommandLine& cl, CommandLine::Result& result);
+    void run_prompt_action(const CommandLine::Result& result, CommandLine& cl);
+    void dispatch_prompt(const std::string& text, CommandLine& cl);
+    void show_prompt_popup(CommandLine& cl);
+    void pick_reference_file(CommandLine& cl);
+    void pick_command(CommandLine& cl);
+    void show_prompt_help(const CommandLine::Result& result, CommandLine& cl);
+    void flush_if_dirty();
 
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;
