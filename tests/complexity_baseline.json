@@ -5,7 +5,6 @@
     "bench/main.cpp": 3,
     "bench/oracle.cpp": 2,
     "bench/probe.cpp": 2,
-    "bench/report.cpp": 3,
     "bench/scenario.cpp": 2,
     "bench/template.cpp": 1,
     "lib/agent.cpp": 8,
