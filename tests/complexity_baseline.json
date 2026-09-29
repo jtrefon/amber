@@ -16,7 +16,6 @@
     "lib/compressor_parser.cpp": 1,
     "lib/compressor_request.cpp": 1,
     "lib/compressor_scanner.cpp": 1,
-    "lib/config.cpp": 1,
     "lib/core_segments.cpp": 1,
     "lib/dialect_openai.cpp": 4,
     "lib/dispatch.cpp": 2,
