@@ -231,6 +231,116 @@ std::vector<Message> append_message(std::vector<Message> base, Message m) {
     return base;
 }
 
+// The free pre-pass: collapse loops, prune bulky tool output, drop reasoning
+// text. All three run BEFORE the classifier so the classify request and the
+// apply pass consume the SAME message list — no index shift between them.
+// Reasoning is never sent back to the server (the dialect emits only content +
+// tool_calls); in thinking models it is by far the largest token class (a 262k
+// window can be 80%+ reasoning), so dropping it here is the single biggest
+// reduction and loses nothing the model needs to continue.
+void collapse_and_prune(std::vector<Message>& copy, const CompressionConfig& cfg,
+                        CompressionObserver* observer) {
+    const size_t pre_loop = copy.size();
+    collapse_loops(copy);
+    if (observer) {
+        const size_t removed = pre_loop - copy.size();
+        if (removed > 0)
+            observer->on_loop_collapse(removed);
+        observer->on_progress(estimate_tokens(copy), copy.size());
+    }
+    prune_tool_io(copy, &cfg);
+    for (auto& m : copy)
+        m.reasoning.clear();
+    if (observer)
+        observer->on_progress(estimate_tokens(copy), copy.size());
+}
+
+enum class ClassifyOutcome { Ok, LlmFailed, Unparseable };
+
+// Step 2: classify turns, then apply the result and enforce the budgets. The
+// request is assembled from the working copy, so the LLM sees exactly what
+// apply will consume. On failure `cr.error` is set and reported to the observer;
+// the caller returns the untouched original history.
+ClassifyOutcome run_classify(std::vector<Message>& copy, const CompressionConfig& cfg,
+                             LLMClient& client, CompressionObserver* observer,
+                             CompressionResponse& cr, Message& class_reply) {
+    Message class_req = build_classify_request(has_compressed_context(copy));
+    auto request = append_message(copy, class_req);
+
+    if (observer)
+        observer->on_llm_request_sent();
+    try {
+        class_reply = client.chat(request, {});
+    } catch (const std::exception& e) {
+        cr.error = std::string("LLM call failed: ") + e.what();
+        if (observer)
+            observer->on_error(cr.error);
+        return ClassifyOutcome::LlmFailed;
+    }
+
+    cr = parse_compression_response(class_reply.content);
+    if (cr.segments.empty()) {
+        cr.error = "unparseable compression response";
+        if (observer)
+            observer->on_error(cr.error);
+        return ClassifyOutcome::Unparseable;
+    }
+    if (observer)
+        observer->on_parse_result(cr);
+
+    copy = apply_classification(copy, cr, &cfg);
+    // Enforce the post-compression target budget (context_size * target_pct /
+    // 100): archive older core messages until the output fits the target — the
+    // real lever for aggressive compression.
+    copy = enforce_target_budget(std::move(copy), static_cast<size_t>(cfg.context_size), cfg);
+    // Enforce headroom: leave at least 25% free (final safety net; normally
+    // already satisfied by the target budget).
+    copy = enforce_headroom(std::move(copy), static_cast<size_t>(cfg.context_size));
+
+    if (observer) {
+        observer->on_apply_result({});
+        // The working set just shrank to its final size — surface it so the
+        // host's gauge drops before the swap completes.
+        observer->on_progress(estimate_tokens(copy), copy.size());
+    }
+    return ClassifyOutcome::Ok;
+}
+
+// Step 3: extract memories/skills (the second LLM call). The request replays the
+// classify pair on the ORIGINAL (post-collapse) prefix so the two calls share a
+// KV prefix — the extract step says "Review the classification above", and the
+// classify prompt + its response are replayed before the extract prompt.
+// Extraction failure is non-fatal: the classification result stands (spec
+// CP-08: degraded but safe).
+void run_extract(const std::vector<Message>& classify_prefix, const Message& class_reply,
+                 LLMClient& client, CompressionObserver* observer, CompressionResponse& cr) {
+    Message class_req = build_classify_request(has_compressed_context(classify_prefix));
+    Message ext_req = build_extract_request();
+    auto request = append_message(classify_prefix, class_req);
+    Message stored_reply;
+    stored_reply.role = "assistant";
+    stored_reply.content = class_reply.content;
+    request = append_message(std::move(request), std::move(stored_reply));
+    request = append_message(std::move(request), ext_req);
+
+    if (observer)
+        observer->on_llm_request_sent();
+    Message ext_reply;
+    try {
+        ext_reply = client.chat(request, {});
+    } catch (const std::exception&) {
+        return; // non-fatal: keep the classification result
+    }
+
+    // Merge extraction ops into the classification response so the caller
+    // receives segments AND ops in one object.
+    CompressionResponse er = parse_compression_response(ext_reply.content);
+    cr.memory_ops = std::move(er.memory_ops);
+    cr.skill_ops = std::move(er.skill_ops);
+    if (er.brief)
+        cr.brief = std::move(er.brief);
+}
+
 } // namespace
 
 // =========================================================================
@@ -242,12 +352,11 @@ public:
     std::vector<Message> compress(Context& context, const CompressionConfig& cfg, LLMClient& client,
                                   CompressionObserver* observer,
                                   CompressionResponse* response_out) override {
-
         // Pristine snapshot: the spec's atomicity invariant — any classify
-        // failure returns the ORIGINAL history untouched. The context is
-        // only ever read; all mutations happen on the working copy, which
-        // is also the exact message list the classifier sees — segment
-        // indices stay aligned between request and apply.
+        // failure returns the ORIGINAL history untouched. The context is only
+        // ever read; all mutations happen on the working copy, which is also the
+        // exact message list the classifier sees — segment indices stay aligned
+        // between request and apply.
         auto msgs = context.get_all();
         std::vector<Message> original(msgs.begin(), msgs.end());
         std::vector<Message> copy = original;
@@ -255,130 +364,25 @@ public:
         if (observer)
             observer->on_compress_start(copy.size(), estimate_tokens(copy));
 
-        // Step 1: collapse loops + Phase-0 tool-output pruning (C++ side,
-        // free, on the working copy). Both run BEFORE the classifier so the
-        // classify request and the apply pass consume the SAME message
-        // list — no index shift between them.
-        size_t pre_loop = copy.size();
-        collapse_loops(copy);
-        if (observer) {
-            size_t removed = pre_loop - copy.size();
-            if (removed > 0)
-                observer->on_loop_collapse(removed);
-            observer->on_progress(estimate_tokens(copy), copy.size());
-        }
-        prune_tool_io(copy, &cfg);
+        collapse_and_prune(copy, cfg, observer);
 
-        // Strip reasoning/thinking text from the working copy. Reasoning is
-        // NEVER sent back to the server (the dialect emits only content +
-        // tool_calls) — it exists for display and the session log. In thinking
-        // models it is by far the largest token class (a 262k window can be
-        // 80%+ reasoning), so dropping it on compression is the single biggest
-        // reduction and loses nothing the model needs to continue.
-        for (auto& m : copy)
-            m.reasoning.clear();
+        // The classify prefix is the post-collapse history (the message list the
+        // classifier sees). The extract request replays this SAME prefix plus
+        // the classify prompt + response, so the second LLM call shares the
+        // first's KV cache (no full prefill between the compression calls). Keep
+        // it aside — apply_classification below must not clobber the prefix the
+        // extract step replays.
+        const std::vector<Message> classify_prefix = copy;
 
-        if (observer)
-            observer->on_progress(estimate_tokens(copy), copy.size());
-
-        // The classify prefix is the post-collapse history (the message list
-        // the classifier sees). The extract request replays this SAME prefix
-        // plus the classify prompt + response, so the second LLM call shares
-        // the first's KV cache (no full prefill between the compression
-        // calls). Keep it aside — apply_classification below must not clobber
-        // the prefix the extract step replays.
-        std::vector<Message> classify_prefix = copy;
-
-        // Step 2: classify turns — the request is assembled from the
-        // working copy, so the LLM sees exactly what apply will consume.
         CompressionResponse cr;
         Message class_reply;
-        {
-            Message class_req = build_classify_request(has_compressed_context(copy));
-            auto request = append_message(copy, class_req);
-
-            if (observer)
-                observer->on_llm_request_sent();
-            try {
-                class_reply = client.chat(request, {});
-            } catch (const std::exception& e) {
-                cr.error = std::string("LLM call failed: ") + e.what();
-                if (observer)
-                    observer->on_error(cr.error);
-                if (response_out)
-                    *response_out = std::move(cr);
-                return original;
-            }
-
-            // Parse classification
-            cr = parse_compression_response(class_reply.content);
-            if (cr.segments.empty()) {
-                cr.error = "unparseable compression response";
-                if (observer)
-                    observer->on_error(cr.error);
-                if (response_out)
-                    *response_out = std::move(cr);
-                return original;
-            }
-
-            if (observer)
-                observer->on_parse_result(cr);
-            copy = apply_classification(copy, cr, &cfg);
-
-            // Enforce the post-compression target budget (context_size *
-            // target_pct / 100): archive older core messages until the output
-            // fits the target — the real lever for aggressive compression.
-            copy =
-                enforce_target_budget(std::move(copy), static_cast<size_t>(cfg.context_size), cfg);
-
-            // Enforce headroom: leave at least 25% free (final safety net;
-            // normally already satisfied by the target budget).
-            copy = enforce_headroom(std::move(copy), static_cast<size_t>(cfg.context_size));
-
-            if (observer) {
-                observer->on_apply_result({});
-                // The working set just shrank to its final size — surface it
-                // so the host's gauge drops before the swap completes.
-                observer->on_progress(estimate_tokens(copy), copy.size());
-            }
+        if (run_classify(copy, cfg, client, observer, cr, class_reply) != ClassifyOutcome::Ok) {
+            if (response_out)
+                *response_out = std::move(cr);
+            return original;
         }
 
-        // Step 3: extract memories/skills (second LLM call). The request
-        // replays the classify pair on the ORIGINAL (post-collapse) prefix so
-        // the two LLM calls share a KV prefix — the extract step says "Review
-        // the classification above", and the classify prompt + its response
-        // are replayed before the extract prompt.
-        {
-            Message class_req = build_classify_request(has_compressed_context(classify_prefix));
-            Message ext_req = build_extract_request();
-            auto request = append_message(classify_prefix, class_req);
-            Message stored_reply;
-            stored_reply.role = "assistant";
-            stored_reply.content = class_reply.content;
-            request = append_message(std::move(request), std::move(stored_reply));
-            request = append_message(std::move(request), ext_req);
-
-            if (observer)
-                observer->on_llm_request_sent();
-            Message ext_reply;
-            try {
-                ext_reply = client.chat(request, {});
-            } catch (const std::exception&) {
-                // Extraction failure is non-fatal — classification result used
-                // (spec CP-08: degraded but safe).
-                if (response_out)
-                    *response_out = std::move(cr);
-                return copy;
-            }
-
-            // Merge extraction ops into the classification response so the
-            // caller receives segments AND ops in one object.
-            CompressionResponse er = parse_compression_response(ext_reply.content);
-            cr.memory_ops = std::move(er.memory_ops);
-            cr.skill_ops = std::move(er.skill_ops);
-            if (er.brief)
-                cr.brief = std::move(er.brief);
-        }
+        run_extract(classify_prefix, class_reply, client, observer, cr);
 
         if (response_out)
             *response_out = std::move(cr);
