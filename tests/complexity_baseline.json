@@ -6,7 +6,6 @@
     "bench/oracle.cpp": 2,
     "bench/probe.cpp": 2,
     "bench/report.cpp": 6,
-    "bench/runner.cpp": 1,
     "bench/scenario.cpp": 2,
     "bench/template.cpp": 1,
     "lib/agent.cpp": 8,
@@ -64,7 +63,6 @@
     "tui/session_browser_core.cpp": 1,
     "tui/setting_registry.cpp": 2,
     "tui/textutil.cpp": 1,
-    "tui/tui.cpp": 3,
     "tui/tui_input.cpp": 9,
     "tui/tui_main.cpp": 1,
     "tui/tui_session.cpp": 1

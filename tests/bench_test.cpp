@@ -604,6 +604,55 @@ TEST(e2e_hermetic_read_scenario) {
 // run (and the harness probes running after scenarios) sees a root that
 // points at a workspace already removed at teardown — the bash tool then
 // cannot spawn, and dispatch fails.
+// The per-call and per-step metrics the report is filled from: two calls
+// dispatched in one step, their telemetry paired with the recorded results, and
+// the plan metrics for an in-order oracle.
+TEST(e2e_hermetic_run_metrics) {
+    std::string dir = tmp_dir("e2e_metrics");
+    write_file(dir + "/s.json", R"({
+        "name": "e2e-metrics",
+        "suite": "tools",
+        "prompt": "read both files",
+        "setup": {"files": {"a.txt": "alpha", "b.txt": "beta"}},
+        "fake_replies": [
+            {"tool_calls": [{"id": "c1", "type": "function",
+                             "function": {"name": "read", "arguments": "{\"path\":\"a.txt\"}"}},
+                            {"id": "c2", "type": "function",
+                             "function": {"name": "read", "arguments": "{\"path\":\"b.txt\"}"}}]},
+            {"content": "both read."}
+        ],
+        "oracle": [{"tool": "read", "args": {"path": "a.txt"}},
+                   {"tool": "read", "args": {"path": "b.txt"}}],
+        "checks": {"must_contain": ["both read"]},
+        "budget": {"max_steps": 10, "max_wall_ms": 30000}
+    })");
+    std::string err;
+    auto s = bench::load_scenario(dir + "/s.json", err);
+    ASSERT(s.has_value());
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    bench::ScenarioReport rep = bench::run_one_scenario(*s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(rep.failures.size(), 0u);
+
+    // Both calls were dispatched in the same loop iteration.
+    ASSERT_EQ(rep.max_calls_per_step, 2);
+    ASSERT_EQ(rep.calls_per_step_mean, 2.0);
+    ASSERT_EQ(rep.calls_per_step_p95, 2.0);
+    // Every recorded call is paired with its result telemetry.
+    ASSERT_EQ(rep.tool_calls.size(), 2u);
+    ASSERT_EQ(rep.tool_details.size(), 2u);
+    ASSERT_EQ(rep.tool_details[0].name, "read");
+    ASSERT(rep.tool_details[0].status != "");
+    // The oracle matched in dependency order, and nothing was replanned.
+    ASSERT_EQ(rep.plan_adherence_ratio, 1.0);
+    ASSERT_FALSE(rep.dependency_violation);
+    ASSERT_FALSE(rep.replan_adapted);
+}
+
 TEST(e2e_hermetic_restores_workspace_root) {
     const std::string prior = agent::Workspace::root();
 
