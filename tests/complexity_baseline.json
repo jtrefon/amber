@@ -5,7 +5,6 @@
     "bench/main.cpp": 3,
     "bench/oracle.cpp": 2,
     "bench/probe.cpp": 2,
-    "bench/report.cpp": 3,
     "bench/scenario.cpp": 2,
     "bench/template.cpp": 1,
     "lib/agent.cpp": 8,
@@ -60,7 +59,6 @@
     "tui/setting_registry.cpp": 2,
     "tui/textutil.cpp": 1,
     "tui/tui_input.cpp": 9,
-    "tui/tui_main.cpp": 1,
     "tui/tui_session.cpp": 1
   },
   "len_max": 50
