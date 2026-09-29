@@ -33,7 +33,6 @@
     "lib/subagent.cpp": 1,
     "lib/workspace.cpp": 1,
     "plugins/commandcode/commandcode_plugin.cpp": 1,
-    "src/main.cpp": 1,
     "src/smoketest.cpp": 1,
     "tools/bash_tool.cpp": 1,
     "tools/plugins/cdp/ws_test.cpp": 1,
