@@ -52,6 +52,30 @@ namespace {
 // process two seconds later with the terminal already restored.
 SignalState g_signal_state;
 TerminalGuard g_terminal_guard;
+
+// An '@' reference token ends at whitespace or punctuation.
+bool is_ref_terminator(char c) {
+    return c == ' ' || c == '\t' || c == ',' || c == '.' || c == '!' || c == '?' || c == ';' ||
+           c == ':';
+}
+
+// The expansion of one '@' token: the file's contents in a marker block, or the
+// token unchanged when it does not name a readable in-workspace file.
+std::string reference_expansion(const std::string& ref) {
+    std::string resolved, err;
+    if (!tui::confine_path(ref, resolved, err))
+        return ref;
+    namespace fs = std::filesystem;
+    const fs::path ref_path(resolved);
+    std::error_code ec;
+    if (!fs::is_regular_file(ref_path, ec))
+        return ref;
+    std::ifstream f(ref_path);
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (content.size() > 4096)
+        content.resize(4096);
+    return "\n[file: " + ref + "]\n" + content + "\n[/file]\n";
+}
 } // namespace
 
 // Restores the terminal and hands control back to the main loop for a
@@ -64,12 +88,31 @@ static void signal_handler(int sig) {
     alarm(2);
 }
 
+// The signal handler restores the terminal and defers the workspace save to the
+// main loop (a save from inside a signal handler is async-signal-unsafe).
+// SIGALRM is left at its default: the handler's alarm(2) is the fallback death
+// when the main loop cannot run.
+void install_signal_handlers() {
+    std::signal(SIGHUP, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+}
+
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
          agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
          agent::PluginRuntime& plugin_runtime)
     : cfg_(std::move(cfg)), providers_(agent::make_default_provider_service(cfg_)), reg_(reg),
       jobs_(jobs), subagents_(subagents), plugins_(plugins), plugin_runtime_(plugin_runtime),
       mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token) {
+    init_terminal();
+    install_signal_handlers();
+    wire_plugin_runtime();
+    build_managers();
+    load_key_bindings();
+    register_mcp_tools();
+    restore_workspace();
+}
+
+void Tui::init_terminal() {
     std::setlocale(LC_ALL, "");
     g_terminal_guard.capture();
     initscr();
@@ -91,30 +134,27 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     use_default_colors();
     use_legacy_coding(1);
     init_pairs();
+}
 
-    // Signal handler restores the terminal and defers the workspace save to
-    // the main loop (a save from inside a signal handler is async-signal-
-    // unsafe). SIGALRM is left at its default: the handler's alarm(2) is the
-    // fallback death when the main loop cannot run.
-    std::signal(SIGHUP, signal_handler);
-    std::signal(SIGTERM, signal_handler);
-
-    // The runtime needs the LIVE config: the Tui owns cfg_ by value, so a
-    // plugin reading an API key or the active provider must be pointed at it
-    // rather than at the copy the runtime took at construction.
+// The runtime needs the LIVE config: the Tui owns cfg_ by value, so a plugin
+// reading an API key or the active provider must be pointed at it rather than at
+// the copy the runtime took at construction. The port is attached before
+// activation, so a plugin that asks something during initialize() gets a real
+// answer rather than the fail-closed null; activation then happens with the live
+// configuration in place, so a plugin reading it sees the real thing from its
+// first call.
+void Tui::wire_plugin_runtime() {
     plugin_runtime_.attach_config(cfg_);
-    // The port is attached before activation, so a plugin that asks something
-    // during initialize() gets a real answer rather than the fail-closed null.
     ui_services_ = std::make_unique<TuiUiServices>(
         [this](const std::shared_ptr<AgentEvent>& ev) { return request_ask(ev); },
         [this](agent::UiLevel level, const std::string& msg) { notify_from_plugin(level, msg); },
         [this](std::function<void()> work) { post_to_ui_thread(std::move(work)); });
     plugin_runtime_.attach_ui_services(ui_services_.get());
-    // Activate now, with the live config in place: a plugin that reads the
-    // configuration (a balance endpoint, an API key) must see the real thing
-    // from its first call.
     plugin_runtime_.start();
     feed_manager_ = std::make_unique<FeedManager>(*this);
+}
+
+void Tui::build_managers() {
     window_manager_ = std::make_unique<WindowManager>(cfg_, reg_, &plugin_runtime_);
     router_ = std::make_unique<EventRouter>(*this);
     render_engine_ = std::make_unique<RenderEngine>(*this);
@@ -122,45 +162,50 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     slash_dispatcher_ = std::make_unique<SlashDispatcher>(*this);
     window_ops_hooks_ = std::make_unique<TuiWindowOpsHooks>(*this);
     window_ops_ = std::make_unique<WindowOps>(*window_manager_, *window_ops_hooks_);
-    {
-        // Same data-path resolution as completions.json: a bare relative
-        // path silently leaves every binding empty when amber runs outside
-        // the source tree or from an install prefix.
-        std::string exe = agent::exe_path();
-        nlohmann::json kj;
-        for (const auto& c :
-             agent::data_file_candidates("keybindings.json", exe.empty() ? nullptr : exe.c_str())) {
-            std::ifstream kf(c);
-            if (kf.is_open()) {
-                kf >> kj;
-                break;
-            }
-        }
-        key_binder_ = std::make_unique<KeyBinder>(std::move(kj));
-    }
+}
 
+// Bindings come from keybindings.json, resolved the same way as
+// completions.json: a bare relative path silently leaves every binding empty
+// when amber runs outside the source tree or from an install prefix.
+void Tui::load_key_bindings() {
+    const std::string exe = agent::exe_path();
+    nlohmann::json kj;
+    for (const auto& c :
+         agent::data_file_candidates("keybindings.json", exe.empty() ? nullptr : exe.c_str())) {
+        std::ifstream kf(c);
+        if (kf.is_open()) {
+            kf >> kj;
+            break;
+        }
+    }
+    key_binder_ = std::make_unique<KeyBinder>(std::move(kj));
+}
+
+void Tui::register_mcp_tools() {
     reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
     mcp_servers_.connect_all();
     for (const auto& st : mcp_servers_.snapshot())
         if (st.connected)
             agent::register_server_tools(reg_, mcp_servers_, st.name);
+}
 
-    // Restore previous workspace: open saved sessions in their own windows.
-    // On first launch (no saved workspace) show the welcome mural instead.
+// Restore the previous workspace: open saved sessions in their own windows. On
+// first launch (no saved workspace) show the welcome mural instead.
+void Tui::restore_workspace() {
     auto ws = session_controller_->load_workspace();
-    if (!ws.windows.empty()) {
-        for (const auto& we : ws.windows) {
-            Window& w = new_window(we.title.empty() ? "chat" : we.title);
-            w.session_id = we.session_id;
-            w.prompt_history = we.prompt_history;
-            w.history_pos = w.prompt_history.size();
-        }
-        if (ws.active < window_manager_->count())
-            window_manager_->set_active(ws.active);
-        lazy_load_active();
-    } else {
+    if (ws.windows.empty()) {
         open_welcome_window();
+        return;
     }
+    for (const auto& we : ws.windows) {
+        Window& w = new_window(we.title.empty() ? "chat" : we.title);
+        w.session_id = we.session_id;
+        w.prompt_history = we.prompt_history;
+        w.history_pos = w.prompt_history.size();
+    }
+    if (ws.active < window_manager_->count())
+        window_manager_->set_active(ws.active);
+    lazy_load_active();
 }
 
 Tui::~Tui() {
@@ -211,41 +256,19 @@ std::string Tui::expand_at_references(const std::string& raw) const {
     std::string out;
     size_t i = 0;
     while (i < raw.size()) {
-        size_t at = raw.find('@', i);
+        const size_t at = raw.find('@', i);
         if (at == std::string::npos || at == 0) {
             out += raw.substr(i);
             break;
         }
         out += raw.substr(i, at - i);
-        // Find end of reference token (space, end, punctuation).
+        // The reference token runs to the next space or punctuation.
         size_t end = at + 1;
-        while (end < raw.size() && raw[end] != ' ' && raw[end] != '\t' && raw[end] != ',' &&
-               raw[end] != '.' && raw[end] != '!' && raw[end] != '?' && raw[end] != ';' &&
-               raw[end] != ':')
+        while (end < raw.size() && !is_ref_terminator(raw[end]))
             ++end;
-        std::string ref = raw.substr(at + 1, end - at - 1);
-        if (!ref.empty()) {
-            namespace fs = std::filesystem;
-            std::string resolved, err;
-            if (!tui::confine_path(ref, resolved, err)) {
-                out += ref;
-            } else {
-                fs::path ref_path(resolved);
-                std::error_code ec;
-                if (fs::is_regular_file(ref_path, ec)) {
-                    std::ifstream f(ref_path);
-                    std::string content((std::istreambuf_iterator<char>(f)),
-                                        std::istreambuf_iterator<char>());
-                    if (content.size() > 4096)
-                        content.resize(4096);
-                    out += "\n[file: " + ref + "]\n";
-                    out += content;
-                    out += "\n[/file]\n";
-                } else {
-                    out += ref;
-                }
-            }
-        }
+        const std::string ref = raw.substr(at + 1, end - at - 1);
+        if (!ref.empty())
+            out += reference_expansion(ref);
         i = end;
     }
     return out;
@@ -414,7 +437,64 @@ AgentEvent Tui::run_compression(Window& my_win, size_t window_id) {
     return ev;
 }
 
+// =========================================================================
+// Event loop. run() is a facade; each step below owns one thing the loop does.
+// =========================================================================
+
 void Tui::run() {
+    CommandLine cl;
+    run_startup(cl);
+
+    while (!quit_) {
+        // Deferred signal handling: the handler only set a flag (and restored
+        // the terminal). Turn it into a graceful save + teardown here, on the
+        // main thread, where file I/O and endwin are safe. Never returns.
+        if (g_signal_state.consume())
+            shutdown_from_signal();
+
+        const bool had_events = pump_io(cl);
+
+        int ch = getch();
+        if (ch == ERR) {
+            idle_tick(had_events, cl);
+            continue;
+        }
+
+        if (handle_option_key(ch, cl))
+            continue;
+
+        // Alt+0 opens the panel view; the panels own their content.
+        if (ch == 0xB0) {
+            open_panels_and_redraw(cl);
+            continue;
+        }
+
+        if (handle_key_binding(ch, cl))
+            continue;
+        if (handle_ctrl_c(ch, cl))
+            continue;
+        if (handle_mouse_wheel(ch, cl))
+            continue;
+
+        CommandLine::Result result;
+        switch (route_to_command_line(ch, cl, result)) {
+        case PromptOutcome::Consumed:
+            break;
+        case PromptOutcome::Routed:
+            run_prompt_action(result, cl);
+            break;
+        case PromptOutcome::NotOurs:
+            flush_if_dirty();
+            break;
+        }
+    }
+}
+
+// First paint, config, and the command tree. The registry and tree are built
+// FIRST: refresh_completions rebuilds the tree from completions.json and then
+// merges the live feeds (models, providers, policy rules, jobs, plugin states),
+// and merging feeds before the rebuild wiped their leaves from the tree.
+void Tui::run_startup(CommandLine& cl) {
     render_engine_->request_git_refresh(); // worker-side: never blocks the first paint
     render_engine_->draw();
     render_engine_->draw_input("");
@@ -422,481 +502,482 @@ void Tui::run() {
     detect_server(false);
     timeout(kTickTimeoutMs);
 
-    // Build the setting registry and command tree FIRST; refresh_completions
-    // rebuilds the tree from completions.json and then merges the live feeds
-    // (models, providers, policy rules, jobs, plugin states). Merging feeds
-    // before the rebuild wiped their leaves from the tree.
     build_settings();
     (void)commands(); // force command tree build
-    // Load completion metadata from JSON (help text, choices, ranges).
-    // This is the single source of truth for completion metadata — code edits
-    // cannot break completion unless the JSON file is damaged.
+    // Load completion metadata from JSON (help text, choices, ranges). This is
+    // the single source of truth for completion metadata — code edits cannot
+    // break completion unless the JSON file is damaged.
     refresh_completions();
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
-    CommandLine cl;
     cl.set_history(win().prompt_history);
+    refresh_completion_context(cl);
+}
 
-    // Completion context from the command tree. This is the SINGLE source of
-    // completions — no duplicate logic in draw_drawer (see completion_context).
-    auto update_completions = [&]() {
-        completion_context::Context ctx = completion_context::for_input(cl.text(), settings_);
-        cl.set_completions(ctx.rows, ctx.prefix);
-    };
-    update_completions();
+// Completion context from the command tree. This is the SINGLE source of
+// completions — no duplicate logic in draw_drawer (see completion_context).
+void Tui::refresh_completion_context(CommandLine& cl) {
+    completion_context::Context ctx = completion_context::for_input(cl.text(), settings_);
+    cl.set_completions(ctx.rows, ctx.prefix);
+}
 
-    while (!quit_) {
-        // Deferred signal handling: the handler only set a flag (and restored
-        // the terminal). Turn it into a graceful save + teardown here, on the
-        // main thread, where file I/O and endwin are safe.
-        if (g_signal_state.consume()) {
-            // Persist per-window conversation sessions and exit with the
-            // shell-conventional 128+sig status. snapshot() races the worker,
-            // so only save when it has finished (agent_busy_ is cleared as
-            // its last action); a mid-run signal exits without the final
-            // turn's session — bounded shutdown beats a torn save.
-            cancel_all_runs();
-            {
-                std::scoped_lock lk(router_->mutex());
-                router_->set_shutting_down(true);
-                deny_all_pending_approvals(router_->queue());
-                deny_all_pending_approvals(router_->pending_approvals());
-                deny_all_pending_api_keys(router_->pending_api_keys());
-            }
-            // endwin() first: the session-save progress writes to stderr and
-            // must not interleave with a terminal ncurses still controls.
-            endwin();
-            // Workers observe their per-agent tokens and exit promptly; a
-            // truly wedged worker (blocked read) may outlive us — bounded
-            // shutdown still beats a torn save, so only idle windows save.
-            runs_.join_all();
-            for (auto& w : window_manager_->all())
-                if (w && w->agent && !runs_.busy(w->id))
-                    session_controller_->autosave(*w);
-            session_controller_->save_workspace_now();
-            _Exit(128 + g_signal_state.signal());
+// Graceful teardown after a signal, on the main thread. Never returns: the
+// process exits with the shell-conventional 128+signal status.
+[[noreturn]] void Tui::shutdown_from_signal() {
+    // Persist per-window conversation sessions. snapshot() races the worker, so
+    // only save when it has finished (agent_busy_ is cleared as its last
+    // action); a mid-run signal exits without the final turn's session —
+    // bounded shutdown beats a torn save.
+    cancel_all_runs();
+    {
+        std::scoped_lock lk(router_->mutex());
+        router_->set_shutting_down(true);
+        deny_all_pending_approvals(router_->queue());
+        deny_all_pending_approvals(router_->pending_approvals());
+        deny_all_pending_api_keys(router_->pending_api_keys());
+    }
+    // endwin() first: the session-save progress writes to stderr and must not
+    // interleave with a terminal ncurses still controls.
+    endwin();
+    // Workers observe their per-agent tokens and exit promptly; a truly wedged
+    // worker (blocked read) may outlive us — bounded shutdown still beats a torn
+    // save, so only idle windows save.
+    runs_.join_all();
+    for (auto& w : window_manager_->all())
+        if (w && w->agent && !runs_.busy(w->id))
+            session_controller_->autosave(*w);
+    session_controller_->save_workspace_now();
+    _Exit(128 + g_signal_state.signal());
+}
+
+// Drain everything the workers posted, then apply the tick. Returns true when
+// any event arrived, which decides how the idle branch repaints.
+bool Tui::pump_io(CommandLine& cl) {
+    const bool had_events = drain_events();
+    drain_ui_posts();
+    jobs_.check_timeouts();
+    drain_pending_jobs();
+    // Time-driven plugin work (a provider's balance refresh, say). The bar reads
+    // what the tick cached; segments themselves never fetch.
+    plugin_runtime_.tick();
+    if (!input_fill_.empty()) {
+        cl.set_text(input_fill_);
+        input_fill_.clear();
+    }
+    return had_events;
+}
+
+// No key this tick: repaint what changed, and keep the clock and the tool
+// spinners alive.
+void Tui::idle_tick(bool had_events, CommandLine& cl) {
+    if (had_events) {
+        draw();
+    } else {
+        auto now = std::chrono::steady_clock::now();
+        if (now - render_engine_->last_status_tick() > std::chrono::milliseconds(150)) {
+            render_engine_->set_last_status_tick(now);
+            router_->advance_tool_spinners();
+            if (runs_.any_busy())
+                render_engine_->draw();
+            else
+                render_engine_->tick_clock();
         }
-        bool had_events = drain_events();
-        drain_ui_posts();
-        jobs_.check_timeouts();
-        drain_pending_jobs();
-        // Time-driven plugin work (a provider's balance refresh, say). The bar
-        // reads what the tick cached; segments themselves never fetch.
-        plugin_runtime_.tick();
-        if (!input_fill_.empty()) {
-            cl.set_text(input_fill_);
-            input_fill_.clear();
-        }
+    }
+    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+    drain_pending_prompts();
+    if (render_engine_->dirty())
+        render_engine_->flush();
+}
 
-        int ch = getch();
-        if (ch == ERR) {
-            if (had_events) {
-                draw();
-            } else {
-                auto now = std::chrono::steady_clock::now();
-                if (now - render_engine_->last_status_tick() > std::chrono::milliseconds(150)) {
-                    render_engine_->set_last_status_tick(now);
-                    router_->advance_tool_spinners();
-                    if (runs_.any_busy())
-                        render_engine_->draw();
-                    else
-                        render_engine_->tick_clock();
-                }
-            }
-            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            drain_pending_prompts();
-            if (render_engine_->dirty())
-                render_engine_->flush();
-            continue;
+// macOS Option-as-text form: terminals with default Option settings send the
+// literal Option characters as UTF-8 (Option+1 = '¡' U+00A1, ...) instead of an
+// ESC prefix. Assemble the sequence and normalize digit-row glyphs to the
+// meta-digit path so Alt+number works with no terminal configuration. Other
+// Option glyphs stay non-insertable, matching the prior drop of non-ASCII
+// input. Returns true when the key was consumed here; `ch` is rewritten to the
+// meta-digit code when one was assembled, and the caller carries on with it.
+bool Tui::handle_option_key(int& ch, CommandLine& cl) {
+    if (!option_key_decode::is_lead(static_cast<unsigned char>(ch)))
+        return false;
+    const int need = option_key_decode::continuation_bytes(static_cast<unsigned char>(ch));
+    unsigned char seq[4] = {static_cast<unsigned char>(ch)};
+    int got = 0;
+    timeout(50);
+    for (; got < need; ++got) {
+        int b = getch();
+        if (b == ERR)
+            break;
+        if ((b & 0xC0) != 0x80) {
+            ungetch(b); // not a continuation byte — don't eat the key
+            break;
         }
+        seq[got + 1] = static_cast<unsigned char>(b);
+    }
+    timeout(kTickTimeoutMs);
+    if (got != need)
+        return true; // partial sequence: consumed, nothing to act on
 
-        // macOS Option-as-text form: terminals with default Option settings
-        // send the literal Option characters as UTF-8 (Option+1 = '¡'
-        // U+00A1, ...) instead of an ESC prefix. Assemble the sequence and
-        // normalize digit-row glyphs to the meta-digit path so Alt+number
-        // works with no terminal configuration. Other Option glyphs stay
-        // non-insertable, matching the prior drop of non-ASCII input.
-        if (option_key_decode::is_lead(static_cast<unsigned char>(ch))) {
-            const int need = option_key_decode::continuation_bytes(static_cast<unsigned char>(ch));
-            unsigned char seq[4] = {static_cast<unsigned char>(ch)};
-            int got = 0;
-            timeout(50);
-            for (; got < need; ++got) {
-                int b = getch();
-                if (b == ERR)
-                    break;
-                if ((b & 0xC0) != 0x80) {
-                    ungetch(b); // not a continuation byte — don't eat the key
-                    break;
-                }
-                seq[got + 1] = static_cast<unsigned char>(b);
-            }
-            timeout(kTickTimeoutMs);
-            if (got != need)
-                continue;
-            const uint32_t cp = option_key_decode::codepoint(seq, need);
-            if (int d = macos_option_digit(cp); d >= 0)
-                ch = 0xB0 + d;
-            else if (cp == kMacosOptionB) {
-                cl.on_ctrl_w();
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            } else
-                continue;
-        }
+    const uint32_t cp = option_key_decode::codepoint(seq, need);
+    if (int d = macos_option_digit(cp); d >= 0) {
+        ch = 0xB0 + d; // the meta-digit continues down the normal key path
+        return false;
+    }
+    if (cp == kMacosOptionB) {
+        cl.on_ctrl_w();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    }
+    return true; // other Option glyphs stay dropped
+}
 
-        // Alt+0 opens the panel view (the registry console first); the host
-        // owns the key, the panels own their content.
-        if (ch == 0xB0) {
+// KeyBinder dispatch for window hotkeys (Alt+1..9, Ctrl+N, ESC+digit, ESC
+// stateful). The KeyBinder is pure (no ncurses); the ESC followup read is
+// terminal I/O and stays here.
+bool Tui::handle_key_binding(int ch, CommandLine& cl) {
+    // The keys the binder owns: Alt+1..9, Ctrl+N, ESC, Ctrl+C, Ctrl+W.
+    const bool binder_owns =
+        (ch >= 0xB1 && ch <= 0xB9) || ch == 14 || ch == 27 || ch == 3 || ch == 23;
+    if (!binder_owns)
+        return false;
+
+    InputState state;
+    state.drawer_open = cl.drawer_open();
+    // "busy" to the key layer means THE ACTIVE window's agent is running — it
+    // drives ESC=cancel semantics only, never gating.
+    state.busy = runs_.busy(win().id);
+    state.scroll_mode = render_engine_->scroll_mode();
+    state.window_count = window_manager_->count();
+    state.has_pending_prompt = runs_.has_pending(win().id);
+
+    KeyRead kr{ch, std::nullopt};
+    if (ch == 27) {
+        timeout(200);
+        int n = getch();
+        timeout(kTickTimeoutMs);
+        if (n != ERR)
+            kr.followup = n;
+    }
+
+    return apply_key_action(key_binder_->dispatch(kr, state), ch, kr, cl);
+}
+
+// Act on what the binder decided. Returns true when the key was consumed.
+bool Tui::apply_key_action(const KeyAction& act, int ch, const KeyRead& kr, CommandLine& cl) {
+    switch (act.type) {
+    case KeyAction::SwitchWindow:
+        switch_to(static_cast<size_t>(act.arg));
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    case KeyAction::NewWindow:
+        new_window("chat");
+        render_engine_->draw();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    case KeyAction::CloseDrawer:
+        render_engine_->draw();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    case KeyAction::DeleteWord:
+        cl.on_ctrl_w();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    case KeyAction::CancelOrQuit:
+        return cancel_active_run(ch, cl);
+    case KeyAction::ToggleScrollMode:
+        render_engine_->set_scroll_mode(!render_engine_->scroll_mode());
+        if (render_engine_->scroll_mode())
+            append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
+        render_engine_->draw();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    case KeyAction::None:
+        // ESC+0 opens panels (not a window switch); fall through to the
+        // CommandLine routing for other unhandled keys.
+        if (ch == 27 && kr.followup && *kr.followup == '0') {
             open_panels("");
             render_engine_->draw();
             draw_input(cl.text(), cl.cursor(), cl.shadow());
-            continue;
+            return true;
         }
+        return false;
+    default:
+        break; // not a key this layer acts on: fall through to the later ones
+    }
+    return false;
+}
 
-        // KeyBinder dispatch for window hotkeys (Alt+1..9, Ctrl+N, ESC+digit,
-        // ESC stateful). The KeyBinder is pure (no ncurses); the ESC followup
-        // read is terminal I/O and stays here.
-        if ((ch >= 0xB1 && ch <= 0xB9) || ch == 14 || ch == 27 || ch == 3 || ch == 23) {
-            InputState state;
-            state.drawer_open = cl.drawer_open();
-            // "busy" to the key layer means THE ACTIVE window's agent is
-            // running — it drives ESC=cancel semantics only, never gating.
-            state.busy = runs_.busy(win().id);
-            state.scroll_mode = render_engine_->scroll_mode();
-            state.window_count = window_manager_->count();
-            state.has_pending_prompt = runs_.has_pending(win().id);
+// Alt+0 opens the panel view (the registry console first); the host owns the
+// key, the panels own their content.
+void Tui::open_panels_and_redraw(CommandLine& cl) {
+    open_panels("");
+    render_engine_->draw();
+    draw_input(cl.text(), cl.cursor(), cl.shadow());
+}
 
-            KeyRead kr{ch, std::nullopt};
-            if (ch == 27) {
-                timeout(200);
-                int n = getch();
-                timeout(kTickTimeoutMs);
-                if (n != ERR)
-                    kr.followup = n;
-            }
+// Ctrl+C cancels the active window's run; ESC only reaches this action when the
+// binder saw the ACTIVE window busy, so it always cancels. Returns false when
+// the key should fall through to the quit path instead.
+bool Tui::cancel_active_run(int ch, CommandLine& cl) {
+    if (ch == 3 && !runs_.busy(win().id))
+        return false; // idle Ctrl+C: the quit path handles it
+    // Cancels the ACTIVE window's run only: the slot flag drops its event stream
+    // and the agent token aborts its loop and any in-flight cancellable tool
+    // (via RunScope).
+    if (win().agent)
+        win().agent->request_cancel();
+    runs_.request_cancel(win().id);
+    append_line(P_STATUS, "cancelling…");
+    render_engine_->draw();
+    draw_input(cl.text(), cl.cursor(), cl.shadow());
+    return true;
+}
 
-            KeyAction act = key_binder_->dispatch(kr, state);
-
-            switch (act.type) {
-            case KeyAction::SwitchWindow:
-                switch_to(static_cast<size_t>(act.arg));
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            case KeyAction::NewWindow:
-                new_window("chat");
-                render_engine_->draw();
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            case KeyAction::CloseDrawer:
-                render_engine_->draw();
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            case KeyAction::DeleteWord:
-                cl.on_ctrl_w();
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            case KeyAction::CancelOrQuit:
-                // Ctrl+C on an idle window falls through to the quit path
-                // below (cancel_or_quit). ESC only reaches this action when
-                // the binder saw the ACTIVE window busy, so it never quits.
-                if (ch == 3 && !runs_.busy(win().id))
-                    break;
-                // Cancels the ACTIVE window's run only: the slot flag drops
-                // its event stream and the agent token aborts its loop and
-                // any in-flight cancellable tool (via RunScope).
-                if (win().agent)
-                    win().agent->request_cancel();
-                runs_.request_cancel(win().id);
-                append_line(P_STATUS, "cancelling…");
-                render_engine_->draw();
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            case KeyAction::ToggleScrollMode:
-                render_engine_->set_scroll_mode(!render_engine_->scroll_mode());
-                if (render_engine_->scroll_mode())
-                    append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
-                render_engine_->draw();
-                draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            case KeyAction::None:
-                // ESC+0 opens panels (not a window switch); fall through to
-                // the CommandLine routing for other unhandled keys.
-                if (ch == 27 && kr.followup && *kr.followup == '0') {
-                    open_panels("");
-                    render_engine_->draw();
-                    draw_input(cl.text(), cl.cursor(), cl.shadow());
-                    continue;
-                }
-                break;
-            default:
-                break;
-            }
+// Ctrl+C on an idle window: quit. When sibling windows are still running,
+// quitting needs a confirm — the destructor then cancels and joins every
+// worker. Returns true when the key was handled.
+bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
+    if (ch != 3)
+        return false;
+    if (runs_.busy(win().id)) {
+        if (win().agent)
+            win().agent->request_cancel();
+        runs_.request_cancel(win().id);
+        append_line(P_STATUS, "cancelling…");
+        render_engine_->draw();
+        render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    }
+    if (runs_.any_busy()) {
+        ConfirmPanel q("Quit", std::to_string(runs_.busy_count()) +
+                                   " agent(s) still running — quit anyway?");
+        if (!q.run()) {
+            redraw_after_modal();
+            render_engine_->draw();
+            draw_input(cl.text(), cl.cursor(), cl.shadow());
+            return true;
         }
+    }
+    session_controller_->save_workspace_now();
+    quit_ = true;
+    return true;
+}
 
-        // Ctrl+C: cancel the active window's run, or save+exit. When
-        // siblings are still running, quitting needs a confirm — the
-        // destructor then cancels and joins every worker.
-        if (ch == 3) {
-            if (runs_.busy(win().id)) {
-                if (win().agent)
-                    win().agent->request_cancel();
-                runs_.request_cancel(win().id);
-                append_line(P_STATUS, "cancelling…");
-                render_engine_->draw();
-                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            }
-            if (runs_.any_busy()) {
-                ConfirmPanel q("Quit", std::to_string(runs_.busy_count()) +
-                                           " agent(s) still running — quit anyway?");
-                if (!q.run()) {
-                    redraw_after_modal();
-                    render_engine_->draw();
-                    draw_input(cl.text(), cl.cursor(), cl.shadow());
-                    continue;
-                }
-            }
-            session_controller_->save_workspace_now();
-            quit_ = true;
-            break;
-        }
-
-        // Mouse wheel: scroll the chat log (never prompt history). Wheel
-        // ticks arrive as KEY_MOUSE (alt-scroll is off), so this branch is
-        // the only place they can land; Up/Down keys keep their meaning.
-        if (ch == KEY_MOUSE) {
-            MEVENT ev;
-            if (getmouse(&ev) == OK) {
-                int delta = scroll_dispatch::wheel_delta(ev.bstate);
-                if (delta != 0) {
-                    win().scroll_top = scroll_dispatch::clamped_scroll_top(
-                        win().scroll_top, delta, render_engine_->max_scroll(win()));
-                    render_engine_->draw();
-                    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                }
-            }
-            continue;
-        }
-
-        // ── Route through CommandLine (pure logic, unit tested) ─
-        CommandLine::Result result;
-        bool handled = true;
-
-        switch (ch) {
-        case '	':
-            result = cl.on_tab();
-            break;
-        case KEY_UP:
-            if (render_engine_->scroll_mode()) {
-                win().scroll_top = std::max(0, win().scroll_top - 1);
-                render_engine_->draw();
-            } else
-                result = cl.on_up();
-            break;
-        case KEY_DOWN:
-            if (render_engine_->scroll_mode()) {
-                win().scroll_top += 1;
-                render_engine_->draw();
-            } else
-                result = cl.on_down();
-            break;
-        case KEY_LEFT:
-            result = cl.on_left();
-            break;
-        case KEY_RIGHT:
-            result = cl.on_right();
-            break;
-        case KEY_HOME:
-            result = cl.on_home();
-            break;
-        case KEY_END:
-            result = cl.on_end();
-            break;
-        case KEY_PPAGE:
-            if (render_engine_->scroll_mode()) {
-                win().scroll_top = std::max(0, win().scroll_top - 10);
-                render_engine_->draw();
-            }
-            break;
-        case KEY_NPAGE:
-            if (render_engine_->scroll_mode()) {
-                win().scroll_top = std::min(render_engine_->max_scroll(), win().scroll_top + 10);
-                render_engine_->draw();
-            }
-            break;
-        case KEY_BACKSPACE:
-        case 127:
-        case 8:
-            result = cl.on_backspace();
-            break;
-        case 10:
-        case 13:
-        case KEY_ENTER:
-            if (render_engine_->scroll_mode()) {
-                render_engine_->set_scroll_mode(false);
-                render_engine_->draw();
-            }
-            result = cl.on_enter();
-            break;
-        case 1:
-            result = cl.on_ctrl_a();
-            break;
-        case 5:
-            result = cl.on_ctrl_e();
-            break;
-        case 11:
-            result = cl.on_ctrl_k();
-            break;
-        case 20:
-            result = cl.on_ctrl_t();
-            break;
-        case 21:
-            result = cl.on_ctrl_u();
-            break;
-        case 23:
-            result = cl.on_ctrl_w();
-            break;
-        case 25:
-            result = cl.on_ctrl_y();
-            break;
-        case 31:
-            result = cl.on_undo();
-            break;
-        case 4:
-            result = cl.on_ctrl_d();
-            break;
-        case 18:
-            append_line(P_STATUS, "Ctrl-R: not yet implemented");
+// Mouse wheel: scroll the chat log (never prompt history). Wheel ticks arrive
+// as KEY_MOUSE (alt-scroll is off), so this is the only place they can land;
+// Up/Down keys keep their meaning.
+bool Tui::handle_mouse_wheel(int ch, CommandLine& cl) {
+    if (ch != KEY_MOUSE)
+        return false;
+    MEVENT ev;
+    if (getmouse(&ev) == OK) {
+        int delta = scroll_dispatch::wheel_delta(ev.bstate);
+        if (delta != 0) {
+            win().scroll_top = scroll_dispatch::clamped_scroll_top(
+                win().scroll_top, delta, render_engine_->max_scroll(win()));
             render_engine_->draw();
             render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            continue;
-        default:
-            if (ch >= 32 && ch <= 126)
-                result = cl.on_char(static_cast<char>(ch));
-            else
-                handled = false;
-            break;
         }
+    }
+    return true;
+}
 
-        if (handled) {
-            // Update completion context for shadow computation.
-            update_completions();
-            // Sync drawer state from CommandLine (CommandLine owns drawer logic now).
-            render_engine_->set_drawer_open(cl.drawer_open());
-            render_engine_->set_drawer_sel(cl.drawer_sel());
-            switch (result.action) {
-            case CommandLine::Result::Dispatch: {
-                std::string text = result.dispatch_text;
-                auto& ph = win().prompt_history;
-                if (!text.empty() && (ph.empty() || ph.back() != text)) {
-                    ph.push_back(text);
-                    if (ph.size() > 100)
-                        ph.erase(ph.begin());
-                }
-                win().history_pos = ph.size();
-                cl.set_history(ph);
-                if (handle_slash(text)) {
-                    render_engine_->draw();
-                    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                    continue;
-                }
-                send_async(text);
-                render_engine_->draw();
-                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            }
-            case CommandLine::Result::ShowPopup: {
-                if (!cl.text().empty() && cl.text().back() == '@') {
-                    namespace fs = std::filesystem;
-                    std::string root = agent::Workspace::root();
-                    std::vector<std::string> items;
-                    for (const auto& e : fs::directory_iterator(root)) {
-                        std::string name = e.path().filename().string();
-                        if (name.front() == '.')
-                            continue;
-                        if (fs::is_directory(e))
-                            name += "/";
-                        items.push_back(name);
-                    }
-                    std::sort(items.begin(), items.end());
-                    if (!items.empty()) {
-                        int sel = menu_select("reference file:", items);
-                        if (sel >= 0 && sel < static_cast<int>(items.size())) {
-                            std::string ref = items[sel];
-                            if (ref.back() == '/')
-                                ref.pop_back();
-                            cl.set_text_and_cursor(cl.text() + ref, cl.text().size() + ref.size());
-                        }
-                    }
-                } else {
-                    std::string tok = palette::token(cl.text());
-                    auto matches = render_engine_->filter_commands(tok);
-                    if (!matches.empty()) {
-                        std::vector<std::string> items;
-                        items.reserve(matches.size());
-                        for (auto* c : matches)
-                            items.emplace_back(palette::usage(*c) + "  " + c->help);
-                        menu_select("options:", items);
-                    }
-                }
-                render_engine_->draw();
-                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            }
-            case CommandLine::Result::ShowHelpPage: {
-                const std::string help_key = help_page::key_from_node(result.help_node);
-                std::vector<std::string> page = help_page::build(settings_, help_key);
-                if (!page.empty()) {
-                    info_dialog(help_key, page);
-                    redraw_after_modal();
-                    render_engine_->draw();
-                    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                    continue;
-                }
-                // Fallback to a one-line status for leaf settings without man text.
-                const std::string msg = help_page::fallback_line(settings_, help_key);
-                if (!msg.empty()) {
-                    append_line(P_STATUS, msg);
-                    render_engine_->draw();
-                    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                    continue;
-                }
-                // Fallback to cmd_help for top-level commands.
-                slash_dispatcher_->cmd_help(help_page::command_from_node(result.help_node));
-                render_engine_->draw();
-                render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-                continue;
-            }
-            default:
-                break;
-            }
-            render_engine_->draw();
-            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            if (render_engine_->dirty()) {
-                render_engine_->flush();
-                render_engine_->clear_dirty();
-            }
-            continue;
-        }
+// In scroll mode the arrows and page keys move the window instead of the
+// prompt. Returns true when the key was consumed here; the caller still runs the
+// normal redraw path.
+bool Tui::scroll_mode_nav(int ch) {
+    if (!render_engine_->scroll_mode())
+        return false;
+    switch (ch) {
+    case KEY_UP:
+        win().scroll_top = std::max(0, win().scroll_top - 1);
+        break;
+    case KEY_DOWN:
+        win().scroll_top += 1;
+        break;
+    case KEY_PPAGE:
+        win().scroll_top = std::max(0, win().scroll_top - 10);
+        break;
+    case KEY_NPAGE:
+        win().scroll_top = std::min(render_engine_->max_scroll(), win().scroll_top + 10);
+        break;
+    default:
+        return false;
+    }
+    render_engine_->draw();
+    return true;
+}
 
-        // Unhandled keys.
-        if (ch == KEY_NPAGE) {
-            win().scroll_top += render_engine_->lines_per_page();
+// One entry per editing key: everything that needs more than a plain
+// CommandLine call is handled around this table.
+struct EditKey {
+    int key;
+    CommandLine::Result (CommandLine::*handler)();
+};
+
+const EditKey kEditKeys[] = {
+    {'\t', &CommandLine::on_tab},        {KEY_UP, &CommandLine::on_up},
+    {KEY_DOWN, &CommandLine::on_down},   {KEY_LEFT, &CommandLine::on_left},
+    {KEY_RIGHT, &CommandLine::on_right}, {KEY_HOME, &CommandLine::on_home},
+    {KEY_END, &CommandLine::on_end},     {KEY_BACKSPACE, &CommandLine::on_backspace},
+    {127, &CommandLine::on_backspace},   {8, &CommandLine::on_backspace},
+    {1, &CommandLine::on_ctrl_a},        {5, &CommandLine::on_ctrl_e},
+    {11, &CommandLine::on_ctrl_k},       {20, &CommandLine::on_ctrl_t},
+    {21, &CommandLine::on_ctrl_u},       {23, &CommandLine::on_ctrl_w},
+    {25, &CommandLine::on_ctrl_y},       {31, &CommandLine::on_undo},
+    {4, &CommandLine::on_ctrl_d},
+};
+
+// Route a key to CommandLine (pure logic, unit tested).
+Tui::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
+                                              CommandLine::Result& result) {
+    if (scroll_mode_nav(ch))
+        return PromptOutcome::Routed; // redrawn; no CommandLine action
+
+    for (const EditKey& b : kEditKeys) {
+        if (b.key == ch) {
+            result = (cl.*b.handler)();
+            return PromptOutcome::Routed;
+        }
+    }
+
+    if (ch == 10 || ch == 13 || ch == KEY_ENTER) {
+        if (render_engine_->scroll_mode()) {
+            render_engine_->set_scroll_mode(false);
             render_engine_->draw();
-            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+        }
+        result = cl.on_enter();
+        return PromptOutcome::Routed;
+    }
+
+    if (ch == 18) {
+        append_line(P_STATUS, "Ctrl-R: not yet implemented");
+        render_engine_->draw();
+        render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return PromptOutcome::Consumed;
+    }
+
+    if (ch >= 32 && ch <= 126) {
+        result = cl.on_char(static_cast<char>(ch));
+        return PromptOutcome::Routed;
+    }
+    return PromptOutcome::NotOurs;
+}
+
+// CommandLine produced a result: sync the drawer, then act on it.
+void Tui::run_prompt_action(const CommandLine::Result& result, CommandLine& cl) {
+    // Update completion context for shadow computation.
+    refresh_completion_context(cl);
+    // CommandLine owns the drawer logic now; mirror its state into the renderer.
+    render_engine_->set_drawer_open(cl.drawer_open());
+    render_engine_->set_drawer_sel(cl.drawer_sel());
+    switch (result.action) {
+    case CommandLine::Result::Dispatch:
+        dispatch_prompt(result.dispatch_text, cl);
+        return;
+    case CommandLine::Result::ShowPopup:
+        show_prompt_popup(cl);
+        return;
+    case CommandLine::Result::ShowHelpPage:
+        show_prompt_help(result, cl);
+        return;
+    default:
+        break;
+    }
+    render_engine_->draw();
+    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+    flush_if_dirty();
+}
+
+// Remember the prompt, then run it: a slash command, or an agent turn.
+void Tui::dispatch_prompt(const std::string& text, CommandLine& cl) {
+    auto& ph = win().prompt_history;
+    if (!text.empty() && (ph.empty() || ph.back() != text)) {
+        ph.push_back(text);
+        if (ph.size() > 100)
+            ph.erase(ph.begin());
+    }
+    win().history_pos = ph.size();
+    cl.set_history(ph);
+    if (!handle_slash(text))
+        send_async(text);
+    render_engine_->draw();
+    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+}
+
+// '@' picks a workspace file; anything else picks a command from the palette.
+void Tui::show_prompt_popup(CommandLine& cl) {
+    if (!cl.text().empty() && cl.text().back() == '@')
+        pick_reference_file(cl);
+    else
+        pick_command(cl);
+    render_engine_->draw();
+    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+}
+
+void Tui::pick_reference_file(CommandLine& cl) {
+    namespace fs = std::filesystem;
+    const std::string root = agent::Workspace::root();
+    std::vector<std::string> items;
+    for (const auto& e : fs::directory_iterator(root)) {
+        std::string name = e.path().filename().string();
+        if (name.front() == '.')
             continue;
-        }
-        if (ch == KEY_PPAGE) {
-            win().scroll_top = std::max(0, win().scroll_top - render_engine_->lines_per_page());
-            render_engine_->draw();
-            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-            continue;
-        }
-        if (render_engine_->dirty()) {
-            render_engine_->flush();
-            render_engine_->clear_dirty();
-        }
+        if (fs::is_directory(e))
+            name += "/";
+        items.push_back(name);
+    }
+    std::sort(items.begin(), items.end());
+    if (items.empty())
+        return;
+    const int sel = menu_select("reference file:", items);
+    if (sel < 0 || sel >= static_cast<int>(items.size()))
+        return;
+    std::string ref = items[sel];
+    if (ref.back() == '/')
+        ref.pop_back();
+    cl.set_text_and_cursor(cl.text() + ref, cl.text().size() + ref.size());
+}
+
+void Tui::pick_command(CommandLine& cl) {
+    const std::string tok = palette::token(cl.text());
+    auto matches = render_engine_->filter_commands(tok);
+    if (matches.empty())
+        return;
+    std::vector<std::string> items;
+    items.reserve(matches.size());
+    for (auto* c : matches)
+        items.emplace_back(palette::usage(*c) + "  " + c->help);
+    menu_select("options:", items);
+}
+
+// '?' opens the man page for the node; leaves fall back to a one-line status,
+// then to cmd_help for top-level commands.
+void Tui::show_prompt_help(const CommandLine::Result& result, CommandLine& cl) {
+    const std::string help_key = help_page::key_from_node(result.help_node);
+    std::vector<std::string> page = help_page::build(settings_, help_key);
+    if (!page.empty()) {
+        info_dialog(help_key, page);
+        redraw_after_modal();
+        render_engine_->draw();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return;
+    }
+    const std::string msg = help_page::fallback_line(settings_, help_key);
+    if (!msg.empty()) {
+        append_line(P_STATUS, msg);
+        render_engine_->draw();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return;
+    }
+    slash_dispatcher_->cmd_help(help_page::command_from_node(result.help_node));
+    render_engine_->draw();
+    draw_input(cl.text(), cl.cursor(), cl.shadow());
+}
+
+void Tui::flush_if_dirty() {
+    if (render_engine_->dirty()) {
+        render_engine_->flush();
+        render_engine_->clear_dirty();
     }
 }
 
