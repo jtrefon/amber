@@ -3788,6 +3788,73 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     ASSERT(results[0].error.find("already ran") != std::string::npos);
 }
 
+// The duplicate-detection rules, exercised through dispatch because
+// find_duplicate_call is internal. A no-op tool keeps it hermetic: the check
+// runs before execution, so a rejection and a pass are both observable without
+// spawning a shell.
+TEST(dispatch_duplicate_detection_rules) {
+    struct NoopTool : agent::Tool {
+        std::string name() const noexcept override { return "probe"; }
+        std::string description() const noexcept override { return "probe"; }
+        agent::json parameters_schema() const override { return agent::json::object(); }
+        agent::ToolResult execute(const agent::json&) const override { return {true, "ok", ""}; }
+    };
+
+    // Runs one scenario: a prior assistant call with `prior_args` and an
+    // optional tool result of `prior_outcome`, then the same call again with
+    // `current_args`. Returns true when the repeat was rejected.
+    auto rejected = [](const agent::json& prior_args, const char* prior_outcome, bool detection,
+                       const agent::json& current_args) {
+        agent::Config cfg; // Write mode, no policy store
+        cfg.detection_duplicate = detection;
+        agent::ToolRegistry reg;
+        reg.register_tool(std::make_unique<NoopTool>());
+        agent::ConversationLog log;
+        std::set<std::string> approved;
+        agent::Context dctx;
+
+        agent::json prior_calls = agent::json::array();
+        prior_calls.push_back({{"id", "prev"},
+                               {"type", "function"},
+                               {"function", {{"name", "probe"}, {"arguments", prior_args}}}});
+        agent::Message prior;
+        prior.role = "assistant";
+        prior.tool_calls = prior_calls;
+        dctx.push(std::move(prior));
+        if (prior_outcome) {
+            agent::Message out;
+            out.role = "tool";
+            out.tool_call_id = "prev";
+            out.name = "probe";
+            out.content = std::string("[tool=probe status=") + prior_outcome + "]\n";
+            dctx.push(std::move(out));
+        }
+
+        agent::json calls = agent::json::array();
+        calls.push_back({{"id", "now"},
+                         {"type", "function"},
+                         {"function", {{"name", "probe"}, {"arguments", current_args}}}});
+
+        bool duplicate = false;
+        agent::AgentHooks hooks;
+        hooks.on_tool_result = [&](const std::string&, const agent::ToolResult& r,
+                                   const agent::json&) {
+            duplicate = !r.ok && r.error.find("already ran") != std::string::npos;
+        };
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+        return duplicate;
+    };
+
+    const agent::json repeat = {{"x", "1"}};
+    ASSERT_TRUE(rejected(R"({"x":"1"})", "ok", true, repeat)); // wire-format string args
+    ASSERT_TRUE(rejected(repeat, "ok", true, repeat));         // args already an object
+    ASSERT_FALSE(rejected(repeat, "denied", true, repeat));    // denied: a retry is allowed
+    ASSERT_FALSE(rejected({{"x", "2"}}, "ok", true, repeat));  // different arguments
+    ASSERT_FALSE(rejected("not json", "ok", true, repeat));    // unparseable stored args
+    ASSERT_FALSE(rejected(repeat, "ok", false, repeat));       // detection switched off
+    ASSERT_TRUE(rejected(repeat, nullptr, true, repeat));      // no prior result is not a denial
+}
+
 TEST(dispatch_auto_approves_in_write_mode) {
     agent::Config cfg;
     agent::ToolRegistry reg;
