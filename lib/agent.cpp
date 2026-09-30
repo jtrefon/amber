@@ -150,6 +150,37 @@ void Agent::set_connection(const std::string& api_base, const std::string& api_k
     publish_config();
 }
 
+// Append a section only when it has content; sections are separated by a blank
+// line.
+void append_optional_section(std::string& system, const std::string& text) {
+    if (!text.empty())
+        system += "\n\n" + text;
+}
+
+// The mode paragraph appended to every system prompt.
+std::string mode_prompt(agent::AgentMode mode) {
+    switch (mode) {
+    case agent::AgentMode::Read:
+        return "\n\nYou are in READ mode: you can explore and answer "
+               "questions using read-only tools (search, grep, read). "
+               "Writing files or running shell commands is not available "
+               "here, so prefer read-only investigation and report back.";
+    case agent::AgentMode::Write:
+        return "\n\nYou are in WRITE mode: you work inside the workspace, "
+               "reading, editing, creating files and running commands "
+               "freely. Destructive or system-wide commands (rm, dd, git "
+               "reset, sudo, package installs, ...) pause for the user's "
+               "approval, as does writing outside the workspace (once per "
+               "target folder). A command request the user grants runs "
+               "silently for the rest of the session or permanently.";
+    case agent::AgentMode::Yolo:
+        return "\n\nYou are in YOLO mode: every tool runs immediately with "
+               "no approval gate. The user trusts you completely, so keep "
+               "the same careful, deliberate working style.";
+    }
+    return "";
+}
+
 std::string Agent::render_system_prompt() const {
     std::string system = load_prompt(cfg_.system_prompt_path);
     if (system.empty())
@@ -158,9 +189,8 @@ std::string Agent::render_system_prompt() const {
     // Environment card: OS, user, resources, available tools — collected
     // once at session start, so the agent can act in its environment without
     // probing. Session-fixed, so the KV prefix stays stable.
-    std::string env_card = render_environment_card(probe_environment());
-    if (!env_card.empty())
-        system += "\n\n" + env_card;
+    append_optional_section(system, render_environment_card(probe_environment()));
+
     if (!cfg_.tools_prompt_path.empty()) {
         std::string tools = load_prompt(cfg_.tools_prompt_path);
         if (tools.empty())
@@ -180,51 +210,19 @@ std::string Agent::render_system_prompt() const {
     // Plugins: enabled plugin tools (registered as plugin_<id>_<name>) get
     // their own reference section so the agent knows they exist and how to
     // use them without touching the static tools.md.
-    std::string plugins = plugin_tools_advertisement(registry_);
-    if (!plugins.empty())
-        system += "\n\n" + plugins;
+    append_optional_section(system, plugin_tools_advertisement(registry_));
+    system += mode_prompt(cfg_.mode);
 
-    switch (cfg_.mode) {
-    case agent::AgentMode::Read:
-        system += "\n\nYou are in READ mode: you can explore and answer "
-                  "questions using read-only tools (search, grep, read). "
-                  "Writing files or running shell commands is not available "
-                  "here, so prefer read-only investigation and report back.";
-        break;
-    case agent::AgentMode::Write:
-        system += "\n\nYou are in WRITE mode: you work inside the workspace, "
-                  "reading, editing, creating files and running commands "
-                  "freely. Destructive or system-wide commands (rm, dd, git "
-                  "reset, sudo, package installs, ...) pause for the user's "
-                  "approval, as does writing outside the workspace (once per "
-                  "target folder). A command request the user grants runs "
-                  "silently for the rest of the session or permanently.";
-        break;
-    case agent::AgentMode::Yolo:
-        system += "\n\nYou are in YOLO mode: every tool runs immediately with "
-                  "no approval gate. The user trusts you completely, so keep "
-                  "the same careful, deliberate working style.";
-        break;
-    }
-
-    // Optional git workflow prompt
-    std::string git_path = cfg_.git_prompt_path.empty() ? "prompts/git.md" : cfg_.git_prompt_path;
-    std::string git = load_prompt(git_path);
-    if (!git.empty())
-        system += "\n\n" + git;
-
+    // Optional git workflow prompt.
+    append_optional_section(
+        system,
+        load_prompt(cfg_.git_prompt_path.empty() ? "prompts/git.md" : cfg_.git_prompt_path));
     // Optional skills prompt (discovery block, authoring rule, trust boundary).
     // Resolved via the binary dir so the sections load regardless of CWD
     // (the benchmark runner runs with the workspace as CWD).
-    std::string skills = load_optional_prompt("prompts/skills.md");
-    if (!skills.empty())
-        system += "\n\n" + skills;
-
+    append_optional_section(system, load_optional_prompt("prompts/skills.md"));
     // Optional MCP prompt (untrusted-server posture, user-only prompts).
-    std::string mcp = load_optional_prompt("prompts/mcp.md");
-    if (!mcp.empty())
-        system += "\n\n" + mcp;
-
+    append_optional_section(system, load_optional_prompt("prompts/mcp.md"));
     return system;
 }
 
@@ -315,6 +313,82 @@ void Agent::fork_from(const Agent& src) {
     client_ = make_client(cfg_, client_factory_);
 }
 
+// Compression gate: if it triggers, compress and persist, then rebuild the
+// prompt from the new context for this call. Returns true when it rebuilt.
+bool Agent::maybe_compress(std::vector<Message>& prompt_copy) {
+    if (!gate_ || !compression_)
+        return false;
+    resolve_window();
+    if (!gate_->should_compress(context_, cfg_))
+        return false;
+
+    double tokens = 0;
+    double budget = 0;
+    double threshold = 0;
+    gate_->last_decision(tokens, budget, threshold);
+    if (hooks_.on_debug) {
+        hooks_.on_debug("gate: tokens=" + std::to_string(static_cast<long>(tokens)) +
+                        " window=" + std::to_string(static_cast<long>(budget)) +
+                        " threshold=" + std::to_string(threshold));
+    }
+    // Structured replacement for the on_status prose a UI had to parse:
+    // subscribers get the numbers the gate actually decided on.
+    CompressionEvent triggered;
+    triggered.tokens = static_cast<long>(tokens);
+    triggered.budget = static_cast<long>(budget);
+    triggered.threshold = threshold;
+    publish_event(triggered);
+    if (!run_compression(std::function<void()>(), nullptr))
+        return false;
+    // Build prompt_copy from the new compressed context for the current LLM call.
+    auto new_msgs = context_.get_all();
+    prompt_copy.assign(new_msgs.begin(), new_msgs.end());
+    return true;
+}
+
+// Surface streamed reasoning and tokens to the host.
+void Agent::on_stream_chunk(const AgentHooks& h, const StreamChunk& ch) const {
+    if (ch.done)
+        return;
+    if (!ch.reasoning.empty()) {
+        if (h.on_state)
+            h.on_state(RunState::Thinking);
+        if (h.on_reasoning)
+            h.on_reasoning(ch.reasoning);
+    }
+    if (!ch.delta.empty()) {
+        if (h.on_state)
+            h.on_state(RunState::Streaming);
+        if (h.on_token)
+            h.on_token(ch.delta);
+    }
+}
+
+// Report the exchange's token stats to the host, and keep the running prompt
+// count for the next request.
+void Agent::record_stats(const Stats& stats) {
+    if (!stats.valid)
+        return;
+    if (hooks_.on_stats)
+        hooks_.on_stats(stats);
+    if (stats.prompt_tokens > 0)
+        cfg_.prompt_tokens_used = stats.prompt_tokens;
+}
+
+// Hidden exchanges (the confirmation probe) stay hidden from subscribers too:
+// publishing them would double-count turns in any plugin observer.
+void Agent::publish_llm_response(const Stats& stats, bool display) {
+    if (!display)
+        return;
+    LlmResponseEvent response;
+    response.status = 200;
+    if (stats.valid) {
+        response.prompt_tokens = stats.prompt_tokens;
+        response.completion_tokens = stats.completion_tokens;
+    }
+    publish_event(response);
+}
+
 Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display) {
     Message reply;
     Stats stats;
@@ -331,31 +405,7 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
     cfg_.turn_counter = turn_counter_;
 
     // Check compression gate. If triggered, compress and persist.
-    if (gate_ && compression_) {
-        resolve_window();
-        if (gate_->should_compress(context_, cfg_)) {
-            double tokens = 0, budget = 0, threshold = 0;
-            gate_->last_decision(tokens, budget, threshold);
-            if (hooks_.on_debug) {
-                hooks_.on_debug("gate: tokens=" + std::to_string(static_cast<long>(tokens)) +
-                                " window=" + std::to_string(static_cast<long>(budget)) +
-                                " threshold=" + std::to_string(threshold));
-            }
-            // Structured replacement for the on_status prose a UI had to
-            // parse: subscribers get the numbers the gate actually decided on.
-            CompressionEvent triggered;
-            triggered.tokens = static_cast<long>(tokens);
-            triggered.budget = static_cast<long>(budget);
-            triggered.threshold = threshold;
-            publish_event(triggered);
-            if (run_compression(std::function<void()>(), nullptr)) {
-                // Build prompt_copy from the new compressed context for
-                // the current LLM call.
-                auto new_msgs = context_.get_all();
-                prompt_copy.assign(new_msgs.begin(), new_msgs.end());
-            }
-        }
-    }
+    maybe_compress(prompt_copy);
 
     // Every injected block is assembled here, ONCE, and only after the gate.
     // Injection used to be spread across four sites above and below this point,
@@ -367,45 +417,13 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
     const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
         reply = client_->chat_stream(
-            prompt_copy, tools,
-            [&h](const StreamChunk& ch) {
-                if (ch.done)
-                    return;
-                if (!ch.reasoning.empty()) {
-                    if (h.on_state)
-                        h.on_state(RunState::Thinking);
-                    if (h.on_reasoning)
-                        h.on_reasoning(ch.reasoning);
-                }
-                if (!ch.delta.empty()) {
-                    if (h.on_state)
-                        h.on_state(RunState::Streaming);
-                    if (h.on_token)
-                        h.on_token(ch.delta);
-                }
-            },
+            prompt_copy, tools, [this, &h](const StreamChunk& ch) { on_stream_chunk(h, ch); },
             &stats);
     } else {
         reply = client_->chat(prompt_copy, tools, &stats);
     }
-    if (stats.valid) {
-        if (hooks_.on_stats)
-            hooks_.on_stats(stats);
-        if (stats.prompt_tokens > 0)
-            cfg_.prompt_tokens_used = stats.prompt_tokens;
-    }
-
-    // Hidden exchanges (the confirmation probe) stay hidden from subscribers
-    // too: publishing them would double-count turns in any plugin observer.
-    if (display) {
-        LlmResponseEvent response;
-        response.status = 200;
-        if (stats.valid) {
-            response.prompt_tokens = stats.prompt_tokens;
-            response.completion_tokens = stats.completion_tokens;
-        }
-        publish_event(response);
-    }
+    record_stats(stats);
+    publish_llm_response(stats, display);
 
     ++turn_counter_;
     return reply;
@@ -568,6 +586,30 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     return true;
 }
 
+// The model's "I am finished" vocabulary, with punctuation and case folded away.
+bool is_confirmation_reply(const std::string& s) {
+    std::string flat;
+    for (char c : s) {
+        const char lc = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lc != ' ' && lc != '.' && lc != '!' && lc != '\n' && lc != '\r')
+            flat += lc;
+    }
+    return flat == "done" || flat == "yes" || flat == "ok" || flat == "finished" ||
+           flat == "looksgood" || flat == "complete" || flat == "alldone";
+}
+
+// True when the last tool result in the context was denied — the loop is broken
+// and the candidate answer stands.
+bool Agent::probe_was_denied() const {
+    const auto& all = context_.get_all();
+    for (auto it = all.rbegin(); it != all.rend(); ++it) {
+        if (it->role != "tool")
+            continue;
+        return it->content.find("status=denied") != std::string::npos;
+    }
+    return false;
+}
+
 std::string Agent::confirm_turn(const std::string& candidate,
                                 const std::vector<std::shared_ptr<Tool>>& tools) {
     Message done_msg;
@@ -589,35 +631,15 @@ std::string Agent::confirm_turn(const std::string& candidate,
     emit_context_event(context_events_, context_);
 
     if (!check_tool_calls.is_null() && !check_tool_calls.empty()) {
-        bool any_ran = dispatch_tool_calls(check_tool_calls, cfg_, registry_, hooks_, log_,
-                                           session_approved_, &policy_, event_bus_, &context_);
-        if (!any_ran) {
-            // Scan from the back for the last tool result; if it was denied
-            // the loop is broken.
-            const auto& all = context_.get_all();
-            for (auto it = all.rbegin(); it != all.rend(); ++it) {
-                if (it->role != "tool")
-                    continue;
-                if (it->content.find("status=denied") != std::string::npos)
-                    return candidate;
-                break;
-            }
-        }
+        const bool any_ran =
+            dispatch_tool_calls(check_tool_calls, cfg_, registry_, hooks_, log_, session_approved_,
+                                &policy_, event_bus_, &context_);
+        // A denied tool breaks the loop: the candidate answer stands.
+        if (!any_ran && probe_was_denied())
+            return candidate;
         return "";
     }
-
-    auto is_confirmation = [](const std::string& s) -> bool {
-        std::string flat;
-        for (char c : s) {
-            char lc = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            if (lc != ' ' && lc != '.' && lc != '!' && lc != '\n' && lc != '\r')
-                flat += lc;
-        }
-        return flat == "done" || flat == "yes" || flat == "ok" || flat == "finished" ||
-               flat == "looksgood" || flat == "complete" || flat == "alldone";
-    };
-
-    if (is_confirmation(check_content) || check_content.empty())
+    if (is_confirmation_reply(check_content) || check_content.empty())
         return candidate;
     return check_content;
 }
@@ -748,17 +770,19 @@ std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
 // server-known model id when the configured one is rejected) and retry.
 // `display` controls whether the exchange paints into the scrollback;
 // `strict` makes internal exchanges rethrow instead of faking a reply.
-Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools,
-                                  const char* stage, bool display, bool strict) {
-    auto chat = [this, &tools, display]() { return chat_once(tools, display); };
-    auto chat_no_tools = [this, display]() { return chat_once({}, display); };
-    ChatAdapter adapt = [this, stage, &tools, &chat_no_tools,
-                         display](const std::string& err) -> std::function<Message()> {
+// The recovery ladder for a failed request: template-parser (retry without
+// tools), model-name (retry with the first advertised model), and auth (ask the
+// host for a key, rebuild the client, retry). Returns an empty adapter entry when
+// no repair applies.
+ChatAdapter Agent::build_chat_adapter(const char* stage,
+                                      const std::vector<std::shared_ptr<Tool>>& tools,
+                                      bool display) {
+    return [this, stage, &tools, display](const std::string& err) -> std::function<Message()> {
         switch (classify_request_failure(err)) {
         case RequestFailure::TemplateParser:
             publish_error("template_parser", err);
             if (!tools.empty())
-                return chat_no_tools;
+                return [this, display]() { return chat_once({}, display); };
             break;
         case RequestFailure::ModelName: {
             publish_error("model_name", err);
@@ -797,6 +821,12 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
         }
         return {};
     };
+}
+
+Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools,
+                                  const char* stage, bool display, bool strict) {
+    const ChatAdapter adapt = build_chat_adapter(stage, tools, display);
+    auto chat = [this, &tools, display]() { return chat_once(tools, display); };
     try {
         if (strict)
             return chat_with_retry_strict(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
