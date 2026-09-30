@@ -49,6 +49,12 @@ private:
     // transport-level failure (curl error, timeout).
     bool post(const std::string& payload, HttpReply& reply);
 
+    // Drain an SSE body, handing server messages to the callback and returning
+    // the response to `id`.
+    McpTransportResult handle_sse_response(const std::string& body, int id);
+    std::optional<McpMessage> dispatch_sse_event(std::string& event_data, int id, bool& failed);
+    bool transfer_failed(bool aborted, const std::string& why);
+
     std::string url_;
     std::string auth_token_;
     int request_timeout_ms_;

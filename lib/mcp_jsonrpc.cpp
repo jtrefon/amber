@@ -53,6 +53,34 @@ std::string mcp_encode_error_response(int id, const McpError& error) {
     return rpc_object(nullptr, json::object(), &jid, nullptr, &error).dump();
 }
 
+// The JSON-RPC error object, when the message carries one.
+std::optional<McpError> decode_error(const json& obj) {
+    if (!obj.contains("error") || !obj["error"].is_object())
+        return std::nullopt;
+    McpError err;
+    err.code = obj["error"].value("code", 0);
+    err.message = obj["error"].value("message", "");
+    if (obj["error"].contains("data"))
+        err.data = obj["error"]["data"];
+    return err;
+}
+
+// Copy the fields this transport understands out of a decoded object.
+McpMessage decode_fields(const json& obj) {
+    McpMessage msg;
+    if (obj.contains("id"))
+        msg.id = obj["id"];
+    if (obj.contains("method") && obj["method"].is_string())
+        msg.method = obj["method"].get<std::string>();
+    if (obj.contains("params") && obj["params"].is_object())
+        msg.params = obj["params"];
+    if (obj.contains("result"))
+        msg.result = obj["result"];
+    if (auto err = decode_error(obj))
+        msg.error = *err;
+    return msg;
+}
+
 std::optional<McpMessage> mcp_decode_line(const std::string& line) {
     json obj;
     try {
@@ -65,23 +93,7 @@ std::optional<McpMessage> mcp_decode_line(const std::string& line) {
     if (obj.contains("jsonrpc") && obj["jsonrpc"] != "2.0")
         return std::nullopt;
 
-    McpMessage msg;
-    if (obj.contains("id"))
-        msg.id = obj["id"];
-    if (obj.contains("method") && obj["method"].is_string())
-        msg.method = obj["method"].get<std::string>();
-    if (obj.contains("params") && obj["params"].is_object())
-        msg.params = obj["params"];
-    if (obj.contains("result"))
-        msg.result = obj["result"];
-    if (obj.contains("error") && obj["error"].is_object()) {
-        McpError err;
-        err.code = obj["error"].value("code", 0);
-        err.message = obj["error"].value("message", "");
-        if (obj["error"].contains("data"))
-            err.data = obj["error"]["data"];
-        msg.error = err;
-    }
+    McpMessage msg = decode_fields(obj);
     if (msg.method.empty() && !msg.id.has_value())
         return std::nullopt;
     return msg;
