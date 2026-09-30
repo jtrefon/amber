@@ -43,6 +43,35 @@ std::vector<std::string> SettingRegistry::keys_in(const std::string& ns) const {
     return out;
 }
 
+// Walk to the namespace node: the first token is a top-level command, every
+// following token descends through a "children" map. Returns nullptr when the
+// path is not in the tree.
+const nlohmann::json* SettingRegistry::find_namespace_node(const std::string& prefix) const {
+    if (!tree_.contains("commands") || !tree_["commands"].is_object())
+        return nullptr;
+    const nlohmann::json* node = &tree_["commands"];
+    size_t p = 0;
+    while (p < prefix.size()) {
+        const size_t dot = prefix.find('.', p);
+        const std::string tok =
+            (dot == std::string::npos) ? prefix.substr(p) : prefix.substr(p, dot - p);
+        if (p == 0) {
+            if (!node->contains(tok))
+                return nullptr;
+            node = &(*node)[tok];
+        } else {
+            if (!node->is_object() || !node->contains("children") ||
+                !(*node)["children"].is_object() || !(*node)["children"].contains(tok))
+                return nullptr;
+            node = &(*node)["children"][tok];
+        }
+        if (dot == std::string::npos)
+            break;
+        p = dot + 1;
+    }
+    return node;
+}
+
 std::vector<std::string> SettingRegistry::complete(const std::string& prefix) const {
     std::vector<std::string> out;
     // The command tree is the authoritative structure. Query semantics:
@@ -51,36 +80,11 @@ std::vector<std::string> SettingRegistry::complete(const std::string& prefix) co
     //   complete("set.policy")  → direct children paths of "set.policy"
     // Direct children only — the drawer rows and the completion list must
     // stay 1:1 aligned for Enter dispatch.
-    auto add = [&](const std::string& key) {
-        if (std::find(out.begin(), out.end(), key) == out.end())
-            out.push_back(key);
-    };
     if (!tree_.contains("commands") || !tree_["commands"].is_object())
         return out;
-    const nlohmann::json* node = &tree_["commands"];
-    if (!prefix.empty()) {
-        // Walk to the namespace node: first token is a top-level command,
-        // every following token descends through a "children" map.
-        size_t p = 0;
-        while (p < prefix.size()) {
-            size_t dot = prefix.find('.', p);
-            std::string tok =
-                (dot == std::string::npos) ? prefix.substr(p) : prefix.substr(p, dot - p);
-            if (p == 0) {
-                if (!node->contains(tok))
-                    return out;
-                node = &(*node)[tok];
-            } else {
-                if (!node->is_object() || !node->contains("children") ||
-                    !(*node)["children"].is_object() || !(*node)["children"].contains(tok))
-                    return out;
-                node = &(*node)["children"][tok];
-            }
-            if (dot == std::string::npos)
-                break;
-            p = dot + 1;
-        }
-    }
+    const nlohmann::json* node = prefix.empty() ? &tree_["commands"] : find_namespace_node(prefix);
+    if (!node)
+        return out;
     const nlohmann::json* kids = node;
     if (!prefix.empty()) {
         if (!node->contains("children") || !(*node)["children"].is_object())
@@ -88,8 +92,9 @@ std::vector<std::string> SettingRegistry::complete(const std::string& prefix) co
         kids = &(*node)["children"];
     }
     for (auto it = kids->begin(); it != kids->end(); ++it) {
-        std::string child = prefix.empty() ? it.key() : prefix + "." + it.key();
-        add(child);
+        const std::string child = prefix.empty() ? it.key() : prefix + "." + it.key();
+        if (std::find(out.begin(), out.end(), child) == out.end())
+            out.push_back(child);
     }
     return out;
 }
@@ -143,89 +148,98 @@ std::vector<std::string> SettingRegistry::children_of(const std::string& key) co
     return {};
 }
 
+// The string elements of an array field, empty when the field is absent.
+std::vector<std::string> string_array(const nlohmann::json& node, const char* key) {
+    std::vector<std::string> out;
+    if (!node.contains(key) || !node[key].is_array())
+        return out;
+    for (const auto& v : node[key])
+        out.push_back(v.get<std::string>());
+    return out;
+}
+
+SettingRegistry::NodeFields read_node_fields(const nlohmann::json& node) {
+    SettingRegistry::NodeFields f;
+    if (node.contains("help") && node["help"].is_string())
+        f.help = node["help"].get<std::string>();
+    if (node.contains("man") && node["man"].is_string())
+        f.man = node["man"].get<std::string>();
+    if (node.contains("action") && node["action"].is_string())
+        f.action = node["action"].get<std::string>();
+    f.aliases = string_array(node, "aliases");
+    f.choices = string_array(node, "choices");
+    if (node.contains("range") && node["range"].is_array() && node["range"].size() == 2) {
+        f.range_lo = node["range"][0].get<double>();
+        f.range_hi = node["range"][1].get<double>();
+        f.has_range = true;
+    }
+    return f;
+}
+
+// The child keys of a node, or empty when it has no children object.
+std::vector<std::string> child_keys(const nlohmann::json& node) {
+    std::vector<std::string> keys;
+    if (!node.contains("children") || !node["children"].is_object())
+        return keys;
+    for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
+        keys.push_back(it.key());
+    return keys;
+}
+
+void union_into(std::vector<std::string>& dst, const std::vector<std::string>& src) {
+    for (const auto& k : src)
+        if (std::find(dst.begin(), dst.end(), k) == dst.end())
+            dst.push_back(k);
+}
+
+void SettingRegistry::index_entry(const std::string& key, const NodeFields& f) {
+    if (!f.help.empty())
+        key_help_[key] = f.help;
+    if (!f.man.empty())
+        key_man_[key] = f.man;
+    if (!f.choices.empty())
+        command_choices_[key] = f.choices;
+    if (f.has_range)
+        command_ranges_[key] = {f.range_lo, f.range_hi};
+}
+
+// Index a namespace's children so complete() can walk the tree.
+void SettingRegistry::index_children(const std::string& display_path, const std::string& key_path,
+                                     const nlohmann::json& node) {
+    const std::vector<std::string> kids = child_keys(node);
+    if (kids.empty())
+        return;
+    if (!display_path.empty() && display_path.find('.') == std::string::npos)
+        union_into(command_subcommands_[display_path], kids);
+    if (!key_path.empty())
+        union_into(key_children_[key_path], kids);
+}
+
 void SettingRegistry::index_node(const nlohmann::json& node, const std::string& display_path) {
     if (!node.is_object())
         return;
-
-    auto idx = [&](const std::string& key, const std::string& help, const std::string& man,
-                   const std::vector<std::string>& choices, double rlo, double rhi,
-                   bool has_range) {
-        if (!help.empty())
-            key_help_[key] = help;
-        if (!man.empty())
-            key_man_[key] = man;
-        if (!choices.empty())
-            command_choices_[key] = choices;
-        if (has_range)
-            command_ranges_[key] = {rlo, rhi};
-    };
-
-    std::string help_text, man_text, action;
-    std::vector<std::string> choices;
-    double rlo = 0, rhi = 0;
-    bool has_range = false;
-
-    if (node.contains("help") && node["help"].is_string())
-        help_text = node["help"].get<std::string>();
-    if (node.contains("man") && node["man"].is_string())
-        man_text = node["man"].get<std::string>();
-    if (node.contains("action") && node["action"].is_string())
-        action = node["action"].get<std::string>();
-    std::vector<std::string> aliases;
-    if (node.contains("aliases") && node["aliases"].is_array())
-        for (const auto& a : node["aliases"])
-            aliases.push_back(a.get<std::string>());
-
-    if (node.contains("choices") && node["choices"].is_array())
-        for (const auto& c : node["choices"])
-            choices.push_back(c.get<std::string>());
-    if (node.contains("range") && node["range"].is_array() && node["range"].size() == 2) {
-        rlo = node["range"][0].get<double>();
-        rhi = node["range"][1].get<double>();
-        has_range = true;
-    }
-
-    if (!action.empty())
-        idx(action, help_text, man_text, choices, rlo, rhi, has_range);
+    const NodeFields f = read_node_fields(node);
 
     // Namespaces are indexed by their FULL display path so get.<ns> and
     // set.<ns> never collide ("set.model" != "get.model"). Top-level
     // commands keep their bare name ("model", "policy").
-    std::string key_path = display_path;
-    if (!key_path.empty() && (key_path.find('.') != std::string::npos ||
-                              !node.contains("children") || !help_text.empty())) {
-        idx(key_path, help_text, man_text, choices, rlo, rhi, has_range);
-        if (!aliases.empty())
-            command_aliases_[key_path] = aliases;
+    const std::string& key_path = display_path;
+    const bool nested = key_path.find('.') != std::string::npos;
+    if (!f.action.empty())
+        index_entry(f.action, f);
+    if (!key_path.empty() && (nested || !node.contains("children") || !f.help.empty())) {
+        index_entry(key_path, f);
+        if (!f.aliases.empty())
+            command_aliases_[key_path] = f.aliases;
     }
+    index_children(display_path, key_path, node);
 
-    auto union_into = [](std::vector<std::string>& dst, const std::vector<std::string>& src) {
-        for (const auto& k : src)
-            if (std::find(dst.begin(), dst.end(), k) == dst.end())
-                dst.push_back(k);
-    };
-
-    if (!display_path.empty() && display_path.find('.') == std::string::npos &&
-        node.contains("children") && node["children"].is_object()) {
-        std::vector<std::string> subs;
-        for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
-            subs.push_back(it.key());
-        union_into(command_subcommands_[display_path], subs);
-    }
-
-    if (!key_path.empty() && node.contains("children") && node["children"].is_object()) {
-        std::vector<std::string> kids;
-        for (auto it = node["children"].begin(); it != node["children"].end(); ++it)
-            kids.push_back(it.key());
-        union_into(key_children_[key_path], kids);
-    }
-
-    if (node.contains("children") && node["children"].is_object()) {
-        for (auto it = node["children"].begin(); it != node["children"].end(); ++it) {
-            std::string child_display =
-                display_path.empty() ? it.key() : display_path + "." + it.key();
-            index_node(it.value(), child_display);
-        }
+    if (!node.contains("children") || !node["children"].is_object())
+        return;
+    for (auto it = node["children"].begin(); it != node["children"].end(); ++it) {
+        const std::string child_display =
+            display_path.empty() ? it.key() : display_path + "." + it.key();
+        index_node(it.value(), child_display);
     }
 }
 

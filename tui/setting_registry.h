@@ -29,6 +29,18 @@ struct Setting {
 // Provides lookup, completion, namespace grouping, and validation.
 class SettingRegistry {
 public:
+    // The fields a completions.json node may carry.
+    struct NodeFields {
+        std::string help;
+        std::string man;
+        std::string action;
+        std::vector<std::string> aliases;
+        std::vector<std::string> choices;
+        double range_lo = 0;
+        double range_hi = 0;
+        bool has_range = false;
+    };
+
     void add(Setting s);
     const Setting* find(const std::string& key) const;
 
@@ -90,6 +102,10 @@ public:
     const std::vector<std::string>& subcommands_for(const std::string& cmd) const;
 
 private:
+    const nlohmann::json* find_namespace_node(const std::string& prefix) const;
+    void index_entry(const std::string& key, const NodeFields& f);
+    void index_children(const std::string& display_path, const std::string& key_path,
+                        const nlohmann::json& node);
     void index_node(const nlohmann::json& node, const std::string& display_path);
 
     // Canonical full-path key for a possibly-dotted key: exact match, then
