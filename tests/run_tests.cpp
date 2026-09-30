@@ -4681,6 +4681,45 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
     ASSERT(archived);
 }
 
+TEST(enforce_target_budget_archives_oldest_and_keeps_the_active_task) {
+    agent::Message ctx_msg;
+    ctx_msg.role = "system";
+    ctx_msg.content = "Compressed conversation context:\n{\"archive\":[],\"facts\":{}}";
+    std::vector<agent::Message> msgs = {
+        msg("system", "Amber"),
+        msg("user", std::string(4000, 'a')),      // archivable
+        msg("assistant", std::string(4000, 'b')), // archivable
+        msg("user", std::string(4000, 'c')),      // the active task: protected
+        ctx_msg,
+    };
+    agent::CompressionConfig cfg;
+    cfg.target_pct = 10;       // 10% of 20000 = 2000 tokens
+    cfg.keep_last_prompts = 1; // protect the last real user prompt
+    // Three ~1004-token messages put us at ~3012 against a 2000 budget, so the
+    // two oldest non-system messages go and the protected tail survives.
+    auto out = agent::enforce_target_budget(std::move(msgs), 20000, cfg);
+    ASSERT_EQ(out.size(), size_t{3});
+    ASSERT_EQ(out[0].role, "system");
+    ASSERT_EQ(out[1].content, std::string(4000, 'c'));
+    // Each dropped turn is recorded in the archive block rather than silently
+    // vanishing.
+    ASSERT(out[2].content.find("compressed to meet target budget") != std::string::npos);
+
+    // Without a compressed-context message there is nothing to record into, so
+    // the pass bails instead of dropping messages it cannot account for.
+    std::vector<agent::Message> no_ctx = {
+        msg("system", "Amber"),
+        msg("user", std::string(4000, 'a')),
+        msg("user", std::string(4000, 'b')),
+    };
+    auto same = agent::enforce_target_budget(std::move(no_ctx), 4000, cfg); // target 400
+    ASSERT_EQ(same.size(), size_t{3});
+
+    // An unknown context window never trims.
+    std::vector<agent::Message> unknown = {msg("system", "Amber"), msg("user", "hi")};
+    ASSERT_EQ(agent::enforce_target_budget(std::move(unknown), 0, cfg).size(), size_t{2});
+}
+
 TEST(agent_extract_memories_from_tool_results) {
     // Verify MemoryStore round-trip (the core store behavior, not the
     // removed heuristic extraction). The LLM-based extraction in
