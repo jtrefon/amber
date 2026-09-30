@@ -40,6 +40,14 @@ driven by an OpenAI-compatible LLM API.
   `clang-format`), which disagrees with 23.x *and* with 18.1.8 on braced-init
   and line-break placement — so a locally "clean" tree can fail CI. Match the
   runner (`pip install clang-format==18.1.3`) before reformatting.
+- `make complexity` is the ratcheted gate (`tools/complexity_gate.py`:
+  CCN>15 or length>50 via lizard, fail-closed). It is a CI job but is
+  **not** in `ci-gate`, so it can go red without blocking a merge. Every CI
+  job carries a `timeout-minutes` and the shared `install-deps` action bounds
+  apt (`DPkg::Lock::Timeout` + `timeout` + noninteractive), so a hung
+  dependency install fails in minutes instead of sitting until GitHub's 6 h
+  job ceiling. Jobs that need only `./configure`'s probes (complexity) pass
+  `cpp_toolchain: 'false'` to skip clang/ncurses/pkg-config.
 - CI also runs an ASan+UBSan `make test` job, a **ThreadSanitizer** `make test`
   job (data races: the UI thread, per-window agent workers, the tool-dispatch
   hop and the detached catalog/plugin workers all share state, and ASan+UBSan
