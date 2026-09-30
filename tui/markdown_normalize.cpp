@@ -123,6 +123,37 @@ std::vector<std::string> split_sep_runs(const std::string& s) {
 }
 
 // Pass 1: line-level repairs — separator runs, table spacing, missing delimiters.
+// Columns a table row declares, counting unescaped pipes.
+int count_cols(const std::string& s);
+
+// A delimiter row (|---||---|) wide enough for `cols` columns.
+std::string make_delimiter_row(int cols) {
+    std::string sep;
+    for (int c = 0; c < cols; ++c)
+        sep += "|---";
+    sep += '|';
+    return sep;
+}
+
+// Repair a table the model emitted without a delimiter row (|---|): md4c needs
+// one or the rows collapse into garbage. Only at the start of a table block, so
+// we do not emit a delimiter before every body row. Returns true when the caller
+// should insert one.
+bool needs_delimiter_row(const std::vector<std::string>& in, const std::vector<std::string>& out,
+                         size_t i) {
+    const std::string& l = in[i];
+    if (!is_table_row(l) || i + 1 >= in.size())
+        return false;
+    size_t n = i + 1;
+    while (n < in.size() && is_blank(in[n]))
+        ++n;
+    if (n >= in.size() || !is_table_row(in[n]) || is_delimiter_row(in[n]))
+        return false;
+    const bool prev_is_table =
+        !out.empty() && (is_table_row(out.back()) || is_delimiter_row(out.back()));
+    return !prev_is_table;
+}
+
 std::vector<std::string> repair_lines(const std::vector<std::string>& in) {
     std::vector<std::string> out;
     for (size_t i = 0; i < in.size(); ++i) {
@@ -143,34 +174,10 @@ std::vector<std::string> repair_lines(const std::vector<std::string>& in) {
             if (!is_blank(prev) && !is_heading(prev) && !is_table_row(prev))
                 out.emplace_back("");
         }
-        // Repair tables the model emits without a delimiter row (|---|): md4c
-        // needs one or the rows collapse into garbage. Only at the start of a
-        // table block, so we do not emit a delimiter before every body row.
-        if (is_table_row(l) && i + 1 < in.size()) {
-            size_t n = i + 1;
-            while (n < in.size() && is_blank(in[n]))
-                ++n;
-            if (n < in.size() && is_table_row(in[n]) && !is_delimiter_row(in[n])) {
-                const bool prev_is_table =
-                    !out.empty() && (is_table_row(out.back()) || is_delimiter_row(out.back()));
-                if (!prev_is_table) {
-                    int cols = 0;
-                    for (char p : l)
-                        if (p == '|')
-                            ++cols;
-                    if (l.front() == '|')
-                        --cols;
-                    if (cols < 1)
-                        cols = 1;
-                    std::string sep;
-                    for (int c = 0; c < cols; ++c)
-                        sep += "|---";
-                    sep += '|';
-                    out.push_back(l);
-                    out.push_back(sep);
-                    continue;
-                }
-            }
+        if (needs_delimiter_row(in, out, i)) {
+            out.push_back(l);
+            out.push_back(make_delimiter_row(std::max(1, count_cols(l))));
+            continue;
         }
         out.push_back(l);
     }
@@ -202,6 +209,27 @@ int count_cols(const std::string& s) {
 // The LLM sometimes emits `| Vuln | Real path |` (2 cols) followed by 5-col body
 // rows; md4c then locks the table to 2 cols and the extra cells are lost,
 // appearing as raw `| ... |` paragraphs. Expand every row to the block's max.
+// Widen one ragged row to `max_cols`, keeping a delimiter row's --- cells.
+std::string pad_table_row(const std::string& row, int max_cols) {
+    std::string s = row;
+    const size_t f = s.find_first_not_of(' ');
+    const size_t l = s.find_last_not_of(' ');
+    if (f == std::string::npos)
+        return s;
+    const bool delim = is_delimiter_row(row);
+    s = s.substr(f, l - f + 1);
+    if (s.front() != '|')
+        s.insert(0, "| ");
+    if (s.back() != '|')
+        s += " |";
+    int cur = count_cols(s);
+    while (cur < max_cols) {
+        s += delim ? "---|" : " |";
+        ++cur;
+    }
+    return s;
+}
+
 void pad_ragged_tables(std::vector<std::string>& out) {
     for (size_t i = 0; i < out.size();) {
         if (!is_table_row(out[i]) && !is_delimiter_row(out[i])) {
@@ -218,27 +246,9 @@ void pad_ragged_tables(std::vector<std::string>& out) {
                 max_cols = std::max(max_cols, count_cols(out[k]));
         if (max_cols <= 0)
             continue;
-        for (size_t k = start; k < end; ++k) {
-            if (is_blank(out[k]) || count_cols(out[k]) >= max_cols)
-                continue;
-            const bool delim = is_delimiter_row(out[k]);
-            std::string s = out[k];
-            const size_t f = s.find_first_not_of(' ');
-            const size_t l = s.find_last_not_of(' ');
-            if (f == std::string::npos)
-                continue;
-            s = s.substr(f, l - f + 1);
-            if (s.front() != '|')
-                s.insert(0, "| ");
-            if (s.back() != '|')
-                s += " |";
-            int cur = count_cols(s);
-            while (cur < max_cols) {
-                s += delim ? "---|" : " |";
-                ++cur;
-            }
-            out[k] = s;
-        }
+        for (size_t k = start; k < end; ++k)
+            if (!is_blank(out[k]) && count_cols(out[k]) < max_cols)
+                out[k] = pad_table_row(out[k], max_cols);
     }
 }
 

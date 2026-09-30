@@ -61,53 +61,62 @@ std::string child_row(const std::string& name, const std::string& full_key,
 
 } // namespace
 
-std::vector<std::string> drawer_rows(const std::string& input, const SettingRegistry& settings) {
-    std::vector<std::string> rows;
+// The namespace path and the partial token the user is filtering on.
+struct DrawerQuery {
+    std::string ns;
+    std::string partial;
+};
 
-    // Extract the namespace path: "/get policy mode" → ns "get.policy",
-    // partial "mode". A missing space means the whole token is partial.
-    std::string ns_path, partial;
-    size_t sp = input.find(' ', 1);
-    if (sp != std::string::npos) {
-        ns_path = input.substr(1);
-        while (!ns_path.empty() && ns_path.back() == ' ')
-            ns_path.pop_back();
-        size_t last_sp = ns_path.rfind(' ');
-        if (last_sp != std::string::npos) {
-            partial = ns_path.substr(last_sp + 1);
-            ns_path.resize(last_sp);
-        }
-    } else {
+// Extract the namespace path: "/get policy mode" → ns "get.policy", partial
+// "mode". A missing space means the whole token is partial.
+DrawerQuery parse_drawer_input(const std::string& input, const SettingRegistry& settings) {
+    DrawerQuery q;
+    std::string ns_path = input.substr(1);
+    const size_t sp = input.find(' ', 1);
+    if (sp == std::string::npos) {
         // No space yet — the user is typing the FIRST token after "/". If it
         // names an exact top-level command/namespace (e.g. "/get"), descend
         // into it. If it is only a PARTIAL (e.g. "/c"), treat it as a filter
         // against the top-level command list: children_of("") returns the
         // top-level keys, and the caller filters them by this prefix below.
-        ns_path = input.substr(1);
-        if (!ns_path.empty()) {
-            auto top = settings.complete("");
-            bool exact = false;
-            for (const auto& t : top)
-                if (t == ns_path) {
-                    exact = true;
-                    break;
-                }
-            if (!exact) {
-                partial = ns_path;
-                ns_path.clear();
+        if (ns_path.empty())
+            return q;
+        auto top = settings.complete("");
+        bool exact = false;
+        for (const auto& t : top)
+            if (t == ns_path) {
+                exact = true;
+                break;
             }
+        if (!exact) {
+            q.partial = ns_path;
+            return q;
         }
+        q.ns = dotted_path(ns_path);
+        return q;
     }
-    std::string ns = dotted_path(ns_path);
+    while (!ns_path.empty() && ns_path.back() == ' ')
+        ns_path.pop_back();
+    const size_t last_sp = ns_path.rfind(' ');
+    if (last_sp != std::string::npos) {
+        q.partial = ns_path.substr(last_sp + 1);
+        ns_path.resize(last_sp);
+    }
+    q.ns = dotted_path(ns_path);
+    return q;
+}
 
-    auto kids = settings.children_of(ns);
+std::vector<std::string> drawer_rows(const std::string& input, const SettingRegistry& settings) {
+    const DrawerQuery q = parse_drawer_input(input, settings);
+    std::vector<std::string> rows;
+    const auto kids = settings.children_of(q.ns);
     if (kids.empty()) {
         // Leaf namespace: show its own help as the single hint row.
-        std::string h = settings.help_for(ns);
+        std::string h = settings.help_for(q.ns);
         if (!h.empty()) {
             std::string line = "  ";
             line += h;
-            append_choices(line, ns, settings);
+            append_choices(line, q.ns, settings);
             rows.push_back(line);
         }
         return rows;
@@ -115,14 +124,12 @@ std::vector<std::string> drawer_rows(const std::string& input, const SettingRegi
 
     // If the partial exactly matches a child that has its own children,
     // descend into that child's namespace.
-    if (!partial.empty()) {
-        std::string sub_key = ns.empty() ? partial : ns + "." + partial;
+    if (!q.partial.empty()) {
+        const std::string sub_key = q.ns.empty() ? q.partial : q.ns + "." + q.partial;
         auto sub = settings.children_of(sub_key);
         if (!sub.empty()) {
             for (const auto& sk : sub) {
-                std::string full_key;
-                full_key.reserve(sub_key.size() + 1 + sk.size());
-                full_key += sub_key;
+                std::string full_key = sub_key;
                 full_key += ".";
                 full_key += sk;
                 rows.push_back(child_row(sk, full_key, settings));
@@ -132,14 +139,9 @@ std::vector<std::string> drawer_rows(const std::string& input, const SettingRegi
     }
 
     for (const auto& k : kids) {
-        if (!partial.empty() && k.rfind(partial, 0) != 0)
+        if (!q.partial.empty() && k.rfind(q.partial, 0) != 0)
             continue;
-        std::string full_key;
-        full_key.reserve(ns.size() + 1 + k.size());
-        if (!ns.empty()) {
-            full_key += ns;
-            full_key += ".";
-        }
+        std::string full_key = q.ns.empty() ? std::string() : q.ns + ".";
         full_key += k;
         rows.push_back(child_row(k, full_key, settings));
     }
@@ -150,49 +152,19 @@ std::vector<std::string> drawer_rows(const std::string& input, const SettingRegi
 
 std::vector<std::string> drawer_entry_names(const std::string& input,
                                             const SettingRegistry& settings) {
-    std::string ns_path, partial;
-    size_t sp = input.find(' ', 1);
-    if (sp != std::string::npos) {
-        ns_path = input.substr(1);
-        while (!ns_path.empty() && ns_path.back() == ' ')
-            ns_path.pop_back();
-        size_t last_sp = ns_path.rfind(' ');
-        if (last_sp != std::string::npos) {
-            partial = ns_path.substr(last_sp + 1);
-            ns_path.resize(last_sp);
-        }
-    } else {
-        // Same first-token-partial handling as drawer_rows: an exact
-        // top-level command descends; a partial filters the top-level list.
-        ns_path = input.substr(1);
-        if (!ns_path.empty()) {
-            auto top = settings.complete("");
-            bool exact = false;
-            for (const auto& t : top)
-                if (t == ns_path) {
-                    exact = true;
-                    break;
-                }
-            if (!exact) {
-                partial = ns_path;
-                ns_path.clear();
-            }
-        }
-    }
-    std::string ns = dotted_path(ns_path);
-    auto kids = settings.children_of(ns);
+    const DrawerQuery q = parse_drawer_input(input, settings);
+    const auto kids = settings.children_of(q.ns);
     if (kids.empty())
         return {};
-    if (!partial.empty()) {
-        std::string sub_key = ns.empty() ? partial : ns + "." + partial;
+    if (!q.partial.empty()) {
+        const std::string sub_key = q.ns.empty() ? q.partial : q.ns + "." + q.partial;
         auto sub = settings.children_of(sub_key);
-        if (!sub.empty()) {
+        if (!sub.empty())
             return sub;
-        }
     }
     std::vector<std::string> out;
     for (const auto& k : kids) {
-        if (!partial.empty() && k.rfind(partial, 0) != 0)
+        if (!q.partial.empty() && k.rfind(q.partial, 0) != 0)
             continue;
         out.push_back(k);
     }
