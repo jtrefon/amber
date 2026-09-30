@@ -26,23 +26,35 @@ int progress_cb(void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) 
     return token->is_requested() ? 1 : 0;
 }
 
+// Trim the leading and trailing whitespace off an HTTP header value.
+std::string trim_header_value(const std::string& raw) {
+    const char* ws = " \t\r\n";
+    const size_t first = raw.find_first_not_of(ws);
+    if (first == std::string::npos)
+        return "";
+    const size_t last = raw.find_last_not_of(ws);
+    return raw.substr(first, last - first + 1);
+}
+
+bool is_content_type_header(const std::string& name) {
+    return name == "content-type" || name == "Content-Type";
+}
+
+bool is_session_id_header(const std::string& name) {
+    return name == "mcp-session-id" || name == "Mcp-Session-Id";
+}
+
 size_t header_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* reply = static_cast<HttpTransport::HttpReply*>(userdata);
-    size_t n = size * nmemb;
-    std::string line(ptr, n);
-    auto colon = line.find(':');
+    const size_t n = size * nmemb;
+    const std::string line(ptr, n);
+    const auto colon = line.find(':');
     if (colon != std::string::npos) {
-        std::string name = line.substr(0, colon);
-        std::string value = line.substr(colon + 1);
-        while (!value.empty() && (value.front() == ' ' || value.front() == '\t' ||
-                                  value.front() == '\r' || value.front() == '\n'))
-            value.erase(value.begin());
-        while (!value.empty() && (value.back() == ' ' || value.back() == '\t' ||
-                                  value.back() == '\r' || value.back() == '\n'))
-            value.pop_back();
-        if (name == "content-type" || name == "Content-Type") {
+        const std::string name = line.substr(0, colon);
+        const std::string value = trim_header_value(line.substr(colon + 1));
+        if (is_content_type_header(name)) {
             reply->content_type = value;
-        } else if (name == "mcp-session-id" || name == "Mcp-Session-Id") {
+        } else if (is_session_id_header(name)) {
             reply->session_header = value;
             reply->got_session_header = true;
         }
@@ -60,6 +72,83 @@ HttpTransport::HttpTransport(std::string url, std::string auth_token, int reques
       request_timeout_ms_(request_timeout_ms > 0 ? request_timeout_ms : 60000),
       cancel_token_(cancel_token) {}
 
+// True when the message is the JSON-RPC response to `id`.
+bool is_response_for(const McpMessage& msg, int id) {
+    return msg.is_response() && msg.id.has_value() && msg.id->is_number_integer() &&
+           msg.id->get<int>() == id;
+}
+
+// The failure result, recording why for the caller's error text.
+McpTransportResult transport_error(std::string& failure, const std::string& why) {
+    failure = why;
+    McpTransportResult r;
+    r.status = McpTransportStatus::TransportError;
+    return r;
+}
+
+// Decode one accumulated SSE event. Returns the response for `id` when the event
+// carried it; sets `failed` when the event was undecodable, and otherwise hands
+// the message to the server-message callback.
+std::optional<McpMessage> HttpTransport::dispatch_sse_event(std::string& event_data, int id,
+                                                            bool& failed) {
+    auto msg = mcp_decode_line(event_data);
+    event_data.clear();
+    if (!msg) {
+        failed = true;
+        return std::nullopt;
+    }
+    if (is_response_for(*msg, id))
+        return msg;
+    if (on_server_message_)
+        on_server_message_(*msg);
+    return std::nullopt;
+}
+
+// SSE: events carry JSON-RPC messages; the response for our id arrives among
+// them, possibly after server messages.
+McpTransportResult HttpTransport::handle_sse_response(const std::string& body, int id) {
+    std::string event_data;
+    size_t pos = 0;
+    while (pos < body.size()) {
+        const size_t nl = body.find('\n', pos);
+        const std::string line =
+            (nl == std::string::npos) ? body.substr(pos) : body.substr(pos, nl - pos);
+        pos = (nl == std::string::npos) ? body.size() : nl + 1;
+        if (line.empty()) {
+            if (event_data.empty())
+                continue;
+            bool failed = false;
+            auto msg = dispatch_sse_event(event_data, id, failed);
+            if (failed)
+                return transport_error(failure_, "mcp server sent an invalid SSE message");
+            if (msg) {
+                McpTransportResult r;
+                r.message = std::move(msg);
+                return r;
+            }
+            continue;
+        }
+        if (line.rfind("data:", 0) == 0) {
+            std::string data = line.substr(5);
+            if (!data.empty() && data.front() == ' ')
+                data.erase(0, 1);
+            if (!event_data.empty())
+                event_data += "\n";
+            event_data += data;
+        }
+    }
+    if (!event_data.empty()) {
+        bool failed = false;
+        auto msg = dispatch_sse_event(event_data, id, failed);
+        if (msg) {
+            McpTransportResult r;
+            r.message = std::move(msg);
+            return r;
+        }
+    }
+    return transport_error(failure_, "mcp server did not answer on the SSE stream");
+}
+
 McpTransportResult HttpTransport::request(int id, const std::string& method, const json& params) {
     McpRequest req;
     req.id = id;
@@ -73,77 +162,23 @@ McpTransportResult HttpTransport::request(int id, const std::string& method, con
                        : McpTransportStatus::TransportError;
         return r;
     }
-    McpTransportResult r;
     if (reply.got_session_header && session_id_.empty())
         session_id_ = reply.session_header;
     if (reply.status == 404 && !session_id_.empty()) {
+        McpTransportResult r;
         r.status = McpTransportStatus::SessionExpired;
         return r;
     }
-    if (reply.status < 200 || reply.status >= 300) {
-        failure_ = "mcp http " + std::to_string(reply.status) + ": " + reply.body.substr(0, 512);
-        r.status = McpTransportStatus::TransportError;
-        return r;
-    }
-    if (reply.content_type.find("text/event-stream") != std::string::npos) {
-        // SSE: events carry JSON-RPC messages; the response for our id
-        // arrives among them, possibly after server messages.
-        std::string event_data;
-        std::string buf = reply.body;
-        size_t pos = 0;
-        while (pos < buf.size()) {
-            size_t nl = buf.find('\n', pos);
-            std::string line =
-                (nl == std::string::npos) ? buf.substr(pos) : buf.substr(pos, nl - pos);
-            pos = (nl == std::string::npos) ? buf.size() : nl + 1;
-            if (line.empty()) {
-                if (!event_data.empty()) {
-                    auto msg = mcp_decode_line(event_data);
-                    event_data.clear();
-                    if (!msg) {
-                        failure_ = "mcp server sent an invalid SSE message";
-                        r.status = McpTransportStatus::TransportError;
-                        return r;
-                    }
-                    if (msg->is_response() && msg->id.has_value() && msg->id->is_number_integer() &&
-                        msg->id->get<int>() == id) {
-                        r.message = std::move(msg);
-                        return r;
-                    }
-                    if (on_server_message_)
-                        on_server_message_(*msg);
-                }
-                continue;
-            }
-            if (line.rfind("data:", 0) == 0) {
-                std::string data = line.substr(5);
-                if (!data.empty() && data.front() == ' ')
-                    data.erase(0, 1);
-                if (!event_data.empty())
-                    event_data += "\n";
-                event_data += data;
-            }
-        }
-        if (!event_data.empty()) {
-            auto msg = mcp_decode_line(event_data);
-            if (msg && msg->is_response() && msg->id.has_value() && msg->id->is_number_integer() &&
-                msg->id->get<int>() == id) {
-                r.message = std::move(msg);
-                return r;
-            }
-            if (msg && on_server_message_)
-                on_server_message_(*msg);
-        }
-        failure_ = "mcp server did not answer on the SSE stream";
-        r.status = McpTransportStatus::TransportError;
-        return r;
-    }
+    if (reply.status < 200 || reply.status >= 300)
+        return transport_error(failure_, "mcp http " + std::to_string(reply.status) + ": " +
+                                             reply.body.substr(0, 512));
+    if (reply.content_type.find("text/event-stream") != std::string::npos)
+        return handle_sse_response(reply.body, id);
+
     auto msg = mcp_decode_line(reply.body);
-    if (!msg) {
-        failure_ = "mcp server sent an invalid JSON response";
-        r.status = McpTransportStatus::TransportError;
-        return r;
-    }
+    if (!msg)
+        return transport_error(failure_, "mcp server sent an invalid JSON response");
+    McpTransportResult r;
     r.message = std::move(msg);
     return r;
 }
@@ -179,6 +214,12 @@ void HttpTransport::shutdown() {
 
 std::string HttpTransport::failure_reason() const {
     return failure_;
+}
+
+// Record why the transfer failed. `aborted` means the caller cancelled.
+bool HttpTransport::transfer_failed(bool aborted, const std::string& why) {
+    failure_ = aborted ? "cancelled" : why;
+    return false;
 }
 
 bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
@@ -222,15 +263,12 @@ bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
         curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, "DELETE");
     }
 
-    CURLcode rc = curl_easy_perform(curl.get());
-    if (rc == CURLE_ABORTED_BY_CALLBACK && cancel_token_ && cancel_token_->is_requested()) {
-        failure_ = "cancelled";
-        return false;
-    }
-    if (rc != CURLE_OK) {
-        failure_ = "mcp http transport error: " + std::string(curl_easy_strerror(rc));
-        return false;
-    }
+    const CURLcode rc = curl_easy_perform(curl.get());
+    if (rc == CURLE_ABORTED_BY_CALLBACK && cancel_token_ && cancel_token_->is_requested())
+        return transfer_failed(/*aborted=*/true, "");
+    if (rc != CURLE_OK)
+        return transfer_failed(/*aborted=*/false,
+                               "mcp http transport error: " + std::string(curl_easy_strerror(rc)));
     curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &reply.status);
     return true;
 }
