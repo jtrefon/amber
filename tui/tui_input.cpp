@@ -172,47 +172,69 @@ void SlashDispatcher::cmd_get_reasoning() {
     tui_.draw();
 }
 
+// /set <dotted.key> <value>: route through the SettingRegistry. Returns true
+// when the key existed and the value was applied (or the setter reported its own
+// error); false lets the caller try the other /set forms.
+bool SlashDispatcher::apply_setting_key(const std::string& arg) {
+    const size_t sp = arg.find(' ');
+    const std::string key = (sp == std::string::npos) ? arg : arg.substr(0, sp);
+    const std::string val = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
+    const Setting* s = tui_.settings_.find(key);
+    if (!s || !s->setter || val.empty())
+        return false;
+    try {
+        s->setter(std::string(val));
+    } catch (const std::exception& e) {
+        tui_.append_line(P_STATUS, s->key + ": " + e.what());
+        return true;
+    }
+    tui_.append_line(P_STATUS, s->key + ": " + s->getter() + "  \u2014  " + s->help);
+    tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
+    return true;
+}
+
+// The bare /set overview: the current value of every documented option.
+void SlashDispatcher::print_set_overview() {
+    const auto& cfg = tui_.cfg_;
+    tui_.append_line(P_STATUS, "detection loop: " + std::string(cfg.detection_loop ? "on" : "off"));
+    tui_.append_line(P_STATUS,
+                     "detection duplicate: " + std::string(cfg.detection_duplicate ? "on" : "off"));
+    tui_.append_line(P_STATUS,
+                     "display markdown: " + std::string(tui_.win().markdown_on ? "on" : "off"));
+    tui_.append_line(P_STATUS, "policy: " + mode_name(cfg.mode));
+    tui_.append_line(P_STATUS,
+                     "compression threshold: " + std::to_string(compression_threshold_effective()));
+    tui_.append_line(P_STATUS,
+                     "compression min_turns: " + std::to_string(cfg.compression_min_turns_explicit
+                                                                    ? cfg.compression_min_turns
+                                                                    : 10));
+    tui_.append_line(P_STATUS, "provider: " + cfg.provider_name);
+    tui_.append_line(P_STATUS, "model: " + cfg.model);
+    tui_.append_line(P_STATUS, "thinking: " + cfg.thinking);
+    tui_.append_line(P_STATUS, "Use /set <option> <value> to change a setting");
+    tui_.draw();
+}
+
+// Unknown option: the hint is derived from the tree, never hardcoded.
+void SlashDispatcher::print_unknown_setting_hint(const std::string& arg) {
+    std::string hint;
+    for (const auto& child : tui_.settings_.children_of("set")) {
+        if (!hint.empty())
+            hint += ", ";
+        hint += child;
+    }
+    tui_.append_line(P_STATUS,
+                     "unknown option: " + arg + (hint.empty() ? "" : " (try: " + hint + ")"));
+}
+
 void SlashDispatcher::cmd_set(const std::string& arg) {
     // Dotted keys via SettingRegistry (e.g. "compression.threshold 0.8").
-    if (arg.find('.') != std::string::npos) {
-        size_t sp = arg.find(' ');
-        std::string key = (sp == std::string::npos) ? arg : arg.substr(0, sp);
-        std::string val = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
-        const Setting* s = tui_.settings_.find(key);
-        if (s && s->setter && !val.empty()) {
-            try {
-                s->setter(std::string(val));
-            } catch (const std::exception& e) {
-                tui_.append_line(P_STATUS, s->key + ": " + e.what());
-                return;
-            }
-            tui_.append_line(P_STATUS, s->key + ": " + s->getter() + "  \u2014  " + s->help);
-            tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
-            return;
-        }
-    }
+    if (arg.find('.') != std::string::npos && apply_setting_key(arg))
+        return;
     if (arg.empty()) {
-        tui_.append_line(P_STATUS,
-                         "detection loop: " + std::string(tui_.cfg_.detection_loop ? "on" : "off"));
-        tui_.append_line(P_STATUS, "detection duplicate: " +
-                                       std::string(tui_.cfg_.detection_duplicate ? "on" : "off"));
-        tui_.append_line(P_STATUS,
-                         "display markdown: " + std::string(tui_.win().markdown_on ? "on" : "off"));
-        tui_.append_line(P_STATUS, "policy: " + mode_name(tui_.cfg_.mode));
-        tui_.append_line(P_STATUS, "compression threshold: " +
-                                       std::to_string(compression_threshold_effective()));
-        tui_.append_line(P_STATUS, "compression min_turns: " +
-                                       std::to_string(tui_.cfg_.compression_min_turns_explicit
-                                                          ? tui_.cfg_.compression_min_turns
-                                                          : 10));
-        tui_.append_line(P_STATUS, "provider: " + tui_.cfg_.provider_name);
-        tui_.append_line(P_STATUS, "model: " + tui_.cfg_.model);
-        tui_.append_line(P_STATUS, "thinking: " + tui_.cfg_.thinking);
-        tui_.append_line(P_STATUS, "Use /set <option> <value> to change a setting");
-        tui_.draw();
+        print_set_overview();
         return;
     }
-
     // policy: mode/approval/timeout/rule dispatch through the tree leaves
     // (core.config.set.policy.*); this branch only sees the bare namespace.
     if (arg.rfind("policy ", 0) == 0 || arg == "policy") {
@@ -222,16 +244,7 @@ void SlashDispatcher::cmd_set(const std::string& arg) {
         tui_.draw();
         return;
     }
-
-    // Unknown option: the hint is derived from the tree, never hardcoded.
-    std::string hint;
-    for (const auto& child : tui_.settings_.children_of("set")) {
-        if (!hint.empty())
-            hint += ", ";
-        hint += child;
-    }
-    tui_.append_line(P_STATUS,
-                     "unknown option: " + arg + (hint.empty() ? "" : " (try: " + hint + ")"));
+    print_unknown_setting_hint(arg);
 }
 
 void SlashDispatcher::cmd_get(const std::string& arg) {
@@ -947,7 +960,8 @@ void SlashDispatcher::register_builtin_actions() {
     register_mcp_actions();
 }
 
-void SlashDispatcher::register_core_actions() {
+// /help, /settings, /prompt, /session reset, /window*, /stop.
+void SlashDispatcher::register_core_session_actions() {
     register_action("core.help", [this](const std::string& a) { cmd_help(a); });
     register_action("core.settings", [this](const std::string&) {
         tui_.settings_screen();
@@ -987,6 +1001,10 @@ void SlashDispatcher::register_core_actions() {
         tui_.runs_.request_cancel(tui_.win().id);
         tui_.append_line(P_STATUS, "stop requested");
     });
+}
+
+// /compress, /job*, /session*, /quit.
+void SlashDispatcher::register_core_job_actions() {
     register_action("core.compress", [this](const std::string&) { cmd_compress(""); });
     register_action("core.job", [this](const std::string& a) { cmd_job(a); });
     register_action("core.job.list", [this](const std::string&) { job_ls(); });
@@ -1008,6 +1026,11 @@ void SlashDispatcher::register_core_actions() {
         tui_.session_controller_->session_browser();
     });
     register_action("core.quit", [this](const std::string&) { request_quit(); });
+}
+
+void SlashDispatcher::register_core_actions() {
+    register_core_session_actions();
+    register_core_job_actions();
 }
 
 void SlashDispatcher::register_provider_actions() {
@@ -1054,8 +1077,8 @@ void SlashDispatcher::register_os_actions() {
     register_action("os.system.uname", [this](const std::string&) { cmd_system_uname(); });
 }
 
-void SlashDispatcher::register_config_set_actions() {
-    // set namespace + children
+// /set detection, subagent, display and policy.
+void SlashDispatcher::register_set_engine_actions() {
     register_action("core.config.set", [this](const std::string& a) { cmd_set(a); });
     register_action("core.config.set.detection.loop",
                     [this](const std::string& v) { cmd_set_detection_toggle("loop", v); });
@@ -1074,6 +1097,10 @@ void SlashDispatcher::register_config_set_actions() {
         tui_.append_line(P_STATUS, "markdown rendering: " + v);
         tui_.draw();
     });
+}
+
+// /set policy.
+void SlashDispatcher::register_set_policy_actions() {
     register_action("core.config.set.policy.mode", [this](const std::string& v) {
         if (v != "read" && v != "write" && v != "yolo") {
             tui_.append_line(P_STATUS, "usage: /set policy mode read|write|yolo");
@@ -1109,6 +1136,10 @@ void SlashDispatcher::register_config_set_actions() {
     register_action("core.config.set.provider", [this](const std::string& a) { cmd_provider(a); });
     register_action("core.config.set.policy.rule",
                     [this](const std::string& a) { cmd_set_policy_rule(a); });
+}
+
+// /set compression, think and skills.
+void SlashDispatcher::register_set_feature_actions() {
     register_action("core.config.set.compression.threshold",
                     [this](const std::string& v) { apply_compression_threshold(v); });
     register_action("core.config.set.compression.min_turns",
@@ -1143,8 +1174,14 @@ void SlashDispatcher::register_config_set_actions() {
                     [this](const std::string& a) { cmd_skills_uninstall(a); });
 }
 
-void SlashDispatcher::register_config_get_actions() {
-    // get namespace + children
+void SlashDispatcher::register_config_set_actions() {
+    register_set_engine_actions();
+    register_set_policy_actions();
+    register_set_feature_actions();
+}
+
+// /get config, model, mcp, learn and the panel.
+void SlashDispatcher::register_get_config_actions() {
     register_action("core.config.get", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.config", [this](const std::string&) { cmd_get_config(); });
     register_action("core.config.get.model", [this](const std::string&) { cmd_get_model(); });
@@ -1156,6 +1193,11 @@ void SlashDispatcher::register_config_get_actions() {
     register_action("core.config.get.mcp", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
     register_action("core.panel", [this](const std::string& a) { tui_.open_panels(a); });
+}
+
+// /get plugin, /set plugin, /get provider, /get policy, display, think,
+// detection and subagent.
+void SlashDispatcher::register_get_plugin_policy_actions() {
     register_action("core.config.get.plugin",
                     [this](const std::string& a) { cmd_runtime_plugin_get(a); });
     register_action("core.config.get.plugin.list",
@@ -1199,6 +1241,10 @@ void SlashDispatcher::register_config_get_actions() {
     register_action("core.config.get.detection.duplicate",
                     [this](const std::string&) { cmd_get_detection("duplicate"); });
     register_action("core.config.get.subagent", [this](const std::string&) { cmd_get_subagent(); });
+}
+
+// /set reasoning, /get reasoning, /get compression and /get skills.
+void SlashDispatcher::register_get_reasoning_actions() {
     register_action("core.config.set.reasoning.effort",
                     [this](const std::string& v) { cmd_set_reasoning_effort(v); });
     // Bare /set reasoning <val>: same handler as the effort leaf so
@@ -1238,6 +1284,12 @@ void SlashDispatcher::register_config_get_actions() {
                     [this](const std::string&) { cmd_skills_get("show"); });
 }
 
+void SlashDispatcher::register_config_get_actions() {
+    register_get_config_actions();
+    register_get_plugin_policy_actions();
+    register_get_reasoning_actions();
+}
+
 void SlashDispatcher::register_mcp_actions() {
     // mcp
     register_action("core.mcp", [this](const std::string& a) { cmd_mcp(a); });
@@ -1258,43 +1310,42 @@ const palette::Command* SlashDispatcher::find_command(const std::string& name) {
     return palette::find(commands(), name);
 }
 
-bool SlashDispatcher::handle_slash(const std::string& line) {
-    if (line.empty() || line[0] != '/')
-        return false;
+// Trailing whitespace off the command line.
+std::string trim_slash_line(const std::string& line) {
     std::string trimmed = line;
     while (!trimmed.empty() && (trimmed.back() == ' ' || trimmed.back() == '\t'))
         trimmed.pop_back();
-    std::string rest = trimmed.substr(1);
+    return trimmed;
+}
 
-    // Tokenize.
+std::vector<std::string> tokenize_slash(const std::string& text) {
     std::vector<std::string> tokens;
-    {
-        std::string cur;
-        for (char c : rest) {
-            if (c == ' ' || c == '\t') {
-                if (!cur.empty()) {
-                    tokens.push_back(cur);
-                    cur.clear();
-                }
-            } else {
-                cur += c;
-            }
+    std::string cur;
+    for (char c : text) {
+        if (c != ' ' && c != '\t') {
+            cur += c;
+            continue;
         }
-        if (!cur.empty())
+        if (!cur.empty()) {
             tokens.push_back(cur);
+            cur.clear();
+        }
     }
-    if (tokens.empty())
-        return true;
+    if (!cur.empty())
+        tokens.push_back(cur);
+    return tokens;
+}
 
-    // Walk the command tree, consuming every token that names a documented
-    // child. The deepest node with a registered action handler receives the
-    // remaining text — command structure lives in the tree, not in handlers.
-    const json& tree = tui_.settings_.command_tree();
+// Walk the command tree, consuming every token that names a documented child.
+// The deepest node with a registered action handler receives the remaining text
+// — command structure lives in the tree, not in handlers.
+const json* descend_command_tree(const json& tree, const std::vector<std::string>& tokens,
+                                 size_t& consumed) {
     const json* node = nullptr;
     const json* children = nullptr;
     if (tree.contains("commands") && tree["commands"].is_object())
         children = &tree["commands"];
-    size_t consumed = 0;
+    consumed = 0;
     while (consumed < tokens.size() && children && children->is_object()) {
         auto it = children->find(tokens[consumed]);
         if (it == children->end() || !it->is_object())
@@ -1305,34 +1356,54 @@ bool SlashDispatcher::handle_slash(const std::string& line) {
                        ? &(*node)["children"]
                        : nullptr;
     }
-    if (!node) {
-        tui_.append_line(P_STATUS, "unknown command: /" + tokens[0] + "  (try /help)");
-        return true;
-    }
-    std::string action;
-    if (node->contains("action") && (*node)["action"].is_string())
-        action = (*node)["action"].get<std::string>();
+    return node;
+}
+
+// The unclaimed tokens, joined back into the handler's argument string.
+std::string join_tokens(const std::vector<std::string>& tokens, size_t from) {
     std::string arg;
-    for (size_t i = consumed; i < tokens.size(); ++i) {
+    for (size_t i = from; i < tokens.size(); ++i) {
         if (!arg.empty())
             arg += ' ';
         arg += tokens[i];
     }
+    return arg;
+}
 
+// Documented in the tree but no handler: show the node's manual page.
+void SlashDispatcher::report_missing_handler(const json* node, const std::string& first) {
+    if (node->contains("man") && (*node)["man"].is_string())
+        tui_.append_line(P_STATUS, "/" + first + ": " + (*node)["man"].get<std::string>());
+    else
+        tui_.append_line(P_STATUS, "/" + first + ": no handler for this action");
+}
+
+bool SlashDispatcher::handle_slash(const std::string& line) {
+    if (line.empty() || line[0] != '/')
+        return false;
+    const std::vector<std::string> tokens = tokenize_slash(trim_slash_line(line).substr(1));
+    if (tokens.empty())
+        return true;
+
+    size_t consumed = 0;
+    const json* node = descend_command_tree(tui_.settings_.command_tree(), tokens, consumed);
+    if (!node) {
+        tui_.append_line(P_STATUS, "unknown command: /" + tokens[0] + "  (try /help)");
+        return true;
+    }
+
+    const std::string action = (node->contains("action") && (*node)["action"].is_string())
+                                   ? (*node)["action"].get<std::string>()
+                                   : std::string();
     if (!action_registry_.has(action)) {
-        // Documented in the tree but no handler: show the node's manual page.
-        if (node->contains("man") && (*node)["man"].is_string()) {
-            tui_.append_line(P_STATUS, "/" + tokens[0] + ": " + (*node)["man"].get<std::string>());
-        } else {
-            tui_.append_line(P_STATUS, "/" + tokens[0] + ": no handler for this action");
-        }
+        report_missing_handler(node, tokens[0]);
         return true;
     }
     try {
-        action_registry_.dispatch(action, arg);
+        action_registry_.dispatch(action, join_tokens(tokens, consumed));
     } catch (const std::exception& e) {
-        // No slash command may crash the TUI (uncaught exceptions from
-        // setters used to abort() with the terminal left in raw mode).
+        // No slash command may crash the TUI (uncaught exceptions from setters
+        // used to abort() with the terminal left in raw mode).
         tui_.append_line(P_STATUS, std::string("command error: ") + e.what());
     }
     return true;
@@ -1435,6 +1506,57 @@ void SlashDispatcher::refresh_model_list() {
         tui_.feed_manager_->refresh_model_list();
 }
 
+// First-run flow for a provider that has no endpoint yet (custom, or any
+// user-added provider): seed its dedicated file from the current connection, then
+// confirm via the same provider form used everywhere else. Esc leaves the seeded
+// file behind for external editing — never a dead end. Which providers exist is
+// the plugins' business; this flow only reacts to the state the domain reported.
+// Returns false when the user cancelled.
+bool SlashDispatcher::seed_new_provider(const std::string& a) {
+    agent::seed_provider(a, tui_.cfg_);
+    agent::Config prov_cfg;
+    prov_cfg.provider_name = a;
+    prov_cfg.api_base = tui_.cfg_.api_base;
+    prov_cfg.api_key = tui_.cfg_.api_key;
+    prov_cfg.model = tui_.cfg_.model;
+    prov_cfg.model_explicit = tui_.cfg_.model_explicit;
+    prov_cfg.context_size = tui_.cfg_.context_size;
+    prov_cfg.context_explicit = tui_.cfg_.context_explicit;
+    if (!edit_provider_form(prov_cfg, "Configure provider " + a)) {
+        refresh_provider_feed();
+        tui_.append_line(P_STATUS, "provider file created at " + agent::global_config_dir() +
+                                       "/providers/" + a +
+                                       ".conf \u2014 edit it or re-run /set provider " + a);
+        return false;
+    }
+    tui_.providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
+                                          prov_cfg.api_key, !prov_cfg.api_key.empty(),
+                                          prov_cfg.model, prov_cfg.context_size, false});
+    return true;
+}
+
+// Key-requiring provider with no key configured: prompt for the key inline (same
+// edit form as /settings) so switching never strands the user on a provider that
+// cannot authenticate. Esc cancels the switch.
+bool SlashDispatcher::prompt_provider_key(const std::string& a, const agent::Provider& p) {
+    agent::Config prov_cfg;
+    prov_cfg.provider_name = a;
+    prov_cfg.api_base = p.api_base;
+    prov_cfg.api_key = tui_.cfg_.api_key; // keep an existing global key
+    prov_cfg.model = p.default_model;
+    if (tui_.cfg_.provider_name == a) {
+        prov_cfg.api_base = tui_.cfg_.api_base;
+        prov_cfg.api_key = tui_.cfg_.api_key;
+        prov_cfg.model = tui_.cfg_.model;
+    }
+    if (!edit_provider_form(prov_cfg, "Configure: " + a))
+        return false;
+    tui_.providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
+                                          prov_cfg.api_key, !prov_cfg.api_key.empty(),
+                                          prov_cfg.model, prov_cfg.context_size, p.builtin});
+    return true;
+}
+
 void SlashDispatcher::cmd_provider(const std::string& a) {
     if (busy_reject("provider"))
         return;
@@ -1444,63 +1566,22 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
         return;
     }
     auto sel = tui_.providers_->select(a);
-    if (!sel.ok()) {
-        // First-run flow for a provider that has no endpoint yet (custom, or
-        // any user-added provider): seed its dedicated file from the current
-        // connection, then confirm via the same provider form used everywhere
-        // else. Esc leaves the seeded file behind for external editing — never
-        // a dead end. Which providers exist is the plugins' business; this
-        // flow only reacts to the state the domain reported.
-        if (sel.error.find("no endpoint") != std::string::npos) {
-            agent::seed_provider(a, tui_.cfg_);
-            agent::Config prov_cfg;
-            prov_cfg.provider_name = a;
-            prov_cfg.api_base = tui_.cfg_.api_base;
-            prov_cfg.api_key = tui_.cfg_.api_key;
-            prov_cfg.model = tui_.cfg_.model;
-            prov_cfg.model_explicit = tui_.cfg_.model_explicit;
-            prov_cfg.context_size = tui_.cfg_.context_size;
-            prov_cfg.context_explicit = tui_.cfg_.context_explicit;
-            if (!edit_provider_form(prov_cfg, "Configure provider " + a)) {
-                refresh_provider_feed();
-                tui_.append_line(P_STATUS, "provider file created at " +
-                                               agent::global_config_dir() + "/providers/" + a +
-                                               ".conf \u2014 edit it or re-run /set provider " + a);
-                return;
-            }
-            tui_.providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
-                                                  prov_cfg.api_key, !prov_cfg.api_key.empty(),
-                                                  prov_cfg.model, prov_cfg.context_size, false});
-            sel = tui_.providers_->select(a);
-            if (!sel.ok()) {
-                tui_.append_line(P_STATUS, "error: " + sel.error);
-                return;
-            }
-        } else {
-            tui_.append_line(P_STATUS, "error: " + sel.error);
-            return;
-        }
+    if (!sel.ok() && sel.error.find("no endpoint") == std::string::npos) {
+        tui_.append_line(P_STATUS, "error: " + sel.error);
+        return;
     }
-
-    // Key-requiring provider with no key configured: prompt for the key
-    // inline (same edit form as /settings) so switching never strands the
-    // user on a provider that cannot authenticate. Esc cancels the switch.
-    if (sel.provider.requires_key && sel.provider.api_key.empty() && !sel.warning.empty()) {
-        agent::Config prov_cfg;
-        prov_cfg.provider_name = a;
-        prov_cfg.api_base = sel.provider.api_base;
-        prov_cfg.api_key = tui_.cfg_.api_key; // keep an existing global key
-        prov_cfg.model = sel.provider.default_model;
-        if (tui_.cfg_.provider_name == a) {
-            prov_cfg.api_base = tui_.cfg_.api_base;
-            prov_cfg.api_key = tui_.cfg_.api_key;
-            prov_cfg.model = tui_.cfg_.model;
-        }
-        if (!edit_provider_form(prov_cfg, "Configure: " + a))
+    if (!sel.ok()) {
+        if (!seed_new_provider(a))
             return;
-        tui_.providers_->save(agent::Provider{
-            prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key, !prov_cfg.api_key.empty(),
-            prov_cfg.model, prov_cfg.context_size, sel.provider.builtin});
+        sel = tui_.providers_->select(a);
+    }
+    if (!sel.ok()) {
+        tui_.append_line(P_STATUS, "error: " + sel.error);
+        return;
+    }
+    if (sel.provider.requires_key && sel.provider.api_key.empty() && !sel.warning.empty()) {
+        if (!prompt_provider_key(a, sel.provider))
+            return;
         sel = tui_.providers_->select(a);
         if (!sel.ok()) {
             tui_.append_line(P_STATUS, "error: " + sel.error);
@@ -1515,8 +1596,7 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
         tui_.append_line(P_STATUS, "warning: " + sel.warning);
     if (tui_.win().agent)
         tui_.win().agent->set_connection(tui_.cfg_.api_base, tui_.cfg_.api_key, tui_.cfg_.model);
-    std::string global = agent::global_config_path();
-    tui_.cfg_.save_global(global);
+    tui_.cfg_.save_global(agent::global_config_path());
     refresh_provider_feed();
     tui_.append_line(P_STATUS, "provider switched to " + a + " (model: " + tui_.cfg_.model + ")");
 }
@@ -2317,16 +2397,20 @@ void Tui::on_models_refreshed(bool fetched, bool announce, const std::string& ap
         // run or compression is in flight the agent owns its config (single
         // ownership, not locking). A busy window with no model resolves it in
         // Agent::run() against this now-warm catalog.
-        for (auto& w : window_manager_->all()) {
-            if (!w->agent || runs_.busy(w->id))
-                continue;
-            const auto acfg = w->agent->config_snapshot();
-            if (!acfg || acfg->model.empty())
-                w->agent->set_model(cfg_.model);
-        }
+        adopt_detected_model();
         refresh_model_list();
     }
     draw();
+}
+
+void Tui::adopt_detected_model() {
+    for (auto& w : window_manager_->all()) {
+        if (!w->agent || runs_.busy(w->id))
+            continue;
+        const auto acfg = w->agent->config_snapshot();
+        if (!acfg || acfg->model.empty())
+            w->agent->set_model(cfg_.model);
+    }
 }
 
 void Tui::test_connection(bool announce) {
@@ -2502,8 +2586,43 @@ void Tui::add_new_provider() {
     append_line(P_STATUS, "provider '" + new_name + "' added and activated");
 }
 
+// Activate & edit: seed from the provider domain, overlay current values when it
+// is already the active provider, then confirm through the shared edit form.
+void Tui::activate_and_edit_provider(const std::string& id, const agent::Provider* sel,
+                                     bool is_preset) {
+    agent::Config prov_cfg;
+    prov_cfg.provider_name = id;
+    if (sel) {
+        prov_cfg.api_base = sel->api_base;
+        prov_cfg.api_key = sel->api_key;
+        prov_cfg.model = sel->default_model;
+    }
+    if (cfg_.provider_name == id) {
+        prov_cfg.api_base = cfg_.api_base;
+        prov_cfg.api_key = cfg_.api_key;
+        prov_cfg.model = cfg_.model;
+    }
+    if (!edit_provider_form(prov_cfg, "Edit: " + id))
+        return;
+
+    providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
+                                     !prov_cfg.api_key.empty(), prov_cfg.model,
+                                     prov_cfg.context_size, is_preset});
+    cfg_.provider_name = id;
+    cfg_.api_base = prov_cfg.api_base;
+    cfg_.api_key = prov_cfg.api_key;
+    if (!prov_cfg.model.empty()) {
+        cfg_.model = prov_cfg.model;
+        cfg_.model_explicit = true;
+    }
+    cfg_.save_global(agent::global_config_path());
+    refresh_provider_feed();
+    append_line(P_STATUS, "provider '" + id + "' activated");
+    test_connection(false);
+}
+
 void Tui::provider_actions(const std::string& selected_id) {
-    auto sel_provider = providers_->find(selected_id);
+    const auto sel_provider = providers_->find(selected_id);
     const bool is_preset = sel_provider && sel_provider->builtin;
     std::vector<std::string> actions = {"Activate & edit", "Test connection"};
     if (!is_preset)
@@ -2513,46 +2632,14 @@ void Tui::provider_actions(const std::string& selected_id) {
         return;
 
     if (action == 0) {
-        // Activate & edit — seed from the provider domain, overlay current
-        // values when it is already the active provider.
-        agent::Config prov_cfg;
-        prov_cfg.provider_name = selected_id;
-        if (sel_provider) {
-            prov_cfg.api_base = sel_provider->api_base;
-            prov_cfg.api_key = sel_provider->api_key;
-            prov_cfg.model = sel_provider->default_model;
-        }
-        if (cfg_.provider_name == selected_id) {
-            prov_cfg.api_base = cfg_.api_base;
-            prov_cfg.api_key = cfg_.api_key;
-            prov_cfg.model = cfg_.model;
-        }
-        if (!edit_provider_form(prov_cfg, "Edit: " + selected_id))
-            return;
-
-        providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
-                                         prov_cfg.api_key, !prov_cfg.api_key.empty(),
-                                         prov_cfg.model, prov_cfg.context_size, is_preset});
-        cfg_.provider_name = selected_id;
-        cfg_.api_base = prov_cfg.api_base;
-        cfg_.api_key = prov_cfg.api_key;
-        if (!prov_cfg.model.empty()) {
-            cfg_.model = prov_cfg.model;
-            cfg_.model_explicit = true;
-        }
-        cfg_.save_global(agent::global_config_path());
-        refresh_provider_feed();
-        append_line(P_STATUS, "provider '" + selected_id + "' activated");
-
-        // Test connection
-        test_connection(false);
+        activate_and_edit_provider(selected_id, sel_provider ? &*sel_provider : nullptr, is_preset);
     } else if (action == 1) {
-        // Test connection
+        // Test connection.
         cfg_.provider_name = selected_id;
         cfg_.save_global(agent::global_config_path());
         test_connection(true);
     } else if (action == 2 && !is_preset) {
-        // Delete provider
+        // Delete provider.
         std::string msg = "Delete provider \"" + selected_id + "\"?";
         tui::ConfirmPanel confirm("Delete Provider", msg);
         if (confirm.run()) {
@@ -2759,6 +2846,20 @@ void SlashDispatcher::add_display_settings() {
         });
 }
 
+// Mode lives on the agent (the approval gate reads it live) — propagate to the
+// ACTIVE window only; it never reached any agent before, so existing windows
+// kept their launch mode.
+void SlashDispatcher::apply_policy_mode(const std::string& v) {
+    agent::AgentMode m = agent::AgentMode::Write;
+    if (v == "read")
+        m = agent::AgentMode::Read;
+    else if (v == "yolo")
+        m = agent::AgentMode::Yolo;
+    tui_.cfg_.mode = m;
+    if (tui_.win().agent)
+        tui_.win().agent->set_mode(m);
+}
+
 void SlashDispatcher::add_policy_settings() {
     add_setting(
         "policy.mode", "Agent mode", "<read|write|yolo>", Setting::Choice, 0, 0,
@@ -2767,19 +2868,7 @@ void SlashDispatcher::add_policy_settings() {
             const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
             return mode_name(acfg ? acfg->mode : tui_.cfg_.mode);
         },
-        [this](const std::string& v) {
-            agent::AgentMode m = agent::AgentMode::Write;
-            if (v == "read")
-                m = agent::AgentMode::Read;
-            else if (v == "yolo")
-                m = agent::AgentMode::Yolo;
-            tui_.cfg_.mode = m;
-            // Mode lives on the agent (approval gate reads it live) —
-            // propagate to the ACTIVE window only; it never reached any
-            // agent before, so existing windows kept their launch mode.
-            if (tui_.win().agent)
-                tui_.win().agent->set_mode(m);
-        });
+        [this](const std::string& v) { apply_policy_mode(v); });
     add_setting(
         "policy.timeout", "Approval dialog timeout", "<0-999>", Setting::Int, 0, 999,
         [this]() -> std::string { return std::to_string(tui_.policy_timeout_); },
