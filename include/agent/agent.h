@@ -114,6 +114,12 @@ struct AgentHooks {
 //      or max_tool_iterations is reached.
 class Agent {
 public:
+    // A prompt block waiting to be placed, ordered by (priority, insertion).
+    struct PromptBlock {
+        int priority = 0;
+        std::size_t seq = 0;
+        std::string text;
+    };
     Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
@@ -309,9 +315,13 @@ private:
     void record_stats(const Stats& stats);
     void publish_llm_response(const Stats& stats, bool display);
     bool probe_was_denied() const;
+    void decay_and_persist();
     std::function<std::function<Message()>(const std::string&)>
     build_chat_adapter(const char* stage, const std::vector<std::shared_ptr<Tool>>& tools,
                        bool display);
+    std::string retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const;
+    void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
+                              std::size_t& seq) const;
 
     // Hooks with the display callbacks removed, for silent internal exchanges.
     const AgentHooks& silent_hooks() const;
