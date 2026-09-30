@@ -7,7 +7,6 @@
     "bench/scenario.cpp": 2,
     "bench/template.cpp": 1,
     "lib/agent_helpers.cpp": 1,
-    "lib/compressor_parser.cpp": 1,
     "lib/compressor_request.cpp": 1,
     "lib/compressor_scanner.cpp": 1,
     "lib/core_segments.cpp": 1,

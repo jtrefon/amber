@@ -62,6 +62,101 @@ std::string extract_json_block(const std::string& raw) {
 
 } // namespace
 
+// "start-end" → (start, end). A missing dash leaves both at 0.
+void parse_turn_range(const std::string& turns, ClassifiedSegment& cs) {
+    const size_t dash = turns.find('-');
+    if (dash == std::string::npos)
+        return;
+    cs.turn_start = static_cast<size_t>(std::atol(turns.substr(0, dash).c_str()));
+    cs.turn_end = static_cast<size_t>(std::atol(turns.substr(dash + 1).c_str()));
+}
+
+ClassifiedSegment parse_segment(const json& seg) {
+    ClassifiedSegment cs;
+    cs.tag = tag_from_string(seg.value("tag", "context"));
+    cs.summary = seg.value("summary", "");
+    parse_turn_range(seg.value("turns", "0-0"), cs);
+    return cs;
+}
+
+// A memory or skill op. `is_skill` adds the trigger phrase.
+KnowledgeOp parse_knowledge_op(const json& obj, bool is_skill) {
+    KnowledgeOp op;
+    op.name = obj.value("name", "");
+    op.content = obj.value("content", "");
+    op.action = obj.value("action", "upsert");
+    if (is_skill)
+        op.trigger_phrase = obj.value("trigger_phrase", "");
+    if (obj.contains("tags") && obj["tags"].is_array())
+        for (const auto& t : obj["tags"])
+            op.tags.push_back(t.get<std::string>());
+    return op;
+}
+
+// Only ops with content are kept: an empty upsert would erase the store entry.
+std::vector<KnowledgeOp> parse_knowledge_ops(const json& arr, bool is_skill) {
+    std::vector<KnowledgeOp> out;
+    for (const auto& obj : arr) {
+        KnowledgeOp op = parse_knowledge_op(obj, is_skill);
+        if (!op.content.empty())
+            out.push_back(std::move(op));
+    }
+    return out;
+}
+
+// The string elements of an array field, empty when the field is absent.
+std::vector<std::string> string_list(const json& obj, const char* key) {
+    std::vector<std::string> out;
+    if (!obj.contains(key) || !obj[key].is_array())
+        return out;
+    for (const auto& v : obj[key])
+        if (v.is_string())
+            out.push_back(v.get<std::string>());
+    return out;
+}
+
+// Session brief (non-fatal: an absent/malformed brief does not affect
+// memories/skills — the store retains its last good state). Returns false when
+// every field is empty, which means there is nothing to store.
+bool parse_brief(const json& b, SessionBrief& brief) {
+    brief.intent = b.value("intent", "");
+    brief.direction = b.value("direction", "");
+    brief.earlier = b.value("earlier", "");
+    brief.next = b.value("next", "");
+    brief.done = string_list(b, "done");
+    brief.avoid = string_list(b, "avoid");
+    return !brief.intent.empty() || !brief.direction.empty() || !brief.done.empty() ||
+           !brief.next.empty() || !brief.avoid.empty();
+}
+
+// The classification, memory, skill and brief blocks of an object response.
+void parse_response_body(const json& j, CompressionResponse& cr) {
+    // Parse the work-state summary (top-level string the classifier emits).
+    if (j.contains("summary") && j["summary"].is_string())
+        cr.summary = j["summary"].get<std::string>();
+
+    // Parse classification segments from an object
+    if (j.contains("classification") && j["classification"].is_array())
+        for (const auto& seg : j["classification"])
+            cr.segments.push_back(parse_segment(seg));
+
+    // Parse memory ops
+    if (j.contains("memories") && j["memories"].is_array())
+        cr.memory_ops = parse_knowledge_ops(j["memories"], /*is_skill=*/false);
+
+    // Parse skill ops
+    if (j.contains("skills") && j["skills"].is_array())
+        cr.skill_ops = parse_knowledge_ops(j["skills"], /*is_skill=*/true);
+
+    // Parse session brief (non-fatal: absent/malformed brief does not affect
+    // memories/skills — the store retains its last good state).
+    if (j.contains("brief") && j["brief"].is_object()) {
+        SessionBrief brief;
+        if (parse_brief(j["brief"], brief))
+            cr.brief = std::move(brief);
+    }
+}
+
 CompressionResponse parse_compression_response(const std::string& json_str) {
     CompressionResponse cr;
     if (json_str.empty())
@@ -76,103 +171,13 @@ CompressionResponse parse_compression_response(const std::string& json_str) {
 
         // If the LLM returned a bare array, it's a classification-only response.
         if (j.is_array()) {
-            for (const auto& seg : j) {
-                if (!seg.is_object())
-                    continue;
-                ClassifiedSegment cs;
-                std::string turns = seg.value("turns", "0-0");
-                std::string tag = seg.value("tag", "context");
-                std::string summary = seg.value("summary", "");
-                cs.tag = tag_from_string(tag);
-                cs.summary = summary;
-
-                size_t dash = turns.find('-');
-                if (dash != std::string::npos) {
-                    cs.turn_start = static_cast<size_t>(std::atol(turns.substr(0, dash).c_str()));
-                    cs.turn_end = static_cast<size_t>(std::atol(turns.substr(dash + 1).c_str()));
-                }
-                cr.segments.push_back(cs);
-            }
+            for (const auto& seg : j)
+                if (seg.is_object())
+                    cr.segments.push_back(parse_segment(seg));
             return cr; // Classification only — no memory/skill ops
         }
 
-        // Parse the work-state summary (top-level string the classifier emits).
-        if (j.contains("summary") && j["summary"].is_string())
-            cr.summary = j["summary"].get<std::string>();
-
-        // Parse classification segments from an object
-        if (j.contains("classification") && j["classification"].is_array()) {
-            for (const auto& seg : j["classification"]) {
-                ClassifiedSegment cs;
-                std::string turns = seg.value("turns", "0-0");
-                std::string tag = seg.value("tag", "context");
-                std::string summary = seg.value("summary", "");
-                cs.tag = tag_from_string(tag);
-                cs.summary = summary;
-
-                size_t dash = turns.find('-');
-                if (dash != std::string::npos) {
-                    cs.turn_start = static_cast<size_t>(std::atol(turns.substr(0, dash).c_str()));
-                    cs.turn_end = static_cast<size_t>(std::atol(turns.substr(dash + 1).c_str()));
-                }
-                cr.segments.push_back(cs);
-            }
-        }
-
-        // Parse memory ops
-        if (j.contains("memories") && j["memories"].is_array()) {
-            for (const auto& m : j["memories"]) {
-                KnowledgeOp op;
-                op.name = m.value("name", "");
-                op.content = m.value("content", "");
-                op.action = m.value("action", "upsert");
-                if (m.contains("tags") && m["tags"].is_array()) {
-                    for (const auto& t : m["tags"])
-                        op.tags.push_back(t.get<std::string>());
-                }
-                if (!op.content.empty())
-                    cr.memory_ops.push_back(op);
-            }
-        }
-
-        // Parse skill ops
-        if (j.contains("skills") && j["skills"].is_array()) {
-            for (const auto& s : j["skills"]) {
-                KnowledgeOp op;
-                op.name = s.value("name", "");
-                op.content = s.value("content", "");
-                op.action = s.value("action", "upsert");
-                op.trigger_phrase = s.value("trigger_phrase", "");
-                if (s.contains("tags") && s["tags"].is_array()) {
-                    for (const auto& t : s["tags"])
-                        op.tags.push_back(t.get<std::string>());
-                }
-                if (!op.content.empty())
-                    cr.skill_ops.push_back(op);
-            }
-        }
-
-        // Parse session brief (non-fatal: absent/malformed brief does not
-        // affect memories/skills — the store retains its last good state).
-        if (j.contains("brief") && j["brief"].is_object()) {
-            const auto& b = j["brief"];
-            SessionBrief brief;
-            brief.intent = b.value("intent", "");
-            brief.direction = b.value("direction", "");
-            brief.earlier = b.value("earlier", "");
-            brief.next = b.value("next", "");
-            if (b.contains("done") && b["done"].is_array())
-                for (const auto& d : b["done"])
-                    if (d.is_string())
-                        brief.done.push_back(d.get<std::string>());
-            if (b.contains("avoid") && b["avoid"].is_array())
-                for (const auto& a : b["avoid"])
-                    if (a.is_string())
-                        brief.avoid.push_back(a.get<std::string>());
-            if (!brief.intent.empty() || !brief.direction.empty() || !brief.done.empty() ||
-                !brief.next.empty() || !brief.avoid.empty())
-                cr.brief = std::move(brief);
-        }
+        parse_response_body(j, cr);
     } catch (const std::exception&) { // NOLINT: invalid JSON from LLM is expected, not exceptional
     }
 
