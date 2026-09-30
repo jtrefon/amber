@@ -54,42 +54,45 @@ void sanitize_node(json& node) {
 // merged into an in-memory object view and re-serialized rather than stored as
 // a raw JSON object (object-typed arguments sent back to the API on the next
 // turn corrupt the conversation and arrive at the tool as `{}`).
-void accumulate_arguments(json& fn, const json& frag) {
-    auto view = [&]() -> json {
-        if (fn.contains("arguments") && fn["arguments"].is_string()) {
-            json v = json::parse(fn["arguments"].get<std::string>(), nullptr, false);
-            if (!v.is_discarded() && v.is_object())
-                return v;
-        }
-        return json::object();
-    };
-    if (frag.is_string()) {
-        std::string piece = frag.get<std::string>();
-        if (!fn.contains("arguments")) {
-            fn["arguments"] = piece;
-            return;
-        }
-        if (fn["arguments"].is_string()) {
-            std::string cur = fn["arguments"].get<std::string>();
-            json cur_obj = json::parse(cur, nullptr, false);
-            json piece_obj = json::parse(piece, nullptr, false);
-            if (!cur_obj.is_discarded() && cur_obj.is_object() && !piece_obj.is_discarded() &&
-                piece_obj.is_object()) {
-                for (auto it = piece_obj.begin(); it != piece_obj.end(); ++it)
-                    cur_obj[it.key()] = it.value();
-                fn["arguments"] = cur_obj.dump();
-            } else if (!cur_obj.is_discarded() && cur_obj.is_object()) {
-                return;
-            } else {
-                fn["arguments"] = cur + piece;
-            }
-            return;
-        }
+// The arguments object `fn` already holds, or an empty object.
+json arguments_view(const json& fn) {
+    if (fn.contains("arguments") && fn["arguments"].is_string()) {
+        json v = json::parse(fn["arguments"].get<std::string>(), nullptr, false);
+        if (!v.is_discarded() && v.is_object())
+            return v;
+    }
+    return json::object();
+}
+
+// Merge a JSON-string fragment into fn["arguments"]: object pieces merge
+// key-wise, plain text concatenates.
+void accumulate_string_arguments(json& fn, const std::string& piece) {
+    if (!fn.contains("arguments") || !fn["arguments"].is_string()) {
         fn["arguments"] = piece;
         return;
     }
+    const std::string cur = fn["arguments"].get<std::string>();
+    json cur_obj = json::parse(cur, nullptr, false);
+    json piece_obj = json::parse(piece, nullptr, false);
+    if (!cur_obj.is_discarded() && cur_obj.is_object() && !piece_obj.is_discarded() &&
+        piece_obj.is_object()) {
+        for (auto it = piece_obj.begin(); it != piece_obj.end(); ++it)
+            cur_obj[it.key()] = it.value();
+        fn["arguments"] = cur_obj.dump();
+        return;
+    }
+    if (!cur_obj.is_discarded() && cur_obj.is_object())
+        return; // keep the object we already have
+    fn["arguments"] = cur + piece;
+}
+
+void accumulate_arguments(json& fn, const json& frag) {
+    if (frag.is_string()) {
+        accumulate_string_arguments(fn, frag.get<std::string>());
+        return;
+    }
     if (frag.is_object()) {
-        json base = view();
+        json base = arguments_view(fn);
         for (auto it = frag.begin(); it != frag.end(); ++it)
             base[it.key()] = it.value();
         fn["arguments"] = base.dump();
@@ -292,20 +295,22 @@ public:
     using StreamDecoder::StreamDecoder;
 
 protected:
+    // The include_usage final chunk carries usage and often an empty choices[].
+    void decode_usage(const json& evt) {
+        if (!evt.contains("usage") || !evt["usage"].is_object())
+            return;
+        const json& u = evt["usage"];
+        if (u.contains("prompt_tokens") && u["prompt_tokens"].is_number())
+            prompt_tokens_ = u["prompt_tokens"].get<long>();
+        if (u.contains("completion_tokens") && u["completion_tokens"].is_number())
+            completion_tokens_ = u["completion_tokens"].get<long>();
+    }
+
     void decode_payload(const std::string& data) override {
         json evt = json::parse(data, nullptr, false);
         if (evt.is_discarded())
             return;
-
-        // The include_usage final chunk carries usage and often an empty
-        // choices[].
-        if (evt.contains("usage") && evt["usage"].is_object()) {
-            const json& u = evt["usage"];
-            if (u.contains("prompt_tokens") && u["prompt_tokens"].is_number())
-                prompt_tokens_ = u["prompt_tokens"].get<long>();
-            if (u.contains("completion_tokens") && u["completion_tokens"].is_number())
-                completion_tokens_ = u["completion_tokens"].get<long>();
-        }
+        decode_usage(evt);
 
         if (!evt.contains("choices") || evt["choices"].empty())
             return;
@@ -526,6 +531,26 @@ public:
                                                      std::move(debug_path));
     }
 
+    // The active model's entry wins (a router may list models without context
+    // metadata ahead of the one in use); otherwise the first entry that reports
+    // a positive window; otherwise the first entry.
+    const json* choose_model_entry(const json* arr, const std::string& preferred) const {
+        if (!preferred.empty()) {
+            for (const auto& e : *arr) {
+                if (!e.is_object())
+                    continue;
+                for (const char* k : {"id", "model", "name"}) {
+                    if (e.contains(k) && e[k].is_string() && e[k].get<std::string>() == preferred)
+                        return &e;
+                }
+            }
+        }
+        for (const auto& e : *arr)
+            if (e.is_object() && parse_entry(e).context > 0)
+                return &e;
+        return &(*arr)[0];
+    }
+
     ServerInfo parse_models_response(const std::string& body,
                                      const std::string& preferred_model) const override {
         ServerInfo info;
@@ -537,34 +562,7 @@ public:
         if (!arr || arr->empty())
             return info;
 
-        // The active model's entry wins (a router may list models without
-        // context metadata ahead of the one in use); otherwise the first entry
-        // that reports a positive window; otherwise the first entry.
-        const json* chosen = nullptr;
-        if (!preferred_model.empty()) {
-            for (const auto& e : *arr) {
-                if (!e.is_object())
-                    continue;
-                for (const char* k : {"id", "model", "name"}) {
-                    if (e.contains(k) && e[k].is_string() &&
-                        e[k].get<std::string>() == preferred_model) {
-                        chosen = &e;
-                        break;
-                    }
-                }
-                if (chosen)
-                    break;
-            }
-        }
-        if (!chosen) {
-            for (const auto& e : *arr)
-                if (e.is_object() && parse_entry(e).context > 0) {
-                    chosen = &e;
-                    break;
-                }
-        }
-        if (!chosen)
-            chosen = &(*arr)[0];
+        const json* chosen = choose_model_entry(arr, preferred_model);
 
         ModelInfo m = parse_entry(*chosen);
         info.model = m.id;
@@ -616,70 +614,68 @@ public:
     }
 
 private:
-    void append_messages(json& out, const std::vector<Message>& messages) const {
-        // Merge ALL system messages into ONE leading system message, regardless
-        // of where they appear in the list. The compressed-context archive is
-        // a role=system message that legitimately sits AFTER the conversation
-        // turns (apply_classification appends it, then prepends the real
-        // system prompt); strict GGUF chat templates (e.g. Qwen 3.6 dense)
-        // reject any system message that is not at the start with HTTP 500
-        // ("System message must be at the beginning"). Two passes: first
-        // accumulate every system message's content, then emit the single
-        // merged block before the first non-system message. Token-level KV
-        // prefix caching is unaffected — the common prefix tokens are
-        // identical with or without the merge.
-        std::string merged_system;
+    // Merge ALL system messages into ONE block, regardless of where they appear
+    // in the list. The compressed-context archive is a role=system message that
+    // legitimately sits AFTER the conversation turns (apply_classification
+    // appends it, then prepends the real system prompt); strict GGUF chat
+    // templates (e.g. Qwen 3.6 dense) reject any system message that is not at
+    // the start with HTTP 500 ("System message must be at the beginning").
+    // Token-level KV prefix caching is unaffected — the common prefix tokens are
+    // identical with or without the merge.
+    static std::string merge_system_content(const std::vector<Message>& messages) {
+        std::string merged;
         for (const auto& m : messages) {
             if (m.role != "system")
                 continue;
-            if (!merged_system.empty())
-                merged_system += "\n\n";
-            merged_system += m.content;
+            if (!merged.empty())
+                merged += "\n\n";
+            merged += m.content;
         }
+        return merged;
+    }
+
+    // One message as the wire object. Sanitized on the way out: history restored
+    // from an old session file (or assembled by an older parser) can carry
+    // name-less placeholder tool_calls, which strict gateways reject with a
+    // type-discriminator 400. The in-memory context is untouched.
+    static json message_json(const Message& m) {
+        json jm = {{"role", m.role}};
+        if (m.role == "assistant" && !m.tool_calls.is_null()) {
+            json calls = sanitize_tool_calls(m.tool_calls);
+            if (!calls.empty())
+                jm["tool_calls"] = std::move(calls);
+            // Some servers reject an assistant message that has tool_calls but no
+            // content field at all; and a message whose every call was a
+            // placeholder degrades to plain text rather than an empty array.
+            jm["content"] = m.content;
+            return jm;
+        }
+        // Every other role MUST carry a content field; an omitted content yields
+        // HTTP 400 ("Assistant message must contain either 'content' or
+        // 'tool_calls'"). Always emit it, even when empty, so a stripped/empty
+        // assistant reply never breaks the next request.
+        jm["content"] = m.content;
+        if (m.role == "tool") {
+            jm["tool_call_id"] = m.tool_call_id;
+            jm["name"] = m.name;
+        }
+        return jm;
+    }
+
+    void append_messages(json& out, const std::vector<Message>& messages) const {
+        const std::string merged_system = merge_system_content(messages);
         bool system_emitted = false;
         for (const auto& m : messages) {
             if (m.role == "system")
                 continue;
-            // First non-system message: emit the accumulated system block
-            // first so it is always at the beginning of the conversation.
+            // First non-system message: emit the accumulated system block first
+            // so it is always at the beginning of the conversation.
             if (!system_emitted) {
                 if (!merged_system.empty())
                     out.push_back({{"role", "system"}, {"content", merged_system}});
                 system_emitted = true;
             }
-            json jm = {{"role", m.role}};
-            if (m.role == "assistant" && !m.tool_calls.is_null()) {
-                // Sanitize on the way out: history restored from an old
-                // session file (or assembled by an older parser) can carry
-                // name-less placeholder tool_calls, which strict gateways
-                // reject with a type-discriminator 400. The in-memory context
-                // is untouched.
-                json calls = sanitize_tool_calls(m.tool_calls);
-                if (!calls.empty()) {
-                    jm["tool_calls"] = std::move(calls);
-                    // Some servers reject an assistant message that has
-                    // tool_calls but no content field at all; emit an explicit
-                    // empty string.
-                    jm["content"] = m.content;
-                } else {
-                    // Every call was a placeholder — degrade to a plain
-                    // assistant text message rather than sending an empty
-                    // tool_calls array.
-                    jm["content"] = m.content;
-                }
-            } else {
-                // Every other role MUST carry a content field; an omitted
-                // content yields HTTP 400 ("Assistant message must contain
-                // either 'content' or 'tool_calls'"). Always emit it, even
-                // when empty, so a stripped/empty assistant reply never breaks
-                // the next request.
-                jm["content"] = m.content;
-            }
-            if (m.role == "tool") {
-                jm["tool_call_id"] = m.tool_call_id;
-                jm["name"] = m.name;
-            }
-            out.push_back(jm);
+            out.push_back(message_json(m));
         }
         // All-system message list (no turns): emit the system block.
         if (!system_emitted && !merged_system.empty())
