@@ -68,6 +68,40 @@ void CommandLine::advance_cycle(int dir) {
     drawer_sel_ = static_cast<int>(cycle_index_);
 }
 
+// The token after the last dot: for "set.policy.mode" the user is completing
+// "mode".
+std::string completion_token(const std::string& partial) {
+    const size_t dot = partial.rfind('.');
+    return (dot == std::string::npos || dot + 1 >= partial.size()) ? partial
+                                                                   : partial.substr(dot + 1);
+}
+
+// The shadow text for a match: the rest of the name, or a space when it is
+// already complete.
+std::string shadow_for(const std::string& match, const std::string& token) {
+    return match.size() > token.size() ? match.substr(token.size()) : " ";
+}
+
+// The shadow from Tab cycling, or empty when the current cycle entry no longer
+// extends the partial.
+std::string CommandLine::cycle_shadow(const std::string& partial) const {
+    if (cycle_matches_.empty() || cycle_index_ >= cycle_matches_.size())
+        return "";
+    const std::string& match = cycle_matches_[cycle_index_];
+    const std::string token = completion_token(partial);
+    if (token.empty() || match.size() < token.size() || match.substr(0, token.size()) != token)
+        return "";
+    return shadow_for(match, token);
+}
+
+// The shadow from the current completion context, or empty when nothing matches.
+std::string CommandLine::completion_shadow(const std::string& partial) const {
+    for (const auto& name : completions_)
+        if (completion_matches(name, partial))
+            return shadow_for(name, completion_token(partial));
+    return "";
+}
+
 void CommandLine::recompute() {
     shadow_.clear();
 
@@ -83,41 +117,15 @@ void CommandLine::recompute() {
     // Find the partial token (text after last space or start).
     size_t tok_start = input_.rfind(' ');
     tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
-    std::string partial = input_.substr(tok_start);
+    const std::string partial = input_.substr(tok_start);
     if (partial.empty())
         return;
 
-    // First, try cycle matches (set by Tab cycling).
-    if (!cycle_matches_.empty() && cycle_index_ < cycle_matches_.size()) {
-        const std::string& match = cycle_matches_[cycle_index_];
-        size_t dot = partial.rfind('.');
-        std::string p = (dot == std::string::npos || dot + 1 >= partial.size())
-                            ? partial
-                            : partial.substr(dot + 1);
-        if (!p.empty() && match.size() >= p.size() && match.substr(0, p.size()) == p) {
-            if (match.size() > p.size())
-                shadow_ = match.substr(p.size());
-            else
-                shadow_ = " ";
-            return;
-        }
-    }
-
-    // Fallback: compute shadow from the current completion context.
-    for (const auto& name : completions_) {
-        if (completion_matches(name, partial)) {
-            size_t dot = partial.rfind('.');
-            std::string p = (dot == std::string::npos || dot + 1 >= partial.size())
-                                ? partial
-                                : partial.substr(dot + 1);
-            if (name.size() > p.size()) {
-                shadow_ = name.substr(p.size());
-            } else {
-                shadow_ = " ";
-            }
-            return;
-        }
-    }
+    // First, try cycle matches (set by Tab cycling), then fall back to the
+    // current completion context.
+    shadow_ = cycle_shadow(partial);
+    if (shadow_.empty())
+        shadow_ = completion_shadow(partial);
 }
 
 // ── Event handlers ──────────────────────────────────────────────────
@@ -134,46 +142,44 @@ std::vector<std::string> CommandLine::drawer_items() const {
     return completions_;
 }
 
+// '?' on a slash command: a full help page when it follows a space (for the path
+// before it), an inline remaining-options popup otherwise. The '?' is inserted
+// first so the popup path can restore the input verbatim.
+CommandLine::Result CommandLine::intercept_help_question(char c) {
+    Result r;
+    const bool has_space = (cursor_ >= 2 && input_[cursor_ - 1] == ' ');
+    const std::string before_q = input_;
+    const size_t before_cursor = cursor_;
+    input_.insert(cursor_, 1, c);
+    ++cursor_;
+
+    if (!has_space) {
+        // No space → inline remaining-options popup: the input before ? is
+        // valid, and the caller populates the items from the token before ?.
+        r.action = Result::ShowPopup;
+        input_ = before_q;
+        cursor_ = before_cursor;
+        return r;
+    }
+    // Space before ? → full help page for the path before the space. Strip the ?
+    // and everything after the space before it.
+    const size_t sp = before_q.rfind(' ');
+    const std::string path = before_q.substr(0, sp);
+    r.action = Result::ShowHelpPage;
+    r.help_node = path;
+    // Restore input to before the ? was typed (without trailing space).
+    input_ = path + " ";
+    cursor_ = input_.size();
+    drawer_open_ = false;
+    return r;
+}
+
 CommandLine::Result CommandLine::on_char(char c) {
     Result r;
     save_undo();
 
-    if (c == '?' && !input_.empty() && input_[0] == '/') {
-        // ? interception: check if preceded by space.
-        bool has_space = (cursor_ >= 2 && input_[cursor_ - 1] == ' ');
-        std::string before_q = input_;
-        size_t before_cursor = cursor_;
-
-        // Insert the ? (we'll strip it if we intercept).
-        input_.insert(cursor_, 1, c);
-        ++cursor_;
-
-        if (has_space) {
-            // Space before ? → full help page for path before the space.
-            // Strip the ? and everything after the space before it.
-            size_t sp = before_q.rfind(' ');
-            std::string path = before_q.substr(0, sp);
-            r.action = Result::ShowHelpPage;
-            r.help_node = path;
-            // Restore input to before the ? was typed (without trailing space).
-            input_ = path + " ";
-            cursor_ = input_.size();
-            drawer_open_ = false;
-            return r;
-        }
-        {
-            // No space → inline remaining-options popup.
-            // The input before ? is valid; show completion options.
-            r.action = Result::ShowPopup;
-            // For now, use palette-style filtering.
-            // Popup items are set by the caller based on the token before ?.
-            // Restore input to before ?.
-            input_ = before_q;
-            cursor_ = before_cursor;
-            // Signal the caller to show popup for the token before ?.
-            return r;
-        }
-    }
+    if (c == '?' && !input_.empty() && input_[0] == '/')
+        return intercept_help_question(c);
 
     if (c == '@' && input_.size() < 65536) {
         // @ reference: insert @ and show file popup.
@@ -191,10 +197,51 @@ CommandLine::Result CommandLine::on_char(char c) {
         reset_cycle();
         drawer_open_ = (!input_.empty() && input_[0] == '/');
         recompute();
-        return r;
     }
-
     return r;
+}
+
+// Begin (or restart) Tab cycling over the current completions.
+void CommandLine::start_cycle() {
+    if (!completions_.empty() && cycle_matches_.empty()) {
+        cycle_matches_ = completions_;
+        cycle_index_ = 0;
+        consecutive_tabs_ = 1;
+        last_tab_input_ = input_;
+        return;
+    }
+    if (!cycle_matches_.empty()) {
+        cycle_index_ = 0;
+        consecutive_tabs_ = 1;
+    }
+}
+
+// True when the partial token after the last space could still be completed:
+// empty, ending at a dot, or a prefix of something offered.
+bool CommandLine::can_complete_partial() const {
+    size_t tok_start = input_.rfind(' ');
+    tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
+    const std::string partial = input_.substr(tok_start);
+    if (partial.empty() || partial.back() == '.')
+        return true;
+    return std::any_of(completions_.begin(), completions_.end(),
+                       [&](const std::string& n) { return n.rfind(partial, 0) == 0; });
+}
+
+// No shadow, but completions exist (e.g. empty suffix after dot). Only append
+// when the partial token could match: an unrelated partial (e.g. "/set model"
+// with model-id completions) must not concatenate.
+bool CommandLine::accept_first_completion() {
+    if (completions_.empty() || !can_complete_partial())
+        return false;
+    input_ += completions_[0];
+    cursor_ = input_.size();
+    cycle_matches_ = completions_;
+    cycle_index_ = 0;
+    consecutive_tabs_ = 1;
+    last_tab_input_ = input_;
+    recompute();
+    return true;
 }
 
 CommandLine::Result CommandLine::on_tab() {
@@ -209,53 +256,17 @@ CommandLine::Result CommandLine::on_tab() {
         return r;
     }
 
-    // Accept shadow if present.
+    // Accept shadow if present, then start cycling.
     if (!shadow_.empty()) {
         input_ += shadow_;
         cursor_ = input_.size();
         shadow_.clear();
-        // Start cycling with current completions.
-        if (!completions_.empty() && cycle_matches_.empty()) {
-            cycle_matches_ = completions_;
-            cycle_index_ = 0;
-            consecutive_tabs_ = 1;
-            last_tab_input_ = input_;
-        } else if (!cycle_matches_.empty()) {
-            cycle_index_ = 0;
-            consecutive_tabs_ = 1;
-        }
+        start_cycle();
         recompute();
         return r;
     }
 
-    // No shadow, but completions exist (e.g. empty suffix after dot).
-    // Only append when the partial token could match: an unrelated partial
-    // (e.g. "/set model" with model-id completions) must not concatenate.
-    if (!completions_.empty()) {
-        size_t tok_start = input_.rfind(' ');
-        tok_start = (tok_start == std::string::npos) ? 1 : tok_start + 1;
-        std::string partial = input_.substr(tok_start);
-        bool can_complete = partial.empty() || partial.back() == '.';
-        if (!can_complete) {
-            for (const auto& n : completions_)
-                if (n.rfind(partial, 0) == 0) {
-                    can_complete = true;
-                    break;
-                }
-        }
-        if (can_complete) {
-            input_ += completions_[0];
-            cursor_ = input_.size();
-            cycle_matches_ = completions_;
-            cycle_index_ = 0;
-            consecutive_tabs_ = 1;
-            last_tab_input_ = input_;
-            recompute();
-            return r;
-        }
-    }
-
-    // Nothing to complete.
+    accept_first_completion();
     return r;
 }
 
