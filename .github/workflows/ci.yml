@@ -24,6 +24,7 @@ jobs:
   # ---------------------------------------------------------------------------
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       cpp: ${{ steps.filter.outputs.cpp }}
       website: ${{ steps.filter.outputs.website }}
@@ -53,6 +54,7 @@ jobs:
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: read
@@ -74,6 +76,7 @@ jobs:
   lint:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -98,6 +101,7 @@ jobs:
   lint-full:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && needs.changes.outputs.cpp == 'true'
     continue-on-error: true
     steps:
@@ -125,6 +129,7 @@ jobs:
   analyze:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -160,6 +165,7 @@ jobs:
   check:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -178,6 +184,7 @@ jobs:
   duplicates:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -187,16 +194,22 @@ jobs:
         run: python3 tools/duplicate_detector.py --min-lines=6 lib tools tui tests src
 
   # ---------------------------------------------------------------------------
-  # Complexity — informational, no fail (CCN>15 or length>50 via lizard).
-  # Keeps tech debt visible without blocking; tighten to CCN 10 later.
+  # Complexity — the ratcheted gate (CCN>15 or length>50 via lizard). Fails
+  # closed on a regression, but is deliberately excluded from ci-gate, so it
+  # reports red without blocking a merge (see ci-gate below). Runs on the slim
+  # dependency set: the gate itself is pure Python, install-deps is there only
+  # for the compiler ./configure's probes need.
   # ---------------------------------------------------------------------------
   complexity:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
+        with:
+          cpp_toolchain: 'false'
       - name: Install lizard
         run: pip install lizard -q
       - name: Complexity (lizard)
@@ -212,6 +225,7 @@ jobs:
   format-check:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -239,6 +253,7 @@ jobs:
   sanitizers:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -269,6 +284,7 @@ jobs:
   tsan:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -300,6 +316,7 @@ jobs:
   coverage:
     needs: [changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     permissions:
       contents: read
@@ -368,6 +385,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.cpp == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -404,6 +422,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.cpp == 'true'
     runs-on: macos-latest
+    timeout-minutes: 90
     env:
       CXX: ccache clang++
     steps:
@@ -440,6 +459,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     needs: [changes, build-and-test]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
@@ -508,6 +528,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     needs: [changes, build-and-test-macos]
     runs-on: macos-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
@@ -551,6 +572,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.website == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -591,6 +613,7 @@ jobs:
     needs: [changes, website-build]
     if: needs.changes.outputs.website == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -625,6 +648,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     needs: [website-build]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -648,13 +672,15 @@ jobs:
   # Every gating job is aggregated here, not just the fast ones: a red
   # sanitizer, coverage or macOS run must block a merge. `lint` is PR-only and
   # reports `skipped` on pushes (allowed). `complexity` and `lint-full` are
-  # intentionally excluded -- both are informational. `cd`/`cd-macos` and the
+  # intentionally excluded -- neither blocks a merge (complexity is a
+  # non-gating ratchet, lint-full a safety net). `cd`/`cd-macos` and the
   # website deploy are delivery jobs; website smoke checks are gated.
   # ---------------------------------------------------------------------------
   ci-gate:
     needs: [changes, dependency-review, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, tsan, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Verify gating jobs
         env:
