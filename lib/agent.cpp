@@ -469,99 +469,73 @@ CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     return r;
 }
 
-bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult* out) {
-    // Same scope as a turn: compression may run on its own worker thread,
-    // where it still needs this agent's cancel token and catalog.
-    cfg_.cancel_token.clear(); // a requested flag must not outlive its run
-    RunScope scope;
-    scope.cancel_token = &cfg_.cancel_token;
-    scope.skills = skills_.get();
-    scope.activated = &activated_skills_;
-    ScopedRunScope scope_guard(scope);
-    // Snapshot BEFORE compression — immutable, never mutate live stack.
-    if (!compression_) {
-        CompressionResult r;
-        r.error = "no compressor configured";
-        if (out)
-            *out = std::move(r);
-        return false;
-    }
-    if (context_.size() < 2) {
-        CompressionResult r;
-        r.messages_before = context_.size();
-        r.error = "conversation too short to compress";
-        if (out)
-            *out = std::move(r);
-        return false;
-    }
-    auto before = context_.get_all();
-    size_t msgs_before = before.size();
-    size_t tokens_before = context_.token_count();
-
+// Report a compression that never started. Always returns false, for the
+// caller's early return.
+bool Agent::fail_compression(CompressionResult* out, const std::string& error, size_t msgs_before) {
     CompressionResult r;
-    CompressionReporter reporter(hooks_, r, std::move(progress_cb));
-    reporter.set_before(msgs_before, tokens_before);
+    r.messages_before = msgs_before;
+    r.error = error;
+    if (out)
+        *out = std::move(r);
+    return false;
+}
 
-    // Run the pipeline on a snapshot. The pipeline is pure: it reads the
-    // context, works on a copy, and returns the compressed message list.
-    // KV reuse between the classify and extract LLM calls comes from
-    // content-identical prefixes (the extract request replays the classify
-    // request), not from mutating the live context. The rebuild below is the
-    // only place the live context changes, and only on success.
-    auto cc = load_compression_config(cfg_);
-    CompressionResponse cr;
-    auto compressed = compression_->compress(context_, cc, *client_, &reporter, &cr);
+// Tell the host a compression finished. The failure path reports the
+// pre-compression token count, the success path the post-compression one.
+void Agent::publish_compression_done(bool success, long tokens_after) {
+    CompressionCompletedEvent finished;
+    finished.success = success;
+    finished.tokens_after = tokens_after;
+    publish_event(finished);
+}
 
+// Spec invariant 7: a failed compression leaves the context untouched. Report
+// the real error — a failure here must not masquerade as "no compressor
+// configured" (the TUI keys off messages_before == 0).
+bool Agent::fail_compression_after(CompressionResult& r, const std::string& error,
+                                   size_t msgs_before, size_t tokens_before,
+                                   CompressionReporter& reporter, CompressionResult* out) {
+    r.messages_before = msgs_before;
+    r.tokens_before = tokens_before;
+    r.error = error;
+    reporter.on_error(error);
+    publish_compression_done(false, static_cast<long>(tokens_before));
+    publish_error("compression", error);
+    if (out)
+        *out = std::move(r);
+    return false;
+}
+
+// Run the pipeline on a snapshot. The pipeline is pure: it reads the context,
+// works on a copy, and returns the compressed message list. KV reuse between the
+// classify and extract LLM calls comes from content-identical prefixes (the
+// extract request replays the classify request), not from mutating the live
+// context. Returns false when the classifier reported an error.
+bool Agent::run_compression_pipeline(CompressionReporter& reporter, CompressionResponse& cr,
+                                     std::vector<Message>& compressed) {
+    const auto cc = load_compression_config(cfg_);
+    compressed = compression_->compress(context_, cc, *client_, &reporter, &cr);
     // Cooldown applies to the attempt, not just the success: a failing
-    // classifier must not re-fire the pipeline on every following turn and
-    // burn two LLM calls each time — the gate stays silent for the cooldown
-    // window and retries later. (Gate may be null when the host built the
-    // agent with a compressor but no gate — direct pipeline use.)
+    // classifier must not re-fire the pipeline on every following turn and burn
+    // two LLM calls each time — the gate stays silent for the cooldown window and
+    // retries later. (Gate may be null when the host built the agent with a
+    // compressor but no gate — direct pipeline use.)
     if (gate_)
         gate_->set_last_compress_turn(turn_counter_);
+    return cr.error.empty();
+}
 
-    // Spec invariant 7: a failed compression leaves the context untouched.
-    // Report the real error — a failure here must not masquerade as "no
-    // compressor configured" (the TUI keys off messages_before == 0).
-    if (!cr.error.empty()) {
-        r.messages_before = msgs_before;
-        r.tokens_before = tokens_before;
-        r.error = cr.error;
-        reporter.on_error(cr.error);
-        CompressionCompletedEvent finished;
-        finished.success = false;
-        finished.tokens_after = tokens_before;
-        publish_event(finished);
-        publish_error("compression", cr.error);
-        if (out)
-            *out = std::move(r);
-        return false;
-    }
-
-    // Rebuild context from compressed result using stack primitives.
+// Rebuild the live context from the compressed list, using only the stack
+// primitives (clear + push). The pipeline itself never touched it.
+void Agent::rebuild_context(std::vector<Message>& compressed) {
     context_.clear();
     for (auto& m : compressed)
         context_.push(std::move(m));
     emit_context_event(context_events_, context_);
+}
 
-    // The cached server prompt count describes the PRE-compression context;
-    // reset it so the gate evaluates the new context honestly (falls back
-    // to the estimate until the next chat refreshes it).
-    cfg_.prompt_tokens_used = -1;
-
-    // Apply memory/skill ops from the LLM classification response.
-    apply_compression_result(cr);
-
-    // Apply the session brief extracted by the extract step (non-fatal).
-    apply_brief(cr);
-
-    // Stats — captured BEFORE the snapshot was taken.
-    r.messages_before = msgs_before;
-    r.messages_after = context_.size();
-    r.tokens_before = tokens_before;
-    r.tokens_after = context_.token_count();
-
-    // Populate segment counts from the classification response.
+// Populate the per-tag segment counts from the classification response.
+void Agent::count_segments(const CompressionResponse& cr, CompressionResult& r) {
     for (const auto& seg : cr.segments) {
         switch (seg.tag) {
         case Classification::core:
@@ -575,14 +549,64 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
             break;
         }
     }
+}
 
+// Record the outcome, tell the host, and hand the result back.
+void Agent::finish_compression(CompressionResult& r, const CompressionResponse& cr,
+                               size_t msgs_before, size_t tokens_before,
+                               CompressionReporter& reporter, CompressionResult* out) {
+    // Stats — captured BEFORE the snapshot was taken.
+    r.messages_before = msgs_before;
+    r.messages_after = context_.size();
+    r.tokens_before = tokens_before;
+    r.tokens_after = context_.token_count();
+    count_segments(cr, r);
     reporter.on_compress_done(r);
-    CompressionCompletedEvent finished;
-    finished.success = true;
-    finished.tokens_after = r.tokens_after;
-    publish_event(finished);
+    publish_compression_done(true, r.tokens_after);
     if (out)
         *out = std::move(r);
+}
+
+bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult* out) {
+    // Same scope as a turn: compression may run on its own worker thread,
+    // where it still needs this agent's cancel token and catalog.
+    cfg_.cancel_token.clear(); // a requested flag must not outlive its run
+    RunScope scope;
+    scope.cancel_token = &cfg_.cancel_token;
+    scope.skills = skills_.get();
+    scope.activated = &activated_skills_;
+    ScopedRunScope scope_guard(scope);
+
+    // Snapshot BEFORE compression — immutable, never mutate live stack.
+    if (!compression_)
+        return fail_compression(out, "no compressor configured", 0);
+    if (context_.size() < 2)
+        return fail_compression(out, "conversation too short to compress", context_.size());
+
+    auto before = context_.get_all();
+    const size_t msgs_before = before.size();
+    const size_t tokens_before = context_.token_count();
+
+    CompressionResult r;
+    CompressionReporter reporter(hooks_, r, std::move(progress_cb));
+    reporter.set_before(msgs_before, tokens_before);
+
+    CompressionResponse cr;
+    std::vector<Message> compressed;
+    if (!run_compression_pipeline(reporter, cr, compressed))
+        return fail_compression_after(r, cr.error, msgs_before, tokens_before, reporter, out);
+
+    rebuild_context(compressed);
+    // The cached server prompt count describes the PRE-compression context;
+    // reset it so the gate evaluates the new context honestly (falls back to the
+    // estimate until the next chat refreshes it).
+    cfg_.prompt_tokens_used = -1;
+    // Apply memory/skill ops from the LLM classification response, then the
+    // session brief the extract step produced (non-fatal).
+    apply_compression_result(cr);
+    apply_brief(cr);
+
+    finish_compression(r, cr, msgs_before, tokens_before, reporter, out);
     return true;
 }
 
@@ -965,6 +989,76 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
     insert_prompt_blocks(prompt_copy, head, tail);
 }
 
+// The mutable state of one agent turn: loop counters, recovery bookkeeping, the
+// deadline, and the reply the turn will return.
+Agent::TurnState Agent::make_turn_state() const {
+    TurnState st;
+    const auto loop_t0 = std::chrono::steady_clock::now();
+    st.deadline = cfg_.max_wall_ms > 0 ? loop_t0 + std::chrono::milliseconds(cfg_.max_wall_ms)
+                                       : std::chrono::steady_clock::time_point::max();
+    return st;
+}
+
+// Wall-clock budget: the engine enforces max_wall_ms, not just the post-hoc
+// scorer — a runaway must stop at the deadline. Returns true when the turn ends.
+bool Agent::turn_budget_exceeded(TurnState& st) {
+    if (std::chrono::steady_clock::now() < st.deadline)
+        return false;
+    if (hooks_.on_status)
+        hooks_.on_status("wall-clock budget exceeded, stopping");
+    log_.event("error", {{"reason", "wall_clock_exceeded"}});
+    st.final_reply = "[stopped: wall-clock budget exceeded; simplify the task or retry]";
+    return true;
+}
+
+// Fold one iteration's reply into the turn. Returns true when the loop should
+// stop; the reply is pushed either way.
+bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
+                         Message& reply) {
+    // Extract tool_calls and content before push_reply (which moves reply).
+    // Template-style tool calls arrive embedded in the content (e.g. ornith's
+    // <tool_call><function=...><parameter=...>) — extract them BEFORE the
+    // dispatch snapshot so they actually execute.
+    extract_embedded_tool_calls(reply);
+    const json tc = reply.tool_calls;
+    std::string content = reply.content;
+    push_reply(std::move(reply));
+
+    if (!tc.is_null() && !tc.empty() &&
+        dispatch_with_loop_detection(tc, content, st.fail_streak, st.loop_count, st.last_loop_key,
+                                     st.tool_recovery_attempts, st.final_reply))
+        return !st.final_reply.empty();
+
+    if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
+        return true;
+
+    std::string accepted = try_confirm(content, tools);
+    if (accepted.empty())
+        return false;
+    st.final_reply = std::move(accepted);
+    return true;
+}
+
+// Resolve the model if the host started without one, then fire the turn's
+// opening event — before the prompt is sealed into the context, so an
+// interceptor can still rewrite what the model will see.
+void Agent::open_turn(const std::string& user_prompt) {
+    // The host may have started without a resolved model: interactive
+    // startup reads the model catalog from cache only and revalidates it in
+    // the background, so a cold first launch can reach here with no model.
+    // This is the agent worker — a bounded cache-through fetch is legal here,
+    // and a failure leaves the model empty for the normal error path.
+    if (cfg_.model.empty() && apply_server_autodetect(cfg_).ok) {
+        client_ = make_client(cfg_, client_factory_);
+        publish_config();
+    }
+    ensure_system_prompt();
+    TurnStartedEvent turn_start;
+    turn_start.prompt = user_prompt;
+    publish_event(turn_start);
+    log_and_push_user_prompt(turn_start.prompt);
+}
+
 std::string Agent::run(const std::string& user_prompt) {
     // Fresh turn: a cancel requested before this run must not abort it.
     cfg_.cancel_token.clear();
@@ -977,44 +1071,14 @@ std::string Agent::run(const std::string& user_prompt) {
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
     ScopedRunScope scope_guard(scope);
-    // The host may have started without a resolved model: interactive
-    // startup reads the model catalog from cache only and revalidates it in
-    // the background, so a cold first launch can reach here with no model.
-    // This is the agent worker — a bounded cache-through fetch is legal here,
-    // and a failure leaves the model empty for the normal error path.
-    if (cfg_.model.empty() && apply_server_autodetect(cfg_).ok) {
-        client_ = make_client(cfg_, client_factory_);
-        publish_config();
-    }
-    ensure_system_prompt();
-    // The turn's opening event: fired before the prompt is sealed into the
-    // context so an interceptor can still rewrite what the model will see.
-    TurnStartedEvent turn_start;
-    turn_start.prompt = user_prompt;
-    publish_event(turn_start);
-    log_and_push_user_prompt(turn_start.prompt);
+    open_turn(user_prompt);
 
-    auto tools = resolve_tools();
-
-    FailStreak fail_streak;
-    int loop_count = 0, text_loop_count = 0, tool_recovery_attempts = 0;
-    std::string last_loop_key, last_text, final_reply;
-    const auto loop_t0 = std::chrono::steady_clock::now();
-    const auto deadline = cfg_.max_wall_ms > 0
-                              ? loop_t0 + std::chrono::milliseconds(cfg_.max_wall_ms)
-                              : std::chrono::steady_clock::time_point::max();
+    const auto tools = resolve_tools();
+    TurnState st = make_turn_state();
 
     for (int iter = 0; iter < cfg_.max_tool_iterations; ++iter) {
-        // Wall-clock budget: the engine enforces max_wall_ms, not just the
-        // post-hoc scorer — a runaway must stop at the deadline.
-        if (std::chrono::steady_clock::now() >= deadline) {
-            if (hooks_.on_status)
-                hooks_.on_status("wall-clock budget exceeded, stopping");
-            log_.event("error", {{"reason", "wall_clock_exceeded"}});
-            final_reply = "[stopped: wall-clock budget exceeded; simplify the task "
-                          "or retry]";
+        if (turn_budget_exceeded(st))
             break;
-        }
         // Cancellation ends the turn cleanly: no fabricated error message,
         // no probe round-trip, nothing pushed into the context.
         if (run_cancelled(cfg_.cancel_token)) {
@@ -1025,6 +1089,7 @@ std::string Agent::run(const std::string& user_prompt) {
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
+
         Message reply;
         try {
             reply = chat_with_recovery(tools, "generation",
@@ -1035,33 +1100,10 @@ std::string Agent::run(const std::string& user_prompt) {
                 hooks_.on_status("cancelled by user");
             return finish_turn_cancelled();
         }
-
-        // Extract tool_calls and content before push_reply (which moves reply).
-        // Template-style tool calls arrive embedded in the content (e.g.
-        // ornith's <tool_call><function=...><parameter=...>) — extract them
-        // BEFORE the dispatch snapshot so they actually execute.
-        extract_embedded_tool_calls(reply);
-        json tc = reply.tool_calls;
-        std::string content = reply.content;
-        push_reply(std::move(reply));
-
-        if (!tc.is_null() && !tc.empty() &&
-            dispatch_with_loop_detection(tc, content, fail_streak, loop_count, last_loop_key,
-                                         tool_recovery_attempts, final_reply)) {
-            if (!final_reply.empty())
-                break;
-            continue;
-        }
-        if (detect_text_loop(content, text_loop_count, last_text, final_reply))
+        if (advance_turn(st, tools, reply))
             break;
-
-        std::string accepted = try_confirm(content, tools);
-        if (!accepted.empty()) {
-            final_reply = accepted;
-            break;
-        }
     }
-    return finish_turn(std::move(final_reply));
+    return finish_turn(std::move(st.final_reply));
 }
 
 // Upserts vs deprecations in one op list.
