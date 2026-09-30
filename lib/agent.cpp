@@ -865,44 +865,81 @@ std::string Agent::finish_turn(std::string final_reply) {
     return final_reply;
 }
 
+bool block_before(const Agent::PromptBlock& a, const Agent::PromptBlock& b) {
+    return a.priority != b.priority ? a.priority < b.priority : a.seq < b.seq;
+}
+
+// Head blocks go immediately after the system prompt, so they read as
+// instructions for this request; tail blocks follow the conversation.
+void insert_prompt_blocks(std::vector<Message>& prompt_copy, std::vector<Agent::PromptBlock>& head,
+                          std::vector<Agent::PromptBlock>& tail) {
+    std::sort(head.begin(), head.end(), block_before);
+    std::sort(tail.begin(), tail.end(), block_before);
+
+    std::size_t pos = 0;
+    for (std::size_t i = 0; i < prompt_copy.size(); ++i) {
+        if (prompt_copy[i].role == "system") {
+            pos = i + 1;
+            break;
+        }
+    }
+    for (auto& block : head) {
+        Message msg;
+        msg.role = "system";
+        msg.content = std::move(block.text);
+        prompt_copy.insert(prompt_copy.begin() + static_cast<std::ptrdiff_t>(pos), std::move(msg));
+        ++pos;
+    }
+    for (auto& block : tail) {
+        Message msg;
+        msg.role = "system";
+        msg.content = std::move(block.text);
+        prompt_copy.push_back(std::move(msg));
+    }
+}
+
+// Memories are retrieved for THIS request, so they are built here — after any
+// compression — rather than cached from an earlier point in the turn.
+std::string Agent::retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const {
+    if (!retriever_)
+        return "";
+    std::string user_msg;
+    for (const auto& m : prompt_copy)
+        if (m.role == "user") {
+            user_msg = m.content;
+            break;
+        }
+    return retriever_->build_system_prompt_suffix(user_msg, 500);
+}
+
+// Discovery metadata is cheap and constant; skill bodies load only when the
+// model asks for one with read_skill, so they trail the conversation.
+void Agent::collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
+                                 std::size_t& seq) const {
+    if (!skills_)
+        return;
+    const auto discovery = skills_->discovery_block();
+    if (!discovery.empty()) {
+        std::string text = "Available skills (activate with read_skill):\n";
+        for (const auto& line : discovery)
+            text += line + "\n";
+        head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
+    }
+    for (const auto& act : activated_skills_.snapshot())
+        tail.push_back({prompt_priority::kActivatedSkills, seq++,
+                        "[activated skill: " + act.name + "]\n" + act.body});
+}
+
 void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
-    struct Block {
-        int priority = 0;
-        std::size_t seq = 0;
-        std::string text;
-    };
-    std::vector<Block> head;
-    std::vector<Block> tail;
+    std::vector<PromptBlock> head;
+    std::vector<PromptBlock> tail;
     std::size_t seq = 0;
 
-    // Memories are retrieved for THIS request, so they are built here — after
-    // any compression — rather than cached from an earlier point in the turn.
-    if (retriever_) {
-        std::string user_msg;
-        for (const auto& m : prompt_copy)
-            if (m.role == "user") {
-                user_msg = m.content;
-                break;
-            }
-        std::string suffix = retriever_->build_system_prompt_suffix(user_msg, 500);
-        if (!suffix.empty())
-            head.push_back({prompt_priority::kMemory, seq++, std::move(suffix)});
-    }
+    std::string suffix = retrieve_memory_suffix(prompt_copy);
+    if (!suffix.empty())
+        head.push_back({prompt_priority::kMemory, seq++, std::move(suffix)});
 
-    // Discovery metadata is cheap and constant; skill bodies load only when the
-    // model asks for one with read_skill, so they trail the conversation.
-    if (skills_) {
-        auto discovery = skills_->discovery_block();
-        if (!discovery.empty()) {
-            std::string text = "Available skills (activate with read_skill):\n";
-            for (const auto& line : discovery)
-                text += line + "\n";
-            head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
-        }
-        for (const auto& act : activated_skills_.snapshot())
-            tail.push_back({prompt_priority::kActivatedSkills, seq++,
-                            "[activated skill: " + act.name + "]\n" + act.body});
-    }
+    collect_skill_blocks(head, tail, seq);
 
     // The brief lives in its store, not the context, so compression cannot lose
     // it; it sits at the tail because it changes more often than the rest.
@@ -925,34 +962,7 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
             tail.push_back({prompt_priority::kPluginBlock, seq++, std::move(text)});
     }
 
-    const auto by_priority = [](const Block& a, const Block& b) {
-        return a.priority != b.priority ? a.priority < b.priority : a.seq < b.seq;
-    };
-    std::sort(head.begin(), head.end(), by_priority);
-    std::sort(tail.begin(), tail.end(), by_priority);
-
-    // Head: immediately after the system prompt, so they read as instructions.
-    std::size_t pos = 0;
-    for (std::size_t i = 0; i < prompt_copy.size(); ++i) {
-        if (prompt_copy[i].role == "system") {
-            pos = i + 1;
-            break;
-        }
-    }
-    for (auto& block : head) {
-        Message msg;
-        msg.role = "system";
-        msg.content = std::move(block.text);
-        prompt_copy.insert(prompt_copy.begin() + static_cast<std::ptrdiff_t>(pos), std::move(msg));
-        ++pos;
-    }
-    // Tail: after the conversation.
-    for (auto& block : tail) {
-        Message msg;
-        msg.role = "system";
-        msg.content = std::move(block.text);
-        prompt_copy.push_back(std::move(msg));
-    }
+    insert_prompt_blocks(prompt_copy, head, tail);
 }
 
 std::string Agent::run(const std::string& user_prompt) {
@@ -1054,6 +1064,49 @@ std::string Agent::run(const std::string& user_prompt) {
     return finish_turn(std::move(final_reply));
 }
 
+// Upserts vs deprecations in one op list.
+struct OpCounts {
+    size_t upserts = 0;
+    size_t deprecations = 0;
+};
+
+OpCounts count_ops(const std::vector<KnowledgeOp>& ops) {
+    OpCounts c;
+    for (const auto& op : ops)
+        (op.action == "deprecate" ? c.deprecations : c.upserts)++;
+    return c;
+}
+
+// "N memories upserted, M deprecated, ..." — empty when nothing was applied.
+std::string ops_summary(const OpCounts& mem, const OpCounts& skill) {
+    std::string summary;
+    const auto add = [&summary](size_t n, const char* what) {
+        if (n)
+            summary += (summary.empty() ? "" : ", ") + std::to_string(n) + " " + what;
+    };
+    add(mem.upserts, "memories upserted");
+    add(mem.deprecations, "deprecated");
+    add(skill.upserts, "skills upserted");
+    add(skill.deprecations, "deprecated");
+    return summary;
+}
+
+// Decay the store, persist it, and report what was evicted.
+void Agent::decay_and_persist() {
+    const size_t before_decay = memory_store_->store_size();
+    memory_store_->decay_all();
+    const size_t after_decay = memory_store_->store_size();
+    if (!experience_cfg_.store_path.empty())
+        memory_store_->save(experience_cfg_.store_path);
+    if (!hooks_.on_status)
+        return;
+    const size_t pruned = (before_decay > after_decay) ? before_decay - after_decay : 0;
+    if (pruned > 0)
+        hooks_.on_status("decay: " + std::to_string(pruned) + " items evicted (" +
+                         std::to_string(before_decay) + " → " + std::to_string(after_decay) +
+                         " total)");
+}
+
 void Agent::apply_compression_result(const CompressionResponse& cr) {
     if (!memory_store_ || experience_cfg_.store_path.empty())
         return;
@@ -1062,61 +1115,24 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
 
     memory_store_->set_current_turn(turn_counter_);
 
-    // Apply memory ops
-    size_t mem_up = 0, mem_dep = 0;
-    for (const auto& op : cr.memory_ops) {
-        if (op.action == "deprecate")
-            ++mem_dep;
-        else
-            ++mem_up;
-    }
+    const OpCounts mem = count_ops(cr.memory_ops);
     std::vector<ExtractionItem> items;
     if (!cr.memory_ops.empty())
         apply_memory_ops(*memory_store_, cr.memory_ops, experience_cfg_.store_path, &items);
 
-    // Apply skill ops
-    size_t sk_up = 0, sk_dep = 0;
-    for (const auto& op : cr.skill_ops) {
-        if (op.action == "deprecate")
-            ++sk_dep;
-        else
-            ++sk_up;
-    }
+    const OpCounts skill = count_ops(cr.skill_ops);
     if (!cr.skill_ops.empty())
         apply_skill_ops(*memory_store_, cr.skill_ops, experience_cfg_.store_path, &items);
 
-    // Decay and persist
-    size_t before_decay = memory_store_->store_size();
-    memory_store_->decay_all();
-    size_t after_decay = memory_store_->store_size();
-    if (!experience_cfg_.store_path.empty())
-        memory_store_->save(experience_cfg_.store_path);
-    if (hooks_.on_status) {
-        size_t pruned = (before_decay > after_decay) ? before_decay - after_decay : 0;
-        if (pruned > 0)
-            hooks_.on_status("decay: " + std::to_string(pruned) + " items evicted (" +
-                             std::to_string(before_decay) + " → " + std::to_string(after_decay) +
-                             " total)");
-    }
+    decay_and_persist();
 
-    // Log what happened
-    auto log_status = [&](const std::string& msg) {
-        if (hooks_.on_status)
-            hooks_.on_status(msg);
-    };
-    std::string summary;
-    if (mem_up)
-        summary += std::to_string(mem_up) + " memories upserted";
-    if (mem_dep)
-        summary += (summary.empty() ? "" : ", ") + std::to_string(mem_dep) + " deprecated";
-    if (sk_up)
-        summary += (summary.empty() ? "" : ", ") + std::to_string(sk_up) + " skills upserted";
-    if (sk_dep)
-        summary += (summary.empty() ? "" : ", ") + std::to_string(sk_dep) + " deprecated";
+    if (!hooks_.on_status)
+        return;
+    const std::string summary = ops_summary(mem, skill);
     if (!summary.empty())
-        log_status("extraction: " + summary);
-    size_t st = memory_store_->store_size();
-    log_status("memory store: " + std::to_string(st) + " total (memories + skills)");
+        hooks_.on_status("extraction: " + summary);
+    hooks_.on_status("memory store: " + std::to_string(memory_store_->store_size()) +
+                     " total (memories + skills)");
 }
 
 void Agent::apply_brief(const CompressionResponse& cr) {
