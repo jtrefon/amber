@@ -43,7 +43,6 @@
     "tui/command_line.cpp": 3,
     "tui/drawer_rows.cpp": 2,
     "tui/event_router.cpp": 1,
-    "tui/form_edit.cpp": 1,
     "tui/form_focus.cpp": 1,
     "tui/help_page.cpp": 1,
     "tui/info_dialog.cpp": 1,
