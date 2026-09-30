@@ -105,6 +105,12 @@ public:
     }
 
 private:
+    void start_cycle();
+    bool can_complete_partial() const;
+    bool accept_first_completion();
+    Result intercept_help_question(char c);
+    std::string cycle_shadow(const std::string& partial) const;
+    std::string completion_shadow(const std::string& partial) const;
     std::string input_;
     size_t cursor_ = 0;
     bool drawer_open_ = false;
