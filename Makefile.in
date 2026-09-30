@@ -242,8 +242,8 @@ BENCH_BIN = amber-bench
 NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
-.PHONY: all lib cli tui bench check test lint lint-changed analyze duplicates \
-        complexity format-check format-check-changed clean install uninstall
+.PHONY: all lib cli tui bench check test lint lint-changed lint-baseline-update \
+        analyze duplicates complexity format-check format-check-changed clean install uninstall
 
 # `make` builds everything. Stated explicitly so a target declared above `all`
 # (the lint recipes are) cannot quietly become the default goal: when that
@@ -282,22 +282,26 @@ NPROC = $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 # always uses the -- $(LINT_CXXFLAGS) fallback below.
 lint:
 	@echo "clang-tidy..."
-	@export fail=0; \
-	 if [ -f compile_commands.json ]; then export CTIDY_FLAGS="-p compile_commands.json"; else export CTIDY_FLAGS="-- $(LINT_CXXFLAGS)"; fi; \
+	@if [ -f compile_commands.json ]; then export CTIDY_FLAGS="-p compile_commands.json"; else export CTIDY_FLAGS="-- $(LINT_CXXFLAGS)"; fi; \
 	 printf '%s\0' $(LINT_SRCS) | \
 	 xargs -0 -P$(NPROC) sh -c ' \
 	    for src do \
-	      out=$$(clang-tidy -quiet "$$src" $$CTIDY_FLAGS 2>&1); \
-	      if [ -n "$$out" ]; then \
-	        echo "$$out" | grep -v "^Suppressed\|^Use -header-filter\|warnings generated" || true; \
-	        if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter\|warnings generated"; then \
-	          exit 1; \
-	        fi; \
-	      fi; \
-	    done' _; \
-	 rc=$$?; \
-	 if [ $$rc -ne 0 ]; then echo "clang-tidy reported findings"; exit 1; fi; \
-	 echo "  clean"
+	      clang-tidy -quiet "$$src" $$CTIDY_FLAGS 2>&1; \
+	    done' _ | \
+	 grep -v "^Suppressed\|^Use -header-filter\|warnings generated" | \
+	 python3 "$(SRC_DIR)/tools/lint_baseline.py" --check
+
+# Rewrite the lint ratchet after fixing findings. Same collection as `lint`,
+# then --update instead of --check, so the baseline can only shrink.
+lint-baseline-update:
+	@if [ -f compile_commands.json ]; then export CTIDY_FLAGS="-p compile_commands.json"; else export CTIDY_FLAGS="-- $(LINT_CXXFLAGS)"; fi; \
+	 printf '%s\0' $(LINT_SRCS) | \
+	 xargs -0 -P$(NPROC) sh -c ' \
+	    for src do \
+	      clang-tidy -quiet "$$src" $$CTIDY_FLAGS 2>&1; \
+	    done' _ | \
+	 grep -v "^Suppressed\|^Use -header-filter\|warnings generated" | \
+	 python3 "$(SRC_DIR)/tools/lint_baseline.py" --update
 
 # Incremental lint: only the TUs the change can actually affect.
 # A header change is not a reason to lint the whole tree — tools/affected_tus.py
@@ -305,6 +309,8 @@ lint:
 # codegen, ~0.4 s per TU) and selects the changed .cpp files plus every TU that
 # includes a changed header. A .clang-tidy change still lints everything, because
 # it changes how every TU is checked.
+# Findings go through the same ratchet as `lint` (tools/lint_baseline.py), so a
+# baselined finding does not fail the incremental gate either.
 # Usage: make lint-changed BASE=origin/main
 # Nothing affected → exits 0 immediately.
 lint-changed:
@@ -318,17 +324,10 @@ lint-changed:
 	 printf '%s\0' $$changed | \
 	 xargs -0 -P$(NPROC) sh -c ' \
 	    for src do \
-	      out=$$(clang-tidy -quiet "$$src" $$CTIDY_FLAGS 2>&1); \
-	      if [ -n "$$out" ]; then \
-	        echo "$$out" | grep -v "^Suppressed\|^Use -header-filter\|warnings generated" || true; \
-	        if echo "$$out" | grep -qv "^Suppressed\|^Use -header-filter\|warnings generated"; then \
-	          exit 1; \
-	        fi; \
-	      fi; \
-	    done' _; \
-	 rc=$$?; \
-	 if [ $$rc -ne 0 ]; then echo "clang-tidy reported findings"; exit 1; fi; \
-	 echo "  clean"
+	      clang-tidy -quiet "$$src" $$CTIDY_FLAGS 2>&1; \
+	    done' _ | \
+	 grep -v "^Suppressed\|^Use -header-filter\|warnings generated" | \
+	 python3 "$(SRC_DIR)/tools/lint_baseline.py" --check
 
 # cppcheck: a second, independent static analyzer for defense-in-depth. Runs
 # in parallel and ignores the vendored nlohmann/json header (known-good, slow to
