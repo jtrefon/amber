@@ -204,6 +204,7 @@ private:
     void refresh_models_async(bool announce);
     void on_models_refreshed(bool fetched, bool announce, const std::string& api_base,
                              const std::string& flavor);
+    void adopt_detected_model();
     // A post_to_ui_thread variant for background catalog work: the post is
     // dropped once destruction begins, so a late worker can never touch a
     // torn-down Tui.
@@ -244,6 +245,8 @@ private:
     void build_provider_picker(std::vector<std::string>& rows, std::vector<std::string>& ids) const;
     void add_new_provider();
     void provider_actions(const std::string& selected_id);
+    void activate_and_edit_provider(const std::string& id, const agent::Provider* sel,
+                                    bool is_preset);
     bool quit_ = false;
 
     // --- Construction. The constructor is a facade over these phases, which
