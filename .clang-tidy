@@ -43,7 +43,7 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -performance-no-int-to-ptr,
   -modernize-use-nodiscard,
-  -readability-function-cognitive-complexity,
+
   -readability-braces-around-statements,
   -readability-implicit-bool-conversion,
   -readability-named-parameter,
@@ -70,3 +70,10 @@ Checks: >
 WarningsAsErrors: ''
 HeaderFilterRegex: 'include/agent/.*\.h|tui/.*\.h'
 FormatStyle: file
+
+# Cognitive complexity: the deferred CX1 gate, now behind the lint ratchet
+# (tools/lint_baseline.py). The threshold is clang-tidy's default, stated here
+# so raising or lowering the bar is a one-line change.
+CheckOptions:
+  - key: readability-function-cognitive-complexity.Threshold
+    value: 25
