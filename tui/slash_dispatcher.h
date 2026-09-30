@@ -148,6 +148,23 @@ private:
     void register_config_set_actions();
     void register_config_get_actions();
     void register_mcp_actions();
+    // The core and config groups are themselves facades over these, so one
+    // domain's actions are registered in one place.
+    void register_core_session_actions();
+    void register_core_job_actions();
+    void register_set_engine_actions();
+    void register_set_policy_actions();
+    void register_set_feature_actions();
+    void register_get_config_actions();
+    void register_get_plugin_policy_actions();
+    void register_get_reasoning_actions();
+    void apply_policy_mode(const std::string& v);
+    bool apply_setting_key(const std::string& arg);
+    void print_set_overview();
+    void print_unknown_setting_hint(const std::string& arg);
+    void report_missing_handler(const json* node, const std::string& first);
+    bool seed_new_provider(const std::string& a);
+    bool prompt_provider_key(const std::string& a, const agent::Provider& p);
 
     // build_settings() is likewise a facade: one group per setting namespace,
     // and add_setting() is the single registration helper they share.
