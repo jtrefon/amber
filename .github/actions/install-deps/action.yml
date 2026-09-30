@@ -3,12 +3,22 @@ description: >
   Install the C++ build dependencies (apt on Linux, Homebrew on macOS).
   Extra packages can be requested via the `extra` input (space-separated
   apt package names on Linux; ignored on macOS where brew handles all).
+  Set `cpp_toolchain` to 'false' for jobs that only need ./configure's
+  probes to run (the pure-Python gates): that drops the toolchain down to
+  what configure cannot proceed without.
 
 inputs:
   extra:
     description: Extra apt packages to install (Linux only)
     required: false
     default: ''
+  cpp_toolchain:
+    description: >
+      Install the full C++ toolchain (clang, ncurses, pkg-config) on top of
+      the configure prerequisites. 'false' keeps only what ./configure fails
+      hard without: build-essential (g++/gcc) and libcurl4-openssl-dev.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -16,12 +26,22 @@ runs:
     - name: Install dependencies (Linux)
       if: runner.os == 'Linux'
       shell: bash
+      # Bounded on purpose. apt can block indefinitely on the dpkg lock (held
+      # by a background updater on the runner image) or on a third-party mirror
+      # that never answers; with no cap the step sits until GitHub's 6 h job
+      # ceiling, which is how a transient flake becomes a "stuck pipeline".
+      # DPkg::Lock::Timeout caps the lock wait, `timeout` caps the whole
+      # command, and noninteractive removes any debconf prompt.
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-        sudo apt-get update || true
-        sudo apt-get install -y --no-install-recommends \
-          build-essential clang libcurl4-openssl-dev \
-          libncursesw5-dev pkg-config ${{ inputs.extra }}
+        sudo timeout 300 apt-get -o DPkg::Lock::Timeout=120 update || true
+        sudo timeout 600 apt-get -o DPkg::Lock::Timeout=120 install -y \
+          --no-install-recommends \
+          build-essential libcurl4-openssl-dev \
+          ${{ inputs.cpp_toolchain == 'true' && 'clang libncursesw5-dev pkg-config' || '' }} \
+          ${{ inputs.extra }}
 
     - name: Install dependencies (macOS)
       if: runner.os == 'macOS'
