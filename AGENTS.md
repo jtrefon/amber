@@ -19,6 +19,14 @@ driven by an OpenAI-compatible LLM API.
   to gate changes on. `make analyze` runs **cppcheck** as an independent,
   cross-TU second opinion (slower; runs in parallel and skips the vendored
   nlohmann/json header). Both must come back clean before a commit.
+- `make lint` is a **ratchet**, not a cliff: `tests/lint_baseline.json` records
+  how many findings each (file, check) pair has, and the gate fails only when a
+  count **grows**. That is what lets a check with existing findings be switched
+  on at all — `readability-function-cognitive-complexity` is enabled that way
+  (CX1), with 31 known findings. Fix findings and lower the counts with
+  `make lint-baseline-update`; the file can only shrink. The counts are per
+  (file, check) rather than per line, so edits that move code do not churn it.
+  `tools/lint_baseline.py --report` prints the current counts.
 - CI blocks on `make && make test` under **both** `g++` and `clang++`
   (`CXX=g++` / `CXX=clang++`).
 - `make lint` (clang-tidy) and `make analyze` (cppcheck) gate CI as separate

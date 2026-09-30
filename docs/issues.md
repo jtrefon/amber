@@ -433,7 +433,7 @@ fail-closed gate).
 
 | id | item | scope | status |
 |---|---|---|---|
-| CX1 | Nesting (`NestingThreshold: 4`) + cognitive (`Threshold: 25`) caps | `.clang-tidy` | 🔓 Open — enabling them fails on the 121 existing findings in any TU that gets analysed, so they wait for the baseline to reach 0 (CX8, which would have made it worse, is fixed) |
+| CX1 | Cognitive-complexity cap (`Threshold: 25`) | `.clang-tidy` | ✅ Fixed — enabled behind the new **lint ratchet** (`tools/lint_baseline.py` + `tests/lint_baseline.json`), which is what made it possible: `make lint` was a cliff (any finding failed it), so a check with existing findings could never be switched on. The gate now fails only when a per-(file, check) count grows. 31 cognitive findings are baselined across 25 files — and that is the *only* finding class in the tree, so every other clang-tidy check is already clean. Note: the "nesting" half of this item is not available — `lizard` has no `-N` flag (verified: `unrecognized arguments`), so no nesting cap exists to enable |
 | CX2 | `lib/` core cluster: `Config::load` 129/**72**, `classify_shell` 200/**61**, `dispatch_tool_calls` 185/38 | `lib/` (47 violations) | 🔓 Open |
 | CX3 | `lib/` branching-only cases: `output_redirect_target` 20/16, `header_cb` 23/16, `decode_payload` 29/18 | `lib/` | 🔓 Open |
 | CX4 | `tui/` remainder | see G1..G9 | 🔓 Open |
