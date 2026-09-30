@@ -120,6 +120,19 @@ public:
         std::size_t seq = 0;
         std::string text;
     };
+
+    // The mutable state of one agent turn: loop counters, recovery bookkeeping,
+    // the deadline, and the reply the turn will return.
+    struct TurnState {
+        FailStreak fail_streak;
+        int loop_count = 0;
+        int text_loop_count = 0;
+        int tool_recovery_attempts = 0;
+        std::string last_loop_key;
+        std::string last_text;
+        std::string final_reply;
+        std::chrono::steady_clock::time_point deadline;
+    };
     Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
@@ -322,6 +335,23 @@ private:
     std::string retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const;
     void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
                               std::size_t& seq) const;
+    TurnState make_turn_state() const;
+    void open_turn(const std::string& user_prompt);
+    bool fail_compression(CompressionResult* out, const std::string& error, size_t msgs_before);
+    void publish_compression_done(bool success, long tokens_after);
+    bool fail_compression_after(CompressionResult& r, const std::string& error, size_t msgs_before,
+                                size_t tokens_before, CompressionReporter& reporter,
+                                CompressionResult* out);
+    bool run_compression_pipeline(CompressionReporter& reporter, CompressionResponse& cr,
+                                  std::vector<Message>& compressed);
+    void rebuild_context(std::vector<Message>& compressed);
+    void count_segments(const CompressionResponse& cr, CompressionResult& r);
+    void finish_compression(CompressionResult& r, const CompressionResponse& cr, size_t msgs_before,
+                            size_t tokens_before, CompressionReporter& reporter,
+                            CompressionResult* out);
+    bool turn_budget_exceeded(TurnState& st);
+    bool advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
+                      Message& reply);
 
     // Hooks with the display callbacks removed, for silent internal exchanges.
     const AgentHooks& silent_hooks() const;
