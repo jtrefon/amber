@@ -13,8 +13,6 @@
     "lib/core_segments.cpp": 1,
     "lib/dialect_openai.cpp": 4,
     "lib/mcp_client.cpp": 1,
-    "lib/mcp_jsonrpc.cpp": 1,
-    "lib/mcp_transport_http.cpp": 3,
     "lib/plugin.cpp": 2,
     "lib/plugin_console.cpp": 1,
     "lib/policy_engine.cpp": 1,
