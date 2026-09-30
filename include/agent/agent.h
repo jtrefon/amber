@@ -304,6 +304,14 @@ private:
     // token/reasoning/assistant hooks are suppressed so the exchange (e.g. the
     // internal confirmation check) never paints into the scrollback.
     Message chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display = true);
+    bool maybe_compress(std::vector<Message>& prompt_copy);
+    void on_stream_chunk(const AgentHooks& h, const StreamChunk& ch) const;
+    void record_stats(const Stats& stats);
+    void publish_llm_response(const Stats& stats, bool display);
+    bool probe_was_denied() const;
+    std::function<std::function<Message()>(const std::string&)>
+    build_chat_adapter(const char* stage, const std::vector<std::shared_ptr<Tool>>& tools,
+                       bool display);
 
     // Hooks with the display callbacks removed, for silent internal exchanges.
     const AgentHooks& silent_hooks() const;
