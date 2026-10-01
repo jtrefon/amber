@@ -28,7 +28,7 @@
     "tui/info_dialog.cpp": 1,
     "tui/list_state.cpp": 1,
     "tui/markdown.cpp": 1,
-    "tui/markdown_md4c.cpp": 4,
+    "tui/markdown_md4c.cpp": 3,
     "tui/panel_view.cpp": 1,
     "tui/render_engine.cpp": 4,
     "tui/rich.cpp": 1,

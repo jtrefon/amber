@@ -205,12 +205,89 @@ void emit_hr(Ctx& c) {
     emit_line(c, std::move(l));
 }
 
+int table_column_count(const Ctx& c) {
+    int ncol = c.table_cols;
+    for (const auto& r : c.table_rows)
+        ncol = std::max(ncol, static_cast<int>(r.size()));
+    return ncol;
+}
+
+// Cells past the end of a short row read as empty, so ragged rows still align.
+std::string cell_text(const std::vector<std::string>& row, int k) {
+    return k < static_cast<int>(row.size()) ? row[k] : std::string{};
+}
+
+// Widest cell per column, measured in display columns so wide glyphs line up.
+std::vector<int> table_column_widths(const Ctx& c, int ncol) {
+    std::vector<int> w(ncol, 0);
+    for (const auto& row : c.table_rows)
+        for (int k = 0; k < ncol; ++k)
+            w[k] = std::max(w[k], text::display_cols(cell_text(row, k)));
+    return w;
+}
+
+// Horizontal frame line: left corner, `mid` between columns, right corner.
+void emit_table_rule(Ctx& c, const char* left, const char* mid, const char* right,
+                     const std::vector<int>& w) {
+    Line l;
+    l.is_table = true;
+    Run r;
+    r.pair = c.st->table_pair;
+    r.text = left;
+    for (size_t k = 0; k < w.size(); ++k) {
+        for (int j = 0; j < w[k] + 2; ++j)
+            r.text += text::glyph::hbar();
+        r.text += (k + 1 < w.size()) ? mid : right;
+    }
+    l.runs.push_back(r);
+    emit_line(c, std::move(l));
+}
+
+struct CellPad {
+    int left = 0;
+    int right = 0;
+};
+
+CellPad cell_padding(int pad, MD_ALIGN a) {
+    if (a == MD_ALIGN_RIGHT)
+        return {pad, 0};
+    if (a == MD_ALIGN_CENTER)
+        return {pad / 2, pad - (pad / 2)};
+    return {0, pad};
+}
+
+void emit_table_row(Ctx& c, size_t ri, bool head, int ncol, const std::vector<int>& w) {
+    Line l;
+    l.is_table = true;
+    Run sep;
+    sep.pair = c.st->table_pair;
+    sep.text = text::glyph::vbar();
+    sep.text += " ";
+    l.runs.push_back(sep);
+    for (int k = 0; k < ncol; ++k) {
+        const std::string t = cell_text(c.table_rows[ri], k);
+        const int pad = std::max(0, w[k] - text::display_cols(t));
+        const MD_ALIGN a = (k < static_cast<int>(c.aligns.size())) ? c.aligns[k] : MD_ALIGN_DEFAULT;
+        const CellPad p = cell_padding(pad, a);
+        Run cr;
+        cr.pair = head ? c.st->table_head_pair : c.st->table_pair;
+        cr.text = std::string(p.left, ' ') + t + std::string(p.right, ' ');
+        l.runs.push_back(cr);
+        Run sp;
+        sp.pair = c.st->table_pair;
+        sp.text = " ";
+        sp.text += text::glyph::vbar();
+        if (k + 1 < ncol)
+            sp.text += " ";
+        l.runs.push_back(sp);
+    }
+    emit_line(c, std::move(l));
+}
+
 void flush_table(Ctx& c) {
     if (c.table_rows.empty())
         return;
-    int ncol = c.table_cols;
-    for (auto& r : c.table_rows)
-        ncol = std::max(ncol, static_cast<int>(r.size()));
+    const int ncol = table_column_count(c);
     if (ncol <= 0) {
         c.table_rows.clear();
         c.table_row_is_head.clear();
@@ -218,87 +295,20 @@ void flush_table(Ctx& c) {
     }
     if (static_cast<int>(c.aligns.size()) < ncol)
         c.aligns.resize(ncol, MD_ALIGN_DEFAULT);
-    std::vector<int> w(ncol, 0);
-    for (auto& row : c.table_rows) {
-        for (int k = 0; k < ncol; ++k) {
-            std::string t = k < static_cast<int>(row.size()) ? row[k] : "";
-            w[k] = std::max(w[k], text::display_cols(t));
-        }
-    }
-    auto emit_top = [&](bool top) {
-        Line tl;
-        tl.is_table = true;
-        Run r;
-        r.pair = c.st->table_pair;
-        r.text = top ? text::glyph::top_left() : text::glyph::bottom_left();
-        for (int k = 0; k < ncol; ++k) {
-            for (int j = 0; j < w[k] + 2; ++j)
-                r.text += text::glyph::hbar();
-            if (k + 1 < ncol) {
-                r.text += top ? text::glyph::top_tee() : text::glyph::bottom_tee();
-            } else {
-                r.text += top ? text::glyph::top_right() : text::glyph::bottom_right();
-            }
-        }
-        tl.runs.push_back(r);
-        emit_line(c, std::move(tl));
-    };
-    emit_top(true);
+    const std::vector<int> w = table_column_widths(c, ncol);
+    emit_table_rule(c, text::glyph::top_left(), text::glyph::top_tee(), text::glyph::top_right(),
+                    w);
     for (size_t ri = 0; ri < c.table_rows.size(); ++ri) {
-        bool head = c.table_row_is_head[ri];
-        Line l;
-        l.is_table = true;
-        Run sep;
-        sep.pair = c.st->table_pair;
-        sep.text = text::glyph::vbar();
-        sep.text += " ";
-        l.runs.push_back(sep);
-        for (int k = 0; k < ncol; ++k) {
-            std::string t =
-                k < static_cast<int>(c.table_rows[ri].size()) ? c.table_rows[ri][k] : "";
-            int pad = w[k] - text::display_cols(t);
-            if (pad < 0)
-                pad = 0;
-            MD_ALIGN a = (k < static_cast<int>(c.aligns.size())) ? c.aligns[k] : MD_ALIGN_DEFAULT;
-            int left = 0, right = 0;
-            if (a == MD_ALIGN_RIGHT) {
-                left = pad;
-            } else if (a == MD_ALIGN_CENTER) {
-                left = pad / 2;
-                right = pad - left;
-            } else {
-                right = pad;
-            }
-            Run cr;
-            cr.pair = head ? c.st->table_head_pair : c.st->table_pair;
-            cr.text = std::string(left, ' ') + t + std::string(right, ' ');
-            l.runs.push_back(cr);
-            Run sp;
-            sp.pair = c.st->table_pair;
-            sp.text = " ";
-            sp.text += text::glyph::vbar();
-            if (k + 1 < ncol)
-                sp.text += " ";
-            l.runs.push_back(sp);
-        }
-        emit_line(c, std::move(l));
-        bool next_is_head = (ri + 1 < c.table_row_is_head.size() && c.table_row_is_head[ri + 1]);
-        if (head && !next_is_head && ri + 1 < c.table_rows.size()) {
-            Line hl;
-            hl.is_table = true;
-            Run hr;
-            hr.pair = c.st->table_pair;
-            hr.text = text::glyph::tee_left();
-            for (int k = 0; k < ncol; ++k) {
-                for (int j = 0; j < w[k] + 2; ++j)
-                    hr.text += text::glyph::hbar();
-                hr.text += (k + 1 < ncol) ? text::glyph::tbl_cross() : text::glyph::tee_right();
-            }
-            hl.runs.push_back(hr);
-            emit_line(c, std::move(hl));
-        }
+        const bool head = c.table_row_is_head[ri];
+        emit_table_row(c, ri, head, ncol, w);
+        const bool next_is_head =
+            (ri + 1 < c.table_row_is_head.size() && c.table_row_is_head[ri + 1]);
+        if (head && !next_is_head && ri + 1 < c.table_rows.size())
+            emit_table_rule(c, text::glyph::tee_left(), text::glyph::tbl_cross(),
+                            text::glyph::tee_right(), w);
     }
-    emit_top(false);
+    emit_table_rule(c, text::glyph::bottom_left(), text::glyph::bottom_tee(),
+                    text::glyph::bottom_right(), w);
     emit_line(c, Line{});
     c.table_rows.clear();
     c.table_row_is_head.clear();
