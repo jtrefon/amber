@@ -320,11 +320,15 @@ known mess, even in adjacent code.
     concretions; wiring happens at the boundary (CLI/TUI).
 - **KISS / DRY / YAGNI**: no speculative generality, no duplicated logic. If you
   copy a block, extract it. If a feature isn't required now, don't add it.
-- **Size limits** (enforced in review, not by the compiler):
+- **Size limits**:
   - A class/struct definition should stay **under 200 lines**. Split larger
-    types (see Audit below).
+    types (see Audit below). **Gated**: `make class-size` reports the offenders
+    and `make check` fails when a type grows or a new one crosses the cap
+    (`tools/class_size_gate.py` + `tests/class_size_baseline.json`).
   - A method/function should stay **under 10 lines** with **minimal branching**.
-    Extract loops, parsing, and branching into named helpers.
+    Extract loops, parsing, and branching into named helpers. The **enforced**
+    cap is CCN 15 / 50 lines (`make complexity`); 10 lines is the aspiration,
+    and `docs/complexity-burndown.md` records the gap.
 - **Layering / isolation**: this repo uses a **hexagonal (ports & adapters)**
   style, not strict N-layer:
   - *Domain core* (`lib/` + `include/agent/`) defines the ports (`Tool`,
