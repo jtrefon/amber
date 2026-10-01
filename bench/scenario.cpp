@@ -26,36 +26,6 @@ std::string lowercase(std::string s) {
     return s;
 }
 
-bool parse_checks(const agent::json& j, Checks& out) {
-    if (j.is_null())
-        return true;
-    if (!j.is_object())
-        return false;
-    if (j.contains("must_contain") && j["must_contain"].is_array())
-        for (const auto& e : j["must_contain"])
-            if (e.is_string())
-                out.must_contain.push_back(e.get<std::string>());
-    if (j.contains("must_contain_any") && j["must_contain_any"].is_array()) {
-        for (const auto& g : j["must_contain_any"]) {
-            std::vector<std::string> group;
-            if (g.is_array())
-                for (const auto& e : g)
-                    if (e.is_string()) {
-                        const std::string alt = e.get<std::string>();
-                        if (!alt.empty())
-                            group.push_back(alt);
-                    }
-            if (!group.empty())
-                out.must_contain_any.push_back(std::move(group));
-        }
-    }
-    if (j.contains("must_not_contain") && j["must_not_contain"].is_array())
-        for (const auto& e : j["must_not_contain"])
-            if (e.is_string())
-                out.must_not_contain.push_back(e.get<std::string>());
-    return true;
-}
-
 bool parse_step(const agent::json& j, ScenarioStep& out) {
     if (!j.is_object() || !j.contains("tool") || !j["tool"].is_string())
         return false;
@@ -69,101 +39,199 @@ bool parse_step(const agent::json& j, ScenarioStep& out) {
     return true;
 }
 
-} // namespace
+// Typed field presence: a field counts only when the key exists and holds the
+// expected type, which is what every optional scenario field requires.
+bool has_string(const agent::json& j, const char* key) {
+    return j.contains(key) && j[key].is_string();
+}
+bool has_bool(const agent::json& j, const char* key) {
+    return j.contains(key) && j[key].is_boolean();
+}
+bool has_int(const agent::json& j, const char* key) {
+    return j.contains(key) && j[key].is_number_integer();
+}
+bool has_number(const agent::json& j, const char* key) {
+    return j.contains(key) && j[key].is_number();
+}
+bool has_object(const agent::json& j, const char* key) {
+    return j.contains(key) && j[key].is_object();
+}
+bool has_array(const agent::json& j, const char* key) {
+    return j.contains(key) && j[key].is_array();
+}
 
-std::optional<Scenario> load_scenario(const std::string& path, std::string& err) {
+// Optional scalar fields: assign when present, leave the default otherwise.
+void take_string(const agent::json& j, const char* key, std::string& out) {
+    if (has_string(j, key))
+        out = j[key].get<std::string>();
+}
+void take_bool(const agent::json& j, const char* key, bool& out) {
+    if (has_bool(j, key))
+        out = j[key].get<bool>();
+}
+void take_int(const agent::json& j, const char* key, int& out) {
+    if (has_int(j, key))
+        out = j[key].get<int>();
+}
+void take_long(const agent::json& j, const char* key, long& out) {
+    if (has_int(j, key))
+        out = j[key].get<long>();
+}
+void take_clamped_int(const agent::json& j, const char* key, int& out, int lo, int hi) {
+    if (has_int(j, key))
+        out = std::max(lo, std::min(hi, j[key].get<int>()));
+}
+void take_clamped_double(const agent::json& j, const char* key, double& out, double lo, double hi) {
+    if (has_number(j, key))
+        out = std::max(lo, std::min(hi, j[key].get<double>()));
+}
+
+// Optional composite fields: assign when present, leave the default otherwise.
+void take_object(const agent::json& j, const char* key, agent::json& out) {
+    if (has_object(j, key))
+        out = j[key];
+}
+void take_array(const agent::json& j, const char* key, agent::json& out) {
+    if (has_array(j, key))
+        out = j[key];
+}
+void take_string_array(const agent::json& j, const char* key, std::vector<std::string>& out) {
+    if (!has_array(j, key))
+        return;
+    for (const auto& e : j[key])
+        if (e.is_string())
+            out.push_back(e.get<std::string>());
+}
+void take_json_array(const agent::json& j, const char* key, std::vector<agent::json>& out) {
+    if (!has_array(j, key))
+        return;
+    for (const auto& e : j[key])
+        if (e.is_array())
+            out.push_back(e);
+}
+
+// Any-of groups: each inner array contributes one group, empty strings and
+// non-array members are dropped, and an all-empty group is not a group.
+void take_string_groups(const agent::json& j, const char* key,
+                        std::vector<std::vector<std::string>>& out) {
+    if (!has_array(j, key))
+        return;
+    for (const auto& g : j[key]) {
+        std::vector<std::string> group;
+        if (g.is_array())
+            for (const auto& e : g) {
+                if (!e.is_string())
+                    continue;
+                const std::string alt = e.get<std::string>();
+                if (!alt.empty())
+                    group.push_back(alt);
+            }
+        if (!group.empty())
+            out.push_back(std::move(group));
+    }
+}
+
+// Checks are either absent (null) or an object; anything else is malformed.
+bool parse_checks(const agent::json& j, Checks& out) {
+    if (j.is_null())
+        return true;
+    if (!j.is_object())
+        return false;
+    take_string_array(j, "must_contain", out.must_contain);
+    take_string_groups(j, "must_contain_any", out.must_contain_any);
+    take_string_array(j, "must_not_contain", out.must_not_contain);
+    return true;
+}
+
+// Required string field: the only fields whose absence is fatal.
+bool require_string(const agent::json& j, const char* key, std::string& out, std::string& err) {
+    if (!has_string(j, key)) {
+        err = std::string("scenario missing string field: ") + key;
+        return false;
+    }
+    out = j[key].get<std::string>();
+    return true;
+}
+
+bool read_scenario_json(const std::string& path, agent::json& j, std::string& err) {
     std::ifstream f(path);
     if (!f) {
         err = "cannot open scenario file: " + path;
-        return std::nullopt;
+        return false;
     }
-    agent::json j;
     try {
         j = agent::json::parse(f);
     } catch (const std::exception& e) {
         err = std::string("scenario is not valid JSON: ") + e.what();
-        return std::nullopt;
+        return false;
     }
+    return true;
+}
 
-    Scenario s;
-    if (!j.contains("name") || !j["name"].is_string()) {
-        err = "scenario missing string field: name";
-        return std::nullopt;
-    }
-    s.name = j["name"].get<std::string>();
-    if (!j.contains("suite") || !j["suite"].is_string()) {
-        err = "scenario missing string field: suite";
-        return std::nullopt;
-    }
-    s.suite = j["suite"].get<std::string>();
-    if (!j.contains("prompt") || !j["prompt"].is_string()) {
-        err = "scenario missing string field: prompt";
-        return std::nullopt;
-    }
-    s.prompt = j["prompt"].get<std::string>();
-
-    if (j.contains("description") && j["description"].is_string())
-        s.description = j["description"].get<std::string>();
-    if (j.contains("platforms") && j["platforms"].is_array())
-        for (const auto& p : j["platforms"])
-            if (p.is_string())
-                s.platforms.push_back(p.get<std::string>());
-    if (j.contains("hermetic_only") && j["hermetic_only"].is_boolean())
-        s.hermetic_only = j["hermetic_only"].get<bool>();
-    if (j.contains("model_profiles") && j["model_profiles"].is_array())
-        for (const auto& p : j["model_profiles"])
-            if (p.is_string())
-                s.model_profiles.push_back(p.get<std::string>());
-    if (j.contains("setup") && j["setup"].is_object())
-        s.setup = j["setup"];
-    if (j.contains("fake_replies") && j["fake_replies"].is_array())
-        s.fake_replies = j["fake_replies"];
-    if (j.contains("subagent_replies") && j["subagent_replies"].is_array())
-        for (const auto& e : j["subagent_replies"])
-            if (e.is_array())
-                s.subagent_replies.push_back(e);
-    if (j.contains("stream") && j["stream"].is_boolean())
-        s.stream = j["stream"].get<bool>();
-    if (j.contains("detection_loop") && j["detection_loop"].is_boolean())
-        s.detection_loop = j["detection_loop"].get<bool>();
-    if (j.contains("detection_duplicate") && j["detection_duplicate"].is_boolean())
-        s.detection_duplicate = j["detection_duplicate"].get<bool>();
-
-    if (j.contains("oracle") && j["oracle"].is_array()) {
-        for (const auto& e : j["oracle"]) {
-            ScenarioStep step;
-            if (!parse_step(e, step)) {
-                err = "oracle step must be an object with a string 'tool'";
-                return std::nullopt;
-            }
-            s.oracle.push_back(std::move(step));
+bool take_oracle(const agent::json& j, std::vector<ScenarioStep>& out, std::string& err) {
+    if (!has_array(j, "oracle"))
+        return true;
+    for (const auto& e : j["oracle"]) {
+        ScenarioStep step;
+        if (!parse_step(e, step)) {
+            err = "oracle step must be an object with a string 'tool'";
+            return false;
         }
+        out.push_back(std::move(step));
     }
-    if (j.contains("checks_weight") && j["checks_weight"].is_number())
-        s.checks_weight = std::max(0.0, std::min(1.0, j["checks_weight"].get<double>()));
-    if (j.contains("forbidden_tools") && j["forbidden_tools"].is_array())
-        for (const auto& t : j["forbidden_tools"])
-            if (t.is_string())
-                s.forbidden_tools.push_back(t.get<std::string>());
+    return true;
+}
+
+bool take_checks(const agent::json& j, Scenario& s, std::string& err) {
     if (!parse_checks(j.value("prompt_checks", agent::json()), s.prompt_checks) ||
         !parse_checks(j.value("checks", agent::json()), s.checks)) {
         err = "checks must be objects with string arrays";
+        return false;
+    }
+    return true;
+}
+
+void take_budget(const agent::json& j, Scenario& s) {
+    if (!has_object(j, "budget"))
+        return;
+    const agent::json& b = j["budget"];
+    take_int(b, "max_steps", s.max_steps);
+    take_long(b, "max_wall_ms", s.max_wall_ms);
+}
+
+} // namespace
+
+std::optional<Scenario> load_scenario(const std::string& path, std::string& err) {
+    agent::json j;
+    if (!read_scenario_json(path, j, err))
         return std::nullopt;
-    }
-    if (j.contains("template") && j["template"].is_string())
-        s.template_dir = j["template"].get<std::string>();
-    if (j.contains("optimal_plan") && j["optimal_plan"].is_object())
-        s.optimal_plan = j["optimal_plan"];
-    if (j.contains("difficulty") && j["difficulty"].is_number_integer())
-        s.difficulty = std::max(1, std::min(6, j["difficulty"].get<int>()));
-    if (j.contains("expected_steps") && j["expected_steps"].is_number_integer())
-        s.expected_steps = j["expected_steps"].get<int>();
-    if (j.contains("budget") && j["budget"].is_object()) {
-        if (j["budget"].contains("max_steps") && j["budget"]["max_steps"].is_number_integer())
-            s.max_steps = j["budget"]["max_steps"].get<int>();
-        if (j["budget"].contains("max_wall_ms") && j["budget"]["max_wall_ms"].is_number_integer())
-            s.max_wall_ms = j["budget"]["max_wall_ms"].get<long>();
-    }
+
+    Scenario s;
+    if (!require_string(j, "name", s.name, err) || !require_string(j, "suite", s.suite, err) ||
+        !require_string(j, "prompt", s.prompt, err))
+        return std::nullopt;
+
+    take_string(j, "description", s.description);
+    take_string_array(j, "platforms", s.platforms);
+    take_bool(j, "hermetic_only", s.hermetic_only);
+    take_string_array(j, "model_profiles", s.model_profiles);
+    take_object(j, "setup", s.setup);
+    take_array(j, "fake_replies", s.fake_replies);
+    take_json_array(j, "subagent_replies", s.subagent_replies);
+    take_bool(j, "stream", s.stream);
+    take_bool(j, "detection_loop", s.detection_loop);
+    take_bool(j, "detection_duplicate", s.detection_duplicate);
+    if (!take_oracle(j, s.oracle, err))
+        return std::nullopt;
+    take_clamped_double(j, "checks_weight", s.checks_weight, 0.0, 1.0);
+    take_string_array(j, "forbidden_tools", s.forbidden_tools);
+    if (!take_checks(j, s, err))
+        return std::nullopt;
+    take_string(j, "template", s.template_dir);
+    take_object(j, "optimal_plan", s.optimal_plan);
+    take_clamped_int(j, "difficulty", s.difficulty, 1, 6);
+    take_int(j, "expected_steps", s.expected_steps);
+    take_budget(j, s);
     return s;
 }
 

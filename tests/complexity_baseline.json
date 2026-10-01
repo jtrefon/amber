@@ -4,7 +4,6 @@
     "bench/kpi.cpp": 1,
     "bench/oracle.cpp": 2,
     "bench/probe.cpp": 2,
-    "bench/scenario.cpp": 2,
     "bench/template.cpp": 1,
     "lib/compressor_scanner.cpp": 1,
     "lib/core_segments.cpp": 1,

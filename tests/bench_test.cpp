@@ -226,6 +226,180 @@ TEST(scenario_loader_missing_file_fails) {
     ASSERT(!err.empty());
 }
 
+static std::optional<Scenario> load_from_json(const std::string& body, std::string& err) {
+    std::string dir = tmp_dir("loader_json");
+    write_file(dir + "/s.json", body);
+    return bench::load_scenario(dir + "/s.json", err);
+}
+
+TEST(scenario_loader_parses_every_optional_field) {
+    std::string err;
+    auto s = load_from_json(R"({
+        "name": "n", "suite": "s", "prompt": "p",
+        "description": "d",
+        "platforms": ["linux", "darwin"],
+        "hermetic_only": true,
+        "model_profiles": ["m1", "m2"],
+        "setup": {"files": {"a.txt": "hi"}},
+        "fake_replies": [{"content": "x"}],
+        "subagent_replies": [[{"content": "sub"}], "not-an-array"],
+        "stream": true,
+        "detection_loop": true,
+        "detection_duplicate": true,
+        "checks_weight": 0.8,
+        "forbidden_tools": ["bash"],
+        "template": "coding/fizzbuzz",
+        "optimal_plan": {"read": 2},
+        "difficulty": 5,
+        "expected_steps": 7,
+        "budget": {"max_steps": 9, "max_wall_ms": 1500}
+    })",
+                                   err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->description, "d");
+    ASSERT_EQ(s->platforms.size(), 2u);
+    ASSERT(s->hermetic_only);
+    ASSERT_EQ(s->model_profiles.size(), 2u);
+    ASSERT(s->setup["files"]["a.txt"] == "hi");
+    ASSERT_EQ(s->fake_replies.size(), 1u);
+    ASSERT_EQ(s->subagent_replies.size(), 1u);
+    ASSERT(s->stream);
+    ASSERT(s->detection_loop);
+    ASSERT(s->detection_duplicate);
+    ASSERT(s->checks_weight > 0.79 && s->checks_weight < 0.81);
+    ASSERT_EQ(s->forbidden_tools.size(), 1u);
+    ASSERT_EQ(s->template_dir, "coding/fizzbuzz");
+    ASSERT_EQ(s->optimal_plan["read"], 2);
+    ASSERT_EQ(s->difficulty, 5);
+    ASSERT_EQ(s->expected_steps, 7);
+    ASSERT_EQ(s->max_steps, 9);
+    ASSERT_EQ(s->max_wall_ms, 1500L);
+}
+
+TEST(scenario_loader_ignores_wrongly_typed_optionals) {
+    std::string err;
+    auto s = load_from_json(R"({
+        "name": "n", "suite": "s", "prompt": "p",
+        "description": 5,
+        "platforms": "linux",
+        "hermetic_only": "yes",
+        "model_profiles": 3,
+        "setup": [],
+        "fake_replies": {},
+        "subagent_replies": "nope",
+        "stream": "true",
+        "oracle": "nope",
+        "checks_weight": "0.9",
+        "forbidden_tools": "bash",
+        "template": 7,
+        "optimal_plan": [],
+        "difficulty": 2.5,
+        "expected_steps": "4",
+        "budget": []
+    })",
+                                   err);
+    ASSERT(s.has_value());
+    ASSERT(s->description.empty());
+    ASSERT(s->platforms.empty());
+    ASSERT_FALSE(s->hermetic_only);
+    ASSERT(s->model_profiles.empty());
+    ASSERT(s->setup.is_object() && s->setup.empty());
+    ASSERT(s->fake_replies.is_array() && s->fake_replies.empty());
+    ASSERT(s->subagent_replies.empty());
+    ASSERT_FALSE(s->stream);
+    ASSERT(s->oracle.empty());
+    ASSERT(s->checks_weight > 0.19 && s->checks_weight < 0.21);
+    ASSERT(s->forbidden_tools.empty());
+    ASSERT(s->template_dir.empty());
+    ASSERT(s->optimal_plan.is_object() && s->optimal_plan.empty());
+    ASSERT_EQ(s->difficulty, 3);
+    ASSERT_EQ(s->expected_steps, 0);
+    ASSERT_EQ(s->max_steps, 0);
+    ASSERT_EQ(s->max_wall_ms, 0L);
+}
+
+TEST(scenario_loader_clamps_numeric_fields) {
+    std::string err;
+    auto hi = load_from_json(
+        R"({"name":"n","suite":"s","prompt":"p","checks_weight":5,"difficulty":99})", err);
+    ASSERT(hi.has_value());
+    ASSERT(hi->checks_weight > 0.99 && hi->checks_weight < 1.01);
+    ASSERT_EQ(hi->difficulty, 6);
+    auto lo = load_from_json(
+        R"({"name":"n","suite":"s","prompt":"p","checks_weight":-2,"difficulty":0})", err);
+    ASSERT(lo.has_value());
+    ASSERT(lo->checks_weight > -0.01 && lo->checks_weight < 0.01);
+    ASSERT_EQ(lo->difficulty, 1);
+}
+
+TEST(scenario_loader_requires_name_suite_and_prompt) {
+    std::string err;
+    ASSERT_FALSE(load_from_json(R"({"suite":"s","prompt":"p"})", err).has_value());
+    ASSERT(err.find("name") != std::string::npos);
+    ASSERT_FALSE(load_from_json(R"({"name":"n","prompt":"p"})", err).has_value());
+    ASSERT(err.find("suite") != std::string::npos);
+    ASSERT_FALSE(load_from_json(R"({"name":"n","suite":"s"})", err).has_value());
+    ASSERT(err.find("prompt") != std::string::npos);
+    ASSERT_FALSE(load_from_json(R"({"name":5,"suite":"s","prompt":"p"})", err).has_value());
+    ASSERT(err.find("name") != std::string::npos);
+}
+
+TEST(scenario_loader_rejects_bad_oracle_step) {
+    std::string err;
+    auto s = load_from_json(R"({"name":"n","suite":"s","prompt":"p","oracle":[{"args":{}}]})", err);
+    ASSERT_FALSE(s.has_value());
+    ASSERT(err.find("oracle") != std::string::npos);
+}
+
+TEST(scenario_loader_rejects_bad_checks) {
+    std::string err;
+    auto s = load_from_json(R"({"name":"n","suite":"s","prompt":"p","checks":[1,2]})", err);
+    ASSERT_FALSE(s.has_value());
+    ASSERT(err.find("checks") != std::string::npos);
+}
+
+TEST(scenario_loader_reports_invalid_json) {
+    std::string err;
+    auto s = load_from_json("{ not json", err);
+    ASSERT_FALSE(s.has_value());
+    ASSERT(err.find("JSON") != std::string::npos);
+}
+
+TEST(scenario_loader_subagent_replies_keeps_only_arrays) {
+    std::string err;
+    auto s = load_from_json(
+        R"({"name":"n","suite":"s","prompt":"p","subagent_replies":[[{"a":1}],"skip",42]})", err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->subagent_replies.size(), 1u);
+    ASSERT_EQ(s->subagent_replies[0].size(), 1u);
+}
+
+TEST(scenario_loader_parses_must_contain_any_groups) {
+    std::string err;
+    auto s = load_from_json(
+        R"({"name":"n","suite":"s","prompt":"p",)"
+        R"("checks":{"must_contain_any":[["a","b"],["c"],"skip",[""]]}})",
+        err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->checks.must_contain_any.size(), 2u);
+    ASSERT_EQ(s->checks.must_contain_any[0].size(), 2u);
+    ASSERT_EQ(s->checks.must_contain_any[1].size(), 1u);
+}
+
+TEST(scenario_loader_checks_ignore_non_strings) {
+    std::string err;
+    auto s = load_from_json(
+        R"({"name":"n","suite":"s","prompt":"p",)"
+        R"("prompt_checks":{"must_contain":["a",5,true]},)"
+        R"("checks":{"must_not_contain":["b",{"x":1}]}})",
+        err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->prompt_checks.must_contain.size(), 1u);
+    ASSERT_EQ(s->prompt_checks.must_contain[0], "a");
+    ASSERT_EQ(s->checks.must_not_contain.size(), 1u);
+    ASSERT_EQ(s->checks.must_not_contain[0], "b");
+}
+
 TEST(scenario_platform_filter) {
     Scenario s;
 #ifdef __APPLE__
