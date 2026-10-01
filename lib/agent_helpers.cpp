@@ -207,6 +207,57 @@ namespace {
 // non-retryable error, asks `adapt` for a repaired request and runs ONE
 // adapted attempt with full retry semantics. When `strict` is set the last
 // error is rethrown on exhaustion instead of being returned as a message.
+// One attempt: the chat call and the UTF-8 sanitising of what it returns.
+Message attempt_chat(std::function<Message()>& chat) {
+    Message m = chat();
+    m.content = utf8_sanitize(m.content);
+    m.reasoning = utf8_sanitize(m.reasoning);
+    return m;
+}
+
+// Hand the failure to the adapter, once per call. Returns true when it produced a
+// repaired chat function, which the caller then uses instead.
+bool try_repair(const AgentHooks& hooks, ConversationLog& log, const char* stage,
+                const std::string& error, const ChatAdapter& adapt,
+                std::function<Message()>& chat) {
+    if (!adapt)
+        return false;
+    std::function<Message()> repaired = adapt(error);
+    if (!repaired)
+        return false;
+    chat = std::move(repaired);
+    if (hooks.on_status)
+        hooks.on_status("LLM request repaired, retrying (" + std::string(stage) + ")");
+    log.event("chat_recovery", {{"stage", stage}, {"error", error}});
+    return true;
+}
+
+// Report the failure and wait out the backoff. Returns false when the caller
+// should stop: attempts exhausted, a non-retryable error, or a cancellation.
+bool wait_for_retry(const AgentHooks& hooks, const CancellationToken& cancel_token, int attempt,
+                    int max_attempts, bool retryable, std::string& last_error) {
+    if (attempt >= max_attempts || !retryable)
+        return false;
+    if (hooks.on_status)
+        hooks.on_status("LLM error - retrying (" + std::to_string(attempt) + "/" +
+                        std::to_string(max_attempts) + ") in " +
+                        std::to_string(backoff_ms(attempt) / 1000) + "s");
+    if (wait_cancellable(cancel_token, backoff_ms(attempt))) {
+        last_error = "cancelled by user";
+        return false;
+    }
+    return true;
+}
+
+// What a non-strict caller gets instead of an exception.
+Message chat_error_reply(const char* stage, const std::string& last_error) {
+    Message err;
+    err.role = "assistant";
+    err.content = "[error during " + std::string(stage) + ": " + last_error +
+                  "] Please retry or adjust your approach.";
+    return err;
+}
+
 Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
                              std::function<Message()> chat, const char* stage,
                              const CancellationToken& cancel_token, int max_attempts,
@@ -215,10 +266,7 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
     bool adapted = false;
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
         try {
-            Message m = chat();
-            m.content = utf8_sanitize(m.content);
-            m.reasoning = utf8_sanitize(m.reasoning);
-            return m;
+            return attempt_chat(chat);
         } catch (const std::exception& e) {
             last_error = e.what();
             log.event("chat_error",
@@ -226,28 +274,14 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
             if (hooks.on_debug)
                 hooks.on_debug("chat error (attempt " + std::to_string(attempt) +
                                "): " + last_error);
-            if (!adapted && !retryable_error(e) && adapt) {
-                std::function<Message()> repaired = adapt(last_error);
-                if (repaired) {
-                    adapted = true;
-                    chat = std::move(repaired);
-                    if (hooks.on_status)
-                        hooks.on_status("LLM request repaired, retrying (" + std::string(stage) +
-                                        ")");
-                    log.event("chat_recovery", {{"stage", stage}, {"error", last_error}});
-                    continue;
-                }
+            if (!adapted && !retryable_error(e) &&
+                try_repair(hooks, log, stage, last_error, adapt, chat)) {
+                adapted = true;
+                continue;
             }
-            if (attempt >= max_attempts || !retryable_error(e))
+            if (!wait_for_retry(hooks, cancel_token, attempt, max_attempts, retryable_error(e),
+                                last_error))
                 break;
-            if (hooks.on_status)
-                hooks.on_status("LLM error - retrying (" + std::to_string(attempt) + "/" +
-                                std::to_string(max_attempts) + ") in " +
-                                std::to_string(backoff_ms(attempt) / 1000) + "s");
-            if (wait_cancellable(cancel_token, backoff_ms(attempt))) {
-                last_error = "cancelled by user";
-                break;
-            }
         }
     }
     if (strict)
@@ -257,11 +291,7 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
         // (Agent::run) ends the turn cleanly instead.
         throw CancelledError("request cancelled by user");
     }
-    Message err;
-    err.role = "assistant";
-    err.content = "[error during " + std::string(stage) + ": " + last_error +
-                  "] Please retry or adjust your approach.";
-    return err;
+    return chat_error_reply(stage, last_error);
 }
 
 } // namespace
