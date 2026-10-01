@@ -215,6 +215,16 @@ void SlashDispatcher::print_set_overview() {
     tui_.draw();
 }
 
+// The /set policy namespace page. Registered as the namespace's own action, so
+// no handler has to recognise the name: the tree already knows which node was
+// typed.
+void SlashDispatcher::cmd_set_policy_usage() {
+    tui_.append_line(P_STATUS,
+                     "usage: /set policy mode <read|write|yolo> | /set policy rule <tool> "
+                     "<allow|deny|ask> | /set policy timeout <N> | /set policy approval <on|off>");
+    tui_.draw();
+}
+
 // Unknown option: the hint is derived from the tree, never hardcoded.
 void SlashDispatcher::print_unknown_setting_hint(const std::string& arg) {
     std::string hint;
@@ -233,15 +243,6 @@ void SlashDispatcher::cmd_set(const std::string& arg) {
         return;
     if (arg.empty()) {
         print_set_overview();
-        return;
-    }
-    // policy: mode/approval/timeout/rule dispatch through the tree leaves
-    // (core.config.set.policy.*); this branch only sees the bare namespace.
-    if (arg.rfind("policy ", 0) == 0 || arg == "policy") {
-        tui_.append_line(
-            P_STATUS, "usage: /set policy mode <read|write|yolo> | /set policy rule <tool> "
-                      "<allow|deny|ask> | /set policy timeout <N> | /set policy approval <on|off>");
-        tui_.draw();
         return;
     }
     print_unknown_setting_hint(arg);
@@ -1132,7 +1133,8 @@ void SlashDispatcher::register_set_policy_actions() {
         tui_.policy_timeout_ = *n;
         tui_.append_line(P_STATUS, "policy timeout: " + std::to_string(*n) + "s");
     });
-    register_action("core.config.set.policy", [this](const std::string& a) { cmd_set(a); });
+    register_action("core.config.set.policy",
+                    [this](const std::string&) { cmd_set_policy_usage(); });
     register_action("core.config.set.provider", [this](const std::string& a) { cmd_provider(a); });
     register_action("core.config.set.policy.rule",
                     [this](const std::string& a) { cmd_set_policy_rule(a); });
