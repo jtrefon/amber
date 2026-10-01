@@ -13,8 +13,6 @@
     "lib/process.cpp": 1,
     "lib/providers_repo_files.cpp": 1,
     "lib/session.cpp": 1,
-    "lib/skill_catalog.cpp": 1,
-    "lib/subagent.cpp": 1,
     "lib/workspace.cpp": 1,
     "plugins/commandcode/commandcode_plugin.cpp": 1,
     "src/smoketest.cpp": 1,

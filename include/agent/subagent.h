@@ -42,6 +42,8 @@ public:
     // Run one focused sub-task; returns the sub-agent's final reply.
     // `err` is set on hard failure (cap exceeded, transport, nesting).
     std::string run_task(const std::string& prompt, ToolRegistry& reg, std::string& err);
+    AgentHooks sub_hooks_of() const;
+    Config sub_config() const;
 
 private:
     bool acquire_slot();

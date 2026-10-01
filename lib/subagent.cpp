@@ -56,6 +56,28 @@ void SubAgentExecutor::release_slot() noexcept {
     slot_cv_.notify_one();
 }
 
+// Sub-agent hooks: approval and status passthrough only — tool calls, tokens and
+// state of the worker never leak into the parent's observers.
+AgentHooks SubAgentExecutor::sub_hooks_of() const {
+    AgentHooks sub_hooks;
+    sub_hooks.on_approval = hooks_.on_approval;
+    sub_hooks.on_status = hooks_.on_status;
+    sub_hooks.on_api_key = hooks_.on_api_key;
+    return sub_hooks;
+}
+
+// The sub-agent's config: a fresh cancel flag and the iteration cap. Sibling
+// sub-agents of one parent must not share the flag (cancelling one would kill
+// the other); parent cancel still reaches a sub through the RunScope ancestor
+// chain.
+Config SubAgentExecutor::sub_config() const {
+    Config sub_cfg = cfg_;
+    sub_cfg.cancel_token = CancellationToken{};
+    if (sub_cfg.max_tool_iterations <= 0 || sub_cfg.max_tool_iterations > max_iterations_.load())
+        sub_cfg.max_tool_iterations = max_iterations_.load();
+    return sub_cfg;
+}
+
 std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& reg,
                                        std::string& err) {
     err.clear();
@@ -74,20 +96,8 @@ std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& 
         ~SlotGuard() { self->release_slot(); }
     } slot_guard{this};
 
-    // Sub-agent hooks: approval and status passthrough only — tool calls,
-    // tokens and state of the worker never leak into the parent's observers.
-    AgentHooks sub_hooks;
-    sub_hooks.on_approval = hooks_.on_approval;
-    sub_hooks.on_status = hooks_.on_status;
-    sub_hooks.on_api_key = hooks_.on_api_key;
-
-    Config sub_cfg = cfg_;
-    // Fresh cancel flag: sibling sub-agents of one parent must not share
-    // it (cancelling one would kill the other). Parent cancel still
-    // reaches a sub through the RunScope ancestor chain.
-    sub_cfg.cancel_token = CancellationToken{};
-    if (sub_cfg.max_tool_iterations <= 0 || sub_cfg.max_tool_iterations > max_iterations_.load())
-        sub_cfg.max_tool_iterations = max_iterations_.load();
+    const AgentHooks sub_hooks = sub_hooks_of();
+    Config sub_cfg = sub_config();
 
     Message sys;
     sys.role = "system";

@@ -57,6 +57,37 @@ void SkillCatalog::discover(const std::vector<Skill>& learned) {
     discover_locked(learned);
 }
 
+// Absorb one directory's authored skills. A name already selected by a
+// higher-priority scope is skipped unless it is force-enabled, in which case it
+// is kept alongside the shadowing entry.
+void SkillCatalog::absorb_authored(const std::string& root, SkillScope scope,
+                                   std::set<std::string>& selected,
+                                   std::vector<std::string>& warnings) {
+
+    for (auto& f : scan_skill_dir(root, scope, &warnings)) {
+        SkillEntry e;
+        e.name = f.name;
+        e.scope = scope;
+        e.origin = SkillOrigin::Authored;
+        e.path = f.path;
+        e.meta = std::move(f.meta);
+        apply_override_state(e.name, e.state);
+        if (e.state == kDisabled || e.state == kBlocked)
+            continue;
+        bool shadowed = selected.count(e.name) > 0;
+        if (shadowed) {
+            if (e.state != kForceEnabled)
+                continue;
+            entries_.push_back(std::move(e));
+            continue;
+        }
+        if (e.state == kForceEnabled)
+            e.state = kEnabled;
+        selected.insert(e.name);
+        entries_.push_back(std::move(e));
+    }
+}
+
 void SkillCatalog::discover_locked(const std::vector<Skill>& learned) {
     entries_.clear();
     body_cache_.clear();
@@ -64,35 +95,11 @@ void SkillCatalog::discover_locked(const std::vector<Skill>& learned) {
     std::set<std::string> selected;
     std::vector<std::string> warnings;
 
-    auto absorb_authored = [&](const std::string& root, SkillScope scope) {
-        for (auto& f : scan_skill_dir(root, scope, &warnings)) {
-            SkillEntry e;
-            e.name = f.name;
-            e.scope = scope;
-            e.origin = SkillOrigin::Authored;
-            e.path = f.path;
-            e.meta = std::move(f.meta);
-            apply_override_state(e.name, e.state);
-            if (e.state == kDisabled || e.state == kBlocked)
-                continue;
-            bool shadowed = selected.count(e.name) > 0;
-            if (shadowed) {
-                if (e.state != kForceEnabled)
-                    continue;
-                entries_.push_back(std::move(e));
-                continue;
-            }
-            if (e.state == kForceEnabled)
-                e.state = kEnabled;
-            selected.insert(e.name);
-            entries_.push_back(std::move(e));
-        }
-    };
-    absorb_authored(paths_.project, SkillScope::Project);
-    absorb_authored(paths_.global, SkillScope::Global);
+    absorb_authored(paths_.project, SkillScope::Project, selected, warnings);
+    absorb_authored(paths_.global, SkillScope::Global, selected, warnings);
     if (interop_enabled_) {
-        absorb_authored(paths_.claude, SkillScope::Interop);
-        absorb_authored(paths_.codex, SkillScope::Interop);
+        absorb_authored(paths_.claude, SkillScope::Interop, selected, warnings);
+        absorb_authored(paths_.codex, SkillScope::Interop, selected, warnings);
     }
 
     for (const auto& sk : learned) {
