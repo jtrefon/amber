@@ -119,17 +119,67 @@ std::string canonical_args(const agent::json& j) {
     return j.is_string() ? j.get<std::string>() : j.dump();
 }
 
+// Skip past steps that are already matched or that may match out of order.
+void advance_ordered(const std::vector<ScenarioStep>& oracle, const std::vector<StepState>& steps,
+                     size_t& next_ordered) {
+    while (next_ordered < oracle.size() &&
+           (oracle[next_ordered].unordered || steps[next_ordered].matched))
+        ++next_ordered;
+}
+
+// Match the next in-order step. Returns true when the call consumed it.
+bool match_next_ordered(const std::vector<ScenarioStep>& oracle, std::vector<StepState>& steps,
+                        size_t& next_ordered, const ToolCallEvent& call, size_t ci,
+                        OracleResult& r) {
+    if (next_ordered >= oracle.size() || oracle[next_ordered].unordered)
+        return false;
+    const double p = match_step(oracle[next_ordered], call);
+    if (p < 0.0)
+        return false;
+    steps[next_ordered] = {true, static_cast<int>(ci), p};
+    ++r.on_oracle_calls;
+    ++next_ordered;
+    return true;
+}
+
+// Otherwise try the steps marked unordered. Returns true when one consumed it.
+bool match_any_unordered(const std::vector<ScenarioStep>& oracle, std::vector<StepState>& steps,
+                         const ToolCallEvent& call, size_t ci, OracleResult& r) {
+    for (size_t si = 0; si < oracle.size(); ++si) {
+        if (!oracle[si].unordered || steps[si].matched)
+            continue;
+        const double p = match_step(oracle[si], call);
+        if (p < 0.0)
+            continue;
+        steps[si] = {true, static_cast<int>(ci), p};
+        ++r.on_oracle_calls;
+        return true;
+    }
+    return false;
+}
+
+// Repeat calls of the same tool+args beyond the first.
+int count_redundant(const std::vector<ToolCallEvent>& calls) {
+    std::map<std::string, int> seen;
+    int redundant = 0;
+    for (const auto& c : calls) {
+        const std::string fp = c.name + "|" + canonical_args(c.args);
+        redundant += (seen[fp]++ > 0) ? 1 : 0;
+    }
+    return redundant;
+}
+
 } // namespace
 
 OracleResult score_oracle(const std::vector<ScenarioStep>& oracle,
                           const std::vector<ToolCallEvent>& calls) {
     OracleResult r;
     r.total_steps = static_cast<int>(oracle.size());
+    r.total_calls = static_cast<int>(calls.size());
     if (r.total_steps == 0) {
         r.success = true;
         r.bullseye = 1.0;
         r.arg_precision = 1.0;
-        r.total_calls = static_cast<int>(calls.size());
         return r;
     }
 
@@ -139,34 +189,9 @@ OracleResult score_oracle(const std::vector<ScenarioStep>& oracle,
 
     for (size_t ci = 0; ci < calls.size(); ++ci) {
         const ToolCallEvent& call = calls[ci];
-        bool matched = false;
-
-        while (next_ordered < oracle.size() &&
-               (oracle[next_ordered].unordered || steps[next_ordered].matched))
-            ++next_ordered;
-
-        if (next_ordered < oracle.size() && !oracle[next_ordered].unordered) {
-            double p = match_step(oracle[next_ordered], call);
-            if (p >= 0.0) {
-                steps[next_ordered] = {true, static_cast<int>(ci), p};
-                ++r.on_oracle_calls;
-                ++next_ordered;
-                matched = true;
-            }
-        }
-        if (!matched) {
-            for (size_t si = 0; si < oracle.size(); ++si) {
-                if (!oracle[si].unordered || steps[si].matched)
-                    continue;
-                double p = match_step(oracle[si], call);
-                if (p >= 0.0) {
-                    steps[si] = {true, static_cast<int>(ci), p};
-                    ++r.on_oracle_calls;
-                    matched = true;
-                    break;
-                }
-            }
-        }
+        advance_ordered(oracle, steps, next_ordered);
+        const bool matched = match_next_ordered(oracle, steps, next_ordered, call, ci, r) ||
+                             match_any_unordered(oracle, steps, call, ci, r);
         if (!matched)
             ++r.wasted;
     }
@@ -182,13 +207,7 @@ OracleResult score_oracle(const std::vector<ScenarioStep>& oracle,
     r.arg_precision =
         r.matched_steps > 0 ? precision_sum / static_cast<double>(r.matched_steps) : 0.0;
     r.success = r.matched_steps == r.total_steps;
-    r.total_calls = static_cast<int>(calls.size());
-
-    std::map<std::string, int> seen;
-    for (const auto& c : calls) {
-        std::string fp = c.name + "|" + canonical_args(c.args);
-        r.redundant += (seen[fp]++ > 0) ? 1 : 0;
-    }
+    r.redundant = count_redundant(calls);
     return r;
 }
 

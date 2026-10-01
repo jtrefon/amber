@@ -1,16 +1,14 @@
 {
   "ccn_max": 15,
   "files": {
-    "bench/oracle.cpp": 2,
+    "bench/oracle.cpp": 1,
     "bench/probe.cpp": 2,
     "bench/template.cpp": 1,
-    "lib/compressor_scanner.cpp": 1,
     "lib/mcp_client.cpp": 1,
     "lib/policy_engine.cpp": 1,
     "lib/process.cpp": 1,
     "lib/providers_repo_files.cpp": 1,
     "lib/session.cpp": 1,
-    "lib/workspace.cpp": 1,
     "plugins/commandcode/commandcode_plugin.cpp": 1,
     "src/smoketest.cpp": 1,
     "tools/bash_tool.cpp": 1,
