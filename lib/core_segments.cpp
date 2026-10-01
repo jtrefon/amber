@@ -51,8 +51,8 @@ std::unique_ptr<Capability> segment(const char* id, int priority, int drop_prior
 }
 
 StatusText render_window(const StatusSnapshot& s) {
-    return StatusText{"[" + std::to_string(s.window_index) + "/" +
-                          std::to_string(s.window_count) + "]",
+    return StatusText{"[" + std::to_string(s.window_index) + "/" + std::to_string(s.window_count) +
+                          "]",
                       StatusTone::Banner};
 }
 

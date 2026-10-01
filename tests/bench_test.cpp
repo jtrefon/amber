@@ -254,7 +254,7 @@ TEST(scenario_loader_parses_every_optional_field) {
         "expected_steps": 7,
         "budget": {"max_steps": 9, "max_wall_ms": 1500}
     })",
-                                   err);
+                            err);
     ASSERT(s.has_value());
     ASSERT_EQ(s->description, "d");
     ASSERT_EQ(s->platforms.size(), 2u);
@@ -297,7 +297,7 @@ TEST(scenario_loader_ignores_wrongly_typed_optionals) {
         "expected_steps": "4",
         "budget": []
     })",
-                                   err);
+                            err);
     ASSERT(s.has_value());
     ASSERT(s->description.empty());
     ASSERT(s->platforms.empty());
@@ -376,10 +376,9 @@ TEST(scenario_loader_subagent_replies_keeps_only_arrays) {
 
 TEST(scenario_loader_parses_must_contain_any_groups) {
     std::string err;
-    auto s = load_from_json(
-        R"({"name":"n","suite":"s","prompt":"p",)"
-        R"("checks":{"must_contain_any":[["a","b"],["c"],"skip",[""]]}})",
-        err);
+    auto s = load_from_json(R"({"name":"n","suite":"s","prompt":"p",)"
+                            R"("checks":{"must_contain_any":[["a","b"],["c"],"skip",[""]]}})",
+                            err);
     ASSERT(s.has_value());
     ASSERT_EQ(s->checks.must_contain_any.size(), 2u);
     ASSERT_EQ(s->checks.must_contain_any[0].size(), 2u);
@@ -388,11 +387,10 @@ TEST(scenario_loader_parses_must_contain_any_groups) {
 
 TEST(scenario_loader_checks_ignore_non_strings) {
     std::string err;
-    auto s = load_from_json(
-        R"({"name":"n","suite":"s","prompt":"p",)"
-        R"("prompt_checks":{"must_contain":["a",5,true]},)"
-        R"("checks":{"must_not_contain":["b",{"x":1}]}})",
-        err);
+    auto s = load_from_json(R"({"name":"n","suite":"s","prompt":"p",)"
+                            R"("prompt_checks":{"must_contain":["a",5,true]},)"
+                            R"("checks":{"must_not_contain":["b",{"x":1}]}})",
+                            err);
     ASSERT(s.has_value());
     ASSERT_EQ(s->prompt_checks.must_contain.size(), 1u);
     ASSERT_EQ(s->prompt_checks.must_contain[0], "a");
@@ -595,8 +593,7 @@ TEST(kpi_classifies_tool_failures) {
         {"read", {}, 0, "error"},  // first matching record wins
         {"bash", {}, 0, "error"},  // timeout flag
         {"write", {}, 0, "error"}, // no usable record -> generic
-        {"grep", {}, 0, "denied"},
-        {"ls", {}, 0, "ok"},
+        {"grep", {}, 0, "denied"}, {"ls", {}, 0, "ok"},
     };
     stream.tools = {
         {"read", {}, false, "plain error", false, false, 1},
