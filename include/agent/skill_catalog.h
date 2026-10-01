@@ -4,6 +4,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -90,6 +91,8 @@ public:
     bool interop_enabled() const;
 
 private:
+    void absorb_authored(const std::string& root, SkillScope scope, std::set<std::string>& selected,
+                         std::vector<std::string>& warnings);
     // Callers must hold mtx_.
     const SkillEntry* lookup_locked(const std::string& name) const;
     void discover_locked(const std::vector<Skill>& learned);

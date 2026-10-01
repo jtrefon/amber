@@ -8,6 +8,7 @@
 #include <sstream>
 #include <memory>
 #include <string>
+#include <future>
 #include <thread>
 #include <unistd.h>
 #include <atomic>
@@ -1243,6 +1244,60 @@ TEST(agent_loop_auth_401_declined_key_degrades) {
 
 // The parent delegates one task; the sub-agent completes it with its own
 // context and the parent receives the sub-agent's final reply.
+// A client whose chat blocks until the test releases it, so the sub-agent holds
+// its slot deterministically (no sleep, no race) and the thread stays joinable.
+namespace {
+class WedgedClient : public agent_test::FakeLLMClient {
+public:
+    explicit WedgedClient(std::shared_future<void> release) : release_(std::move(release)) {}
+
+    agent::Message chat(const std::vector<agent::Message>&,
+                        const std::vector<std::shared_ptr<agent::Tool>>&, agent::Stats*) override {
+        release_.wait();
+        return {};
+    }
+
+private:
+    std::shared_future<void> release_;
+};
+} // namespace
+
+// The slot pool used to wait forever: a task that could not get a slot blocked
+// the caller indefinitely, which is what "a task that never finishes" looks like
+// from outside. It must now report back instead. Regression guard for the
+// unbounded `slot_cv_.wait`.
+TEST(subagent_slot_pool_reports_instead_of_hanging) {
+    agent::Workspace::set_root(cwd());
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    executor.set_max(1);
+    executor.set_slot_wait_ms(100); // a test cannot wait two minutes
+
+    std::promise<void> release;
+    const auto shared = release.get_future().share();
+    executor.set_factory(
+        [shared](const agent::Config&) { return std::make_unique<WedgedClient>(shared); });
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
+
+    // Occupy the only slot.
+    std::string held_err;
+    std::thread held([&] { executor.run_task("hold the slot", reg, held_err); });
+
+    // The second task must give up and say so, not wait for the first.
+    const auto t0 = std::chrono::steady_clock::now();
+    std::string err;
+    executor.run_task("second", reg, err);
+    const auto waited = std::chrono::steady_clock::now() - t0;
+
+    release.set_value();
+    held.join();
+
+    ASSERT(!err.empty());
+    ASSERT(waited < std::chrono::seconds(10));
+}
+
 TEST(agent_loop_subagent_focused_task) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
