@@ -24,7 +24,6 @@
     "tui/ansi_sgr.cpp": 1,
     "tui/canvas.cpp": 1,
     "tui/event_router.cpp": 1,
-    "tui/form_focus.cpp": 1,
     "tui/help_page.cpp": 1,
     "tui/info_dialog.cpp": 1,
     "tui/list_state.cpp": 1,
