@@ -21,16 +21,13 @@
     "tools/search/semantic_backend.cpp": 1,
     "tools/search_tool.cpp": 1,
     "tools/write_tool.cpp": 1,
-    "tui/ansi_sgr.cpp": 1,
     "tui/canvas.cpp": 1,
     "tui/event_router.cpp": 1,
     "tui/help_page.cpp": 1,
     "tui/info_dialog.cpp": 1,
-    "tui/list_state.cpp": 1,
     "tui/markdown.cpp": 1,
     "tui/panel_view.cpp": 1,
     "tui/render_engine.cpp": 4,
-    "tui/session_browser_core.cpp": 1,
     "tui/tui_session.cpp": 1
   },
   "len_max": 50

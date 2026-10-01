@@ -16,63 +16,71 @@ std::vector<std::string> ListState::filtered() const {
     return out;
 }
 
-ListState::Action ListState::key(int ch, int max_visible) {
-    if (ch == '/') {
-        filter_mode_ = true;
+namespace {
+
+bool is_backspace_key(int ch) {
+    return ch == keys::kBackspace || ch == 127;
+}
+
+} // namespace
+
+void ListState::reset_cursor() {
+    selection_ = 0;
+    scroll_offset_ = 0;
+}
+
+ListState::Action ListState::move_up() {
+    if (selection_ <= 0)
+        return Action::None;
+    --selection_;
+    if (selection_ < scroll_offset_)
+        scroll_offset_ = selection_;
+    return Action::Redraw;
+}
+
+ListState::Action ListState::move_down(int max_visible, int count) {
+    if (selection_ >= count - 1)
+        return Action::None;
+    ++selection_;
+    if (selection_ >= scroll_offset_ + max_visible)
+        scroll_offset_ = selection_ - max_visible + 1;
+    return Action::Redraw;
+}
+
+ListState::Action ListState::key_filter_mode(int ch) {
+    if (ch == 27) { // Esc cancels the filter
+        filter_mode_ = false;
         filter_.clear();
-        selection_ = 0;
-        scroll_offset_ = 0;
+        reset_cursor();
         return Action::Redraw;
     }
-
-    if (filter_mode_) {
-        if (ch == 27) { // Esc cancels the filter
-            filter_mode_ = false;
-            filter_.clear();
-            selection_ = 0;
-            scroll_offset_ = 0;
-            return Action::Redraw;
-        }
-        if ((ch == keys::kBackspace || ch == 127) && !filter_.empty()) {
-            filter_.pop_back();
-            selection_ = 0;
-            scroll_offset_ = 0;
-            return Action::Redraw;
-        }
-        if (ch >= 32 && ch < 127) {
-            filter_ += static_cast<char>(ch);
-            selection_ = 0;
-            scroll_offset_ = 0;
-            return Action::Redraw;
-        }
-        // Enter still accepts the selection while filtering.
-        if (ch == '\n' || ch == '\r') {
-            filter_mode_ = false;
-            return Action::Select;
-        }
-        return Action::None;
+    if (is_backspace_key(ch) && !filter_.empty()) {
+        filter_.pop_back();
+        reset_cursor();
+        return Action::Redraw;
     }
+    if (ch >= 32 && ch < 127) {
+        filter_ += static_cast<char>(ch);
+        reset_cursor();
+        return Action::Redraw;
+    }
+    // Enter still accepts the selection while filtering.
+    if (ch == '\n' || ch == '\r') {
+        filter_mode_ = false;
+        return Action::Select;
+    }
+    return Action::None;
+}
 
-    const std::vector<std::string> f = filtered();
+ListState::Action ListState::key_normal_mode(int ch, int max_visible) {
+    const int count = static_cast<int>(filtered().size());
     switch (ch) {
     case keys::kUp:
     case 'k':
-        if (selection_ > 0) {
-            --selection_;
-            if (selection_ < scroll_offset_)
-                scroll_offset_ = selection_;
-            return Action::Redraw;
-        }
-        return Action::None;
+        return move_up();
     case keys::kDown:
     case 'j':
-        if (selection_ < static_cast<int>(f.size()) - 1) {
-            ++selection_;
-            if (selection_ >= scroll_offset_ + max_visible)
-                scroll_offset_ = selection_ - max_visible + 1;
-            return Action::Redraw;
-        }
-        return Action::None;
+        return move_down(max_visible, count);
     case '\n':
     case '\r':
     case ' ':
@@ -85,6 +93,18 @@ ListState::Action ListState::key(int ch, int max_visible) {
     default:
         return Action::None;
     }
+}
+
+ListState::Action ListState::key(int ch, int max_visible) {
+    if (ch == '/') {
+        filter_mode_ = true;
+        filter_.clear();
+        reset_cursor();
+        return Action::Redraw;
+    }
+    if (filter_mode_)
+        return key_filter_mode(ch);
+    return key_normal_mode(ch, max_visible);
 }
 
 void ListState::window(int max_visible, int& start, int& end) const {

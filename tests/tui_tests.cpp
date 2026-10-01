@@ -2357,6 +2357,46 @@ TEST(ansi_sgr_apply_maps_colours_through_the_style) {
     ASSERT_EQ(cur.pair, st.quote_pair);
 }
 
+TEST(ansi_sgr_apply_covers_every_attribute_code) {
+    tui::md::Style st;
+    tui::md::RunStyle base;
+    base.pair = st.text_pair;
+
+    auto cur = base;
+    SGR::apply(2, cur, base, st);
+    ASSERT_TRUE(cur.dim);
+    SGR::apply(3, cur, base, st);
+    ASSERT_TRUE(cur.italic);
+    SGR::apply(4, cur, base, st);
+    ASSERT_TRUE(cur.under);
+    SGR::apply(23, cur, base, st);
+    ASSERT_FALSE(cur.italic);
+    SGR::apply(24, cur, base, st);
+    ASSERT_FALSE(cur.under);
+}
+
+TEST(ansi_sgr_bright_colours_match_their_normal_twins) {
+    tui::md::Style st;
+    tui::md::RunStyle base;
+    base.pair = st.text_pair;
+    for (int c = 30; c <= 37; ++c) {
+        auto normal = base;
+        auto bright = base;
+        SGR::apply(c, normal, base, st);
+        SGR::apply(c + 60, bright, base, st);
+        ASSERT_EQ(normal.pair, bright.pair);
+    }
+    // Distinct codes must not collapse onto one pair, or the loop above
+    // would pass vacuously.
+    auto a = base, b = base, c = base;
+    SGR::apply(31, a, base, st);
+    SGR::apply(33, b, base, st);
+    SGR::apply(35, c, base, st);
+    ASSERT(a.pair != b.pair);
+    ASSERT(b.pair != c.pair);
+    ASSERT(a.pair != c.pair);
+}
+
 // ---------------------------------------------------------------------------
 // Reasoning view: the live thinking block. A tool-calling turn reasons once per
 // LLM round-trip, so every episode must stream in dim text and then fold to its

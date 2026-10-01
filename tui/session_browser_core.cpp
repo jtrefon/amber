@@ -92,37 +92,47 @@ void SessionBrowserCore::clamp_scroll() {
         scroll_off_ = sel_ - list_h_ + 1;
 }
 
-SessionBrowserCore::Result SessionBrowserCore::key(int ch) {
-    Result r;
+std::optional<int> SessionBrowserCore::movement_delta(int ch) const {
     switch (ch) {
     case keys::kDown:
-        if (sel_ >= 0) {
-            ++sel_;
-            snap_sel();
-            clamp_scroll();
-        }
-        break;
+        return 1;
     case keys::kUp:
-        if (sel_ >= 0) {
-            --sel_;
-            snap_sel();
-            clamp_scroll();
-        }
-        break;
+        return -1;
     case keys::kNPage:
-        if (sel_ >= 0) {
-            sel_ += list_h_;
-            snap_sel();
-            clamp_scroll();
-        }
-        break;
+        return list_h_;
     case keys::kPPage:
-        if (sel_ >= 0) {
-            sel_ -= list_h_;
-            snap_sel();
-            clamp_scroll();
-        }
-        break;
+        return -list_h_;
+    default:
+        return std::nullopt;
+    }
+}
+
+void SessionBrowserCore::move_selection(int delta) {
+    if (sel_ < 0)
+        return;
+    sel_ += delta;
+    snap_sel();
+    clamp_scroll();
+}
+
+// A filter change always returns the cursor to the top of the list.
+void SessionBrowserCore::reset_filter_cursor() {
+    sel_ = 0;
+    scroll_off_ = 0;
+    rebuild();
+    snap_sel();
+}
+
+void SessionBrowserCore::append_filter_char(int ch) {
+    if (ch < 32 || ch > 126)
+        return;
+    filter_ += static_cast<char>(ch);
+    reset_filter_cursor();
+}
+
+SessionBrowserCore::Result SessionBrowserCore::key_command(int ch) {
+    Result r;
+    switch (ch) {
     case '\n':
     case '\r':
     case keys::kEnter:
@@ -138,25 +148,24 @@ SessionBrowserCore::Result SessionBrowserCore::key(int ch) {
     case 8:
         if (!filter_.empty())
             filter_.pop_back();
-        sel_ = 0;
-        scroll_off_ = 0;
-        rebuild();
-        snap_sel();
+        reset_filter_cursor();
         break;
     case 27:
         r.action = Result::Action::Cancel;
         break;
     default:
-        if (ch >= 32 && ch <= 126) {
-            filter_ += static_cast<char>(ch);
-            sel_ = 0;
-            scroll_off_ = 0;
-            rebuild();
-            snap_sel();
-        }
+        append_filter_char(ch);
         break;
     }
     return r;
+}
+
+SessionBrowserCore::Result SessionBrowserCore::key(int ch) {
+    if (const auto delta = movement_delta(ch)) {
+        move_selection(*delta);
+        return Result{};
+    }
+    return key_command(ch);
 }
 
 int SessionBrowserCore::display_kind(int row) const {
