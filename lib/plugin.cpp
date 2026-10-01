@@ -308,13 +308,22 @@ void PluginManager::shutdown_session(Session& s) {
     s.in_fd = s.out_fd = -1;
 }
 
-bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
+// The shared failure path: record the reason and tear the session down.
+bool PluginManager::fail_handshake(PluginInfo& info, Session& s, const std::string& error) {
+    info.error = error;
+    shutdown_session(s);
+    return false;
+}
+
+// pipe + fork + exec, and the parent's end of both pipes. The child never
+// returns: it execs the plugin or exits 127.
+bool PluginManager::spawn_child(PluginInfo& info, Session& s) {
     int to_child[2], from_child[2];
     if (pipe(to_child) != 0 || pipe(from_child) != 0) {
         info.error = "pipe failed";
         return false;
     }
-    pid_t pid = fork();
+    const pid_t pid = fork();
     if (pid < 0) {
         info.error = "fork failed";
         return false;
@@ -335,58 +344,59 @@ bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
     s.pid = pid;
     s.in_fd = to_child[1];
     s.out_fd = from_child[0];
+    return true;
+}
 
+// Send the initialize request.
+bool PluginManager::write_initialize(PluginInfo& info, Session& s) {
     json req = {{"id", 1},
                 {"method", "initialize"},
                 {"params",
                  {{"protocol_version", kProtocolVersion},
                   {"settings", info.settings},
                   {"workspace", Workspace::root()}}}};
-    std::string line = req.dump() + "\n";
-    if (write(s.in_fd, line.data(), line.size()) != (ssize_t)line.size()) {
-        info.error = "write to plugin failed";
-        shutdown_session(s);
-        return false;
-    }
-    // Read exactly one line (the initialize response), with a deadline like
-    // the tool-call path — a plugin that neither responds nor exits must not
-    // hang enable/connect forever.
+    const std::string line = req.dump() + "\n";
+    if (write(s.in_fd, line.data(), line.size()) == (ssize_t)line.size())
+        return true;
+    return fail_handshake(info, s, "write to plugin failed");
+}
+
+// Read exactly one line (the initialize response), with a deadline like the
+// tool-call path — a plugin that neither responds nor exits must not hang
+// enable/connect forever.
+bool PluginManager::read_initialize_reply(PluginInfo& info, Session& s) {
     s.in_buf.clear();
     char buf[4096];
-    int timeout = kCallTimeoutSec * 1000;
+    const int timeout = kCallTimeoutSec * 1000;
     while (s.in_buf.find('\n') == std::string::npos) {
         struct pollfd pfd {
             s.out_fd, POLLIN, 0
         };
-        int rc = poll(&pfd, 1, timeout);
-        if (rc == 0) {
-            info.error = "plugin initialize timed out";
-            shutdown_session(s);
-            return false;
-        }
-        if (rc < 0) {
-            info.error = "plugin poll failed";
-            shutdown_session(s);
-            return false;
-        }
-        ssize_t n = read(s.out_fd, buf, sizeof buf);
-        if (n <= 0) {
-            info.error = "plugin exited during handshake";
-            shutdown_session(s);
-            return false;
-        }
+        const int rc = poll(&pfd, 1, timeout);
+        if (rc == 0)
+            return fail_handshake(info, s, "plugin initialize timed out");
+        if (rc < 0)
+            return fail_handshake(info, s, "plugin poll failed");
+        const ssize_t n = read(s.out_fd, buf, sizeof buf);
+        if (n <= 0)
+            return fail_handshake(info, s, "plugin exited during handshake");
         s.in_buf.append(buf, (size_t)n);
     }
-    size_t nl = s.in_buf.find('\n');
-    std::string resp_line = s.in_buf.substr(0, nl);
+    const size_t nl = s.in_buf.find('\n');
+    const std::string resp_line = s.in_buf.substr(0, nl);
     s.in_buf.erase(0, nl + 1);
-    json resp = json::parse(resp_line, nullptr, false);
-    if (resp.is_discarded() || !resp.contains("result") || !resp["result"].value("ok", false)) {
-        info.error = "initialize rejected";
-        shutdown_session(s);
-        return false;
-    }
+    const json resp = json::parse(resp_line, nullptr, false);
+    if (resp.is_discarded() || !resp.contains("result") || !resp["result"].value("ok", false))
+        return fail_handshake(info, s, "initialize rejected");
     return true;
+}
+
+bool PluginManager::spawn_and_handshake(PluginInfo& info, Session& s) {
+    if (!spawn_child(info, s))
+        return false;
+    if (!write_initialize(info, s))
+        return false;
+    return read_initialize_reply(info, s);
 }
 
 std::shared_ptr<PluginManager::Session> PluginManager::session(PluginInfo& info) {
@@ -447,6 +457,42 @@ private:
 
 } // namespace plugin_internal
 
+// Read the response line with a deadline, then decode it into a ToolResult.
+ToolResult PluginManager::read_call_reply(Session& s) {
+    const int timeout = kCallTimeoutSec * 1000;
+    while (s.in_buf.find('\n') == std::string::npos) {
+        struct pollfd pfd {
+            s.out_fd, POLLIN, 0
+        };
+        const int rc = poll(&pfd, 1, timeout);
+        if (rc == 0)
+            return {false, "", "plugin call timed out"};
+        if (rc < 0)
+            return {false, "", "plugin poll failed"};
+        char buf[4096];
+        // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
+        const ssize_t n = read(s.out_fd, buf, sizeof buf);
+        if (n <= 0)
+            return {false, "", "plugin exited during call"};
+        s.in_buf.append(buf, (size_t)n);
+    }
+    const size_t nl = s.in_buf.find('\n');
+    const std::string resp_line = s.in_buf.substr(0, nl);
+    s.in_buf.erase(0, nl + 1);
+    const json resp = json::parse(resp_line, nullptr, false);
+    if (resp.is_discarded() || !resp.contains("result"))
+        return {false, "", "malformed plugin response"};
+    const json& r = resp["result"];
+    ToolResult out;
+    out.ok = r.value("ok", false);
+    out.output = r.value("output", std::string());
+    if (!out.ok && out.output.empty())
+        out.output = r.value("error", std::string());
+    if (r.contains("meta"))
+        out.meta = r["meta"];
+    return out;
+}
+
 ToolResult PluginManager::call_tool(const PluginInfo& info, const std::string& name,
                                     const json& args) {
     PluginInfo* infos = nullptr;
@@ -467,39 +513,7 @@ ToolResult PluginManager::call_tool(const PluginInfo& info, const std::string& n
     if (write(s->in_fd, line.data(), line.size()) != (ssize_t)line.size())
         return {false, "", "plugin write failed (process died?)"};
 
-    // Wait for the response line with a deadline.
-    int timeout = kCallTimeoutSec * 1000;
-    while (s->in_buf.find('\n') == std::string::npos) {
-        struct pollfd pfd {
-            s->out_fd, POLLIN, 0
-        };
-        int rc = poll(&pfd, 1, timeout);
-        if (rc == 0)
-            return {false, "", "plugin call timed out"};
-        if (rc < 0)
-            return {false, "", "plugin poll failed"};
-        char buf[4096];
-        // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
-        ssize_t n = read(s->out_fd, buf, sizeof buf);
-        if (n <= 0)
-            return {false, "", "plugin exited during call"};
-        s->in_buf.append(buf, (size_t)n);
-    }
-    size_t nl = s->in_buf.find('\n');
-    std::string resp_line = s->in_buf.substr(0, nl);
-    s->in_buf.erase(0, nl + 1);
-    json resp = json::parse(resp_line, nullptr, false);
-    if (resp.is_discarded() || !resp.contains("result"))
-        return {false, "", "malformed plugin response"};
-    const json& r = resp["result"];
-    ToolResult out;
-    out.ok = r.value("ok", false);
-    out.output = r.value("output", std::string());
-    if (!out.ok && out.output.empty())
-        out.output = r.value("error", std::string());
-    if (r.contains("meta"))
-        out.meta = r["meta"];
-    return out;
+    return read_call_reply(*s);
 }
 
 bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {
