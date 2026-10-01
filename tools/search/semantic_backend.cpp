@@ -64,30 +64,23 @@ private:
         std::vector<double> vec;
     };
 
-    void ensure_index(const std::string& root, const std::string& glob,
-                      const std::vector<std::string>& exclude_dirs) const {
-        std::scoped_lock lock(mtx_);
-        std::string excl_key;
+    struct RawLine {
+        std::string path;
+        long no = 0;
+        std::string text;
+        std::vector<std::string> toks;
+    };
+
+    static std::string excludes_key(const std::vector<std::string>& exclude_dirs) {
+        std::string key;
         for (const auto& d : exclude_dirs)
-            excl_key += d + "\n";
-        // Rebuild if never built for this root/glob/excludes combo.
-        if (indexed_root_ == root && indexed_glob_ == glob && indexed_excludes_ == excl_key &&
-            !lines_.empty())
-            return;
+            key += d + "\n";
+        return key;
+    }
 
-        lines_.clear();
-        idf_.clear();
-        std::vector<std::string> files;
-        walk(root, glob, exclude_dirs, files);
-
-        // document frequency per term
-        std::unordered_map<std::string, double> df;
-        struct RawLine {
-            std::string path;
-            long no = 0;
-            std::string text;
-            std::vector<std::string> toks;
-        };
+    // Read every candidate file, accumulating document frequency per term.
+    static std::vector<RawLine> read_lines(const std::vector<std::string>& files,
+                                           std::unordered_map<std::string, double>& df) {
         std::vector<RawLine> raw;
         for (const auto& f : files) {
             std::ifstream in(f);
@@ -100,25 +93,55 @@ private:
                 if (text.size() > 4096)
                     text.resize(4096); // skip huge lines
                 auto toks = tokenize(text);
-                std::unordered_set<std::string> uniq(toks.begin(), toks.end());
+                const std::unordered_set<std::string> uniq(toks.begin(), toks.end());
                 for (const auto& t : uniq)
                     df[t] += 1.0;
                 raw.push_back({f, no, text, std::move(toks)});
             }
         }
-        auto N = static_cast<double>(raw.empty() ? 1 : raw.size());
-        for (auto& kv : df)
-            kv.second = std::log(N / kv.second) + 1.0;
+        return raw;
+    }
 
-        lines_.reserve(raw.size());
+    // idf = log(N / df) + 1, so a term present in every line still scores 1.
+    static void scale_idf(std::unordered_map<std::string, double>& df, size_t line_count) {
+        const auto n = static_cast<double>(line_count == 0 ? 1 : line_count);
+        for (auto& kv : df)
+            kv.second = std::log(n / kv.second) + 1.0;
+    }
+
+    static std::vector<Line> embed_all(std::vector<RawLine>& raw,
+                                       std::unordered_map<std::string, double>& df) {
+        std::vector<Line> lines;
+        lines.reserve(raw.size());
         for (auto& r : raw) {
             Line l;
             l.path = r.path;
             l.no = r.no;
             l.text = r.text;
             embed(r.toks, l.vec, &df);
-            lines_.push_back(std::move(l));
+            lines.push_back(std::move(l));
         }
+        return lines;
+    }
+
+    void ensure_index(const std::string& root, const std::string& glob,
+                      const std::vector<std::string>& exclude_dirs) const {
+        std::scoped_lock lock(mtx_);
+        const std::string excl_key = excludes_key(exclude_dirs);
+        // Rebuild if never built for this root/glob/excludes combo.
+        if (indexed_root_ == root && indexed_glob_ == glob && indexed_excludes_ == excl_key &&
+            !lines_.empty())
+            return;
+
+        lines_.clear();
+        idf_.clear();
+        std::vector<std::string> files;
+        walk(root, glob, exclude_dirs, files);
+
+        std::unordered_map<std::string, double> df;
+        std::vector<RawLine> raw = read_lines(files, df);
+        scale_idf(df, raw.size());
+        lines_ = embed_all(raw, df);
         idf_ = std::move(df);
         indexed_root_ = root;
         indexed_glob_ = glob;
