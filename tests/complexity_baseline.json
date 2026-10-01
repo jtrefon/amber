@@ -10,7 +10,6 @@
     "lib/compressor_scanner.cpp": 1,
     "lib/core_segments.cpp": 1,
     "lib/mcp_client.cpp": 1,
-    "lib/plugin_console.cpp": 1,
     "lib/policy_engine.cpp": 1,
     "lib/process.cpp": 1,
     "lib/providers_repo_files.cpp": 1,
