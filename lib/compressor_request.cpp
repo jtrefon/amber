@@ -3,11 +3,10 @@
 
 namespace agent {
 
-Message build_classify_request(bool update_previous) {
-    Message req;
-    req.role = "user";
-    std::string body =
-        R"JSON(Analyze the conversation above. You are compressing it so work can continue with the most recent exchanges preserved verbatim and everything older reduced to a clear, self-contained summary.
+// The classify prompt is data, not code: keeping it out of the function lets the
+// request builder read as what it does.
+constexpr const char* kClassifyPrompt =
+    R"JSON(Analyze the conversation above. You are compressing it so work can continue with the most recent exchanges preserved verbatim and everything older reduced to a clear, self-contained summary.
 
 == What to produce ==
 
@@ -41,18 +40,26 @@ Respond with ONLY this JSON object — no text outside it, no markdown fences:
     {"turns": "9-10", "tag": "context", "summary": "investigated config paths"}
   ]
 })JSON";
-    if (update_previous) {
-        // A previous compression is visible above as a system message with
-        // an archive. Extend it: keep its existing entries, only classify
-        // turns AFTER that message, and never tag the compressed-context
-        // message itself. The new summary should build on the prior one.
-        body += R"JSON(
+
+// Appended when a previous compression is already in the conversation.
+constexpr const char* kClassifyUpdateSuffix = R"JSON(
 
 The conversation above already contains a "Compressed conversation context"
 system message. Update it: classify only the turns that came AFTER that
 message, leave the existing archive entries alone, tag the compressed-context
 message itself as "core", and write the summary to cover BOTH the prior
 compressed state and the new turns since it.)JSON";
+
+Message build_classify_request(bool update_previous) {
+    Message req;
+    req.role = "user";
+    std::string body = kClassifyPrompt;
+    if (update_previous) {
+        // A previous compression is visible above as a system message with an
+        // archive. Extend it: keep its existing entries, only classify turns
+        // AFTER that message, and never tag the compressed-context message
+        // itself. The new summary should build on the prior one.
+        body += kClassifyUpdateSuffix;
     }
     req.content = std::move(body);
     return req;

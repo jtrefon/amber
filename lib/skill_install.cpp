@@ -34,14 +34,17 @@ std::string pack_skill_name(const std::string& listing) {
 
 } // namespace
 
-std::string install_skill_pack(const std::string& source, const std::string& dest_root) {
-    std::string err;
-    std::string bytes = fetch_bytes(source, err);
-    if (bytes.empty())
-        return err;
-
-    std::string tmp = "/tmp/amber-skill-install-" + std::to_string(getpid());
-    std::string tgz = tmp + ".tar.gz";
+// Stage the archive into a private temp dir and unpack it. On success `tmp` and
+// `name` describe the staged pack and the error is empty; on failure the staging
+// is already cleaned up.
+std::string stage_skill_pack(const std::string& bytes, std::string& tmp, std::string& name) {
+    tmp = "/tmp/amber-skill-install-" + std::to_string(getpid());
+    const std::string tgz = tmp + ".tar.gz";
+    const auto cleanup = [&]() {
+        std::error_code ec;
+        std::filesystem::remove_all(tmp, ec);
+        std::filesystem::remove(tgz, ec);
+    };
     std::error_code ec;
     std::filesystem::remove_all(tmp, ec);
     std::filesystem::create_directories(tmp, ec);
@@ -49,39 +52,51 @@ std::string install_skill_pack(const std::string& source, const std::string& des
         std::ofstream f(tgz, std::ios::binary);
         f << bytes;
     }
-    std::string listing = list_tar_gz(tgz);
-    std::string name = pack_skill_name(listing);
+    name = pack_skill_name(list_tar_gz(tgz));
     if (name.empty()) {
-        std::filesystem::remove_all(tmp, ec);
-        std::filesystem::remove(tgz, ec);
+        cleanup();
         return "archive is not a skill pack (SKILL.md must sit inside one "
                "top-level directory)";
     }
     if (!is_kebab_name(name)) {
-        std::filesystem::remove_all(tmp, ec);
-        std::filesystem::remove(tgz, ec);
-        return "invalid skill name '" + name + "'";
+        const std::string bad = name;
+        cleanup();
+        return "invalid skill name '" + bad + "'";
     }
     if (!unpack_tar_gz(tgz, tmp).empty()) {
-        std::filesystem::remove_all(tmp, ec);
-        std::filesystem::remove(tgz, ec);
+        cleanup();
         return "cannot unpack archive";
     }
-    std::string body_path = tmp + "/" + name + "/SKILL.md";
-    std::ifstream body_in(body_path, std::ios::binary);
-    std::string body((std::istreambuf_iterator<char>(body_in)), std::istreambuf_iterator<char>());
+    std::ifstream body_in(tmp + "/" + name + "/SKILL.md", std::ios::binary);
+    const std::string body((std::istreambuf_iterator<char>(body_in)),
+                           std::istreambuf_iterator<char>());
     if (!parse_skill_meta(body)) {
-        std::filesystem::remove_all(tmp, ec);
-        std::filesystem::remove(tgz, ec);
+        cleanup();
         return "malformed SKILL.md (missing or invalid frontmatter)";
     }
+    return "";
+}
+
+std::string install_skill_pack(const std::string& source, const std::string& dest_root) {
+    std::string err;
+    const std::string bytes = fetch_bytes(source, err);
+    if (bytes.empty())
+        return err;
+
+    std::string tmp;
+    std::string name;
+    std::string stage_error = stage_skill_pack(bytes, tmp, name);
+    if (!stage_error.empty())
+        return stage_error;
+
+    std::error_code ec;
     std::filesystem::create_directories(dest_root, ec);
-    std::string dest = dest_root + "/" + name;
+    const std::string dest = dest_root + "/" + name;
     std::filesystem::remove_all(dest, ec);
     std::error_code ec2;
     std::filesystem::copy(tmp + "/" + name, dest, std::filesystem::copy_options::recursive, ec2);
     std::filesystem::remove_all(tmp, ec);
-    std::filesystem::remove(tgz, ec);
+    std::filesystem::remove(tmp + ".tar.gz", ec);
     if (ec2)
         return "cannot stage skill: " + ec2.message();
     return "";
