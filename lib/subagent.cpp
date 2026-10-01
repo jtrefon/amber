@@ -1,6 +1,8 @@
 
 #include "agent/subagent.h"
 
+#include <chrono>
+
 #include <algorithm>
 
 #include "agent/agent.h"
@@ -8,6 +10,15 @@
 #include "agent/prompt.h"
 
 namespace agent {
+
+namespace {
+
+// How long a task waits for a slot, or for a serial-mode sibling, before giving
+// up and reporting back. Generous enough for a real queue, bounded enough that
+// a wedged sibling cannot hold the parent indefinitely.
+constexpr int kSlotWaitSec = 120; // default slot/serial wait
+
+} // namespace
 
 namespace {
 
@@ -43,7 +54,13 @@ void set_subagent_inherited(bool value) noexcept {
 
 bool SubAgentExecutor::acquire_slot() {
     std::unique_lock<std::mutex> lk(slot_mutex_);
-    slot_cv_.wait(lk, [this] { return active_ < max_.load(); });
+    // Bounded wait: a task that cannot get a slot reports back rather than
+    // waiting forever. An unbounded wait here hangs the parent for as long as
+    // the slots stay taken — which is exactly what "a task that never finishes"
+    // looks like from outside.
+    if (!slot_cv_.wait_for(lk, std::chrono::milliseconds(slot_wait_ms_.load()),
+                           [this] { return active_ < max_.load(); }))
+        return false;
     ++active_;
     return true;
 }
@@ -87,10 +104,18 @@ std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& 
     }
 
     // Serial mode: one sub-agent at a time (cache-friendly request ordering).
-    std::unique_lock<std::mutex> serial_guard(serial_mutex_, std::defer_lock);
-    if (!parallel_.load())
-        serial_guard.lock();
-    acquire_slot();
+    // Bounded like the slot wait, so a wedged sibling cannot hold the parent
+    // forever.
+    std::unique_lock<std::timed_mutex> serial_guard(serial_mutex_, std::defer_lock);
+    if (!parallel_.load() &&
+        !serial_guard.try_lock_for(std::chrono::milliseconds(slot_wait_ms_.load()))) {
+        err = "another sub-agent is still running; retry shortly";
+        return "";
+    }
+    if (!acquire_slot()) {
+        err = "all sub-agent slots are busy; retry shortly";
+        return "";
+    }
     struct SlotGuard {
         SubAgentExecutor* self;
         ~SlotGuard() { self->release_slot(); }

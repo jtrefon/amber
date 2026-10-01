@@ -30,6 +30,10 @@ public:
     bool parallel() const noexcept { return parallel_.load(); }
     void set_max(int n) noexcept { max_.store(n < 1 ? 1 : n); }
     int max() const noexcept { return max_.load(); }
+    // How long a task waits for a slot or a serial sibling before reporting
+    // back. Tests set this small; the default is generous.
+    void set_slot_wait_ms(int ms) noexcept { slot_wait_ms_.store(ms < 1 ? 1 : ms); }
+    int slot_wait_ms() const noexcept { return slot_wait_ms_.load(); }
     void set_max_iterations(int n) noexcept { max_iterations_.store(n < 1 ? 1 : n); }
     int max_iterations() const noexcept { return max_iterations_.load(); }
 
@@ -52,11 +56,12 @@ private:
     std::atomic<bool> parallel_{true};
     std::atomic<int> max_{4};
     std::atomic<int> max_iterations_{20};
+    std::atomic<int> slot_wait_ms_{120 * 1000}; // 2 min default; see set_slot_wait_ms
     std::atomic<int> launched_{0};
     Config cfg_;
     AgentHooks hooks_;
     LLMClientFactory factory_;
-    std::mutex serial_mutex_;
+    std::timed_mutex serial_mutex_;
     std::mutex slot_mutex_;
     std::condition_variable slot_cv_;
     int active_ = 0;
