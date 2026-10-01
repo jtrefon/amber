@@ -123,6 +123,7 @@ public:
     void cmd_job(const std::string& rest);
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
+    void cmd_set_policy_usage();
     void cmd_get(const std::string& arg);
     void apply_compression_threshold(const std::string& v);
     void apply_compression_min_turns(const std::string& v);
