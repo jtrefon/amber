@@ -38,91 +38,97 @@ std::vector<std::string> tokens(const std::string& s) {
     return out;
 }
 
+// One token plus the run it came from, so a wrapped line keeps its styles.
+struct Piece {
+    std::string text;
+    size_t run = 0;
+};
+
+// A piece carries inter-word whitespace when `tokens` split it out as its own
+// token; it wraps as a single column and is dropped at a line start.
+bool is_space_piece(const std::string& t) {
+    return t.find(' ') != std::string::npos || t.find('\t') != std::string::npos;
+}
+
+// Flatten the styled runs into (token, run-index) pieces. A single token wider
+// than the column is hard-broken so it cannot overflow the canvas - only safe
+// on pure ASCII, where a byte boundary is a display column; multi-byte tokens
+// are left intact (the terminal clips them rather than corrupting them).
+std::vector<Piece> wrap_pieces(const Line& in, int width) {
+    std::vector<Piece> pieces;
+    pieces.reserve(in.runs.size() * 2);
+    for (size_t ri = 0; ri < in.runs.size(); ++ri)
+        for (const auto& t : tokens(in.runs[ri].text)) {
+            if (t.empty())
+                continue;
+            const bool ascii =
+                std::all_of(t.begin(), t.end(), [](char c) { return (unsigned char)c < 0x80; });
+            if (ascii && cols(t) > width) {
+                const auto step = static_cast<size_t>(width);
+                for (size_t o = 0; o < t.size(); o += step)
+                    pieces.push_back({t.substr(o, step), ri});
+            } else {
+                pieces.push_back({t, ri});
+            }
+        }
+    return pieces;
+}
+
+// Merge the just-pushed run into the previous one when the style matches, so a
+// wrapped physical line keeps a compact run list.
+void merge_tail(std::vector<Run>& runs) {
+    const size_t n = runs.size();
+    if (n < 2)
+        return;
+    Run& a = runs[n - 2];
+    const Run& b = runs[n - 1];
+    if (a.pair == b.pair && a.bold == b.bold && a.dim == b.dim && a.italic == b.italic &&
+        a.under == b.under) {
+        a.text += b.text;
+        runs.pop_back();
+    }
+}
+
+// Push the accumulated line, carrying the block flags from the source line.
+void flush_line(std::vector<Line>& out, Line& cur, const Line& in, int& used, bool& first) {
+    cur.is_code = in.is_code;
+    cur.is_hr = in.is_hr;
+    cur.is_table = in.is_table;
+    cur.heading = in.heading;
+    out.push_back(std::move(cur));
+    cur = Line{};
+    used = 0;
+    first = true;
+}
+
 } // namespace
 
 std::vector<Line> wrap(const Line& in, int width) {
     if (width <= 0)
         width = 80;
+    const std::vector<Piece> pieces = wrap_pieces(in, width);
+
     std::vector<Line> out;
-
-    // Build a flat list of (token, run-index) so each wrapped physical line
-    // keeps the correct style for every piece of text.
-    struct Piece {
-        std::string text;
-        size_t run = 0;
-    };
-    std::vector<Piece> pieces;
-    pieces.reserve(in.runs.size() * 2);
-    for (size_t ri = 0; ri < in.runs.size(); ++ri) {
-        for (auto& t : tokens(in.runs[ri].text)) {
-            if (t.empty())
-                continue;
-            // A single token wider than the column: hard-break it so it does
-            // not overflow the canvas. Only safe on pure-ASCII text, where a
-            // byte boundary == a display column; multi-byte tokens are left
-            // intact (overflow is avoided by the terminal, never corrupted).
-            bool ascii =
-                std::all_of(t.begin(), t.end(), [](char c) { return (unsigned char)c < 0x80; });
-            if (ascii && cols(t) > width) {
-                for (size_t o = 0; o < t.size(); o += (size_t)width)
-                    pieces.push_back({t.substr(o, (size_t)width), ri});
-            } else {
-                pieces.push_back({t, ri});
-            }
-        }
-    }
-
     Line cur;
     int used = 0;
     bool first = true;
-    auto merge_tail = [&]() {
-        // Merge the just-pushed run into the previous one if style matches,
-        // so a wrapped physical line keeps a compact run list.
-        size_t n = cur.runs.size();
-        if (n < 2)
-            return;
-        Run& a = cur.runs[n - 2];
-        Run& b = cur.runs[n - 1];
-        if (a.pair == b.pair && a.bold == b.bold && a.dim == b.dim && a.italic == b.italic &&
-            a.under == b.under) {
-            a.text += b.text;
-            cur.runs.pop_back();
-        }
-    };
-    auto flush = [&]() {
-        cur.is_code = in.is_code;
-        cur.is_hr = in.is_hr;
-        cur.is_table = in.is_table;
-        cur.heading = in.heading;
-        out.push_back(std::move(cur));
-        cur = Line{};
-        used = 0;
-        first = true;
-    };
-
-    for (auto& p : pieces) {
-        int w = cols(p.text);
-        bool space =
-            (p.text.find(' ') != std::string::npos) || (p.text.find('\t') != std::string::npos);
+    for (const auto& p : pieces) {
+        const int w = cols(p.text);
+        const bool space = is_space_piece(p.text);
         if (!first && used + (space ? 1 : w) > width) {
-            flush();
+            flush_line(out, cur, in, used, first);
             if (space)
                 continue; // drop the leading space at line start
         }
         Run r = in.runs[p.run];
-        if (!first && space) {
-            // render the inter-word space as part of the preceding run's style
-            r.text = " ";
-        } else {
-            r.text = p.text;
-        }
+        r.text = (!first && space) ? " " : p.text;
         cur.runs.push_back(r);
-        merge_tail();
+        merge_tail(cur.runs);
         used += (first && space) ? 0 : w;
         first = false;
     }
     if (!cur.runs.empty() || out.empty())
-        flush();
+        flush_line(out, cur, in, used, first);
     return out;
 }
 

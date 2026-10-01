@@ -31,9 +31,7 @@
     "tui/markdown_md4c.cpp": 3,
     "tui/panel_view.cpp": 1,
     "tui/render_engine.cpp": 4,
-    "tui/rich.cpp": 1,
     "tui/session_browser_core.cpp": 1,
-    "tui/textutil.cpp": 1,
     "tui/tui_session.cpp": 1
   },
   "len_max": 50

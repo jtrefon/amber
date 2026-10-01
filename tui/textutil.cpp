@@ -188,13 +188,27 @@ int display_cols(const std::string& s) {
     return cols;
 }
 
-std::vector<std::string> wrap(const std::string& text, int w) {
-    if (w <= 0)
-        w = 80;
-    std::vector<std::string> out;
-    // Sanitize: expand tabs, drop CR, strip ANSI/control bytes that would
-    // otherwise be written raw to the terminal (garbage on screen), while
-    // preserving valid multibyte UTF-8 (emoji/CJK) intact.
+namespace {
+
+// Advance past an ESC sequence and return the index of the next byte: a CSI
+// (ESC '[' ... final byte) or the simple two-byte form. An unterminated
+// sequence consumes to the end.
+std::size_t skip_escape(const std::string& text, std::size_t i) {
+    ++i; // the ESC itself
+    if (i >= text.size())
+        return i;
+    if (text[i] != '[')
+        return i + 1;
+    ++i;
+    while (i < text.size() && (text[i] < '@' || text[i] > '~'))
+        ++i;
+    return i < text.size() ? i + 1 : i; // include the final byte
+}
+
+// Expand tabs, drop CR, and strip ANSI/control bytes that would otherwise be
+// written raw to the terminal (garbage on screen), while preserving valid
+// multibyte UTF-8 (emoji/CJK) intact.
+std::string sanitize_for_wrap(const std::string& text) {
     std::string src;
     src.reserve(text.size());
     for (std::size_t i = 0; i < text.size();) {
@@ -209,17 +223,8 @@ std::vector<std::string> wrap(const std::string& text, int w) {
             ++i;
             continue;
         }
-        if (c == 0x1b) { // ESC: skip a CSI/simple seq
-            ++i;
-            if (i < text.size() && text[i] == '[') {
-                ++i;
-                while (i < text.size() && (text[i] < '@' || text[i] > '~'))
-                    ++i;
-                if (i < text.size())
-                    ++i; // final byte
-            } else if (i < text.size()) {
-                ++i;
-            }
+        if (c == 0x1b) { // ESC: drop the sequence
+            i = skip_escape(text, i);
             continue;
         }
         if (c < 0x20 || c == 0x7f) {
@@ -235,43 +240,54 @@ std::vector<std::string> wrap(const std::string& text, int w) {
         src.append(text, i, n);
         i += n;
     }
+    return src;
+}
+
+// Word-wrap one paragraph to `w` display columns. Walks forward counting
+// display width via wcwidth so wide chars (CJK/emoji) take 2 columns as they
+// should, then breaks on the last space within reach (hard split if none).
+void wrap_paragraph(const std::string& para, int w, std::vector<std::string>& out) {
+    if (para.empty()) {
+        out.emplace_back("");
+        return;
+    }
+    std::size_t p = 0;
+    while (p < para.size()) {
+        std::size_t q = p;
+        int cols = 0;
+        while (q < para.size() && cols < w) {
+            std::size_t adv = utf8_len(para, q);
+            cols += display_cols(para.substr(q, adv));
+            q += adv;
+        }
+        if (q >= para.size()) {
+            out.push_back(para.substr(p));
+            break;
+        }
+        std::size_t brk = para.rfind(' ', q);
+        if (brk == std::string::npos || brk <= p) {
+            out.push_back(para.substr(p, q - p)); // hard split
+            p = q;
+        } else {
+            out.push_back(para.substr(p, brk - p));
+            p = brk + 1; // skip the space
+        }
+    }
+}
+
+} // namespace
+
+std::vector<std::string> wrap(const std::string& text, int w) {
+    if (w <= 0)
+        w = 80;
+    const std::string src = sanitize_for_wrap(text);
+    std::vector<std::string> out;
     std::size_t start = 0;
     while (start <= src.size()) {
         std::size_t nl = src.find('\n', start);
-        std::string para =
+        const std::string para =
             (nl == std::string::npos) ? src.substr(start) : src.substr(start, nl - start);
-        // word-wrap this paragraph
-        if (para.empty()) {
-            out.emplace_back("");
-        } else {
-            std::size_t p = 0;
-            while (p < para.size()) {
-                // Walk forward up to `w` display columns, counting
-                // display width via wcwidth so wide chars (CJK/emoji)
-                // take 2 columns as they should.
-                std::size_t q = p;
-                int cols = 0;
-                while (q < para.size() && cols < w) {
-                    std::size_t adv = utf8_len(para, q);
-                    std::string cp = para.substr(q, adv);
-                    cols += display_cols(cp);
-                    q += adv;
-                }
-                if (q >= para.size()) {
-                    out.push_back(para.substr(p));
-                    break;
-                }
-                // find a space to break on within [p, q]
-                std::size_t brk = para.rfind(' ', q);
-                if (brk == std::string::npos || brk <= p) {
-                    out.push_back(para.substr(p, q - p)); // hard split
-                    p = q;
-                } else {
-                    out.push_back(para.substr(p, brk - p));
-                    p = brk + 1; // skip the space
-                }
-            }
-        }
+        wrap_paragraph(para, w, out);
         if (nl == std::string::npos)
             break;
         start = nl + 1;

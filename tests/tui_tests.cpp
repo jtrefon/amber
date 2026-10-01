@@ -124,6 +124,42 @@ TEST(textutil_wrap_strips_ansi_and_expands_tabs) {
     ASSERT_EQ(lines[0], "red    x");
 }
 
+TEST(textutil_wrap_drops_control_bytes_and_bad_utf8) {
+    // C0 controls and DEL vanish; an invalid lead byte becomes '?'.
+    auto lines = tui::text::wrap("a\x01\x7f"
+                                 "b\xFF"
+                                 "c",
+                                 80);
+    ASSERT_EQ(lines.size(), (size_t)1);
+    ASSERT_EQ(lines[0], "ab?c");
+}
+
+TEST(textutil_wrap_handles_escape_forms) {
+    // Simple two-byte escape, an unterminated CSI, and a bare CR.
+    ASSERT_EQ(tui::text::wrap("a\x1b"
+                              "Mb",
+                              80)[0],
+              "ab");
+    ASSERT_EQ(tui::text::wrap("a\x1b[3", 80)[0], "a");
+    ASSERT_EQ(tui::text::wrap("a\rb", 80)[0], "ab");
+}
+
+TEST(textutil_wrap_hard_splits_an_unbreakable_run) {
+    auto lines = tui::text::wrap("abcdefghij", 4);
+    ASSERT_EQ(lines.size(), (size_t)3);
+    ASSERT_EQ(lines[0], "abcd");
+    ASSERT_EQ(lines[1], "efgh");
+    ASSERT_EQ(lines[2], "ij");
+}
+
+TEST(textutil_wrap_keeps_empty_lines) {
+    auto lines = tui::text::wrap("a\n\nb", 80);
+    ASSERT_EQ(lines.size(), (size_t)3);
+    ASSERT_EQ(lines[0], "a");
+    ASSERT_EQ(lines[1], "");
+    ASSERT_EQ(lines[2], "b");
+}
+
 TEST(textutil_to_wide_decodes_codepoints) {
     std::wstring w = tui::text::to_wide("a\xF0\x9F\x98\x80");
     ASSERT_EQ(w.size(), (size_t)2);
