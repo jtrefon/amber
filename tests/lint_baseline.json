@@ -16,9 +16,6 @@
     "lib/agent_helpers.cpp": {
       "readability-function-cognitive-complexity": 1
     },
-    "lib/compressor_parser.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
     "lib/compressor_scanner.cpp": {
       "readability-function-cognitive-complexity": 1
     },
@@ -26,7 +23,7 @@
       "readability-function-cognitive-complexity": 1
     },
     "lib/dialect_openai.cpp": {
-      "readability-function-cognitive-complexity": 3
+      "readability-function-cognitive-complexity": 1
     },
     "lib/mcp_client.cpp": {
       "readability-function-cognitive-complexity": 1
