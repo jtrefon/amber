@@ -98,6 +98,11 @@ private:
     // disable() (which erases and shuts it down).
     std::shared_ptr<Session> session(PluginInfo& info);
     bool spawn_and_handshake(PluginInfo& info, Session& s);
+    bool fail_handshake(PluginInfo& info, Session& s, const std::string& error);
+    bool spawn_child(PluginInfo& info, Session& s);
+    bool write_initialize(PluginInfo& info, Session& s);
+    bool read_initialize_reply(PluginInfo& info, Session& s);
+    ToolResult read_call_reply(Session& s);
     ToolResult call_tool(const PluginInfo& info, const std::string& name, const json& args);
 
     static bool parse_manifest(const std::string& dir, PluginManifest& out, std::string& err);
