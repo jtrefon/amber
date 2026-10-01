@@ -478,12 +478,12 @@ void Tui::run() {
 
         CommandLine::Result result;
         switch (route_to_command_line(ch, cl, result)) {
-        case PromptOutcome::Consumed:
+        case detail::PromptOutcome::Consumed:
             break;
-        case PromptOutcome::Routed:
+        case detail::PromptOutcome::Routed:
             run_prompt_action(result, cl);
             break;
-        case PromptOutcome::NotOurs:
+        case detail::PromptOutcome::NotOurs:
             flush_if_dirty();
             break;
         }
@@ -828,15 +828,15 @@ const EditKey kEditKeys[] = {
 };
 
 // Route a key to CommandLine (pure logic, unit tested).
-Tui::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
-                                              CommandLine::Result& result) {
+detail::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
+                                                 CommandLine::Result& result) {
     if (scroll_mode_nav(ch))
-        return PromptOutcome::Routed; // redrawn; no CommandLine action
+        return detail::PromptOutcome::Routed; // redrawn; no CommandLine action
 
     for (const EditKey& b : kEditKeys) {
         if (b.key == ch) {
             result = (cl.*b.handler)();
-            return PromptOutcome::Routed;
+            return detail::PromptOutcome::Routed;
         }
     }
 
@@ -846,21 +846,21 @@ Tui::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
             render_engine_->draw();
         }
         result = cl.on_enter();
-        return PromptOutcome::Routed;
+        return detail::PromptOutcome::Routed;
     }
 
     if (ch == 18) {
         append_line(P_STATUS, "Ctrl-R: not yet implemented");
         render_engine_->draw();
         render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-        return PromptOutcome::Consumed;
+        return detail::PromptOutcome::Consumed;
     }
 
     if (ch >= 32 && ch <= 126) {
         result = cl.on_char(static_cast<char>(ch));
-        return PromptOutcome::Routed;
+        return detail::PromptOutcome::Routed;
     }
-    return PromptOutcome::NotOurs;
+    return detail::PromptOutcome::NotOurs;
 }
 
 // CommandLine produced a result: sync the drawer, then act on it.
@@ -993,6 +993,10 @@ void Tui::autosave(Window& w) {
 void Tui::load_session(const std::string& id) {
     session_controller_->load_session(id);
 }
+void Tui::flush() {
+    doupdate();
+}
+
 void Tui::draw() {
     render_engine_->draw();
 }
