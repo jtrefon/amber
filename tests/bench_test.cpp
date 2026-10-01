@@ -580,6 +580,108 @@ TEST(kpi_computation_synthesized_stream) {
     ASSERT_EQ(k.prompt_adherence, 1.0);
 }
 
+static Kpi kpi_of(bench::EventStream& stream, const OracleResult& oracle = {},
+                  const TemplateResult& tmpl = {}, const Checks& pc = {},
+                  const std::string& final_text = "") {
+    ResourceMeter meter;
+    meter.start();
+    meter.stop();
+    return bench::compute_kpi(stream, oracle, meter, tmpl, pc, final_text, 0, 0);
+}
+
+TEST(kpi_classifies_tool_failures) {
+    bench::EventStream stream;
+    stream.calls = {
+        {"read", {}, 0, "error"},  // first matching record wins
+        {"bash", {}, 0, "error"},  // timeout flag
+        {"write", {}, 0, "error"}, // no usable record -> generic
+        {"grep", {}, 0, "denied"},
+        {"ls", {}, 0, "ok"},
+    };
+    stream.tools = {
+        {"read", {}, false, "plain error", false, false, 1},
+        {"read", {}, false, "timed out", false, true, 2},
+        {"bash", {}, false, "timed out", false, true, 3},
+        {"write", {}, false, "", false, false, 4}, // empty error is not a signal
+    };
+    Kpi k = kpi_of(stream);
+    ASSERT_EQ(k.tool_failures, 3);
+    ASSERT_EQ(k.failure_taxonomy["error"], 2);
+    ASSERT_EQ(k.failure_taxonomy["timeout"], 1);
+    ASSERT_EQ(k.tool_denied, 1);
+}
+
+TEST(kpi_average_tps_ignores_samples_without_a_rate) {
+    bench::EventStream stream;
+    stream.stats = {{100, 10, 0, 0}, {100, -1, 0, 0}, {100, 20, 0, 0}};
+    ASSERT_EQ(kpi_of(stream).tps_avg, 15.0);
+}
+
+TEST(kpi_average_tps_is_negative_one_without_any_sample) {
+    bench::EventStream stream;
+    stream.stats = {{100, -1, 0, 0}};
+    ASSERT_EQ(kpi_of(stream).tps_avg, -1.0);
+}
+
+TEST(kpi_counts_distinct_written_files) {
+    bench::EventStream stream;
+    stream.tools = {
+        {"write", {{"path", "a.txt"}}, true, "", false, false, 1},
+        {"write", {{"path", "a.txt"}}, true, "", false, false, 1},
+        {"write", {{"path", "b.txt"}}, true, "", false, false, 1},
+        {"read", {{"path", "c.txt"}}, true, "", false, false, 1},
+        {"write", {{"nopath", "x"}}, true, "", false, false, 1},
+        {"write", {{"path", 5}}, true, "", false, false, 1},
+    };
+    ASSERT_EQ(kpi_of(stream).files_touched, 2);
+}
+
+TEST(kpi_tool_call_accuracy_defaults_to_one_without_calls) {
+    bench::EventStream stream;
+    OracleResult oracle;
+    oracle.total_calls = 0;
+    ASSERT_EQ(kpi_of(stream, oracle).tool_call_accuracy, 1.0);
+    oracle.total_calls = 4;
+    oracle.on_oracle_calls = 3;
+    ASSERT_EQ(kpi_of(stream, oracle).tool_call_accuracy, 0.75);
+}
+
+TEST(kpi_template_absent_is_full_credit) {
+    bench::EventStream stream;
+    Kpi k = kpi_of(stream);
+    ASSERT_EQ(k.artifact_score, 1.0);
+    ASSERT(k.compile_ok);
+    ASSERT(k.behavior_equivalent);
+    ASSERT_EQ(k.structure_checks, 1.0);
+}
+
+TEST(kpi_template_present_is_reported_verbatim) {
+    bench::EventStream stream;
+    TemplateResult tmpl;
+    tmpl.tests_total = 4;
+    tmpl.tests_passed = 3;
+    tmpl.compile_ok = false;
+    tmpl.behavior_equivalent = false;
+    tmpl.structure_checks = 0.5;
+    Kpi k = kpi_of(stream, {}, tmpl);
+    ASSERT_EQ(k.artifact_score, 0.75);
+    ASSERT_FALSE(k.compile_ok);
+    ASSERT_FALSE(k.behavior_equivalent);
+    ASSERT_EQ(k.structure_checks, 0.5);
+}
+
+TEST(kpi_success_requires_adherence_and_no_hard_stop) {
+    bench::EventStream stream;
+    OracleResult oracle;
+    oracle.success = true;
+    Checks pc;
+    pc.must_contain = {"done"};
+    ASSERT_FALSE(kpi_of(stream, oracle, {}, pc, "not there").success);
+    ASSERT(kpi_of(stream, oracle, {}, pc, "all done").success);
+    stream.hard_stop = true;
+    ASSERT_FALSE(kpi_of(stream, oracle, {}, pc, "all done").success);
+}
+
 TEST(kpi_budget_enforcement) {
     Scenario s;
     s.max_steps = 2;
