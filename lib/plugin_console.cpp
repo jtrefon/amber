@@ -58,6 +58,54 @@ int category_rank(const std::string& category) {
 
 } // namespace
 
+// The per-plugin block: id, state, version, description, then its contributions.
+void append_plugin_lines(std::vector<std::string>& lines, const PluginRuntime::PluginStatus& p) {
+    std::string line = "  " + pad(p.id, 14) + pad(p.enabled ? "on" : "off", 4) +
+                       pad(p.version.empty() ? "v?" : "v" + p.version, 9);
+    // The description answers "which one do I want"; the tier and the exact
+    // contributions are one command away (/get plugin <id>).
+    line += p.description.empty() ? "(no description)" : p.description;
+    lines.push_back(std::move(line));
+
+    if (p.contributions.empty()) {
+        lines.emplace_back("      observes only");
+        return;
+    }
+    std::string detail = "      ";
+    for (std::size_t i = 0; i < p.contributions.size(); ++i) {
+        if (i)
+            detail += ", ";
+        detail += std::string(capability_kind_name(p.contributions[i].kind)) + ":" +
+                  p.contributions[i].name;
+    }
+    lines.push_back(std::move(detail));
+}
+
+// The distinct categories, ordered by rank then name.
+std::vector<std::string>
+sorted_categories(const std::vector<PluginRuntime::PluginStatus>& plugins) {
+    std::vector<std::string> categories;
+    for (const auto& p : plugins)
+        if (std::find(categories.begin(), categories.end(), p.category) == categories.end())
+            categories.push_back(p.category);
+    std::sort(categories.begin(), categories.end(), [](const std::string& a, const std::string& b) {
+        const int ra = category_rank(a), rb = category_rank(b);
+        return ra != rb ? ra < rb : a < b;
+    });
+    return categories;
+}
+
+// The panels section.
+void append_panel_lines(std::vector<std::string>& lines, const PluginRuntime& runtime) {
+    const auto panels = runtime.panels().items();
+    lines.emplace_back();
+    lines.push_back("panels: " + std::to_string(panels.size()));
+    for (const auto& panel : panels) {
+        const std::string owner = panel.owner.empty() ? "core" : panel.owner;
+        lines.push_back("  " + pad(panel.name, 16) + pad(owner, 16) + panel.detail);
+    }
+}
+
 std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime) {
     const auto plugins = runtime.list();
     std::size_t on = 0;
@@ -71,51 +119,15 @@ std::vector<std::string> plugin_console_lines(const PluginRuntime& runtime) {
 
     // One group per category, so a long list is scanned by heading rather than
     // read line by line.
-    std::vector<std::string> categories;
-    for (const auto& p : plugins) {
-        if (std::find(categories.begin(), categories.end(), p.category) == categories.end())
-            categories.push_back(p.category);
-    }
-    std::sort(categories.begin(), categories.end(), [](const std::string& a, const std::string& b) {
-        const int ra = category_rank(a), rb = category_rank(b);
-        return ra != rb ? ra < rb : a < b;
-    });
-
-    for (const auto& category : categories) {
+    for (const auto& category : sorted_categories(plugins)) {
         lines.emplace_back();
         lines.push_back(category);
-        for (const auto& p : plugins) {
-            if (p.category != category)
-                continue;
-            std::string line = "  " + pad(p.id, 14) + pad(p.enabled ? "on" : "off", 4) +
-                               pad(p.version.empty() ? "v?" : "v" + p.version, 9);
-            // The description answers "which one do I want"; the tier and the
-            // exact contributions are one command away (/get plugin <id>).
-            line += p.description.empty() ? "(no description)" : p.description;
-            lines.push_back(std::move(line));
-
-            if (p.contributions.empty()) {
-                lines.emplace_back("      observes only");
-                continue;
-            }
-            std::string detail = "      ";
-            for (std::size_t i = 0; i < p.contributions.size(); ++i) {
-                if (i)
-                    detail += ", ";
-                detail += std::string(capability_kind_name(p.contributions[i].kind)) + ":" +
-                          p.contributions[i].name;
-            }
-            lines.push_back(std::move(detail));
-        }
+        for (const auto& p : plugins)
+            if (p.category == category)
+                append_plugin_lines(lines, p);
     }
 
-    const auto panels = runtime.panels().items();
-    lines.emplace_back();
-    lines.push_back("panels: " + std::to_string(panels.size()));
-    for (const auto& panel : panels) {
-        const std::string owner = panel.owner.empty() ? "core" : panel.owner;
-        lines.push_back("  " + pad(panel.name, 16) + pad(owner, 16) + panel.detail);
-    }
+    append_panel_lines(lines, runtime);
 
     lines.emplace_back();
     lines.emplace_back("toggle a plugin with /set plugin on|off <id>");
