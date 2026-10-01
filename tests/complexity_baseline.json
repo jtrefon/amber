@@ -5,7 +5,6 @@
     "bench/probe.cpp": 2,
     "bench/template.cpp": 1,
     "lib/compressor_scanner.cpp": 1,
-    "lib/core_segments.cpp": 1,
     "lib/mcp_client.cpp": 1,
     "lib/policy_engine.cpp": 1,
     "lib/process.cpp": 1,
