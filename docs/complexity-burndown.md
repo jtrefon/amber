@@ -30,7 +30,7 @@ project**. That is an aspiration, not a standard, and at LOC 10 it is not
 reachable for C++: RAII, error handling and templates all cost lines before any
 branching happens.
 
-The enforced cap is 50, the target is 25, and the documented number is 10. This
+The enforced cap is 40, the target is 25, and the documented number is 10. This
 document treats **25 as the target** and records 10 as aspirational only, so
 nobody plans against a number the code cannot meet.
 
@@ -41,16 +41,24 @@ one step at a time, with the baseline regenerated at each step, and the gate is
 never "put up" ahead of the code. That is the CX1 mistake in reverse — CX1 was a
 check switched on before the code could pass it, which is why it sat deferred.
 
-1. **CCN first, at the current LOC cap.** Clear the CCN-only violations so the
-   CCN axis becomes a hard cliff with an empty baseline. This is the achievable
-   half: average CCN is 3.8, so these are outliers, not a pattern.
-2. **LOC 50 -> 40** (128 over-limit). Split, regenerate, merge.
-3. **LOC 40 -> 30** (259).
-4. **LOC 30 -> 25** (368).
+1. ✅ **CCN first, at the current LOC cap.** Done: the CCN axis is at **0** with
+   an empty baseline, so it is now a hard cliff. (121 → 0 over the campaign.)
+2. ✅ **LOC 50 -> 40.** Done: cap is 40, with **81** functions baselined as the
+   ratchet (the table above predicted 128; the CCN work and the refactors
+   removed the difference).
+3. **LOC 40 -> 30** (~230 at the measured rate).
+4. **LOC 30 -> 25** (~354).
 
 At each stage the baseline shrinks and the cap tightens, so the gate is always
 green *and* always stricter than before. There is never a red build caused by
 the cap alone.
+
+**Known weakness of the ratchet.** `tests/complexity_baseline.json` records a
+count per *file*, not per function. A file can therefore swap one over-limit
+function for another of the same count and still pass. The class-size gate does
+not have this flaw (it records each type's line count). If the cap is tightened
+again, record `(file, function, length)` first — otherwise each step licenses
+churn within a file.
 
 ## Worklist — worst 15 at CCN 15 / LOC 25
 

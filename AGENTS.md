@@ -49,7 +49,7 @@ driven by an OpenAI-compatible LLM API.
   and line-break placement — so a locally "clean" tree can fail CI. Match the
   runner (`pip install clang-format==18.1.3`) before reformatting.
 - `make complexity` is the ratcheted gate (`tools/complexity_gate.py`:
-  CCN>15 or length>50 via lizard, fail-closed). It is a CI job but is
+  CCN>15 or length>40 via lizard, fail-closed). It is a CI job but is
   **not** in `ci-gate`, so it can go red without blocking a merge. Every CI
   job carries a `timeout-minutes` and the shared `install-deps` action bounds
   apt (`DPkg::Lock::Timeout` + `timeout` + noninteractive), so a hung
