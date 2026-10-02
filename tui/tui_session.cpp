@@ -19,53 +19,68 @@ namespace tui {
 // Render one restored session message as scrollback lines. Assistant
 // tool_calls queue RestoredCall entries; tool messages emit a single
 // timestamped result line (describe + summary, no exit status).
+void SessionController::restore_user_line(const agent::Message& m) {
+    tui_.append_line(P_USER, "> " + m.content);
+}
+
+// Queue the assistant message's tool calls so the matching tool results can be
+// rendered with their arguments.
+void SessionController::collect_tool_calls(const agent::Message& m,
+                                           std::vector<RestoredCall>& pending) {
+    if (m.tool_calls.is_null() || m.tool_calls.empty())
+        return;
+    for (const auto& tc : m.tool_calls) {
+        RestoredCall c;
+        auto fn = tc.value("function", agent::json::object());
+        c.name = fn.value("name", "?");
+        auto args = fn.value("arguments", agent::json::object());
+        if (args.is_string()) {
+            auto parsed = agent::json::parse(args.get<std::string>(), nullptr, false);
+            args = parsed.is_discarded() ? agent::json::object() : std::move(parsed);
+        }
+        c.args = std::move(args);
+        pending.push_back(std::move(c));
+    }
+}
+
+// A tool result pairs with the oldest queued call; with none queued it is
+// shown as a plain status line.
+void SessionController::restore_tool_line(const agent::Message& m,
+                                          std::vector<RestoredCall>& pending) {
+    if (pending.empty()) {
+        std::string preview = m.content;
+        if (preview.size() > 80) {
+            preview.resize(77);
+            preview += "...";
+        }
+        tui_.append_line(P_STATUS, "  \u2514 " + m.name + ": " + preview);
+        return;
+    }
+    RestoredCall c = std::move(pending.front());
+    pending.erase(pending.begin());
+    rich::Line ln = tool_display::result_line(c.name, c.args, true, m.content, "", tui_.reg_);
+    rich::Run ts;
+    ts.text = Tui::timestamp();
+    ts.pair = P_REASONING;
+    ts.dim = true;
+    ln.runs.insert(ln.runs.begin(), std::move(ts));
+    tui_.append_rich(ln);
+}
+
 void SessionController::restore_message_lines(const agent::Message& m,
                                               std::vector<RestoredCall>& pending) {
-    Window& w = tui_.win();
     if (m.role == "user") {
-        tui_.append_line(P_USER, "> " + m.content);
+        restore_user_line(m);
         return;
     }
     if (m.role == "assistant") {
-        if (!m.tool_calls.is_null() && !m.tool_calls.empty()) {
-            for (const auto& tc : m.tool_calls) {
-                RestoredCall c;
-                auto fn = tc.value("function", agent::json::object());
-                c.name = fn.value("name", "?");
-                auto args = fn.value("arguments", agent::json::object());
-                if (args.is_string()) {
-                    auto parsed = agent::json::parse(args.get<std::string>(), nullptr, false);
-                    args = parsed.is_discarded() ? agent::json::object() : std::move(parsed);
-                }
-                c.args = std::move(args);
-                pending.push_back(std::move(c));
-            }
-        }
+        collect_tool_calls(m, pending);
         if (!m.content.empty())
-            tui_.append_markdown(w, m.content);
+            tui_.append_markdown(tui_.win(), m.content);
         return;
     }
-    if (m.role == "tool") {
-        if (!pending.empty()) {
-            RestoredCall c = std::move(pending.front());
-            pending.erase(pending.begin());
-            rich::Line ln =
-                tool_display::result_line(c.name, c.args, true, m.content, "", tui_.reg_);
-            rich::Run ts;
-            ts.text = Tui::timestamp();
-            ts.pair = P_REASONING;
-            ts.dim = true;
-            ln.runs.insert(ln.runs.begin(), std::move(ts));
-            tui_.append_rich(ln);
-        } else {
-            std::string preview = m.content;
-            if (preview.size() > 80) {
-                preview.resize(77);
-                preview += "...";
-            }
-            tui_.append_line(P_STATUS, "  \u2514 " + m.name + ": " + preview);
-        }
-    }
+    if (m.role == "tool")
+        restore_tool_line(m, pending);
 }
 
 agent::Session SessionController::snapshot(Window& w) const {
