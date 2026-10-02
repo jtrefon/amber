@@ -47,6 +47,47 @@ pid_t spawn_shell(const std::string& command, const std::string& cwd, int& read_
     return pid;
 }
 
+namespace {
+
+// Close every end of the three pipe pairs; safe on the -1 sentinels left by a
+// failed pipe().
+void close_all(int (&in_pipe)[2], int (&out_pipe)[2], int (&err_pipe)[2]) {
+    close(in_pipe[0]);
+    close(in_pipe[1]);
+    close(out_pipe[0]);
+    close(out_pipe[1]);
+    close(err_pipe[0]);
+    close(err_pipe[1]);
+}
+
+// Child side: own process group, three-way pipe wiring, chdir, direct exec.
+// Never returns.
+void run_child(int (&in_pipe)[2], int (&out_pipe)[2], int (&err_pipe)[2], const std::string& cwd,
+               const std::string& command, const std::vector<std::string>& args) {
+    close(in_pipe[1]);
+    close(out_pipe[0]);
+    close(err_pipe[0]);
+    setpgid(0, 0);
+    dup2(in_pipe[0], STDIN_FILENO);
+    dup2(out_pipe[1], STDOUT_FILENO);
+    dup2(err_pipe[1], STDERR_FILENO);
+    close(in_pipe[0]);
+    close(out_pipe[1]);
+    close(err_pipe[1]);
+    if (!cwd.empty() && chdir(cwd.c_str()) != 0)
+        _exit(127);
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 2);
+    argv.push_back(const_cast<char*>(command.c_str()));
+    for (const auto& a : args)
+        argv.push_back(const_cast<char*>(a.c_str()));
+    argv.push_back(nullptr);
+    execvp(command.c_str(), argv.data());
+    _exit(127);
+}
+
+} // namespace
+
 pid_t spawn_mcp_server(const std::string& command, const std::vector<std::string>& args,
                        const std::string& cwd, int& stdin_fd, int& stdout_fd, int& stderr_fd,
                        std::string& err) {
@@ -55,48 +96,18 @@ pid_t spawn_mcp_server(const std::string& command, const std::vector<std::string
     int err_pipe[2] = {-1, -1};
     if (pipe(in_pipe) != 0 || pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
         err = "pipe failed";
-        close(in_pipe[0]);
-        close(in_pipe[1]);
-        close(out_pipe[0]);
-        close(out_pipe[1]);
-        close(err_pipe[0]);
-        close(err_pipe[1]);
+        close_all(in_pipe, out_pipe, err_pipe);
         return -1;
     }
-    pid_t pid = fork();
+    const pid_t pid = fork();
     if (pid < 0) {
         err = "fork failed";
-        close(in_pipe[0]);
-        close(in_pipe[1]);
-        close(out_pipe[0]);
-        close(out_pipe[1]);
-        close(err_pipe[0]);
-        close(err_pipe[1]);
+        close_all(in_pipe, out_pipe, err_pipe);
         return -1;
     }
-    if (pid == 0) {
-        // Child: own process group, three-way pipe wiring, chdir, direct exec.
-        close(in_pipe[1]);
-        close(out_pipe[0]);
-        close(err_pipe[0]);
-        setpgid(0, 0);
-        dup2(in_pipe[0], STDIN_FILENO);
-        dup2(out_pipe[1], STDOUT_FILENO);
-        dup2(err_pipe[1], STDERR_FILENO);
-        close(in_pipe[0]);
-        close(out_pipe[1]);
-        close(err_pipe[1]);
-        if (!cwd.empty() && chdir(cwd.c_str()) != 0)
-            _exit(127);
-        std::vector<char*> argv;
-        argv.reserve(args.size() + 2);
-        argv.push_back(const_cast<char*>(command.c_str()));
-        for (const auto& a : args)
-            argv.push_back(const_cast<char*>(a.c_str()));
-        argv.push_back(nullptr);
-        execvp(command.c_str(), argv.data());
-        _exit(127);
-    }
+    if (pid == 0)
+        run_child(in_pipe, out_pipe, err_pipe, cwd, command, args);
+
     close(in_pipe[0]);
     close(out_pipe[1]);
     close(err_pipe[1]);
