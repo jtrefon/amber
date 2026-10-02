@@ -1,58 +1,206 @@
 {
   "ccn_max": 15,
-  "files": {
-    "bench/probe.cpp": 6,
-    "bench/report.cpp": 1,
-    "bench/runner.cpp": 2,
-    "lib/agent.cpp": 5,
-    "lib/agent_helpers.cpp": 1,
-    "lib/compressor.cpp": 1,
-    "lib/compressor_parser.cpp": 1,
-    "lib/config.cpp": 1,
-    "lib/data_path.cpp": 1,
-    "lib/dialect_openai.cpp": 1,
-    "lib/dispatch.cpp": 2,
-    "lib/environment.cpp": 1,
-    "lib/http_transport.cpp": 1,
-    "lib/job.cpp": 1,
-    "lib/learn_commands.cpp": 1,
-    "lib/llm.cpp": 1,
-    "lib/mcp_client.cpp": 2,
-    "lib/mcp_transport_http.cpp": 1,
-    "lib/mcp_transport_stdio.cpp": 1,
-    "lib/memory_retriever.cpp": 1,
-    "lib/model_probe.cpp": 1,
-    "lib/plugin.cpp": 3,
-    "lib/plugin_runtime.cpp": 1,
-    "lib/plugins_bundled.cpp": 1,
-    "lib/policy_engine.cpp": 1,
-    "lib/prompt.cpp": 1,
-    "lib/shell_classify.cpp": 4,
-    "lib/tool_call_parser.cpp": 1,
-    "lib/workspace.cpp": 1,
-    "src/main.cpp": 1,
-    "tools/plugins/cdp/main.cpp": 1,
-    "tools/plugins/cdp/ws_client.cpp": 1,
-    "tools/plugins/sysinfo/main.cpp": 1,
-    "tools/read_tool.cpp": 1,
-    "tools/search/semantic_index.cpp": 1,
-    "tui/command_line.cpp": 1,
-    "tui/completion_context.cpp": 1,
-    "tui/confirm_panel.cpp": 2,
-    "tui/drawer_rows.cpp": 1,
-    "tui/event_router.cpp": 1,
-    "tui/feed_manager.cpp": 1,
-    "tui/form_edit.cpp": 1,
-    "tui/markdown_md4c.cpp": 1,
-    "tui/panel.cpp": 1,
-    "tui/panel_view.cpp": 1,
-    "tui/render_engine.cpp": 3,
-    "tui/slash_dispatcher.cpp": 1,
-    "tui/status_bar_layout.cpp": 1,
-    "tui/tui.cpp": 2,
-    "tui/tui_input.cpp": 6,
-    "tui/tui_session.cpp": 4,
-    "tui/welcome.cpp": 1
+  "functions": {
+    "bench/probe.cpp": {
+      "bench::ProbeRegistrar::ProbeRegistrar": {
+        "ccn": 1,
+        "nloc": 44
+      },
+      "bench::context_probe_token_fidelity": {
+        "ccn": 7,
+        "nloc": 42
+      },
+      "bench::oracle_probe_scenario_self_validation": {
+        "ccn": 10,
+        "nloc": 41
+      }
+    },
+    "bench/report.cpp": {
+      "bench::render_failures": {
+        "ccn": 15,
+        "nloc": 43
+      }
+    },
+    "lib/agent.cpp": {
+      "agent::Agent::build_chat_adapter": {
+        "ccn": 12,
+        "nloc": 44
+      },
+      "agent::Agent::dispatch_with_loop_detection": {
+        "ccn": 15,
+        "nloc": 46
+      }
+    },
+    "lib/agent_helpers.cpp": {
+      "agent::utf8_sanitize": {
+        "ccn": 11,
+        "nloc": 44
+      }
+    },
+    "lib/config.cpp": {
+      "agent::Config::apply_environment": {
+        "ccn": 12,
+        "nloc": 42
+      }
+    },
+    "lib/environment.cpp": {
+      "agent::render_environment_card": {
+        "ccn": 13,
+        "nloc": 41
+      }
+    },
+    "lib/job.cpp": {
+      "agent::Job::reader_loop": {
+        "ccn": 14,
+        "nloc": 43
+      }
+    },
+    "lib/learn_commands.cpp": {
+      "agent::learn_inspect_lines": {
+        "ccn": 11,
+        "nloc": 49
+      }
+    },
+    "lib/mcp_client.cpp": {
+      "agent::MCPClient::do_connect": {
+        "ccn": 9,
+        "nloc": 43
+      },
+      "agent::MCPClient::get_prompt": {
+        "ccn": 12,
+        "nloc": 42
+      }
+    },
+    "lib/mcp_transport_http.cpp": {
+      "agent::HttpTransport::handle_sse_response": {
+        "ccn": 14,
+        "nloc": 42
+      }
+    },
+    "lib/mcp_transport_stdio.cpp": {
+      "agent::StdioTransport::request": {
+        "ccn": 13,
+        "nloc": 44
+      }
+    },
+    "lib/model_probe.cpp": {
+      "agent::model_catalog_fetch": {
+        "ccn": 10,
+        "nloc": 41
+      }
+    },
+    "lib/plugin.cpp": {
+      "agent::PluginManager::discover": {
+        "ccn": 15,
+        "nloc": 44
+      },
+      "agent::PluginManager::parse_manifest": {
+        "ccn": 15,
+        "nloc": 47
+      }
+    },
+    "lib/prompt.cpp": {
+      "agent::render_tools_markdown": {
+        "ccn": 10,
+        "nloc": 41
+      }
+    },
+    "lib/shell_classify.cpp": {
+      "agent::destructive_command_patterns": {
+        "ccn": 1,
+        "nloc": 44
+      },
+      "agent::scan_segment": {
+        "ccn": 14,
+        "nloc": 42
+      },
+      "agent::tokenize": {
+        "ccn": 13,
+        "nloc": 44
+      }
+    },
+    "src/main.cpp": {
+      "run_mcp_surfaces": {
+        "ccn": 14,
+        "nloc": 47
+      }
+    },
+    "tools/plugins/cdp/main.cpp": {
+      "main": {
+        "ccn": 10,
+        "nloc": 42
+      }
+    },
+    "tools/plugins/cdp/ws_client.cpp": {
+      "cdp::WsClient::connect": {
+        "ccn": 7,
+        "nloc": 45
+      }
+    },
+    "tools/read_tool.cpp": {
+      "agent::ReadTool::execute": {
+        "ccn": 7,
+        "nloc": 42
+      }
+    },
+    "tui/event_router.cpp": {
+      "tui::EventRouter::wire_blocking_hooks": {
+        "ccn": 5,
+        "nloc": 42
+      }
+    },
+    "tui/feed_manager.cpp": {
+      "tui::FeedManager::refresh_policy_feed": {
+        "ccn": 12,
+        "nloc": 46
+      }
+    },
+    "tui/form_edit.cpp": {
+      "tui::form_edit": {
+        "ccn": 6,
+        "nloc": 41
+      }
+    },
+    "tui/render_engine.cpp": {
+      "tui::RenderEngine::draw_input": {
+        "ccn": 12,
+        "nloc": 41
+      }
+    },
+    "tui/tui.cpp": {
+      "tui::Tui::apply_key_action": {
+        "ccn": 12,
+        "nloc": 41
+      }
+    },
+    "tui/tui_input.cpp": {
+      "tui::SlashDispatcher::cmd_get_wallet": {
+        "ccn": 13,
+        "nloc": 41
+      },
+      "tui::SlashDispatcher::cmd_provider": {
+        "ccn": 15,
+        "nloc": 41
+      },
+      "tui::SlashDispatcher::cmd_skills_set": {
+        "ccn": 12,
+        "nloc": 44
+      },
+      "tui::SlashDispatcher::register_get_plugin_policy_actions": {
+        "ccn": 1,
+        "nloc": 45
+      }
+    },
+    "tui/tui_session.cpp": {
+      "tui::SessionController::restore_message_lines": {
+        "ccn": 12,
+        "nloc": 48
+      },
+      "tui::draw_session_rows": {
+        "ccn": 7,
+        "nloc": 42
+      }
+    }
   },
-  "len_max": 40
+  "nloc_max": 40
 }

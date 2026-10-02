@@ -1,34 +1,48 @@
-# Complexity burndown: to CCN 15 and LOC 25
+# Complexity burndown: to CCN 15 and a 40-line cap
 
-Generated from `make complexity-report` and lizard on 2026-09-30. Regenerate
-rather than trusting these numbers.
+Generated from `make complexity-report` and lizard. Regenerate rather than
+trusting these numbers — this file has been wrong before, and the section
+"Corrections" records how.
 
 ## Where we are
 
-The project has **2489 functions / 35308 NLOC**, with **average CCN 3.8** and
-**average length 12.1 lines**. The codebase is well-factored *on average* — the
-debt is concentrated in a few outliers, which is what makes this tractable.
+**2,349 functions**, **average NLOC 12.7**, **average CCN 3.5**. The codebase is
+well-factored *on average*; the debt is concentrated in a few outliers, which is
+what makes this tractable.
 
 | cap (CCN <= 15) | over-limit | share of functions |
 |---|---|---|
-| LOC 50 (today) | **49** | 2.0% |
-| LOC 40 | 128 | 5.1% |
-| LOC 30 | 259 | 10.4% |
-| **LOC 25 (target)** | **368** | 14.8% |
-| LOC 20 | 486 | 19.5% |
-| LOC 15 | 731 | 29.4% |
-| LOC 10 | 1053 | 42.3% |
+| **NLOC 50** | **0** | 0.0% |
+| **NLOC 40 (enforced)** | **37** | 1.6% |
+| NLOC 30 | 182 | 7.7% |
+| **NLOC 25 (target)** | **281** | 12.0% |
+| NLOC 20 | 442 | 18.8% |
+| NLOC 15 | 709 | 30.2% |
+| NLOC 10 (`AGENTS.md` aspiration) | 1087 | 46.3% |
 
-At the target (CCN 15, LOC 25) the split is **lib 143, tui 112, bench 70,
-tools 33, src 6, plugins 4**.
+**The project already passes a 50-line cap outright.** The enforced cap is 40,
+and 37 functions are over it.
+
+## The metric: NLOC, not total lines
+
+The gate measures **NLOC** — non-comment, non-blank lines of code — and not
+lizard's `length` (total physical lines).
+
+This matters. Measured in total lines, the same codebase shows **81**
+functions over 40 instead of 37, and the extra 44 are functions whose *code* is
+already small but whose comments push the total over: `agent::decide_approval`
+is 30 NLOC and 49 total lines. Gating on total lines would have created pressure
+to **delete explanatory comments to pass the gate** — an incentive that makes a
+codebase worse, and exactly the opposite of what a debt gate is for.
+
+`length` is still printed by `--report`, for information.
 
 ## The gap worth naming
 
 `AGENTS.md` documents the aspiration as *"A method/function should stay under 10
-lines with minimal branching"* — which would flag **42% of every function in the
-project**. That is an aspiration, not a standard, and at LOC 10 it is not
-reachable for C++: RAII, error handling and templates all cost lines before any
-branching happens.
+lines with minimal branching"* — which would flag **46% of every function**. That
+is an aspiration, not a standard, and at 10 lines it is not reachable for C++:
+RAII, error handling and templates all cost lines before any branching happens.
 
 The enforced cap is 40, the target is 25, and the documented number is 10. This
 document treats **25 as the target** and records 10 as aspirational only, so
@@ -36,69 +50,58 @@ nobody plans against a number the code cannot meet.
 
 ## Staged plan
 
-The gate is a ratchet: it fails when a count *grows*. So the cap can be lowered
-one step at a time, with the baseline regenerated at each step, and the gate is
-never "put up" ahead of the code. That is the CX1 mistake in reverse — CX1 was a
-check switched on before the code could pass it, which is why it sat deferred.
+The gate is a ratchet: it fails when a recorded function *grows* or a new one
+appears. So the cap can be lowered one step at a time, with the baseline
+regenerated at each step, and the gate is never "put up" ahead of the code. That
+is the CX1 mistake in reverse — CX1 was a check switched on before the code
+could pass it, which is why it sat deferred.
 
-1. ✅ **CCN first, at the current LOC cap.** Done: the CCN axis is at **0** with
-   an empty baseline, so it is now a hard cliff. (121 → 0 over the campaign.)
-2. ✅ **LOC 50 -> 40.** Done: cap is 40, with **81** functions baselined as the
-   ratchet (the table above predicted 128; the CCN work and the refactors
-   removed the difference).
-3. **LOC 40 -> 30** (~230 at the measured rate).
-4. **LOC 30 -> 25** (~354).
+1. ✅ **CCN axis.** Done: **0** violations, empty baseline — a hard cliff.
+2. ✅ **Length cap 50 -> 40.** Done, and the metric corrected to NLOC (see
+   above). **37** functions baselined as the ratchet.
+3. **Burn the 37 to zero** so the cap-40 baseline is empty and the axis becomes
+   a hard cliff like CCN.
+4. **NLOC 40 -> 30** (182).
+5. **NLOC 30 -> 25** (281).
 
 At each stage the baseline shrinks and the cap tightens, so the gate is always
 green *and* always stricter than before. There is never a red build caused by
 the cap alone.
 
-**Known weakness of the ratchet.** `tests/complexity_baseline.json` records a
-count per *file*, not per function. A file can therefore swap one over-limit
-function for another of the same count and still pass. The class-size gate does
-not have this flaw (it records each type's line count). If the cap is tightened
-again, record `(file, function, length)` first — otherwise each step licenses
-churn within a file.
+## The fence: `complexity` is advisory, not gating
 
-## Worklist — worst 15 at CCN 15 / LOC 25
+`complexity` is a CI job but is **not** in `ci-gate`, and branch protection
+requires only `ci-gate`. So the gate can go red without blocking a merge — a
+200-line, CCN-40 function can land today.
 
-| function | len | CCN |
-|---|---|---|
-| `bench::load_scenario` | 95 | **61** |
-| `tui::form_focus::key` | 82 | **31** |
-| `tui::md::flush_table` | 98 | 30 |
-| `tui::RenderEngine::draw_status_bar` | 129 | 27 |
-| `tui::text::wrap` | 90 | 27 |
-| `tui::rich::wrap` | 85 | 26 |
-| `tui::ansi_sgr::apply` | 76 | 25 |
-| `tui::md::is_separator_line` | 46 | 24 |
-| `tui::md::leave_block` | 87 | 23 |
-| `tui::list_state::key` | 70 | 23 |
-| `bench::compute_kpi` | 81 | 22 |
-| `tui::SessionBrowserCore::key` | 66 | 22 |
-| `tui::RenderEngine::build_view_without_working` | 61 | 21 |
-| `lib::core_status_capabilities` | 90 | 21 |
-| `tui::md::enter_block` | 70 | 20 |
+AGENTS.md documents this deliberately, but it means the CCN-at-zero achievement
+is currently **unprotected**. The plan is to add it to `ci-gate` once the
+baseline is empty (step 3): with no baseline file there is nothing to conflict
+on, which is the reason the job was kept advisory in the first place.
 
-Full list: `make complexity-report` — it sorts across the whole tree and names
-the axis each one fails (dense / long / both).
+## The ratchet is per-function
 
-## Notes carried forward
+`tests/complexity_baseline.json` records each accepted over-limit function **by
+name**, with its measured size:
 
-- **`bench::load_scenario` at CCN 61** is the worst function left anywhere —
-  worse than `parse_compression_response` (43) and `Tui::run` (109 before its
-  decomposition). It is in `bench/`, not `tui/`, and area-by-area work would
-  have missed it.
-- **`tui::text::wrap` (90/27) and `tui::rich::wrap` (85/26)** are suspiciously
-  similar. Diff them before decomposing either: two near-identical wrapping
-  implementations is the signature of the duplication found repeatedly in this
-  campaign, and the cross-file detector will not flag them unless the blocks are
-  textually identical.
-- **`tools/read_tool.cpp` (103/19) and `tools/bash_tool.cpp` (83/19)** are the
-  approval-gated security boundary. They deserve the characterization-test
-  treatment `dispatch_tool_calls` and `shell_classify` got, not a quick split.
-- **Pure `tui/` modules before paint code.** `form_focus`, `list_state`,
-  `ansi_sgr`, `md::*`, `text::wrap` are ncurses-free and unit-testable. The
-  drawing functions (`draw_status_bar`, `draw_drawer`, `Canvas::render`,
-  `panel_view`, `info_dialog`) are only covered by the pty suite, so splitting
-  them buys the gate a number and the codebase very little.
+```json
+{ "lib/foo.cpp": { "agent::bar": { "nloc": 44, "ccn": 7 } } }
+```
+
+A file therefore cannot swap one over-limit function for another and pass — the
+recorded function itself may not get bigger. (It used to record a per-*file*
+count, which had exactly that hole.)
+
+## Worklist
+
+`make complexity-report` lists them, worst first. The 37 are all **long-only**
+(CCN <= 15), between 41 and 49 NLOC — modest splits, not god functions.
+
+## Corrections
+
+- **2026-10-02** — the table above was previously computed from lizard's `length`
+  (total lines), which overstated the debt by 2.2x and created a
+  delete-the-comments incentive. Re-measured on NLOC; cap unchanged at 40.
+- **2026-10-02** — a first attempt to count "functions over NLOC 40" ran lizard
+  with `-L 10000`, which suppresses the warnings entirely (lizard warns on
+  `length`, not NLOC), and reported a false **0**. The real number is 37.
