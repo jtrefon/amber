@@ -36,33 +36,46 @@ std::string basename(const std::string& p) {
     const size_t slash = p.find_last_of('/');
     return slash == std::string::npos ? p : p.substr(slash + 1);
 }
+
+// An expectation containing '*' is a glob.
+bool is_glob(const agent::json& expected) {
+    return expected.is_string() && expected.get<std::string>().find('*') != std::string::npos;
+}
+
+bool is_bare_name(const std::string& s) {
+    return s.find('/') == std::string::npos;
+}
+
+// Nested relative expectation: "src/header.h" matches any absolute path ending
+// in exactly "/src/header.h" (never a different directory with the same leaf).
+bool nested_relative_matches(const std::string& e, const std::string& a) {
+    return a[0] == '/' && a.size() > e.size() + 1 &&
+           a.compare(a.size() - e.size(), e.size(), e) == 0 && a[a.size() - e.size() - 1] == '/';
+}
+
+// Path normalization: live agents read workspace files via their absolute
+// paths (the tools resolve them); an oracle expecting a bare relative name
+// must still match — compare basenames when exactly one side is a bare
+// filename (nested expectations stay exact).
+bool path_matches(const std::string& e, const std::string& a) {
+    const bool e_bare = is_bare_name(e);
+    const bool a_bare = is_bare_name(a);
+    if (e_bare != a_bare)
+        return !e.empty() && !a.empty() && basename(e) == basename(a);
+    if (!e_bare && !a_bare)
+        return nested_relative_matches(e, a);
+    return false;
+}
 } // namespace
 
 bool value_matches(const agent::json& expected, const agent::json& actual) {
-    if (expected.is_string() && expected.get<std::string>().find('*') != std::string::npos) {
+    if (is_glob(expected))
         return actual.is_string() &&
                glob_match(expected.get<std::string>(), actual.get<std::string>());
-    }
     if (expected == actual)
         return true;
-    // Path normalization: live agents read workspace files via their
-    // absolute paths (the tools resolve them); an oracle expecting a bare
-    // relative name must still match — compare basenames when exactly one
-    // side is a bare filename (nested expectations stay exact).
-    if (expected.is_string() && actual.is_string()) {
-        const std::string& e = expected.get<std::string>();
-        const std::string& a = actual.get<std::string>();
-        const bool e_bare = e.find('/') == std::string::npos;
-        const bool a_bare = a.find('/') == std::string::npos;
-        if (e_bare != a_bare && !e.empty() && !a.empty())
-            return basename(e) == basename(a);
-        // Nested relative expectation: "src/header.h" matches any absolute
-        // path ending in exactly "/src/header.h" (never a different
-        // directory with the same leaf).
-        if (!e_bare && !a_bare && a[0] == '/' && a.size() > e.size() + 1 &&
-            a.compare(a.size() - e.size(), e.size(), e) == 0 && a[a.size() - e.size() - 1] == '/')
-            return true;
-    }
+    if (expected.is_string() && actual.is_string())
+        return path_matches(expected.get<std::string>(), actual.get<std::string>());
     return false;
 }
 

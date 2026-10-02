@@ -1,12 +1,8 @@
 {
   "ccn_max": 15,
   "files": {
-    "bench/oracle.cpp": 1,
     "bench/probe.cpp": 2,
     "lib/mcp_client.cpp": 1,
-    "lib/providers_repo_files.cpp": 1,
-    "lib/session.cpp": 1,
-    "plugins/commandcode/commandcode_plugin.cpp": 1,
     "src/smoketest.cpp": 1,
     "tools/plugins/cdp/ws_test.cpp": 1,
     "tools/plugins/sysinfo/main.cpp": 2,
@@ -14,7 +10,6 @@
     "tui/event_router.cpp": 1,
     "tui/help_page.cpp": 1,
     "tui/info_dialog.cpp": 1,
-    "tui/markdown.cpp": 1,
     "tui/panel_view.cpp": 1,
     "tui/render_engine.cpp": 4,
     "tui/tui_session.cpp": 1

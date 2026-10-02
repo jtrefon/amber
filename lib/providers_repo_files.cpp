@@ -22,6 +22,37 @@ std::string providers_dir() {
     return dir;
 }
 
+namespace {
+
+// One level of surrounding double quotes, if present.
+std::string unquote(std::string val) {
+    if (!val.empty() && val.front() == '"' && val.back() == '"')
+        val = val.substr(1, val.size() - 2);
+    return val;
+}
+
+// Apply one "key = value" line; unknown keys are ignored.
+void apply_provider_key(Provider& p, const std::string& key, const std::string& val) {
+    if (key == "provider")
+        p.name = val;
+    else if (key == "api_base")
+        p.api_base = val;
+    else if (key == "api_key")
+        p.api_key = val;
+    else if (key == "default_model" || key == "model")
+        p.default_model = val;
+    else if (key == "requires_key")
+        p.requires_key = (val == "1" || val == "true");
+    else if (key == "default_context_size")
+        p.default_context_size = std::atoi(val.c_str());
+    // Wire dialect: absent means the OpenAI-compatible baseline, so existing
+    // provider files keep working untouched.
+    else if (key == "flavor" && !val.empty())
+        p.flavor = val;
+}
+
+} // namespace
+
 std::optional<Provider> parse_file(const std::string& path) {
     std::ifstream f(path);
     if (!f)
@@ -34,26 +65,7 @@ std::optional<Provider> parse_file(const std::string& path) {
         const auto eq = line.find('=');
         if (eq == std::string::npos)
             continue;
-        const std::string key = line.substr(0, eq);
-        std::string val = line.substr(eq + 1);
-        if (!val.empty() && val.front() == '"' && val.back() == '"')
-            val = val.substr(1, val.size() - 2);
-        if (key == "provider")
-            p.name = val;
-        else if (key == "api_base")
-            p.api_base = val;
-        else if (key == "api_key")
-            p.api_key = val;
-        else if (key == "default_model" || key == "model")
-            p.default_model = val;
-        else if (key == "requires_key")
-            p.requires_key = (val == "1" || val == "true");
-        else if (key == "default_context_size")
-            p.default_context_size = std::atoi(val.c_str());
-        // Wire dialect: absent means the OpenAI-compatible baseline, so
-        // existing provider files keep working untouched.
-        else if (key == "flavor" && !val.empty())
-            p.flavor = val;
+        apply_provider_key(p, line.substr(0, eq), unquote(line.substr(eq + 1)));
     }
     return p;
 }
