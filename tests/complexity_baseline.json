@@ -33,12 +33,6 @@
         "nloc": 41
       }
     },
-    "lib/job.cpp": {
-      "agent::Job::reader_loop": {
-        "ccn": 14,
-        "nloc": 43
-      }
-    },
     "lib/learn_commands.cpp": {
       "agent::learn_inspect_lines": {
         "ccn": 11,
@@ -49,12 +43,6 @@
       "agent::HttpTransport::handle_sse_response": {
         "ccn": 14,
         "nloc": 42
-      }
-    },
-    "lib/mcp_transport_stdio.cpp": {
-      "agent::StdioTransport::request": {
-        "ccn": 13,
-        "nloc": 44
       }
     },
     "lib/model_probe.cpp": {

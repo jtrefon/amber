@@ -173,18 +173,22 @@ void Job::reap_after_eof() {
     finalize(status, w == pid_, kill_done_.load());
 }
 
+void Job::append_output(const char* data, std::size_t n, bool touch) {
+    std::scoped_lock lk(mtx_);
+    if (output_.size() < kCap)
+        output_.append(data, n);
+    else if (!truncated_)
+        truncated_ = true;
+    if (touch)
+        last_output_ = std::chrono::steady_clock::now();
+}
+
 void Job::reader_loop() {
     std::array<char, 4096> buf{};
     while (true) {
         ssize_t n = read(read_fd_, buf.data(), buf.size());
         if (n > 0) {
-            std::scoped_lock lk(mtx_);
-            if (output_.size() < kCap) {
-                output_.append(buf.data(), static_cast<std::size_t>(n));
-            } else if (!truncated_) {
-                truncated_ = true;
-            }
-            last_output_ = std::chrono::steady_clock::now();
+            append_output(buf.data(), static_cast<std::size_t>(n), /*touch=*/true);
             continue;
         }
         if (n == 0) { // EOF: the child closed the pipe.
@@ -198,13 +202,9 @@ void Job::reader_loop() {
         pid_t w = waitpid(pid_, &status, WNOHANG);
         if (w == pid_) {
             // Drain any final buffered bytes before publishing the outcome.
-            while ((n = read(read_fd_, buf.data(), buf.size())) > 0) {
-                std::scoped_lock lk(mtx_);
-                if (output_.size() < kCap)
-                    output_.append(buf.data(), (std::size_t)n);
-                else if (!truncated_)
-                    truncated_ = true;
-            }
+            ssize_t drained = 0;
+            while ((drained = read(read_fd_, buf.data(), buf.size())) > 0)
+                append_output(buf.data(), static_cast<std::size_t>(drained), /*touch=*/false);
             finalize(status, true, kill_done_.load());
             break;
         }
@@ -212,11 +212,9 @@ void Job::reader_loop() {
     }
     close(read_fd_);
     read_fd_ = -1;
-    {
-        std::scoped_lock lk(mtx_);
-        if (state_ == JobState::Running || state_ == JobState::Starting)
-            state_ = JobState::Done;
-    }
+    std::scoped_lock lk(mtx_);
+    if (state_ == JobState::Running || state_ == JobState::Starting)
+        state_ = JobState::Done;
 }
 
 void Job::set_state(JobState s) {
