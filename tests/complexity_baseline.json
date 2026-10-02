@@ -1,7 +1,7 @@
 {
   "ccn_max": 15,
   "files": {
-    "bench/probe.cpp": 7,
+    "bench/probe.cpp": 6,
     "bench/report.cpp": 1,
     "bench/runner.cpp": 2,
     "lib/agent.cpp": 5,

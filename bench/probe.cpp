@@ -1090,12 +1090,29 @@ bool dispatch_probe_roundtrip(ProbeResult& r) {
 }
 
 // A single-call message for the bash tool.
-agent::json bash_call(const std::string& id, const std::string& command) {
+// A single-call message for the bash tool with the given raw arguments value.
+agent::json bash_call_with_args(const std::string& id, agent::json arguments) {
     agent::json tc;
     tc["id"] = id;
     tc["type"] = "function";
-    tc["function"] = {{"name", "bash"}, {"arguments", {{"command", command}}}};
+    tc["function"] = {{"name", "bash"}, {"arguments", std::move(arguments)}};
     return tc;
+}
+
+// A single-call message for the bash tool.
+agent::json bash_call(const std::string& id, const std::string& command) {
+    return bash_call_with_args(id, {{"command", command}});
+}
+
+// Dispatch one call in its own context and report whether it succeeded.
+bool dispatch_one(const agent::json& call, agent::Config& cfg, agent::ToolRegistry& reg,
+                  agent::AgentHooks& hooks, agent::ConversationLog& log,
+                  std::set<std::string>& approved) {
+    agent::Context dctx;
+    agent::json calls = agent::json::array();
+    calls.push_back(call);
+    return agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
+                                      &dctx);
 }
 
 // P-dispatch-parallel: multiple calls in one message must all execute and
@@ -1493,35 +1510,15 @@ bool fidelity_probe_arg_shapes(ProbeResult& r) {
     agent::AgentHooks hooks;
     hooks.on_tool_call = [&dispatched](const std::string&, const agent::json&) { ++dispatched; };
 
-    // Object-typed arguments.
-    {
-        agent::Context dctx;
-        agent::json calls = agent::json::array();
-        agent::json tc;
-        tc["id"] = "c1";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo a"}}}};
-        calls.push_back(tc);
-        if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
-                                        &dctx)) {
-            r.detail = "object-typed arguments failed";
-            return false;
-        }
+    // Object-typed arguments, then string-typed arguments.
+    if (!dispatch_one(bash_call("c1", "echo a"), cfg, reg, hooks, log, approved)) {
+        r.detail = "object-typed arguments failed";
+        return false;
     }
-    // String-typed arguments.
-    {
-        agent::Context dctx;
-        agent::json calls = agent::json::array();
-        agent::json tc;
-        tc["id"] = "c2";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", R"({"command":"echo b"})"}};
-        calls.push_back(tc);
-        if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
-                                        &dctx)) {
-            r.detail = "string-typed arguments failed";
-            return false;
-        }
+    if (!dispatch_one(bash_call_with_args("c2", R"({"command":"echo b"})"), cfg, reg, hooks, log,
+                      approved)) {
+        r.detail = "string-typed arguments failed";
+        return false;
     }
     if (dispatched != 2) {
         r.detail = "expected 2 dispatches, got " + std::to_string(dispatched);
