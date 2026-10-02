@@ -3,7 +3,6 @@
   "files": {
     "bench/oracle.cpp": 1,
     "bench/probe.cpp": 2,
-    "bench/template.cpp": 1,
     "lib/mcp_client.cpp": 1,
     "lib/providers_repo_files.cpp": 1,
     "lib/session.cpp": 1,
