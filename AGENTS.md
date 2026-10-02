@@ -327,7 +327,7 @@ known mess, even in adjacent code.
     (`tools/class_size_gate.py` + `tests/class_size_baseline.json`).
   - A method/function should stay **under 10 lines** with **minimal branching**.
     Extract loops, parsing, and branching into named helpers. The **enforced**
-    cap is CCN 15 / 50 lines (`make complexity`); 10 lines is the aspiration,
+    cap is CCN 15 / 40 lines (`make complexity`); 10 lines is the aspiration,
     and `docs/complexity-burndown.md` records the gap.
 - **Layering / isolation**: this repo uses a **hexagonal (ports & adapters)**
   style, not strict N-layer:

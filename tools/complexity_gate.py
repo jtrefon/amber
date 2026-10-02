@@ -24,7 +24,7 @@ import subprocess
 import sys
 
 CCN_MAX = 15
-LEN_MAX = 50
+LEN_MAX = 40
 ROOTS = ["lib", "tools", "tui", "src", "bench", "plugins"]
 BASELINE = os.path.join("tests", "complexity_baseline.json")
 
