@@ -1200,6 +1200,14 @@ void SlashDispatcher::register_get_config_actions() {
 // /get plugin, /set plugin, /get provider, /get policy, display, think,
 // detection and subagent.
 void SlashDispatcher::register_get_plugin_policy_actions() {
+    register_plugin_actions();
+    register_provider_wallet_actions();
+    register_policy_actions();
+    register_readout_actions();
+}
+
+// /get plugin.* and /set plugin.*
+void SlashDispatcher::register_plugin_actions() {
     register_action("core.config.get.plugin",
                     [this](const std::string& a) { cmd_runtime_plugin_get(a); });
     register_action("core.config.get.plugin.list",
@@ -1218,6 +1226,10 @@ void SlashDispatcher::register_get_plugin_policy_actions() {
                     [this](const std::string& a) { cmd_plugin_uninstall(a); });
     register_action("core.config.set.plugin.settings",
                     [this](const std::string& a) { cmd_plugin_settings_set(a); });
+}
+
+// /get provider*, and the wallet pair under provider.
+void SlashDispatcher::register_provider_wallet_actions() {
     register_action("core.config.get.provider.wallet",
                     [this](const std::string&) { cmd_get_wallet(); });
     register_action("core.config.set.provider.wallet",
@@ -1225,6 +1237,10 @@ void SlashDispatcher::register_get_plugin_policy_actions() {
     register_action("core.config.get.provider", [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.provider.list",
                     [this](const std::string&) { cmd_provider_list(); });
+}
+
+// /get policy*
+void SlashDispatcher::register_policy_actions() {
     register_action("core.config.get.policy", [this](const std::string& a) { cmd_get_policy(a); });
     register_action("core.config.get.policy.mode",
                     [this](const std::string&) { cmd_get_policy_mode(); });
@@ -1234,6 +1250,10 @@ void SlashDispatcher::register_get_plugin_policy_actions() {
                     [this](const std::string&) { cmd_get_policy_timeout(); });
     register_action("core.config.get.policy.rule",
                     [this](const std::string& a) { cmd_get_policy_rule(a); });
+}
+
+// The remaining /get readouts: display, think, detection, subagent.
+void SlashDispatcher::register_readout_actions() {
     register_action("core.config.get.display", [this](const std::string&) { cmd_get_display(); });
     register_action("core.config.get.think", [this](const std::string&) { cmd_get_think(); });
     register_action("core.config.get.detection",

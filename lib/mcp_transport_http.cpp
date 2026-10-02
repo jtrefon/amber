@@ -106,14 +106,34 @@ std::optional<McpMessage> HttpTransport::dispatch_sse_event(std::string& event_d
 
 // SSE: events carry JSON-RPC messages; the response for our id arrives among
 // them, possibly after server messages.
+namespace {
+
+// One line of the SSE body, advancing `pos` past it and its newline.
+std::string next_sse_line(const std::string& body, size_t& pos) {
+    const size_t nl = body.find('\n', pos);
+    const std::string line =
+        (nl == std::string::npos) ? body.substr(pos) : body.substr(pos, nl - pos);
+    pos = (nl == std::string::npos) ? body.size() : nl + 1;
+    return line;
+}
+
+// Append a "data:" payload to the pending event, joining lines with newlines.
+void append_sse_data(const std::string& line, std::string& event_data) {
+    std::string data = line.substr(5);
+    if (!data.empty() && data.front() == ' ')
+        data.erase(0, 1);
+    if (!event_data.empty())
+        event_data += "\n";
+    event_data += data;
+}
+
+} // namespace
+
 McpTransportResult HttpTransport::handle_sse_response(const std::string& body, int id) {
     std::string event_data;
     size_t pos = 0;
     while (pos < body.size()) {
-        const size_t nl = body.find('\n', pos);
-        const std::string line =
-            (nl == std::string::npos) ? body.substr(pos) : body.substr(pos, nl - pos);
-        pos = (nl == std::string::npos) ? body.size() : nl + 1;
+        const std::string line = next_sse_line(body, pos);
         if (line.empty()) {
             if (event_data.empty())
                 continue;
@@ -128,14 +148,8 @@ McpTransportResult HttpTransport::handle_sse_response(const std::string& body, i
             }
             continue;
         }
-        if (line.rfind("data:", 0) == 0) {
-            std::string data = line.substr(5);
-            if (!data.empty() && data.front() == ' ')
-                data.erase(0, 1);
-            if (!event_data.empty())
-                event_data += "\n";
-            event_data += data;
-        }
+        if (line.rfind("data:", 0) == 0)
+            append_sse_data(line, event_data);
     }
     if (!event_data.empty()) {
         bool failed = false;
@@ -222,6 +236,47 @@ bool HttpTransport::transfer_failed(bool aborted, const std::string& why) {
     return false;
 }
 
+namespace {
+
+HeaderList build_headers(const std::string& session_id, const std::string& auth_token) {
+    HeaderList headers;
+    headers.add("Content-Type: application/json");
+    headers.add("Accept: application/json, text/event-stream");
+    headers.add("MCP-Protocol-Version: " + std::string(kProtocolVersion));
+    if (!session_id.empty())
+        headers.add("Mcp-Session-Id: " + session_id);
+    if (!auth_token.empty())
+        headers.add("Authorization: Bearer " + auth_token);
+    return headers;
+}
+
+void apply_curl_options(CURL* curl, const HeaderList& headers, HttpTransport::HttpReply& reply,
+                        const std::string& payload, const std::string& url, long timeout_ms,
+                        const CancellationToken* cancel) {
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.list);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &reply.body);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_cb);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &reply);
+    if (cancel) {
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, const_cast<CancellationToken*>(cancel));
+    }
+    if (!payload.empty()) {
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
+    } else {
+        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+    }
+}
+
+} // namespace
+
 bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
     if (closed_) {
         failure_ = failure_.empty() ? "transport closed" : failure_;
@@ -232,36 +287,9 @@ bool HttpTransport::post(const std::string& payload, HttpReply& reply) {
         failure_ = "curl init failed";
         return false;
     }
-    HeaderList headers;
-    headers.add("Content-Type: application/json");
-    headers.add("Accept: application/json, text/event-stream");
-    headers.add("MCP-Protocol-Version: " + std::string(kProtocolVersion));
-    if (!session_id_.empty())
-        headers.add("Mcp-Session-Id: " + session_id_);
-    if (!auth_token_.empty())
-        headers.add("Authorization: Bearer " + auth_token_);
-
-    curl_easy_setopt(curl.get(), CURLOPT_URL, url_.c_str());
-    curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.list);
-    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, static_cast<long>(request_timeout_ms_));
-    curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_cb);
-    curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &reply.body);
-    curl_easy_setopt(curl.get(), CURLOPT_HEADERFUNCTION, header_cb);
-    curl_easy_setopt(curl.get(), CURLOPT_HEADERDATA, &reply);
-    if (cancel_token_) {
-        curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
-        curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress_cb);
-        curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA,
-                         const_cast<CancellationToken*>(cancel_token_));
-    }
-    if (!payload.empty()) {
-        curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
-        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, payload.c_str());
-        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
-    } else {
-        curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, "DELETE");
-    }
+    const HeaderList headers = build_headers(session_id_, auth_token_);
+    apply_curl_options(curl.get(), headers, reply, payload, url_,
+                       static_cast<long>(request_timeout_ms_), cancel_token_);
 
     const CURLcode rc = curl_easy_perform(curl.get());
     if (rc == CURLE_ABORTED_BY_CALLBACK && cancel_token_ && cancel_token_->is_requested())

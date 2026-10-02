@@ -1052,6 +1052,45 @@ void render_per_suite(std::ostream& out, const std::vector<ScenarioReport>& repo
 }
 
 // §3 Failed-scenario diagnosis, capped so one bad run cannot flood the card.
+// The "steps=… calls=… wasted=…" line plus the flag suffixes.
+void render_failure_kpi(std::ostream& out, const ScenarioReport& r) {
+    out << "  steps=" << r.kpi.steps << " calls=" << r.kpi.tool_calls << " wasted=" << r.kpi.wasted
+        << " redundant=" << r.kpi.redundant << " tool_failures=" << r.kpi.tool_failures
+        << " denied=" << r.kpi.tool_denied;
+    if (r.kpi.hard_stop)
+        out << " HARD_STOP";
+    if (r.replan_adapted)
+        out << " replan=adapted";
+    if (r.dependency_violation)
+        out << " DEP_VIOLATION";
+    if (r.breakout_latency > 0)
+        out << " breakout@" << r.breakout_latency;
+    if (r.steer_effective)
+        out << " steer=effective";
+    out << "\n";
+}
+
+// The tool trace: what actually executed.
+void render_failure_trace(std::ostream& out, const ScenarioReport& r) {
+    if (r.tool_details.empty())
+        return;
+    out << "  trace:";
+    for (const auto& d : r.tool_details)
+        out << " " << d.name << "[" << d.status << (d.error.empty() ? "" : ":" + d.error) << "]";
+    out << "\n";
+}
+
+// One failed scenario: its heading, its failures, its KPI line and its trace.
+void render_one_failure(std::ostream& out, const ScenarioReport& r) {
+    out << "### " << r.name << "  (score " << static_cast<int>(r.score.total) << ", " << r.suite
+        << ")\n";
+    for (const auto& f : r.failures)
+        out << "  failure: " << f << "\n";
+    render_failure_kpi(out, r);
+    render_failure_trace(out, r);
+    out << "\n";
+}
+
 void render_failures(std::ostream& out, const std::vector<ScenarioReport>& reports, int passed,
                      int total) {
     out << "## 3. Failed scenarios (why, and which dimension)\n\n";
@@ -1061,37 +1100,10 @@ void render_failures(std::ostream& out, const std::vector<ScenarioReport>& repor
             continue;
         if (++shown > 12) {
             out << "  ... " << (passed < total ? total - passed - 12 : 0)
-                << " more failures; run `amber-bench report` for full "
-                   "details\n";
+                << " more failures; run `amber-bench report` for full details\n";
             break;
         }
-        out << "### " << r.name << "  (score " << static_cast<int>(r.score.total) << ", " << r.suite
-            << ")\n";
-        for (const auto& f : r.failures)
-            out << "  failure: " << f << "\n";
-        out << "  steps=" << r.kpi.steps << " calls=" << r.kpi.tool_calls
-            << " wasted=" << r.kpi.wasted << " redundant=" << r.kpi.redundant
-            << " tool_failures=" << r.kpi.tool_failures << " denied=" << r.kpi.tool_denied;
-        if (r.kpi.hard_stop)
-            out << " HARD_STOP";
-        if (r.replan_adapted)
-            out << " replan=adapted";
-        if (r.dependency_violation)
-            out << " DEP_VIOLATION";
-        if (r.breakout_latency > 0)
-            out << " breakout@" << r.breakout_latency;
-        if (r.steer_effective)
-            out << " steer=effective";
-        out << "\n";
-        // The tool trace: what actually executed.
-        if (!r.tool_details.empty()) {
-            out << "  trace:";
-            for (const auto& d : r.tool_details)
-                out << " " << d.name << "[" << d.status << (d.error.empty() ? "" : ":" + d.error)
-                    << "]";
-            out << "\n";
-        }
-        out << "\n";
+        render_one_failure(out, r);
     }
     if (shown == 0)
         out << "  no failures — clean run\n";

@@ -77,23 +77,38 @@ json Session::to_json() const {
     return result;
 }
 
+namespace {
+
+// Optional fields: assign when the key is present and holds the expected type,
+// leave the default otherwise.
+void take_string(const json& j, const char* key, std::string& out) {
+    if (j.contains(key) && j[key].is_string())
+        out = j[key].get<std::string>();
+}
+
+void take_ll(const json& j, const char* key, long long& out) {
+    if (j.contains(key) && j[key].is_number_integer())
+        out = j[key].get<long long>();
+}
+
+void take_object(const json& j, const char* key, json& out) {
+    if (j.contains(key) && j[key].is_object())
+        out = j[key];
+}
+
+} // namespace
+
 Session Session::from_json(const json& j) {
     Session s;
-    if (j.contains("id") && j["id"].is_string())
-        s.id = j["id"].get<std::string>();
-    if (j.contains("title") && j["title"].is_string())
-        s.title = j["title"].get<std::string>();
-    if (j.contains("model") && j["model"].is_string())
-        s.model = j["model"].get<std::string>();
-    if (j.contains("created_ms") && j["created_ms"].is_number_integer())
-        s.created_ms = j["created_ms"].get<long long>();
-    if (j.contains("updated_ms") && j["updated_ms"].is_number_integer())
-        s.updated_ms = j["updated_ms"].get<long long>();
+    take_string(j, "id", s.id);
+    take_string(j, "title", s.title);
+    take_string(j, "model", s.model);
+    take_ll(j, "created_ms", s.created_ms);
+    take_ll(j, "updated_ms", s.updated_ms);
     if (j.contains("messages") && j["messages"].is_array())
         for (const auto& m : j["messages"])
             s.messages.push_back(msg_from_json(m));
-    if (j.contains("meta") && j["meta"].is_object())
-        s.meta = j["meta"];
+    take_object(j, "meta", s.meta);
     return s;
 }
 

@@ -45,6 +45,11 @@ public:
 private:
     void rewrap();
 
+    // Paint one wrapped line, its hr rule, or one of its runs.
+    void draw_line(int row, const rich::Line& l);
+    void draw_hr(const rich::Line& l);
+    void draw_run(int row, int& x, const rich::Run& r);
+
     WINDOW* win_ = nullptr;
     int y_ = 0, rows_ = 0, cols_ = 0;
     int top_ = 0;

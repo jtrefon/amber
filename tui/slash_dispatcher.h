@@ -158,6 +158,11 @@ private:
     void register_set_feature_actions();
     void register_get_config_actions();
     void register_get_plugin_policy_actions();
+    // The four domains it covers, registered separately so each stays small.
+    void register_plugin_actions();
+    void register_provider_wallet_actions();
+    void register_policy_actions();
+    void register_readout_actions();
     void register_get_reasoning_actions();
     void apply_policy_mode(const std::string& v);
     bool apply_setting_key(const std::string& arg);

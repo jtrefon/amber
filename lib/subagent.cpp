@@ -95,6 +95,36 @@ Config SubAgentExecutor::sub_config() const {
     return sub_cfg;
 }
 
+// Serial mode: one sub-agent at a time (cache-friendly request ordering).
+// Bounded like the slot wait, so a wedged sibling cannot hold the parent
+// forever. Returns false with `err` set when the wait expires.
+bool SubAgentExecutor::enter_serial_mode(std::unique_lock<std::timed_mutex>& guard,
+                                         std::string& err) {
+    if (parallel_.load())
+        return true;
+    if (guard.try_lock_for(std::chrono::milliseconds(slot_wait_ms_.load())))
+        return true;
+    err = "another sub-agent is still running; retry shortly";
+    return false;
+}
+
+std::string SubAgentExecutor::run_sub_agent(const std::string& prompt, ToolRegistry& reg,
+                                            const Config& sub_cfg, const AgentHooks& sub_hooks,
+                                            Message sys, std::string& err) {
+    try {
+        // Skill tools stay with the parent session: registering them here
+        // would bind read_skill/list_skills/write_skill to this sub's
+        // SkillCatalog, replace the parent's bindings in the shared registry,
+        // and dangle once the sub is destroyed.
+        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_, false);
+        sub.set_context({std::move(sys)});
+        return sub.run(prompt);
+    } catch (const std::exception& e) {
+        err = std::string("sub-agent failed: ") + e.what();
+        return {};
+    }
+}
+
 std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& reg,
                                        std::string& err) {
     err.clear();
@@ -103,15 +133,9 @@ std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& 
         return "";
     }
 
-    // Serial mode: one sub-agent at a time (cache-friendly request ordering).
-    // Bounded like the slot wait, so a wedged sibling cannot hold the parent
-    // forever.
     std::unique_lock<std::timed_mutex> serial_guard(serial_mutex_, std::defer_lock);
-    if (!parallel_.load() &&
-        !serial_guard.try_lock_for(std::chrono::milliseconds(slot_wait_ms_.load()))) {
-        err = "another sub-agent is still running; retry shortly";
+    if (!enter_serial_mode(serial_guard, err))
         return "";
-    }
     if (!acquire_slot()) {
         err = "all sub-agent slots are busy; retry shortly";
         return "";
@@ -122,26 +146,14 @@ std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& 
     } slot_guard{this};
 
     const AgentHooks sub_hooks = sub_hooks_of();
-    Config sub_cfg = sub_config();
-
+    const Config sub_cfg = sub_config();
     Message sys;
     sys.role = "system";
     sys.content = compose_subagent_system(sub_cfg);
 
-    std::string result;
     launched_.fetch_add(1);
     t_in_subagent = true;
-    try {
-        // Skill tools stay with the parent session: registering them here
-        // would bind read_skill/list_skills/write_skill to this sub's
-        // SkillCatalog, replace the parent's bindings in the shared registry,
-        // and dangle once the sub is destroyed.
-        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_, false);
-        sub.set_context({std::move(sys)});
-        result = sub.run(prompt);
-    } catch (const std::exception& e) {
-        err = std::string("sub-agent failed: ") + e.what();
-    }
+    const std::string result = run_sub_agent(prompt, reg, sub_cfg, sub_hooks, std::move(sys), err);
     t_in_subagent = false;
     return result;
 }

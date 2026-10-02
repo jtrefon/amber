@@ -43,6 +43,12 @@ public:
     void restore_message_lines(const agent::Message& m, std::vector<RestoredCall>& pending);
 
 private:
+    // Background-compress a freshly loaded session when its context is large.
+    void maybe_background_compress(Window& w, const agent::Session& s);
+    // Restore the window's UI state (context use, latency/token stats) from
+    // the saved session meta.
+    void restore_stats(Window& w, const agent::Session& s);
+
     // The browser's key step (takes the raw key so the header needs no ncurses):
     // returns true when the dialog should close.
     bool session_browser_key(int ch, SessionBrowserCore& core);

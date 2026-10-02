@@ -419,6 +419,31 @@ ToolMeta meta_for_tool(const ToolCapability::Meta& declared, const std::string& 
 ToolCapability::ToolCapability(std::string name, Factory factory, Meta meta)
     : name_(std::move(name)), meta_(std::move(meta)), factory_(std::move(factory)) {}
 
+namespace {
+
+// Register the factory's tools under the contributing plugin's id and return
+// the names registered. Ownership is what lets the ledger unwind without
+// reaching across plugins: two of them may contribute the same tool name (the
+// later registration wins), and the one that lost the name must not remove the
+// winner's tool on its way out.
+std::vector<std::string> register_owned_tools(std::vector<std::unique_ptr<Tool>> tools,
+                                              ToolRegistry& registry, const std::string& owner,
+                                              const ToolCapability::Meta& declared) {
+    std::vector<std::string> registered;
+    registered.reserve(tools.size());
+    for (auto& tool : tools) {
+        if (!tool)
+            continue;
+        registered.push_back(tool->name());
+        // The meta travels with the registration, so the UI reads the verb the
+        // plugin declared instead of keeping its own name->verb table.
+        registry.register_tool(std::move(tool), owner, meta_for_tool(declared, registered.back()));
+    }
+    return registered;
+}
+
+} // namespace
+
 InstallResult ToolCapability::install(PluginServices& services) {
     InstallResult r;
     if (!factory_) {
@@ -427,31 +452,13 @@ InstallResult ToolCapability::install(PluginServices& services) {
     }
     // The factory runs on every activation: install must be repeatable, because
     // disabling and re-enabling a plugin replays its declared capabilities.
-    std::vector<std::unique_ptr<Tool>> tools = factory_(services);
-    if (tools.empty()) {
-        // The factory returned nothing: the tool is gated off, not broken. The
-        // plugin stays active with one fewer contribution.
-        r.declined = true;
-        return r;
-    }
-
-    ToolRegistry* registry = &services.tools();
-    // Register under the contributing plugin's id. Ownership is what lets the
-    // ledger unwind without reaching across plugins: two of them may contribute
-    // the same tool name (the later registration wins), and the one that lost
-    // the name must not remove the winner's tool on its way out.
     const std::string owner = services.owner();
-    std::vector<std::string> registered;
-    registered.reserve(tools.size());
-    for (auto& tool : tools) {
-        if (!tool)
-            continue;
-        registered.push_back(tool->name());
-        // The meta travels with the registration, so the UI reads the verb the
-        // plugin declared instead of keeping its own name→verb table.
-        registry->register_tool(std::move(tool), owner, meta_for_tool(meta_, registered.back()));
-    }
+    ToolRegistry* registry = &services.tools();
+    const std::vector<std::string> registered =
+        register_owned_tools(factory_(services), *registry, owner, meta_);
     if (registered.empty()) {
+        // Nothing to install: the tool is gated off, not broken. The plugin
+        // stays active with one fewer contribution.
         r.declined = true;
         return r;
     }

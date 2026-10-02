@@ -4,62 +4,78 @@
 
 namespace tui::form_focus {
 
-Decision key(int ch, Zone zone, bool at_last_field) {
+namespace {
+
+// Movement keys map one-to-one to an intent; a table keeps the field switch to
+// the keys that need more than an intent (zone moves, commit, escape).
+Intent movement_intent(int ch) noexcept {
+    switch (ch) {
+    case keys::kLeft:
+        return Intent::PrevChar;
+    case keys::kRight:
+        return Intent::NextChar;
+    case keys::kHome:
+        return Intent::BegLine;
+    case keys::kEnd:
+        return Intent::EndLine;
+    case keys::kDelete:
+        return Intent::DelChar;
+    default:
+        return Intent::None;
+    }
+}
+
+bool is_backspace(int ch) noexcept {
+    return ch == keys::kBackspace || ch == 127 || ch == 8;
+}
+
+bool is_submit(int ch) noexcept {
+    return ch == '\n' || ch == '\r' || ch == keys::kEnter;
+}
+
+// Keys while a field has focus. The returned decision keeps Zone::Fields
+// unless the key moves the focus out.
+Decision field_key(int ch, bool at_last_field) {
+    Decision d;
+    const Intent nav = movement_intent(ch);
+    if (nav != Intent::None) {
+        d.intent = nav;
+        return d;
+    }
+    if (ch == '\t' || ch == keys::kDown) {
+        if (at_last_field)
+            d.zone = Zone::Ok; // Tab off the last field reaches the buttons
+        else
+            d.intent = Intent::NextField;
+        return d;
+    }
+    if (ch == keys::kBtab || ch == keys::kUp) {
+        d.intent = Intent::PrevField;
+        return d;
+    }
+    if (is_backspace(ch)) {
+        d.intent = Intent::DelPrev;
+        return d;
+    }
+    if (is_submit(ch)) {
+        d.zone = Zone::Ok;
+        return d;
+    }
+    if (ch == 27) {
+        d.done = true;
+        return d;
+    }
+    if (ch >= 32 && ch <= 126) {
+        d.intent = Intent::InsertChar;
+        d.insert = ch;
+    }
+    return d;
+}
+
+// The button row: only OK and Cancel are focusable.
+Decision button_key(int ch, Zone zone) {
     Decision d;
     d.zone = zone;
-
-    if (zone == Zone::Fields) {
-        switch (ch) {
-        case '\t':
-        case keys::kDown:
-            if (at_last_field)
-                d.zone = Zone::Ok; // Tab off the last field reaches the buttons
-            else
-                d.intent = Intent::NextField;
-            return d;
-        case keys::kBtab:
-        case keys::kUp:
-            d.intent = Intent::PrevField;
-            return d;
-        case keys::kLeft:
-            d.intent = Intent::PrevChar;
-            return d;
-        case keys::kRight:
-            d.intent = Intent::NextChar;
-            return d;
-        case keys::kHome:
-            d.intent = Intent::BegLine;
-            return d;
-        case keys::kEnd:
-            d.intent = Intent::EndLine;
-            return d;
-        case keys::kDelete:
-            d.intent = Intent::DelChar;
-            return d;
-        case keys::kBackspace:
-        case 127:
-        case 8:
-            d.intent = Intent::DelPrev;
-            return d;
-        case '\n':
-        case '\r':
-        case keys::kEnter:
-            d.zone = Zone::Ok;
-            return d;
-        case 27:
-            d.done = true;
-            d.result = false;
-            return d;
-        default:
-            if (ch >= 32 && ch <= 126) {
-                d.intent = Intent::InsertChar;
-                d.insert = ch;
-            }
-            return d;
-        }
-    }
-
-    // The button row: only OK and Cancel are focusable.
     switch (ch) {
     case '\t':
     case keys::kRight:
@@ -80,11 +96,18 @@ Decision key(int ch, Zone zone, bool at_last_field) {
         return d;
     case 27:
         d.done = true;
-        d.result = false;
         return d;
     default:
         return d;
     }
+}
+
+} // namespace
+
+Decision key(int ch, Zone zone, bool at_last_field) {
+    if (zone == Zone::Fields)
+        return field_key(ch, at_last_field);
+    return button_key(ch, zone);
 }
 
 } // namespace tui::form_focus

@@ -1396,6 +1396,25 @@ TEST(read_tool_cannot_open_error_is_relative) {
     ASSERT(r.error.find("amber_missing_rel88.txt") != std::string::npos);
 }
 
+// The lower bounds clamp as well as the upper: offset/limit below 1 behave as
+// 1, so exactly the first line comes back.
+TEST(read_tool_clamps_offset_and_limit_floor) {
+    agent::Workspace::set_root("/tmp");
+    const std::string path = "/tmp/amber_read_clamp.txt";
+    {
+        std::ofstream f(path);
+        for (int i = 1; i <= 5; ++i)
+            f << "line " << i << "\n";
+    }
+    auto tool = agent::make_read_tool();
+    auto r = tool->execute({{"path", path}, {"offset", 0}, {"limit", 0}});
+    ASSERT_TRUE(r.ok);
+    ASSERT(r.output.find("1:\tline 1") != std::string::npos);
+    ASSERT(r.output.find("2:\tline 2") == std::string::npos);
+    ASSERT_EQ(r.meta["lines"].get<long>(), 1L);
+    std::remove(path.c_str());
+}
+
 // ---------------------------------------------------------------------------
 // write tool (patch style)
 // ---------------------------------------------------------------------------

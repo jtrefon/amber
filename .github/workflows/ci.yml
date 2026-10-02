@@ -194,7 +194,7 @@ jobs:
         run: python3 tools/duplicate_detector.py --min-lines=6 lib tools tui tests src
 
   # ---------------------------------------------------------------------------
-  # Complexity — the ratcheted gate (CCN>15 or length>50 via lizard). Fails
+  # Complexity — the ratcheted gate (CCN>15 or NLOC>40 via lizard). Fails
   # closed on a regression, but is deliberately excluded from ci-gate, so it
   # reports red without blocking a merge (see ci-gate below). Runs on the slim
   # dependency set: the gate itself is pure Python, install-deps is there only

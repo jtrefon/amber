@@ -1089,6 +1089,32 @@ bool dispatch_probe_roundtrip(ProbeResult& r) {
     return true;
 }
 
+// A single-call message for the bash tool.
+// A single-call message for the bash tool with the given raw arguments value.
+agent::json bash_call_with_args(const std::string& id, agent::json arguments) {
+    agent::json tc;
+    tc["id"] = id;
+    tc["type"] = "function";
+    tc["function"] = {{"name", "bash"}, {"arguments", std::move(arguments)}};
+    return tc;
+}
+
+// A single-call message for the bash tool.
+agent::json bash_call(const std::string& id, const std::string& command) {
+    return bash_call_with_args(id, {{"command", command}});
+}
+
+// Dispatch one call in its own context and report whether it succeeded.
+bool dispatch_one(const agent::json& call, agent::Config& cfg, agent::ToolRegistry& reg,
+                  agent::AgentHooks& hooks, agent::ConversationLog& log,
+                  std::set<std::string>& approved) {
+    agent::Context dctx;
+    agent::json calls = agent::json::array();
+    calls.push_back(call);
+    return agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
+                                      &dctx);
+}
+
 // P-dispatch-parallel: multiple calls in one message must all execute and
 // each result must pair with the call that produced it (no cross-pairing).
 bool dispatch_probe_parallel(ProbeResult& r) {
@@ -1102,20 +1128,8 @@ bool dispatch_probe_parallel(ProbeResult& r) {
     agent::Context dctx;
 
     agent::json calls = agent::json::array();
-    {
-        agent::json tc;
-        tc["id"] = "cA";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo AAA"}}}};
-        calls.push_back(tc);
-    }
-    {
-        agent::json tc;
-        tc["id"] = "cB";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo BBB"}}}};
-        calls.push_back(tc);
-    }
+    calls.push_back(bash_call("cA", "echo AAA"));
+    calls.push_back(bash_call("cB", "echo BBB"));
 
     // Capture each call's command -> output mapping (the result hook passes
     // the tool name, not the call id, so key by the command we sent).
@@ -1161,20 +1175,8 @@ bool dispatch_probe_out_of_order(ProbeResult& r) {
     agent::Context dctx;
 
     agent::json calls = agent::json::array();
-    {
-        agent::json tc;
-        tc["id"] = "cSlow";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "sleep 0.3; echo SLOW"}}}};
-        calls.push_back(tc);
-    }
-    {
-        agent::json tc;
-        tc["id"] = "cFast";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo FAST"}}}};
-        calls.push_back(tc);
-    }
+    calls.push_back(bash_call("cSlow", "sleep 0.3; echo SLOW"));
+    calls.push_back(bash_call("cFast", "echo FAST"));
 
     std::map<std::string, std::string> paired;
     agent::AgentHooks hooks;
@@ -1508,35 +1510,15 @@ bool fidelity_probe_arg_shapes(ProbeResult& r) {
     agent::AgentHooks hooks;
     hooks.on_tool_call = [&dispatched](const std::string&, const agent::json&) { ++dispatched; };
 
-    // Object-typed arguments.
-    {
-        agent::Context dctx;
-        agent::json calls = agent::json::array();
-        agent::json tc;
-        tc["id"] = "c1";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo a"}}}};
-        calls.push_back(tc);
-        if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
-                                        &dctx)) {
-            r.detail = "object-typed arguments failed";
-            return false;
-        }
+    // Object-typed arguments, then string-typed arguments.
+    if (!dispatch_one(bash_call("c1", "echo a"), cfg, reg, hooks, log, approved)) {
+        r.detail = "object-typed arguments failed";
+        return false;
     }
-    // String-typed arguments.
-    {
-        agent::Context dctx;
-        agent::json calls = agent::json::array();
-        agent::json tc;
-        tc["id"] = "c2";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", R"({"command":"echo b"})"}};
-        calls.push_back(tc);
-        if (!agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
-                                        &dctx)) {
-            r.detail = "string-typed arguments failed";
-            return false;
-        }
+    if (!dispatch_one(bash_call_with_args("c2", R"({"command":"echo b"})"), cfg, reg, hooks, log,
+                      approved)) {
+        r.detail = "string-typed arguments failed";
+        return false;
     }
     if (dispatched != 2) {
         r.detail = "expected 2 dispatches, got " + std::to_string(dispatched);
@@ -1671,50 +1653,64 @@ bool output_probe_envelope_ext(ProbeResult& r) {
 
 namespace {
 
+// The families the scorecard requires, kept as data so the registrar below is
+// a loop rather than 41 calls. Defined before `g_registrar`, so within this
+// translation unit it is initialised first.
+struct ProbeEntry {
+    const char* family = "";
+    const char* name = "";
+    std::function<bool(ProbeResult&)> run;
+};
+
+const ProbeEntry kProbeTable[] = {
+    {"parse", "parse_tool_calls_roundtrip", parse_probe_tool_calls_roundtrip},
+    {"parse", "parse_reasoning_segmentation", parse_probe_reasoning_segmentation},
+    {"extract", "extract_bare_json", extract_probe_bare_json},
+    {"extract", "extract_tool_call_xml", extract_probe_tool_call_xml},
+    {"extract", "extract_tools_wrapper", extract_probe_tools_wrapper},
+    {"extract", "extract_attribute_style", extract_probe_attribute_style},
+    {"extract", "extract_multiple_calls", extract_probe_multiple_calls},
+    {"extract", "extract_no_false_positive", extract_probe_no_false_positive},
+    {"context", "context_chain_survives", context_probe_chain_survives},
+    {"context", "context_compression_rebuild", context_probe_compression_rebuild},
+    {"context", "context_token_fidelity", context_probe_token_fidelity},
+    {"envelope", "envelope_status_classification", envelope_probe_status_classification},
+    {"budget", "budget_max_steps_enforced", budget_probe_max_steps_enforced},
+    {"budget", "budget_wall_clock", budget_probe_wall_clock},
+    {"loop", "loop_done_flag", loop_probe_done_flag},
+    {"loop", "loop_continue_flag", loop_probe_continue_flag},
+    {"loop", "loop_infinite_breakout", loop_probe_infinite_breakout},
+    {"loop", "loop_text_repeat", loop_probe_text_repeat},
+    {"loop", "loop_fail_streak", loop_probe_fail_streak},
+    {"loop", "loop_no_false_positive", loop_probe_no_false_positive},
+    {"loop", "loop_hard_stop_honesty", loop_probe_hard_stop_honesty},
+    {"loop", "loop_plan_adherence", loop_probe_plan_adherence},
+    {"loop", "loop_plan_design", loop_probe_plan_design},
+    {"loop", "loop_replan_adapt", loop_probe_replan_adapt},
+    {"loop", "loop_dependency_order", loop_probe_dependency_order},
+    {"fidelity", "fidelity_misuse_wrong_tool", fidelity_probe_misuse_wrong_tool},
+    {"fidelity", "fidelity_params_value", fidelity_probe_params_value},
+    {"fidelity", "fidelity_unknown_tool", fidelity_probe_unknown_tool},
+    {"fidelity", "fidelity_malformed_args", fidelity_probe_malformed_args},
+    {"fidelity", "fidelity_arg_shapes", fidelity_probe_arg_shapes},
+    {"output", "output_acts_on_content", output_probe_acts_on_content},
+    {"output", "output_truncation", output_probe_truncation},
+    {"output", "output_envelope_ext", output_probe_envelope_ext},
+    {"confinement", "confinement_escapes_rejected", confinement_probe_escapes_rejected},
+    {"oracle", "oracle_scenario_self_validation", oracle_probe_scenario_self_validation},
+    {"dispatch", "dispatch_roundtrip", dispatch_probe_roundtrip},
+    {"dispatch", "dispatch_parallel", dispatch_probe_parallel},
+    {"dispatch", "dispatch_out_of_order", dispatch_probe_out_of_order},
+    {"recovery", "recovery_retryable_recovers", recovery_probe_retryable_recovers},
+    {"recovery", "recovery_nonretryable", recovery_probe_nonretryable},
+    {"recovery", "recovery_dropout", recovery_probe_dropout},
+    {"recovery", "recovery_4xx", recovery_probe_4xx},
+};
+
 struct ProbeRegistrar {
     ProbeRegistrar() {
-        add("parse", "parse_tool_calls_roundtrip", parse_probe_tool_calls_roundtrip);
-        add("parse", "parse_reasoning_segmentation", parse_probe_reasoning_segmentation);
-        add("extract", "extract_bare_json", extract_probe_bare_json);
-        add("extract", "extract_tool_call_xml", extract_probe_tool_call_xml);
-        add("extract", "extract_tools_wrapper", extract_probe_tools_wrapper);
-        add("extract", "extract_attribute_style", extract_probe_attribute_style);
-        add("extract", "extract_multiple_calls", extract_probe_multiple_calls);
-        add("extract", "extract_no_false_positive", extract_probe_no_false_positive);
-        add("context", "context_chain_survives", context_probe_chain_survives);
-        add("context", "context_compression_rebuild", context_probe_compression_rebuild);
-        add("context", "context_token_fidelity", context_probe_token_fidelity);
-        add("envelope", "envelope_status_classification", envelope_probe_status_classification);
-        add("budget", "budget_max_steps_enforced", budget_probe_max_steps_enforced);
-        add("budget", "budget_wall_clock", budget_probe_wall_clock);
-        add("loop", "loop_done_flag", loop_probe_done_flag);
-        add("loop", "loop_continue_flag", loop_probe_continue_flag);
-        add("loop", "loop_infinite_breakout", loop_probe_infinite_breakout);
-        add("loop", "loop_text_repeat", loop_probe_text_repeat);
-        add("loop", "loop_fail_streak", loop_probe_fail_streak);
-        add("loop", "loop_no_false_positive", loop_probe_no_false_positive);
-        add("loop", "loop_hard_stop_honesty", loop_probe_hard_stop_honesty);
-        add("loop", "loop_plan_adherence", loop_probe_plan_adherence);
-        add("loop", "loop_plan_design", loop_probe_plan_design);
-        add("loop", "loop_replan_adapt", loop_probe_replan_adapt);
-        add("loop", "loop_dependency_order", loop_probe_dependency_order);
-        add("fidelity", "fidelity_misuse_wrong_tool", fidelity_probe_misuse_wrong_tool);
-        add("fidelity", "fidelity_params_value", fidelity_probe_params_value);
-        add("fidelity", "fidelity_unknown_tool", fidelity_probe_unknown_tool);
-        add("fidelity", "fidelity_malformed_args", fidelity_probe_malformed_args);
-        add("fidelity", "fidelity_arg_shapes", fidelity_probe_arg_shapes);
-        add("output", "output_acts_on_content", output_probe_acts_on_content);
-        add("output", "output_truncation", output_probe_truncation);
-        add("output", "output_envelope_ext", output_probe_envelope_ext);
-        add("confinement", "confinement_escapes_rejected", confinement_probe_escapes_rejected);
-        add("oracle", "oracle_scenario_self_validation", oracle_probe_scenario_self_validation);
-        add("dispatch", "dispatch_roundtrip", dispatch_probe_roundtrip);
-        add("dispatch", "dispatch_parallel", dispatch_probe_parallel);
-        add("dispatch", "dispatch_out_of_order", dispatch_probe_out_of_order);
-        add("recovery", "recovery_retryable_recovers", recovery_probe_retryable_recovers);
-        add("recovery", "recovery_nonretryable", recovery_probe_nonretryable);
-        add("recovery", "recovery_dropout", recovery_probe_dropout);
-        add("recovery", "recovery_4xx", recovery_probe_4xx);
+        for (const auto& p : kProbeTable)
+            add(p.family, p.name, p.run);
     }
 };
 

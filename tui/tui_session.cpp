@@ -163,39 +163,30 @@ void SessionController::fork_session() {
     tui_.append_line(P_STATUS, "forked session into window '" + fork.title + "'");
 }
 
-void SessionController::load_session(const std::string& id) {
-    agent::Session s;
-    if (!store_.load(id, s)) {
-        tui_.append_line(P_STATUS, "load failed: no session " + id);
+// Large context on load?  Compress asynchronously so the first turn uses a
+// smaller prefill.  We check utilisation directly (not the per-turn gate)
+// because this is a one-time load reduction, not an inline compression that
+// would break tail-injection.
+void SessionController::maybe_background_compress(Window& w, const agent::Session& s) {
+    const double utilisation = s.messages.empty()
+                                   ? 0.0
+                                   : static_cast<double>(w.agent->context().token_count()) /
+                                         std::max(1, tui_.cfg_.context_size);
+    if (utilisation <= 0.40)
         return;
-    }
-    Window& w = tui_.new_window(s.title.empty() ? "chat" : s.title);
-    w.session_id = s.id;
-    w.agent->set_context(s.messages);
-    // Large context on load?  Compress asynchronously so the first turn uses a
-    // smaller prefill.  We check utilisation directly (not the per-turn gate)
-    // because this is a one-time load reduction, not an inline compression that
-    // would break tail-injection.
-    double utilisation = s.messages.empty()
-                             ? 0.0
-                             : static_cast<double>(w.agent->context().token_count()) /
-                                   std::max(1, tui_.cfg_.context_size);
-    if (utilisation > 0.40) {
-        tui_.append_line(P_STATUS, "large session — background compression started");
-        tui_.switch_to(tui_.window_manager_->all().size() - 1);
-        Window* my_win = &w;
-        size_t my_id = w.id;
-        tui_.compress_worker(*my_win, my_id);
-    }
-    if (!s.meta.empty())
-        w.agent->meta_ = s.meta;
-    // Restore UI state from saved session meta.
+    tui_.append_line(P_STATUS, "large session — background compression started");
+    tui_.switch_to(tui_.window_manager_->all().size() - 1);
+    tui_.compress_worker(w, w.id);
+}
+
+// Restore UI state from saved session meta.
+void SessionController::restore_stats(Window& w, const agent::Session& s) {
     auto get_num = [&](const char* key, long def) -> long {
         return (s.meta.contains(key) && s.meta[key].is_number()) ? s.meta[key].get<long>() : def;
     };
     w.ctx_used.store(get_num("ctx_used", -1));
     w.ctx_estimate = 0; // refilled by the restore's context events
-    long restored_ctx = get_num("ctx_size", 0);
+    const long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
         tui_.cfg_.context_size = static_cast<int>(restored_ctx);
     if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
@@ -205,12 +196,27 @@ void SessionController::load_session(const std::string& id) {
         w.stats.completion_tokens = get_num("completion_tokens", -1);
         w.stats.valid = true;
     }
+}
+
+void SessionController::load_session(const std::string& id) {
+    agent::Session s;
+    if (!store_.load(id, s)) {
+        tui_.append_line(P_STATUS, "load failed: no session " + id);
+        return;
+    }
+    Window& w = tui_.new_window(s.title.empty() ? "chat" : s.title);
+    w.session_id = s.id;
+    w.agent->set_context(s.messages);
+    maybe_background_compress(w, s);
+    if (!s.meta.empty())
+        w.agent->meta_ = s.meta;
+    restore_stats(w, s);
+
     std::vector<SessionController::RestoredCall> pending;
     for (const auto& m : s.messages)
         restore_message_lines(m, pending);
-    if (!s.messages.empty()) {
+    if (!s.messages.empty())
         tui_.win().scroll_top = tui_.render_engine_->max_scroll();
-    }
     tui_.append_line(P_STATUS, "loaded session " + s.id);
     tui_.draw();
 }
@@ -305,6 +311,26 @@ void SessionController::session_browser() {
     tui_.draw();
 }
 
+// Paint one session row's cells left to right: title, model, message count,
+// size (when known), and the timestamp hard against the right edge.
+static void draw_session_cells(WINDOW* w, int row, int aw, int title_w, const BrowserItem& m) {
+    int x = 3;
+    const std::string t = session_row::title(m.title, title_w);
+    mvwaddnstr(w, row, x, t.c_str(), title_w);
+    x += title_w + 1;
+    const std::string mod = session_row::model(m.model);
+    mvwaddstr(w, row, x, mod.c_str());
+    x += static_cast<int>(mod.size()) + 1;
+    const std::string cnt = session_row::message_count(m.message_count);
+    mvwaddstr(w, row, x, cnt.c_str());
+    x += static_cast<int>(cnt.size()) + 1;
+    const std::string size = session_row::file_size(m.file_size);
+    if (!size.empty())
+        mvwaddstr(w, row, x, size.c_str());
+    const std::string ts = fmt_time(m.updated_ms);
+    mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
+}
+
 static void draw_session_rows(WINDOW* w, SessionBrowserCore& core, int aw) {
     // Render list — clear each row with its own attribute so highlights extend
     // full-width. The date header rows and blank rows use the dialog background
@@ -330,21 +356,7 @@ static void draw_session_rows(WINDOW* w, SessionBrowserCore& core, int aw) {
             wattron(w, COLOR_PAIR(P_ASSISTANT));
         }
         mvwaddstr(w, row, 1, "  ");
-        int x = 3;
-        const std::string t = session_row::title(m.title, title_w);
-        mvwaddnstr(w, row, x, t.c_str(), title_w);
-        x += title_w + 1;
-        const std::string mod = session_row::model(m.model);
-        mvwaddstr(w, row, x, mod.c_str());
-        x += static_cast<int>(mod.size()) + 1;
-        const std::string cnt = session_row::message_count(m.message_count);
-        mvwaddstr(w, row, x, cnt.c_str());
-        x += static_cast<int>(cnt.size()) + 1;
-        const std::string size = session_row::file_size(m.file_size);
-        if (!size.empty())
-            mvwaddstr(w, row, x, size.c_str());
-        const std::string ts = fmt_time(m.updated_ms);
-        mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
+        draw_session_cells(w, row, aw, title_w, m);
         if (cur)
             wattroff(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
         else

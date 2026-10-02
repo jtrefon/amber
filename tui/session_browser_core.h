@@ -2,6 +2,7 @@
 #ifndef AMBER_TUI_SESSION_BROWSER_CORE_H
 #define AMBER_TUI_SESSION_BROWSER_CORE_H
 
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -65,6 +66,13 @@ public:
     void erase_current();
 
 private:
+    // Rows to move for a navigation key, or nullopt when `ch` is not one.
+    std::optional<int> movement_delta(int ch) const;
+    void move_selection(int delta);
+    Result key_command(int ch);
+    void reset_filter_cursor();
+    void append_filter_char(int ch);
+
     void rebuild();
     void snap_sel();
     void clamp_scroll();

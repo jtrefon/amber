@@ -51,6 +51,11 @@ public:
 
 private:
     bool acquire_slot();
+    // Serial-mode gate (true when parallel, or when the bounded wait succeeds).
+    bool enter_serial_mode(std::unique_lock<std::timed_mutex>& guard, std::string& err);
+    // Construct and run the sub-agent, containing any exception into `err`.
+    std::string run_sub_agent(const std::string& prompt, ToolRegistry& reg, const Config& sub_cfg,
+                              const AgentHooks& sub_hooks, Message sys, std::string& err);
     void release_slot() noexcept;
 
     std::atomic<bool> parallel_{true};

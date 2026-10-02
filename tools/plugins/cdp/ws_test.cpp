@@ -23,66 +23,90 @@ std::atomic<bool> server_done{false};
 std::atomic<bool> listening{false};
 std::string echo_payload;
 
-void server_main() {
+// Bind and listen on an ephemeral loopback port (recorded for
+// ephemeral_port()). False on failure.
+bool bind_listener() {
     struct sockaddr_in sa {};
     sa.sin_family = AF_INET;
     sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     sa.sin_port = 0;
     auto* sa_ptr = reinterpret_cast<struct sockaddr*>(&sa);
     if (bind(server_fd, sa_ptr, sizeof sa) != 0)
-        return;
+        return false;
     socklen_t slen = sizeof sa;
     getsockname(server_fd, sa_ptr, &slen);
     listen(server_fd, 1);
     listening.store(true);
-    client_fd = accept(server_fd, nullptr, nullptr);
-    if (client_fd < 0)
-        return;
+    return true;
+}
 
-    // Read the HTTP handshake, reply 101 (accept value unverified by client).
+// Read the HTTP handshake, then reply 101 (the accept value is not verified by
+// the client).
+bool complete_handshake() {
     std::string req;
     std::array<char, 1024> tmp{};
     while (req.find("\r\n\r\n") == std::string::npos) {
         ssize_t n = recv(client_fd, tmp.data(), tmp.size(), 0);
         if (n <= 0)
-            return;
+            return false;
         req.append(tmp.data(), (size_t)n);
     }
-    std::string resp = "HTTP/1.1 101 Switching Protocols\r\n"
-                       "Upgrade: websocket\r\n"
-                       "Connection: Upgrade\r\n"
-                       "Sec-WebSocket-Accept: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+    const std::string resp = "HTTP/1.1 101 Switching Protocols\r\n"
+                             "Upgrade: websocket\r\n"
+                             "Connection: Upgrade\r\n"
+                             "Sec-WebSocket-Accept: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
     (void)send(client_fd, resp.data(), resp.size(), 0);
+    return true;
+}
 
-    // Read one masked text frame and echo it back (unmasked server frame).
+// Read one masked client frame, unmasking it into `payload`. False when the
+// peer went away.
+bool read_frame(std::string& payload, unsigned char& opcode) {
+    std::array<unsigned char, 2> hdr{};
+    if (recv(client_fd, hdr.data(), hdr.size(), 0) <= 0)
+        return false;
+    size_t len = hdr[1] & 0x7f;
+    if (len == 126) {
+        std::array<unsigned char, 2> ext{};
+        if (recv(client_fd, ext.data(), ext.size(), 0) != 2)
+            return false;
+        len = (static_cast<size_t>(ext[0]) << 8) | ext[1];
+    }
+    std::array<unsigned char, 4> mask{};
+    if (recv(client_fd, mask.data(), mask.size(), 0) != 4)
+        return false;
+    payload.assign(len, '\0');
+    if (recv(client_fd, payload.data(), len, 0) != static_cast<ssize_t>(len))
+        return false;
+    for (size_t i = 0; i < len; ++i)
+        payload[i] ^= mask[i % 4];
+    opcode = hdr[0] & 0x0f;
+    return true;
+}
+
+void server_main() {
+    if (!bind_listener())
+        return;
+    client_fd = accept(server_fd, nullptr, nullptr);
+    if (client_fd < 0)
+        return;
+    if (!complete_handshake())
+        return;
+
+    // Echo each masked text frame back as an unmasked server frame.
     while (!server_done.load()) {
-        std::array<unsigned char, 2> hdr{};
-        ssize_t n = recv(client_fd, hdr.data(), hdr.size(), 0);
-        if (n <= 0)
+        std::string payload;
+        unsigned char opcode = 0;
+        if (!read_frame(payload, opcode))
             return;
-        size_t len = hdr[1] & 0x7f;
-        if (len == 126) {
-            std::array<unsigned char, 2> ext{};
-            if (recv(client_fd, ext.data(), ext.size(), 0) != 2)
-                return;
-            len = (static_cast<size_t>(ext[0]) << 8) | ext[1];
-        }
-        std::array<unsigned char, 4> mask{};
-        if (recv(client_fd, mask.data(), mask.size(), 0) != 4)
-            return;
-        std::string payload(len, '\0');
-        if (recv(client_fd, payload.data(), len, 0) != static_cast<ssize_t>(len))
-            return;
-        for (size_t i = 0; i < len; ++i)
-            payload[i] ^= mask[i % 4];
-        if ((hdr[0] & 0x0f) == 0x8)
+        if (opcode == 0x8)
             return; // close
-        if ((hdr[0] & 0x0f) != 0x1)
+        if (opcode != 0x1)
             continue;
         echo_payload = payload;
         std::string frame;
         frame += static_cast<char>(0x81);
-        frame += static_cast<char>(len);
+        frame += static_cast<char>(payload.size());
         frame += payload;
         (void)send(client_fd, frame.data(), frame.size(), 0);
     }

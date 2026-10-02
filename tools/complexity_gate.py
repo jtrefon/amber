@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """Complexity gate (ratchet).
 
-The project standard is: a method stays small (<= LEN_MAX lines) and does not
-branch excessively (CCN <= CCN_MAX). lizard measures both. This turns that into
-a *ratchet* rather than a cliff: tests/complexity_baseline.json records the
-accepted count of over-limit functions per file, so existing debt cannot grow
-and a new file must be clean.
+The project standard is: a method stays small (<= NLOC_MAX lines of code) and
+does not branch excessively (CCN <= CCN_MAX).
+
+Size is measured in **NLOC** (non-comment, non-blank lines), not total physical
+lines. That is deliberate: a function is not too big because it is documented.
+Gating on total lines would create pressure to delete explanatory comments to
+pass the gate -- an incentive that makes a codebase worse, not better. lizard
+reports both; `length` is shown in --report for information only.
+
+This is a *ratchet*, not a cliff: tests/complexity_baseline.json records each
+accepted over-limit function by name with its measured size, so existing debt
+cannot grow and a new function must be clean. The baseline is keyed by
+(file, function), so a file cannot swap one over-limit function for another and
+pass -- the recorded function itself may not get bigger.
 
 The gate fails closed: if lizard cannot run, the gate fails rather than
 reporting success.
@@ -24,7 +33,7 @@ import subprocess
 import sys
 
 CCN_MAX = 15
-LEN_MAX = 50
+NLOC_MAX = 40
 ROOTS = ["lib", "tools", "tui", "src", "bench", "plugins"]
 BASELINE = os.path.join("tests", "complexity_baseline.json")
 
@@ -38,10 +47,12 @@ WARN_RE = re.compile(
 
 
 def run_lizard():
-    """Return (violations, error). violations is a list of dicts."""
+    """Every function lizard can see, as dicts. (-C 1 -L 1 makes lizard report
+    all of them; the real thresholds are applied here, because lizard's -L
+    filters on total lines, not NLOC.)"""
     cmd = [
         sys.executable, "-m", "lizard", "-w", "-l", "cpp",
-        "--CCN", str(CCN_MAX), "-L", str(LEN_MAX),
+        "-C", "1", "-L", "1",
         "--exclude", "third_party", "--exclude", "bench/results",
         *ROOTS,
     ]
@@ -67,68 +78,105 @@ def run_lizard():
     return out, None
 
 
-def counts_by_file(violations):
-    counts = {}
+def violations_of(functions):
+    return [f for f in functions if f["ccn"] > CCN_MAX or f["nloc"] > NLOC_MAX]
+
+
+def keyed(violations):
+    """(file, name) -> {nloc, ccn}. On a name collision keep the worst entry,
+    so a duplicate name can never hide a larger function."""
+    out = {}
     for v in violations:
-        counts[v["file"]] = counts.get(v["file"], 0) + 1
-    return counts
+        key = (v["file"], v["name"])
+        cur = out.get(key)
+        if cur is None or (v["nloc"], v["ccn"]) > (cur["nloc"], cur["ccn"]):
+            out[key] = {"nloc": v["nloc"], "ccn": v["ccn"]}
+    return out
 
 
 def area_of(path):
     return path.split("/", 1)[0]
 
 
-def report(violations):
+def report(functions, violations):
     by_area = {}
     for v in violations:
         by_area[area_of(v["file"])] = by_area.get(area_of(v["file"]), 0) + 1
-    print(f"over-limit functions (CCN > {CCN_MAX} or length > {LEN_MAX}): {len(violations)}")
+    print(f"functions scanned: {len(functions)}")
+    print(f"over-limit (CCN > {CCN_MAX} or NLOC > {NLOC_MAX}): {len(violations)}")
     for area, n in sorted(by_area.items(), key=lambda kv: -kv[1]):
         print(f"  {area:<10} {n}")
-    dense = [v for v in violations if v["ccn"] > CCN_MAX and v["length"] > LEN_MAX]
+    dense = [v for v in violations if v["ccn"] > CCN_MAX and v["nloc"] > NLOC_MAX]
     print(f"  of which dense AND long: {len(dense)}")
-    print(f"  dense only (CCN > {CCN_MAX}): {len([v for v in violations if v['ccn'] > CCN_MAX and v['length'] <= LEN_MAX])}")
-    print(f"  long only (length > {LEN_MAX}): {len([v for v in violations if v['ccn'] <= CCN_MAX and v['length'] > LEN_MAX])}")
-    worst = sorted(violations, key=lambda v: (-v["length"], -v["ccn"]))[:15]
-    print("\n  worst by length:")
+    print(f"  dense only (CCN > {CCN_MAX}): {len([v for v in violations if v['ccn'] > CCN_MAX and v['nloc'] <= NLOC_MAX])}")
+    print(f"  long only (NLOC > {NLOC_MAX}): {len([v for v in violations if v['ccn'] <= CCN_MAX and v['nloc'] > NLOC_MAX])}")
+    worst = sorted(violations, key=lambda v: (-v["nloc"], -v["ccn"]))[:15]
+    print("\n  worst by NLOC (total lines shown for information):")
     for v in worst:
-        print(f"    {v['length']:>5} len  {v['ccn']:>4} CCN  {v['file']}:{v['line']}  {v['name']}")
+        print(f"    {v['nloc']:>4} NLOC ({v['length']:>4} lines)  {v['ccn']:>3} CCN  "
+              f"{v['file']}:{v['line']}  {v['name']}")
 
 
-def check(violations):
+def load_baseline():
     if not os.path.exists(BASELINE):
+        return None
+    with open(BASELINE) as fh:
+        raw = json.load(fh)
+    return {(f, n): d for f, names in raw.get("functions", {}).items() for n, d in names.items()}
+
+
+def check(functions):
+    base = load_baseline()
+    if base is None:
         print(f"complexity: no baseline at {BASELINE}; run tools/complexity_gate.py --update")
         return 1
-    with open(BASELINE) as fh:
-        baseline = json.load(fh).get("files", {})
-    current = counts_by_file(violations)
-    regressions = []
-    for path, n in sorted(current.items()):
-        allowed = baseline.get(path, 0)
-        if n > allowed:
-            regressions.append((path, allowed, n))
-    if regressions:
-        print(f"complexity: {len(regressions)} file(s) gained over-limit functions:")
-        for path, allowed, n in regressions:
-            print(f"  {path}: {allowed} -> {n} (limit {LEN_MAX} lines / CCN {CCN_MAX})")
-        print("  fix the function, or justify it in the baseline via --update.")
+    current = keyed(violations_of(functions))
+
+    grew, new = [], []
+    for key, cur in sorted(current.items()):
+        was = base.get(key)
+        if was is None:
+            new.append((key, cur))
+        elif cur["nloc"] > was["nloc"] or cur["ccn"] > was["ccn"]:
+            grew.append((key, was, cur))
+
+    if grew or new:
+        if new:
+            print(f"complexity: {len(new)} new over-limit function(s):")
+            for (path, name), cur in new:
+                print(f"  {path}: {name} is {cur['nloc']} NLOC / CCN {cur['ccn']} "
+                      f"(limit {NLOC_MAX} / {CCN_MAX})")
+        if grew:
+            print(f"complexity: {len(grew)} function(s) got bigger:")
+            for (path, name), was, cur in grew:
+                print(f"  {path}: {name} {was['nloc']}/{was['ccn']} -> "
+                      f"{cur['nloc']}/{cur['ccn']} (limit {NLOC_MAX} / {CCN_MAX})")
+        print("  split the function, or justify it in the baseline via --update.")
         return 1
-    total = sum(current.values())
-    print(f"  ok: {total} over-limit function(s), none added (baseline holds)")
+
+    shrunk = [k for k in base if k not in current]
+    if shrunk:
+        print(f"complexity: {len(shrunk)} baselined function(s) are now within limits "
+              f"- run `make complexity-update` to lock that in")
+    print(f"  ok: {len(current)} over-limit function(s), none added or grown (baseline holds)")
     return 0
 
 
-def update(violations):
+def update(functions):
+    functions_by_file = {}
+    for (path, name), dims in sorted(keyed(violations_of(functions)).items()):
+        functions_by_file.setdefault(path, {})[name] = dims
     payload = {
         "ccn_max": CCN_MAX,
-        "len_max": LEN_MAX,
-        "files": dict(sorted(counts_by_file(violations).items())),
+        "nloc_max": NLOC_MAX,
+        "functions": {p: functions_by_file[p] for p in sorted(functions_by_file)},
     }
     os.makedirs(os.path.dirname(BASELINE), exist_ok=True)
     with open(BASELINE, "w") as fh:
         json.dump(payload, fh, indent=2, sort_keys=True)
         fh.write("\n")
-    print(f"complexity: baseline written to {BASELINE} ({sum(payload['files'].values())} violations)")
+    print(f"complexity: baseline written to {BASELINE} "
+          f"({len(keyed(violations_of(functions)))} functions)")
     return 0
 
 
@@ -139,20 +187,20 @@ def main():
     ap.add_argument("--update", action="store_true", help="rewrite the baseline")
     args = ap.parse_args()
 
-    violations, err = run_lizard()
+    functions, err = run_lizard()
     if err:
         print(f"complexity: FAILED CLOSED - {err}", file=sys.stderr)
         print("complexity: install it with 'pip install lizard'", file=sys.stderr)
         return 2
 
     if args.update:
-        return update(violations)
+        return update(functions)
     if args.report:
-        report(violations)
+        report(functions, violations_of(functions))
         return 0
-    report(violations)
+    report(functions, violations_of(functions))
     print()
-    return check(violations)
+    return check(functions)
 
 
 if __name__ == "__main__":

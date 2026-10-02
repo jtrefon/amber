@@ -148,6 +148,11 @@ public:
 
     // ---- event dispatch (drain_events machinery) -------------------------
     bool drain_events();
+    // Hand the event to its per-type handler; false when the type is not one
+    // handled against a window.
+    bool handle_window_event(Window* w, AgentEvent& ev);
+    // Events the host answers asynchronously: parked here, not resolved inline.
+    bool defer_event(AgentEvent&& ev);
     void handle_state_change(Window* w, const AgentEvent& ev);
     void handle_status(Window* w, const AgentEvent& ev);
     void handle_stats(Window* w, const AgentEvent& ev);

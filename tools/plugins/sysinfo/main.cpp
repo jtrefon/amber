@@ -47,8 +47,8 @@ std::string read_proc(const char* path) {
 }
 #endif
 
-std::string tool_mem() {
 #ifdef __APPLE__
+std::string mem_darwin() {
     uint64_t total = 0;
     size_t len = sizeof total;
     if (sysctlbyname("hw.memsize", &total, &len, nullptr, 0) != 0)
@@ -74,7 +74,9 @@ std::string tool_mem() {
         out << "swap total " << swap.xsu_total / 1048576.0 << " MB, used "
             << swap.xsu_used / 1048576.0 << " MB";
     return out.str();
+}
 #else
+std::string mem_linux() {
     std::string raw = read_proc("/proc/meminfo");
     if (raw.empty())
         return "ERROR: cannot read /proc/meminfo";
@@ -101,6 +103,14 @@ std::string tool_mem() {
         << " MB, free " << mb(free_kb) << " MB, available " << mb(avail_kb) << " MB\n"
         << "swap total " << mb(swap_total) << " MB, used " << mb(swap_total - swap_free) << " MB";
     return out.str();
+}
+#endif
+
+std::string tool_mem() {
+#ifdef __APPLE__
+    return mem_darwin();
+#else
+    return mem_linux();
 #endif
 }
 
@@ -182,16 +192,14 @@ std::string tool_partitions() {
 #endif
 }
 
-std::string tool_net() {
-#ifdef __APPLE__
-    std::ostringstream out;
+// Interface addresses, skipping the link-layer family (AF_LINK on macOS/BSD,
+// AF_PACKET on Linux). Returns false when getifaddrs itself failed.
+bool append_addresses(std::ostringstream& out, int skip_family) {
     struct ifaddrs* ifa = nullptr;
     if (getifaddrs(&ifa) != 0)
-        return "ERROR: getifaddrs failed";
+        return false;
     for (struct ifaddrs* p = ifa; p; p = p->ifa_next) {
-        // Skip the link-layer address: AF_PACKET on Linux, AF_LINK on
-        // macOS/BSD.
-        if (!p->ifa_addr || p->ifa_addr->sa_family == AF_LINK)
+        if (!p->ifa_addr || p->ifa_addr->sa_family == skip_family)
             continue;
         char buf[INET6_ADDRSTRLEN] = {};
         void* src = nullptr;
@@ -203,8 +211,18 @@ std::string tool_net() {
             out << p->ifa_name << " " << buf << "\n";
     }
     freeifaddrs(ifa);
+    return true;
+}
+
+#ifdef __APPLE__
+std::string net_darwin() {
+    std::ostringstream out;
+    if (!append_addresses(out, AF_LINK))
+        return "ERROR: getifaddrs failed";
     return trim(out.str());
+}
 #else
+std::string net_linux() {
     std::ifstream dev("/proc/net/dev");
     if (!dev)
         return "ERROR: cannot read /proc/net/dev";
@@ -230,25 +248,16 @@ std::string tool_net() {
     }
 
     // Addresses via getifaddrs.
-    struct ifaddrs* ifa = nullptr;
-    if (getifaddrs(&ifa) == 0) {
-        for (struct ifaddrs* p = ifa; p; p = p->ifa_next) {
-            // Skip the link-layer address: AF_PACKET on Linux, AF_LINK on
-            // macOS/BSD.
-            if (!p->ifa_addr || p->ifa_addr->sa_family == AF_PACKET)
-                continue;
-            char buf[INET6_ADDRSTRLEN] = {};
-            void* src = nullptr;
-            if (p->ifa_addr->sa_family == AF_INET)
-                src = &reinterpret_cast<struct sockaddr_in*>(p->ifa_addr)->sin_addr;
-            else if (p->ifa_addr->sa_family == AF_INET6)
-                src = &reinterpret_cast<struct sockaddr_in6*>(p->ifa_addr)->sin6_addr;
-            if (src && inet_ntop(p->ifa_addr->sa_family, src, buf, sizeof buf))
-                out << p->ifa_name << " " << buf << "\n";
-        }
-        freeifaddrs(ifa);
-    }
+    append_addresses(out, AF_PACKET);
     return trim(out.str());
+}
+#endif
+
+std::string tool_net() {
+#ifdef __APPLE__
+    return net_darwin();
+#else
+    return net_linux();
 #endif
 }
 

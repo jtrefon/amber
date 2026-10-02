@@ -50,96 +50,104 @@ std::unique_ptr<Capability> segment(const char* id, int priority, int drop_prior
                                                      std::move(render));
 }
 
+StatusText render_window(const StatusSnapshot& s) {
+    return StatusText{"[" + std::to_string(s.window_index) + "/" + std::to_string(s.window_count) +
+                          "]",
+                      StatusTone::Banner};
+}
+
+StatusText render_model(const StatusSnapshot& s) {
+    return StatusText{" [" + s.model + bar::reasoning_badge(s.reasoning_effort) + "]",
+                      StatusTone::Good};
+}
+
+StatusText render_mode(const StatusSnapshot& s) {
+    switch (s.mode) {
+    case AgentMode::Read:
+        return StatusText{" read ", StatusTone::Good};
+    case AgentMode::Write:
+        return StatusText{" write ", StatusTone::Warn};
+    case AgentMode::Yolo:
+        return StatusText{" yolo ", StatusTone::Accent};
+    }
+    return StatusText{};
+}
+
+StatusText render_scroll(const StatusSnapshot& s) {
+    if (!s.scroll_mode)
+        return StatusText{};
+    return StatusText{" S ", StatusTone::Good};
+}
+
+StatusText render_lag(const StatusSnapshot& s) {
+    if (s.latency_ms < 0)
+        return StatusText{"  lag " + dashed(bar::emdash()), StatusTone::Dim};
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "  lag %.0fms", static_cast<double>(s.latency_ms));
+    StatusTone tone = StatusTone::Dim;
+    if (s.latency_ms > 5000)
+        tone = StatusTone::Crit;
+    else if (s.latency_ms > 1000)
+        tone = StatusTone::Warn;
+    return StatusText{buf, tone};
+}
+
+StatusText render_tps(const StatusSnapshot& s) {
+    if (s.tps <= 0.0)
+        return StatusText{"  " + dashed(bar::emdash()) + " t/s", StatusTone::Dim};
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "  %.0f t/s", s.tps);
+    return StatusText{buf, StatusTone::Dim};
+}
+
+StatusText render_tokens(const StatusSnapshot& s) {
+    const std::string up = s.prompt_tokens >= 0 ? bar::kfmt(s.prompt_tokens) : bar::emdash();
+    const std::string down =
+        s.completion_tokens >= 0 ? bar::kfmt(s.completion_tokens) : bar::emdash();
+    return StatusText{"  " + dashed(bar::up()) + up + " " + dashed(bar::down()) + down,
+                      StatusTone::Dim};
+}
+
+StatusText render_activity(const StatusSnapshot& s) {
+    if (s.running_jobs > 0) {
+        std::string text =
+            "  " + std::to_string(s.running_jobs) + " job" + (s.running_jobs > 1 ? "s" : "");
+        if (s.job_seconds_left >= 0)
+            text += " " + std::to_string(s.job_seconds_left) + "s";
+        return StatusText{std::move(text), StatusTone::Warn};
+    }
+    if (!s.running_tool.empty())
+        return StatusText{"  " + s.running_tool + "\u2026", StatusTone::Warn};
+    return StatusText{};
+}
+
+StatusText render_mcp(const StatusSnapshot& s) {
+    std::string text;
+    for (const auto& server : s.mcp_servers) {
+        if (!server.connected && !server.has_error)
+            continue;
+        if (!text.empty())
+            text += "\u00b7";
+        text += (server.connected ? "" : "!") + server.name;
+    }
+    if (text.empty())
+        return StatusText{};
+    return StatusText{"  mcp: " + text, StatusTone::Dim};
+}
+
 } // namespace
 
 std::vector<std::unique_ptr<Capability>> core_status_capabilities() {
     std::vector<std::unique_ptr<Capability>> caps;
-
-    caps.push_back(segment("window", kWindow, kWindowDrop, [](const StatusSnapshot& s) {
-        return StatusText{"[" + std::to_string(s.window_index) + "/" +
-                              std::to_string(s.window_count) + "]",
-                          StatusTone::Banner};
-    }));
-
-    caps.push_back(segment("model", kModel, kModelDrop, [](const StatusSnapshot& s) {
-        return StatusText{" [" + s.model + bar::reasoning_badge(s.reasoning_effort) + "]",
-                          StatusTone::Good};
-    }));
-
-    caps.push_back(segment("mode", kMode, kModeDrop, [](const StatusSnapshot& s) {
-        switch (s.mode) {
-        case AgentMode::Read:
-            return StatusText{" read ", StatusTone::Good};
-        case AgentMode::Write:
-            return StatusText{" write ", StatusTone::Warn};
-        case AgentMode::Yolo:
-            return StatusText{" yolo ", StatusTone::Accent};
-        }
-        return StatusText{};
-    }));
-
-    caps.push_back(segment("scroll", kScroll, kScrollDrop, [](const StatusSnapshot& s) {
-        if (!s.scroll_mode)
-            return StatusText{};
-        return StatusText{" S ", StatusTone::Good};
-    }));
-
-    caps.push_back(segment("lag", kLag, kLagDrop, [](const StatusSnapshot& s) {
-        if (s.latency_ms < 0)
-            return StatusText{"  lag " + dashed(bar::emdash()), StatusTone::Dim};
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "  lag %.0fms", static_cast<double>(s.latency_ms));
-        StatusTone tone = StatusTone::Dim;
-        if (s.latency_ms > 5000)
-            tone = StatusTone::Crit;
-        else if (s.latency_ms > 1000)
-            tone = StatusTone::Warn;
-        return StatusText{buf, tone};
-    }));
-
-    caps.push_back(segment("tps", kTps, kTpsDrop, [](const StatusSnapshot& s) {
-        if (s.tps <= 0.0)
-            return StatusText{"  " + dashed(bar::emdash()) + " t/s", StatusTone::Dim};
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "  %.0f t/s", s.tps);
-        return StatusText{buf, StatusTone::Dim};
-    }));
-
-    caps.push_back(segment("tokens", kTokens, kTokensDrop, [](const StatusSnapshot& s) {
-        const std::string up = s.prompt_tokens >= 0 ? bar::kfmt(s.prompt_tokens) : bar::emdash();
-        const std::string down =
-            s.completion_tokens >= 0 ? bar::kfmt(s.completion_tokens) : bar::emdash();
-        return StatusText{"  " + dashed(bar::up()) + up + " " + dashed(bar::down()) + down,
-                          StatusTone::Dim};
-    }));
-
-    caps.push_back(segment("activity", kActivity, kActivityDrop, [](const StatusSnapshot& s) {
-        if (s.running_jobs > 0) {
-            std::string text =
-                "  " + std::to_string(s.running_jobs) + " job" + (s.running_jobs > 1 ? "s" : "");
-            if (s.job_seconds_left >= 0)
-                text += " " + std::to_string(s.job_seconds_left) + "s";
-            return StatusText{std::move(text), StatusTone::Warn};
-        }
-        if (!s.running_tool.empty())
-            return StatusText{"  " + s.running_tool + "\u2026", StatusTone::Warn};
-        return StatusText{};
-    }));
-
-    caps.push_back(segment("mcp", kMcp, kMcpDrop, [](const StatusSnapshot& s) {
-        std::string text;
-        for (const auto& server : s.mcp_servers) {
-            if (!server.connected && !server.has_error)
-                continue;
-            if (!text.empty())
-                text += "\u00b7";
-            text += (server.connected ? "" : "!") + server.name;
-        }
-        if (text.empty())
-            return StatusText{};
-        return StatusText{"  mcp: " + text, StatusTone::Dim};
-    }));
-
+    caps.push_back(segment("window", kWindow, kWindowDrop, render_window));
+    caps.push_back(segment("model", kModel, kModelDrop, render_model));
+    caps.push_back(segment("mode", kMode, kModeDrop, render_mode));
+    caps.push_back(segment("scroll", kScroll, kScrollDrop, render_scroll));
+    caps.push_back(segment("lag", kLag, kLagDrop, render_lag));
+    caps.push_back(segment("tps", kTps, kTpsDrop, render_tps));
+    caps.push_back(segment("tokens", kTokens, kTokensDrop, render_tokens));
+    caps.push_back(segment("activity", kActivity, kActivityDrop, render_activity));
+    caps.push_back(segment("mcp", kMcp, kMcpDrop, render_mcp));
     return caps;
 }
 

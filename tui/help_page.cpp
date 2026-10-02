@@ -1,6 +1,69 @@
 #include "tui/help_page.h"
 
+#include <optional>
+
 namespace tui::help_page {
+
+namespace {
+
+// The man text, one row per source line.
+std::vector<std::string> split_man_lines(const std::string& man) {
+    std::vector<std::string> out;
+    size_t pos = 0;
+    while (pos < man.size()) {
+        const size_t next = man.find('\n', pos);
+        if (next == std::string::npos) {
+            out.emplace_back(man.substr(pos));
+            break;
+        }
+        out.emplace_back(man.substr(pos, next - pos));
+        pos = next + 1;
+    }
+    return out;
+}
+
+// Each sub-command with its own help text when present.
+std::vector<std::string> sub_command_lines(const SettingRegistry& settings, const std::string& key,
+                                           const std::vector<std::string>& kids) {
+    std::vector<std::string> out;
+    out.emplace_back("sub-commands:");
+    for (const auto& k : kids) {
+        std::string line = "  " + k;
+        std::string subkey = key;
+        subkey += '.';
+        subkey += k;
+        const std::string h = settings.help_for(subkey);
+        if (!h.empty()) {
+            line += "  —  ";
+            line += h;
+        }
+        out.emplace_back(line);
+    }
+    out.emplace_back("");
+    return out;
+}
+
+std::optional<std::string> choices_line(const std::vector<std::string>& choices) {
+    if (choices.empty())
+        return std::nullopt;
+    std::string line = "choices: ";
+    for (size_t i = 0; i < choices.size(); ++i) {
+        if (i > 0)
+            line += ", ";
+        line += choices[i];
+    }
+    return line;
+}
+
+std::optional<std::string> range_line(const SettingRegistry& settings, const std::string& key) {
+    double lo = 0, hi = 0;
+    if (!settings.range_for(key, lo, hi))
+        return std::nullopt;
+    return "range: " + std::to_string(static_cast<int>(lo)) + " – " +
+           std::to_string(static_cast<int>(hi));
+}
+
+} // namespace
 
 std::string key_from_node(const std::string& node) {
     std::string n = node;
@@ -32,54 +95,20 @@ std::vector<std::string> build(const SettingRegistry& settings, const std::strin
         page.emplace_back(helptxt);
     page.emplace_back("");
     // Body: the full man text, one row per source line.
-    size_t pos = 0;
-    while (pos < man.size()) {
-        const size_t next = man.find('\n', pos);
-        if (next == std::string::npos) {
-            page.emplace_back(man.substr(pos));
-            break;
-        }
-        page.emplace_back(man.substr(pos, next - pos));
-        pos = next + 1;
-    }
+    const std::vector<std::string> body = split_man_lines(man);
+    page.insert(page.end(), body.begin(), body.end());
     page.emplace_back("");
     // Children listing, each with its own help text when present.
     const std::vector<std::string> kids = settings.children_of(key);
     if (!kids.empty()) {
-        page.emplace_back("sub-commands:");
-        for (const auto& k : kids) {
-            std::string line = "  " + k;
-            std::string subkey = key;
-            subkey += '.';
-            subkey += k;
-            const std::string h = settings.help_for(subkey);
-            if (!h.empty()) {
-                line += "  —  ";
-                line += h;
-            }
-            page.emplace_back(line);
-        }
-        page.emplace_back("");
+        const std::vector<std::string> sub = sub_command_lines(settings, key, kids);
+        page.insert(page.end(), sub.begin(), sub.end());
     }
     // Choices / range trailer for leaf settings.
-    const std::vector<std::string>& choices = settings.choices_for(key);
-    if (!choices.empty()) {
-        std::string line = "choices: ";
-        for (size_t i = 0; i < choices.size(); ++i) {
-            if (i > 0)
-                line += ", ";
-            line += choices[i];
-        }
-        page.push_back(line);
-    }
-    double lo = 0, hi = 0;
-    if (settings.range_for(key, lo, hi)) {
-        std::string line = "range: ";
-        line += std::to_string(static_cast<int>(lo));
-        line += " – ";
-        line += std::to_string(static_cast<int>(hi));
-        page.push_back(std::move(line));
-    }
+    if (const auto line = choices_line(settings.choices_for(key)))
+        page.push_back(*line);
+    if (const auto line = range_line(settings, key))
+        page.push_back(*line);
     return page;
 }
 

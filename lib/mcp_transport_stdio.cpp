@@ -57,6 +57,19 @@ StdioTransport::~StdioTransport() {
     StdioTransport::shutdown();
 }
 
+bool StdioTransport::wait_for_answer(int id, std::unique_lock<std::mutex>& lk) {
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(request_timeout_ms_);
+    while (true) {
+        if (closed_.load() || pending_.count(id) > 0 ||
+            (cancel_token_ && cancel_token_->is_requested()))
+            return true;
+        if (std::chrono::steady_clock::now() >= deadline)
+            return false;
+        cv_.wait_for(lk, std::chrono::milliseconds(50));
+    }
+}
+
 McpTransportResult StdioTransport::request(int id, const std::string& method, const json& params) {
     McpRequest req;
     req.id = id;
@@ -69,20 +82,7 @@ McpTransportResult StdioTransport::request(int id, const std::string& method, co
     }
 
     std::unique_lock<std::mutex> lk(mtx_);
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(request_timeout_ms_);
-    bool answered = false;
-    while (true) {
-        bool pred = closed_.load() || pending_.count(id) > 0 ||
-                    (cancel_token_ && cancel_token_->is_requested());
-        if (pred) {
-            answered = true;
-            break;
-        }
-        if (std::chrono::steady_clock::now() >= deadline)
-            break;
-        cv_.wait_for(lk, std::chrono::milliseconds(50));
-    }
+    const bool answered = wait_for_answer(id, lk);
     McpTransportResult r;
     if (!answered) {
         r.status =

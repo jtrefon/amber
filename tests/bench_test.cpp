@@ -226,6 +226,178 @@ TEST(scenario_loader_missing_file_fails) {
     ASSERT(!err.empty());
 }
 
+static std::optional<Scenario> load_from_json(const std::string& body, std::string& err) {
+    std::string dir = tmp_dir("loader_json");
+    write_file(dir + "/s.json", body);
+    return bench::load_scenario(dir + "/s.json", err);
+}
+
+TEST(scenario_loader_parses_every_optional_field) {
+    std::string err;
+    auto s = load_from_json(R"({
+        "name": "n", "suite": "s", "prompt": "p",
+        "description": "d",
+        "platforms": ["linux", "darwin"],
+        "hermetic_only": true,
+        "model_profiles": ["m1", "m2"],
+        "setup": {"files": {"a.txt": "hi"}},
+        "fake_replies": [{"content": "x"}],
+        "subagent_replies": [[{"content": "sub"}], "not-an-array"],
+        "stream": true,
+        "detection_loop": true,
+        "detection_duplicate": true,
+        "checks_weight": 0.8,
+        "forbidden_tools": ["bash"],
+        "template": "coding/fizzbuzz",
+        "optimal_plan": {"read": 2},
+        "difficulty": 5,
+        "expected_steps": 7,
+        "budget": {"max_steps": 9, "max_wall_ms": 1500}
+    })",
+                            err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->description, "d");
+    ASSERT_EQ(s->platforms.size(), 2u);
+    ASSERT(s->hermetic_only);
+    ASSERT_EQ(s->model_profiles.size(), 2u);
+    ASSERT(s->setup["files"]["a.txt"] == "hi");
+    ASSERT_EQ(s->fake_replies.size(), 1u);
+    ASSERT_EQ(s->subagent_replies.size(), 1u);
+    ASSERT(s->stream);
+    ASSERT(s->detection_loop);
+    ASSERT(s->detection_duplicate);
+    ASSERT(s->checks_weight > 0.79 && s->checks_weight < 0.81);
+    ASSERT_EQ(s->forbidden_tools.size(), 1u);
+    ASSERT_EQ(s->template_dir, "coding/fizzbuzz");
+    ASSERT_EQ(s->optimal_plan["read"], 2);
+    ASSERT_EQ(s->difficulty, 5);
+    ASSERT_EQ(s->expected_steps, 7);
+    ASSERT_EQ(s->max_steps, 9);
+    ASSERT_EQ(s->max_wall_ms, 1500L);
+}
+
+TEST(scenario_loader_ignores_wrongly_typed_optionals) {
+    std::string err;
+    auto s = load_from_json(R"({
+        "name": "n", "suite": "s", "prompt": "p",
+        "description": 5,
+        "platforms": "linux",
+        "hermetic_only": "yes",
+        "model_profiles": 3,
+        "setup": [],
+        "fake_replies": {},
+        "subagent_replies": "nope",
+        "stream": "true",
+        "oracle": "nope",
+        "checks_weight": "0.9",
+        "forbidden_tools": "bash",
+        "template": 7,
+        "optimal_plan": [],
+        "difficulty": 2.5,
+        "expected_steps": "4",
+        "budget": []
+    })",
+                            err);
+    ASSERT(s.has_value());
+    ASSERT(s->description.empty());
+    ASSERT(s->platforms.empty());
+    ASSERT_FALSE(s->hermetic_only);
+    ASSERT(s->model_profiles.empty());
+    ASSERT(s->setup.is_object() && s->setup.empty());
+    ASSERT(s->fake_replies.is_array() && s->fake_replies.empty());
+    ASSERT(s->subagent_replies.empty());
+    ASSERT_FALSE(s->stream);
+    ASSERT(s->oracle.empty());
+    ASSERT(s->checks_weight > 0.19 && s->checks_weight < 0.21);
+    ASSERT(s->forbidden_tools.empty());
+    ASSERT(s->template_dir.empty());
+    ASSERT(s->optimal_plan.is_object() && s->optimal_plan.empty());
+    ASSERT_EQ(s->difficulty, 3);
+    ASSERT_EQ(s->expected_steps, 0);
+    ASSERT_EQ(s->max_steps, 0);
+    ASSERT_EQ(s->max_wall_ms, 0L);
+}
+
+TEST(scenario_loader_clamps_numeric_fields) {
+    std::string err;
+    auto hi = load_from_json(
+        R"({"name":"n","suite":"s","prompt":"p","checks_weight":5,"difficulty":99})", err);
+    ASSERT(hi.has_value());
+    ASSERT(hi->checks_weight > 0.99 && hi->checks_weight < 1.01);
+    ASSERT_EQ(hi->difficulty, 6);
+    auto lo = load_from_json(
+        R"({"name":"n","suite":"s","prompt":"p","checks_weight":-2,"difficulty":0})", err);
+    ASSERT(lo.has_value());
+    ASSERT(lo->checks_weight > -0.01 && lo->checks_weight < 0.01);
+    ASSERT_EQ(lo->difficulty, 1);
+}
+
+TEST(scenario_loader_requires_name_suite_and_prompt) {
+    std::string err;
+    ASSERT_FALSE(load_from_json(R"({"suite":"s","prompt":"p"})", err).has_value());
+    ASSERT(err.find("name") != std::string::npos);
+    ASSERT_FALSE(load_from_json(R"({"name":"n","prompt":"p"})", err).has_value());
+    ASSERT(err.find("suite") != std::string::npos);
+    ASSERT_FALSE(load_from_json(R"({"name":"n","suite":"s"})", err).has_value());
+    ASSERT(err.find("prompt") != std::string::npos);
+    ASSERT_FALSE(load_from_json(R"({"name":5,"suite":"s","prompt":"p"})", err).has_value());
+    ASSERT(err.find("name") != std::string::npos);
+}
+
+TEST(scenario_loader_rejects_bad_oracle_step) {
+    std::string err;
+    auto s = load_from_json(R"({"name":"n","suite":"s","prompt":"p","oracle":[{"args":{}}]})", err);
+    ASSERT_FALSE(s.has_value());
+    ASSERT(err.find("oracle") != std::string::npos);
+}
+
+TEST(scenario_loader_rejects_bad_checks) {
+    std::string err;
+    auto s = load_from_json(R"({"name":"n","suite":"s","prompt":"p","checks":[1,2]})", err);
+    ASSERT_FALSE(s.has_value());
+    ASSERT(err.find("checks") != std::string::npos);
+}
+
+TEST(scenario_loader_reports_invalid_json) {
+    std::string err;
+    auto s = load_from_json("{ not json", err);
+    ASSERT_FALSE(s.has_value());
+    ASSERT(err.find("JSON") != std::string::npos);
+}
+
+TEST(scenario_loader_subagent_replies_keeps_only_arrays) {
+    std::string err;
+    auto s = load_from_json(
+        R"({"name":"n","suite":"s","prompt":"p","subagent_replies":[[{"a":1}],"skip",42]})", err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->subagent_replies.size(), 1u);
+    ASSERT_EQ(s->subagent_replies[0].size(), 1u);
+}
+
+TEST(scenario_loader_parses_must_contain_any_groups) {
+    std::string err;
+    auto s = load_from_json(R"({"name":"n","suite":"s","prompt":"p",)"
+                            R"("checks":{"must_contain_any":[["a","b"],["c"],"skip",[""]]}})",
+                            err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->checks.must_contain_any.size(), 2u);
+    ASSERT_EQ(s->checks.must_contain_any[0].size(), 2u);
+    ASSERT_EQ(s->checks.must_contain_any[1].size(), 1u);
+}
+
+TEST(scenario_loader_checks_ignore_non_strings) {
+    std::string err;
+    auto s = load_from_json(R"({"name":"n","suite":"s","prompt":"p",)"
+                            R"("prompt_checks":{"must_contain":["a",5,true]},)"
+                            R"("checks":{"must_not_contain":["b",{"x":1}]}})",
+                            err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->prompt_checks.must_contain.size(), 1u);
+    ASSERT_EQ(s->prompt_checks.must_contain[0], "a");
+    ASSERT_EQ(s->checks.must_not_contain.size(), 1u);
+    ASSERT_EQ(s->checks.must_not_contain[0], "b");
+}
+
 TEST(scenario_platform_filter) {
     Scenario s;
 #ifdef __APPLE__
@@ -404,6 +576,107 @@ TEST(kpi_computation_synthesized_stream) {
     ASSERT_EQ(k.completion_tokens, 20L);
     ASSERT_EQ(k.artifact_score, 1.0);
     ASSERT_EQ(k.prompt_adherence, 1.0);
+}
+
+static Kpi kpi_of(bench::EventStream& stream, const OracleResult& oracle = {},
+                  const TemplateResult& tmpl = {}, const Checks& pc = {},
+                  const std::string& final_text = "") {
+    ResourceMeter meter;
+    meter.start();
+    meter.stop();
+    return bench::compute_kpi(stream, oracle, meter, tmpl, pc, final_text, 0, 0);
+}
+
+TEST(kpi_classifies_tool_failures) {
+    bench::EventStream stream;
+    stream.calls = {
+        {"read", {}, 0, "error"},  // first matching record wins
+        {"bash", {}, 0, "error"},  // timeout flag
+        {"write", {}, 0, "error"}, // no usable record -> generic
+        {"grep", {}, 0, "denied"}, {"ls", {}, 0, "ok"},
+    };
+    stream.tools = {
+        {"read", {}, false, "plain error", false, false, 1},
+        {"read", {}, false, "timed out", false, true, 2},
+        {"bash", {}, false, "timed out", false, true, 3},
+        {"write", {}, false, "", false, false, 4}, // empty error is not a signal
+    };
+    Kpi k = kpi_of(stream);
+    ASSERT_EQ(k.tool_failures, 3);
+    ASSERT_EQ(k.failure_taxonomy["error"], 2);
+    ASSERT_EQ(k.failure_taxonomy["timeout"], 1);
+    ASSERT_EQ(k.tool_denied, 1);
+}
+
+TEST(kpi_average_tps_ignores_samples_without_a_rate) {
+    bench::EventStream stream;
+    stream.stats = {{100, 10, 0, 0}, {100, -1, 0, 0}, {100, 20, 0, 0}};
+    ASSERT_EQ(kpi_of(stream).tps_avg, 15.0);
+}
+
+TEST(kpi_average_tps_is_negative_one_without_any_sample) {
+    bench::EventStream stream;
+    stream.stats = {{100, -1, 0, 0}};
+    ASSERT_EQ(kpi_of(stream).tps_avg, -1.0);
+}
+
+TEST(kpi_counts_distinct_written_files) {
+    bench::EventStream stream;
+    stream.tools = {
+        {"write", {{"path", "a.txt"}}, true, "", false, false, 1},
+        {"write", {{"path", "a.txt"}}, true, "", false, false, 1},
+        {"write", {{"path", "b.txt"}}, true, "", false, false, 1},
+        {"read", {{"path", "c.txt"}}, true, "", false, false, 1},
+        {"write", {{"nopath", "x"}}, true, "", false, false, 1},
+        {"write", {{"path", 5}}, true, "", false, false, 1},
+    };
+    ASSERT_EQ(kpi_of(stream).files_touched, 2);
+}
+
+TEST(kpi_tool_call_accuracy_defaults_to_one_without_calls) {
+    bench::EventStream stream;
+    OracleResult oracle;
+    oracle.total_calls = 0;
+    ASSERT_EQ(kpi_of(stream, oracle).tool_call_accuracy, 1.0);
+    oracle.total_calls = 4;
+    oracle.on_oracle_calls = 3;
+    ASSERT_EQ(kpi_of(stream, oracle).tool_call_accuracy, 0.75);
+}
+
+TEST(kpi_template_absent_is_full_credit) {
+    bench::EventStream stream;
+    Kpi k = kpi_of(stream);
+    ASSERT_EQ(k.artifact_score, 1.0);
+    ASSERT(k.compile_ok);
+    ASSERT(k.behavior_equivalent);
+    ASSERT_EQ(k.structure_checks, 1.0);
+}
+
+TEST(kpi_template_present_is_reported_verbatim) {
+    bench::EventStream stream;
+    TemplateResult tmpl;
+    tmpl.tests_total = 4;
+    tmpl.tests_passed = 3;
+    tmpl.compile_ok = false;
+    tmpl.behavior_equivalent = false;
+    tmpl.structure_checks = 0.5;
+    Kpi k = kpi_of(stream, {}, tmpl);
+    ASSERT_EQ(k.artifact_score, 0.75);
+    ASSERT_FALSE(k.compile_ok);
+    ASSERT_FALSE(k.behavior_equivalent);
+    ASSERT_EQ(k.structure_checks, 0.5);
+}
+
+TEST(kpi_success_requires_adherence_and_no_hard_stop) {
+    bench::EventStream stream;
+    OracleResult oracle;
+    oracle.success = true;
+    Checks pc;
+    pc.must_contain = {"done"};
+    ASSERT_FALSE(kpi_of(stream, oracle, {}, pc, "not there").success);
+    ASSERT(kpi_of(stream, oracle, {}, pc, "all done").success);
+    stream.hard_stop = true;
+    ASSERT_FALSE(kpi_of(stream, oracle, {}, pc, "all done").success);
 }
 
 TEST(kpi_budget_enforcement) {

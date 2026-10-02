@@ -5,11 +5,83 @@
 #include "agent/workspace.h"
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
 
 namespace agent {
+
+namespace {
+
+// The pattern, or nullopt with the error already written to `r`.
+std::optional<std::string> validated_pattern(const json& a, ToolResult& r) {
+    if (!a.contains("pattern") || !a["pattern"].is_string()) {
+        r.ok = false;
+        r.error = "missing 'pattern'";
+        return std::nullopt;
+    }
+    std::string pattern = a["pattern"].get<std::string>();
+    if (pattern.size() > 256) {
+        r.ok = false;
+        r.error = "pattern too long (" + std::to_string(pattern.size()) +
+                  " chars); keep it under 256 and use a specific token, not "
+                  "a giant alternation of every symbol";
+        return std::nullopt;
+    }
+    return pattern;
+}
+
+// The search root: the workspace root by default, or the requested path once
+// confined. Search is read-only and ungated, so honoring an escape would hand
+// the model arbitrary file contents.
+std::optional<std::string> search_root(const json& a, ToolResult& r) {
+    const std::string req = a.value("path", std::string(""));
+    if (req.empty())
+        return Workspace::root();
+    std::string confined;
+    std::string err;
+    if (!Workspace::confine(req, confined, err)) {
+        r.ok = false;
+        r.error = err;
+        return std::nullopt;
+    }
+    return confined;
+}
+
+// Hidden/vendored dirs are skipped by default; an explicit path inside one of
+// them means the agent deliberately wants it, so that exclusion is dropped.
+std::vector<std::string> excludes_for(const std::string& req_path, const std::string& path) {
+    std::vector<std::string> excludes = default_excluded_dirs();
+    if (req_path.empty())
+        return excludes;
+    const std::string rel = Workspace::relative(path);
+    const std::string first = rel.substr(0, rel.find('/'));
+    excludes.erase(std::remove_if(excludes.begin(), excludes.end(),
+                                  [&](const std::string& d) { return d == first; }),
+                   excludes.end());
+    return excludes;
+}
+
+std::string render_hits(const std::vector<SearchHit>& hits, const std::string& backend_name) {
+    if (hits.empty())
+        return "no matches (" + backend_name + ")";
+    std::stringstream out;
+    out << "[" << backend_name << "] " << hits.size() << " hit(s):\n";
+    for (const auto& h : hits) {
+        const std::string rel = Workspace::relative(h.path);
+        if (backend_name == "semantic")
+            out << rel << ":" << h.line_no << " (score=" << h.score << ") " << h.line << "\n";
+        else
+            out << rel << ":" << h.line_no << ":" << h.line << "\n";
+    }
+    std::string text = out.str();
+    if (!text.empty() && text.back() == '\n')
+        text.pop_back();
+    return text;
+}
+
+} // namespace
 
 // search: dispatches to the backend the `mode` argument selects. Backends are
 // plugin contributions; the tool resolves them through the provider it was
@@ -59,81 +131,33 @@ public:
 
     ToolResult execute(const json& a) const override {
         ToolResult r;
-        if (!a.contains("pattern") || !a["pattern"].is_string()) {
-            r.ok = false;
-            r.error = "missing 'pattern'";
+        const std::optional<std::string> pattern = validated_pattern(a, r);
+        if (!pattern)
             return r;
-        }
-        std::string pattern = a["pattern"].get<std::string>();
-        if (pattern.size() > 256) {
-            r.ok = false;
-            r.error = "pattern too long (" + std::to_string(pattern.size()) +
-                      " chars); keep it under 256 and use a specific token, not "
-                      "a giant alternation of every symbol";
+        const std::optional<std::string> path = search_root(a, r);
+        if (!path)
             return r;
-        }
-        // Confine the search root to the workspace: an absolute or
-        // out-of-workspace path is refused (search is read-only and ungated,
-        // so honoring an escape would hand the model arbitrary file
-        // contents). A bare search defaults to the workspace root so it
-        // covers the project regardless of the process cwd.
-        std::string req_path = a.value("path", std::string(""));
-        std::string path = agent::Workspace::root();
-        if (!req_path.empty()) {
-            std::string confined, err;
-            if (!agent::Workspace::confine(req_path, confined, err)) {
-                r.ok = false;
-                r.error = err;
-                return r;
-            }
-            path = confined;
-        }
-        // Hidden/vendored dirs are skipped by default; an explicit path
-        // inside one of them means the agent deliberately wants it, so that
-        // exclusion is dropped.
-        std::vector<std::string> excludes = agent::default_excluded_dirs();
-        if (!req_path.empty()) {
-            std::string rel = agent::Workspace::relative(path);
-            std::string first = rel.substr(0, rel.find('/'));
-            excludes.erase(std::remove_if(excludes.begin(), excludes.end(),
-                                          [&](const std::string& d) { return d == first; }),
-                           excludes.end());
-        }
-        std::string glob = a.value("glob", std::string(""));
-        std::string mode = a.value("mode", std::string("grep"));
-        long max = a.value("max", 200L);
-        if (max < 1)
-            max = 1;
+
+        const std::string req_path = a.value("path", std::string(""));
+        const std::vector<std::string> excludes = excludes_for(req_path, *path);
+        const std::string glob = a.value("glob", std::string(""));
+        const std::string mode = a.value("mode", std::string("grep"));
+        const long max = std::max(1L, a.value("max", 200L));
 
         // A mode that resolves to nothing fails loudly: a disabled backend
         // names the plugin and the command that re-enables it, an unknown one
         // lists what is enabled. There is no silent fallback to a built-in.
-        SearchBackendLookup lookup = provider_.resolve(mode);
+        const SearchBackendLookup lookup = provider_.resolve(mode);
         if (!lookup.backend) {
             r.ok = false;
             r.error = lookup.error.empty() ? ("unknown search mode: " + mode) : lookup.error;
             return r;
         }
         const std::string backend_name = lookup.backend->name();
-        std::vector<SearchHit> hits = lookup.backend->search(pattern, path, glob, max, excludes);
+        const std::vector<SearchHit> hits =
+            lookup.backend->search(*pattern, *path, glob, max, excludes);
 
-        std::stringstream out;
-        if (hits.empty()) {
-            out << "no matches (" << backend_name << ")";
-        } else {
-            out << "[" << backend_name << "] " << hits.size() << " hit(s):\n";
-            for (const auto& h : hits) {
-                std::string rel = Workspace::relative(h.path);
-                if (backend_name == "semantic")
-                    out << rel << ":" << h.line_no << " (score=" << h.score << ") " << h.line
-                        << "\n";
-                else
-                    out << rel << ":" << h.line_no << ":" << h.line << "\n";
-            }
-        }
-        r.output = out.str();
-        if (!r.output.empty() && r.output.back() == '\n')
-            r.output.pop_back();
+        r.output = render_hits(hits, backend_name);
         r.meta = {{"hits", static_cast<long>(hits.size())}, {"mode", mode}};
         return r;
     }

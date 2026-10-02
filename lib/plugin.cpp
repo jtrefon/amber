@@ -143,17 +143,24 @@ std::string read_file(const std::string& path) {
 // Manifest
 // ---------------------------------------------------------------------------
 
-bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out, std::string& err) {
-    std::string raw = read_file(dir + "/manifest.json");
+namespace {
+
+bool read_manifest_json(const std::string& dir, json& out, std::string& err) {
+    const std::string raw = read_file(dir + "/manifest.json");
     if (raw.empty()) {
         err = "manifest.json missing or unreadable";
         return false;
     }
-    json j = json::parse(raw, nullptr, false);
-    if (j.is_discarded() || !j.is_object()) {
+    out = json::parse(raw, nullptr, false);
+    if (out.is_discarded() || !out.is_object()) {
         err = "manifest.json is not valid JSON";
         return false;
     }
+    return true;
+}
+
+// Copy the string / object / array fields; an absent one keeps its default.
+void copy_manifest_fields(const json& j, PluginManifest& out) {
     auto str = [&](const char* key) {
         return j.contains(key) && j[key].is_string() ? j[key].get<std::string>() : std::string();
     };
@@ -169,7 +176,9 @@ bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out, 
     out.completion = j.contains("completion") ? j["completion"] : json::object();
     out.tools = j.contains("tools") ? j["tools"] : json::array();
     out.default_settings = j.contains("settings") ? j["settings"] : json::object();
+}
 
+bool validate_manifest(const std::string& dir, const PluginManifest& out, std::string& err) {
     if (!is_plugin_id(out.id)) {
         err = "invalid id '" + out.id + "' (expected [a-z0-9_]+)";
         return false;
@@ -189,9 +198,17 @@ bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out, 
     }
     // Reject main paths that escape the plugin directory: absolute paths,
     // parent traversal, and symlinks pointing outside the plugin dir.
-    if (!is_safe_main_path(dir, out.main, err))
+    return is_safe_main_path(dir, out.main, err);
+}
+
+} // namespace
+
+bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out, std::string& err) {
+    json j;
+    if (!read_manifest_json(dir, j, err))
         return false;
-    return true;
+    copy_manifest_fields(j, out);
+    return validate_manifest(dir, out, err);
 }
 
 // ---------------------------------------------------------------------------

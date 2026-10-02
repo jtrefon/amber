@@ -337,47 +337,58 @@ bool Config::save_settings(const std::string& path) const {
     return static_cast<bool>(f);
 }
 
+namespace {
+
+// An env var that must be absent, "1" or "true".
+bool env_flag(const char* name, bool fallback) {
+    const char* v = std::getenv(name);
+    if (!v)
+        return fallback;
+    const std::string s(v);
+    return s == "1" || s == "true";
+}
+
+// An env var parsed as an int; `fallback` when absent.
+int env_int(const char* name, int fallback) {
+    const char* v = std::getenv(name);
+    return v ? std::atoi(v) : fallback;
+}
+
+// Assign a string field from an env var, leaving it alone when unset.
+void env_string(const char* name, std::string& out) {
+    const char* v = std::getenv(name);
+    if (v)
+        out = v;
+}
+
+} // namespace
+
 void Config::apply_environment() {
-    auto get = [](const char* n, std::string& out) {
-        const char* v = std::getenv(n);
-        if (v)
-            out = v;
-    };
-    get("AMBER_API_BASE", api_base);
-    get("AMBER_API_KEY", api_key);
-    {
-        std::string prev = model;
-        get("AMBER_MODEL", model);
-        if (model != prev)
-            model_explicit = true;
-    }
-    get("AMBER_GIT_PROMPT", git_prompt_path);
-    get("AMBER_SYSTEM_PROMPT", system_prompt_path);
-    get("AMBER_TOOLS_PROMPT", tools_prompt_path);
-    const char* s = std::getenv("AMBER_STREAM");
-    if (s)
-        stream = (std::string(s) == "1" || std::string(s) == "true");
-    const char* spa = std::getenv("AMBER_SUBAGENT_PARALLEL");
-    if (spa)
-        subagent_parallel = (std::string(spa) == "1" || std::string(spa) == "true");
-    const char* sma = std::getenv("AMBER_SUBAGENT_MAX");
-    if (sma)
-        subagent_max = std::atoi(sma);
-    get("AMBER_THINKING", thinking);
-    const char* tb = std::getenv("AMBER_THINKING_BUDGET");
-    if (tb)
-        thinking_budget = std::atoi(tb);
-    const char* cs = std::getenv("AMBER_CONTEXT");
-    if (cs) {
+    env_string("AMBER_API_BASE", api_base);
+    env_string("AMBER_API_KEY", api_key);
+    const std::string prev_model = model;
+    env_string("AMBER_MODEL", model);
+    if (model != prev_model)
+        model_explicit = true;
+    env_string("AMBER_GIT_PROMPT", git_prompt_path);
+    env_string("AMBER_SYSTEM_PROMPT", system_prompt_path);
+    env_string("AMBER_TOOLS_PROMPT", tools_prompt_path);
+    env_string("AMBER_THINKING", thinking);
+    env_string("AMBER_LOG", log_path);
+    env_string("AMBER_DEBUG", debug_log);
+    env_string("AMBER_REASONING", reasoning_effort);
+
+    stream = env_flag("AMBER_STREAM", stream);
+    subagent_parallel = env_flag("AMBER_SUBAGENT_PARALLEL", subagent_parallel);
+    subagent_max = env_int("AMBER_SUBAGENT_MAX", subagent_max);
+    thinking_budget = env_int("AMBER_THINKING_BUDGET", thinking_budget);
+    show_reasoning = env_flag("AMBER_SHOW_REASONING", show_reasoning);
+
+    // AMBER_CONTEXT also marks the window explicit, so "auto" is not used.
+    if (const char* cs = std::getenv("AMBER_CONTEXT")) {
         context_size = std::atoi(cs);
         context_explicit = true;
     }
-    get("AMBER_LOG", log_path);
-    get("AMBER_DEBUG", debug_log);
-    get("AMBER_REASONING", reasoning_effort);
-    const char* sr = std::getenv("AMBER_SHOW_REASONING");
-    if (sr)
-        show_reasoning = (std::string(sr) == "1" || std::string(sr) == "true");
 }
 
 std::vector<std::string> Config::validate() const {

@@ -9,6 +9,32 @@
 
 namespace agent {
 
+namespace {
+
+// The command argument, when the tool takes one.
+std::string command_arg(const json& args) {
+    if (args.contains("command") && args["command"].is_string())
+        return args["command"].get<std::string>();
+    return {};
+}
+
+// Benign in-workspace writes run free in WRITE mode.
+bool is_benign_bash(const Tool& tool, const std::string& cmd) {
+    if (tool.name() != "bash")
+        return false;
+    const ShellEffect effect = classify_shell(cmd, Workspace::root()).effect;
+    return effect == ShellEffect::ReadOnly || effect == ShellEffect::Write;
+}
+
+// Scope id: bash gets a fine-grained resource scope from the classifier
+// ("bash:rm", "outside:/abs/dir"); other gated tools key on their bare name
+// (write, process_start, ...), which is also the legacy policy key.
+std::string scope_id_of(const Tool& tool, const std::string& cmd) {
+    return tool.name() == "bash" ? classify_shell(cmd, Workspace::root()).scope_id : tool.name();
+}
+
+} // namespace
+
 Decision decide_approval(const Config& cfg, const Tool& tool, const json& args,
                          PolicyStore& policy) {
     Decision d;
@@ -33,22 +59,11 @@ Decision decide_approval(const Config& cfg, const Tool& tool, const json& args,
         return d;
     }
 
-    std::string cmd;
-    if (args.contains("command") && args["command"].is_string())
-        cmd = args["command"].get<std::string>();
+    const std::string cmd = command_arg(args);
+    if (is_benign_bash(tool, cmd))
+        return d; // Allow: no dialog for benign in-workspace work
 
-    // Benign in-workspace writes run free in WRITE mode.
-    if (tool.name() == "bash") {
-        ShellClass cls = classify_shell(cmd, Workspace::root());
-        if (cls.effect == ShellEffect::ReadOnly || cls.effect == ShellEffect::Write)
-            return d; // Allow: no dialog for benign in-workspace work
-    }
-
-    // Scope id: bash gets a fine-grained resource scope from the classifier
-    // ("bash:rm", "outside:/abs/dir"); other gated tools key on their bare
-    // name (write, process_start, ...), which is also the legacy policy key.
-    std::string scope =
-        tool.name() == "bash" ? classify_shell(cmd, Workspace::root()).scope_id : tool.name();
+    const std::string scope = scope_id_of(tool, cmd);
 
     // Stored rules are honored: an always-allow / always-deny for this scope
     // suppresses the dialog entirely (this is the "always" fix).

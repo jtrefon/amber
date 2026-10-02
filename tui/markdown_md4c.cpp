@@ -148,51 +148,58 @@ void flush_block(Ctx& c) {
 //   (b) the line is dominated by a single repeated glyph (>=80% of its code
 //       points are the same one, length >= 4) — covers decorative "7777…",
 //       "....", "||||", "────" separators LLMs like to draw.
-bool is_separator_line(const Line& l) {
-    if (l.runs.empty())
-        return false;
+std::string line_text(const Line& l) {
     std::string t;
     for (const auto& r : l.runs)
         t += r.text;
-    if (t.empty())
-        return false;
-    // Count codepoints and the most frequent one.
+    return t;
+}
+
+std::vector<std::string> codepoints(const std::string& t) {
     std::vector<std::string> cps;
     for (size_t i = 0; i < t.size(); i += text::utf8_len(t, i))
         cps.push_back(t.substr(i, text::utf8_len(t, i)));
-    if (cps.size() < 4)
+    return cps;
+}
+
+bool is_ascii_rule_char(const std::string& cp) {
+    if (cp.size() != 1)
         return false;
-    bool all_rule = true;
-    for (const auto& cp : cps) {
-        if (cp.size() == 1) {
-            auto c = static_cast<unsigned char>(cp[0]);
-            bool ascii_sep = (c == '-' || c == '=' || c == '_' || c == '*' || c == ':' ||
-                              c == '|' || c == '.' || c == '#' || c == '+' || c == '~');
-            if (!ascii_sep) {
-                all_rule = false;
-                break;
-            }
-        } else {
-            all_rule = false;
-            break; // multi-byte glyph: not pure-ASCII rule
-        }
-    }
-    if (all_rule)
-        return true;
-    // Dominant repeated glyph?
-    std::string dom;
+    const auto c = static_cast<unsigned char>(cp[0]);
+    return c == '-' || c == '=' || c == '_' || c == '*' || c == ':' || c == '|' || c == '.' ||
+           c == '#' || c == '+' || c == '~';
+}
+
+bool all_ascii_rule(const std::vector<std::string>& cps) {
+    return std::all_of(cps.begin(), cps.end(), is_ascii_rule_char);
+}
+
+// Case (b): a single glyph repeated over >=80% of the line.
+bool is_dominant_glyph_line(const std::vector<std::string>& cps) {
     int best = 0;
+    std::string dom;
     for (const auto& a : cps) {
-        int n = 0;
-        for (const auto& b : cps)
-            if (a == b)
-                ++n;
+        const int n = static_cast<int>(std::count(cps.begin(), cps.end(), a));
         if (n > best) {
             best = n;
             dom = a;
         }
     }
     return best * 5 >= static_cast<int>(cps.size()) * 4 && !dom.empty();
+}
+
+bool is_separator_line(const Line& l) {
+    if (l.runs.empty())
+        return false;
+    const std::string t = line_text(l);
+    if (t.empty())
+        return false;
+    const std::vector<std::string> cps = codepoints(t);
+    if (cps.size() < 4)
+        return false;
+    if (all_ascii_rule(cps))
+        return true;
+    return is_dominant_glyph_line(cps);
 }
 
 void emit_hr(Ctx& c) {
@@ -205,12 +212,89 @@ void emit_hr(Ctx& c) {
     emit_line(c, std::move(l));
 }
 
+int table_column_count(const Ctx& c) {
+    int ncol = c.table_cols;
+    for (const auto& r : c.table_rows)
+        ncol = std::max(ncol, static_cast<int>(r.size()));
+    return ncol;
+}
+
+// Cells past the end of a short row read as empty, so ragged rows still align.
+std::string cell_text(const std::vector<std::string>& row, int k) {
+    return k < static_cast<int>(row.size()) ? row[k] : std::string{};
+}
+
+// Widest cell per column, measured in display columns so wide glyphs line up.
+std::vector<int> table_column_widths(const Ctx& c, int ncol) {
+    std::vector<int> w(ncol, 0);
+    for (const auto& row : c.table_rows)
+        for (int k = 0; k < ncol; ++k)
+            w[k] = std::max(w[k], text::display_cols(cell_text(row, k)));
+    return w;
+}
+
+// Horizontal frame line: left corner, `mid` between columns, right corner.
+void emit_table_rule(Ctx& c, const char* left, const char* mid, const char* right,
+                     const std::vector<int>& w) {
+    Line l;
+    l.is_table = true;
+    Run r;
+    r.pair = c.st->table_pair;
+    r.text = left;
+    for (size_t k = 0; k < w.size(); ++k) {
+        for (int j = 0; j < w[k] + 2; ++j)
+            r.text += text::glyph::hbar();
+        r.text += (k + 1 < w.size()) ? mid : right;
+    }
+    l.runs.push_back(r);
+    emit_line(c, std::move(l));
+}
+
+struct CellPad {
+    int left = 0;
+    int right = 0;
+};
+
+CellPad cell_padding(int pad, MD_ALIGN a) {
+    if (a == MD_ALIGN_RIGHT)
+        return {pad, 0};
+    if (a == MD_ALIGN_CENTER)
+        return {pad / 2, pad - (pad / 2)};
+    return {0, pad};
+}
+
+void emit_table_row(Ctx& c, size_t ri, bool head, int ncol, const std::vector<int>& w) {
+    Line l;
+    l.is_table = true;
+    Run sep;
+    sep.pair = c.st->table_pair;
+    sep.text = text::glyph::vbar();
+    sep.text += " ";
+    l.runs.push_back(sep);
+    for (int k = 0; k < ncol; ++k) {
+        const std::string t = cell_text(c.table_rows[ri], k);
+        const int pad = std::max(0, w[k] - text::display_cols(t));
+        const MD_ALIGN a = (k < static_cast<int>(c.aligns.size())) ? c.aligns[k] : MD_ALIGN_DEFAULT;
+        const CellPad p = cell_padding(pad, a);
+        Run cr;
+        cr.pair = head ? c.st->table_head_pair : c.st->table_pair;
+        cr.text = std::string(p.left, ' ') + t + std::string(p.right, ' ');
+        l.runs.push_back(cr);
+        Run sp;
+        sp.pair = c.st->table_pair;
+        sp.text = " ";
+        sp.text += text::glyph::vbar();
+        if (k + 1 < ncol)
+            sp.text += " ";
+        l.runs.push_back(sp);
+    }
+    emit_line(c, std::move(l));
+}
+
 void flush_table(Ctx& c) {
     if (c.table_rows.empty())
         return;
-    int ncol = c.table_cols;
-    for (auto& r : c.table_rows)
-        ncol = std::max(ncol, static_cast<int>(r.size()));
+    const int ncol = table_column_count(c);
     if (ncol <= 0) {
         c.table_rows.clear();
         c.table_row_is_head.clear();
@@ -218,87 +302,20 @@ void flush_table(Ctx& c) {
     }
     if (static_cast<int>(c.aligns.size()) < ncol)
         c.aligns.resize(ncol, MD_ALIGN_DEFAULT);
-    std::vector<int> w(ncol, 0);
-    for (auto& row : c.table_rows) {
-        for (int k = 0; k < ncol; ++k) {
-            std::string t = k < static_cast<int>(row.size()) ? row[k] : "";
-            w[k] = std::max(w[k], text::display_cols(t));
-        }
-    }
-    auto emit_top = [&](bool top) {
-        Line tl;
-        tl.is_table = true;
-        Run r;
-        r.pair = c.st->table_pair;
-        r.text = top ? text::glyph::top_left() : text::glyph::bottom_left();
-        for (int k = 0; k < ncol; ++k) {
-            for (int j = 0; j < w[k] + 2; ++j)
-                r.text += text::glyph::hbar();
-            if (k + 1 < ncol) {
-                r.text += top ? text::glyph::top_tee() : text::glyph::bottom_tee();
-            } else {
-                r.text += top ? text::glyph::top_right() : text::glyph::bottom_right();
-            }
-        }
-        tl.runs.push_back(r);
-        emit_line(c, std::move(tl));
-    };
-    emit_top(true);
+    const std::vector<int> w = table_column_widths(c, ncol);
+    emit_table_rule(c, text::glyph::top_left(), text::glyph::top_tee(), text::glyph::top_right(),
+                    w);
     for (size_t ri = 0; ri < c.table_rows.size(); ++ri) {
-        bool head = c.table_row_is_head[ri];
-        Line l;
-        l.is_table = true;
-        Run sep;
-        sep.pair = c.st->table_pair;
-        sep.text = text::glyph::vbar();
-        sep.text += " ";
-        l.runs.push_back(sep);
-        for (int k = 0; k < ncol; ++k) {
-            std::string t =
-                k < static_cast<int>(c.table_rows[ri].size()) ? c.table_rows[ri][k] : "";
-            int pad = w[k] - text::display_cols(t);
-            if (pad < 0)
-                pad = 0;
-            MD_ALIGN a = (k < static_cast<int>(c.aligns.size())) ? c.aligns[k] : MD_ALIGN_DEFAULT;
-            int left = 0, right = 0;
-            if (a == MD_ALIGN_RIGHT) {
-                left = pad;
-            } else if (a == MD_ALIGN_CENTER) {
-                left = pad / 2;
-                right = pad - left;
-            } else {
-                right = pad;
-            }
-            Run cr;
-            cr.pair = head ? c.st->table_head_pair : c.st->table_pair;
-            cr.text = std::string(left, ' ') + t + std::string(right, ' ');
-            l.runs.push_back(cr);
-            Run sp;
-            sp.pair = c.st->table_pair;
-            sp.text = " ";
-            sp.text += text::glyph::vbar();
-            if (k + 1 < ncol)
-                sp.text += " ";
-            l.runs.push_back(sp);
-        }
-        emit_line(c, std::move(l));
-        bool next_is_head = (ri + 1 < c.table_row_is_head.size() && c.table_row_is_head[ri + 1]);
-        if (head && !next_is_head && ri + 1 < c.table_rows.size()) {
-            Line hl;
-            hl.is_table = true;
-            Run hr;
-            hr.pair = c.st->table_pair;
-            hr.text = text::glyph::tee_left();
-            for (int k = 0; k < ncol; ++k) {
-                for (int j = 0; j < w[k] + 2; ++j)
-                    hr.text += text::glyph::hbar();
-                hr.text += (k + 1 < ncol) ? text::glyph::tbl_cross() : text::glyph::tee_right();
-            }
-            hl.runs.push_back(hr);
-            emit_line(c, std::move(hl));
-        }
+        const bool head = c.table_row_is_head[ri];
+        emit_table_row(c, ri, head, ncol, w);
+        const bool next_is_head =
+            (ri + 1 < c.table_row_is_head.size() && c.table_row_is_head[ri + 1]);
+        if (head && !next_is_head && ri + 1 < c.table_rows.size())
+            emit_table_rule(c, text::glyph::tee_left(), text::glyph::tbl_cross(),
+                            text::glyph::tee_right(), w);
     }
-    emit_top(false);
+    emit_table_rule(c, text::glyph::bottom_left(), text::glyph::bottom_tee(),
+                    text::glyph::bottom_right(), w);
     emit_line(c, Line{});
     c.table_rows.clear();
     c.table_row_is_head.clear();
@@ -341,75 +358,157 @@ void append_styled(Ctx& c, const std::string& s, const RunStyle& base) {
     flush();
 }
 
+void enter_heading(Ctx& c, void* detail) {
+    auto* d = static_cast<MD_BLOCK_H_DETAIL*>(detail);
+    c.heading_level = static_cast<int>(d->level);
+}
+
+void enter_code(Ctx& c, void* detail) {
+    auto* d = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
+    c.in_code = true;
+    c.code_buf.clear();
+    c.code_lang.clear();
+    if (d && d->lang.text && d->lang.size > 0)
+        c.code_lang.assign(d->lang.text, d->lang.size);
+}
+
+void enter_list(Ctx& c, MD_BLOCKTYPE type, void* detail) {
+    if (type == MD_BLOCK_UL) {
+        c.lists.push_back({false, 0});
+        return;
+    }
+    auto* d = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
+    c.lists.push_back({true, d ? d->start : 1});
+}
+
+// Flush any in-progress item text before starting this one (tight nested
+// lists append sibling text to the same c.cur without an intervening block
+// boundary).
+void enter_item(Ctx& c) {
+    if (!c.cur.runs.empty())
+        flush_block(c);
+}
+
+void enter_table(Ctx& c, void* detail) {
+    auto* d = static_cast<MD_BLOCK_TABLE_DETAIL*>(detail);
+    c.in_table = true;
+    c.table_cols = d ? static_cast<int>(d->col_count) : 0;
+    c.aligns.assign(c.table_cols, MD_ALIGN_DEFAULT);
+    c.row_cells.clear();
+    c.table_rows.clear();
+    c.table_row_is_head.clear();
+}
+
+void enter_cell(Ctx& c, MD_BLOCKTYPE type, void* detail) {
+    c.row_is_head = (type == MD_BLOCK_TH);
+    c.in_cell = true;
+    c.cell_buf.clear();
+    auto* d = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
+    if (d && c.row_cells.size() < c.aligns.size())
+        c.aligns[c.row_cells.size()] = d->align;
+}
+
 int enter_block(MD_BLOCKTYPE type, void* detail, void* ud) {
     Ctx& c = *static_cast<Ctx*>(ud);
     switch (type) {
-    case MD_BLOCK_H: {
-        auto* d = static_cast<MD_BLOCK_H_DETAIL*>(detail);
-        c.heading_level = static_cast<int>(d->level);
+    case MD_BLOCK_H:
+        enter_heading(c, detail);
         break;
-    }
     case MD_BLOCK_QUOTE:
         ++c.quote_depth;
         break;
-    case MD_BLOCK_CODE: {
-        auto* d = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
-        c.in_code = true;
-        c.code_buf.clear();
-        c.code_lang.clear();
-        if (d && d->lang.text && d->lang.size > 0)
-            c.code_lang.assign(d->lang.text, d->lang.size);
+    case MD_BLOCK_CODE:
+        enter_code(c, detail);
         break;
-    }
-    case MD_BLOCK_UL: {
-        c.lists.push_back({false, 0});
+    case MD_BLOCK_UL:
+    case MD_BLOCK_OL:
+        enter_list(c, type, detail);
         break;
-    }
-    case MD_BLOCK_OL: {
-        auto* d = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
-        c.lists.push_back({true, d ? d->start : 1});
+    case MD_BLOCK_LI:
+        enter_item(c);
         break;
-    }
-    case MD_BLOCK_LI: {
-        // Flush any in-progress item text before starting this one (tight
-        // nested lists append sibling text to the same c.cur without an
-        // intervening block boundary).
-        if (!c.cur.runs.empty())
-            flush_block(c);
+    case MD_BLOCK_TABLE:
+        enter_table(c, detail);
         break;
-    }
-    case MD_BLOCK_TABLE: {
-        auto* d = static_cast<MD_BLOCK_TABLE_DETAIL*>(detail);
-        c.in_table = true;
-        c.table_cols = d ? static_cast<int>(d->col_count) : 0;
-        c.aligns.assign(c.table_cols, MD_ALIGN_DEFAULT);
-        c.row_cells.clear();
-        c.table_rows.clear();
-        c.table_row_is_head.clear();
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD:
+        enter_cell(c, type, detail);
         break;
-    }
-    case MD_BLOCK_TH: {
-        c.row_is_head = true;
-        c.in_cell = true;
-        c.cell_buf.clear();
-        auto* d = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
-        if (d && c.row_cells.size() < c.aligns.size())
-            c.aligns[c.row_cells.size()] = d->align;
-        break;
-    }
-    case MD_BLOCK_TD: {
-        c.row_is_head = false;
-        c.in_cell = true;
-        c.cell_buf.clear();
-        auto* d = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
-        if (d && c.row_cells.size() < c.aligns.size())
-            c.aligns[c.row_cells.size()] = d->align;
-        break;
-    }
     default:
         break;
     }
     return 0;
+}
+
+void leave_para_or_heading(Ctx& c) {
+    if (c.in_cell) {
+        c.row_cells.push_back(c.cell_buf);
+        c.cell_buf.clear();
+        c.in_cell = false;
+    } else {
+        flush_block(c);
+    }
+    c.heading_level = 0;
+}
+
+void leave_quote(Ctx& c) {
+    if (c.quote_depth > 0)
+        --c.quote_depth;
+}
+
+void leave_code(Ctx& c) {
+    c.in_code = false;
+    // Split the captured source into lines and emit each as a code line
+    // (with optional heuristic highlighting).
+    std::vector<Line> hl = highlight(c.code_buf, c.code_lang, c.st->code_pair);
+    for (auto& l : hl)
+        emit_line(c, std::move(l));
+    if (c.code_buf.empty())
+        emit_line(c, Line{}); // blank separator
+    c.code_buf.clear();
+    c.code_lang.clear();
+}
+
+void leave_list(Ctx& c) {
+    if (!c.lists.empty())
+        c.lists.pop_back();
+}
+
+void leave_item(Ctx& c) {
+    // md4c emits tight list items as bare text (no inner P), so flush the
+    // accumulated item text here. For loose lists the inner P already
+    // flushed; c.cur will be empty and flush_block is a no-op.
+    if (!c.cur.runs.empty())
+        flush_block(c);
+    // Advance the ordered-list counter for the next sibling item.
+    if (!c.lists.empty()) {
+        ListFrame& f = c.lists.back();
+        if (f.ordered)
+            ++f.index;
+    }
+}
+
+void leave_row(Ctx& c) {
+    c.table_rows.push_back(c.row_cells);
+    c.table_row_is_head.push_back(c.row_is_head);
+    c.row_cells.clear();
+    c.row_is_head = false;
+}
+
+void leave_table(Ctx& c) {
+    flush_table(c);
+    c.in_table = false;
+    c.aligns.clear();
+}
+
+void leave_cell(Ctx& c) {
+    // Cell content is emitted as inline text (no inner paragraph block), so
+    // flush the captured cell text here.
+    if (c.in_cell || !c.cell_buf.empty()) {
+        c.row_cells.push_back(c.cell_buf);
+        c.cell_buf.clear();
+        c.in_cell = false;
+    }
 }
 
 int leave_block(MD_BLOCKTYPE type, void* detail, void* ud) {
@@ -418,81 +517,33 @@ int leave_block(MD_BLOCKTYPE type, void* detail, void* ud) {
     switch (type) {
     case MD_BLOCK_P:
     case MD_BLOCK_H:
-        if (c.in_cell) {
-            c.row_cells.push_back(c.cell_buf);
-            c.cell_buf.clear();
-            c.in_cell = false;
-        } else {
-            flush_block(c);
-        }
-        c.heading_level = 0;
+        leave_para_or_heading(c);
         break;
     case MD_BLOCK_QUOTE:
-        if (c.quote_depth > 0)
-            --c.quote_depth;
+        leave_quote(c);
         break;
-    case MD_BLOCK_CODE: {
-        c.in_code = false;
-        // Split the captured source into lines and emit each as a code
-        // line (with optional heuristic highlighting).
-        std::vector<Line> hl = highlight(c.code_buf, c.code_lang, c.st->code_pair);
-        for (auto& l : hl)
-            emit_line(c, std::move(l));
-        if (c.code_buf.empty())
-            emit_line(c, Line{}); // blank separator
-        c.code_buf.clear();
-        c.code_lang.clear();
+    case MD_BLOCK_CODE:
+        leave_code(c);
         break;
-    }
-    case MD_BLOCK_HR: {
-        Line l;
-        l.is_hr = true;
-        Run r;
-        r.pair = c.st->hr_pair;
-        r.text = " ";
-        l.runs.push_back(r);
-        emit_line(c, std::move(l));
+    case MD_BLOCK_HR:
+        emit_hr(c);
         break;
-    }
     case MD_BLOCK_UL:
     case MD_BLOCK_OL:
-        if (!c.lists.empty())
-            c.lists.pop_back();
+        leave_list(c);
         break;
     case MD_BLOCK_LI:
-        // md4c emits tight list items as bare text (no inner P), so flush
-        // the accumulated item text here. For loose lists the inner P
-        // already flushed; c.cur will be empty and flush_block is a no-op.
-        if (!c.cur.runs.empty())
-            flush_block(c);
-        // Advance the ordered-list counter for the next sibling item.
-        if (!c.lists.empty()) {
-            ListFrame& f = c.lists.back();
-            if (f.ordered)
-                ++f.index;
-        }
+        leave_item(c);
         break;
-    case MD_BLOCK_TR: {
-        c.table_rows.push_back(c.row_cells);
-        c.table_row_is_head.push_back(c.row_is_head);
-        c.row_cells.clear();
-        c.row_is_head = false;
+    case MD_BLOCK_TR:
+        leave_row(c);
         break;
-    }
     case MD_BLOCK_TABLE:
-        flush_table(c);
-        c.in_table = false;
-        c.aligns.clear();
+        leave_table(c);
         break;
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
-        // Cell content is emitted as inline text (no inner paragraph
-        // block), so flush the captured cell text here.
-        if (c.in_cell || !c.cell_buf.empty()) {
-            c.row_cells.push_back(c.cell_buf);
-            c.cell_buf.clear();
-            c.in_cell = false;
-        }
+        leave_cell(c);
         break;
     default:
         break;

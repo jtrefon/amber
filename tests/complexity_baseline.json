@@ -1,44 +1,124 @@
 {
   "ccn_max": 15,
-  "files": {
-    "bench/kpi.cpp": 1,
-    "bench/oracle.cpp": 2,
-    "bench/probe.cpp": 2,
-    "bench/scenario.cpp": 2,
-    "bench/template.cpp": 1,
-    "lib/compressor_scanner.cpp": 1,
-    "lib/core_segments.cpp": 1,
-    "lib/mcp_client.cpp": 1,
-    "lib/policy_engine.cpp": 1,
-    "lib/process.cpp": 1,
-    "lib/providers_repo_files.cpp": 1,
-    "lib/session.cpp": 1,
-    "lib/workspace.cpp": 1,
-    "plugins/commandcode/commandcode_plugin.cpp": 1,
-    "src/smoketest.cpp": 1,
-    "tools/bash_tool.cpp": 1,
-    "tools/plugins/cdp/ws_test.cpp": 1,
-    "tools/plugins/sysinfo/main.cpp": 2,
-    "tools/read_tool.cpp": 1,
-    "tools/search/grep_backend.cpp": 1,
-    "tools/search/semantic_backend.cpp": 1,
-    "tools/search_tool.cpp": 1,
-    "tools/write_tool.cpp": 1,
-    "tui/ansi_sgr.cpp": 1,
-    "tui/canvas.cpp": 1,
-    "tui/event_router.cpp": 1,
-    "tui/form_focus.cpp": 1,
-    "tui/help_page.cpp": 1,
-    "tui/info_dialog.cpp": 1,
-    "tui/list_state.cpp": 1,
-    "tui/markdown.cpp": 1,
-    "tui/markdown_md4c.cpp": 4,
-    "tui/panel_view.cpp": 1,
-    "tui/render_engine.cpp": 4,
-    "tui/rich.cpp": 1,
-    "tui/session_browser_core.cpp": 1,
-    "tui/textutil.cpp": 1,
-    "tui/tui_session.cpp": 1
+  "functions": {
+    "bench/probe.cpp": {
+      "bench::context_probe_token_fidelity": {
+        "ccn": 7,
+        "nloc": 42
+      },
+      "bench::oracle_probe_scenario_self_validation": {
+        "ccn": 10,
+        "nloc": 41
+      }
+    },
+    "lib/agent.cpp": {
+      "agent::Agent::build_chat_adapter": {
+        "ccn": 12,
+        "nloc": 44
+      },
+      "agent::Agent::dispatch_with_loop_detection": {
+        "ccn": 15,
+        "nloc": 46
+      }
+    },
+    "lib/environment.cpp": {
+      "agent::render_environment_card": {
+        "ccn": 13,
+        "nloc": 41
+      }
+    },
+    "lib/learn_commands.cpp": {
+      "agent::learn_inspect_lines": {
+        "ccn": 11,
+        "nloc": 49
+      }
+    },
+    "lib/model_probe.cpp": {
+      "agent::model_catalog_fetch": {
+        "ccn": 10,
+        "nloc": 41
+      }
+    },
+    "lib/plugin.cpp": {
+      "agent::PluginManager::discover": {
+        "ccn": 15,
+        "nloc": 44
+      }
+    },
+    "src/main.cpp": {
+      "run_mcp_surfaces": {
+        "ccn": 14,
+        "nloc": 47
+      }
+    },
+    "tools/plugins/cdp/main.cpp": {
+      "main": {
+        "ccn": 10,
+        "nloc": 42
+      }
+    },
+    "tools/plugins/cdp/ws_client.cpp": {
+      "cdp::WsClient::connect": {
+        "ccn": 7,
+        "nloc": 45
+      }
+    },
+    "tools/read_tool.cpp": {
+      "agent::ReadTool::execute": {
+        "ccn": 7,
+        "nloc": 42
+      }
+    },
+    "tui/event_router.cpp": {
+      "tui::EventRouter::wire_blocking_hooks": {
+        "ccn": 5,
+        "nloc": 42
+      }
+    },
+    "tui/feed_manager.cpp": {
+      "tui::FeedManager::refresh_policy_feed": {
+        "ccn": 12,
+        "nloc": 46
+      }
+    },
+    "tui/form_edit.cpp": {
+      "tui::form_edit": {
+        "ccn": 6,
+        "nloc": 41
+      }
+    },
+    "tui/render_engine.cpp": {
+      "tui::RenderEngine::draw_input": {
+        "ccn": 12,
+        "nloc": 41
+      }
+    },
+    "tui/tui.cpp": {
+      "tui::Tui::apply_key_action": {
+        "ccn": 12,
+        "nloc": 41
+      }
+    },
+    "tui/tui_input.cpp": {
+      "tui::SlashDispatcher::cmd_get_wallet": {
+        "ccn": 13,
+        "nloc": 41
+      },
+      "tui::SlashDispatcher::cmd_provider": {
+        "ccn": 15,
+        "nloc": 41
+      },
+      "tui::SlashDispatcher::cmd_skills_set": {
+        "ccn": 12,
+        "nloc": 44
+      }
+    },
+    "tui/tui_session.cpp": {
+      "tui::SessionController::restore_message_lines": {
+        "ccn": 12,
+        "nloc": 48
+      }
+    }
   },
-  "len_max": 50
+  "nloc_max": 40
 }
