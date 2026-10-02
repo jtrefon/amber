@@ -106,14 +106,34 @@ std::optional<McpMessage> HttpTransport::dispatch_sse_event(std::string& event_d
 
 // SSE: events carry JSON-RPC messages; the response for our id arrives among
 // them, possibly after server messages.
+namespace {
+
+// One line of the SSE body, advancing `pos` past it and its newline.
+std::string next_sse_line(const std::string& body, size_t& pos) {
+    const size_t nl = body.find('\n', pos);
+    const std::string line =
+        (nl == std::string::npos) ? body.substr(pos) : body.substr(pos, nl - pos);
+    pos = (nl == std::string::npos) ? body.size() : nl + 1;
+    return line;
+}
+
+// Append a "data:" payload to the pending event, joining lines with newlines.
+void append_sse_data(const std::string& line, std::string& event_data) {
+    std::string data = line.substr(5);
+    if (!data.empty() && data.front() == ' ')
+        data.erase(0, 1);
+    if (!event_data.empty())
+        event_data += "\n";
+    event_data += data;
+}
+
+} // namespace
+
 McpTransportResult HttpTransport::handle_sse_response(const std::string& body, int id) {
     std::string event_data;
     size_t pos = 0;
     while (pos < body.size()) {
-        const size_t nl = body.find('\n', pos);
-        const std::string line =
-            (nl == std::string::npos) ? body.substr(pos) : body.substr(pos, nl - pos);
-        pos = (nl == std::string::npos) ? body.size() : nl + 1;
+        const std::string line = next_sse_line(body, pos);
         if (line.empty()) {
             if (event_data.empty())
                 continue;
@@ -128,14 +148,8 @@ McpTransportResult HttpTransport::handle_sse_response(const std::string& body, i
             }
             continue;
         }
-        if (line.rfind("data:", 0) == 0) {
-            std::string data = line.substr(5);
-            if (!data.empty() && data.front() == ' ')
-                data.erase(0, 1);
-            if (!event_data.empty())
-                event_data += "\n";
-            event_data += data;
-        }
+        if (line.rfind("data:", 0) == 0)
+            append_sse_data(line, event_data);
     }
     if (!event_data.empty()) {
         bool failed = false;

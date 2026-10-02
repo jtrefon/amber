@@ -11,12 +11,6 @@
         "nloc": 41
       }
     },
-    "bench/report.cpp": {
-      "bench::render_failures": {
-        "ccn": 15,
-        "nloc": 43
-      }
-    },
     "lib/agent.cpp": {
       "agent::Agent::build_chat_adapter": {
         "ccn": 12,
@@ -37,12 +31,6 @@
       "agent::learn_inspect_lines": {
         "ccn": 11,
         "nloc": 49
-      }
-    },
-    "lib/mcp_transport_http.cpp": {
-      "agent::HttpTransport::handle_sse_response": {
-        "ccn": 14,
-        "nloc": 42
       }
     },
     "lib/model_probe.cpp": {
