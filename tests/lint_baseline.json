@@ -6,12 +6,6 @@
     },
     "lib/mcp_client.cpp": {
       "readability-function-cognitive-complexity": 1
-    },
-    "lib/plugin.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tui/tui_session.cpp": {
-      "readability-function-cognitive-complexity": 1
     }
   }
 }

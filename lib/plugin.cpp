@@ -215,50 +215,61 @@ bool PluginManager::parse_manifest(const std::string& dir, PluginManifest& out, 
 // Discovery and state
 // ---------------------------------------------------------------------------
 
+std::vector<std::string> PluginManager::default_plugin_roots() {
+    std::vector<std::string> roots;
+    if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
+        roots.emplace_back(std::string(xdg) + "/amber/plugins");
+    const std::string home = home_dir();
+    if (!home.empty()) {
+        roots.emplace_back(home + "/.config/amber/plugins");
+        roots.emplace_back(home + "/.local/share/amber/plugins");
+    }
+    const std::string ws = Workspace::root();
+    if (!ws.empty())
+        roots.emplace_back(ws + "/.amber/plugins");
+    roots.emplace_back("/usr/local/share/amber/plugins");
+    roots.emplace_back("/usr/share/amber/plugins");
+    return roots;
+}
+
+bool PluginManager::plugin_info_at(const std::string& dir, PluginInfo& out) {
+    const std::string id = dir.substr(dir.find_last_of('/') + 1);
+    if (find(id))
+        return false;
+    // A plugin install carries a manifest; the v2 host keeps per-plugin state
+    // (plugin.conf) under the same root, so a manifest-less directory is state,
+    // not an install.
+    if (access((dir + "/manifest.json").c_str(), F_OK) != 0)
+        return false;
+
+    PluginInfo info;
+    info.id = id;
+    info.dir = dir;
+    if (!parse_manifest(dir, info.manifest, info.error)) {
+        info.state = PluginState::Incompatible;
+        out = std::move(info);
+        return true;
+    }
+    info.version = info.manifest.version;
+    if (state_.contains(id) && state_[id].value("enabled", false))
+        info.state = PluginState::Enabled;
+    if (state_.contains(id) && state_[id].contains("settings"))
+        info.settings = state_[id]["settings"];
+    else
+        info.settings = info.manifest.default_settings;
+    out = std::move(info);
+    return true;
+}
+
 void PluginManager::discover(const std::vector<std::string>& dirs) {
     load_state();
-    std::vector<std::string> roots = dirs;
-    if (roots.empty()) {
-        if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
-            roots.emplace_back(std::string(xdg) + "/amber/plugins");
-        std::string home = home_dir();
-        if (!home.empty()) {
-            roots.emplace_back(home + "/.config/amber/plugins");
-            roots.emplace_back(home + "/.local/share/amber/plugins");
-        }
-        std::string ws = Workspace::root();
-        if (!ws.empty())
-            roots.emplace_back(ws + "/.amber/plugins");
-        roots.emplace_back("/usr/local/share/amber/plugins");
-        roots.emplace_back("/usr/share/amber/plugins");
-    }
+    const std::vector<std::string> roots = dirs.empty() ? default_plugin_roots() : dirs;
     plugins_.clear();
     for (const auto& root : roots) {
         for (const auto& dir : list_subdirs(root)) {
-            std::string id = dir.substr(dir.find_last_of('/') + 1);
-            if (find(id))
-                continue;
-            // A plugin install carries a manifest; the v2 host keeps per-plugin
-            // state (plugin.conf) under the same root, so a manifest-less
-            // directory is state, not an install.
-            if (access((dir + "/manifest.json").c_str(), F_OK) != 0)
-                continue;
             PluginInfo info;
-            info.id = id;
-            info.dir = dir;
-            if (!parse_manifest(dir, info.manifest, info.error)) {
-                info.state = PluginState::Incompatible;
+            if (plugin_info_at(dir, info))
                 plugins_.push_back(std::move(info));
-                continue;
-            }
-            info.version = info.manifest.version;
-            if (state_.contains(id) && state_[id].value("enabled", false))
-                info.state = PluginState::Enabled;
-            if (state_.contains(id) && state_[id].contains("settings"))
-                info.settings = state_[id]["settings"];
-            else
-                info.settings = info.manifest.default_settings;
-            plugins_.push_back(std::move(info));
         }
     }
 }
