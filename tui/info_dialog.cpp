@@ -7,20 +7,13 @@
 
 namespace tui {
 
-void info_dialog(const std::string& title, const std::vector<std::string>& rows) {
-    ModalScope scope;
-    curs_set(0);
+namespace {
 
-    int sh, sw;
-    getmaxyx(stdscr, sh, sw);
-    info_dialog_layout::Layout lay = info_dialog_layout::compute(rows, title, sh, sw);
+enum class MenuAction { None, Moved, Close };
 
-    Dialog dlg(lay.height, lay.width, title);
-    WINDOW* w = dlg.win();
-    int aw = dlg.cols();
-    dlg.set_footer({{"Up/Down", "scroll"}, {"Enter/Esc", "close"}});
-
-    std::vector<ITEM*> items;
+// The menu over the layout's rows, wired to the dialog window.
+MENU* build_menu(WINDOW* w, const info_dialog_layout::Layout& lay, int aw,
+                 std::vector<ITEM*>& items) {
     items.reserve(lay.rows.size() + 1);
     for (auto& r : lay.rows)
         items.push_back(new_item(r.c_str(), ""));
@@ -37,53 +30,75 @@ void info_dialog(const std::string& title, const std::vector<std::string>& rows)
     post_menu(menu);
     update_panels();
     doupdate();
+    return menu;
+}
 
-    // Draw scroll indicators
-    auto draw_scroll = [&]() {
-        info_dialog_layout::ScrollHint hint = info_dialog_layout::scroll_hint(
-            top_row(menu), lay.list_h, static_cast<int>(lay.rows.size()));
-        if (!hint.draw)
-            return;
-        if (hint.up)
-            mvwaddch(w, 2, aw - 2, ACS_UARROW);
-        if (hint.down)
-            mvwaddch(w, lay.list_h + 1, aw - 2, ACS_DARROW);
-        update_panels();
-        doupdate();
-    };
-    draw_scroll();
+// Draw the scroll indicators for the menu's current position.
+void draw_scroll_hint(MENU* menu, WINDOW* w, const info_dialog_layout::Layout& lay, int aw) {
+    const info_dialog_layout::ScrollHint hint =
+        info_dialog_layout::scroll_hint(top_row(menu), lay.list_h, static_cast<int>(lay.rows.size()));
+    if (!hint.draw)
+        return;
+    if (hint.up)
+        mvwaddch(w, 2, aw - 2, ACS_UARROW);
+    if (hint.down)
+        mvwaddch(w, lay.list_h + 1, aw - 2, ACS_DARROW);
+    update_panels();
+    doupdate();
+}
+
+MenuAction menu_action(MENU* menu, int c) {
+    switch (c) {
+    case KEY_DOWN:
+        menu_driver(menu, REQ_DOWN_ITEM);
+        return MenuAction::Moved;
+    case KEY_UP:
+        menu_driver(menu, REQ_UP_ITEM);
+        return MenuAction::Moved;
+    case KEY_NPAGE:
+        menu_driver(menu, REQ_SCR_DPAGE);
+        return MenuAction::Moved;
+    case KEY_PPAGE:
+        menu_driver(menu, REQ_SCR_UPAGE);
+        return MenuAction::Moved;
+    case '\n':
+    case '\r':
+    case KEY_ENTER:
+    case 27:
+    case 'q':
+    case 'Q':
+        return MenuAction::Close;
+    default:
+        return MenuAction::None;
+    }
+}
+
+} // namespace
+
+void info_dialog(const std::string& title, const std::vector<std::string>& rows) {
+    ModalScope scope;
+    curs_set(0);
+
+    int sh, sw;
+    getmaxyx(stdscr, sh, sw);
+    const info_dialog_layout::Layout lay = info_dialog_layout::compute(rows, title, sh, sw);
+
+    Dialog dlg(lay.height, lay.width, title);
+    WINDOW* w = dlg.win();
+    const int aw = dlg.cols();
+    dlg.set_footer({{"Up/Down", "scroll"}, {"Enter/Esc", "close"}});
+
+    std::vector<ITEM*> items;
+    MENU* menu = build_menu(w, lay, aw, items);
+    draw_scroll_hint(menu, w, lay, aw);
 
     bool done = false;
     while (!done) {
-        int c = wgetch(w);
-        switch (c) {
-        case KEY_DOWN:
-            menu_driver(menu, REQ_DOWN_ITEM);
-            draw_scroll();
-            break;
-        case KEY_UP:
-            menu_driver(menu, REQ_UP_ITEM);
-            draw_scroll();
-            break;
-        case KEY_NPAGE:
-            menu_driver(menu, REQ_SCR_DPAGE);
-            draw_scroll();
-            break;
-        case KEY_PPAGE:
-            menu_driver(menu, REQ_SCR_UPAGE);
-            draw_scroll();
-            break;
-        case '\n':
-        case '\r':
-        case KEY_ENTER:
-        case 27:
-        case 'q':
-        case 'Q':
+        const MenuAction act = menu_action(menu, wgetch(w));
+        if (act == MenuAction::Moved)
+            draw_scroll_hint(menu, w, lay, aw);
+        if (act == MenuAction::Close)
             done = true;
-            break;
-        default:
-            break;
-        }
         update_panels();
         doupdate();
     }
