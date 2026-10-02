@@ -93,7 +93,7 @@ bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
     const std::string id = plugin->id();
     if (plugins_.find(id) != plugins_.end())
         return false; // first registration wins
-    Entry entry;
+    detail::Entry entry;
     entry.plugin = std::move(plugin);
     entry.bundled = bundled;
     // Declarations are a property of the plugin, not of its activation: a
@@ -190,7 +190,7 @@ PluginRuntime::WalletView PluginRuntime::wallet() const {
     view.holder = cfg.provider_name;
     view.supported = wallets_.find(cfg.provider_name) != nullptr;
 
-    const WalletState& state = *wallet_state_;
+    const detail::WalletState& state = *wallet_state_;
     // A result counts only when it belongs to the provider that is active now
     // and answers the ticket currently requested. A fetch that lands after a
     // provider switch therefore reads as "not fetched yet" rather than as the
@@ -215,8 +215,9 @@ void PluginRuntime::request_wallet_refresh() noexcept {
     wallet_dirty_.store(true);
 }
 
-void PluginRuntime::run_wallet_fetch(const std::shared_ptr<WalletState>& state, long long ticket,
-                                     const WalletRegistry::Fetch& fetch, const Config& cfg) {
+void PluginRuntime::run_wallet_fetch(const std::shared_ptr<detail::WalletState>& state,
+                                     long long ticket, const WalletRegistry::Fetch& fetch,
+                                     const Config& cfg) {
     std::optional<WalletSnapshot> value;
     try {
         value = fetch(cfg);

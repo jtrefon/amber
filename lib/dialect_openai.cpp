@@ -447,83 +447,9 @@ public:
 
     json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
                          const std::vector<std::shared_ptr<Tool>>& tools,
-                         bool stream) const override {
-        json body = {{"model", cfg.model},
-                     {"temperature", cfg.temperature},
-                     {"max_tokens", cfg.max_tokens},
-                     {"stream", stream},
-                     {"messages", json::array()}};
+                         bool stream) const override;
 
-        // Ask the server to emit a final usage chunk during streaming so we can
-        // show context usage and token counts (Qwen/llama.cpp/vLLM honour
-        // this).
-        if (stream)
-            body["stream_options"] = {{"include_usage", true}};
-
-        // Qwen-style thinking control for servers using the model's native
-        // jinja chat template (llama.cpp --jinja). The template reads
-        // enable_thinking (and an optional thinking_budget) from
-        // chat_template_kwargs.  "auto" -> send nothing, defer to the
-        // template default.
-        if (cfg.thinking == "on" || cfg.thinking == "off") {
-            bool enable = (cfg.thinking == "on");
-            body["chat_template_kwargs"]["enable_thinking"] = enable;
-            if (enable && cfg.thinking_budget > 0)
-                body["chat_template_kwargs"]["thinking_budget"] = cfg.thinking_budget;
-        }
-
-        // Compatibility fallback for OpenAI o-series / vLLM style reasoning
-        // servers that use the reasoning_effort field instead of a jinja
-        // kwarg.
-        if (!cfg.reasoning_effort.empty() && cfg.reasoning_effort != "off")
-            body["reasoning_effort"] = cfg.reasoning_effort;
-
-        append_messages(body["messages"], messages);
-        append_tools(body, tools);
-        return body;
-    }
-
-    Message parse_completion(const std::string& response) const override {
-        json resp = json::parse(response, nullptr, false);
-        Message out;
-        out.role = "assistant";
-        if (resp.is_discarded() || !resp.contains("choices") || !resp["choices"].is_array() ||
-            resp["choices"].empty()) {
-            out.content = "[error: malformed LLM response, raw body follows]\n" + response;
-            return out;
-        }
-        const json& msg = resp["choices"][0].value("message", json::object());
-        out.content = strip_think(str_or_raw(msg, "content", ""));
-        for (const char* key : {"reasoning_content", "reasoning"})
-            out.reasoning += str_or_raw(msg, key, "");
-        if (msg.contains("tool_calls") && !msg["tool_calls"].is_null()) {
-            out.tool_calls = msg["tool_calls"];
-            // Discard tool calls with non-JSON arguments — they poison
-            // history.
-            bool valid = true;
-            for (const auto& tc : out.tool_calls) {
-                auto fn = tc.value("function", json::object());
-                std::string raw = fn.value("arguments", "");
-                if (!raw.empty()) {
-                    auto parsed = json::parse(raw, nullptr, false);
-                    if (parsed.is_discarded()) {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-            if (valid) {
-                // Drop name-less placeholders and default `type`, same as the
-                // SSE path, so junk never enters the context stack.
-                out.tool_calls = sanitize_tool_calls(out.tool_calls);
-                if (out.tool_calls.empty())
-                    out.tool_calls = json::value_t::null;
-            } else {
-                out.tool_calls = json::value_t::null;
-            }
-        }
-        return out;
-    }
+    Message parse_completion(const std::string& response) const override;
 
     std::unique_ptr<StreamDecoder> make_decoder(Message& out, StreamDecoder::ChunkSink on_chunk,
                                                 std::string debug_path) const override {
@@ -552,25 +478,7 @@ public:
     }
 
     ServerInfo parse_models_response(const std::string& body,
-                                     const std::string& preferred_model) const override {
-        ServerInfo info;
-        json j = json::parse(body, nullptr, false);
-        if (j.is_discarded())
-            return info;
-
-        const json* arr = model_array(j);
-        if (!arr || arr->empty())
-            return info;
-
-        const json* chosen = choose_model_entry(arr, preferred_model);
-
-        ModelInfo m = parse_entry(*chosen);
-        info.model = m.id;
-        info.context_size = m.context;
-        info.context_train = m.context_train;
-        info.ok = !info.model.empty() || info.context_size > 0;
-        return info;
-    }
+                                     const std::string& preferred_model) const override;
 
     std::vector<ModelInfo> parse_model_list_response(const std::string& body) const override {
         std::vector<ModelInfo> out;
@@ -699,6 +607,107 @@ private:
         body["tool_choice"] = "auto";
     }
 };
+
+json OpenAIDialect::build_chat_body(const Config& cfg, const std::vector<Message>& messages,
+                                    const std::vector<std::shared_ptr<Tool>>& tools,
+                                    bool stream) const {
+    json body = {{"model", cfg.model},
+                 {"temperature", cfg.temperature},
+                 {"max_tokens", cfg.max_tokens},
+                 {"stream", stream},
+                 {"messages", json::array()}};
+
+    // Ask the server to emit a final usage chunk during streaming so we can
+    // show context usage and token counts (Qwen/llama.cpp/vLLM honour
+    // this).
+    if (stream)
+        body["stream_options"] = {{"include_usage", true}};
+
+    // Qwen-style thinking control for servers using the model's native
+    // jinja chat template (llama.cpp --jinja). The template reads
+    // enable_thinking (and an optional thinking_budget) from
+    // chat_template_kwargs.  "auto" -> send nothing, defer to the
+    // template default.
+    if (cfg.thinking == "on" || cfg.thinking == "off") {
+        bool enable = (cfg.thinking == "on");
+        body["chat_template_kwargs"]["enable_thinking"] = enable;
+        if (enable && cfg.thinking_budget > 0)
+            body["chat_template_kwargs"]["thinking_budget"] = cfg.thinking_budget;
+    }
+
+    // Compatibility fallback for OpenAI o-series / vLLM style reasoning
+    // servers that use the reasoning_effort field instead of a jinja
+    // kwarg.
+    if (!cfg.reasoning_effort.empty() && cfg.reasoning_effort != "off")
+        body["reasoning_effort"] = cfg.reasoning_effort;
+
+    append_messages(body["messages"], messages);
+    append_tools(body, tools);
+    return body;
+}
+
+Message OpenAIDialect::parse_completion(const std::string& response) const {
+    json resp = json::parse(response, nullptr, false);
+    Message out;
+    out.role = "assistant";
+    if (resp.is_discarded() || !resp.contains("choices") || !resp["choices"].is_array() ||
+        resp["choices"].empty()) {
+        out.content = "[error: malformed LLM response, raw body follows]\n" + response;
+        return out;
+    }
+    const json& msg = resp["choices"][0].value("message", json::object());
+    out.content = strip_think(str_or_raw(msg, "content", ""));
+    for (const char* key : {"reasoning_content", "reasoning"})
+        out.reasoning += str_or_raw(msg, key, "");
+    if (msg.contains("tool_calls") && !msg["tool_calls"].is_null()) {
+        out.tool_calls = msg["tool_calls"];
+        // Discard tool calls with non-JSON arguments — they poison
+        // history.
+        bool valid = true;
+        for (const auto& tc : out.tool_calls) {
+            auto fn = tc.value("function", json::object());
+            std::string raw = fn.value("arguments", "");
+            if (!raw.empty()) {
+                auto parsed = json::parse(raw, nullptr, false);
+                if (parsed.is_discarded()) {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if (valid) {
+            // Drop name-less placeholders and default `type`, same as the
+            // SSE path, so junk never enters the context stack.
+            out.tool_calls = sanitize_tool_calls(out.tool_calls);
+            if (out.tool_calls.empty())
+                out.tool_calls = json::value_t::null;
+        } else {
+            out.tool_calls = json::value_t::null;
+        }
+    }
+    return out;
+}
+
+ServerInfo OpenAIDialect::parse_models_response(const std::string& body,
+                                                const std::string& preferred_model) const {
+    ServerInfo info;
+    json j = json::parse(body, nullptr, false);
+    if (j.is_discarded())
+        return info;
+
+    const json* arr = model_array(j);
+    if (!arr || arr->empty())
+        return info;
+
+    const json* chosen = choose_model_entry(arr, preferred_model);
+
+    ModelInfo m = parse_entry(*chosen);
+    info.model = m.id;
+    info.context_size = m.context;
+    info.context_train = m.context_train;
+    info.ok = !info.model.empty() || info.context_size > 0;
+    return info;
+}
 
 } // namespace
 

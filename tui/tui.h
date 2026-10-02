@@ -40,6 +40,28 @@ class ToolRegistry;
 } // namespace agent
 
 namespace tui {
+
+namespace detail {
+
+struct UiPostQueue {
+    std::mutex mtx;
+    std::vector<std::function<void()>> queue;
+    std::atomic<bool> alive{true};
+};
+
+struct WatchedJob {
+    std::shared_ptr<agent::Job> job;
+    std::string label;
+};
+
+enum class PromptOutcome {
+    NotOurs,  // no layer claimed the key: just flush what is pending
+    Consumed, // already handled and redrawn
+    Routed,   // CommandLine produced a result to act on
+};
+
+} // namespace detail
+
 using palette::Command;
 class FeedManager;
 class WindowManager;
@@ -128,12 +150,7 @@ private:
     // tick like the other queues. Heap-held and shared: a worker whose result
     // lands after ~Tui still touches a live mutex/queue and its post is
     // dropped on the closed gate — never a torn member.
-    struct UiPostQueue {
-        std::mutex mtx;
-        std::vector<std::function<void()>> queue;
-        std::atomic<bool> alive{true};
-    };
-    std::shared_ptr<UiPostQueue> ui_posts_ = std::make_shared<UiPostQueue>();
+    std::shared_ptr<detail::UiPostQueue> ui_posts_ = std::make_shared<detail::UiPostQueue>();
     // The port itself, handed to the runtime so plugins can ask the user.
     std::unique_ptr<TuiUiServices> ui_services_;
     bool modal_open_ = false;
@@ -169,7 +186,7 @@ private:
     void trim_lines(Window& w);
     void fold_reasoning(Window& w);
     void flush_stream(Window& w);
-    void flush() { doupdate(); }
+    void flush();
 
     // ---- rendering (owned by RenderEngine) -------------------------------
     void draw();
@@ -178,11 +195,7 @@ private:
 
     // Commands started by the UI and not yet reported. Job handles are
     // shared_ptrs, so a job that outlives the drain is still safe to read.
-    struct WatchedJob {
-        std::shared_ptr<agent::Job> job;
-        std::string label;
-    };
-    std::vector<WatchedJob> watched_jobs_;
+    std::vector<detail::WatchedJob> watched_jobs_;
 
     // ---- session persistence (owned by SessionController) ----------------
     void autosave();
@@ -261,11 +274,6 @@ private:
 
     // --- Event loop. run() is a facade over these steps, one per thing the
     // --- loop does: start up, drain, dispatch a key, act on the result.
-    enum class PromptOutcome {
-        NotOurs,  // no layer claimed the key: just flush what is pending
-        Consumed, // already handled and redrawn
-        Routed,   // CommandLine produced a result to act on
-    };
     void run_startup(CommandLine& cl);
     void refresh_completion_context(CommandLine& cl);
     [[noreturn]] void shutdown_from_signal();
@@ -279,7 +287,8 @@ private:
     bool handle_mouse_wheel(int ch, CommandLine& cl);
     bool scroll_mode_nav(int ch);
     void open_panels_and_redraw(CommandLine& cl);
-    PromptOutcome route_to_command_line(int ch, CommandLine& cl, CommandLine::Result& result);
+    detail::PromptOutcome route_to_command_line(int ch, CommandLine& cl,
+                                                CommandLine::Result& result);
     void run_prompt_action(const CommandLine::Result& result, CommandLine& cl);
     void dispatch_prompt(const std::string& text, CommandLine& cl);
     void show_prompt_popup(CommandLine& cl);
