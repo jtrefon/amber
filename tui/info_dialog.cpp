@@ -35,8 +35,8 @@ MENU* build_menu(WINDOW* w, const info_dialog_layout::Layout& lay, int aw,
 
 // Draw the scroll indicators for the menu's current position.
 void draw_scroll_hint(MENU* menu, WINDOW* w, const info_dialog_layout::Layout& lay, int aw) {
-    const info_dialog_layout::ScrollHint hint =
-        info_dialog_layout::scroll_hint(top_row(menu), lay.list_h, static_cast<int>(lay.rows.size()));
+    const info_dialog_layout::ScrollHint hint = info_dialog_layout::scroll_hint(
+        top_row(menu), lay.list_h, static_cast<int>(lay.rows.size()));
     if (!hint.draw)
         return;
     if (hint.up)
