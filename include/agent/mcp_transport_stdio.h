@@ -41,6 +41,9 @@ private:
     void stderr_loop();
     void handle_line(const std::string& line);
     bool write_line(const std::string& line);
+    // Wait until `id` is answered, cancelled, closed, or the timeout expires.
+    // True when the wait ended for a reason other than the timeout.
+    bool wait_for_answer(int id, std::unique_lock<std::mutex>& lk);
     void terminate_child() const;
     void fail(const std::string& reason);
 

@@ -145,6 +145,90 @@ void format_result(std::string output, bool timed_out, int code, int timeout, lo
     if (!r.ok)
         r.error = "command exited with status " + std::to_string(code);
 }
+
+// Poll until the job finishes, is cancelled, or breaches the idle/hard budget.
+// Returns true when the job was cut short.
+bool wait_for_job(JobService* jobs, const CancellationToken& cancel_token, const std::string& id,
+                  int timeout) {
+    const auto hard_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2L * timeout);
+    while (true) {
+        if (run_cancelled(cancel_token))
+            return true;
+        std::shared_ptr<Job> j = jobs->get(id);
+        if (!j || j->is_done())
+            return false;
+        if (j->info().seconds_since_output >= timeout ||
+            std::chrono::steady_clock::now() >= hard_deadline)
+            return true;
+        usleep(50000);
+    }
+}
+
+// Run through the host JobService so the process is visible in /job and on the
+// status bar while it runs, and can be killed. The result is still returned
+// synchronously to the model, exactly as the direct path does.
+void run_via_jobs(JobService* jobs, const CancellationToken& cancel_token,
+                  const std::string& command, int timeout,
+                  const std::chrono::steady_clock::time_point& t0, ToolResult& r) {
+    // Idle-timeout semantics: the command is killed after `timeout` seconds
+    // with NO output. A long-running task that keeps emitting output (e.g. a
+    // build) is normally never cut off, but a hard wall-clock ceiling (2x the
+    // idle budget) guarantees a constantly emitting command cannot run forever.
+    const std::string id = jobs->start(command, Workspace::root(),
+                                       /*hard_timeout_s=*/2L * timeout,
+                                       /*idle_timeout_s=*/timeout);
+    if (id.empty()) {
+        r.ok = false;
+        r.error = "spawn failed";
+        return;
+    }
+    const bool timed_out = wait_for_job(jobs, cancel_token, id, timeout);
+    // Re-acquire the lease (a concurrent stop may have erased the entry, in
+    // which case the job was killed and reaped).
+    std::shared_ptr<Job> j = jobs->get(id);
+    std::string output = j ? j->output() : std::string();
+    const int code = j ? j->exit_code() : 0;
+    const bool stopped = !j; // erased = a concurrent stop killed it
+    const bool killed = j && j->info().state == JobState::Killed;
+    jobs->stop(id); // erase: bash returns output inline, not via /job
+    format_result(std::move(output), timed_out || killed || stopped, code, timeout, elapsed_ms(t0),
+                  r);
+}
+
+// Exit code for a waitpid status, or -1 when the child neither exited nor was
+// signalled.
+int wait_status_code(int status) {
+    if (WIFEXITED(status))
+        return WEXITSTATUS(status);
+    if (WIFSIGNALED(status))
+        return 128 + WTERMSIG(status);
+    return -1;
+}
+
+void run_direct(const std::string& command, int timeout,
+                const std::chrono::steady_clock::time_point& t0, ToolResult& r) {
+    int read_fd = -1;
+    const pid_t pid = spawn_command(command, Workspace::root(), read_fd, r);
+    if (pid < 0)
+        return;
+    setpgid(pid, pid); // race-free with the child also setting it
+
+    std::string output;
+    bool child_done = false;
+    const bool timed_out = run_with_timeout(read_fd, pid, timeout, output, child_done);
+
+    int status = 0;
+    if (!child_done) {
+        drain_output(read_fd, output);
+        waitpid(pid, &status, 0);
+    }
+    close(read_fd);
+
+    format_result(std::move(output), timed_out, wait_status_code(status), timeout, elapsed_ms(t0),
+                  r);
+}
+
 } // namespace
 
 // bash: run a shell command inside the workspace root and return its combined
@@ -232,77 +316,11 @@ private:
 
         // When wired to a host JobService, run the command through it so the
         // process is visible in /job and on the status bar while it runs, and
-        // can be killed. The result is still returned synchronously to the
-        // model exactly as the direct path below does.
-        if (jobs_) {
-            // Idle-timeout semantics: the command is killed after `timeout`
-            // seconds with NO output. A long-running task that keeps emitting
-            // output (e.g. a build) is normally never cut off, but a hard
-            // wall-clock ceiling (2x the idle budget) guarantees a constantly
-            // emitting command cannot run forever.
-            std::string id = jobs_->start(command, Workspace::root(),
-                                          /*hard_timeout_s=*/2L * timeout,
-                                          /*idle_timeout_s=*/timeout);
-            if (id.empty()) {
-                r.ok = false;
-                r.error = "spawn failed";
-                return r;
-            }
-            bool timed_out = false;
-            const auto hard_deadline =
-                std::chrono::steady_clock::now() + std::chrono::seconds(2L * timeout);
-            while (true) {
-                if (run_cancelled(cancel_token_)) {
-                    timed_out = true;
-                    break;
-                }
-                std::shared_ptr<Job> j = jobs_->get(id);
-                if (!j)
-                    break;
-                JobInfo i = j->info();
-                if (j->is_done())
-                    break;
-                if (i.seconds_since_output >= timeout ||
-                    std::chrono::steady_clock::now() >= hard_deadline) {
-                    timed_out = true;
-                    break;
-                }
-                usleep(50000);
-            }
-            // Re-acquire the lease (a concurrent stop may have erased the
-            // entry, in which case the job was killed and reaped).
-            std::shared_ptr<Job> j = jobs_->get(id);
-            std::string output = j ? j->output() : std::string();
-            int code = j ? j->exit_code() : 0;
-            bool stopped = !j; // erased = a concurrent stop killed it
-            bool killed = j && j->info().state == JobState::Killed;
-            timed_out = timed_out || killed || stopped;
-            jobs_->stop(id); // erase: bash returns output inline, not via /job
-            format_result(std::move(output), timed_out, code, timeout, elapsed_ms(t0), r);
-            return r;
-        }
-
-        int read_fd = -1;
-        pid_t pid = spawn_command(command, Workspace::root(), read_fd, r);
-        if (pid < 0)
-            return r;
-        setpgid(pid, pid); // race-free with the child also setting it
-
-        std::string output;
-        bool child_done = false;
-        bool timed_out = run_with_timeout(read_fd, pid, timeout, output, child_done);
-
-        int status = 0;
-        if (!child_done) {
-            drain_output(read_fd, output);
-            waitpid(pid, &status, 0);
-        }
-        close(read_fd);
-
-        int code = WIFEXITED(status)     ? WEXITSTATUS(status)
-                   : WIFSIGNALED(status) ? 128 + WTERMSIG(status)
-                                         : -1;
-        format_result(std::move(output), timed_out, code, timeout, elapsed_ms(t0), r);
+        // can be killed; otherwise spawn and supervise it directly.
+        if (jobs_)
+            run_via_jobs(jobs_, cancel_token_, command, timeout, t0, r);
+        else
+            run_direct(command, timeout, t0, r);
         return r;
     }
 };

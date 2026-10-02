@@ -34,6 +34,13 @@ public:
     void remap_selection();
 
 private:
+    // A filter change always returns the cursor to the top of the list.
+    void reset_cursor();
+    Action key_filter_mode(int ch);
+    Action key_normal_mode(int ch, int max_visible);
+    Action move_up();
+    Action move_down(int max_visible, int count);
+
     std::vector<std::string> items_;
     std::string filter_;
     int selection_ = 0;

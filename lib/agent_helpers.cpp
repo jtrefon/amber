@@ -78,10 +78,41 @@ std::string strip_think(std::string s) {
     return out;
 }
 
+// A UTF-8 continuation byte is 10xxxxxx.
+bool is_continuation(unsigned char c) {
+    return (c & 0xC0) == 0x80;
+}
+
+// The sequence length a lead byte introduces, or 0 when it is not a valid lead
+// byte at all.
+int sequence_length(unsigned char c) {
+    if ((c >> 5) == 0x6)
+        return 2;
+    if ((c >> 4) == 0xE)
+        return 3;
+    if ((c >> 3) == 0x1E)
+        return 4;
+    return 0;
+}
+
+// True when the n-1 continuation bytes after `i` are present and valid.
+bool continuation_ok(const std::string& s, size_t i, int n) {
+    for (int k = 1; k < n; ++k)
+        if (i + k >= s.size() || !is_continuation(static_cast<unsigned char>(s[i + k])))
+            return false;
+    return true;
+}
+
+// The UTF-8 replacement character, for a byte that cannot start a sequence.
+void append_replacement(std::string& out) {
+    out += '\xEF';
+    out += '\xBF';
+    out += '\xBD';
+}
+
 std::string utf8_sanitize(std::string s) {
     std::string out;
     out.reserve(s.size());
-    auto is_cont = [](unsigned char c) { return (c & 0xC0) == 0x80; };
     for (size_t i = 0; i < s.size();) {
         auto c = static_cast<unsigned char>(s[i]);
         if (c < 0x80) {
@@ -89,31 +120,9 @@ std::string utf8_sanitize(std::string s) {
             ++i;
             continue;
         }
-        int n = 0;
-        if ((c >> 5) == 0x6)
-            n = 2;
-        else if ((c >> 4) == 0xE)
-            n = 3;
-        else if ((c >> 3) == 0x1E)
-            n = 4;
-        if (n == 0) {
-            out += '\xEF';
-            out += '\xBF';
-            out += '\xBD';
-            ++i;
-            continue;
-        }
-        bool ok = true;
-        for (int k = 1; k < n; ++k) {
-            if (i + k >= s.size() || !is_cont(static_cast<unsigned char>(s[i + k]))) {
-                ok = false;
-                break;
-            }
-        }
-        if (!ok) {
-            out += '\xEF';
-            out += '\xBF';
-            out += '\xBD';
+        const int n = sequence_length(c);
+        if (n == 0 || !continuation_ok(s, i, n)) {
+            append_replacement(out);
             ++i;
             continue;
         }

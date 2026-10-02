@@ -80,6 +80,9 @@ private:
     Job() = default;
     bool begin(std::string& err);
     void reader_loop();
+    // Append up to kCap, marking truncation. `touch` also resets the idle
+    // timer (the reader does that for fresh output, but not while draining).
+    void append_output(const char* data, std::size_t n, bool touch);
     // EOF path: wait the grace period for the child to exit on its own, then
     // terminate and reap its group; never leaves an unreaped child.
     void reap_after_eof();

@@ -2,6 +2,7 @@
 #include "markdown.h"
 
 #include <cctype>
+#include <optional>
 #include <sstream>
 
 #include "textutil.h"
@@ -40,56 +41,96 @@ void hl_push(std::vector<rich::Run>& runs, const std::string& t, int p, bool b) 
         runs.push_back({t, p, b});
 }
 
+bool is_line_comment_start(const std::string& line, size_t i) {
+    const char c = line[i];
+    if (c == '#')
+        return true;
+    return c == '/' && i + 1 < line.size() && line[i + 1] == '/';
+}
+
+bool is_block_comment_start(const std::string& line, size_t i) {
+    return line[i] == '/' && i + 1 < line.size() && line[i + 1] == '*';
+}
+
+// A comment runs to the end of the line, so it consumes the remainder.
+std::optional<size_t> take_comment(const std::string& line, size_t i,
+                                   std::vector<rich::Run>& runs) {
+    if (!is_line_comment_start(line, i) && !is_block_comment_start(line, i))
+        return std::nullopt;
+    hl_push(runs, line.substr(i), P_MD_CODECMT, false);
+    return line.size();
+}
+
+// A quoted run, honouring backslash escapes.
+std::optional<size_t> take_string(const std::string& line, size_t i, std::vector<rich::Run>& runs) {
+    const char q = line[i];
+    if (q != '"' && q != '\'' && q != '`')
+        return std::nullopt;
+    const size_t n = line.size();
+    size_t j = i + 1;
+    while (j < n && line[j] != q) {
+        if (line[j] == '\\')
+            j += 2;
+        else
+            ++j;
+    }
+    hl_push(runs, line.substr(i, (j < n ? j - i + 1 : n - i)), P_MD_CODESTR, false);
+    return j < n ? j + 1 : n;
+}
+
+bool is_number_start(const std::string& line, size_t i) {
+    const char c = line[i];
+    if (std::isdigit(static_cast<unsigned char>(c)))
+        return true;
+    return c == '.' && i + 1 < line.size() && std::isdigit(static_cast<unsigned char>(line[i + 1]));
+}
+
+std::optional<size_t> take_number(const std::string& line, size_t i, std::vector<rich::Run>& runs) {
+    if (!is_number_start(line, i))
+        return std::nullopt;
+    const size_t n = line.size();
+    size_t j = i;
+    while (j < n && (std::isalnum(static_cast<unsigned char>(line[j])) || line[j] == '.' ||
+                     line[j] == 'x' || line[j] == '_'))
+        ++j;
+    hl_push(runs, line.substr(i, j - i), P_MD_CODENUM, false);
+    return j;
+}
+
+std::optional<size_t> take_word(const std::string& line, size_t i, std::vector<rich::Run>& runs,
+                                int code_pair) {
+    const char c = line[i];
+    if (!std::isalpha(static_cast<unsigned char>(c)) && c != '_')
+        return std::nullopt;
+    const size_t n = line.size();
+    size_t j = i;
+    while (j < n && (std::isalnum(static_cast<unsigned char>(line[j])) || line[j] == '_'))
+        ++j;
+    const std::string w = line.substr(i, j - i);
+    if (is_kw(w))
+        hl_push(runs, w, P_MD_CODEKEY, true);
+    else
+        hl_push(runs, w, code_pair, false);
+    return j;
+}
+
 std::vector<rich::Run> hl_runs(const std::string& line, int code_pair) {
     std::vector<rich::Run> runs;
-    size_t i = 0, n = line.size();
+    const size_t n = line.size();
+    size_t i = 0;
     while (i < n) {
-        char c = line[i];
-        if (c == '#' || (c == '/' && i + 1 < n && line[i + 1] == '/')) {
-            hl_push(runs, line.substr(i), P_MD_CODECMT, false);
-            break;
+        if (const auto next = take_comment(line, i, runs)) {
+            i = *next;
+        } else if (const auto next = take_string(line, i, runs)) {
+            i = *next;
+        } else if (const auto next = take_number(line, i, runs)) {
+            i = *next;
+        } else if (const auto next = take_word(line, i, runs, code_pair)) {
+            i = *next;
+        } else {
+            runs.push_back({std::string(1, line[i]), code_pair, false});
+            ++i;
         }
-        if (c == '/' && i + 1 < n && line[i + 1] == '*') {
-            hl_push(runs, line.substr(i), P_MD_CODECMT, false);
-            break;
-        }
-        if (c == '"' || c == '\'' || c == '`') {
-            char q = c;
-            size_t j = i + 1;
-            while (j < n && line[j] != q) {
-                if (line[j] == '\\')
-                    j += 2;
-                else
-                    ++j;
-            }
-            hl_push(runs, line.substr(i, (j < n ? j - i + 1 : n - i)), P_MD_CODESTR, false);
-            i = (j < n ? j + 1 : n);
-            continue;
-        }
-        if (std::isdigit(static_cast<unsigned char>(c)) ||
-            (c == '.' && i + 1 < n && std::isdigit(static_cast<unsigned char>(line[i + 1])))) {
-            size_t j = i;
-            while (j < n && (std::isalnum(static_cast<unsigned char>(line[j])) || line[j] == '.' ||
-                             line[j] == 'x' || line[j] == '_'))
-                ++j;
-            hl_push(runs, line.substr(i, j - i), P_MD_CODENUM, false);
-            i = j;
-            continue;
-        }
-        if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
-            size_t j = i;
-            while (j < n && (std::isalnum(static_cast<unsigned char>(line[j])) || line[j] == '_'))
-                ++j;
-            std::string w = line.substr(i, j - i);
-            if (is_kw(w))
-                hl_push(runs, w, P_MD_CODEKEY, true);
-            else
-                hl_push(runs, w, code_pair, false);
-            i = j;
-            continue;
-        }
-        runs.push_back({std::string(1, c), code_pair, false});
-        ++i;
     }
     if (runs.empty())
         runs.push_back({line, code_pair, false});

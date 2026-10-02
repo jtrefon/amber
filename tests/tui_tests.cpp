@@ -124,6 +124,42 @@ TEST(textutil_wrap_strips_ansi_and_expands_tabs) {
     ASSERT_EQ(lines[0], "red    x");
 }
 
+TEST(textutil_wrap_drops_control_bytes_and_bad_utf8) {
+    // C0 controls and DEL vanish; an invalid lead byte becomes '?'.
+    auto lines = tui::text::wrap("a\x01\x7f"
+                                 "b\xFF"
+                                 "c",
+                                 80);
+    ASSERT_EQ(lines.size(), (size_t)1);
+    ASSERT_EQ(lines[0], "ab?c");
+}
+
+TEST(textutil_wrap_handles_escape_forms) {
+    // Simple two-byte escape, an unterminated CSI, and a bare CR.
+    ASSERT_EQ(tui::text::wrap("a\x1b"
+                              "Mb",
+                              80)[0],
+              "ab");
+    ASSERT_EQ(tui::text::wrap("a\x1b[3", 80)[0], "a");
+    ASSERT_EQ(tui::text::wrap("a\rb", 80)[0], "ab");
+}
+
+TEST(textutil_wrap_hard_splits_an_unbreakable_run) {
+    auto lines = tui::text::wrap("abcdefghij", 4);
+    ASSERT_EQ(lines.size(), (size_t)3);
+    ASSERT_EQ(lines[0], "abcd");
+    ASSERT_EQ(lines[1], "efgh");
+    ASSERT_EQ(lines[2], "ij");
+}
+
+TEST(textutil_wrap_keeps_empty_lines) {
+    auto lines = tui::text::wrap("a\n\nb", 80);
+    ASSERT_EQ(lines.size(), (size_t)3);
+    ASSERT_EQ(lines[0], "a");
+    ASSERT_EQ(lines[1], "");
+    ASSERT_EQ(lines[2], "b");
+}
+
 TEST(textutil_to_wide_decodes_codepoints) {
     std::wstring w = tui::text::to_wide("a\xF0\x9F\x98\x80");
     ASSERT_EQ(w.size(), (size_t)2);
@@ -2144,6 +2180,33 @@ TEST(form_focus_esc_cancels_from_both_zones) {
     ASSERT_FALSE(b.result);
 }
 
+TEST(form_focus_movement_table_covers_every_mapped_key) {
+    ASSERT(FF::key(tui::keys::kRight, FF::Zone::Fields, false).intent == FF::Intent::NextChar);
+    ASSERT(FF::key(tui::keys::kHome, FF::Zone::Fields, false).intent == FF::Intent::BegLine);
+    ASSERT(FF::key(tui::keys::kEnd, FF::Zone::Fields, false).intent == FF::Intent::EndLine);
+    ASSERT(FF::key(tui::keys::kUp, FF::Zone::Fields, false).intent == FF::Intent::PrevField);
+    ASSERT(FF::key(tui::keys::kDown, FF::Zone::Fields, false).intent == FF::Intent::NextField);
+}
+
+TEST(form_focus_insert_range_boundaries_and_backspace_spellings) {
+    ASSERT(FF::key(32, FF::Zone::Fields, false).intent == FF::Intent::InsertChar);
+    ASSERT(FF::key(126, FF::Zone::Fields, false).intent == FF::Intent::InsertChar);
+    ASSERT(FF::key(31, FF::Zone::Fields, false).intent == FF::Intent::None);
+    ASSERT(FF::key(127, FF::Zone::Fields, false).intent == FF::Intent::DelPrev);
+}
+
+TEST(form_focus_button_row_accepts_every_spelling) {
+    ASSERT(FF::key(tui::keys::kRight, FF::Zone::Ok, false).zone == FF::Zone::Cancel);
+    ASSERT(FF::key(tui::keys::kBtab, FF::Zone::Ok, false).zone == FF::Zone::Cancel);
+    ASSERT(FF::key(tui::keys::kLeft, FF::Zone::Cancel, false).zone == FF::Zone::Ok);
+    auto cr = FF::key('\r', FF::Zone::Ok, false);
+    ASSERT(cr.intent == FF::Intent::Accept);
+    ASSERT_TRUE(cr.result);
+    auto enter = FF::key(tui::keys::kEnter, FF::Zone::Cancel, false);
+    ASSERT(enter.intent == FF::Intent::Accept);
+    ASSERT_FALSE(enter.result);
+}
+
 // --- SessionRow (L1): session browser row text and geometry ---
 
 namespace SR = tui::session_row;
@@ -2292,6 +2355,46 @@ TEST(ansi_sgr_apply_maps_colours_through_the_style) {
     ASSERT_EQ(cur.pair, st.quote_pair);
     SGR::apply(999, cur, base, st); // an unknown code is a no-op
     ASSERT_EQ(cur.pair, st.quote_pair);
+}
+
+TEST(ansi_sgr_apply_covers_every_attribute_code) {
+    tui::md::Style st;
+    tui::md::RunStyle base;
+    base.pair = st.text_pair;
+
+    auto cur = base;
+    SGR::apply(2, cur, base, st);
+    ASSERT_TRUE(cur.dim);
+    SGR::apply(3, cur, base, st);
+    ASSERT_TRUE(cur.italic);
+    SGR::apply(4, cur, base, st);
+    ASSERT_TRUE(cur.under);
+    SGR::apply(23, cur, base, st);
+    ASSERT_FALSE(cur.italic);
+    SGR::apply(24, cur, base, st);
+    ASSERT_FALSE(cur.under);
+}
+
+TEST(ansi_sgr_bright_colours_match_their_normal_twins) {
+    tui::md::Style st;
+    tui::md::RunStyle base;
+    base.pair = st.text_pair;
+    for (int c = 30; c <= 37; ++c) {
+        auto normal = base;
+        auto bright = base;
+        SGR::apply(c, normal, base, st);
+        SGR::apply(c + 60, bright, base, st);
+        ASSERT_EQ(normal.pair, bright.pair);
+    }
+    // Distinct codes must not collapse onto one pair, or the loop above
+    // would pass vacuously.
+    auto a = base, b = base, c = base;
+    SGR::apply(31, a, base, st);
+    SGR::apply(33, b, base, st);
+    SGR::apply(35, c, base, st);
+    ASSERT(a.pair != b.pair);
+    ASSERT(b.pair != c.pair);
+    ASSERT(a.pair != c.pair);
 }
 
 // ---------------------------------------------------------------------------

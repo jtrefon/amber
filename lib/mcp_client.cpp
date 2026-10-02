@@ -53,12 +53,33 @@ std::string MCPClient::connect() {
     return do_connect();
 }
 
+namespace {
+
+// Copy serverInfo and the capability flags out of the initialize result.
+void apply_server_info(const json& result, McpServerInfo& info, McpCapabilities& caps) {
+    const json si = result.value("serverInfo", json::object());
+    info.name = si.value("name", "");
+    info.title = si.value("title", "");
+    info.version = si.value("version", "");
+
+    const json c = result.value("capabilities", json::object());
+    caps.has_tools = c.contains("tools");
+    caps.has_resources = c.contains("resources");
+    caps.has_prompts = c.contains("prompts");
+    caps.has_logging = c.contains("logging");
+    caps.tools_list_changed = c.value("tools", json::object()).value("listChanged", false);
+    caps.resources_list_changed = c.value("resources", json::object()).value("listChanged", false);
+    caps.prompts_list_changed = c.value("prompts", json::object()).value("listChanged", false);
+}
+
+} // namespace
+
 std::string MCPClient::do_connect() {
     if (!transport_) {
         error_ = transport_error_.empty() ? "no transport" : transport_error_;
         return error_;
     }
-    auto init = transport_->request(next_id(), "initialize", init_params());
+    const auto init = transport_->request(next_id(), "initialize", init_params());
     if (init.status == McpTransportStatus::Timeout) {
         error_ = "initialize timed out";
         return error_;
@@ -72,26 +93,14 @@ std::string MCPClient::do_connect() {
         error_ = init.message->error->to_text();
         return error_;
     }
-    json result = init.message->result.value_or(json::object());
-    std::string server_version = result.value("protocolVersion", "");
+    const json result = init.message->result.value_or(json::object());
+    const std::string server_version = result.value("protocolVersion", "");
     if (server_version != kProtocolVersion) {
         error_ =
             "unsupported protocol version: " + (server_version.empty() ? "(none)" : server_version);
         return error_;
     }
-    json info = result.value("serverInfo", json::object());
-    server_info_.name = info.value("name", "");
-    server_info_.title = info.value("title", "");
-    server_info_.version = info.value("version", "");
-    json caps = result.value("capabilities", json::object());
-    caps_.has_tools = caps.contains("tools");
-    caps_.has_resources = caps.contains("resources");
-    caps_.has_prompts = caps.contains("prompts");
-    caps_.tools_list_changed = caps.value("tools", json::object()).value("listChanged", false);
-    caps_.resources_list_changed =
-        caps.value("resources", json::object()).value("listChanged", false);
-    caps_.prompts_list_changed = caps.value("prompts", json::object()).value("listChanged", false);
-    caps_.has_logging = caps.contains("logging");
+    apply_server_info(result, server_info_, caps_);
     transport_->notify("notifications/initialized", json::object());
     connected_ = true;
     return refresh();
@@ -130,51 +139,46 @@ McpTransportResult MCPClient::request_with_retry(int id, const std::string& meth
     return transport_->request(id, method, params);
 }
 
-McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
+namespace {
+
+McpResult failure(const std::string& message) {
     McpResult out;
-    if (!connected_ || !transport_) {
-        out.ok = false;
-        out.error = "mcp server '" + name_ + "' not connected";
-        return out;
-    }
-    if (cancel_token_ && cancel_token_->is_requested()) {
-        out.ok = false;
-        out.error = "cancelled by user";
-        return out;
-    }
+    out.ok = false;
+    out.error = message;
+    return out;
+}
+
+bool cancel_requested(const CancellationToken* token) {
+    return token && token->is_requested();
+}
+
+} // namespace
+
+McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
+    if (!connected_ || !transport_)
+        return failure("mcp server '" + name_ + "' not connected");
+    if (cancel_requested(cancel_token_))
+        return failure("cancelled by user");
     if (list_changed_)
         refresh();
-    int req_id = next_id();
-    auto r = request_with_retry(req_id, "tools/call", {{"name", name}, {"arguments", arguments}});
-    if (cancel_token_ && cancel_token_->is_requested()) {
+
+    const int req_id = next_id();
+    const auto r =
+        request_with_retry(req_id, "tools/call", {{"name", name}, {"arguments", arguments}});
+    if (cancel_requested(cancel_token_) || r.status == McpTransportStatus::Cancelled) {
         notify_cancelled(req_id);
-        out.ok = false;
-        out.error = "cancelled by user";
-        return out;
+        return failure("cancelled by user");
     }
-    if (r.status == McpTransportStatus::Cancelled) {
-        notify_cancelled(req_id);
-        out.ok = false;
-        out.error = "cancelled by user";
-        return out;
-    }
-    if (r.status == McpTransportStatus::Timeout) {
-        out.ok = false;
-        out.error = "mcp call timed out";
-        return out;
-    }
-    if (r.status == McpTransportStatus::TransportError || !r.message) {
-        out.ok = false;
-        out.error =
-            transport_->failure_reason().empty() ? "mcp call failed" : transport_->failure_reason();
-        return out;
-    }
-    if (r.message->error) {
-        out.ok = false;
-        out.error = r.message->error->to_text();
-        return out;
-    }
-    json result = r.message->result.value_or(json::object());
+    if (r.status == McpTransportStatus::Timeout)
+        return failure("mcp call timed out");
+    if (r.status == McpTransportStatus::TransportError || !r.message)
+        return failure(transport_->failure_reason().empty() ? "mcp call failed"
+                                                            : transport_->failure_reason());
+    if (r.message->error)
+        return failure(r.message->error->to_text());
+
+    McpResult out;
+    const json result = r.message->result.value_or(json::object());
     out.ok = !result.value("isError", false);
     out.text = mcp_flatten_content(result.value("content", json::array()), kToolCap);
     if (!out.ok)
@@ -213,38 +217,14 @@ McpResult MCPClient::read_resource(const std::string& uri) {
     return out;
 }
 
-McpResult MCPClient::get_prompt(const std::string& name, const json& arguments) {
-    McpResult out;
-    if (!connected_ || !transport_) {
-        out.ok = false;
-        out.error = "mcp server '" + name_ + "' not connected";
-        return out;
-    }
-    if (list_changed_)
-        refresh();
-    auto r =
-        request_with_retry(next_id(), "prompts/get", {{"name", name}, {"arguments", arguments}});
-    if (r.status == McpTransportStatus::Timeout) {
-        out.ok = false;
-        out.error = "mcp prompt get timed out";
-        return out;
-    }
-    if (r.status == McpTransportStatus::TransportError || !r.message) {
-        out.ok = false;
-        out.error = transport_->failure_reason().empty() ? "mcp prompt get failed"
-                                                         : transport_->failure_reason();
-        return out;
-    }
-    if (r.message->error) {
-        out.ok = false;
-        out.error = r.message->error->to_text();
-        return out;
-    }
-    json result = r.message->result.value_or(json::object());
+namespace {
+
+// Flatten a prompts/get result into "role: text" lines, capped.
+std::string flatten_prompt_messages(const json& result) {
     std::string flat;
     for (const auto& m : result.value("messages", json::array())) {
-        std::string role = m.value("role", "user");
-        std::string text = m.value("content", json::object()).value("text", "");
+        const std::string role = m.value("role", "user");
+        const std::string text = m.value("content", json::object()).value("text", "");
         std::string line = role;
         line += ": ";
         line += text;
@@ -252,7 +232,28 @@ McpResult MCPClient::get_prompt(const std::string& name, const json& arguments) 
         if (flat.empty() || flat.back() != '\n')
             flat += "\n";
     }
-    out.text = flat;
+    return flat;
+}
+
+} // namespace
+
+McpResult MCPClient::get_prompt(const std::string& name, const json& arguments) {
+    if (!connected_ || !transport_)
+        return failure("mcp server '" + name_ + "' not connected");
+    if (list_changed_)
+        refresh();
+    const auto r =
+        request_with_retry(next_id(), "prompts/get", {{"name", name}, {"arguments", arguments}});
+    if (r.status == McpTransportStatus::Timeout)
+        return failure("mcp prompt get timed out");
+    if (r.status == McpTransportStatus::TransportError || !r.message)
+        return failure(transport_->failure_reason().empty() ? "mcp prompt get failed"
+                                                            : transport_->failure_reason());
+    if (r.message->error)
+        return failure(r.message->error->to_text());
+
+    McpResult out;
+    out.text = flatten_prompt_messages(r.message->result.value_or(json::object()));
     return out;
 }
 

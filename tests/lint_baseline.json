@@ -1,77 +1,17 @@
 {
   "_comment": "Known clang-tidy findings, counted per (file, check). The gate fails only when a count grows, so this file can only shrink. Regenerate with `make lint-baseline-update`.",
   "files": {
-    "bench/kpi.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "bench/oracle.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "bench/report.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "bench/scenario.cpp": {
-      "readability-function-cognitive-complexity": 2
-    },
-    "lib/agent_helpers.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "lib/compressor_scanner.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "lib/core_segments.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
     "lib/dialect_openai.cpp": {
       "readability-function-cognitive-complexity": 1
     },
     "lib/mcp_client.cpp": {
       "readability-function-cognitive-complexity": 1
     },
-    "lib/mcp_transport_http.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
     "lib/plugin.cpp": {
       "readability-function-cognitive-complexity": 1
     },
-    "lib/plugin_console.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "lib/shell_classify.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "lib/skill_file.cpp": {
-      "readability-function-cognitive-complexity": 2
-    },
-    "plugins/commandcode/commandcode_plugin.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tools/bash_tool.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tui/canvas.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tui/markdown.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tui/markdown_md4c.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tui/panel_view.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tui/render_engine.cpp": {
-      "readability-function-cognitive-complexity": 2
-    },
-    "tui/rich.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tui/textutil.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
     "tui/tui_session.cpp": {
-      "readability-function-cognitive-complexity": 2
+      "readability-function-cognitive-complexity": 1
     }
   }
 }

@@ -49,7 +49,7 @@ driven by an OpenAI-compatible LLM API.
   and line-break placement — so a locally "clean" tree can fail CI. Match the
   runner (`pip install clang-format==18.1.3`) before reformatting.
 - `make complexity` is the ratcheted gate (`tools/complexity_gate.py`:
-  CCN>15 or length>50 via lizard, fail-closed). It is a CI job but is
+  CCN>15 or NLOC>40 via lizard, fail-closed). It is a CI job but is
   **not** in `ci-gate`, so it can go red without blocking a merge. Every CI
   job carries a `timeout-minutes` and the shared `install-deps` action bounds
   apt (`DPkg::Lock::Timeout` + `timeout` + noninteractive), so a hung
@@ -327,7 +327,7 @@ known mess, even in adjacent code.
     (`tools/class_size_gate.py` + `tests/class_size_baseline.json`).
   - A method/function should stay **under 10 lines** with **minimal branching**.
     Extract loops, parsing, and branching into named helpers. The **enforced**
-    cap is CCN 15 / 50 lines (`make complexity`); 10 lines is the aspiration,
+    cap is CCN 15 / 40 lines (`make complexity`); 10 lines is the aspiration,
     and `docs/complexity-burndown.md` records the gap.
 - **Layering / isolation**: this repo uses a **hexagonal (ports & adapters)**
   style, not strict N-layer:
@@ -534,10 +534,10 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 7418 | Test file; exempt from class-size rule but a candidate for per-area headers. |
-| `lib/session.cpp` | 309 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
+| `tests/run_tests.cpp` | 7437 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `lib/session.cpp` | 324 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 123 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 2950 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2970 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

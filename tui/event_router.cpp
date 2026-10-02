@@ -152,6 +152,62 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id, const std::atomic<bo
     return hooks;
 }
 
+bool EventRouter::handle_window_event(Window* w, AgentEvent& ev) {
+    switch (ev.type) {
+    case AgentEvent::StateChange:
+        handle_state_change(w, ev);
+        return true;
+    case AgentEvent::Reasoning:
+        on_reasoning(w, ev);
+        return true;
+    case AgentEvent::Token:
+        on_token(w, ev);
+        return true;
+    case AgentEvent::Status:
+        handle_status(w, ev);
+        return true;
+    case AgentEvent::ToolCall:
+        on_tool_call(w, ev);
+        return true;
+    case AgentEvent::ToolResult:
+        on_tool_result(w, ev);
+        return true;
+    case AgentEvent::Assistant:
+        on_assistant(w, ev);
+        return true;
+    case AgentEvent::Stats:
+        handle_stats(w, ev);
+        return true;
+    case AgentEvent::Error:
+        on_error(w, ev);
+        return true;
+    case AgentEvent::Done:
+        on_done(w, ev);
+        return true;
+    case AgentEvent::CompressResult:
+        on_compress_result(w, ev);
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool EventRouter::defer_event(AgentEvent&& ev) {
+    switch (ev.type) {
+    case AgentEvent::Approval:
+        defer_or_resolve_approval(std::move(ev));
+        return true;
+    case AgentEvent::ApiKey:
+        defer_or_resolve_api_key(std::move(ev));
+        return true;
+    case AgentEvent::Ask:
+        defer_or_resolve_ask(std::move(ev));
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool EventRouter::drain_events() {
     std::vector<AgentEvent> batch = pop_all();
 
@@ -160,50 +216,9 @@ bool EventRouter::drain_events() {
 
     for (auto& ev : batch) {
         Window* w = route_event(tui_.window_manager_->all(), ev, tui_.window_manager_->active());
-        switch (ev.type) {
-        case AgentEvent::StateChange:
-            handle_state_change(w, ev);
-            break;
-        case AgentEvent::Reasoning:
-            on_reasoning(w, ev);
-            break;
-        case AgentEvent::Token:
-            on_token(w, ev);
-            break;
-        case AgentEvent::Status:
-            handle_status(w, ev);
-            break;
-        case AgentEvent::ToolCall:
-            on_tool_call(w, ev);
-            break;
-        case AgentEvent::ToolResult:
-            on_tool_result(w, ev);
-            break;
-        case AgentEvent::Assistant:
-            on_assistant(w, ev);
-            break;
-        case AgentEvent::Stats:
-            handle_stats(w, ev);
-            break;
-        case AgentEvent::Error:
-            on_error(w, ev);
-            break;
-        case AgentEvent::Done:
-            on_done(w, ev);
-            break;
-        case AgentEvent::CompressResult:
-            on_compress_result(w, ev);
-            break;
-        case AgentEvent::Approval:
-            defer_or_resolve_approval(std::move(ev));
-            break;
-        case AgentEvent::ApiKey:
-            defer_or_resolve_api_key(std::move(ev));
-            break;
-        case AgentEvent::Ask:
-            defer_or_resolve_ask(std::move(ev));
-            break;
-        }
+        if (handle_window_event(w, ev))
+            continue;
+        defer_event(std::move(ev));
     }
 
     pump_pending_approvals();

@@ -7,7 +7,75 @@
 
 namespace bench {
 
-namespace {} // namespace
+namespace {
+
+// Classify a failed tool call by its most specific available signal.
+std::string failure_reason(const EventStream& stream, const std::string& tool_name) {
+    for (const auto& t : stream.tools) {
+        if (t.name != tool_name || t.error.empty())
+            continue;
+        return t.timeout ? "timeout" : "error";
+    }
+    return "error";
+}
+
+void count_tool_outcomes(const EventStream& stream, Kpi& k) {
+    for (const auto& c : stream.calls) {
+        if (c.status == "error") {
+            ++k.tool_failures;
+            ++k.failure_taxonomy[failure_reason(stream, c.name)];
+        } else if (c.status == "denied") {
+            ++k.tool_denied;
+        }
+    }
+}
+
+int count_steers(const EventStream& stream) {
+    int steers = 0;
+    for (const auto& r : stream.recoveries)
+        if (r.kind == "steer")
+            ++steers;
+    return steers;
+}
+
+// Mean tokens/sec across the stats that reported one; -1 when none did.
+double average_tps(const EventStream& stream) {
+    double sum = 0.0;
+    int n = 0;
+    for (const auto& s : stream.stats) {
+        if (s.tps >= 0) {
+            sum += s.tps;
+            ++n;
+        }
+    }
+    return n > 0 ? sum / n : -1.0;
+}
+
+int count_files_touched(const EventStream& stream) {
+    std::set<std::string> touched;
+    for (const auto& e : stream.tools)
+        if (e.name == "write" && e.args.is_object() && e.args.contains("path") &&
+            e.args["path"].is_string())
+            touched.insert(e.args["path"].get<std::string>());
+    return static_cast<int>(touched.size());
+}
+
+void apply_template_result(const TemplateResult& tmpl, Kpi& k) {
+    if (tmpl.tests_total > 0) {
+        k.artifact_score =
+            static_cast<double>(tmpl.tests_passed) / static_cast<double>(tmpl.tests_total);
+        k.compile_ok = tmpl.compile_ok;
+        k.behavior_equivalent = tmpl.behavior_equivalent;
+        k.structure_checks = tmpl.structure_checks;
+        return;
+    }
+    k.artifact_score = 1.0;
+    k.compile_ok = true;
+    k.behavior_equivalent = true;
+    k.structure_checks = 1.0;
+}
+
+} // namespace
 
 Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle, const ResourceMeter& meter,
                 const TemplateResult& tmpl, const Checks& prompt_checks,
@@ -22,72 +90,26 @@ Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle, const Res
     k.compressions = stream.compressions;
     k.bash_cd_prefix = stream.bash_cd_prefix;
     k.tool_calls = static_cast<int>(stream.calls.size());
-    for (const auto& c : stream.calls) {
-        if (c.status == "error") {
-            ++k.tool_failures;
-            // Classify the failure by its most specific available signal.
-            const char* reason = "error";
-            for (const auto& t : stream.tools) {
-                if (t.name == c.name && !t.error.empty()) {
-                    reason = "error";
-                    if (t.timeout)
-                        reason = "timeout";
-                    break;
-                }
-            }
-            ++k.failure_taxonomy[reason];
-        }
-        if (c.status == "denied")
-            ++k.tool_denied;
-    }
+    count_tool_outcomes(stream, k);
     k.wasted = oracle.wasted;
     k.redundant = oracle.redundant;
     k.retries = static_cast<int>(stream.retries.size());
     k.recoveries = static_cast<int>(stream.recoveries.size());
-    for (const auto& r : stream.recoveries)
-        if (r.kind == "steer")
-            ++k.steers;
+    k.steers = count_steers(stream);
     k.hard_stop = stream.hard_stop;
     k.wall_ms = wall_ms;
     k.bullseye_at_ms = bullseye_at_ms;
     k.ttft_ms = stream.ttft_ms;
-    double tps_sum = 0.0;
-    int tps_n = 0;
-    for (const auto& s : stream.stats) {
-        if (s.tps >= 0) {
-            tps_sum += s.tps;
-            ++tps_n;
-        }
-    }
-    k.tps_avg = tps_n > 0 ? tps_sum / tps_n : -1.0;
+    k.tps_avg = average_tps(stream);
     k.prompt_tokens = stream.prompt_tokens;
     k.completion_tokens = stream.completion_tokens;
     k.baseline_rss_kb = meter.baseline_rss_kb();
     k.peak_rss_kb = meter.peak_rss_kb();
     k.cpu_ms = meter.cpu_ms();
-
-    std::set<std::string> touched;
-    for (const auto& e : stream.tools)
-        if (e.name == "write" && e.args.is_object() && e.args.contains("path") &&
-            e.args["path"].is_string())
-            touched.insert(e.args["path"].get<std::string>());
-    k.files_touched = static_cast<int>(touched.size());
-
-    if (tmpl.tests_total > 0) {
-        k.artifact_score =
-            static_cast<double>(tmpl.tests_passed) / static_cast<double>(tmpl.tests_total);
-        k.compile_ok = tmpl.compile_ok;
-        k.behavior_equivalent = tmpl.behavior_equivalent;
-        k.structure_checks = tmpl.structure_checks;
-    } else {
-        k.artifact_score = 1.0;
-        k.compile_ok = true;
-        k.behavior_equivalent = true;
-        k.structure_checks = 1.0;
-    }
-
+    k.files_touched = count_files_touched(stream);
+    apply_template_result(tmpl, k);
     k.prompt_adherence = adherence(prompt_checks, final_text);
-    k.success = oracle.success && !stream.hard_stop && adherence(prompt_checks, final_text) == 1.0;
+    k.success = oracle.success && !stream.hard_stop && k.prompt_adherence == 1.0;
     return k;
 }
 

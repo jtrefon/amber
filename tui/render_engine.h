@@ -36,6 +36,9 @@ public:
     int max_scroll() const;
     std::vector<rich::Line> build_view(const Window& w) const;
     std::vector<rich::Line> build_view_without_working(const Window& w) const;
+    // The live thinking block, and the in-flight assistant text.
+    void append_reasoning(std::vector<rich::Line>& view, const Window& w) const;
+    void append_stream_preview(std::vector<rich::Line>& view, const Window& w) const;
 
     static size_t utf8_len(const std::string& s, size_t i);
     static std::vector<std::string> wrap_text(const std::string& text, int w);
@@ -44,6 +47,16 @@ public:
     void append_rich_to(Window& w, const rich::Line& l);
 
     void draw();
+    // The working line under the chat, and the scroll position indicator.
+    void draw_working_indicator(int row);
+    std::string scroll_glyph(bool show_working) const;
+    // Status-bar painting: one segment (clipped to the budget), the context
+    // gauge, the activity indicator, and the right zone.
+    void put_segment(int y, int budget, int& x, const std::string& s, int pair);
+    void draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long ctx_used, double frac);
+    void draw_spinner(int y, int ix);
+    void draw_right_zone(int y, int w, int right_w,
+                         const std::vector<status_bar_layout::Segment>& right_zone);
     void draw_status_bar(const std::string& tail);
     // Repaint the bar on the second. A segment that renders wall-clock time
     // (the clock plugin) is correct because of this cadence, not because it
@@ -52,6 +65,10 @@ public:
     void tick_clock();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
     void draw_drawer(const std::string& input);
+    // The drawer's header strip and its visible rows.
+    void draw_drawer_header(int top);
+    void draw_drawer_rows(int top, int header, int shown, const std::vector<std::string>& rows,
+                          bool arg_mode);
 
     static std::string drawer_token(const std::string& input);
     static bool drawer_has_arg(const std::string& input);

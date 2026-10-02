@@ -22,6 +22,23 @@ struct Tok {
     bool quoted = false;
 };
 
+// Consume one char inside a quoted span; true when the span ended.
+bool consume_quoted(char c, char quote, std::string& cur) {
+    if (c == quote)
+        return true;
+    cur += c;
+    return false;
+}
+
+// Push the accumulated token, if any, and start a new one.
+void flush_token(std::vector<Tok>& out, std::string& cur, bool& quoted) {
+    if (cur.empty())
+        return;
+    out.push_back({cur, quoted});
+    cur.clear();
+    quoted = false;
+}
+
 // Split a command line honoring single/double quotes. Quoted spans become a
 // single token flagged quoted; quote characters are stripped.
 std::vector<Tok> tokenize(const std::string& s) {
@@ -31,18 +48,12 @@ std::vector<Tok> tokenize(const std::string& s) {
     bool in_single = false, in_double = false;
     for (char c : s) {
         if (in_single) {
-            if (c == '\'')
-                in_single = false;
-            else
-                cur += c;
+            in_single = !consume_quoted(c, '\'', cur);
             quoted = true;
             continue;
         }
         if (in_double) {
-            if (c == '"')
-                in_double = false;
-            else
-                cur += c;
+            in_double = !consume_quoted(c, '"', cur);
             quoted = true;
             continue;
         }
@@ -55,17 +66,12 @@ std::vector<Tok> tokenize(const std::string& s) {
             continue;
         }
         if (c == ' ' || c == '\t' || c == '\n') {
-            if (!cur.empty()) {
-                out.push_back({cur, quoted});
-                cur.clear();
-                quoted = false;
-            }
+            flush_token(out, cur, quoted);
             continue;
         }
         cur += c;
     }
-    if (!cur.empty())
-        out.push_back({cur, quoted});
+    flush_token(out, cur, quoted);
     return out;
 }
 
@@ -309,6 +315,33 @@ struct SegmentScan {
 
 // Redirect, input-redirect, mutator-flag and path-escape scan for one segment.
 // `head_index` is the absolute token index of the segment's head.
+// Record the first out-of-workspace scope seen; a later one does not override
+// it, so the first escape is the one reported.
+void note_outside(SegmentScan& scan, const Tok& t, bool is_target) {
+    if (!scan.outside.empty())
+        return;
+    const std::string scope = outside_scope_for(t, is_target);
+    if (!scope.empty())
+        scan.outside = scope;
+}
+
+// A redirect writes a file. When the target is on the same token, scan it for
+// a path escape; a bare redirect defers to the next token. Returns true when
+// the token was a redirect at all.
+bool note_redirect(SegmentScan& scan, const Tok& t, bool& target_next) {
+    std::string rtarget;
+    if (!output_redirect_target(t, rtarget))
+        return false;
+    scan.write = true; // a redirect writes a file
+    if (rtarget.empty()) {
+        target_next = true;
+    } else {
+        const Tok target{rtarget, false};
+        note_outside(scan, target, /*is_target=*/true);
+    }
+    return true;
+}
+
 SegmentScan scan_segment(const std::vector<Tok>& toks, std::size_t begin, std::size_t end,
                          std::size_t head_index, const std::string& head) {
     SegmentScan scan;
@@ -316,25 +349,12 @@ SegmentScan scan_segment(const std::vector<Tok>& toks, std::size_t begin, std::s
     for (std::size_t i = begin; i < end; ++i) {
         const Tok& t = toks[i];
         if (target_next) {
-            std::string scope = outside_scope_for(t, /*is_target=*/true);
-            if (!scope.empty() && scan.outside.empty())
-                scan.outside = scope;
+            note_outside(scan, t, /*is_target=*/true);
             target_next = false;
             continue;
         }
-        std::string rtarget;
-        if (output_redirect_target(t, rtarget)) {
-            scan.write = true; // a redirect writes a file
-            if (rtarget.empty())
-                target_next = true;
-            else {
-                Tok target{rtarget, false};
-                std::string scope = outside_scope_for(target, true);
-                if (!scope.empty() && scan.outside.empty())
-                    scan.outside = scope;
-            }
+        if (note_redirect(scan, t, target_next))
             continue;
-        }
         if (is_input_redirect(t)) {
             // The input target is the next token; scan it for a path escape
             // (cat < /etc/passwd must be Outside).
@@ -350,9 +370,7 @@ SegmentScan scan_segment(const std::vector<Tok>& toks, std::size_t begin, std::s
         // Every head, readers included, gets a path-escape check on its
         // arguments: a reader still skips the write classification below, but
         // an out-of-workspace path is caught here.
-        std::string scope = outside_scope_for(t, /*is_target=*/false);
-        if (!scope.empty() && scan.outside.empty())
-            scan.outside = scope;
+        note_outside(scan, t, /*is_target=*/false);
     }
     return scan;
 }
@@ -476,54 +494,59 @@ struct Accumulator {
 
 } // namespace
 
+namespace {
+
+// Curated destructive / system-wide command list. These ALWAYS prompt in
+// WRITE mode (subject to stored allow/deny rules). The list is the seed for
+// the JSON policy store and is user-editable there. Benign commands like
+// `cp`/`mv`/`touch` are deliberately absent — they are confined to the
+// workspace and run free unless their arguments escape it.
+const std::vector<std::string> kDestructivePatterns = {
+    "rm",
+    "rmdir",
+    "dd",
+    "mkfs",
+    "fdisk",
+    "parted",
+    "shred",
+    "chmod -R",
+    "chown -R",
+    "sudo",
+    "apt",
+    "apt-get",
+    "dnf",
+    "yum",
+    "pacman",
+    "docker",
+    "podman",
+    "systemctl",
+    "service",
+    "shutdown",
+    "reboot",
+    "halt",
+    "poweroff",
+    "kill",
+    "pkill",
+    "killall",
+    "git reset",
+    "git clean",
+    "git push --force",
+    "git push -f",
+    "git push",
+    "git revert",
+    "git checkout --",
+    "git merge --abort",
+    "pip install",
+    "npm install",
+    "npm publish",
+    "yarn add",
+    "cargo install",
+};
+
+} // namespace
+
 const std::vector<std::string>& destructive_command_patterns() {
-    // Curated destructive / system-wide command list. These ALWAYS prompt in
-    // WRITE mode (subject to stored allow/deny rules). The list is the seed
-    // for the JSON policy store and is user-editable there. Benign commands
-    // like `cp`/`mv`/`touch` are deliberately absent — they are confined to
-    // the workspace and run free unless their arguments escape it.
-    static const std::vector<std::string> kPatterns = {
-        "rm",
-        "rmdir",
-        "dd",
-        "mkfs",
-        "fdisk",
-        "parted",
-        "shred",
-        "chmod -R",
-        "chown -R",
-        "sudo",
-        "apt",
-        "apt-get",
-        "dnf",
-        "yum",
-        "pacman",
-        "docker",
-        "podman",
-        "systemctl",
-        "service",
-        "shutdown",
-        "reboot",
-        "halt",
-        "poweroff",
-        "kill",
-        "pkill",
-        "killall",
-        "git reset",
-        "git clean",
-        "git push --force",
-        "git push -f",
-        "git push",
-        "git revert",
-        "git checkout --",
-        "git merge --abort",
-        "pip install",
-        "npm install",
-        "npm publish",
-        "yarn add",
-        "cargo install",
-    };
-    return kPatterns;
+    return kDestructivePatterns;
 }
 
 // Classify a command line by splitting it into segments and reading the

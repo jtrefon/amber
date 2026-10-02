@@ -150,6 +150,64 @@ std::string duplicate_blocks(const fs::path& artifact_dir) {
                        &status);
 }
 
+// Fraction of the structure checks satisfied by the artifact text; 1.0 when
+// the template declares none.
+double structure_score(const std::vector<StructureCheck>& checks, const std::string& text) {
+    size_t passed = 0;
+    for (const auto& c : checks) {
+        const bool present = text.find(c.pattern) != std::string::npos;
+        if ((c.kind == "must_contain" && present) || (c.kind == "must_not_contain" && !present))
+            ++passed;
+    }
+    return checks.empty() ? 1.0 : static_cast<double>(passed) / static_cast<double>(checks.size());
+}
+
+// How many duplicate pairs the detector reported.
+int count_duplicate_blocks(const std::string& detector_out) {
+    size_t pos = 0;
+    int count = 0;
+    while ((pos = detector_out.find("<->", pos)) != std::string::npos) {
+        ++count;
+        pos += 3;
+    }
+    return count;
+}
+
+// The artifact's own sources: the skeleton's contract sources when present,
+// otherwise every .cpp/.c in the artifact.
+std::vector<fs::path> collect_artifact_sources(const fs::path& tpl, const fs::path& artifact) {
+    std::vector<fs::path> sources = contract_sources(tpl / "skeleton", artifact);
+    if (!sources.empty())
+        return sources;
+    sources = source_files(artifact, ".cpp");
+    const auto c_sources = source_files(artifact, ".c");
+    sources.insert(sources.end(), c_sources.begin(), c_sources.end());
+    return sources;
+}
+
+// Run each hidden test against the artifact and compare with the reference
+// run, setting tests_passed / compile_ok / behavior_equivalent on `r`.
+void evaluate_artifact(const std::string& compiler, const std::vector<fs::path>& art_sources,
+                       const fs::path& artifact, const std::vector<fs::path>& tests,
+                       const std::vector<TestOutcome>& reference_outcomes, const fs::path& cache,
+                       TemplateResult& r) {
+    bool all_good = true;
+    for (size_t i = 0; i < tests.size(); ++i) {
+        const TestOutcome ao = run_one_test(compiler, art_sources, artifact, tests[i], cache);
+        if (!ao.compiled) {
+            r.compile_ok = false;
+            all_good = false;
+            continue;
+        }
+        if (ao.passed)
+            ++r.tests_passed;
+        const TestOutcome& ro = reference_outcomes[i];
+        if (!ro.compiled || !ro.passed || !ao.passed || ro.output != ao.output)
+            all_good = false;
+    }
+    r.behavior_equivalent = all_good;
+}
+
 } // namespace
 
 bool load_structure_checks(const std::string& template_dir, std::vector<StructureCheck>& out,
@@ -206,26 +264,9 @@ TemplateResult run_template(const std::string& template_dir, const std::string& 
         return r;
     }
 
-    const std::string text = artifact_text(artifact);
-    size_t passed_checks = 0;
-    for (const auto& c : checks) {
-        const bool present = text.find(c.pattern) != std::string::npos;
-        if ((c.kind == "must_contain" && present) || (c.kind == "must_not_contain" && !present))
-            ++passed_checks;
-    }
-    r.structure_checks =
-        checks.empty() ? 1.0
-                       : static_cast<double>(passed_checks) / static_cast<double>(checks.size());
+    r.structure_checks = structure_score(checks, artifact_text(artifact));
     r.artifact_loc = artifact_loc(artifact);
-
-    const std::string dup_out = duplicate_blocks(artifact);
-    size_t pos = 0;
-    size_t dup_count = 0;
-    while ((pos = dup_out.find("<->", pos)) != std::string::npos) {
-        ++dup_count;
-        pos += 3;
-    }
-    r.duplicate_blocks = static_cast<int>(dup_count);
+    r.duplicate_blocks = count_duplicate_blocks(duplicate_blocks(artifact));
 
     const fs::path cache = fs::temp_directory_path() /
                            ("amber_bench_tpl_" + std::to_string(static_cast<long>(::getpid())));
@@ -239,27 +280,8 @@ TemplateResult run_template(const std::string& template_dir, const std::string& 
 
     r.tests_total = static_cast<int>(tests.size());
     r.compile_ok = true;
-    bool reference_all_good = true;
-    std::vector<fs::path> art_sources = contract_sources(tpl / "skeleton", artifact);
-    if (art_sources.empty()) {
-        art_sources = source_files(artifact, ".cpp");
-        const auto c_sources = source_files(artifact, ".c");
-        art_sources.insert(art_sources.end(), c_sources.begin(), c_sources.end());
-    }
-    for (size_t i = 0; i < tests.size(); ++i) {
-        TestOutcome ao = run_one_test(compiler, art_sources, artifact, tests[i], cache);
-        if (!ao.compiled) {
-            r.compile_ok = false;
-            reference_all_good = false;
-            continue;
-        }
-        if (ao.passed)
-            ++r.tests_passed;
-        const TestOutcome& ro = reference_outcomes[i];
-        if (!ro.compiled || !ro.passed || !ao.passed || ro.output != ao.output)
-            reference_all_good = false;
-    }
-    r.behavior_equivalent = reference_all_good;
+    evaluate_artifact(compiler, collect_artifact_sources(tpl, artifact), artifact, tests,
+                      reference_outcomes, cache, r);
     fs::remove_all(cache);
     err.clear();
     return r;

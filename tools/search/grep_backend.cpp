@@ -4,9 +4,56 @@
 #include <array>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <sstream>
 
 namespace agent {
+
+namespace {
+
+// `grep -rnI` with shell-safe quoting. "--" terminates option parsing so a
+// pattern starting with "-" (e.g. "-foo") is a literal, not a grep flag.
+std::string build_grep_command(const std::string& query, const std::string& root,
+                               const std::string& glob, long max,
+                               const std::vector<std::string>& exclude_dirs) {
+    std::string cmd = "grep -rnIE --line-number --max-count=10000 ";
+    for (const auto& d : exclude_dirs) {
+        cmd += "--exclude-dir=";
+        cmd += shell_quote(d);
+        cmd += " ";
+    }
+    if (!glob.empty()) {
+        cmd += "--include=";
+        cmd += shell_quote(glob);
+        cmd += " ";
+    }
+    cmd += "-- " + shell_quote(query) + " " + shell_quote(root) + " 2>/dev/null | head -n " +
+           std::to_string(max);
+    return cmd;
+}
+
+// One "path:lineno:text" line; a line with no colon is not a hit.
+std::optional<SearchHit> parse_grep_line(const std::string& line) {
+    const size_t c1 = line.find(':');
+    if (c1 == std::string::npos)
+        return std::nullopt;
+    const size_t c2 = line.find(':', c1 + 1);
+    SearchHit h;
+    h.path = line.substr(0, c1);
+    if (c2 == std::string::npos) {
+        h.line = line.substr(c1 + 1);
+        return h;
+    }
+    try {
+        h.line_no = std::stol(line.substr(c1 + 1, c2 - c1 - 1));
+    } catch (...) {
+        h.line_no = 0;
+    }
+    h.line = line.substr(c2 + 1);
+    return h;
+}
+
+} // namespace
 
 // grep-backed search. Wraps `grep -rnI` with shell-safe quoting. This is the
 // default backend and preserves the exact behavior the tool had before the
@@ -18,53 +65,24 @@ public:
     std::vector<SearchHit>
     search(const std::string& query, const std::string& root, const std::string& glob, long max,
            const std::vector<std::string>& exclude_dirs = default_excluded_dirs()) const override {
-        std::vector<SearchHit> hits;
         // Exclude hidden metadata dirs and vendored code by default; searching
         // them returns escaped JSON blobs that inflate the conversation past
         // any server's max payload (~440MB in practice), triggering HTTP 413.
         // The tool may pass a reduced list when the agent explicitly targets
         // one of these dirs.
-        std::string cmd = "grep -rnIE --line-number --max-count=10000 ";
-        for (const auto& d : exclude_dirs) {
-            cmd += "--exclude-dir=";
-            cmd += shell_quote(d);
-            cmd += " ";
-        }
-        if (!glob.empty()) {
-            cmd += "--include=";
-            cmd += shell_quote(glob);
-            cmd += " ";
-        }
-        // "--" terminates option parsing so a pattern starting with "-"
-        // (e.g. "-foo") is treated as a literal pattern, not a grep flag.
-        cmd += "-- " + shell_quote(query) + " " + shell_quote(root) + " 2>/dev/null | head -n " +
-               std::to_string(max);
+        const std::string out = pipe_read(build_grep_command(query, root, glob, max, exclude_dirs));
 
-        std::string out = pipe_read(cmd);
+        std::vector<SearchHit> hits;
         std::stringstream ss(out);
         std::string line;
         while (std::getline(ss, line)) {
             if (line.empty())
                 continue;
-            // format: path:lineno:text
-            size_t c1 = line.find(':');
-            if (c1 == std::string::npos)
+            std::optional<SearchHit> hit = parse_grep_line(line);
+            if (!hit)
                 continue;
-            size_t c2 = line.find(':', c1 + 1);
-            SearchHit h;
-            h.path = line.substr(0, c1);
-            if (c2 != std::string::npos) {
-                try {
-                    h.line_no = std::stol(line.substr(c1 + 1, c2 - c1 - 1));
-                } catch (...) {
-                    h.line_no = 0;
-                }
-                h.line = line.substr(c2 + 1);
-            } else {
-                h.line = line.substr(c1 + 1);
-            }
-            h.score = static_cast<double>(hits.size()); // preserve order
-            hits.push_back(std::move(h));
+            hit->score = static_cast<double>(hits.size()); // preserve order
+            hits.push_back(std::move(*hit));
         }
         return hits;
     }
