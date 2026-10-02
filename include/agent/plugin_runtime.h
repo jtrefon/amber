@@ -31,8 +31,55 @@
 
 namespace agent {
 
+namespace detail {
+
+struct WalletState {
+    std::atomic<bool> inflight{false};
+    std::atomic<bool> has_value{false}; // the ticket answered with a value
+    std::atomic<bool> failed{false};
+    std::atomic<long long> active_ticket{0};
+    std::atomic<long long> result_ticket{0};
+    std::atomic<long long> last_ms{0};
+    std::string provider;    // the provider the active ticket fetches for
+    WalletSnapshot snapshot; // written by the worker under mutex
+    mutable std::mutex mutex;
+};
+
+struct Entry {
+    std::shared_ptr<IPlugin> plugin;
+    bool bundled = true;
+    // What the plugin declared at registration; installed on activation.
+    std::vector<std::unique_ptr<Capability>> declared;
+};
+
+} // namespace detail
+
+struct PluginStatus {
+    std::string id;
+    std::string version;
+    std::string tier;        // "bundled" or "external"
+    std::string description; // one-line summary, may be empty
+    std::string category;    // grouping for the registry list
+    bool enabled = false;
+    std::vector<ExtensionItem> contributions;
+};
+
+struct WalletView {
+    bool enabled = true; // the display switch (a user preference)
+    bool supported = false;
+    bool ready = false;  // a fetch produced a value
+    bool failed = false; // the last fetch did not
+    WalletSnapshot snapshot;
+    std::string holder; // provider id, for the command output
+};
+
 class PluginRuntime {
 public:
+    // The public data types live at namespace scope; the aliases keep
+    // PluginRuntime::PluginStatus and PluginRuntime::WalletView valid.
+    using PluginStatus = agent::PluginStatus;
+    using WalletView = agent::WalletView;
+
     // `config` is taken by value: it is kept as the fallback configuration
     // until the host attaches its own, so this constructor owns a copy either
     // way.
@@ -96,16 +143,6 @@ public:
 
     // --- State (backs /get plugin and /set plugin) -------------------------
 
-    struct PluginStatus {
-        std::string id;
-        std::string version;
-        std::string tier;        // "bundled" or "external"
-        std::string description; // one-line summary, may be empty
-        std::string category;    // grouping for the registry list
-        bool enabled = false;
-        std::vector<ExtensionItem> contributions;
-    };
-
     std::vector<PluginStatus> list() const;
     bool has(const std::string& id) const;
     PluginStatus status(const std::string& id) const;
@@ -130,14 +167,6 @@ public:
     // What the status bar and `/get provider wallet` report. `supported` is
     // whether the active provider declared a wallet at all; the rest describes
     // the last refresh.
-    struct WalletView {
-        bool enabled = true; // the display switch (a user preference)
-        bool supported = false;
-        bool ready = false;  // a fetch produced a value
-        bool failed = false; // the last fetch did not
-        WalletSnapshot snapshot;
-        std::string holder; // provider id, for the command output
-    };
 
     // State shared with an in-flight fetch.
     //
@@ -149,17 +178,6 @@ public:
     // and the ticket fields are host-thread-only bookkeeping, which is what
     // keeps a fetch that lands after a provider switch from being shown under
     // the new provider.
-    struct WalletState {
-        std::atomic<bool> inflight{false};
-        std::atomic<bool> has_value{false}; // the ticket answered with a value
-        std::atomic<bool> failed{false};
-        std::atomic<long long> active_ticket{0};
-        std::atomic<long long> result_ticket{0};
-        std::atomic<long long> last_ms{0};
-        std::string provider;    // the provider the active ticket fetches for
-        WalletSnapshot snapshot; // written by the worker under mutex
-        mutable std::mutex mutex;
-    };
 
     WalletView wallet() const;
     bool wallet_enabled() const;
@@ -210,8 +228,9 @@ private:
     // Invoke the fetch and record the result against its ticket. Reads only its
     // arguments and the shared atomics, so it is safe on a detached worker that
     // outlives this runtime.
-    static void run_wallet_fetch(const std::shared_ptr<WalletState>& state, long long ticket,
-                                 const WalletRegistry::Fetch& fetch, const Config& cfg);
+    static void run_wallet_fetch(const std::shared_ptr<detail::WalletState>& state,
+                                 long long ticket, const WalletRegistry::Fetch& fetch,
+                                 const Config& cfg);
 
     // Install the harness's own UI - the status-bar segments, the wallet
     // readout and the registry console - through the same declare-and-install
@@ -238,7 +257,7 @@ private:
     // outlives this runtime if a fetch is still running when it is destroyed.
     // The worker touches only the atomics inside; `provider` and the ticket
     // counter below are host-thread-only.
-    std::shared_ptr<WalletState> wallet_state_ = std::make_shared<WalletState>();
+    std::shared_ptr<detail::WalletState> wallet_state_ = std::make_shared<detail::WalletState>();
     long long wallet_ticket_ = 0; // host thread only
     PluginLedger ledger_;
     PluginRegistry registry_;
@@ -250,13 +269,7 @@ private:
     UiServices* ui_services_ = &null_ui_services();
     const Workspace* workspace_;
 
-    struct Entry {
-        std::shared_ptr<IPlugin> plugin;
-        bool bundled = true;
-        // What the plugin declared at registration; installed on activation.
-        std::vector<std::unique_ptr<Capability>> declared;
-    };
-    std::map<std::string, Entry> plugins_;
+    std::map<std::string, detail::Entry> plugins_;
 };
 
 } // namespace agent
