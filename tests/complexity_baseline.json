@@ -2,12 +2,10 @@
   "ccn_max": 15,
   "files": {
     "tui/canvas.cpp": 1,
-    "tui/event_router.cpp": 1,
     "tui/help_page.cpp": 1,
     "tui/info_dialog.cpp": 1,
     "tui/panel_view.cpp": 1,
-    "tui/render_engine.cpp": 4,
-    "tui/tui_session.cpp": 1
+    "tui/render_engine.cpp": 4
   },
   "len_max": 50
 }

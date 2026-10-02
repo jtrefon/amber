@@ -163,39 +163,30 @@ void SessionController::fork_session() {
     tui_.append_line(P_STATUS, "forked session into window '" + fork.title + "'");
 }
 
-void SessionController::load_session(const std::string& id) {
-    agent::Session s;
-    if (!store_.load(id, s)) {
-        tui_.append_line(P_STATUS, "load failed: no session " + id);
+// Large context on load?  Compress asynchronously so the first turn uses a
+// smaller prefill.  We check utilisation directly (not the per-turn gate)
+// because this is a one-time load reduction, not an inline compression that
+// would break tail-injection.
+void SessionController::maybe_background_compress(Window& w, const agent::Session& s) {
+    const double utilisation = s.messages.empty()
+                                   ? 0.0
+                                   : static_cast<double>(w.agent->context().token_count()) /
+                                         std::max(1, tui_.cfg_.context_size);
+    if (utilisation <= 0.40)
         return;
-    }
-    Window& w = tui_.new_window(s.title.empty() ? "chat" : s.title);
-    w.session_id = s.id;
-    w.agent->set_context(s.messages);
-    // Large context on load?  Compress asynchronously so the first turn uses a
-    // smaller prefill.  We check utilisation directly (not the per-turn gate)
-    // because this is a one-time load reduction, not an inline compression that
-    // would break tail-injection.
-    double utilisation = s.messages.empty()
-                             ? 0.0
-                             : static_cast<double>(w.agent->context().token_count()) /
-                                   std::max(1, tui_.cfg_.context_size);
-    if (utilisation > 0.40) {
-        tui_.append_line(P_STATUS, "large session — background compression started");
-        tui_.switch_to(tui_.window_manager_->all().size() - 1);
-        Window* my_win = &w;
-        size_t my_id = w.id;
-        tui_.compress_worker(*my_win, my_id);
-    }
-    if (!s.meta.empty())
-        w.agent->meta_ = s.meta;
-    // Restore UI state from saved session meta.
+    tui_.append_line(P_STATUS, "large session — background compression started");
+    tui_.switch_to(tui_.window_manager_->all().size() - 1);
+    tui_.compress_worker(w, w.id);
+}
+
+// Restore UI state from saved session meta.
+void SessionController::restore_stats(Window& w, const agent::Session& s) {
     auto get_num = [&](const char* key, long def) -> long {
         return (s.meta.contains(key) && s.meta[key].is_number()) ? s.meta[key].get<long>() : def;
     };
     w.ctx_used.store(get_num("ctx_used", -1));
     w.ctx_estimate = 0; // refilled by the restore's context events
-    long restored_ctx = get_num("ctx_size", 0);
+    const long restored_ctx = get_num("ctx_size", 0);
     if (restored_ctx > 0)
         tui_.cfg_.context_size = static_cast<int>(restored_ctx);
     if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
@@ -205,12 +196,27 @@ void SessionController::load_session(const std::string& id) {
         w.stats.completion_tokens = get_num("completion_tokens", -1);
         w.stats.valid = true;
     }
+}
+
+void SessionController::load_session(const std::string& id) {
+    agent::Session s;
+    if (!store_.load(id, s)) {
+        tui_.append_line(P_STATUS, "load failed: no session " + id);
+        return;
+    }
+    Window& w = tui_.new_window(s.title.empty() ? "chat" : s.title);
+    w.session_id = s.id;
+    w.agent->set_context(s.messages);
+    maybe_background_compress(w, s);
+    if (!s.meta.empty())
+        w.agent->meta_ = s.meta;
+    restore_stats(w, s);
+
     std::vector<SessionController::RestoredCall> pending;
     for (const auto& m : s.messages)
         restore_message_lines(m, pending);
-    if (!s.messages.empty()) {
+    if (!s.messages.empty())
         tui_.win().scroll_top = tui_.render_engine_->max_scroll();
-    }
     tui_.append_line(P_STATUS, "loaded session " + s.id);
     tui_.draw();
 }
