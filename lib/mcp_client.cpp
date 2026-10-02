@@ -130,51 +130,46 @@ McpTransportResult MCPClient::request_with_retry(int id, const std::string& meth
     return transport_->request(id, method, params);
 }
 
-McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
+namespace {
+
+McpResult failure(const std::string& message) {
     McpResult out;
-    if (!connected_ || !transport_) {
-        out.ok = false;
-        out.error = "mcp server '" + name_ + "' not connected";
-        return out;
-    }
-    if (cancel_token_ && cancel_token_->is_requested()) {
-        out.ok = false;
-        out.error = "cancelled by user";
-        return out;
-    }
+    out.ok = false;
+    out.error = message;
+    return out;
+}
+
+bool cancel_requested(const CancellationToken* token) {
+    return token && token->is_requested();
+}
+
+} // namespace
+
+McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
+    if (!connected_ || !transport_)
+        return failure("mcp server '" + name_ + "' not connected");
+    if (cancel_requested(cancel_token_))
+        return failure("cancelled by user");
     if (list_changed_)
         refresh();
-    int req_id = next_id();
-    auto r = request_with_retry(req_id, "tools/call", {{"name", name}, {"arguments", arguments}});
-    if (cancel_token_ && cancel_token_->is_requested()) {
+
+    const int req_id = next_id();
+    const auto r =
+        request_with_retry(req_id, "tools/call", {{"name", name}, {"arguments", arguments}});
+    if (cancel_requested(cancel_token_) || r.status == McpTransportStatus::Cancelled) {
         notify_cancelled(req_id);
-        out.ok = false;
-        out.error = "cancelled by user";
-        return out;
+        return failure("cancelled by user");
     }
-    if (r.status == McpTransportStatus::Cancelled) {
-        notify_cancelled(req_id);
-        out.ok = false;
-        out.error = "cancelled by user";
-        return out;
-    }
-    if (r.status == McpTransportStatus::Timeout) {
-        out.ok = false;
-        out.error = "mcp call timed out";
-        return out;
-    }
-    if (r.status == McpTransportStatus::TransportError || !r.message) {
-        out.ok = false;
-        out.error =
-            transport_->failure_reason().empty() ? "mcp call failed" : transport_->failure_reason();
-        return out;
-    }
-    if (r.message->error) {
-        out.ok = false;
-        out.error = r.message->error->to_text();
-        return out;
-    }
-    json result = r.message->result.value_or(json::object());
+    if (r.status == McpTransportStatus::Timeout)
+        return failure("mcp call timed out");
+    if (r.status == McpTransportStatus::TransportError || !r.message)
+        return failure(transport_->failure_reason().empty() ? "mcp call failed"
+                                                            : transport_->failure_reason());
+    if (r.message->error)
+        return failure(r.message->error->to_text());
+
+    McpResult out;
+    const json result = r.message->result.value_or(json::object());
     out.ok = !result.value("isError", false);
     out.text = mcp_flatten_content(result.value("content", json::array()), kToolCap);
     if (!out.ok)

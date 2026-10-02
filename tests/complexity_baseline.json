@@ -1,8 +1,6 @@
 {
   "ccn_max": 15,
   "files": {
-    "bench/probe.cpp": 2,
-    "lib/mcp_client.cpp": 1,
     "src/smoketest.cpp": 1,
     "tools/plugins/cdp/ws_test.cpp": 1,
     "tools/plugins/sysinfo/main.cpp": 2,

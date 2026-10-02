@@ -1089,6 +1089,15 @@ bool dispatch_probe_roundtrip(ProbeResult& r) {
     return true;
 }
 
+// A single-call message for the bash tool.
+agent::json bash_call(const std::string& id, const std::string& command) {
+    agent::json tc;
+    tc["id"] = id;
+    tc["type"] = "function";
+    tc["function"] = {{"name", "bash"}, {"arguments", {{"command", command}}}};
+    return tc;
+}
+
 // P-dispatch-parallel: multiple calls in one message must all execute and
 // each result must pair with the call that produced it (no cross-pairing).
 bool dispatch_probe_parallel(ProbeResult& r) {
@@ -1102,20 +1111,8 @@ bool dispatch_probe_parallel(ProbeResult& r) {
     agent::Context dctx;
 
     agent::json calls = agent::json::array();
-    {
-        agent::json tc;
-        tc["id"] = "cA";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo AAA"}}}};
-        calls.push_back(tc);
-    }
-    {
-        agent::json tc;
-        tc["id"] = "cB";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo BBB"}}}};
-        calls.push_back(tc);
-    }
+    calls.push_back(bash_call("cA", "echo AAA"));
+    calls.push_back(bash_call("cB", "echo BBB"));
 
     // Capture each call's command -> output mapping (the result hook passes
     // the tool name, not the call id, so key by the command we sent).
@@ -1161,20 +1158,8 @@ bool dispatch_probe_out_of_order(ProbeResult& r) {
     agent::Context dctx;
 
     agent::json calls = agent::json::array();
-    {
-        agent::json tc;
-        tc["id"] = "cSlow";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "sleep 0.3; echo SLOW"}}}};
-        calls.push_back(tc);
-    }
-    {
-        agent::json tc;
-        tc["id"] = "cFast";
-        tc["type"] = "function";
-        tc["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo FAST"}}}};
-        calls.push_back(tc);
-    }
+    calls.push_back(bash_call("cSlow", "sleep 0.3; echo SLOW"));
+    calls.push_back(bash_call("cFast", "echo FAST"));
 
     std::map<std::string, std::string> paired;
     agent::AgentHooks hooks;
