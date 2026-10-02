@@ -1657,8 +1657,8 @@ namespace {
 // a loop rather than 41 calls. Defined before `g_registrar`, so within this
 // translation unit it is initialised first.
 struct ProbeEntry {
-    const char* family;
-    const char* name;
+    const char* family = "";
+    const char* name = "";
     std::function<bool(ProbeResult&)> run;
 };
 
