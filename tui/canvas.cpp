@@ -49,56 +49,77 @@ void Canvas::rewrap() {
         top_ = max_top();
 }
 
+namespace {
+
+// Fit `ws` into `budget` display columns: sets `count` to how many wide chars
+// fit and returns the columns consumed. mvwaddnwstr does not clip, so the
+// caller must — and by DISPLAY COLUMNS, not wide-char count, because a run may
+// hold double-width glyphs (emoji, CJK) that occupy two columns each.
+int clamp_to_columns(const std::wstring& ws, int budget, int& count) {
+    count = 0;
+    int remaining = budget;
+    for (wchar_t wc : ws) {
+        int w = wcwidth(wc);
+        if (w < 0)
+            w = 1;
+        if (w > remaining)
+            break;
+        remaining -= w;
+        ++count;
+    }
+    return budget - remaining;
+}
+
+} // namespace
+
+void Canvas::draw_hr(int row, const rich::Line& l) {
+    const int pair = l.runs.empty() ? P_BAR_DIM : l.runs[0].pair;
+    wattron(win_, COLOR_PAIR(pair));
+    whline(win_, ACS_HLINE, cols_);
+    wattroff(win_, COLOR_PAIR(pair));
+}
+
+void Canvas::draw_run(int row, int& x, const rich::Run& r) {
+    const int room = cols_ - x;
+    if (room <= 0)
+        return;
+    const int attr = (r.bold ? A_BOLD : 0) | (r.dim ? A_DIM : 0) | (r.italic ? A_ITALIC : 0) |
+                     (r.under ? A_UNDERLINE : 0);
+    wattron(win_, COLOR_PAIR(r.pair) | attr);
+    const std::wstring ws = text::to_wide(r.text);
+    int n = 0;
+    const int drawn = clamp_to_columns(ws, room, n);
+    if (n > 0)
+        mvwaddnwstr(win_, row, x, ws.c_str(), n);
+    wattroff(win_, COLOR_PAIR(r.pair) | attr);
+    // Advance by the true drawn width (double-width glyphs consume two
+    // columns), not by display_cols() which counts each char as 1.
+    x += drawn;
+}
+
+void Canvas::draw_line(int row, const rich::Line& l) {
+    if (l.is_hr) {
+        draw_hr(row, l);
+        return;
+    }
+    int x = 0;
+    for (const auto& r : l.runs) {
+        if (x >= cols_)
+            break; // nothing left on this row
+        draw_run(row, x, r);
+    }
+}
+
 void Canvas::render() {
     if (!win_)
         return;
     werase(win_);
-    int start = std::min(top_, max_top());
+    const int start = std::min(top_, max_top());
     for (int row = 0; row < rows_; ++row) {
-        int idx = start + row;
+        const int idx = start + row;
         if (idx < 0 || idx >= wrapped_count())
             continue;
-        const rich::Line& l = wrapped_[idx];
-        if (l.is_hr) {
-            wattron(win_, COLOR_PAIR(l.runs.empty() ? P_BAR_DIM : l.runs[0].pair));
-            whline(win_, ACS_HLINE, cols_);
-            wattroff(win_, COLOR_PAIR(l.runs.empty() ? P_BAR_DIM : l.runs[0].pair));
-            continue;
-        }
-        int x = 0;
-        for (const auto& r : l.runs) {
-            if (x >= cols_)
-                break; // nothing left on this row
-            int room = cols_ - x;
-            if (room <= 0)
-                break;
-            int attr = (r.bold ? A_BOLD : 0) | (r.dim ? A_DIM : 0) | (r.italic ? A_ITALIC : 0) |
-                       (r.under ? A_UNDERLINE : 0);
-            wattron(win_, COLOR_PAIR(r.pair) | attr);
-            std::wstring ws = text::to_wide(r.text);
-            // Clamp the write to the window width. mvwaddnwstr does not clip
-            // and would otherwise scribble past the row buffer (heap corrup-
-            // tion / crash). The clamp must be by DISPLAY COLUMNS, not wide-
-            // char count, because a run may contain double-width glyphs (emoji,
-            // CJK) that occupy two columns each.
-            int budget = room;
-            int n = 0;
-            for (wchar_t wc : ws) {
-                int w = wcwidth(wc);
-                if (w < 0)
-                    w = 1;
-                if (w > budget)
-                    break;
-                budget -= w;
-                ++n;
-            }
-            if (n > 0)
-                mvwaddnwstr(win_, row, x, ws.c_str(), n);
-            wattroff(win_, COLOR_PAIR(r.pair) | attr);
-            // Advance x by the true drawn width (double-width glyphs consume
-            // two columns), not by display_cols() which counts each char as 1.
-            x += (room - budget);
-        }
+        draw_line(row, wrapped_[idx]);
     }
     wnoutrefresh(win_);
 }
