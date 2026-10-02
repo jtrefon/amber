@@ -1,9 +1,6 @@
 {
   "ccn_max": 15,
   "files": {
-    "src/smoketest.cpp": 1,
-    "tools/plugins/cdp/ws_test.cpp": 1,
-    "tools/plugins/sysinfo/main.cpp": 2,
     "tui/canvas.cpp": 1,
     "tui/event_router.cpp": 1,
     "tui/help_page.cpp": 1,
