@@ -72,7 +72,9 @@ int clamp_to_columns(const std::wstring& ws, int budget, int& count) {
 
 } // namespace
 
-void Canvas::draw_hr(int row, const rich::Line& l) {
+// The rule is drawn at the window's cursor (whline takes no row), which is the
+// behaviour this has always had.
+void Canvas::draw_hr(const rich::Line& l) {
     const int pair = l.runs.empty() ? P_BAR_DIM : l.runs[0].pair;
     wattron(win_, COLOR_PAIR(pair));
     whline(win_, ACS_HLINE, cols_);
@@ -99,7 +101,7 @@ void Canvas::draw_run(int row, int& x, const rich::Run& r) {
 
 void Canvas::draw_line(int row, const rich::Line& l) {
     if (l.is_hr) {
-        draw_hr(row, l);
+        draw_hr(l);
         return;
     }
     int x = 0;

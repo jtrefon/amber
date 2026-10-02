@@ -29,9 +29,14 @@ std::vector<std::string> sub_command_lines(const SettingRegistry& settings, cons
     out.emplace_back("sub-commands:");
     for (const auto& k : kids) {
         std::string line = "  " + k;
-        const std::string h = settings.help_for(key + "." + k);
-        if (!h.empty())
-            line += "  —  " + h;
+        std::string subkey = key;
+        subkey += '.';
+        subkey += k;
+        const std::string h = settings.help_for(subkey);
+        if (!h.empty()) {
+            line += "  —  ";
+            line += h;
+        }
         out.emplace_back(line);
     }
     out.emplace_back("");

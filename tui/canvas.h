@@ -47,7 +47,7 @@ private:
 
     // Paint one wrapped line, its hr rule, or one of its runs.
     void draw_line(int row, const rich::Line& l);
-    void draw_hr(int row, const rich::Line& l);
+    void draw_hr(const rich::Line& l);
     void draw_run(int row, int& x, const rich::Run& r);
 
     WINDOW* win_ = nullptr;
