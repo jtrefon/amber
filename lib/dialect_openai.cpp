@@ -290,6 +290,27 @@ const json* model_array(const json& j) {
 
 // OpenAI-compatible event state machine: `data:` chunks carry
 // choices[0].delta with content / reasoning_content / tool_calls.
+// Scan `s` from `i` for `tag`: append the text before it to `out` and advance
+// `i` past the tag, returning true. When the tag is absent, append the safe
+// prefix and park a tail of tag_len-1 bytes in `pending` (a tag can straddle
+// the chunk boundary), returning false.
+bool take_tagged(std::string& s, std::size_t& i, const char* tag, std::size_t tag_len,
+                 std::string& out, std::string& pending) {
+    const std::size_t found = s.find(tag, i, tag_len);
+    if (found == std::string::npos) {
+        const std::size_t hold = tag_len - 1;
+        std::size_t safe = s.size() > hold ? s.size() - hold : i;
+        if (safe < i)
+            safe = i;
+        out += s.substr(i, safe - i);
+        pending = s.substr(safe);
+        return false;
+    }
+    out += s.substr(i, found - i);
+    i = found + tag_len;
+    return true;
+}
+
 class OpenAIStreamDecoder : public StreamDecoder {
 public:
     using StreamDecoder::StreamDecoder;
@@ -364,32 +385,12 @@ private:
         std::size_t i = 0;
         while (i < s.size()) {
             if (!in_think_) {
-                std::size_t open = s.find("<think>", i);
-                if (open == std::string::npos) {
-                    // Keep a short tail back in case a tag straddles the
-                    // boundary.
-                    std::size_t safe = s.size() > 6 ? s.size() - 6 : i;
-                    if (safe < i)
-                        safe = i;
-                    chunk.delta += s.substr(i, safe - i);
-                    pending_ = s.substr(safe);
+                if (!take_tagged(s, i, "<think>", 7, chunk.delta, pending_))
                     return;
-                }
-                chunk.delta += s.substr(i, open - i);
-                i = open + 7;
                 in_think_ = true;
             } else {
-                std::size_t close = s.find("</think>", i);
-                if (close == std::string::npos) {
-                    std::size_t safe = s.size() > 7 ? s.size() - 7 : i;
-                    if (safe < i)
-                        safe = i;
-                    chunk.reasoning += s.substr(i, safe - i);
-                    pending_ = s.substr(safe);
+                if (!take_tagged(s, i, "</think>", 8, chunk.reasoning, pending_))
                     return;
-                }
-                chunk.reasoning += s.substr(i, close - i);
-                i = close + 8;
                 in_think_ = false;
             }
         }

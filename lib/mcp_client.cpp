@@ -323,6 +323,23 @@ std::string MCPClient::discover_resources() {
     return "";
 }
 
+namespace {
+
+// One prompt entry from a prompts/list page: the display fields plus the names
+// of its required arguments.
+McpPromptDef prompt_def_from(const json& p) {
+    McpPromptDef def;
+    def.name = p.value("name", "");
+    def.title = p.value("title", "");
+    def.description = p.value("description", "");
+    for (const auto& a : p.value("arguments", json::array()))
+        if (a.value("required", false))
+            def.required_args.push_back(a.value("name", ""));
+    return def;
+}
+
+} // namespace
+
 std::string MCPClient::discover_prompts() {
     prompts_.clear();
     if (!caps_.has_prompts)
@@ -341,14 +358,7 @@ std::string MCPClient::discover_prompts() {
             return r.message->error->to_text();
         json result = r.message->result.value_or(json::object());
         for (const auto& p : result.value("prompts", json::array())) {
-            McpPromptDef def;
-            def.name = p.value("name", "");
-            def.title = p.value("title", "");
-            def.description = p.value("description", "");
-            for (const auto& a : p.value("arguments", json::array())) {
-                if (a.value("required", false))
-                    def.required_args.push_back(a.value("name", ""));
-            }
+            McpPromptDef def = prompt_def_from(p);
             if (!def.name.empty())
                 prompts_.push_back(std::move(def));
         }
