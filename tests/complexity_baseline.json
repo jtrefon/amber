@@ -2,10 +2,6 @@
   "ccn_max": 15,
   "functions": {
     "bench/probe.cpp": {
-      "bench::ProbeRegistrar::ProbeRegistrar": {
-        "ccn": 1,
-        "nloc": 44
-      },
       "bench::context_probe_token_fidelity": {
         "ccn": 7,
         "nloc": 42
@@ -29,12 +25,6 @@
       "agent::Agent::dispatch_with_loop_detection": {
         "ccn": 15,
         "nloc": 46
-      }
-    },
-    "lib/agent_helpers.cpp": {
-      "agent::utf8_sanitize": {
-        "ccn": 11,
-        "nloc": 44
       }
     },
     "lib/config.cpp": {
@@ -103,20 +93,6 @@
       "agent::render_tools_markdown": {
         "ccn": 10,
         "nloc": 41
-      }
-    },
-    "lib/shell_classify.cpp": {
-      "agent::destructive_command_patterns": {
-        "ccn": 1,
-        "nloc": 44
-      },
-      "agent::scan_segment": {
-        "ccn": 14,
-        "nloc": 42
-      },
-      "agent::tokenize": {
-        "ccn": 13,
-        "nloc": 44
       }
     },
     "src/main.cpp": {

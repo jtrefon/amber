@@ -1653,50 +1653,64 @@ bool output_probe_envelope_ext(ProbeResult& r) {
 
 namespace {
 
+// The families the scorecard requires, kept as data so the registrar below is
+// a loop rather than 41 calls. Defined before `g_registrar`, so within this
+// translation unit it is initialised first.
+struct ProbeEntry {
+    const char* family;
+    const char* name;
+    std::function<bool(ProbeResult&)> run;
+};
+
+const ProbeEntry kProbeTable[] = {
+    {"parse", "parse_tool_calls_roundtrip", parse_probe_tool_calls_roundtrip},
+    {"parse", "parse_reasoning_segmentation", parse_probe_reasoning_segmentation},
+    {"extract", "extract_bare_json", extract_probe_bare_json},
+    {"extract", "extract_tool_call_xml", extract_probe_tool_call_xml},
+    {"extract", "extract_tools_wrapper", extract_probe_tools_wrapper},
+    {"extract", "extract_attribute_style", extract_probe_attribute_style},
+    {"extract", "extract_multiple_calls", extract_probe_multiple_calls},
+    {"extract", "extract_no_false_positive", extract_probe_no_false_positive},
+    {"context", "context_chain_survives", context_probe_chain_survives},
+    {"context", "context_compression_rebuild", context_probe_compression_rebuild},
+    {"context", "context_token_fidelity", context_probe_token_fidelity},
+    {"envelope", "envelope_status_classification", envelope_probe_status_classification},
+    {"budget", "budget_max_steps_enforced", budget_probe_max_steps_enforced},
+    {"budget", "budget_wall_clock", budget_probe_wall_clock},
+    {"loop", "loop_done_flag", loop_probe_done_flag},
+    {"loop", "loop_continue_flag", loop_probe_continue_flag},
+    {"loop", "loop_infinite_breakout", loop_probe_infinite_breakout},
+    {"loop", "loop_text_repeat", loop_probe_text_repeat},
+    {"loop", "loop_fail_streak", loop_probe_fail_streak},
+    {"loop", "loop_no_false_positive", loop_probe_no_false_positive},
+    {"loop", "loop_hard_stop_honesty", loop_probe_hard_stop_honesty},
+    {"loop", "loop_plan_adherence", loop_probe_plan_adherence},
+    {"loop", "loop_plan_design", loop_probe_plan_design},
+    {"loop", "loop_replan_adapt", loop_probe_replan_adapt},
+    {"loop", "loop_dependency_order", loop_probe_dependency_order},
+    {"fidelity", "fidelity_misuse_wrong_tool", fidelity_probe_misuse_wrong_tool},
+    {"fidelity", "fidelity_params_value", fidelity_probe_params_value},
+    {"fidelity", "fidelity_unknown_tool", fidelity_probe_unknown_tool},
+    {"fidelity", "fidelity_malformed_args", fidelity_probe_malformed_args},
+    {"fidelity", "fidelity_arg_shapes", fidelity_probe_arg_shapes},
+    {"output", "output_acts_on_content", output_probe_acts_on_content},
+    {"output", "output_truncation", output_probe_truncation},
+    {"output", "output_envelope_ext", output_probe_envelope_ext},
+    {"confinement", "confinement_escapes_rejected", confinement_probe_escapes_rejected},
+    {"oracle", "oracle_scenario_self_validation", oracle_probe_scenario_self_validation},
+    {"dispatch", "dispatch_roundtrip", dispatch_probe_roundtrip},
+    {"dispatch", "dispatch_parallel", dispatch_probe_parallel},
+    {"dispatch", "dispatch_out_of_order", dispatch_probe_out_of_order},
+    {"recovery", "recovery_retryable_recovers", recovery_probe_retryable_recovers},
+    {"recovery", "recovery_nonretryable", recovery_probe_nonretryable},
+    {"recovery", "recovery_dropout", recovery_probe_dropout},
+    {"recovery", "recovery_4xx", recovery_probe_4xx},
+};
+
 struct ProbeRegistrar {
     ProbeRegistrar() {
-        add("parse", "parse_tool_calls_roundtrip", parse_probe_tool_calls_roundtrip);
-        add("parse", "parse_reasoning_segmentation", parse_probe_reasoning_segmentation);
-        add("extract", "extract_bare_json", extract_probe_bare_json);
-        add("extract", "extract_tool_call_xml", extract_probe_tool_call_xml);
-        add("extract", "extract_tools_wrapper", extract_probe_tools_wrapper);
-        add("extract", "extract_attribute_style", extract_probe_attribute_style);
-        add("extract", "extract_multiple_calls", extract_probe_multiple_calls);
-        add("extract", "extract_no_false_positive", extract_probe_no_false_positive);
-        add("context", "context_chain_survives", context_probe_chain_survives);
-        add("context", "context_compression_rebuild", context_probe_compression_rebuild);
-        add("context", "context_token_fidelity", context_probe_token_fidelity);
-        add("envelope", "envelope_status_classification", envelope_probe_status_classification);
-        add("budget", "budget_max_steps_enforced", budget_probe_max_steps_enforced);
-        add("budget", "budget_wall_clock", budget_probe_wall_clock);
-        add("loop", "loop_done_flag", loop_probe_done_flag);
-        add("loop", "loop_continue_flag", loop_probe_continue_flag);
-        add("loop", "loop_infinite_breakout", loop_probe_infinite_breakout);
-        add("loop", "loop_text_repeat", loop_probe_text_repeat);
-        add("loop", "loop_fail_streak", loop_probe_fail_streak);
-        add("loop", "loop_no_false_positive", loop_probe_no_false_positive);
-        add("loop", "loop_hard_stop_honesty", loop_probe_hard_stop_honesty);
-        add("loop", "loop_plan_adherence", loop_probe_plan_adherence);
-        add("loop", "loop_plan_design", loop_probe_plan_design);
-        add("loop", "loop_replan_adapt", loop_probe_replan_adapt);
-        add("loop", "loop_dependency_order", loop_probe_dependency_order);
-        add("fidelity", "fidelity_misuse_wrong_tool", fidelity_probe_misuse_wrong_tool);
-        add("fidelity", "fidelity_params_value", fidelity_probe_params_value);
-        add("fidelity", "fidelity_unknown_tool", fidelity_probe_unknown_tool);
-        add("fidelity", "fidelity_malformed_args", fidelity_probe_malformed_args);
-        add("fidelity", "fidelity_arg_shapes", fidelity_probe_arg_shapes);
-        add("output", "output_acts_on_content", output_probe_acts_on_content);
-        add("output", "output_truncation", output_probe_truncation);
-        add("output", "output_envelope_ext", output_probe_envelope_ext);
-        add("confinement", "confinement_escapes_rejected", confinement_probe_escapes_rejected);
-        add("oracle", "oracle_scenario_self_validation", oracle_probe_scenario_self_validation);
-        add("dispatch", "dispatch_roundtrip", dispatch_probe_roundtrip);
-        add("dispatch", "dispatch_parallel", dispatch_probe_parallel);
-        add("dispatch", "dispatch_out_of_order", dispatch_probe_out_of_order);
-        add("recovery", "recovery_retryable_recovers", recovery_probe_retryable_recovers);
-        add("recovery", "recovery_nonretryable", recovery_probe_nonretryable);
-        add("recovery", "recovery_dropout", recovery_probe_dropout);
-        add("recovery", "recovery_4xx", recovery_probe_4xx);
+        for (const auto& p : kProbeTable)
+            add(p.family, p.name, p.run);
     }
 };
 
