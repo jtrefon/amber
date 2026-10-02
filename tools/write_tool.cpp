@@ -39,7 +39,9 @@ std::string read_existing(const std::string& path) {
     std::ifstream fin(path);
     if (!fin)
         return {};
-    return std::string((std::istreambuf_iterator<char>(fin)), std::istreambuf_iterator<char>());
+    std::string content;
+    content.assign(std::istreambuf_iterator<char>(fin), std::istreambuf_iterator<char>());
+    return content;
 }
 
 // Apply the edits in order. An empty 'old' is a full overwrite; a missing 'old'
