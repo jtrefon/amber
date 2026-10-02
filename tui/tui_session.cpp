@@ -311,6 +311,26 @@ void SessionController::session_browser() {
     tui_.draw();
 }
 
+// Paint one session row's cells left to right: title, model, message count,
+// size (when known), and the timestamp hard against the right edge.
+static void draw_session_cells(WINDOW* w, int row, int aw, int title_w, const BrowserItem& m) {
+    int x = 3;
+    const std::string t = session_row::title(m.title, title_w);
+    mvwaddnstr(w, row, x, t.c_str(), title_w);
+    x += title_w + 1;
+    const std::string mod = session_row::model(m.model);
+    mvwaddstr(w, row, x, mod.c_str());
+    x += static_cast<int>(mod.size()) + 1;
+    const std::string cnt = session_row::message_count(m.message_count);
+    mvwaddstr(w, row, x, cnt.c_str());
+    x += static_cast<int>(cnt.size()) + 1;
+    const std::string size = session_row::file_size(m.file_size);
+    if (!size.empty())
+        mvwaddstr(w, row, x, size.c_str());
+    const std::string ts = fmt_time(m.updated_ms);
+    mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
+}
+
 static void draw_session_rows(WINDOW* w, SessionBrowserCore& core, int aw) {
     // Render list — clear each row with its own attribute so highlights extend
     // full-width. The date header rows and blank rows use the dialog background
@@ -336,21 +356,7 @@ static void draw_session_rows(WINDOW* w, SessionBrowserCore& core, int aw) {
             wattron(w, COLOR_PAIR(P_ASSISTANT));
         }
         mvwaddstr(w, row, 1, "  ");
-        int x = 3;
-        const std::string t = session_row::title(m.title, title_w);
-        mvwaddnstr(w, row, x, t.c_str(), title_w);
-        x += title_w + 1;
-        const std::string mod = session_row::model(m.model);
-        mvwaddstr(w, row, x, mod.c_str());
-        x += static_cast<int>(mod.size()) + 1;
-        const std::string cnt = session_row::message_count(m.message_count);
-        mvwaddstr(w, row, x, cnt.c_str());
-        x += static_cast<int>(cnt.size()) + 1;
-        const std::string size = session_row::file_size(m.file_size);
-        if (!size.empty())
-            mvwaddstr(w, row, x, size.c_str());
-        const std::string ts = fmt_time(m.updated_ms);
-        mvwaddstr(w, row, aw - static_cast<int>(ts.size()) + 1, ts.c_str());
+        draw_session_cells(w, row, aw, title_w, m);
         if (cur)
             wattroff(w, A_REVERSE | COLOR_PAIR(P_DIALOG));
         else

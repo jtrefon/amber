@@ -79,12 +79,6 @@
         "nloc": 44
       }
     },
-    "lib/prompt.cpp": {
-      "agent::render_tools_markdown": {
-        "ccn": 10,
-        "nloc": 41
-      }
-    },
     "src/main.cpp": {
       "run_mcp_surfaces": {
         "ccn": 14,
@@ -157,10 +151,6 @@
       "tui::SessionController::restore_message_lines": {
         "ccn": 12,
         "nloc": 48
-      },
-      "tui::draw_session_rows": {
-        "ccn": 7,
-        "nloc": 42
       }
     }
   },
