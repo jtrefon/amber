@@ -45,16 +45,6 @@
         "nloc": 49
       }
     },
-    "lib/mcp_client.cpp": {
-      "agent::MCPClient::do_connect": {
-        "ccn": 9,
-        "nloc": 43
-      },
-      "agent::MCPClient::get_prompt": {
-        "ccn": 12,
-        "nloc": 42
-      }
-    },
     "lib/mcp_transport_http.cpp": {
       "agent::HttpTransport::handle_sse_response": {
         "ccn": 14,
