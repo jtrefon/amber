@@ -1,9 +1,5 @@
 {
   "ccn_max": 15,
-  "files": {
-    "tui/info_dialog.cpp": 1,
-    "tui/panel_view.cpp": 1,
-    "tui/render_engine.cpp": 4
-  },
+  "files": {},
   "len_max": 50
 }
