@@ -27,12 +27,6 @@
         "nloc": 46
       }
     },
-    "lib/config.cpp": {
-      "agent::Config::apply_environment": {
-        "ccn": 12,
-        "nloc": 42
-      }
-    },
     "lib/environment.cpp": {
       "agent::render_environment_card": {
         "ccn": 13,
@@ -161,10 +155,6 @@
       "tui::SlashDispatcher::cmd_skills_set": {
         "ccn": 12,
         "nloc": 44
-      },
-      "tui::SlashDispatcher::register_get_plugin_policy_actions": {
-        "ccn": 1,
-        "nloc": 45
       }
     },
     "tui/tui_session.cpp": {
