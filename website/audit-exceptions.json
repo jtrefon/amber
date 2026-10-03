@@ -1,0 +1,12 @@
+{
+  "_comment": "Advisories the dependency-audit gate is allowed to pass, by ID. Every entry MUST carry a reason and an expiry: the gate fails once an entry is past its expiry, so an exception cannot outlive its reason. Removing an entry, or letting it lapse, re-arms the gate for that advisory.",
+  "exceptions": [
+    {
+      "id": "GHSA-ch52-4w7c-c8xp",
+      "package": "http-cache-semantics",
+      "severity": "high",
+      "reason": "astro depends on http-cache-semantics directly (^4.2.0) and NO patched version exists: every release up to 4.2.0 is affected, 4.2.0 was published 2025-05-09 and the advisory is from 2026-09-18, with nothing published since. The flawed path is max-stale handling in an HTTP cache shared between users; this site is a static build with no remote fetches, so it is not reachable here. npm audit's only offered 'fix' is a semver-major DOWNGRADE of astro to 2.10.9, which is not a fix. Re-check when astro bumps or drops the dependency.",
+      "expires": "2027-01-15"
+    }
+  ]
+}
