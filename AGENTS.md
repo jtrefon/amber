@@ -58,6 +58,13 @@ driven by an OpenAI-compatible LLM API.
   > 4 fails). It is separate from NLOC/CCN because a 20-line function can be
   unreadable at five levels of nesting while a 40-line straight-line function is
   fine. Both `nesting` and `complexity` share `_lizard_version_check`.
+- `make gate-report` runs every gate and writes `artifacts/GATE_REPORT.md` plus
+  `artifacts/gate-report.json` — one table with all verdicts, so "what did the
+  gates say?" is one file instead of six job logs. `make check` produces it and
+  CI uploads it as a build artefact (GitHub's equivalent of an ADO build
+  artefact: attached to the run, listed on the run page, downloadable with
+  `gh run download <run-id>`). It reports; it never gates, so a failure there is
+  exit 2 — a reporting failure, distinct from a gate finding something.
 - `make debt` is a **cliff** (`tools/debt_gate.py`): no TODO/FIXME/HACK/XXX in
   owned C++ source. The tree is already at zero, so it is the cheapest debt
   ratchet there is — nothing to burn down, just stay at zero. A marker is
@@ -98,7 +105,8 @@ The gates are the only thing protecting everything else, and until
 the fail-open behaviour below survived. `tests/gates/` holds stdlib `unittest`
 suites (no dependency install, so it runs in the `check` job via `make check`)
 for `complexity_gate.py`, `class_size_gate.py`, `lint_baseline.py`,
-`nesting_gate.py`, `debt_gate.py` and the shared `cpp_source.py` lexer. When you
+`nesting_gate.py`, `debt_gate.py`, `coverage_gate.py`, `gate_report.py` and the
+shared `cpp_source.py` lexer. When you
 change a gate, change its tests in the same commit.
 
 **A gate that measures nothing reports green.** Every gate here fails closed on a
@@ -140,12 +148,27 @@ reasoning now applies to the rest:
 
 Known and deliberate, so nobody re-derives them:
 
-- **Coverage is not enforced.** `.codecov.yml` sets an 80% patch target and a
-  1% no-regression project target, but branch protection requires only
-  `ci-gate`, and no Codecov status is reported on PRs — so the documented
-  "new code paths must have ≥80% line coverage" rule is currently decorative.
-  Making it real means adding a ratchet to the coverage job, which is a policy
-  decision (it will block PRs) rather than a refactor.
+- **Coverage is enforced twice, in-repo, and Codecov is not load-bearing.**
+  Measured: the Codecov upload has been failing on every run with
+  `Upload queued for processing failed: {"message":"Repository not found"}` (the
+  Codecov GitHub App is not installed), hidden behind `fail_ci_if_error: false`,
+  so **no Codecov status check is ever created** and the `patch: target: 80%` in
+  `.codecov.yml` has never actually been evaluated. Rather than depend on it:
+  - the **project** floor stays `gcovr --fail-under-line 80` over `lib/`,
+    `tools/`, `plugins/` (measured 84.3% lines / 91.2% functions);
+  - the **patch** rule the docs actually state ("new code paths must have ≥80%
+    line coverage") is `tools/coverage_gate.py`, which reads the Cobertura report
+    and the diff and fails below 80% of *added* lines. It fails closed: no
+    report, no diff, or a report with no line data is an error, never a pass.
+
+  Two consequences worth knowing. Only instrumented extensions count, so editing
+  `ci.yml`, a prompt or Markdown cannot fail the gate — a gate that fails on
+  documentation gets switched off. And gcovr's `--json-summary` cannot be used
+  here: its entries have **no `lines` key**, so the gate reads Cobertura XML
+  (`--xml-pretty`), which the job already produced. The Codecov upload is kept
+  for the dashboard but is `continue-on-error` and must not be mistaken for a
+  gate. To see patch coverage without blocking, set the repository variable
+  `PATCH_COVERAGE_ENFORCE=false`.
 - **Nesting is gated, but not by lizard.** `make nesting` measures it from the
   source with `tools/cpp_source.py` instead, because lizard's `ND` field is
   `max_nesting_depth` and is **0 for all 2422 C++ functions** — verified against
