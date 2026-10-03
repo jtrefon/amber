@@ -110,5 +110,73 @@ class Invocation(unittest.TestCase):
             self.assertIn(name, gr.COMMANDS)
 
 
+class StepSummary(unittest.TestCase):
+    """GitHub renders $GITHUB_STEP_SUMMARY inline on the run page. Artifacts alone
+    are easy to miss: they sit in a panel at the very bottom of the run page, below
+    every job, and have to be downloaded. The summary puts the verdicts where a
+    reviewer is already looking."""
+
+    def test_writes_the_table_to_the_summary_file(self):
+        import os
+        import tempfile
+
+        handle = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
+        handle.close()
+        try:
+            gr.append_to_summary(handle.name, [result("nesting", FAIL, "1 over-limit")])
+            with open(handle.name, encoding="utf-8") as reader:
+                text = reader.read()
+            self.assertIn("nesting", text)
+            self.assertIn("fail", text.lower())
+        finally:
+            os.unlink(handle.name)
+
+    def test_appends_rather_than_overwrites(self):
+        import os
+        import tempfile
+
+        handle = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
+        handle.write("existing content\n")
+        handle.close()
+        try:
+            gr.append_to_summary(handle.name, [result("debt", PASS, "0 markers")])
+            with open(handle.name, encoding="utf-8") as reader:
+                text = reader.read()
+            self.assertIn("existing content", text)
+            self.assertIn("debt", text)
+        finally:
+            os.unlink(handle.name)
+
+    def test_missing_summary_file_is_created(self):
+        import os
+        import tempfile
+
+        path = os.path.join(tempfile.mkdtemp(), "summary.md")
+        gr.append_to_summary(path, [result("debt", PASS, "0 markers")])
+        self.assertTrue(os.path.exists(path))
+
+    def test_no_summary_path_is_not_an_error(self):
+        self.assertIsNone(gr.append_to_summary(None, [result("a", PASS)]))
+
+    def test_summary_omits_the_detail_dump(self):
+        """Inline on a run page, a hundred lines of gate output is noise between
+        the reader and the verdict. The detail stays in the file and the log."""
+        import os
+        import tempfile
+
+        handle = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
+        handle.close()
+        try:
+            gr.append_to_summary(handle.name,
+                                 [result("x", FAIL, "short", "a very long explanation")])
+            with open(handle.name, encoding="utf-8") as reader:
+                text = reader.read()
+            self.assertIn("short", text)
+            self.assertNotIn("a very long explanation", text)
+            self.assertIn("gate-report", text, "it should say where the detail is")
+        finally:
+            os.unlink(handle.name)
+
+
 if __name__ == "__main__":
     unittest.main()

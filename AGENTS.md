@@ -63,8 +63,13 @@ driven by an OpenAI-compatible LLM API.
   gates say?" is one file instead of six job logs. `make check` produces it and
   CI uploads it as a build artefact (GitHub's equivalent of an ADO build
   artefact: attached to the run, listed on the run page, downloadable with
-  `gh run download <run-id>`). It reports; it never gates, so a failure there is
-  exit 2 — a reporting failure, distinct from a gate finding something.
+  `gh run download <run-id>`). It also appends the table to
+  `$GITHUB_STEP_SUMMARY`, so the verdicts render **on the run page itself** — an
+  artefact alone is easy to miss, since it sits in a panel at the bottom of the run
+  below every job and has to be downloaded. The coverage job does the same with the
+  line/function percentages. Only the table goes inline; the full gate output stays
+  in the job log and the artefact. The report never gates: a failure there is exit 2
+  — a reporting failure, distinct from a gate finding something.
 - `make debt` is a **cliff** (`tools/debt_gate.py`): no TODO/FIXME/HACK/XXX in
   owned C++ source. The tree is already at zero, so it is the cheapest debt
   ratchet there is — nothing to burn down, just stay at zero. A marker is

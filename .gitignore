@@ -77,3 +77,4 @@ artifacts/
 coverage.xml
 coverage.json
 coverage-summary.json
+coverage-core.json

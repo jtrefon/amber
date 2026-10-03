@@ -99,7 +99,10 @@ def cell(text):
     return str(text).replace("|", "\\|").replace("\n", "<br>")
 
 
-def to_markdown(results):
+def to_markdown(results, detail=True):
+    """`detail=False` gives the table alone, which is what belongs inline on a run
+    page: the full gate output is a hundred lines of noise between the reader and
+    the one thing they came for. It stays in the file and the job log."""
     verdicts = {r["verdict"] for r in results}
     overall = "FAIL" if FAIL in verdicts or ERROR in verdicts else "PASS"
     lines = [
@@ -115,7 +118,7 @@ def to_markdown(results):
     ]
     for r in results or [{"gate": "-", "verdict": SKIP, "summary": "none were run"}]:
         lines.append(f"| {cell(r['gate'])} | {cell(r['verdict'])} | {cell(r['summary'])} |")
-    detailed = [r for r in results if r.get("details")]
+    detailed = [r for r in results if detail and r.get("details")]
     if detailed:
         lines += ["", "## Detail", ""]
         for r in detailed:
@@ -126,6 +129,19 @@ def to_markdown(results):
 def to_json(results):
     return json.dumps(sorted(results, key=lambda r: r["gate"]), indent=2,
                       sort_keys=True) + "\n"
+
+
+def append_to_summary(path, results):
+    """Append the table to a GitHub step summary, which renders inline on the run
+    page. Returns None when there is nowhere to write (a local run), because a
+    missing summary file is not a reason to fail a report."""
+    if not path:
+        return None
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(to_markdown(results, detail=False))
+        handle.write("\nFull output: the `check` job log, or the `gate-report` "
+                     "artefact on this run.\n")
+    return path
 
 
 def write_outputs(results, out_dir):
@@ -142,6 +158,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="artifacts", help="directory for the two reports")
     ap.add_argument("--only", nargs="*", choices=GATES, help="run a subset")
+    ap.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"),
+                    help="append the table here (defaults to $GITHUB_STEP_SUMMARY)")
     args = ap.parse_args()
 
     names = args.only or list(GATES)
@@ -150,6 +168,7 @@ def main():
         print(f"gate-report: running {name}...", file=sys.stderr)
         results.append(run(name, command_for(name)))
     write_outputs(results, args.out)
+    append_to_summary(args.summary, results)
     for r in results:
         print(f"  {r['verdict']:<7} {r['gate']:<12} {r['summary']}")
     return exit_code(results)
