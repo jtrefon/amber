@@ -70,6 +70,18 @@ driven by an OpenAI-compatible LLM API.
   line/function percentages. Only the table goes inline; the full gate output stays
   in the job log and the artefact. The report never gates: a failure there is exit 2
   — a reporting failure, distinct from a gate finding something.
+- `make hygiene` is a **cliff** (`tools/hygiene_gate.py`): no `using namespace`
+  in a header, no raw `new`/`delete` in owned source, and every header compiles on
+  its own. All three measured clean first (0 / 1 acknowledged / 0 of 172 failing),
+  so there are no baselines — only zero to stay at. A finding is suppressed by
+  acknowledging it inline (`// hygiene-allow: private ctor`), matched **on that
+  line**: a marker in a paragraph above would otherwise suppress whatever statement
+  happened to follow. `--report` counts suppressions.
+  Self-containment compiles each header with the exact flags the build uses, passed
+  in by the Makefile — measuring with different flags turns failures into artefacts
+  (it reported 9 broken `tui/` headers once, purely because `NCURSES_CFLAGS` was
+  empty locally). `bench/scenarios/` is excluded: that is code the benchmark *agent*
+  writes and an oracle scores.
 - `make debt` is a **cliff** (`tools/debt_gate.py`): no TODO/FIXME/HACK/XXX in
   owned C++ source. The tree is already at zero, so it is the cheapest debt
   ratchet there is — nothing to burn down, just stay at zero. A marker is
@@ -174,6 +186,15 @@ Known and deliberate, so nobody re-derives them:
   for the dashboard but is `continue-on-error` and must not be mistaken for a
   gate. To see patch coverage without blocking, set the repository variable
   `PATCH_COVERAGE_ENFORCE=false`.
+
+  **Expect the first real C++ PR to trip it.** Every PR since the gate landed added
+  no C++, so it has only ever reported "no changed executable lines". Two things
+  to know: a changed line the report omits is *not executable* (gcovr drops comment,
+  blank and brace lines, so demanding coverage of them is wrong — a bug this gate
+  shipped with and caught on its own first run), while a changed `.cpp` absent from
+  the report *entirely* was compiled but not measured, and that fails closed. And
+  `tui/` is instrumented but only exercised by the pty/e2e harness, so new TUI code
+  with no harness coverage will read 0% — which is the rule working, not a bug.
 - **Nesting is gated, but not by lizard.** `make nesting` measures it from the
   source with `tools/cpp_source.py` instead, because lizard's `ND` field is
   `max_nesting_depth` and is **0 for all 2422 C++ functions** — verified against

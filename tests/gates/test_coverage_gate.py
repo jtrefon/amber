@@ -71,14 +71,46 @@ class PatchCoverageMath(unittest.TestCase):
         self.assertEqual(result.total, 3)
         self.assertEqual(result.covered, 1)
 
-    def test_a_changed_line_with_no_coverage_record_is_untested(self):
-        """A line the diff touches that gcovr never reported cannot be assumed
-        covered. This is the fail-open direction, so it counts as uncovered."""
-        report = hits({"lib/a.cpp": {10: 1}})
-        result = cg.patch_coverage(report, {"lib/a.cpp": {10, 99}})
-        self.assertEqual(result.total, 2)
+    def test_a_changed_line_with_no_coverage_record_is_not_executable(self):
+        """gcovr's Cobertura output omits comment, blank and brace lines entirely,
+        while an executable line that never ran is present with hits=0. So an
+        absent line is NOT an untested line.
+
+        I had this backwards, and it failed a PR whose whole addition to a .cpp was
+        four lines of explanatory comment -- demanding that a comment be executed.
+        """
+        report = hits({"lib/a.cpp": {10: 1, 11: 0}})
+        result = cg.patch_coverage(report, {"lib/a.cpp": {10, 11, 97, 98, 99}})
+        self.assertEqual(result.total, 2, "only the two executable lines count")
         self.assertEqual(result.covered, 1)
-        self.assertIn(("lib/a.cpp", 99), result.uncovered)
+        self.assertEqual(result.uncovered, [("lib/a.cpp", 11)])
+
+    def test_a_comment_only_change_is_not_a_violation(self):
+        report = hits({"lib/a.cpp": {10: 1, 11: 0}})
+        result = cg.patch_coverage(report, {"lib/a.cpp": {20, 21, 22, 23}})
+        self.assertEqual(result.total, 0)
+        self.assertTrue(result.passes)
+
+
+class UnmeasuredFilesFailClosed(unittest.TestCase):
+    """A changed .cpp absent from the report entirely was compiled, so it must have
+    been measured. That is a gap in the measurement, not a low score -- the opposite
+    conclusion from an absent *line*."""
+
+    def test_a_compiled_file_missing_from_the_report_fails_closed(self):
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), {"lib/new.cpp": {1, 2}})
+        self.assertEqual(result.unmeasured, ["lib/new.cpp"])
+        rc, out = run_check(result, {"lib/new.cpp": {1, 2}})
+        self.assertEqual(rc, 2)
+        self.assertIn("lib/new.cpp", out)
+
+    def test_an_absent_header_is_not_a_failure(self):
+        """A header with no executable lines of its own is routinely absent from
+        the report. Failing on that would block every header-touching PR."""
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), {"include/agent/x.h": {5, 6}})
+        self.assertEqual(result.unmeasured, [])
+        self.assertEqual(result.total, 0)
+        self.assertEqual(run_check(result, {"include/agent/x.h": {5, 6}})[0], 0)
 
 
 class OnlyInstrumentedCodeCounts(unittest.TestCase):
