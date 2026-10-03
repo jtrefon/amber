@@ -55,8 +55,11 @@ driven by an OpenAI-compatible LLM API.
   and line-break placement — so a locally "clean" tree can fail CI. Match the
   runner (`pip install clang-format==18.1.3`) before reformatting.
 - `make complexity` is the ratcheted gate (`tools/complexity_gate.py`:
-  CCN>15 or NLOC>40 via lizard, fail-closed). It is a CI job but is
-  **not** in `ci-gate`, so it can go red without blocking a merge. Every CI
+  CCN>15 or NLOC>40 via lizard, fail-closed). It **is** in `ci-gate`: all three
+  axes (CCN, cognitive complexity via `make lint`, NLOC) have empty baselines,
+  so a new over-limit function fails the build rather than joining a list. It
+  was advisory until the baselines emptied — with per-file counts it conflicted
+  on every merge, which is what made gating it unsafe. Every CI
   job carries a `timeout-minutes` and the shared `install-deps` action bounds
   apt (`DPkg::Lock::Timeout` + `timeout` + noninteractive), so a hung
   dependency install fails in minutes instead of sitting until GitHub's 6 h
