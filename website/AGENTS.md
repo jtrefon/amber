@@ -8,6 +8,14 @@ Static Astro site for the amber project, deployed to GitHub Pages under
 - `npm run dev`, local dev server.
 - `npm run build`, `astro build` then the base-path rewrite. Must complete
   clean; it is the gate CI runs.
+- `npm run audit`, the dependency gate (`scripts/audit.mjs`). It blocks every
+  high/critical advisory **except** those named in `audit-exceptions.json`, and
+  an exception must carry both a `reason` and an `expires` date — the gate fails
+  once one lapses, so an exception cannot outlive the situation that justified
+  it. A new advisory fails immediately; an exception missing a reason or an
+  expiry fails with exit 2. Prefer fixing the dependency; an exception is for an
+  advisory with **no upstream patch**, and the reason must say why the flawed
+  path is unreachable here.
 - There is no test suite. Verify diagram changes in a real browser: the
   diagrams render client-side, so a passing build does not prove they render.
   Note that `global.css` sets `scroll-behavior: smooth`, so a verification
