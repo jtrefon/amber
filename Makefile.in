@@ -523,10 +523,41 @@ gates-test:
 # clang-format. The tree predates enforcement, so the full-tree run stays
 # informational; format-check-changed is the merge gate — files a PR touches
 # must be clean, so enforcement ratchets in as code is edited.
+#
+# Pinned, because it was the last analyzer still tracking the runner image.
+# `extra: clang-format` installs the *unversioned* apt metapackage, so the binary
+# was whatever ubuntu-latest happened to ship. That happens to agree with the tree
+# today (18.1.3 on ubuntu-24.04), which is exactly the problem: the gate is green by
+# coincidence. When the image moves, clang-format silently becomes 20.x and the gate
+# turns red across the whole repo, for formatting nobody changed. The versions
+# disagree on braced-init lists and line-break placement, so this is not
+# hypothetical.
+#
+# Same shape as CLANG_TIDY_MIN_VERSION: CI installs the pinned package and the
+# floor fails closed on anything older, so a moved image breaks loudly here instead
+# of silently reformatting the tree.
+CLANG_FORMAT ?= clang-format
+CLANG_FORMAT_MIN_VERSION ?= 18.0.0
+CLANG_FORMAT_MIN_MAJOR := $(word 1,$(subst ., ,$(CLANG_FORMAT_MIN_VERSION)))
+
+_clang_format_version_check:
+	@have="$$($(CLANG_FORMAT) --version 2>/dev/null | \
+	    sed -n 's/.*version \([0-9][0-9.]*\).*/\1/p' | head -1)"; \
+	 if [ -z "$$have" ]; then \
+	    echo "format-check: $(CLANG_FORMAT) not found; need >= $(CLANG_FORMAT_MIN_VERSION)"; \
+	    exit 2; \
+	 fi; \
+	 hmajor=$${have%%.*}; \
+	 if [ "$$hmajor" -lt $(CLANG_FORMAT_MIN_MAJOR) ]; then \
+	    echo "format-check: clang-format $$have is older than $(CLANG_FORMAT_MIN_VERSION); \
+its output would not match the runner's"; exit 2; \
+	 fi
+
 format-check:
+	@$(MAKE) --no-print-directory _clang_format_version_check
 	@echo "clang-format --dry-run (full tree, informational)..."
 	@files=$$(find $(SRC_DIR)/lib $(SRC_DIR)/tools $(SRC_DIR)/tui $(SRC_DIR)/src $(SRC_DIR)/include/agent $(SRC_DIR)/plugins $(SRC_DIR)/tests $(SRC_DIR)/bench -name '*.cpp' -o -name '*.h' | grep -v 'bench/scenarios/' | sort); \
-	clang-format --dry-run --Werror $$files 2>&1 | head -n 30; \
+	$(CLANG_FORMAT) --dry-run --Werror $$files 2>&1 | head -n 30; \
 	echo "  done (informational)"
 
 # Incremental format gate: clang-format --dry-run --Werror on the .cpp/.h
@@ -534,13 +565,14 @@ format-check:
 # bench/scenarios/ is exempt both here and in format-check: fixture code the
 # benchmark agent edits and oracles score, not project style.
 format-check-changed:
+	@$(MAKE) --no-print-directory _clang_format_version_check
 	@echo "clang-format (incremental, base=$(BASE))..."
 	@changed=$$(git diff --name-only $(BASE)...HEAD -- '*.cpp' '*.h' 2>/dev/null | grep -vE 'third_party|bench/scenarios' || true); \
 	if [ -z "$$changed" ]; then echo "  no C++ changes, skipping"; exit 0; fi; \
 	fail=0; \
 	for f in $$changed; do \
 	  if [ -f "$$f" ]; then \
-	    out=$$(clang-format --dry-run --Werror "$$f" 2>&1); \
+	    out=$$($(CLANG_FORMAT) --dry-run --Werror "$$f" 2>&1); \
 	    if [ -n "$$out" ]; then echo "$$out"; fail=1; fi; \
 	  fi; \
 	done; \
