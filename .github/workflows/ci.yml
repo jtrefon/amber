@@ -201,6 +201,16 @@ jobs:
       - name: Check (smoketest + build hygiene)
         run: make check
 
+      # The gate report is the reviewable artefact: one table with every gate's
+      # verdict, downloadable from the run page or with `gh run download`.
+      - name: Upload gate report (artefact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: gate-report
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
   # ---------------------------------------------------------------------------
   # Duplicate code — cross-file duplicate block detector. Gating: identical
   # normalized blocks of >=6 lines fail the job.
@@ -367,9 +377,14 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The patch-coverage gate diffs against the base commit, so the history
+          # has to be present. Depth 0 is the reliable way to get it.
+          fetch-depth: 0
       - uses: ./.github/actions/install-deps
 
-      # Pinned for the same reason: gcovr's report layout feeds .codecov.yml.
+      # Pinned for the same reason: gcovr's report layout feeds both this job's
+      # own gates and .codecov.yml.
       - name: Install gcovr
         run: pip install "gcovr==8.6" -q
 
@@ -414,8 +429,56 @@ jobs:
             --exclude '.*bench/main\.cpp' --exclude '.*tui/tui_main\.cpp' \
             --xml-pretty -o coverage.xml
 
-      - name: Upload to Codecov
+          # coverage.xml above is Cobertura, which carries the per-line hit
+          # counts the patch gate needs. gcovr's --json-summary does NOT (its
+          # entries have no `lines` key), which is why the gate reads XML.
+
+      # Patch coverage: the documented "new code paths must have >=80% line
+      # coverage". This was never actually enforced -- `.codecov.yml` asks for it,
+      # but the Codecov upload below fails with "Repository not found" (the Codecov
+      # GitHub App is not installed) behind fail_ci_if_error: false, so no Codecov
+      # status check was ever created. Measured here instead.
+      #
+      # PATCH_COVERAGE_ENFORCE=false reports without blocking, for one PR if you
+      # want to see the number before it starts biting.
+      - name: Patch coverage gate
+        env:
+          PATCH_COVERAGE_ENFORCE: ${{ vars.PATCH_COVERAGE_ENFORCE != '' && vars.PATCH_COVERAGE_ENFORCE || 'true' }}
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="$(git rev-parse HEAD~1 2>/dev/null || echo '')"
+          fi
+          echo "patch-coverage base: ${BASE:-<none>}"
+          set +e
+          python3 tools/coverage_gate.py --report coverage.xml --diff-base "$BASE"
+          rc=$?
+          set -e
+          if [ "$PATCH_COVERAGE_ENFORCE" = "true" ] && [ "$rc" -ne 0 ]; then
+            echo "::error::patch coverage below the bar (set the PATCH_COVERAGE_ENFORCE repository variable to 'false' to report without blocking)"
+            exit "$rc"
+          fi
+
+      # GitHub's equivalent of an ADO build artefact: attached to the run, listed
+      # on the run page, downloadable with `gh run download <run-id>`.
+      - name: Upload coverage report (artefact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+          if-no-files-found: error
+          retention-days: 30
+
+      # Kept for the Codecov dashboard, but NOT counted on: it currently fails
+      # with {"message":"Repository not found"} because the Codecov GitHub App is
+      # not installed on this repository, and fail_ci_if_error: false hides that.
+      # Installing the app (Settings -> Integrations, or a CODECOV_TOKEN) is what
+      # makes this work; until then the gates above are the source of truth, so
+      # this step must not be mistaken for one.
+      - name: Upload to Codecov (best-effort, see comment)
         uses: codecov/codecov-action@v7
+        continue-on-error: true
         with:
           files: coverage.xml
           use_oidc: true

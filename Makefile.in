@@ -448,6 +448,17 @@ nesting-update:
 	@$(MAKE) --no-print-directory _lizard_version_check
 	@$(COMPLEXITY_PYTHON) tools/nesting_gate.py --update
 
+# One gate report for all of them, as Markdown + JSON. CI uploads it as a build
+# artefact (GitHub's equivalent of an ADO build artefact), so a verdict can be
+# reviewed from the run page or with `gh run download` instead of by grepping six
+# job logs. Runs the gates only; it never gates anything itself, so a failure here
+# is a reporting failure and exits 2.
+ARTIFACTS_DIR ?= artifacts
+GATES_RUN := complexity nesting class-size debt obfuscation duplicates
+gate-report:
+	@mkdir -p $(ARTIFACTS_DIR)
+	@python3 "$(SRC_DIR)/tools/gate_report.py" --out $(ARTIFACTS_DIR) --only $(GATES_RUN)
+
 # Debt-marker gate: no TODO/FIXME/HACK/XXX in owned source. A cliff at zero, so
 # there is no baseline to maintain -- it only has to stay there. A marker can be
 # acknowledged inline with `debt-allow: <reason>`, and suppressions are counted by
@@ -544,6 +555,7 @@ check: $(BUILD_DIR)/smoketest
 	@python3 "$(SRC_DIR)/tools/debt_gate.py" --check
 	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
 	@$(MAKE) --no-print-directory gates-test
+	@$(MAKE) --no-print-directory gate-report
 
 # Obfuscated-payload guard. Every other gate reads a build or a metric; none of
 # them reads file contents, which is how an obfuscated dropper sat in website/
@@ -750,3 +762,8 @@ clean:
 	rm -rf $(BUILD_DIR)/tests/fixtures/*.dSYM $(BUILD_DIR)/*.dSYM
 	rm -f $(BUILD_DIR)/run_command_line_test $(BUILD_DIR)/run_completions_test $(BUILD_DIR)/run_e2e_test
 	rm -f amber-smoke.txt
+	# Coverage droppings. A `--coverage` build (the coverage job, or a local run)
+	# scatters .gcno next to every object and writes .gcda beside the sources.
+	# Leaving them behind means a later build picks up stale counters, and they
+	# show up as untracked files in git status.
+	find $(SRC_DIR) -name '*.gcno' -o -name '*.gcda' | xargs rm -f
