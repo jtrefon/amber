@@ -15,10 +15,6 @@
       "agent::Agent::build_chat_adapter": {
         "ccn": 12,
         "nloc": 44
-      },
-      "agent::Agent::dispatch_with_loop_detection": {
-        "ccn": 15,
-        "nloc": 46
       }
     },
     "lib/environment.cpp": {
@@ -27,22 +23,10 @@
         "nloc": 41
       }
     },
-    "lib/learn_commands.cpp": {
-      "agent::learn_inspect_lines": {
-        "ccn": 11,
-        "nloc": 49
-      }
-    },
     "lib/model_probe.cpp": {
       "agent::model_catalog_fetch": {
         "ccn": 10,
         "nloc": 41
-      }
-    },
-    "src/main.cpp": {
-      "run_mcp_surfaces": {
-        "ccn": 14,
-        "nloc": 47
       }
     },
     "tools/plugins/cdp/main.cpp": {
@@ -67,12 +51,6 @@
       "tui::EventRouter::wire_blocking_hooks": {
         "ccn": 5,
         "nloc": 42
-      }
-    },
-    "tui/feed_manager.cpp": {
-      "tui::FeedManager::refresh_policy_feed": {
-        "ccn": 12,
-        "nloc": 46
       }
     },
     "tui/form_edit.cpp": {
