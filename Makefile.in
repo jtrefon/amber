@@ -419,19 +419,7 @@ LIZARD_MIN_MAJOR := $(word 1,$(subst ., ,$(LIZARD_MIN_VERSION)))
 LIZARD_MIN_MINOR := $(word 2,$(subst ., ,$(LIZARD_MIN_VERSION)))
 
 complexity:
-	@echo "lizard (>= $(LIZARD_MIN_VERSION))..."
-	@have="$$($(COMPLEXITY_PYTHON) -m lizard --version 2>/dev/null | head -1 \
-	    | tr -d '[:space:]')"; \
-	 if [ -z "$$have" ]; then \
-	    echo "complexity: lizard not found via '$(COMPLEXITY_PYTHON)'; \
-need >= $(LIZARD_MIN_VERSION) (pip install lizard)"; exit 2; \
-	 fi; \
-	 hmajor=$${have%%.*}; hmin=$${have#*.}; hmin=$${hmin%%.*}; \
-	 if [ "$$hmajor" -lt $(LIZARD_MIN_MAJOR) ] || \
-	    { [ "$$hmajor" -eq $(LIZARD_MIN_MAJOR) ] && [ "$$hmin" -lt $(LIZARD_MIN_MINOR) ]; }; then \
-	    echo "complexity: lizard $$have is older than $(LIZARD_MIN_VERSION); it measures \
-NLOC/CCN differently, so the baseline would be meaningless"; exit 2; \
-	 fi
+	@$(MAKE) --no-print-directory _lizard_version_check
 	@$(COMPLEXITY_PYTHON) tools/complexity_gate.py --check
 
 complexity-report:
@@ -439,6 +427,53 @@ complexity-report:
 
 complexity-update:
 	@$(COMPLEXITY_PYTHON) tools/complexity_gate.py --update
+
+# Nesting-depth gate: a function that nests deeply is hard to read no matter how
+# short it is, so this is a separate axis from NLOC and CCN. Measured here rather
+# than by lizard: lizard's -w output has an `ND` (max_nesting_depth) field, but for
+# C++ it is 0 for every function -- verified against a deliberately 6-deep one.
+# Gating on it would be a gate permanently green because it measures nothing.
+#
+# Fails closed like the others: a function whose braces do not close over its own
+# extent is reported, not scored, because a wrong zero understates it.
+nesting:
+	@$(MAKE) --no-print-directory _lizard_version_check
+	@$(COMPLEXITY_PYTHON) tools/nesting_gate.py --check
+
+nesting-report:
+	@$(MAKE) --no-print-directory _lizard_version_check
+	@$(COMPLEXITY_PYTHON) tools/nesting_gate.py --report
+
+nesting-update:
+	@$(MAKE) --no-print-directory _lizard_version_check
+	@$(COMPLEXITY_PYTHON) tools/nesting_gate.py --update
+
+# Debt-marker gate: no TODO/FIXME/HACK/XXX in owned source. A cliff at zero, so
+# there is no baseline to maintain -- it only has to stay there. A marker can be
+# acknowledged inline with `debt-allow: <reason>`, and suppressions are counted by
+# --report so they cannot accumulate silently.
+debt:
+	@python3 "$(SRC_DIR)/tools/debt_gate.py" --check
+
+debt-report:
+	@python3 "$(SRC_DIR)/tools/debt_gate.py" --report
+
+# Shared by `complexity` and `nesting`: both parse lizard's -w output with a regex
+# and both judge success from that output, never from lizard's exit status.
+_lizard_version_check:
+	@echo "lizard (>= $(LIZARD_MIN_VERSION))..."
+	@have="$$($(COMPLEXITY_PYTHON) -m lizard --version 2>/dev/null | head -1 \
+	    | tr -d '[:space:]')"; \
+	 if [ -z "$$have" ]; then \
+	    echo "lizard: not found via '$(COMPLEXITY_PYTHON)'; \
+need >= $(LIZARD_MIN_VERSION) (pip install lizard)"; exit 2; \
+	 fi; \
+	 hmajor=$${have%%.*}; hmin=$${have#*.}; hmin=$${hmin%%.*}; \
+	 if [ "$$hmajor" -lt $(LIZARD_MIN_MAJOR) ] || \
+	    { [ "$$hmajor" -eq $(LIZARD_MIN_MAJOR) ] && [ "$$hmin" -lt $(LIZARD_MIN_MINOR) ]; }; then \
+	    echo "lizard: $$have is older than $(LIZARD_MIN_VERSION); it measures \
+NLOC/CCN/nesting differently, so the baseline would be meaningless"; exit 2; \
+	 fi
 
 # Tests for the gate tools themselves. They are the only thing standing between
 # a silent measurement bug and a green pipeline, and they had none: the
@@ -505,6 +540,8 @@ check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 	sh $(SRC_DIR)/tests/build_hygiene.sh
 	@python3 "$(SRC_DIR)/tools/class_size_gate.py" --check
+	@$(MAKE) --no-print-directory nesting
+	@python3 "$(SRC_DIR)/tools/debt_gate.py" --check
 	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
 	@$(MAKE) --no-print-directory gates-test
 

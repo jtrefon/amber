@@ -12,6 +12,11 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOLS_DIR = os.path.join(REPO_ROOT, "tools")
 
+# tools/ is a script directory, not a package: the gates import each other by
+# plain module name (`import cpp_source`), which works when tools/ is on the path.
+if TOOLS_DIR not in sys.path:
+    sys.path.insert(0, TOOLS_DIR)
+
 _CACHE = {}
 
 

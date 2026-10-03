@@ -31,6 +31,8 @@ import os
 import re
 import sys
 
+import cpp_source
+
 MAX_LINES = 200
 
 # A healthy scan finds hundreds of types. Like the complexity gate's function
@@ -51,83 +53,6 @@ SKIP_PARTS = ("nlohmann", "third_party", "vendor")
 
 def repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def strip_noise(text):
-    """Remove comments and string/char literals, keeping every other character.
-
-    A brace inside any of them is punctuation in *data*, not structure. Counting
-    it is how a large class measures as small: bench/probe.cpp carries SSE
-    payloads whose escaped JSON has unbalanced braces inside string literals.
-
-    Line structure is preserved exactly -- every newline in the input produces
-    one newline in the output -- so the result can be split into lines and
-    indexed alongside the original.
-    """
-    out = []
-    i, n = 0, len(text)
-    while i < n:
-        two = text[i:i + 2]
-        if two == "//":
-            end = text.find("\n", i)
-            if end < 0:
-                break
-            i = end
-            continue
-        if two == "/*":
-            start = i
-            end = text.find("*/", i + 2)
-            i = n if end < 0 else end + 2
-            out.append(keep_newlines(text[start:i]))
-            continue
-        char = text[i]
-        if char == '"' or char == "'":
-            start = i
-            i = skip_literal(text, i)
-            out.append(keep_newlines(text[start:i]))
-            continue
-        out.append(char)
-        i += 1
-    return "".join(out)
-
-
-def keep_newlines(span):
-    """`span` with every non-newline character blanked, so line numbering and
-    column positions survive while the content cannot be mistaken for code."""
-    return "".join("\n" if c == "\n" else " " for c in span)
-
-
-def skip_literal(text, start):
-    """Index just past the literal beginning at `start`, honouring escapes.
-
-    A C++ raw string (R"delim(...)delim") is handled too: its body is arbitrary
-    text and routinely contains braces and quotes.
-    """
-    quote = text[start]
-    if text[start:start + 2] in ('R"', "R'"):
-        return skip_raw_string(text, start)
-    i = start + 1
-    while i < len(text):
-        if text[i] == "\\":
-            i += 2
-            continue
-        if text[i] == quote:
-            return i + 1
-        if text[i] == "\n":
-            return i  # an unterminated literal ends at the line break
-        i += 1
-    return i
-
-
-def skip_raw_string(text, start):
-    """Index just past a raw string literal beginning at `start` (R"delim( )."""
-    open_paren = text.find("(", start)
-    if open_paren < 0:
-        return len(text)
-    delim = text[start + 2:open_paren]
-    closer = ")" + delim + '"'
-    end = text.find(closer, open_paren)
-    return len(text) if end < 0 else end + len(closer)
 
 
 def code_lines(lines):
@@ -175,7 +100,7 @@ def measure(path):
         return []
 
     lines = raw.split("\n")
-    structural = strip_noise(raw).split("\n")
+    structural = cpp_source.strip_noise(raw).split("\n")
     found = []
     for i, line in enumerate(structural):
         match = TYPE_START.match(line)
@@ -194,7 +119,7 @@ def unscannable(path):
             raw = handle.read()
     except OSError:
         return []
-    structural = strip_noise(raw).split("\n")
+    structural = cpp_source.strip_noise(raw).split("\n")
     names = []
     for i, line in enumerate(structural):
         match = TYPE_START.match(line)
