@@ -2,10 +2,6 @@
   "ccn_max": 15,
   "functions": {
     "bench/probe.cpp": {
-      "bench::context_probe_token_fidelity": {
-        "ccn": 7,
-        "nloc": 42
-      },
       "bench::oracle_probe_scenario_self_validation": {
         "ccn": 10,
         "nloc": 41
@@ -15,12 +11,6 @@
       "agent::Agent::build_chat_adapter": {
         "ccn": 12,
         "nloc": 44
-      }
-    },
-    "lib/model_probe.cpp": {
-      "agent::model_catalog_fetch": {
-        "ccn": 10,
-        "nloc": 41
       }
     },
     "tools/plugins/cdp/main.cpp": {

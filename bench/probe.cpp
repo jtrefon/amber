@@ -323,46 +323,44 @@ bool context_probe_compression_rebuild(ProbeResult& r) {
 
 // P-context-tokens: token_count() must stay consistent through push/pop/
 // clear/rebuild (budget decisions depend on it).
+namespace {
+
+// Record a probe failure and answer false.
+bool fail(ProbeResult& r, const std::string& detail) {
+    r.detail = detail;
+    return false;
+}
+
+// Push a message and return the context's token count.
+size_t push_and_count(agent::Context& ctx, const std::string& role, const std::string& content) {
+    agent::Message m;
+    m.role = role;
+    m.content = content;
+    ctx.push(std::move(m));
+    return ctx.token_count();
+}
+
+} // namespace
+
 bool context_probe_token_fidelity(ProbeResult& r) {
     r.expected = "token count matches content through every mutation";
     agent::Context ctx;
-    agent::Message sys;
-    sys.role = "system";
-    sys.content = "system prompt";
-    ctx.push(std::move(sys));
-    const size_t t0 = ctx.token_count();
-    if (t0 == 0) {
-        r.detail = "system message contributed 0 tokens";
-        return false;
-    }
+    const size_t t0 = push_and_count(ctx, "system", "system prompt");
+    if (t0 == 0)
+        return fail(r, "system message contributed 0 tokens");
 
-    agent::Message u;
-    u.role = "user";
-    u.content = "hello world";
-    ctx.push(std::move(u));
-    const size_t t1 = ctx.token_count();
+    const size_t t1 = push_and_count(ctx, "user", "hello world");
     auto popped = ctx.pop();
-    if (ctx.token_count() != t0) {
-        r.detail = "pop did not restore the token count";
-        return false;
-    }
-    if (popped.content != "hello world") {
-        r.detail = "pop returned the wrong message";
-        return false;
-    }
+    if (ctx.token_count() != t0)
+        return fail(r, "pop did not restore the token count");
+    if (popped.content != "hello world")
+        return fail(r, "pop returned the wrong message");
     ctx.clear();
-    if (ctx.token_count() != 0) {
-        r.detail = "clear left tokens behind";
-        return false;
-    }
-    agent::Message m;
-    m.role = "user";
-    m.content = "x";
-    ctx.push(std::move(m));
-    if (ctx.token_count() == 0 || t1 == 0) {
-        r.detail = "token accounting broken";
-        return false;
-    }
+    if (ctx.token_count() != 0)
+        return fail(r, "clear left tokens behind");
+    push_and_count(ctx, "user", "x");
+    if (ctx.token_count() == 0 || t1 == 0)
+        return fail(r, "token accounting broken");
     r.detail = "tokens consistent through push/pop/clear/rebuild";
     return true;
 }
