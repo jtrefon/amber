@@ -12,6 +12,10 @@ config.status
 configure~
 autom4te.cache/
 
+# Python bytecode caches (tools/*.py are run in place; the caches are not source)
+__pycache__/
+*.pyc
+
 # Generated binaries
 amber
 amber-cli
