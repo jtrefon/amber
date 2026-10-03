@@ -73,6 +73,20 @@ jobs:
   # since it changes how every TU is checked. On main pushes the full lint runs
   # as a non-gating safety net (see lint-full below).
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Lint — clang-tidy. PR-gating, incremental over the TUs a change can affect.
+  #
+  # clang-tidy is PINNED, and .clang-tidy enables whole check families
+  # (bugprone-*, readability-*, modernize-*, clang-analyzer-*), so every check a
+  # new clang release adds is enabled automatically. The baseline is empty, so
+  # such a release does not merely add findings -- it turns every PR red, with
+  # no way to tell "we introduced a problem" from "the tool got stricter".
+  # Measured drift between 18 and 23 is real, not theoretical: on the same tree
+  # clang-tidy 23 reports bugprone-command-processor, readability-trailing-comma,
+  # readability-redundant-nested-if and readability-redundant-qualified-alias,
+  # none of which 18 reports. Keep CLANG_TIDY_MIN_VERSION in Makefile.in in step
+  # with the pin here; that floor fails closed on an older analyzer.
+  # ---------------------------------------------------------------------------
   lint:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -84,13 +98,15 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/install-deps
         with:
-          extra: clang-tidy
+          extra: clang-tidy-18
 
       - name: Configure (generates config for include paths)
         run: CXX=clang++ ./configure
 
       - name: Lint (incremental — changed files only)
         run: make lint-changed BASE=origin/${{ github.base_ref }}
+        env:
+          CLANG_TIDY: clang-tidy-18
 
   # ---------------------------------------------------------------------------
   # Full lint — runs on main pushes as a non-gating safety net. Independent of
@@ -108,13 +124,15 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
         with:
-          extra: clang-tidy
+          extra: clang-tidy-18
 
       - name: Configure
         run: CXX=clang++ ./configure
 
       - name: Lint (full tree)
         run: make lint
+        env:
+          CLANG_TIDY: clang-tidy-18
 
   # ---------------------------------------------------------------------------
   # Static analysis — cppcheck (cross-TU, compiler-agnostic). Independent of
@@ -226,8 +244,12 @@ jobs:
       - uses: ./.github/actions/install-deps
         with:
           cpp_toolchain: 'false'
+      # Pinned, and floored again by the `complexity` target. The gate parses
+      # lizard's -w output with a regex and its NLOC/CCN arithmetic has moved
+      # between releases; an unpinned lizard silently changes what the baseline
+      # means. (Same reasoning as the cppcheck pin in the analyze job.)
       - name: Install lizard
-        run: pip install lizard -q
+        run: pip install "lizard==1.24.0" -q
       - name: Complexity (lizard)
         run: make complexity
 
@@ -341,8 +363,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
 
+      # Pinned for the same reason: gcovr's report layout feeds .codecov.yml.
       - name: Install gcovr
-        run: pip install gcovr -q
+        run: pip install "gcovr==8.6" -q
 
       - name: Configure (gcov instrumentation)
         run: |

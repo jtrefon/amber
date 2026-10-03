@@ -1,5 +1,121 @@
 {
   "ccn_max": 15,
-  "functions": {},
-  "nloc_max": 40
+  "functions": {
+    "bench/kpi.cpp": {
+      "bench::compute_kpi": {
+        "ccn": 4,
+        "nloc": 35,
+        "param": 8
+      }
+    },
+    "bench/runner.cpp": {
+      "bench::fill_report": {
+        "ccn": 3,
+        "nloc": 28,
+        "param": 8
+      },
+      "bench::run_agent_in_workspace": {
+        "ccn": 4,
+        "nloc": 23,
+        "param": 10
+      }
+    },
+    "bench/template.cpp": {
+      "bench::evaluate_artifact": {
+        "ccn": 8,
+        "nloc": 20,
+        "param": 7
+      }
+    },
+    "lib/agent.cpp": {
+      "agent::Agent::Agent": {
+        "ccn": 5,
+        "nloc": 27,
+        "param": 11
+      },
+      "agent::Agent::dispatch_with_loop_detection": {
+        "ccn": 5,
+        "nloc": 17,
+        "param": 7
+      },
+      "agent::handle_fail_streak": {
+        "ccn": 4,
+        "nloc": 16,
+        "param": 8
+      }
+    },
+    "lib/agent_helpers.cpp": {
+      "agent::chat_with_retry": {
+        "ccn": 1,
+        "nloc": 6,
+        "param": 7
+      },
+      "agent::chat_with_retry_impl": {
+        "ccn": 10,
+        "nloc": 33,
+        "param": 8
+      },
+      "agent::chat_with_retry_strict": {
+        "ccn": 1,
+        "nloc": 6,
+        "param": 7
+      }
+    },
+    "lib/dispatch.cpp": {
+      "agent::dispatch_tool_calls": {
+        "ccn": 10,
+        "nloc": 35,
+        "param": 9
+      },
+      "agent::prepare_call": {
+        "ccn": 10,
+        "nloc": 31,
+        "param": 9
+      }
+    },
+    "lib/extensions.cpp": {
+      "agent::PluginServices::PluginServices": {
+        "ccn": 1,
+        "nloc": 6,
+        "param": 8
+      }
+    },
+    "lib/http_transport.cpp": {
+      "agent::curl_exec": {
+        "ccn": 7,
+        "nloc": 38,
+        "param": 11
+      }
+    },
+    "lib/mcp_transport_http.cpp": {
+      "agent::apply_curl_options": {
+        "ccn": 3,
+        "nloc": 24,
+        "param": 7
+      }
+    },
+    "lib/process.cpp": {
+      "agent::spawn_mcp_server": {
+        "ccn": 6,
+        "nloc": 28,
+        "param": 7
+      }
+    },
+    "tui/render_engine.cpp": {
+      "tui::RenderEngine::draw_input_shadow": {
+        "ccn": 5,
+        "nloc": 14,
+        "param": 7
+      }
+    },
+    "tui/tui_input.cpp": {
+      "tui::SlashDispatcher::add_setting": {
+        "ccn": 1,
+        "nloc": 7,
+        "param": 8
+      }
+    }
+  },
+  "nloc_max": 40,
+  "param_max": 6
 }

@@ -6,6 +6,9 @@ measuring nothing. These tests pin the fail-closed contract that was missing.
 """
 
 import io
+import json
+import os
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -92,28 +95,39 @@ class RunLizardFailsClosed(unittest.TestCase):
                                return_value=["python3", "-c", "print('nonsense')"]):
             functions, err = cg.run_lizard()
         self.assertIsNotNone(err, "an unrecognised lizard format must be an error")
-        self.assertEqual(functions, [])
+        self.assertFalse(functions, "an error must yield no functions to check")
 
     def test_missing_tool_is_an_error(self):
         with mock.patch.object(cg, "lizard_command",
                                return_value=["definitely-not-installed-xyz"]):
             functions, err = cg.run_lizard()
         self.assertIsNotNone(err)
-        self.assertEqual(functions, [])
+        self.assertFalse(functions)
 
     def test_zero_functions_from_a_real_run_is_an_error(self):
         with mock.patch.object(cg, "lizard_command",
                                return_value=["python3", "-c", "pass"]):
             functions, err = cg.run_lizard()
         self.assertIsNotNone(err)
-        self.assertEqual(functions, [])
+        self.assertFalse(functions)
 
     def test_error_is_reported_even_when_lizard_prints_nothing(self):
         with mock.patch.object(cg, "lizard_command",
                                return_value=["python3", "-c", "raise SystemExit(3)"]):
             functions, err = cg.run_lizard()
-        self.assertIsNotNone(err)
-        self.assertEqual(functions, [])
+            self.assertIsNotNone(err)
+            self.assertFalse(functions)
+
+    def test_exit_status_is_not_treated_as_failure(self):
+        """lizard exits 1 on a good run: `-C 1 -L 1` makes every function a
+        warning, and it ends with `if 0 <= number < warning_count: return 1`."""
+        script = "import sys; print('lib/a.cpp:1: warning: f has 5 NLOC, 2 CCN, "
+        script += "30 token, 1 PARAM, 9 length, 0 ND'); sys.exit(1)"
+        with mock.patch.object(cg, "lizard_command",
+                               return_value=["python3", "-c", script]):
+            functions, err = cg.run_lizard()
+        self.assertIsNone(err, "exit 1 with a parseable line is a successful scan")
+        self.assertEqual(len(functions), 1)
 
 
 class StillDetectsViolations(unittest.TestCase):
@@ -157,18 +171,34 @@ class BaselineHandling(unittest.TestCase):
             self.assertIsNone(cg.load_baseline())
 
     def test_empty_baseline_is_a_valid_state(self):
-        with mock.patch.object(cg, "BASELINE", cg.REPO_ROOT
-                               + "/tests/complexity_baseline.json"):
-            self.assertEqual(
-                cg.load_baseline(), {},
-                "an empty baseline is the target state, not a missing file")
+        """An empty baseline is the cliff this ratchet works toward, so it must be
+        distinguishable from a missing file. Written to a temp path rather than
+        read from the repo, because the real baseline is expected to gain entries
+        as axes are added -- the contract must not depend on its contents."""
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"ccn_max": 15, "nloc_max": 40, "param_max": 6, "functions": {}}, fh)
+            path = fh.name
+        try:
+            with mock.patch.object(cg, "BASELINE", path):
+                self.assertEqual(cg.load_baseline(), {})
+        finally:
+            os.unlink(path)
+
+    def test_populated_baseline_round_trips(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"functions": {"lib/a.cpp": {"f": {"nloc": 44, "ccn": 3, "param": 1}}}},
+                      fh)
+            path = fh.name
+        try:
+            with mock.patch.object(cg, "BASELINE", path):
+                self.assertEqual(cg.load_baseline(),
+                                 {("lib/a.cpp", "f"): {"nloc": 44, "ccn": 3, "param": 1}})
+        finally:
+            os.unlink(path)
 
 
 class PathsAreCwdIndependent(unittest.TestCase):
     def test_baseline_resolves_from_any_directory(self):
-        import os
-        import tempfile
-
         original = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:
             try:

@@ -6,6 +6,7 @@ contract and the code-line measurement the gate now depends on.
 """
 
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -17,28 +18,46 @@ from harness import load
 cs = load("class_size_gate")
 
 
-def run_check(over):
+def run_check(over, measured=cs.MIN_TYPES_SANE, broken=None):
     buf = io.StringIO()
     with redirect_stdout(buf):
-        rc = cs.check(over)
+        rc = cs.check(over, measured, broken)
     return rc, buf.getvalue()
 
 
 class FailsClosedOnNothingScanned(unittest.TestCase):
     def test_empty_scan_fails_closed(self):
-        rc, out = run_check({})
+        rc, out = run_check({}, measured=0)
         self.assertEqual(rc, 2, "a scan that found no types must not pass")
         self.assertIn("measured", out.lower())
 
     def test_implausibly_small_scan_fails_closed(self):
-        rc, _ = run_check({"lib/a.h": {"A": 400}})
+        rc, _ = run_check({"lib/a.h": {"A": 400}}, measured=1)
+        self.assertEqual(rc, 2)
+
+    def test_liveness_signals_cannot_be_omitted(self):
+        """check() takes the scan's liveness signals positionally and by keyword
+        only, so a caller cannot skip them and inherit a silent pass."""
+        with self.assertRaises(TypeError):
+            cs.check({})
+
+
+class UnscannableTypesFailClosed(unittest.TestCase):
+    def test_unbalanced_type_fails_closed(self):
+        rc, out = run_check({}, broken={"lib/a.h": ["S"]})
+        self.assertEqual(rc, 2)
+        self.assertIn("S", out)
+
+    def test_unscannable_beats_a_baseline_violation(self):
+        rc, _ = run_check({"lib/a.h": {"Fat": 900}}, broken={"lib/a.h": ["S"]})
         self.assertEqual(rc, 2)
 
 
 class StillDetectsViolations(unittest.TestCase):
     def test_clean_scan_passes(self):
         rc, out = run_check({})
-        self.assertEqual(rc, 2)  # still fails closed; use a real scan for a pass
+        self.assertEqual(rc, 0, out)
+        self.assertIn("baseline holds", out)
 
     def test_new_oversized_type_fails(self):
         rc, out = run_check({"lib/a.h": {"Fat": 212}})
@@ -46,9 +65,33 @@ class StillDetectsViolations(unittest.TestCase):
         self.assertIn("Fat", out)
 
     def test_grown_type_fails(self):
-        with mock.patch.dict(cs.load_baseline(), {}, clear=True):
-            rc, out = run_check({"include/agent/agent.h": {"Agent": cs.MAX_LINES + 5}})
-            self.assertIn(rc, (1, 2))
+        rc, out = run_check({"include/agent/agent.h": {"Agent": cs.MAX_LINES + 5}})
+        self.assertEqual(rc, 1)
+        self.assertIn("Agent", out)
+
+
+class StripNoisePreservesLineStructure(unittest.TestCase):
+    """structural lines are indexed alongside source lines, so the two must have
+    the same length or every measurement after a comment is off by a line."""
+
+    def assert_same_shape(self, source):
+        self.assertEqual(len(cs.strip_noise(source).split("\n")),
+                         len(source.split("\n")))
+
+    def test_line_comment(self):
+        self.assert_same_shape("int a;\n// note\nint b;\n")
+
+    def test_block_comment(self):
+        self.assert_same_shape("int a;\n/* one\ntwo\nthree */\nint b;\n")
+
+    def test_string_with_escaped_quote(self):
+        self.assert_same_shape('const char* s = "a\\"b";\nint c;\n')
+
+    def test_raw_string_across_lines(self):
+        self.assert_same_shape('auto s = R"json({\n"a": 1\n})json";\nint d;\n')
+
+    def test_unterminated_block_comment(self):
+        self.assert_same_shape("int a;\n/* never closed\nint b;\n")
 
 
 class CodeLineMeasurement(unittest.TestCase):
@@ -72,7 +115,7 @@ class CodeLineMeasurement(unittest.TestCase):
             "};",
         ])
         found = dict((n, lines) for lines, n in self.count(source))
-        self.assertEqual(found["S"], 3, "declaration + two members")
+        self.assertEqual(found["S"], 4, "declaration + two members + closing brace")
 
     def test_multiline_comment_block_is_excluded(self):
         source = "\n".join([
@@ -85,7 +128,7 @@ class CodeLineMeasurement(unittest.TestCase):
             "};",
         ])
         found = dict((n, lines) for lines, n in self.count(source))
-        self.assertEqual(found["S"], 2)
+        self.assertEqual(found["S"], 3, "declaration + member + closing brace")
 
     def test_a_string_containing_a_brace_does_not_end_the_type(self):
         """The naive brace counter used to stop early here, silently under-counting."""
@@ -99,19 +142,30 @@ class CodeLineMeasurement(unittest.TestCase):
             "};",
         ])
         found = dict((n, lines) for lines, n in self.count(source))
-        self.assertEqual(found["S"], 6, "the '}' inside the string must not close the type")
+        self.assertEqual(found["S"], 7, "the '}' inside the string must not close the type")
 
     def test_a_comment_containing_a_brace_does_not_end_the_type(self):
         source = "\n".join([
             "struct S {",
-            "    // payload looks like {\"a\": 1}",
+            '    // payload looks like {"a": 1}',
             "    int a;",
             "    int b;",
             "    int c;",
             "};",
         ])
         found = dict((n, lines) for lines, n in self.count(source))
-        self.assertEqual(found["S"], 4)
+        self.assertEqual(found["S"], 5, "declaration + comment + 3 members + brace")
+
+    def test_a_raw_string_with_braces_does_not_end_the_type(self):
+        source = "\n".join([
+            "struct S {",
+            '    const char* k = R"json({"a": })json";',
+            "    int a;",
+            "    int b;",
+            "};",
+        ])
+        found = dict((n, lines) for lines, n in self.count(source))
+        self.assertEqual(found["S"], 5)
 
     def test_an_unterminated_type_is_reported_not_silently_dropped(self):
         """A class whose brace never closes means the scanner lost sync. That must
@@ -122,10 +176,24 @@ class CodeLineMeasurement(unittest.TestCase):
 
 
 class BaselineHandling(unittest.TestCase):
+    """Baseline files are written to temp paths, not read from the repo: the real
+    baseline is expected to change as types are split, and the contract under test
+    ("an empty baseline is a state, a missing file is an error") must not depend
+    on its current contents."""
+
+    def write(self, payload):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        json.dump(payload, handle)
+        handle.close()
+        return handle.name
+
     def test_empty_baseline_is_a_valid_state(self):
-        path = os.path.join(cs.repo_root(), "tests", "class_size_baseline.json")
-        with mock.patch.object(cs, "BASELINE", path):
-            self.assertEqual(cs.load_baseline(), {})
+        path = self.write({"max_lines": 200, "types": {}})
+        try:
+            with mock.patch.object(cs, "BASELINE", path):
+                self.assertEqual(cs.load_baseline(), {})
+        finally:
+            os.unlink(path)
 
     def test_absent_baseline_is_an_error(self):
         with mock.patch.object(cs, "BASELINE", "/nonexistent/class_size_baseline.json"):

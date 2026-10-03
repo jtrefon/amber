@@ -7,16 +7,27 @@ it as "known" — and then the tree could stop compiling while the gate stayed g
 """
 
 import io
+import json
 import os
+import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 from harness import load
 
 lb = load("lint_baseline")
 
-EMPTY_BASELINE = os.path.join(lb.repo_root(), "tests", "lint_baseline.json")
+def empty_baseline_file():
+    """A temp baseline holding `{"files": {}}`.
+
+    The real baseline is expected to change as findings are fixed, so the
+    contract under test must not depend on its current contents.
+    """
+    handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    json.dump({"files": {}}, handle)
+    handle.close()
+    return handle.name
 
 
 def run_check(counts, **kwargs):
@@ -96,15 +107,33 @@ class RatchetBehaviour(unittest.TestCase):
             self.assertEqual(rc, 2)
 
     def test_empty_baseline_is_a_valid_state(self):
-        with mock.patch.object(lb, "BASELINE", EMPTY_BASELINE):
-            self.assertEqual(lb.load_baseline(), {})
+        path = empty_baseline_file()
+        try:
+            with mock.patch.object(lb, "BASELINE", path):
+                self.assertEqual(lb.load_baseline(), {})
+        finally:
+            os.unlink(path)
 
     def test_update_writes_only_real_findings(self):
-        payload = {"files": {"lib/a.cpp": {"misc-unused-variable": 1}}}
-        with mock.patch.object(lb, "BASELINE", "/tmp/lb_test_baseline.json"):
-            lb.update(payload)
-            self.assertEqual(lb.load_baseline(), payload)
-            os.unlink("/tmp/lb_test_baseline.json")
+        counts = {"lib/a.cpp": {"misc-unused-variable": 1}}
+        path = empty_baseline_file()
+        try:
+            with mock.patch.object(lb, "BASELINE", path), redirect_stdout(io.StringIO()):
+                self.assertEqual(lb.update(counts), 0)
+                self.assertEqual(lb.load_baseline(), counts)
+        finally:
+            os.unlink(path)
+
+    def test_update_refuses_to_record_a_compile_error(self):
+        counts = {"lib/a.cpp": {lb.HARD_ERROR: 1}}
+        path = empty_baseline_file()
+        try:
+            with mock.patch.object(lb, "BASELINE", path), redirect_stderr(io.StringIO()):
+                self.assertEqual(lb.update(counts, hard_errors=1), 2)
+                self.assertEqual(lb.load_baseline(), {},
+                                 "a tree that does not compile must not become the baseline")
+        finally:
+            os.unlink(path)
 
 
 class PathNormalisation(unittest.TestCase):
