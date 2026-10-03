@@ -821,6 +821,25 @@ std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
 // tools), model-name (retry with the first advertised model), and auth (ask the
 // host for a key, rebuild the client, retry). Returns an empty adapter entry when
 // no repair applies.
+namespace {
+
+// Ask the host for a replacement API key after a 401/403. Returns "" when the
+// host cannot or will not provide one (hook unset, or the user cancelled).
+std::string request_new_api_key(const AgentHooks& hooks, const Config& cfg, const char* stage) {
+    if (!hooks.on_api_key)
+        return "";
+    const std::string reason =
+        "API key for provider '" + cfg.provider_name + "' was rejected (HTTP 401/403)";
+    if (hooks.on_status)
+        hooks.on_status(reason + " - requesting a new key");
+    const std::string key = hooks.on_api_key(reason);
+    if (!key.empty() && hooks.on_debug)
+        hooks.on_debug("auth: key updated, retrying " + std::string(stage));
+    return key;
+}
+
+} // namespace
+
 ChatAdapter Agent::build_chat_adapter(const char* stage,
                                       const std::vector<std::shared_ptr<Tool>>& tools,
                                       bool display) {
@@ -849,17 +868,9 @@ ChatAdapter Agent::build_chat_adapter(const char* stage,
             // retry. The host persists the key to the provider config; when
             // no key is provided (hook unset or user cancelled) no repair
             // applies and the turn degrades as before.
-            if (!hooks_.on_api_key)
-                break;
-            std::string reason =
-                "API key for provider '" + cfg_.provider_name + "' was rejected (HTTP 401/403)";
-            if (hooks_.on_status)
-                hooks_.on_status(reason + " - requesting a new key");
-            std::string key = hooks_.on_api_key(reason);
+            const std::string key = request_new_api_key(hooks_, cfg_, stage);
             if (key.empty())
                 break;
-            if (hooks_.on_debug)
-                hooks_.on_debug("auth: key updated, retrying " + std::string(stage));
             set_connection(cfg_.api_base, key, cfg_.model);
             return [this, &tools, display]() { return chat_once(tools, display); };
         }

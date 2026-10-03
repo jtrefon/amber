@@ -7,12 +7,6 @@
         "nloc": 41
       }
     },
-    "lib/agent.cpp": {
-      "agent::Agent::build_chat_adapter": {
-        "ccn": 12,
-        "nloc": 44
-      }
-    },
     "tools/plugins/cdp/main.cpp": {
       "main": {
         "ccn": 10,
@@ -33,12 +27,6 @@
     },
     "tui/render_engine.cpp": {
       "tui::RenderEngine::draw_input": {
-        "ccn": 12,
-        "nloc": 41
-      }
-    },
-    "tui/tui.cpp": {
-      "tui::Tui::apply_key_action": {
         "ccn": 12,
         "nloc": 41
       }

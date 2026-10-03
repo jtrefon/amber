@@ -666,21 +666,17 @@ bool Tui::apply_key_action(const KeyAction& act, int ch, const KeyRead& kr, Comm
     switch (act.type) {
     case KeyAction::SwitchWindow:
         switch_to(static_cast<size_t>(act.arg));
-        draw_input(cl.text(), cl.cursor(), cl.shadow());
-        return true;
+        break;
     case KeyAction::NewWindow:
         new_window("chat");
         render_engine_->draw();
-        draw_input(cl.text(), cl.cursor(), cl.shadow());
-        return true;
+        break;
     case KeyAction::CloseDrawer:
         render_engine_->draw();
-        draw_input(cl.text(), cl.cursor(), cl.shadow());
-        return true;
+        break;
     case KeyAction::DeleteWord:
         cl.on_ctrl_w();
-        draw_input(cl.text(), cl.cursor(), cl.shadow());
-        return true;
+        break;
     case KeyAction::CancelOrQuit:
         return cancel_active_run(ch, cl);
     case KeyAction::ToggleScrollMode:
@@ -688,22 +684,22 @@ bool Tui::apply_key_action(const KeyAction& act, int ch, const KeyRead& kr, Comm
         if (render_engine_->scroll_mode())
             append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
         render_engine_->draw();
-        draw_input(cl.text(), cl.cursor(), cl.shadow());
-        return true;
+        break;
     case KeyAction::None:
         // ESC+0 opens panels (not a window switch); fall through to the
         // CommandLine routing for other unhandled keys.
-        if (ch == 27 && kr.followup && *kr.followup == '0') {
-            open_panels("");
-            render_engine_->draw();
-            draw_input(cl.text(), cl.cursor(), cl.shadow());
-            return true;
-        }
-        return false;
+        if (ch != 27 || !kr.followup || *kr.followup != '0')
+            return false;
+        open_panels("");
+        render_engine_->draw();
+        break;
     default:
-        break; // not a key this layer acts on: fall through to the later ones
+        return false; // not a key this layer acts on: fall through to the later ones
     }
-    return false;
+    // Every action this layer handles repaints the input line; it used to be
+    // repeated in each case.
+    draw_input(cl.text(), cl.cursor(), cl.shadow());
+    return true;
 }
 
 // Alt+0 opens the panel view (the registry console first); the host owns the
