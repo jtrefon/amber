@@ -88,6 +88,51 @@ std::vector<std::string> learn_show_lines(const MemoryStore* store, const std::s
     return lines;
 }
 
+namespace {
+
+// The "a, b, c" rendering of a tag list.
+std::string join_tags(const std::vector<std::string>& tags) {
+    std::string out;
+    for (size_t i = 0; i < tags.size(); ++i) {
+        if (i)
+            out += ", ";
+        out += tags[i];
+    }
+    return out;
+}
+
+std::vector<std::string> memory_lines(const MemoryStore& store, const Memory& m) {
+    const std::string tags = join_tags(m.tags);
+    char score_buf[16];
+    std::snprintf(score_buf, sizeof score_buf, "%.2f", store.score_of(m));
+    return {
+        "id: " + m.id,
+        "type: memory",
+        "name: " + m.name,
+        "content: " + m.content,
+        "tags: " + (tags.empty() ? "-" : tags),
+        "evidence: " + std::to_string(m.evidence_count),
+        "score: " + std::string(score_buf),
+        "promoted: " + std::string(m.promoted ? "yes" : "no"),
+        "last turn: " + std::to_string(m.last_confirm_turn),
+    };
+}
+
+std::vector<std::string> skill_lines(const Skill& s) {
+    return {
+        "id: " + s.id,
+        "type: skill",
+        "name: " + s.name,
+        "content: " + s.content,
+        "evidence: " + std::to_string(s.evidence_count),
+        "promoted: " + std::string(s.promoted ? "yes" : "no"),
+        "last turn: " + std::to_string(s.last_confirm_turn),
+        "trigger: " + s.trigger_phrase,
+    };
+}
+
+} // namespace
+
 std::vector<std::string> learn_inspect_lines(const MemoryStore* store, const std::string& id,
                                              std::string& error) {
     error.clear();
@@ -95,45 +140,12 @@ std::vector<std::string> learn_inspect_lines(const MemoryStore* store, const std
         error = "experience store disabled";
         return {};
     }
-    for (const auto& m : store->all_memories()) {
-        if (m.id != id)
-            continue;
-        std::string tags;
-        for (size_t i = 0; i < m.tags.size(); ++i) {
-            if (i)
-                tags += ", ";
-            tags += m.tags[i];
-        }
-        char score_buf[16];
-        std::snprintf(score_buf, sizeof score_buf, "%.2f", store->score_of(m));
-        std::vector<std::string> lines = {
-            "id: " + m.id,
-            "type: memory",
-            "name: " + m.name,
-            "content: " + m.content,
-            "tags: " + (tags.empty() ? "-" : tags),
-            "evidence: " + std::to_string(m.evidence_count),
-            "score: " + std::string(score_buf),
-            "promoted: " + std::string(m.promoted ? "yes" : "no"),
-            "last turn: " + std::to_string(m.last_confirm_turn),
-        };
-        return lines;
-    }
-    for (const auto& s : store->all_skills()) {
-        if (s.id != id)
-            continue;
-        std::vector<std::string> lines = {
-            "id: " + s.id,
-            "type: skill",
-            "name: " + s.name,
-            "content: " + s.content,
-            "evidence: " + std::to_string(s.evidence_count),
-            "promoted: " + std::string(s.promoted ? "yes" : "no"),
-            "last turn: " + std::to_string(s.last_confirm_turn),
-            "trigger: " + s.trigger_phrase,
-        };
-        return lines;
-    }
+    for (const auto& m : store->all_memories())
+        if (m.id == id)
+            return memory_lines(*store, m);
+    for (const auto& s : store->all_skills())
+        if (s.id == id)
+            return skill_lines(s);
     error = "no learned item with id '" + id + "'";
     return {};
 }

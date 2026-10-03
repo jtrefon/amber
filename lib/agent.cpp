@@ -687,6 +687,59 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
     publish_message_added(context_.get_all().back());
 }
 
+namespace {
+
+// The tooling-phase notifications, emitted once per dispatch.
+void emit_tooling_hooks(const AgentHooks& hooks, const json& tool_calls,
+                        const std::string& content) {
+    if (hooks.on_assistant && !content.empty())
+        hooks.on_assistant(content);
+    if (hooks.on_state)
+        hooks.on_state(RunState::Tooling);
+    if (hooks.on_debug)
+        hooks.on_debug("dispatching " + std::to_string(tool_calls.size()) + " tool call(s)");
+}
+
+// True when the same tool-call fingerprint repeats 3+ times.
+bool loop_detected(const json& tool_calls, int& loop_count, std::string& last_loop_key,
+                   std::string& final_reply, const AgentHooks& hooks, ConversationLog& log) {
+    const std::string cur = fingerprint_tool_calls(tool_calls);
+    if (!cur.empty() && cur == last_loop_key) {
+        ++loop_count;
+    } else {
+        loop_count = 0;
+        last_loop_key = cur;
+    }
+    if (loop_count < 3)
+        return false;
+    if (hooks.on_status)
+        hooks.on_status("loop detected: breaking tool loop");
+    log.event("error", {{"reason", "tool_loop_detected"}});
+    final_reply = "[loop detected: the model repeated the same tool "
+                  "call 3+ times. Rephrase or break down the task.]";
+    return true;
+}
+
+// The fail-streak ladder: steer once, then hard-stop.
+void handle_fail_streak(const json& tool_calls, bool ok, FailStreak& fail_streak,
+                        int& tool_recovery_attempts, std::string& final_reply,
+                        const AgentHooks& hooks, ConversationLog& log, Context& ctx) {
+    if (fail_streak.update(tool_calls, ok) < 3)
+        return;
+    if (tool_recovery_attempts < 1) {
+        inject_tool_recovery_steer(&ctx, hooks, log);
+        ++tool_recovery_attempts;
+        return;
+    }
+    if (hooks.on_status)
+        hooks.on_status("tool recovery failed, stopping");
+    log.event("tool_recovery", {{"action", "hard_stop"}});
+    final_reply = "[stopped: tool calls kept failing after recovery "
+                  "steer; rephrase your request or run a simpler command]";
+}
+
+} // namespace
+
 bool Agent::dispatch_with_loop_detection(const json& tool_calls, const std::string& content,
                                          FailStreak& fail_streak, int& loop_count,
                                          std::string& last_loop_key, int& tool_recovery_attempts,
@@ -694,45 +747,15 @@ bool Agent::dispatch_with_loop_detection(const json& tool_calls, const std::stri
     if (tool_calls.is_null() || tool_calls.empty())
         return false;
 
-    if (hooks_.on_assistant && !content.empty())
-        hooks_.on_assistant(content);
-    if (hooks_.on_state)
-        hooks_.on_state(RunState::Tooling);
-    if (hooks_.on_debug)
-        hooks_.on_debug("dispatching " + std::to_string(tool_calls.size()) + " tool call(s)");
-
-    bool ok = dispatch_tool_calls(tool_calls, cfg_, registry_, hooks_, log_, session_approved_,
-                                  &policy_, event_bus_, &context_);
+    emit_tooling_hooks(hooks_, tool_calls, content);
+    const bool ok = dispatch_tool_calls(tool_calls, cfg_, registry_, hooks_, log_,
+                                        session_approved_, &policy_, event_bus_, &context_);
 
     if (cfg_.detection_loop) {
-        std::string cur = fingerprint_tool_calls(tool_calls);
-        if (!cur.empty() && cur == last_loop_key)
-            ++loop_count;
-        else {
-            loop_count = 0;
-            last_loop_key = cur;
-        }
-        if (loop_count >= 3) {
-            if (hooks_.on_status)
-                hooks_.on_status("loop detected: breaking tool loop");
-            log_.event("error", {{"reason", "tool_loop_detected"}});
-            final_reply = "[loop detected: the model repeated the same tool "
-                          "call 3+ times. Rephrase or break down the task.]";
+        if (loop_detected(tool_calls, loop_count, last_loop_key, final_reply, hooks_, log_))
             return true;
-        }
-        int worst = fail_streak.update(tool_calls, ok);
-        if (worst >= 3) {
-            if (tool_recovery_attempts >= 1) {
-                if (hooks_.on_status)
-                    hooks_.on_status("tool recovery failed, stopping");
-                log_.event("tool_recovery", {{"action", "hard_stop"}});
-                final_reply = "[stopped: tool calls kept failing after recovery "
-                              "steer; rephrase your request or run a simpler command]";
-                return true;
-            }
-            inject_tool_recovery_steer(&context_, hooks_, log_);
-            ++tool_recovery_attempts;
-        }
+        handle_fail_streak(tool_calls, ok, fail_streak, tool_recovery_attempts, final_reply, hooks_,
+                           log_, context_);
     }
     return true;
 }
