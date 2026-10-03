@@ -1,20 +1,9 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
 
 const base = new URL(process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:4173/amber/');
-const routes = [
-  '',
-  'download/',
-  'install/',
-  'benchmarks/',
-  'architecture/',
-  'architecture/diagrams/',
-  'plugins/',
-  'manual/',
-  'report/',
-];
 
 function request(path) {
   return new Promise((resolve, reject) => {
@@ -46,10 +35,23 @@ async function htmlFiles(directory) {
 }
 
 const dist = process.env.SMOKE_DIST ?? new URL('../dist/', import.meta.url).pathname;
+
+// Routes come from the artifact, not a hardcoded list: every index.html under
+// dist/ is a route, so the check stays complete as pages are added or removed
+// with no edit here. (The previous list pinned nine routes and had already
+// drifted: the build produces twenty-one pages.)
+const pages = await htmlFiles(dist);
+const routes = pages
+  .filter((file) => file.endsWith('index.html'))
+  .map((file) => {
+    const dir = dirname(relative(dist, file));
+    return dir === '.' ? '' : `${dir}/`;
+  });
+
 for (const route of routes) await request(route);
 
 const links = new Set();
-for (const file of await htmlFiles(dist)) {
+for (const file of pages) {
   const html = await readFile(file, 'utf8');
   for (const match of html.matchAll(/(?:href|src)="(\/amber\/[^"#?]*)"/g)) {
     links.add(match[1]);
