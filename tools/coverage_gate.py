@@ -17,10 +17,25 @@ check is ever created, so the `patch: target: 80%` in `.codecov.yml` has never
 actually been evaluated. Measuring the diff here makes the rule real, keeps it
 working with no third-party service in the path, and fails closed.
 
-**Definition.** For every line the diff *adds*, was it executed by the test suite?
-A line the diff touches that the report does not mention counts as **uncovered**:
-absent data is not evidence of a test, and assuming otherwise is the fail-open
-direction.
+**Definition.** For every *executable* line the diff adds, was it executed by the
+test suite?
+
+Which lines those are comes from the report, not from guesswork. Measured against
+gcov's own output, gcovr's Cobertura XML behaves like this:
+
+    executable and ran            -> <line hits="1">
+    executable but never ran      -> <line hits="0">      <- uncovered
+    comment, blank, closing brace -> no <line> at all    <- not executable
+
+So a changed line the report does not mention is **not executable**, and demanding
+coverage of it is wrong. An earlier version of this gate assumed the opposite --
+that absent meant untested -- and consequently failed a PR whose only addition to a
+`.cpp` was four lines of explanatory comment. The gate caught it on its own first
+live run, which is the argument for having it.
+
+A changed `.cpp` that is missing from the report *entirely* is a different matter:
+it was compiled, so it must be there. That is a measurement gap, and it fails
+closed rather than counting as zero.
 
 **Format.** Cobertura XML (`gcovr --xml-pretty`, which the coverage job already
 produces as `coverage.xml`), because it carries per-line hit counts. gcovr's
@@ -54,9 +69,19 @@ HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
 # both wrong and the fastest way to get a gate switched off.
 INSTRUMENTED = (".cpp", ".c", ".cc", ".h", ".hpp", ".hxx")
 
+# Translation units. If one of these is absent from the report it was compiled but
+# not measured, which is a gap worth failing on. Headers are not translation units:
+# a header with no inline definitions has no executable lines of its own and is
+# routinely absent, so failing on that would block every header-touching PR.
+TRANSLATION_UNITS = (".cpp", ".c", ".cc")
+
 
 def is_instrumented(path):
     return path.endswith(INSTRUMENTED)
+
+
+def is_translation_unit(path):
+    return path.endswith(TRANSLATION_UNITS)
 
 
 class PatchCoverage:
@@ -67,6 +92,10 @@ class PatchCoverage:
         self.total = total
         self.covered = covered
         self.uncovered = uncovered if uncovered is not None else []
+        # Changed sources the report does not contain at all. See the module
+        # docstring: absent per line means "not executable", absent per file means
+        # "not measured", and those are opposite conclusions.
+        self.unmeasured = []
 
     @property
     def covered_lines(self):
@@ -121,16 +150,26 @@ def patch_coverage(hits, changed):
     if not any(hits.values()):
         # No file in the report carries line data: the report measured nothing.
         return PatchCoverage()
-    total, uncovered = 0, []
+    total, uncovered, unmeasured = 0, [], []
     for path, numbers in changed.items():
         if not is_instrumented(path):
             continue
-        file_hits = hits.get(path, {})
+        if path not in hits:
+            if is_translation_unit(path):
+                # Compiled source missing from the report means the coverage job did
+                # not measure it. A gap in the measurement, not a low score.
+                unmeasured.append(path)
+            continue
+        file_hits = hits[path]
         for number in sorted(numbers):
+            if number not in file_hits:
+                continue  # not executable: comment, blank, brace
             total += 1
-            if file_hits.get(number, 0) <= 0:
+            if file_hits[number] <= 0:
                 uncovered.append((path, number))
-    return PatchCoverage(total=total, covered=total - len(uncovered), uncovered=uncovered)
+    result = PatchCoverage(total=total, covered=total - len(uncovered), uncovered=uncovered)
+    result.unmeasured = sorted(set(unmeasured))
+    return result
 
 
 def check(result, changed=None):
@@ -145,6 +184,13 @@ def check(result, changed=None):
     if result.total is None:
         print("coverage: FAILED CLOSED - the coverage report is missing or contains no "
               "line data, so patch coverage cannot be computed.")
+        return 2
+    if result.unmeasured:
+        print("coverage: FAILED CLOSED - these changed sources are absent from the coverage "
+              "report. They were compiled, so they should have been measured; counting them "
+              "as untested would be a guess in the other direction:")
+        for path in result.unmeasured[:15]:
+            print(f"  {path}")
         return 2
     if result.total == 0:
         print("coverage: no changed executable lines in the diff; nothing to gate "
