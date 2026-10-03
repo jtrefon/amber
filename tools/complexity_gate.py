@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Complexity gate (ratchet).
 
-The project standard is: a method stays small (<= NLOC_MAX lines of code) and
-does not branch excessively (CCN <= CCN_MAX).
+The project standard is: a method stays small (<= NLOC_MAX lines of code), does
+not branch excessively (CCN <= CCN_MAX), and does not take an unreadable number
+of parameters (PARAM <= PARAM_MAX).
 
 Size is measured in **NLOC** (non-comment, non-blank lines), not total physical
 lines. That is deliberate: a function is not too big because it is documented.
@@ -16,8 +17,16 @@ cannot grow and a new function must be clean. The baseline is keyed by
 (file, function), so a file cannot swap one over-limit function for another and
 pass -- the recorded function itself may not get bigger.
 
-The gate fails closed: if lizard cannot run, the gate fails rather than
-reporting success.
+The gate fails closed, and that includes the case where the measurement itself
+degrades. A cliff with an empty baseline that reports "0 over-limit functions"
+because it parsed nothing is worse than no gate: it is green forever. So three
+things are treated as errors rather than results:
+
+  * lizard cannot be launched, or exits non-zero;
+  * lizard prints function lines the parser does not recognise (a release
+    changed the -w layout);
+  * the scan covers implausibly few functions (ROOTS/excludes drifted, or a
+    lizard release stopped reporting some construct).
 
 Usage:
   tools/complexity_gate.py --report    # list the violations (informational)
@@ -34,8 +43,17 @@ import sys
 
 CCN_MAX = 15
 NLOC_MAX = 40
+PARAM_MAX = 6
+
+# A healthy scan of this tree reports >2000 functions. The floor is set far below
+# that on purpose: its only job is to catch a scan that measured (almost) nothing,
+# not to encode the current size. Lower it and the gate stops noticing rot.
+MIN_FUNCTIONS_SANE = 200
+
 ROOTS = ["lib", "tools", "tui", "src", "bench", "plugins"]
-BASELINE = os.path.join("tests", "complexity_baseline.json")
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASELINE = os.path.join(REPO_ROOT, "tests", "complexity_baseline.json")
 
 # lizard -w prints clang-style lines:
 #   path/to/f.cpp:417: warning: ns::f has 410 NLOC, 109 CCN, 2998 token, 0 PARAM, 485 length, 0 ND
@@ -45,52 +63,99 @@ WARN_RE = re.compile(
     r"(?P<param>\d+) PARAM, (?P<length>\d+) length"
 )
 
+# The shape of a lizard function line without its field layout. A line that
+# matches this but not WARN_RE means the layout changed, which must be an error
+# rather than a silently dropped measurement.
+LOOSE_RE = re.compile(r"^[^:]+:\d+: warning: ")
 
-def run_lizard():
-    """Every function lizard can see, as dicts. (-C 1 -L 1 makes lizard report
-    all of them; the real thresholds are applied here, because lizard's -L
-    filters on total lines, not NLOC.)"""
-    cmd = [
+AXES = (("nloc", NLOC_MAX, "NLOC"), ("ccn", CCN_MAX, "CCN"), ("param", PARAM_MAX, "PARAM"))
+
+
+def repo_root():
+    return REPO_ROOT
+
+
+def lizard_command():
+    """The exact invocation. -C 1 -L 1 makes lizard report all functions; the
+    real thresholds are applied here, because lizard's -L filters on total lines
+    rather than NLOC."""
+    return [
         sys.executable, "-m", "lizard", "-w", "-l", "cpp",
         "-C", "1", "-L", "1",
         "--exclude", "third_party", "--exclude", "bench/results",
         *ROOTS,
     ]
+
+
+def parse_lizard_output(lines):
+    """(functions, unparsed_count).
+
+    `unparsed_count` counts lines that are shaped like a lizard function line but
+    do not match WARN_RE -- the signal that lizard's output format moved.
+    """
+    functions, unparsed = [], 0
+    for raw in lines:
+        line = raw.strip()
+        match = WARN_RE.match(line)
+        if match:
+            functions.append({
+                "file": match.group("file"),
+                "line": int(match.group("line")),
+                "name": match.group("name"),
+                "nloc": int(match.group("nloc")),
+                "ccn": int(match.group("ccn")),
+                "param": int(match.group("param")),
+                "length": int(match.group("length")),
+            })
+        elif LOOSE_RE.match(line):
+            unparsed += 1
+    return functions, unparsed
+
+
+def run_lizard():
+    """Every function lizard can see, as dicts, or (None, reason).
+
+    The exit status is deliberately ignored. lizard ends with
+    `if 0 <= options.number < warning_count: return 1`, and `-C 1 -L 1` (needed to
+    make it report every function) makes every function a warning, so a
+    perfectly good run exits 1. Success is therefore judged from the output,
+    which validate_scan does.
+    """
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(lizard_command(), capture_output=True, text=True)
     except OSError as exc:
         return None, f"could not run lizard: {exc}"
-    if proc.returncode != 0 and not proc.stdout.strip():
-        return None, f"lizard failed ({proc.returncode}): {proc.stderr.strip()[:200]}"
-    out = []
-    for raw in proc.stdout.splitlines():
-        m = WARN_RE.match(raw.strip())
-        if not m:
-            continue
-        out.append({
-            "file": m.group("file"),
-            "line": int(m.group("line")),
-            "name": m.group("name"),
-            "nloc": int(m.group("nloc")),
-            "ccn": int(m.group("ccn")),
-            "length": int(m.group("length")),
-        })
-    return out, None
+    return validate_scan(*parse_lizard_output(proc.stdout.splitlines()))
+
+
+def validate_scan(functions, unparsed):
+    """Refuse to treat a degraded scan as a clean one."""
+    if unparsed:
+        return None, (f"{unparsed} lizard output line(s) did not match the expected "
+                      f"-w format; lizard's output layout changed")
+    if not functions:
+        return None, "lizard reported no functions"
+    return functions, None
+
+
+def over_limit(dimensions):
+    return any(dimensions[key] > cap for key, cap, _ in AXES)
 
 
 def violations_of(functions):
-    return [f for f in functions if f["ccn"] > CCN_MAX or f["nloc"] > NLOC_MAX]
+    return [f for f in functions if over_limit(f)]
 
 
 def keyed(violations):
-    """(file, name) -> {nloc, ccn}. On a name collision keep the worst entry,
-    so a duplicate name can never hide a larger function."""
+    """(file, name) -> {nloc, ccn, param}. On a name collision keep the worst
+    entry, so a duplicate name can never hide a larger function."""
     out = {}
     for v in violations:
         key = (v["file"], v["name"])
+        current = {k: v[k] for k, _, _ in AXES}
         cur = out.get(key)
-        if cur is None or (v["nloc"], v["ccn"]) > (cur["nloc"], cur["ccn"]):
-            out[key] = {"nloc": v["nloc"], "ccn": v["ccn"]}
+        if cur is None or tuple(current.values()) > tuple(cur.values()):
+            out[key] = current
     return out
 
 
@@ -98,63 +163,75 @@ def area_of(path):
     return path.split("/", 1)[0]
 
 
+def describe(dimensions):
+    return ", ".join(f"{label} {dimensions[key]}/{cap}" for key, cap, label in AXES)
+
+
+def describe_caps():
+    return ", ".join(f"{label} >{cap}" for _, cap, label in AXES)
+
+
 def report(functions, violations):
-    by_area = {}
-    for v in violations:
-        by_area[area_of(v["file"])] = by_area.get(area_of(v["file"]), 0) + 1
     print(f"functions scanned: {len(functions)}")
-    print(f"over-limit (CCN > {CCN_MAX} or NLOC > {NLOC_MAX}): {len(violations)}")
-    for area, n in sorted(by_area.items(), key=lambda kv: -kv[1]):
+    print(f"over-limit ({describe_caps()}): {len(violations)}")
+    for area, n in sorted(count_by_area(violations).items(), key=lambda kv: -kv[1]):
         print(f"  {area:<10} {n}")
-    dense = [v for v in violations if v["ccn"] > CCN_MAX and v["nloc"] > NLOC_MAX]
-    print(f"  of which dense AND long: {len(dense)}")
-    print(f"  dense only (CCN > {CCN_MAX}): {len([v for v in violations if v['ccn'] > CCN_MAX and v['nloc'] <= NLOC_MAX])}")
-    print(f"  long only (NLOC > {NLOC_MAX}): {len([v for v in violations if v['ccn'] <= CCN_MAX and v['nloc'] > NLOC_MAX])}")
+    for key, cap, label in AXES:
+        print(f"  over {label} cap: {len([v for v in violations if v[key] > cap])}")
     worst = sorted(violations, key=lambda v: (-v["nloc"], -v["ccn"]))[:15]
     print("\n  worst by NLOC (total lines shown for information):")
     for v in worst:
         print(f"    {v['nloc']:>4} NLOC ({v['length']:>4} lines)  {v['ccn']:>3} CCN  "
-              f"{v['file']}:{v['line']}  {v['name']}")
+              f"{v['param']:>3} PARAM  {v['file']}:{v['line']}  {v['name']}")
+
+
+def count_by_area(violations):
+    areas = {}
+    for v in violations:
+        area = area_of(v["file"])
+        areas[area] = areas.get(area, 0) + 1
+    return areas
 
 
 def load_baseline():
+    """The recorded functions, or None when there is no baseline file at all.
+
+    An empty baseline (`{"functions": {}}`) is a *state*, not a missing file: it
+    is every function under the caps, which is the cliff this ratchet works
+    toward.
+    """
     if not os.path.exists(BASELINE):
         return None
-    with open(BASELINE) as fh:
-        raw = json.load(fh)
+    with open(BASELINE, encoding="utf-8") as handle:
+        raw = json.load(handle)
     return {(f, n): d for f, names in raw.get("functions", {}).items() for n, d in names.items()}
+
+
+def shrunk_from(base, current):
+    return [k for k in base if k not in current]
 
 
 def check(functions):
     base = load_baseline()
     if base is None:
         print(f"complexity: no baseline at {BASELINE}; run tools/complexity_gate.py --update")
-        return 1
+        return 2
+    if len(functions) < MIN_FUNCTIONS_SANE:
+        print(f"complexity: FAILED CLOSED - measured only {len(functions)} function(s), "
+              f"expected at least {MIN_FUNCTIONS_SANE}. Check ROOTS, the --exclude list, "
+              f"and the lizard version before trusting this result.")
+        return 2
+
     current = keyed(violations_of(functions))
+    new = [k for k in sorted(current) if k not in base]
+    grew = [k for k in sorted(current)
+            if k in base and any(current[k][a] > base[k].get(a, 0) for a, _, _ in AXES)]
 
-    grew, new = [], []
-    for key, cur in sorted(current.items()):
-        was = base.get(key)
-        if was is None:
-            new.append((key, cur))
-        elif cur["nloc"] > was["nloc"] or cur["ccn"] > was["ccn"]:
-            grew.append((key, was, cur))
-
-    if grew or new:
-        if new:
-            print(f"complexity: {len(new)} new over-limit function(s):")
-            for (path, name), cur in new:
-                print(f"  {path}: {name} is {cur['nloc']} NLOC / CCN {cur['ccn']} "
-                      f"(limit {NLOC_MAX} / {CCN_MAX})")
-        if grew:
-            print(f"complexity: {len(grew)} function(s) got bigger:")
-            for (path, name), was, cur in grew:
-                print(f"  {path}: {name} {was['nloc']}/{was['ccn']} -> "
-                      f"{cur['nloc']}/{cur['ccn']} (limit {NLOC_MAX} / {CCN_MAX})")
-        print("  split the function, or justify it in the baseline via --update.")
+    if new or grew:
+        print_failures(new, grew, base, current)
         return 1
 
-    shrunk = [k for k in base if k not in current]
+    shrunk = shrunk_from(base, current)
     if shrunk:
         print(f"complexity: {len(shrunk)} baselined function(s) are now within limits "
               f"- run `make complexity-update` to lock that in")
@@ -162,19 +239,34 @@ def check(functions):
     return 0
 
 
+def print_failures(new, grew, base, current):
+    caps = ", ".join(f"{label} {cap}" for _, cap, label in AXES)
+    if new:
+        print(f"complexity: {len(new)} new over-limit function(s):")
+        for path, name in new:
+            print(f"  {path}: {name} is {describe(current[(path, name)])} (limit {caps})")
+    if grew:
+        print(f"complexity: {len(grew)} function(s) got bigger:")
+        for path, name in grew:
+            print(f"  {path}: {name} {describe(base[(path, name)])} -> "
+                  f"{describe(current[(path, name)])} (limit {caps})")
+    print("  split the function, or justify it in the baseline via --update.")
+
+
 def update(functions):
-    functions_by_file = {}
-    for (path, name), dims in sorted(keyed(violations_of(functions)).items()):
-        functions_by_file.setdefault(path, {})[name] = dims
+    by_file = {}
+    for (path, name), dimensions in sorted(keyed(violations_of(functions)).items()):
+        by_file.setdefault(path, {})[name] = dimensions
     payload = {
         "ccn_max": CCN_MAX,
         "nloc_max": NLOC_MAX,
-        "functions": {p: functions_by_file[p] for p in sorted(functions_by_file)},
+        "param_max": PARAM_MAX,
+        "functions": {p: by_file[p] for p in sorted(by_file)},
     }
     os.makedirs(os.path.dirname(BASELINE), exist_ok=True)
-    with open(BASELINE, "w") as fh:
-        json.dump(payload, fh, indent=2, sort_keys=True)
-        fh.write("\n")
+    with open(BASELINE, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
     print(f"complexity: baseline written to {BASELINE} "
           f"({len(keyed(violations_of(functions)))} functions)")
     return 0
@@ -195,9 +287,6 @@ def main():
 
     if args.update:
         return update(functions)
-    if args.report:
-        report(functions, violations_of(functions))
-        return 0
     report(functions, violations_of(functions))
     print()
     return check(functions)

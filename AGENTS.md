@@ -55,11 +55,13 @@ driven by an OpenAI-compatible LLM API.
   and line-break placement — so a locally "clean" tree can fail CI. Match the
   runner (`pip install clang-format==18.1.3`) before reformatting.
 - `make complexity` is the ratcheted gate (`tools/complexity_gate.py`:
-  CCN>15 or NLOC>40 via lizard, fail-closed). It **is** in `ci-gate`: all three
-  axes (CCN, cognitive complexity via `make lint`, NLOC) have empty baselines,
-  so a new over-limit function fails the build rather than joining a list. It
-  was advisory until the baselines emptied — with per-file counts it conflicted
-  on every merge, which is what made gating it unsafe. Every CI
+  CCN>15, NLOC>40 or PARAM>6 via lizard, fail-closed). It **is** in `ci-gate`:
+  the CCN and NLOC axes have empty baselines, so a new over-limit function fails
+  the build rather than joining a list. It was advisory until the baselines
+  emptied — with per-file counts it conflicted on every merge, which is what
+  made gating it unsafe. The PARAM axis is newer and therefore *ratcheted*, not
+  a cliff (18 accepted functions): a new wide function fails, an existing one
+  may not get wider. Every CI
   job carries a `timeout-minutes` and the shared `install-deps` action bounds
   apt (`DPkg::Lock::Timeout` + `timeout` + noninteractive), so a hung
   dependency install fails in minutes instead of sitting until GitHub's 6 h
@@ -78,6 +80,73 @@ driven by an OpenAI-compatible LLM API.
   jobs directly would leave meta-only PRs blocked on "Expected" forever.
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops
   the generated `Makefile`.
+
+## Gate integrity (why the gates can be believed)
+
+The gates are the only thing protecting everything else, and until
+`make gates-test` existed they had **no tests at all** — which is exactly how
+the fail-open behaviour below survived. `tests/gates/` holds stdlib `unittest`
+suites (no dependency install, so it runs in the `check` job via `make check`)
+for `complexity_gate.py`, `class_size_gate.py` and `lint_baseline.py`. When you
+change a gate, change its tests in the same commit.
+
+**A gate that measures nothing reports green.** Every gate here fails closed on a
+degraded measurement, not just on a missing tool:
+
+| failure mode | how it is caught |
+|---|---|
+| analyzer not installed / exits non-zero | version floor + explicit error (exit 2) |
+| analyzer output format changed | `parse_lizard_output` counts lines it cannot parse; a non-zero count is an error |
+| scan covered almost nothing | `MIN_FUNCTIONS_SANE` / `MIN_TYPES_SANE` floors, and a `--expect-tu` count for `lint` |
+| a translation unit does not compile | `[clang-diagnostic-error]` is never counted as a finding, and fails the lint gate; `lint-baseline-update` refuses to record it |
+| a brace-aware scanner lost sync | an unterminated type is reported as unscannable, not skipped |
+
+Two consequences worth remembering:
+
+- **`lint` emits a `lint-tidy-tu:<path>` sentinel per translation unit** and the
+  gate is told how many to expect (`--expect-tu`). Zero findings is a legitimate
+  result and cannot be told apart from a crashed run by counting; the sentinel
+  count can. Without it the gate is green having measured nothing.
+- **clang-tidy's exit status is meaningless** — it exits non-zero for ordinary
+  findings, and `complexity` likewise ignores lizard's status because `-C 1 -L 1`
+  makes every function a "warning" (`if 0 <= number < warning_count: return 1`).
+  Success is judged from output, never from `$?`.
+
+**Analyzer versions are pinned, because each is load-bearing.** `make analyze`
+already pinned cppcheck and `format-check` pins clang-format 18.1.3; the same
+reasoning now applies to the rest:
+
+| tool | pin | why |
+|---|---|---|
+| cppcheck | 2.22.0, `CPPCHECK_MIN_VERSION` floor | older versions lack checks like `uninitMemberVarNoCtor`, so the gate is quietly weaker |
+| clang-tidy | `clang-tidy-18`, `CLANG_TIDY_MIN_VERSION` floor | `.clang-tidy` enables whole families (`bugprone-*`, `readability-*`, …), so every check a new release adds is on; with an **empty** baseline that turns every PR red. Measured: 23 reports `bugprone-command-processor`, `readability-trailing-comma`, `readability-redundant-nested-if` and `readability-redundant-qualified-alias` that 18 does not |
+| lizard | `lizard==1.24.0`, `LIZARD_MIN_VERSION` floor | the gate parses lizard's `-w` output with a regex, and its NLOC/CCN arithmetic has moved between releases — an older lizard makes every recorded size a lie |
+| gcovr | `gcovr==8.6` | its report layout feeds `.codecov.yml` |
+| clang-format | runner-provided (18.1.3) | 18.1.8 and 23.x disagree on braced-init and line breaks |
+
+## Gaps in the current gate set (measured, not assumed)
+
+Known and deliberate, so nobody re-derives them:
+
+- **Coverage is not enforced.** `.codecov.yml` sets an 80% patch target and a
+  1% no-regression project target, but branch protection requires only
+  `ci-gate`, and no Codecov status is reported on PRs — so the documented
+  "new code paths must have ≥80% line coverage" rule is currently decorative.
+  Making it real means adding a ratchet to the coverage job, which is a policy
+  decision (it will block PRs) rather than a refactor.
+- **Nesting depth is not gated.** lizard reports `ND` and the gate discards it;
+  for C++ lizard never populates it (always 0, verified against a deliberately
+  6-deep function), so gating on it would be a vacuous always-green gate. Real
+  nesting measurement needs its own C++ lexer.
+- **Branching is covered by CCN**, which is the standard measure of decision
+  points; a separate branch-count axis would be the same number twice.
+- **No file-length cap.** Class size is gated (max type is 169/200), but total
+  file length is not, so a file can grow by spreading across translation units.
+- **Margin on the size axes is thin.** NLOC and CCN are *at* their caps: 4
+  functions sit at exactly 40 NLOC and 4 at exactly CCN 15, with 42 functions
+  within 3 lines of the NLOC cap. The gates are green but have no slack, so
+  routine edits to those functions will trip them. Lowering the caps is the
+  only way to buy headroom, and that is a burn-down, not a one-off.
 
 ## Compilation gotchas
 
