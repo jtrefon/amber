@@ -8,14 +8,14 @@ asserted HTTP status codes, and nothing looked at the source.
 
 This scans the tracked tree for the two things that payload could not hide:
 
-  1. A known obfuscator marker. The blob appended to website/astro.config.mjs,
-     website/scripts/add-base.mjs and website/scripts/smoke.mjs (introduced by
-     f382c38, removed in the commit that added this file) used a rotating
-     string array, `String.fromCharCode(127)` separators, `_$_` identifiers and
-     `global.<x> = require` to bootstrap CommonJS from an ES module.
+  1. A known obfuscator marker. The blob appended to the website scripts
+     (introduced by f382c38, removed in the commit that added this file) used
+     a rotating string array and a `String.fromCharCode` separator to decode
+     into code and bootstrap `require` inside an ES module.
   2. A line long enough that it cannot be hand-written source. The injected
      blob was ~6.4 KB on a single line; no reviewed line in this repo is that
-     long. Minified/vendored code is excluded by path, not by length.
+     long. Minified/vendored code is excluded by path, and the length rule
+     applies to code files only (tracked data legitimately has long lines).
 
 Tracked files only (`git ls-files`): build output and node_modules are not
 ours to police, and scanning them would make the gate slow and noisy.
@@ -30,15 +30,27 @@ import os
 import subprocess
 import sys
 
+def _m(*parts):
+    """Assemble a marker without writing it as a literal.
+
+    This file is itself a tracked file the guard scans. If a marker appeared
+    here as a contiguous string literal, the guard would flag its own source —
+    which is what happened the first time it ran in CI. Splitting each marker
+    keeps the signature out of the file while leaving the list readable. It is
+    the same problem a signature database has, and the same fix.
+    """
+    return "".join(parts)
+
+
 # High-signal strings observed in the injected blob. Each one alone is enough:
 # none of these appear in hand-written source in this project.
 MARKERS = (
-    "String.fromCharCode(127)",
-    "_$_",
-    "global.i=",
-    "global.o=",
-    "global.r=require",
-    "global.m=module",
+    _m("String.fromCharCode", "(127)"),
+    _m("_", "$", "_"),
+    _m("global", ".i="),
+    _m("global", ".o="),
+    _m("global", ".r=", "require"),
+    _m("global", ".m=", "module"),
 )
 
 # No reviewed line of CODE is this long. The injected blob was ~6400 chars on a
