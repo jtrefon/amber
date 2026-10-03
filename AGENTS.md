@@ -13,7 +13,13 @@ driven by an OpenAI-compatible LLM API.
   repo root (`amber`, `amber-cli`, `libagent_core.a`, `libagent_tools.a`), in-tree, not in a `build/`.
 - `make test` builds and runs the unit suite (`run_tests`). `make check` is a
   separate, lighter gate (`smoketest` + `tests/build_hygiene.sh` build
-  invariants), do not confuse the two.
+  invariants), do not confuse the two. It also runs
+  `tools/obfuscation_guard.py`, which scans tracked files for the signature of
+  an injected payload (obfuscator markers, or a single line of code longer
+  than 500 chars): every other gate reads a build or a metric, none of them
+  reads file contents, which is how an obfuscated dropper sat in `website/`
+  for months with a green build. The CI job has no `if:` — it runs on every
+  PR, including docs- and website-only ones.
 - `make lint` runs **clang-tidy** over every project source (third_party
   excluded) using the `.clang-tidy` config in the repo root. It is fast enough
   to gate changes on. `make analyze` runs **cppcheck** as an independent,

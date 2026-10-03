@@ -2,8 +2,6 @@
 // Astro's `base` config only prefixes generated assets (_astro/, fonts/);
 // component-authored root-relative links (href="/install") would resolve to
 // the org root and 404. This rewrites them in the built HTML to /amber/...
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -33,4 +31,4 @@ for (const path of htmlFiles) {
   if (out !== html) writeFileSync(path, out);
 }
 
-console.log(`add-base: rewrote root-relative links in ${htmlFiles.length} pages (${rewritten} links)`);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ***REMOVED***
+console.log(`add-base: rewrote root-relative links in ${htmlFiles.length} pages (${rewritten} links)`);
