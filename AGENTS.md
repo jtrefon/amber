@@ -330,10 +330,14 @@ known mess, even in adjacent code.
 - **KISS / DRY / YAGNI**: no speculative generality, no duplicated logic. If you
   copy a block, extract it. If a feature isn't required now, don't add it.
 - **Size limits**:
-  - A class/struct definition should stay **under 200 lines**. Split larger
-    types (see Audit below). **Gated**: `make class-size` reports the offenders
-    and `make check` fails when a type grows or a new one crosses the cap
-    (`tools/class_size_gate.py` + `tests/class_size_baseline.json`).
+  - A class/struct definition should stay **under 200 lines of code** —
+    comments and blank lines do not count, because the cap is about how much a
+    type declares and deleting the comments explaining a public interface must
+    never be the cheapest way to pass. Split larger types (see Audit below).
+    **Gated**: `make class-size` reports the offenders and `make check` fails
+    when a type grows or a new one crosses the cap
+    (`tools/class_size_gate.py` + `tests/class_size_baseline.json`, currently an
+    empty baseline, so it is a cliff).
   - A method/function should stay **under 10 lines** with **minimal branching**.
     Extract loops, parsing, and branching into named helpers. The **enforced**
     cap is CCN 15 / 40 lines (`make complexity`); 10 lines is the aspiration,

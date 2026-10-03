@@ -6,9 +6,14 @@ the limit is "enforced in review, not by the compiler". This makes it enforced
 like every other size limit in the project: a ratchet over a baseline, so the
 gate fails when a type GROWS rather than when any type is large.
 
+Size is measured in CODE lines (no comments, no blank lines). The cap is about
+how much a type declares, and gating on total lines would make deleting the
+comments that explain a public interface the cheapest way to pass — the same
+trap tools/complexity_gate.py avoids by measuring NLOC.
+
 Same shape as tools/complexity_gate.py and tools/lint_baseline.py: a cliff would
-fail on the three types that are already over, which is why the rule stayed in
-review instead of becoming a gate.
+fail on the types that are already over, which is why the rule stayed in review
+instead of becoming a gate.
 
 Usage:
   tools/class_size_gate.py --check    # gate (CI): no type grew past the cap
@@ -39,8 +44,34 @@ def repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def code_lines(lines):
+    """Lines that are neither blank nor comment-only.
+
+    The cap is about how much a type *declares*, so it must not count its
+    documentation. Gating on total lines makes deleting the comments that
+    explain a public interface the cheapest way to pass — the same trap
+    tools/complexity_gate.py avoids by measuring NLOC rather than length.
+    """
+    count = 0
+    in_block = False
+    for line in lines:
+        s = line.strip()
+        if in_block:
+            if "*/" in s:
+                in_block = False
+            continue
+        if not s or s.startswith("//"):
+            continue
+        if s.startswith("/*"):
+            if "*/" not in s:
+                in_block = True
+            continue
+        count += 1
+    return count
+
+
 def measure(path):
-    """Every type definition in one file, as (lines, name)."""
+    """Every type definition in one file, as (code lines, name)."""
     try:
         with open(path, encoding="utf-8", errors="ignore") as handle:
             lines = handle.read().split("\n")
@@ -56,7 +87,7 @@ def measure(path):
         for j in range(i, len(lines)):
             depth += lines[j].count("{") - lines[j].count("}")
             if depth == 0 and j > i:
-                found.append((j - i + 1, match.group(2)))
+                found.append((code_lines(lines[i : j + 1]), match.group(2)))
                 break
     return found
 
@@ -85,15 +116,21 @@ def total(over):
 
 
 def load_baseline():
-    if not os.path.exists(os.path.join(repo_root(), BASELINE)):
-        return {}
-    with open(os.path.join(repo_root(), BASELINE), encoding="utf-8") as handle:
+    """The recorded types, or None when there is no baseline file at all.
+
+    An empty baseline (`{"types": {}}`) is a state, not a missing file: it means
+    every type is under the cap, which is the cliff the ratchet works toward.
+    """
+    path = os.path.join(repo_root(), BASELINE)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
         return json.load(handle).get("types", {})
 
 
 def check(over):
     baseline = load_baseline()
-    if not baseline:
+    if baseline is None:
         print(f"class-size: no baseline at {BASELINE}; run --update")
         return 2
 
@@ -132,9 +169,10 @@ def update(over):
         json.dump(
             {
                 "_comment": (
-                    f"Types over {MAX_LINES} lines, by file. The gate fails only when a "
-                    "type grows or a new one appears, so this file can only shrink. "
-                    "Regenerate with `make class-size-update`."
+                    f"Types over {MAX_LINES} code lines (comments and blanks excluded), "
+                    "by file. The gate fails only when a type grows or a new one appears, "
+                    "so this file can only shrink. Regenerate with "
+                    "`make class-size-update`."
                 ),
                 "max_lines": MAX_LINES,
                 "types": over,
