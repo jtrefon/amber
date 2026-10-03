@@ -16,13 +16,10 @@ namespace agent {
 std::unique_ptr<Job> Job::start(const std::string& id, const std::string& command,
                                 const std::string& cwd, long hard_timeout_s, long idle_timeout_s,
                                 std::string& err) {
-    // Job's constructor is private, so make_unique cannot reach it.
-    // unique_ptr<Job>(new Job) is the idiomatic form for a private constructor;
-    // make_unique only gained support with C++20 deducing-this. The marker below
-    // has to be on this line: the acknowledgement is matched per line, not per
-    // comment block, or a paragraph above would silently suppress the next
-    // statement's findings too.
-    auto job = std::unique_ptr<Job>(new Job);  // hygiene-allow: private ctor
+    // Private constructor, so make_unique cannot reach it (it gained that support
+    // only with C++20 deducing-this). The marker must be on this line: it is
+    // matched per line, not per comment block.
+    auto job = std::unique_ptr<Job>(new Job); // hygiene-allow: private ctor
     job->id_ = id;
     job->command_ = command;
     job->cwd_ = cwd;

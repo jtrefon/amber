@@ -474,8 +474,13 @@ hygiene:
 # toolchain, and takes ~50s for the tree, so it lives in `check` (which already
 # builds) rather than adding a CI job. $(CXX) is passed explicitly: the gate must
 # measure with the same compiler the build uses, or a failure is an artefact.
+# $(subst) drops the line continuations LINT_CXXFLAGS' definition carries: its
+# value spans two lines, and the embedded backslash reaches the compiler as a
+# literal filename. Make is what knows these flags, so make expands them.
+HYGIENE_CXXFLAGS = $(subst \, ,$(LINT_CXXFLAGS))
 hygiene-self-contained:
-	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --check-self-contained --cxx $(HYGIENE_CXX)
+	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --check-self-contained \
+	    --cxx $(HYGIENE_CXX) --cxxflags "$(HYGIENE_CXXFLAGS)"
 
 hygiene-report:
 	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --report
@@ -486,8 +491,6 @@ hygiene-report:
 # --report so they cannot accumulate silently.
 debt:
 	@python3 "$(SRC_DIR)/tools/debt_gate.py" --check
-	@$(MAKE) --no-print-directory hygiene
-	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
 
 debt-report:
 	@python3 "$(SRC_DIR)/tools/debt_gate.py" --report

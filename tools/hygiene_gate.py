@@ -12,7 +12,10 @@ that can be checked without a compiler, plus the one that needs one:
                     Ownership follows RAII, so a bare `new` in project code is a
                     leak or an exception-safety bug waiting to happen.
 
-  self-contained    `--check-self-contained` compiles each header on its own. A
+  self-contained    `--check-self-contained` compiles each header on its own, with
+                    the exact flags the build uses (passed in by the Makefile -- it
+                    is what knows them, and measuring with different flags turns
+                    failures into artefacts). A
                     header that only builds because some unrelated .cpp included
                     something first is a latent break, and when it breaks it
                     breaks a file nobody was editing.
@@ -186,30 +189,10 @@ def headers():
     return sorted(out)
 
 
-def ncurses_flags():
-    """The include path the project was configured with.
-
-    Without it a tui/ header fails standalone for want of <ncurses.h>/<panel.h> --
-    which is a measurement artefact, not a finding. Reading it from the generated
-    Makefile means the gate measures with the same flags the build uses, so a
-    failure here is a real one. (Measured: with these flags all 161 headers are
-    self-contained; without them, 9 tui/ headers fail spuriously.)
-    """
-    makefile = os.path.join(REPO_ROOT, "Makefile")
-    try:
-        with open(makefile, encoding="utf-8") as handle:
-            for line in handle:
-                if line.startswith("NCURSES_CFLAGS"):
-                    return line.split("=", 1)[1].strip()
-    except OSError:
-        pass
-    return ""
-
-
-def check_self_contained(cxx=None, verbose=True):
+def check_self_contained(cxx=None, cxxflags=None, verbose=True):
     """Compile each header on its own. Returns (failures, checked)."""
     cxx = cxx or os.environ.get("CXX", "c++")
-    flags = ncurses_flags().split()
+    flags = cxxflags.split() if isinstance(cxxflags, str) else list(cxxflags or [])
     found = []
     checked = 0
     with tempfile.TemporaryDirectory() as tmp:
@@ -219,10 +202,7 @@ def check_self_contained(cxx=None, verbose=True):
                 handle.write(f'#include "{rel}"\n')
             checked += 1
             proc = subprocess.run(
-                [cxx, "-std=c++17", "-fsyntax-only", *flags,
-                 f"-I{REPO_ROOT}", f"-I{REPO_ROOT}/include", f"-I{REPO_ROOT}/src",
-                 f"-I{REPO_ROOT}/tools", f"-I{REPO_ROOT}/tui", f"-I{REPO_ROOT}/plugins",
-                 probe],
+                [cxx, "-std=c++17", "-fsyntax-only", *flags, probe],
                 capture_output=True, text=True)
             if proc.returncode != 0:
                 first = next((l for l in proc.stderr.splitlines() if "error:" in l), "")
@@ -243,11 +223,14 @@ def main():
     group.add_argument("--report", action="store_true", help="list findings and exceptions")
     ap.add_argument("--cxx", default=os.environ.get("CXX", "c++"),
                     help="compiler for the self-containment check")
+    ap.add_argument("--cxxflags", default=None,
+                    help="the exact compile flags the build uses (passed by the "
+                         "Makefile, which is what knows them)")
     args = ap.parse_args()
 
     if args.check_self_contained:
         print("hygiene: header self-containment (compiles each header alone)...")
-        found, checked = check_self_contained(cxx=args.cxx)
+        found, checked = check_self_contained(cxx=args.cxx, cxxflags=args.cxxflags)
         if checked < MIN_FILES_SANE:
             print(f"hygiene: FAILED CLOSED - only {checked} header(s) found, expected at "
                   f"least {MIN_FILES_SANE}.", file=sys.stderr)
