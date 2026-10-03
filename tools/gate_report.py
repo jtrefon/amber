@@ -41,6 +41,7 @@ COMMANDS = {
     "nesting": ["make", "nesting"],
     "class-size": ["python3", "tools/class_size_gate.py", "--check"],
     "debt": ["make", "debt"],
+    "hygiene": ["python3", "tools/hygiene_gate.py", "--check"],
     "obfuscation": ["python3", "tools/obfuscation_guard.py"],
     "duplicates": ["make", "duplicates"],
 }

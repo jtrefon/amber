@@ -454,7 +454,7 @@ nesting-update:
 # job logs. Runs the gates only; it never gates anything itself, so a failure here
 # is a reporting failure and exits 2.
 ARTIFACTS_DIR ?= artifacts
-GATES_RUN := complexity nesting class-size debt obfuscation duplicates
+GATES_RUN := complexity nesting class-size debt hygiene obfuscation duplicates
 # Writes the two report files and, when running under GitHub Actions, appends the
 # table to $GITHUB_STEP_SUMMARY so the verdicts render on the run page itself.
 # Artefacts alone were not enough: they sit in a panel at the very bottom of the
@@ -463,6 +463,27 @@ GATES_RUN := complexity nesting class-size debt obfuscation duplicates
 gate-report:
 	@mkdir -p $(ARTIFACTS_DIR)
 	@python3 "$(SRC_DIR)/tools/gate_report.py" --out $(ARTIFACTS_DIR) --only $(GATES_RUN)
+
+# C++ hygiene: `using namespace` in a header, and raw new/delete (AGENTS.md:
+# "Never use raw new/delete"). Both measured clean, so both are cliffs.
+HYGIENE_CXX ?= $(CXX)
+hygiene:
+	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --check
+
+# Header self-containment: every header must compile on its own. Needs the
+# toolchain, and takes ~50s for the tree, so it lives in `check` (which already
+# builds) rather than adding a CI job. $(CXX) is passed explicitly: the gate must
+# measure with the same compiler the build uses, or a failure is an artefact.
+# $(subst) drops the line continuations LINT_CXXFLAGS' definition carries: its
+# value spans two lines, and the embedded backslash reaches the compiler as a
+# literal filename. Make is what knows these flags, so make expands them.
+HYGIENE_CXXFLAGS = $(subst \, ,$(LINT_CXXFLAGS))
+hygiene-self-contained:
+	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --check-self-contained \
+	    --cxx $(HYGIENE_CXX) --cxxflags "$(HYGIENE_CXXFLAGS)"
+
+hygiene-report:
+	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --report
 
 # Debt-marker gate: no TODO/FIXME/HACK/XXX in owned source. A cliff at zero, so
 # there is no baseline to maintain -- it only has to stay there. A marker can be
@@ -590,6 +611,8 @@ check: $(BUILD_DIR)/smoketest
 	@python3 "$(SRC_DIR)/tools/class_size_gate.py" --check
 	@$(MAKE) --no-print-directory nesting
 	@python3 "$(SRC_DIR)/tools/debt_gate.py" --check
+	@$(MAKE) --no-print-directory hygiene
+	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
 	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
 	@$(MAKE) --no-print-directory gates-test
 	@$(MAKE) --no-print-directory gate-report

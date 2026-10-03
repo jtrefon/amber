@@ -109,6 +109,13 @@ class Invocation(unittest.TestCase):
         for name in gr.GATES:
             self.assertIn(name, gr.COMMANDS)
 
+    def test_the_expected_gates_are_registered(self):
+        """Named rather than discovered, so a gate added to `make check` but not
+        here shows up as a diff in this file instead of silently going unreported."""
+        for name in ("complexity", "nesting", "class-size", "debt", "hygiene",
+                     "obfuscation", "duplicates"):
+            self.assertIn(name, gr.COMMANDS, name)
+
 
 class StepSummary(unittest.TestCase):
     """GitHub renders $GITHUB_STEP_SUMMARY inline on the run page. Artifacts alone
