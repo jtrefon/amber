@@ -100,6 +100,21 @@ void EventRouter::wire_stream_hooks(agent::AgentHooks& hooks, const PushFn& push
     };
 }
 
+namespace {
+
+// Queue an event for the UI thread. False when the router is shutting down, in
+// which case the caller must answer with its own fallback rather than block.
+bool enqueue_event(EventRouter& router, AgentEvent& ev, size_t window_id) {
+    std::scoped_lock lk(router.mutex());
+    if (router.shutting_down())
+        return false;
+    ev.window_id = window_id;
+    router.queue().push(std::move(ev));
+    return true;
+}
+
+} // namespace
+
 void EventRouter::wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id,
                                       const std::atomic<bool>& cancel) {
     hooks.on_approval = [this, window_id, &cancel](const std::string& name, const agent::json& args,
@@ -112,16 +127,9 @@ void EventRouter::wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id
         ev.type = AgentEvent::Approval;
         ev.text = summary;
         ev.approval_promise = p;
-        {
-            std::scoped_lock lk(mtx_);
-            if (shutting_down_)
-                return agent::Approval::Deny;
-            ev.window_id = window_id;
-            queue_.push(std::move(ev));
-        }
         (void)name;
         (void)args;
-        return f.get();
+        return enqueue_event(*this, ev, window_id) ? f.get() : agent::Approval::Deny;
     };
 
     hooks.on_api_key = [this, window_id, &cancel](const std::string& reason) -> std::string {
@@ -133,14 +141,7 @@ void EventRouter::wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id
         ev.type = AgentEvent::ApiKey;
         ev.text = reason;
         ev.api_key_promise = p;
-        {
-            std::scoped_lock lk(mtx_);
-            if (shutting_down_)
-                return "";
-            ev.window_id = window_id;
-            queue_.push(std::move(ev));
-        }
-        return f.get();
+        return enqueue_event(*this, ev, window_id) ? f.get() : std::string();
     };
 }
 

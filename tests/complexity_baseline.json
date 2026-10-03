@@ -17,12 +17,6 @@
         "nloc": 44
       }
     },
-    "lib/environment.cpp": {
-      "agent::render_environment_card": {
-        "ccn": 13,
-        "nloc": 41
-      }
-    },
     "lib/model_probe.cpp": {
       "agent::model_catalog_fetch": {
         "ccn": 10,
@@ -44,12 +38,6 @@
     "tools/read_tool.cpp": {
       "agent::ReadTool::execute": {
         "ccn": 7,
-        "nloc": 42
-      }
-    },
-    "tui/event_router.cpp": {
-      "tui::EventRouter::wire_blocking_hooks": {
-        "ccn": 5,
         "nloc": 42
       }
     },
