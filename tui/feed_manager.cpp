@@ -48,7 +48,9 @@ void FeedManager::refresh_provider_feed() {
     tui_.settings_.merge_completions_json(subtree);
 }
 
-void FeedManager::refresh_policy_feed() {
+// The per-scope help text ("ask" / "used Nx"), gathered from every window's
+// agent; the first window to describe a scope wins.
+std::map<std::string, std::string> FeedManager::collect_rule_help() const {
     std::map<std::string, std::string> rule_help;
     for (auto& w : tui_.window_manager_->all()) {
         if (!w->agent)
@@ -62,39 +64,55 @@ void FeedManager::refresh_policy_feed() {
             rule_help[agent::scope_display(r)] = info;
         }
     }
+    return rule_help;
+}
+
+// Every tool a rule can be set on: the registry's tools, the scopes that
+// already carry a rule, and the curated destructive-command patterns (exposed
+// as "bash.rm", "bash.git reset", ... so /set policy rule can raise or lower
+// them without hunting for the scope id).
+std::set<std::string>
+FeedManager::collect_policy_tools(const std::map<std::string, std::string>& rule_help) const {
     std::set<std::string> tools;
     for (const auto& t : tui_.reg_.snapshot_tools())
         tools.insert(t->name());
     for (const auto& [tool, _] : rule_help)
         tools.insert(tool);
-    // The curated destructive-command patterns are configurable rules too:
-    // expose them as "bash.rm", "bash.git reset", ... so /set policy rule can
-    // raise or lower them without hunting for the scope id.
     for (const auto& pat : agent::destructive_command_patterns()) {
         std::string display = "bash." + pat;
         std::replace(display.begin(), display.end(), ':', '.');
         tools.insert(display);
     }
+    return tools;
+}
+
+// One tool's set leaf, plus a get leaf when a rule already exists.
+void FeedManager::add_policy_leaf(nlohmann::json& subtree, const std::string& tool,
+                                  const std::map<std::string, std::string>& rule_help) {
+    const std::string info = rule_help.count(tool) ? rule_help.at(tool) : "no rule (ask)";
+    const std::string action = "core.config.set.policy.rule." + tool;
+    nlohmann::json& leaf =
+        subtree["set"]["children"]["policy"]["children"]["rule"]["children"][tool];
+    leaf["action"] = action;
+    leaf["help"] = info;
+    tui_.register_action(action,
+                         [this, tool](const std::string& a) { tui_.apply_policy_rule(tool, a); });
+    if (!rule_help.count(tool))
+        return;
+    const std::string gaction = "core.config.get.policy.rule." + tool;
+    nlohmann::json& g = subtree["get"]["children"]["policy"]["children"]["rule"]["children"][tool];
+    g["action"] = gaction;
+    g["help"] = info;
+    tui_.register_action(gaction,
+                         [this, tool](const std::string&) { tui_.show_policy_rule(tool); });
+}
+
+void FeedManager::refresh_policy_feed() {
+    const std::map<std::string, std::string> rule_help = collect_rule_help();
+    const std::set<std::string> tools = collect_policy_tools(rule_help);
     nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& tool : tools) {
-        std::string info = rule_help.count(tool) ? rule_help.at(tool) : "no rule (ask)";
-        std::string action = "core.config.set.policy.rule." + tool;
-        nlohmann::json& leaf =
-            subtree["set"]["children"]["policy"]["children"]["rule"]["children"][tool];
-        leaf["action"] = action;
-        leaf["help"] = info;
-        tui_.register_action(
-            action, [this, tool](const std::string& a) { tui_.apply_policy_rule(tool, a); });
-        if (rule_help.count(tool)) {
-            std::string gaction = "core.config.get.policy.rule." + tool;
-            nlohmann::json& g =
-                subtree["get"]["children"]["policy"]["children"]["rule"]["children"][tool];
-            g["action"] = gaction;
-            g["help"] = info;
-            tui_.register_action(gaction,
-                                 [this, tool](const std::string&) { tui_.show_policy_rule(tool); });
-        }
-    }
+    for (const auto& tool : tools)
+        add_policy_leaf(subtree, tool, rule_help);
     tui_.settings_.merge_completions_json(subtree);
 }
 
