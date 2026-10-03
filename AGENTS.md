@@ -54,6 +54,16 @@ driven by an OpenAI-compatible LLM API.
   `clang-format`), which disagrees with 23.x *and* with 18.1.8 on braced-init
   and line-break placement — so a locally "clean" tree can fail CI. Match the
   runner (`pip install clang-format==18.1.3`) before reformatting.
+- `make nesting` is a **cliff** (`tools/nesting_gate.py`: control-flow nesting
+  > 4 fails). It is separate from NLOC/CCN because a 20-line function can be
+  unreadable at five levels of nesting while a 40-line straight-line function is
+  fine. Both `nesting` and `complexity` share `_lizard_version_check`.
+- `make debt` is a **cliff** (`tools/debt_gate.py`): no TODO/FIXME/HACK/XXX in
+  owned C++ source. The tree is already at zero, so it is the cheapest debt
+  ratchet there is — nothing to burn down, just stay at zero. A marker is
+  suppressed by acknowledging it inline (`// TODO: x  (debt-allow: #412)`), and
+  `--report` counts suppressions so they cannot accumulate silently. Vendored
+  code (`include/nlohmann/json.hpp` has 13 of its own) is excluded.
 - `make complexity` is the ratcheted gate (`tools/complexity_gate.py`:
   CCN>15, NLOC>40 or PARAM>6 via lizard, fail-closed). It **is** in `ci-gate`:
   the CCN and NLOC axes have empty baselines, so a new over-limit function fails
@@ -87,7 +97,8 @@ The gates are the only thing protecting everything else, and until
 `make gates-test` existed they had **no tests at all** — which is exactly how
 the fail-open behaviour below survived. `tests/gates/` holds stdlib `unittest`
 suites (no dependency install, so it runs in the `check` job via `make check`)
-for `complexity_gate.py`, `class_size_gate.py` and `lint_baseline.py`. When you
+for `complexity_gate.py`, `class_size_gate.py`, `lint_baseline.py`,
+`nesting_gate.py`, `debt_gate.py` and the shared `cpp_source.py` lexer. When you
 change a gate, change its tests in the same commit.
 
 **A gate that measures nothing reports green.** Every gate here fails closed on a
@@ -100,6 +111,7 @@ degraded measurement, not just on a missing tool:
 | scan covered almost nothing | `MIN_FUNCTIONS_SANE` / `MIN_TYPES_SANE` floors, and a `--expect-tu` count for `lint` |
 | a translation unit does not compile | `[clang-diagnostic-error]` is never counted as a finding, and fails the lint gate; `lint-baseline-update` refuses to record it |
 | a brace-aware scanner lost sync | an unterminated type is reported as unscannable, not skipped |
+| a function's extent cannot be closed | `nesting` reports it unmeasurable rather than scoring it zero |
 
 Two consequences worth remembering:
 
@@ -134,12 +146,15 @@ Known and deliberate, so nobody re-derives them:
   "new code paths must have ≥80% line coverage" rule is currently decorative.
   Making it real means adding a ratchet to the coverage job, which is a policy
   decision (it will block PRs) rather than a refactor.
-- **Nesting depth is not gated.** lizard reports `ND` and the gate discards it;
-  for C++ lizard never populates it (always 0, verified against a deliberately
-  6-deep function), so gating on it would be a vacuous always-green gate. Real
-  nesting measurement needs its own C++ lexer.
-- **Branching is covered by CCN**, which is the standard measure of decision
-  points; a separate branch-count axis would be the same number twice.
+- **Nesting is gated, but not by lizard.** `make nesting` measures it from the
+  source with `tools/cpp_source.py` instead, because lizard's `ND` field is
+  `max_nesting_depth` and is **0 for all 2422 C++ functions** — verified against
+  a deliberately 6-deep function. Gating on lizard's number would have been a
+  permanently green gate that measures nothing, which is the exact failure mode
+  the section above exists to prevent. Cap 4, empty baseline (0 violations, 4
+  functions *at* the cap, 39 at depth >= 3).
+- **Branching needs no separate axis**: CCN is the standard measure of decision
+  points, and a branch count would be the same number twice.
 - **No file-length cap.** Class size is gated (max type is 169/200), but total
   file length is not, so a file can grow by spreading across translation units.
 - **Margin on the size axes is thin.** NLOC and CCN are *at* their caps: 4

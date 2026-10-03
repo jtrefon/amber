@@ -1,8 +1,10 @@
 """The class-size gate must fail closed, and must measure code lines.
 
-`measure()` counts braces with a naive scanner that cannot see inside strings or
-comments, so a type can be under-counted. These tests pin both the fail-closed
-contract and the code-line measurement the gate now depends on.
+`measure()` finds a type's extent by counting braces, so it depends entirely on
+the shared lexer in `cpp_source.py` seeing only structure and not data. That
+lexer's own tests (comments, literals, raw strings, line preservation) are in
+`test_cpp_source.py`; what matters here is that the gate uses it, and what it
+does with the result.
 """
 
 import io
@@ -68,30 +70,6 @@ class StillDetectsViolations(unittest.TestCase):
         rc, out = run_check({"include/agent/agent.h": {"Agent": cs.MAX_LINES + 5}})
         self.assertEqual(rc, 1)
         self.assertIn("Agent", out)
-
-
-class StripNoisePreservesLineStructure(unittest.TestCase):
-    """structural lines are indexed alongside source lines, so the two must have
-    the same length or every measurement after a comment is off by a line."""
-
-    def assert_same_shape(self, source):
-        self.assertEqual(len(cs.strip_noise(source).split("\n")),
-                         len(source.split("\n")))
-
-    def test_line_comment(self):
-        self.assert_same_shape("int a;\n// note\nint b;\n")
-
-    def test_block_comment(self):
-        self.assert_same_shape("int a;\n/* one\ntwo\nthree */\nint b;\n")
-
-    def test_string_with_escaped_quote(self):
-        self.assert_same_shape('const char* s = "a\\"b";\nint c;\n')
-
-    def test_raw_string_across_lines(self):
-        self.assert_same_shape('auto s = R"json({\n"a": 1\n})json";\nint d;\n')
-
-    def test_unterminated_block_comment(self):
-        self.assert_same_shape("int a;\n/* never closed\nint b;\n")
 
 
 class CodeLineMeasurement(unittest.TestCase):

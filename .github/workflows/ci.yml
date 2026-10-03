@@ -177,8 +177,9 @@ jobs:
         shell: micromamba-shell {0}
 
   # ---------------------------------------------------------------------------
-  # Build hygiene — smoketest + static invariant checks (P1–P5).
-  # Catches stale build rules, missing .d generation, and audit-table drift.
+  # Build hygiene — smoketest + static invariant checks (P1–P5), plus the
+  # class-size, nesting and debt gates and the gate tools' own unit tests. It
+  # needs lizard now (the nesting gate), pinned as in the complexity job.
   # ---------------------------------------------------------------------------
   check:
     needs: [changes]
@@ -188,6 +189,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
+
+      # `make check` runs the nesting gate, which parses lizard's -w output. Pinned
+      # for the same reason as the complexity job, and floored by the Makefile.
+      - name: Install lizard
+        run: pip install "lizard==1.24.0" -q
 
       - name: Configure
         run: ./configure
