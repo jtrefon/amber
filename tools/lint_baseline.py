@@ -64,8 +64,14 @@ def total(counts):
 
 
 def load_baseline():
+    """The recorded counts, or None when there is no baseline file at all.
+
+    An empty baseline (`{"files": {}}`) is a *state*, not a missing file: it
+    means every check is at zero, which is the hard cliff the ratchet is
+    working toward. Only a genuinely absent file is an error.
+    """
     if not os.path.exists(BASELINE):
-        return {}
+        return None
     with open(BASELINE, encoding="utf-8") as handle:
         return json.load(handle).get("files", {})
 
@@ -73,7 +79,7 @@ def load_baseline():
 def check(counts):
     """Fail only when a (file, check) count grew; report the shrunk ones."""
     baseline = load_baseline()
-    if not baseline:
+    if baseline is None:
         print(f"lint-baseline: no baseline at {BASELINE}; run --update")
         return 2
 

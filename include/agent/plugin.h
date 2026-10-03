@@ -87,6 +87,12 @@ public:
 private:
     friend class plugin_internal::PluginTool;
 
+    // The default search roots, when discover() is given none.
+    static std::vector<std::string> default_plugin_roots();
+    // A directory under a root becomes a PluginInfo; false when it is state
+    // rather than an install (no manifest, or an id already claimed).
+    bool plugin_info_at(const std::string& dir, PluginInfo& out);
+
     struct Session {
         pid_t pid = -1;
         int in_fd = -1;

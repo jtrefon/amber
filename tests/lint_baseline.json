@@ -1,17 +1,4 @@
 {
   "_comment": "Known clang-tidy findings, counted per (file, check). The gate fails only when a count grows, so this file can only shrink. Regenerate with `make lint-baseline-update`.",
-  "files": {
-    "lib/dialect_openai.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "lib/mcp_client.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "lib/plugin.cpp": {
-      "readability-function-cognitive-complexity": 1
-    },
-    "tui/tui_session.cpp": {
-      "readability-function-cognitive-complexity": 1
-    }
-  }
+  "files": {}
 }

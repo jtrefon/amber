@@ -43,6 +43,11 @@ public:
     void restore_message_lines(const agent::Message& m, std::vector<RestoredCall>& pending);
 
 private:
+    // Restore one saved message: user text, assistant text, or a tool result.
+    void restore_user_line(const agent::Message& m);
+    void collect_tool_calls(const agent::Message& m, std::vector<RestoredCall>& pending);
+    void restore_tool_line(const agent::Message& m, std::vector<RestoredCall>& pending);
+
     // Background-compress a freshly loaded session when its context is large.
     void maybe_background_compress(Window& w, const agent::Session& s);
     // Restore the window's UI state (context use, latency/token stats) from

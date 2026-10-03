@@ -39,12 +39,6 @@
         "nloc": 41
       }
     },
-    "lib/plugin.cpp": {
-      "agent::PluginManager::discover": {
-        "ccn": 15,
-        "nloc": 44
-      }
-    },
     "src/main.cpp": {
       "run_mcp_surfaces": {
         "ccn": 14,
@@ -111,12 +105,6 @@
       "tui::SlashDispatcher::cmd_skills_set": {
         "ccn": 12,
         "nloc": 44
-      }
-    },
-    "tui/tui_session.cpp": {
-      "tui::SessionController::restore_message_lines": {
-        "ccn": 12,
-        "nloc": 48
       }
     }
   },
