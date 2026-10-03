@@ -101,6 +101,45 @@ Page collect_page(std::istream& in, long offset, long limit) {
     return page;
 }
 
+// A refusal: not ok, with a workspace-relative reason.
+void refuse(ToolResult& r, const std::string& reason) {
+    r.ok = false;
+    r.error = reason;
+}
+
+// Open the file and reject anything that is not a plain readable text file.
+// False with `r` filled in when it must be refused.
+bool open_text_file(const std::string& path, std::ifstream& in, ToolResult& r) {
+    if (is_special_file(path)) {
+        refuse(r, "not a regular file (named pipe/device) - refusing to block: " +
+                      Workspace::relative(path));
+        return false;
+    }
+    in.open(path, std::ios::binary);
+    if (!in) {
+        refuse(r, "cannot open: " + Workspace::relative(path));
+        return false;
+    }
+    if (looks_binary(in)) {
+        refuse(r, "binary file (NUL bytes) - refusing to read: " + Workspace::relative(path));
+        return false;
+    }
+    return true;
+}
+
+// The page header, the numbered text, and the more/end trailer.
+std::string render_page(const Page& page, const std::string& rel, long offset, bool more) {
+    const long end_line = offset + page.printed - 1;
+    std::string out = "# " + rel + ":" + std::to_string(offset) + "-" + std::to_string(end_line) +
+                      " (" + std::to_string(page.printed) + " lines)\n" + page.text;
+    if (more)
+        out += "\n[more lines available: " + std::to_string(page.total - page.lineno) +
+               " remaining; pass offset=" + std::to_string(page.lineno + 1) + " to continue]";
+    else
+        out += "\n[end of file: " + std::to_string(page.total) + " lines]";
+    return out;
+}
+
 } // namespace
 
 // read: paginated file reader. Args:
@@ -138,42 +177,19 @@ public:
             return r;
         const auto [offset, limit] = clamped_range(a);
 
-        if (is_special_file(*path)) {
-            r.ok = false;
-            r.error = "not a regular file (named pipe/device) - refusing to block: " +
-                      Workspace::relative(*path);
+        std::ifstream in;
+        if (!open_text_file(*path, in, r))
             return r;
-        }
-
-        std::ifstream in(*path, std::ios::binary);
-        if (!in) {
-            r.ok = false;
-            r.error = "cannot open: " + Workspace::relative(*path);
-            return r;
-        }
-        if (looks_binary(in)) {
-            r.ok = false;
-            r.error = "binary file (NUL bytes) - refusing to read: " + Workspace::relative(*path);
-            return r;
-        }
 
         const Page page = collect_page(in, offset, limit);
         const std::string rel = Workspace::relative(*path);
-        const long end_line = offset + page.printed - 1;
-        r.output = "# " + rel + ":" + std::to_string(offset) + "-" + std::to_string(end_line) +
-                   " (" + std::to_string(page.printed) + " lines)\n" + page.text;
         const bool more = page.printed >= limit && page.lineno < page.total;
+        r.output = render_page(page, rel, offset, more);
         r.meta = {{"lines", page.printed},
                   {"total", page.total},
                   {"more", more},
                   {"path", rel},
                   {"start", offset}};
-        if (more)
-            r.output += "\n[more lines available: " + std::to_string(page.total - page.lineno) +
-                        " remaining; pass offset=" + std::to_string(page.lineno + 1) +
-                        " to continue]";
-        else
-            r.output += "\n[end of file: " + std::to_string(page.total) + " lines]";
         return r;
     }
 };

@@ -213,6 +213,40 @@ bool WsClient::http_get(const std::string& host, int port, const std::string& re
     return true;
 }
 
+namespace {
+
+// The HTTP upgrade request for a WebSocket handshake.
+std::string build_handshake(const std::string& host, int port, const std::string& path,
+                            const std::string& key) {
+    return "GET " + path +
+           " HTTP/1.1\r\n"
+           "Host: " +
+           host + ":" + std::to_string(port) +
+           "\r\n"
+           "Upgrade: websocket\r\n"
+           "Connection: Upgrade\r\n"
+           "Sec-WebSocket-Key: " +
+           key +
+           "\r\n"
+           "Sec-WebSocket-Version: 13\r\n\r\n";
+}
+
+// Read until the end of the response headers.
+bool read_headers(int fd, std::string& resp, std::string& err) {
+    while (resp.find("\r\n\r\n") == std::string::npos) {
+        std::array<char, 1024> tmp{};
+        const ssize_t n = recv(fd, tmp.data(), tmp.size(), 0);
+        if (n <= 0) {
+            err = "handshake failed";
+            return false;
+        }
+        resp.append(tmp.data(), static_cast<size_t>(n));
+    }
+    return true;
+}
+
+} // namespace
+
 bool WsClient::connect(const std::string& url, std::string& err) {
     std::string host;
     int port = 0;
@@ -227,29 +261,13 @@ bool WsClient::connect(const std::string& url, std::string& err) {
             err = "connect to " + url + " failed";
         return false;
     }
-    std::string key = random_key();
-    std::string handshake = "GET " + path +
-                            " HTTP/1.1\r\n"
-                            "Host: " +
-                            host + ":" + std::to_string(port) +
-                            "\r\n"
-                            "Upgrade: websocket\r\n"
-                            "Connection: Upgrade\r\n"
-                            "Sec-WebSocket-Key: " +
-                            key +
-                            "\r\n"
-                            "Sec-WebSocket-Version: 13\r\n\r\n";
+    const std::string handshake = build_handshake(host, port, path, random_key());
     (void)send(fd_, handshake.data(), handshake.size(), 0);
+
     std::string resp;
-    while (resp.find("\r\n\r\n") == std::string::npos) {
-        std::array<char, 1024> tmp{};
-        ssize_t n = recv(fd_, tmp.data(), tmp.size(), 0);
-        if (n <= 0) {
-            err = "handshake failed";
-            close();
-            return false;
-        }
-        resp.append(tmp.data(), (size_t)n);
+    if (!read_headers(fd_, resp, err)) {
+        close();
+        return false;
     }
     if (resp.find(" 101 ") == std::string::npos) {
         err = "handshake rejected: " + resp.substr(0, resp.find("\r\n"));

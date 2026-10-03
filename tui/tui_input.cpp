@@ -450,6 +450,41 @@ void SlashDispatcher::cmd_get_compression() {
                      "compression keep_last_prompts: " + std::to_string(cc.keep_last_prompts));
 }
 
+namespace {
+
+const char* kSkillsUsage = "usage: /set skills interop on|off | refresh | show "
+                           "| create <name> [--global] | delete <name> [--global] | export <name> "
+                           "| install <path|url> | uninstall <name> | enable|disable|block <name>";
+
+// Split "/set skills <sub> <args...>", trimming both sides of each.
+void split_skills_rest(const std::string& rest, std::string& sub, std::string& args) {
+    auto trim = [](const std::string& s) {
+        const size_t b = s.find_first_not_of(" \t");
+        const size_t e = s.find_last_not_of(" \t");
+        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    };
+    const size_t sp = rest.find(' ');
+    sub = trim(rest.substr(0, sp));
+    args = (sp == std::string::npos) ? "" : trim(rest.substr(sp + 1));
+}
+
+std::string skills_export_line(agent::SkillCatalog& catalog, const std::string& args) {
+    if (args.empty())
+        return "usage: /set skills export <name>";
+    const std::string err = agent::skill_export(catalog, args);
+    return err.empty() ? "exported '" + args + "' to global authored skills" : err;
+}
+
+std::string skills_override_line(agent::SkillCatalog& catalog, const std::string& args,
+                                 const std::string& sub) {
+    if (args.empty())
+        return "usage: /set skills " + sub + " <name>";
+    const std::string err = agent::skill_set_override(catalog, args, sub);
+    return err.empty() ? "skill '" + args + "' " + sub + "d" : err;
+}
+
+} // namespace
+
 void SlashDispatcher::cmd_skills_set(const std::string& rest) {
     if (!tui_.win().agent) {
         tui_.append_line(P_STATUS, "no agent in this window");
@@ -457,42 +492,17 @@ void SlashDispatcher::cmd_skills_set(const std::string& rest) {
         return;
     }
     agent::SkillCatalog& catalog = tui_.win().agent->skills();
-    auto trim = [](const std::string& s) {
-        size_t b = s.find_first_not_of(" \t");
-        size_t e = s.find_last_not_of(" \t");
-        return (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
-    };
+    std::string sub;
+    std::string args;
+    split_skills_rest(rest, sub, args);
+
     // Namespace fallback: export / enable / disable / block + usage.
-    std::string sub = trim(rest.substr(0, rest.find(' ')));
-    std::string args =
-        (rest.find(' ') == std::string::npos) ? "" : trim(rest.substr(rest.find(' ') + 1));
-    if (sub == "export") {
-        if (args.empty()) {
-            tui_.append_line(P_STATUS, "usage: /set skills export <name>");
-            tui_.draw();
-            return;
-        }
-        std::string err = agent::skill_export(catalog, args);
-        tui_.append_line(P_STATUS,
-                         err.empty() ? "exported '" + args + "' to global authored skills" : err);
-        tui_.draw();
-        return;
-    }
-    if (sub == "enable" || sub == "disable" || sub == "block") {
-        if (args.empty()) {
-            tui_.append_line(P_STATUS, "usage: /set skills " + sub + " <name>");
-            tui_.draw();
-            return;
-        }
-        std::string err = agent::skill_set_override(catalog, args, sub);
-        tui_.append_line(P_STATUS, err.empty() ? "skill '" + args + "' " + sub + "d" : err);
-        tui_.draw();
-        return;
-    }
-    tui_.append_line(P_STATUS,
-                     "usage: /set skills interop on|off | refresh | show "
-                     "| create <name> [--global] | delete <name> [--global] | export <name> "
-                     "| install <path|url> | uninstall <name> | enable|disable|block <name>");
+    if (sub == "export")
+        tui_.append_line(P_STATUS, skills_export_line(catalog, args));
+    else if (sub == "enable" || sub == "disable" || sub == "block")
+        tui_.append_line(P_STATUS, skills_override_line(catalog, args, sub));
+    else
+        tui_.append_line(P_STATUS, kSkillsUsage);
     tui_.draw();
 }
 
@@ -1579,6 +1589,35 @@ bool SlashDispatcher::prompt_provider_key(const std::string& a, const agent::Pro
     return true;
 }
 
+// Bring `a` to a usable selection: seed a new provider when it is unknown, and
+// prompt for a key when the provider needs one. False when the user backed out
+// or the selection is unusable.
+bool SlashDispatcher::ensure_provider_ready(const std::string& a, agent::ProviderSelection& sel) {
+    if (!sel.ok() && sel.error.find("no endpoint") == std::string::npos) {
+        tui_.append_line(P_STATUS, "error: " + sel.error);
+        return false;
+    }
+    if (!sel.ok()) {
+        if (!seed_new_provider(a))
+            return false;
+        sel = tui_.providers_->select(a);
+    }
+    if (!sel.ok()) {
+        tui_.append_line(P_STATUS, "error: " + sel.error);
+        return false;
+    }
+    if (sel.provider.requires_key && sel.provider.api_key.empty() && !sel.warning.empty()) {
+        if (!prompt_provider_key(a, sel.provider))
+            return false;
+        sel = tui_.providers_->select(a);
+        if (!sel.ok()) {
+            tui_.append_line(P_STATUS, "error: " + sel.error);
+            return false;
+        }
+    }
+    return true;
+}
+
 void SlashDispatcher::cmd_provider(const std::string& a) {
     if (busy_reject("provider"))
         return;
@@ -1588,28 +1627,8 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
         return;
     }
     auto sel = tui_.providers_->select(a);
-    if (!sel.ok() && sel.error.find("no endpoint") == std::string::npos) {
-        tui_.append_line(P_STATUS, "error: " + sel.error);
+    if (!ensure_provider_ready(a, sel))
         return;
-    }
-    if (!sel.ok()) {
-        if (!seed_new_provider(a))
-            return;
-        sel = tui_.providers_->select(a);
-    }
-    if (!sel.ok()) {
-        tui_.append_line(P_STATUS, "error: " + sel.error);
-        return;
-    }
-    if (sel.provider.requires_key && sel.provider.api_key.empty() && !sel.warning.empty()) {
-        if (!prompt_provider_key(a, sel.provider))
-            return;
-        sel = tui_.providers_->select(a);
-        if (!sel.ok()) {
-            tui_.append_line(P_STATUS, "error: " + sel.error);
-            return;
-        }
-    }
 
     agent::apply_selection(tui_.cfg_, sel);
     // The wallet follows the active provider, so a switch invalidates it.
@@ -1668,19 +1687,41 @@ void SlashDispatcher::cmd_runtime_plugin_get(const std::string& id) {
 // The bar carries one number because width is the constraint; this carries the
 // whole picture - the plan, each metered window and any prepaid balance. That
 // division is why one mechanism needs one command pair instead of two.
+namespace {
+
+// Why a wallet cannot be shown, or "" when it is usable.
+std::string wallet_unavailable_reason(const agent::WalletView& wallet) {
+    if (!wallet.supported)
+        return wallet.holder + " declares no wallet";
+    if (wallet.failed)
+        return wallet.holder + ": unavailable — check the key";
+    if (!wallet.ready)
+        return wallet.holder + ": not fetched yet";
+    return "";
+}
+
+// One usage window row: label, percent used, remaining/entitlement, reset.
+std::string wallet_window_row(const agent::WalletWindow& w, const std::string& unit) {
+    std::string row = "  " + w.label;
+    if (w.percent_used >= 0)
+        row += "  " + std::to_string(static_cast<int>(w.percent_used)) + "% used";
+    if (w.remaining >= 0 && w.entitlement >= 0) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "  %.2f/%.2f %s", w.remaining, w.entitlement, unit.c_str());
+        row += buf;
+    }
+    if (!w.resets_at.empty())
+        row += "  resets " + w.resets_at;
+    return row;
+}
+
+} // namespace
+
 void SlashDispatcher::cmd_get_wallet() {
     const auto wallet = tui_.plugin_runtime_.wallet();
     std::string line = std::string("provider wallet: ") + (wallet.enabled ? "on" : "off");
-    if (!wallet.supported) {
-        tui_.append_line(P_STATUS, line + "  (" + wallet.holder + " declares no wallet)");
-        return;
-    }
-    if (wallet.failed) {
-        tui_.append_line(P_STATUS, line + "  (" + wallet.holder + ": unavailable — check the key)");
-        return;
-    }
-    if (!wallet.ready) {
-        tui_.append_line(P_STATUS, line + "  (" + wallet.holder + ": not fetched yet)");
+    if (const std::string why = wallet_unavailable_reason(wallet); !why.empty()) {
+        tui_.append_line(P_STATUS, line + "  (" + why + ")");
         return;
     }
 
@@ -1690,20 +1731,8 @@ void SlashDispatcher::cmd_get_wallet() {
     tui_.append_line(P_STATUS, line + "  " + wallet.holder);
 
     const std::string unit = snapshot.currency.empty() ? snapshot.unit : snapshot.currency;
-    for (const auto& w : snapshot.windows) {
-        std::string row = "  " + w.label;
-        if (w.percent_used >= 0)
-            row += "  " + std::to_string(static_cast<int>(w.percent_used)) + "% used";
-        if (w.remaining >= 0 && w.entitlement >= 0) {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "  %.2f/%.2f %s", w.remaining, w.entitlement,
-                          unit.c_str());
-            row += buf;
-        }
-        if (!w.resets_at.empty())
-            row += "  resets " + w.resets_at;
-        tui_.append_line(P_STATUS, row);
-    }
+    for (const auto& w : snapshot.windows)
+        tui_.append_line(P_STATUS, wallet_window_row(w, unit));
     if (snapshot.credits_balance) {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "  balance: %.2f %s", *snapshot.credits_balance,

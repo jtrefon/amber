@@ -261,6 +261,52 @@ void apply_global_model(agent::Config& cfg, const GlobalConfig& g) {
 
 // MCP surfaces (headless): --mcp-list, --mcp <server> <prompt> [k=v ...],
 // --mcp-connect <name>. Returns the exit code, or -1 when none was requested.
+namespace {
+
+// "a=1 b=2" -> {"a": "1", "b": "2"}
+json parse_kv_args(const std::string& spec) {
+    json out = json::object();
+    std::stringstream ss(spec);
+    std::string kv;
+    while (ss >> kv) {
+        const size_t eq = kv.find('=');
+        if (eq != std::string::npos && eq > 0)
+            out[kv.substr(0, eq)] = kv.substr(eq + 1);
+    }
+    return out;
+}
+
+// /mcp connect <name>: false after printing the error.
+bool run_mcp_connect(agent::ServerManager& mgr, agent::ToolRegistry& reg, const CliArgs& args) {
+    const std::string err = agent::mcp_connect(mgr, reg, args.mcp_connect_name);
+    if (err.empty())
+        return true;
+    std::cerr << "error: " << err << "\n";
+    return false;
+}
+
+int run_mcp_list(agent::ServerManager& mgr) {
+    for (const auto& l : agent::mcp_list_lines(mgr))
+        std::cout << l << "\n";
+    mgr.shutdown_all();
+    return 0;
+}
+
+int run_mcp_prompt(agent::ServerManager& mgr, const CliArgs& args) {
+    std::string text;
+    const std::string err = agent::mcp_prompt(mgr, args.mcp_prompt_server, args.mcp_prompt_name,
+                                              parse_kv_args(args.mcp_prompt_args), text);
+    mgr.shutdown_all();
+    if (!err.empty()) {
+        std::cerr << "error: " << err << "\n";
+        return 1;
+    }
+    std::cout << text;
+    return 0;
+}
+
+} // namespace
+
 int run_mcp_surfaces(agent::Config& cfg, const CliArgs& args) {
     if (!args.mcp_list_only && args.mcp_prompt_server.empty() && args.mcp_connect_name.empty())
         return -1;
@@ -268,39 +314,12 @@ int run_mcp_surfaces(agent::Config& cfg, const CliArgs& args) {
         agent::ToolRegistry mcp_registry;
         agent::ServerManager mgr(agent::load_mcp_servers(), &cfg.cancel_token);
         mgr.connect_all();
-        if (!args.mcp_connect_name.empty()) {
-            const std::string err = agent::mcp_connect(mgr, mcp_registry, args.mcp_connect_name);
-            if (!err.empty()) {
-                std::cerr << "error: " << err << "\n";
-                return 1;
-            }
-        }
-        if (args.mcp_list_only) {
-            for (const auto& l : agent::mcp_list_lines(mgr))
-                std::cout << l << "\n";
-            mgr.shutdown_all();
-            return 0;
-        }
-        if (!args.mcp_prompt_server.empty()) {
-            json kv_args = json::object();
-            std::stringstream ss(args.mcp_prompt_args);
-            std::string kv;
-            while (ss >> kv) {
-                const size_t eq = kv.find('=');
-                if (eq != std::string::npos && eq > 0)
-                    kv_args[kv.substr(0, eq)] = kv.substr(eq + 1);
-            }
-            std::string text;
-            const std::string err =
-                agent::mcp_prompt(mgr, args.mcp_prompt_server, args.mcp_prompt_name, kv_args, text);
-            mgr.shutdown_all();
-            if (!err.empty()) {
-                std::cerr << "error: " << err << "\n";
-                return 1;
-            }
-            std::cout << text;
-            return 0;
-        }
+        if (!args.mcp_connect_name.empty() && !run_mcp_connect(mgr, mcp_registry, args))
+            return 1;
+        if (args.mcp_list_only)
+            return run_mcp_list(mgr);
+        if (!args.mcp_prompt_server.empty())
+            return run_mcp_prompt(mgr, args);
         mgr.shutdown_all();
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";

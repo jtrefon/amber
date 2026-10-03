@@ -209,9 +209,10 @@ jobs:
         run: python3 tools/obfuscation_guard.py
 
   # ---------------------------------------------------------------------------
-  # Complexity — the ratcheted gate (CCN>15 or NLOC>40 via lizard). Fails
-  # closed on a regression, but is deliberately excluded from ci-gate, so it
-  # reports red without blocking a merge (see ci-gate below). Runs on the slim
+  # Complexity — the gate (CCN>15 or NLOC>40 via lizard). Fails closed on a
+  # regression, and is IN ci-gate: all three axes (CCN, cognitive complexity,
+  # NLOC) have empty baselines, so there is no per-file baseline to conflict on
+  # across merges — which is why it used to be advisory. Runs on the slim
   # dependency set: the gate itself is pure Python, install-deps is there only
   # for the compiler ./configure's probes need.
   # ---------------------------------------------------------------------------
@@ -690,13 +691,12 @@ jobs:
   #
   # Every gating job is aggregated here, not just the fast ones: a red
   # sanitizer, coverage or macOS run must block a merge. `lint` is PR-only and
-  # reports `skipped` on pushes (allowed). `complexity` and `lint-full` are
-  # intentionally excluded -- neither blocks a merge (complexity is a
-  # non-gating ratchet, lint-full a safety net). `cd`/`cd-macos` and the
+  # reports `skipped` on pushes (allowed). `lint-full` is intentionally
+  # excluded -- it is a safety net, not a gate. `cd`/`cd-macos` and the
   # website deploy are delivery jobs; website smoke checks are gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, dependency-review, obfuscation-guard, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, tsan, coverage, website-build, website-smoke]
+    needs: [changes, dependency-review, obfuscation-guard, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15

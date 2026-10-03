@@ -1,12 +1,5 @@
 {
-  "_comment": "Types over 200 lines, by file. The gate fails only when a type grows or a new one appears, so this file can only shrink. Regenerate with `make class-size-update`.",
+  "_comment": "Types over 200 code lines (comments and blanks excluded), by file. The gate fails only when a type grows or a new one appears, so this file can only shrink. Regenerate with `make class-size-update`.",
   "max_lines": 200,
-  "types": {
-    "include/agent/agent.h": {
-      "Agent": 354
-    },
-    "tui/tui.h": {
-      "Tui": 225
-    }
-  }
+  "types": {}
 }

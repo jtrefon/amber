@@ -323,46 +323,44 @@ bool context_probe_compression_rebuild(ProbeResult& r) {
 
 // P-context-tokens: token_count() must stay consistent through push/pop/
 // clear/rebuild (budget decisions depend on it).
+namespace {
+
+// Record a probe failure and answer false.
+bool fail(ProbeResult& r, const std::string& detail) {
+    r.detail = detail;
+    return false;
+}
+
+// Push a message and return the context's token count.
+size_t push_and_count(agent::Context& ctx, const std::string& role, const std::string& content) {
+    agent::Message m;
+    m.role = role;
+    m.content = content;
+    ctx.push(std::move(m));
+    return ctx.token_count();
+}
+
+} // namespace
+
 bool context_probe_token_fidelity(ProbeResult& r) {
     r.expected = "token count matches content through every mutation";
     agent::Context ctx;
-    agent::Message sys;
-    sys.role = "system";
-    sys.content = "system prompt";
-    ctx.push(std::move(sys));
-    const size_t t0 = ctx.token_count();
-    if (t0 == 0) {
-        r.detail = "system message contributed 0 tokens";
-        return false;
-    }
+    const size_t t0 = push_and_count(ctx, "system", "system prompt");
+    if (t0 == 0)
+        return fail(r, "system message contributed 0 tokens");
 
-    agent::Message u;
-    u.role = "user";
-    u.content = "hello world";
-    ctx.push(std::move(u));
-    const size_t t1 = ctx.token_count();
+    const size_t t1 = push_and_count(ctx, "user", "hello world");
     auto popped = ctx.pop();
-    if (ctx.token_count() != t0) {
-        r.detail = "pop did not restore the token count";
-        return false;
-    }
-    if (popped.content != "hello world") {
-        r.detail = "pop returned the wrong message";
-        return false;
-    }
+    if (ctx.token_count() != t0)
+        return fail(r, "pop did not restore the token count");
+    if (popped.content != "hello world")
+        return fail(r, "pop returned the wrong message");
     ctx.clear();
-    if (ctx.token_count() != 0) {
-        r.detail = "clear left tokens behind";
-        return false;
-    }
-    agent::Message m;
-    m.role = "user";
-    m.content = "x";
-    ctx.push(std::move(m));
-    if (ctx.token_count() == 0 || t1 == 0) {
-        r.detail = "token accounting broken";
-        return false;
-    }
+    if (ctx.token_count() != 0)
+        return fail(r, "clear left tokens behind");
+    push_and_count(ctx, "user", "x");
+    if (ctx.token_count() == 0 || t1 == 0)
+        return fail(r, "token accounting broken");
     r.detail = "tokens consistent through push/pop/clear/rebuild";
     return true;
 }
@@ -998,6 +996,22 @@ namespace {
 // Load every scenario file under bench/scenarios and confirm each oracle
 // step references a tool that the registry actually provides — a stale or
 // misspelled oracle (the h-02 class of bug) is a harness defect.
+namespace {
+
+// True when every oracle step in the scenario names a registered tool.
+bool oracle_tools_registered(const Scenario& s, const agent::ToolRegistry& reg,
+                             const std::string& name, std::string& err) {
+    for (const auto& step : s.oracle) {
+        if (reg.find(step.tool))
+            continue;
+        err = name + ": oracle tool '" + step.tool + "' not registered";
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
 bool oracle_probe_scenario_self_validation(ProbeResult& r) {
     r.expected = "every oracle step names a registered tool";
     agent::JobService jobs;
@@ -1007,10 +1021,9 @@ bool oracle_probe_scenario_self_validation(ProbeResult& r) {
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, subagents);
 
     const fs::path root = fs::current_path() / "bench" / "scenarios";
-    if (!fs::is_directory(root)) {
-        r.detail = "no bench/scenarios directory";
-        return false;
-    }
+    if (!fs::is_directory(root))
+        return fail(r, "no bench/scenarios directory");
+
     int checked = 0;
     for (const auto& e : fs::recursive_directory_iterator(root)) {
         if (!e.is_regular_file() || e.path().extension() != ".json")
@@ -1020,23 +1033,14 @@ bool oracle_probe_scenario_self_validation(ProbeResult& r) {
             continue; // template dir
         std::string err;
         auto s = load_scenario(e.path().string(), err);
-        if (!s) {
-            r.detail = e.path().filename().string() + ": " + err;
+        if (!s)
+            return fail(r, e.path().filename().string() + ": " + err);
+        if (!oracle_tools_registered(*s, reg, e.path().filename().string(), r.detail))
             return false;
-        }
-        for (const auto& step : s->oracle) {
-            if (!reg.find(step.tool)) {
-                r.detail = e.path().filename().string() + ": oracle tool '" + step.tool +
-                           "' not registered";
-                return false;
-            }
-        }
         ++checked;
     }
-    if (checked == 0) {
-        r.detail = "no scenarios loaded";
-        return false;
-    }
+    if (checked == 0)
+        return fail(r, "no scenarios loaded");
     r.detail = r.expected + " (" + std::to_string(checked) + " scenarios)";
     return true;
 }

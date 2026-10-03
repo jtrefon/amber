@@ -55,8 +55,11 @@ driven by an OpenAI-compatible LLM API.
   and line-break placement — so a locally "clean" tree can fail CI. Match the
   runner (`pip install clang-format==18.1.3`) before reformatting.
 - `make complexity` is the ratcheted gate (`tools/complexity_gate.py`:
-  CCN>15 or NLOC>40 via lizard, fail-closed). It is a CI job but is
-  **not** in `ci-gate`, so it can go red without blocking a merge. Every CI
+  CCN>15 or NLOC>40 via lizard, fail-closed). It **is** in `ci-gate`: all three
+  axes (CCN, cognitive complexity via `make lint`, NLOC) have empty baselines,
+  so a new over-limit function fails the build rather than joining a list. It
+  was advisory until the baselines emptied — with per-file counts it conflicted
+  on every merge, which is what made gating it unsafe. Every CI
   job carries a `timeout-minutes` and the shared `install-deps` action bounds
   apt (`DPkg::Lock::Timeout` + `timeout` + noninteractive), so a hung
   dependency install fails in minutes instead of sitting until GitHub's 6 h
@@ -327,10 +330,14 @@ known mess, even in adjacent code.
 - **KISS / DRY / YAGNI**: no speculative generality, no duplicated logic. If you
   copy a block, extract it. If a feature isn't required now, don't add it.
 - **Size limits**:
-  - A class/struct definition should stay **under 200 lines**. Split larger
-    types (see Audit below). **Gated**: `make class-size` reports the offenders
-    and `make check` fails when a type grows or a new one crosses the cap
-    (`tools/class_size_gate.py` + `tests/class_size_baseline.json`).
+  - A class/struct definition should stay **under 200 lines of code** —
+    comments and blank lines do not count, because the cap is about how much a
+    type declares and deleting the comments explaining a public interface must
+    never be the cheapest way to pass. Split larger types (see Audit below).
+    **Gated**: `make class-size` reports the offenders and `make check` fails
+    when a type grows or a new one crosses the cap
+    (`tools/class_size_gate.py` + `tests/class_size_baseline.json`, currently an
+    empty baseline, so it is a cliff).
   - A method/function should stay **under 10 lines** with **minimal branching**.
     Extract loops, parsing, and branching into named helpers. The **enforced**
     cap is CCN 15 / 40 lines (`make complexity`); 10 lines is the aspiration,
@@ -543,7 +550,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tests/run_tests.cpp` | 7437 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 324 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 123 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 2970 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 2999 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

@@ -145,20 +145,49 @@ bool model_catalog_fresh(const ModelCatalogEntry& entry) {
     return now_ms() - entry.fetched_ms < kCatalogTtlMs;
 }
 
+namespace {
+
+// The fetch slot for a cache key, created on first use.
+std::shared_ptr<FetchSlot> fetch_slot_for(const std::string& key) {
+    std::scoped_lock lk(slots_mtx());
+    auto& s = slots()[key];
+    if (!s)
+        s = std::make_shared<FetchSlot>();
+    return s;
+}
+
+// Fetch the catalog and update the cache. Returns whether the fetch succeeded.
+bool fetch_and_cache(const Config& cfg) {
+    auto dialect = make_dialect(cfg.flavor);
+    std::string body;
+    const bool fetched = fetch_models(cfg, *dialect, body) == CURLE_OK;
+    if (fetched) {
+        debug_log(cfg.debug_log, "probe", body);
+        model_catalog_write(cfg, body);
+    } else {
+        debug_log(cfg.debug_log, "probe-error", "fetch failed");
+    }
+    return fetched;
+}
+
+// Release the slot and wake anyone joining it.
+void release_slot(FetchSlot& slot) {
+    {
+        std::scoped_lock l2(slot.mtx);
+        slot.active = false;
+    }
+    slot.cv.notify_all();
+}
+
+} // namespace
+
 std::optional<CatalogFetchResult> model_catalog_fetch(const Config& cfg, bool force) {
     auto cached = model_catalog_read(cfg);
     if (!force && cached)
         return CatalogFetchResult{*cached, false}; // SWR: serve, caller revalidates async
 
     const std::string key = cfg.api_base + "\n" + cfg.flavor;
-    std::shared_ptr<FetchSlot> slot;
-    {
-        std::scoped_lock lk(slots_mtx());
-        auto& s = slots()[key];
-        if (!s)
-            s = std::make_shared<FetchSlot>();
-        slot = s;
-    }
+    std::shared_ptr<FetchSlot> slot = fetch_slot_for(key);
 
     std::unique_lock lk(slot->mtx);
     if (slot->active) {
@@ -172,21 +201,8 @@ std::optional<CatalogFetchResult> model_catalog_fetch(const Config& cfg, bool fo
     slot->active = true;
     lk.unlock();
 
-    auto dialect = make_dialect(cfg.flavor);
-    std::string body;
-    const bool fetched = fetch_models(cfg, *dialect, body) == CURLE_OK;
-    if (fetched) {
-        debug_log(cfg.debug_log, "probe", body);
-        model_catalog_write(cfg, body);
-    } else {
-        debug_log(cfg.debug_log, "probe-error", "fetch failed");
-    }
-
-    {
-        std::scoped_lock l2(slot->mtx);
-        slot->active = false;
-    }
-    slot->cv.notify_all();
+    const bool fetched = fetch_and_cache(cfg);
+    release_slot(*slot);
 
     if (auto e = model_catalog_read(cfg))
         return CatalogFetchResult{*e, fetched};

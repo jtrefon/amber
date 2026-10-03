@@ -178,6 +178,38 @@ EnvironmentInfo probe_environment() {
     return info;
 }
 
+namespace {
+
+// The user line, which has three forms: root, non-root with passwordless sudo,
+// and plain non-root.
+std::string environment_user_line(const EnvironmentInfo& info) {
+    if (info.root)
+        return "User: root";
+    const std::string role = info.sudo_passwordless ? "non-root, passwordless sudo" : "non-root";
+    return "User: " + info.user + " (" + role + ")";
+}
+
+std::string environment_date_line(const EnvironmentInfo& info) {
+    std::string line = "Date: " + info.date;
+    if (!info.timezone.empty())
+        line += " (" + info.timezone + ")";
+    return line;
+}
+
+// The tool list, sorted and comma-joined.
+std::string join_sorted(std::vector<std::string> items) {
+    std::sort(items.begin(), items.end());
+    std::string out;
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (i)
+            out += ", ";
+        out += items[i];
+    }
+    return out;
+}
+
+} // namespace
+
 std::string render_environment_card(const EnvironmentInfo& info) {
     std::string card = "## Environment";
     bool any = false;
@@ -190,33 +222,14 @@ std::string render_environment_card(const EnvironmentInfo& info) {
         add("OS: " + info.os);
     if (!info.workspace.empty())
         add("Workspace: " + info.workspace + " (bash commands run here)");
-    if (!info.user.empty()) {
-        if (info.root) {
-            add("User: root");
-        } else {
-            std::string role = info.sudo_passwordless ? "non-root, passwordless sudo" : "non-root";
-            add("User: " + info.user + " (" + role + ")");
-        }
-    }
-    if (!info.date.empty()) {
-        std::string line = "Date: " + info.date;
-        if (!info.timezone.empty())
-            line += " (" + info.timezone + ")";
-        add(line);
-    }
+    if (!info.user.empty())
+        add(environment_user_line(info));
+    if (!info.date.empty())
+        add(environment_date_line(info));
     if (!info.resources.empty())
         add("Resources: " + info.resources);
-    if (!info.tools.empty()) {
-        std::vector<std::string> sorted = info.tools;
-        std::sort(sorted.begin(), sorted.end());
-        std::string t;
-        for (size_t i = 0; i < sorted.size(); ++i) {
-            if (i)
-                t += ", ";
-            t += sorted[i];
-        }
-        add("Tools available: " + t);
-    }
+    if (!info.tools.empty())
+        add("Tools available: " + join_sorted(info.tools));
     return any ? card : "";
 }
 
