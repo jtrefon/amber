@@ -1,12 +1,6 @@
 {
   "ccn_max": 15,
   "functions": {
-    "bench/probe.cpp": {
-      "bench::oracle_probe_scenario_self_validation": {
-        "ccn": 10,
-        "nloc": 41
-      }
-    },
     "tools/plugins/cdp/main.cpp": {
       "main": {
         "ccn": 10,
@@ -23,12 +17,6 @@
       "agent::ReadTool::execute": {
         "ccn": 7,
         "nloc": 42
-      }
-    },
-    "tui/render_engine.cpp": {
-      "tui::RenderEngine::draw_input": {
-        "ccn": 12,
-        "nloc": 41
       }
     }
   },

@@ -555,6 +555,35 @@ void RenderEngine::put_input(int y, int w, int& x, const std::string& text, int 
     x += display_cols(text);
 }
 
+namespace {
+
+// Where the terminal cursor sits, clamped into the line.
+int cursor_column(int cursor_col, int scroll_off, int w) {
+    int cx = cursor_col - scroll_off;
+    if (cx < 0)
+        cx = 0;
+    if (cx >= w)
+        cx = w - 1;
+    return cx;
+}
+
+// Paint the visible slice of the input, after the prompt, in the user pair.
+void draw_input_slice(int y, int w, int prompt_w, int scroll_off, const std::string& s) {
+    const int input_start = std::max(0, prompt_w - scroll_off);
+    if (input_start >= w)
+        return;
+    const std::size_t skip =
+        scroll_off > prompt_w ? text::col_to_byte(s, scroll_off - prompt_w) : 0;
+    const int input_len = input_line_layout::visible_bytes(s, skip, w - input_start);
+    if (input_len <= 0)
+        return;
+    attron(COLOR_PAIR(P_USER));
+    mvaddnstr(y, input_start, s.c_str() + skip, input_len);
+    attroff(COLOR_PAIR(P_USER));
+}
+
+} // namespace
+
 void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
     dirty_ = true;
     draw_drawer(s);
@@ -574,33 +603,11 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
     const int prompt_w = x;
     const input_line_layout::Scroll sc =
         input_line_layout::scroll_for(prompt_w, s, cursor, shadow, w);
-    const int scroll_off = sc.offset;
-    const int cursor_col = sc.cursor_col;
+    draw_input_slice(y, w, prompt_w, sc.offset, s);
+    draw_input_shadow(y, w, prompt_w, sc.offset, s, cursor, shadow);
 
-    int input_start = prompt_w - scroll_off;
-    if (input_start < 0)
-        input_start = 0;
-
-    if (input_start < w) {
-        const std::size_t skip =
-            scroll_off > prompt_w ? text::col_to_byte(s, scroll_off - prompt_w) : 0;
-        const int input_len = input_line_layout::visible_bytes(s, skip, w - input_start);
-        if (input_len > 0) {
-            attron(COLOR_PAIR(P_USER));
-            mvaddnstr(y, input_start, s.c_str() + skip, input_len);
-            attroff(COLOR_PAIR(P_USER));
-        }
-    }
-
-    draw_input_shadow(y, w, prompt_w, scroll_off, s, cursor, shadow);
-
-    int cx = cursor_col - scroll_off;
-    if (cx < 0)
-        cx = 0;
-    if (cx >= w)
-        cx = w - 1;
     curs_set(1);
-    move(y, cx);
+    move(y, cursor_column(sc.cursor_col, sc.offset, w));
     wnoutrefresh(stdscr);
 }
 

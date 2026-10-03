@@ -996,6 +996,22 @@ namespace {
 // Load every scenario file under bench/scenarios and confirm each oracle
 // step references a tool that the registry actually provides — a stale or
 // misspelled oracle (the h-02 class of bug) is a harness defect.
+namespace {
+
+// True when every oracle step in the scenario names a registered tool.
+bool oracle_tools_registered(const Scenario& s, const agent::ToolRegistry& reg,
+                             const std::string& name, std::string& err) {
+    for (const auto& step : s.oracle) {
+        if (reg.find(step.tool))
+            continue;
+        err = name + ": oracle tool '" + step.tool + "' not registered";
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
 bool oracle_probe_scenario_self_validation(ProbeResult& r) {
     r.expected = "every oracle step names a registered tool";
     agent::JobService jobs;
@@ -1005,10 +1021,9 @@ bool oracle_probe_scenario_self_validation(ProbeResult& r) {
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, subagents);
 
     const fs::path root = fs::current_path() / "bench" / "scenarios";
-    if (!fs::is_directory(root)) {
-        r.detail = "no bench/scenarios directory";
-        return false;
-    }
+    if (!fs::is_directory(root))
+        return fail(r, "no bench/scenarios directory");
+
     int checked = 0;
     for (const auto& e : fs::recursive_directory_iterator(root)) {
         if (!e.is_regular_file() || e.path().extension() != ".json")
@@ -1018,23 +1033,14 @@ bool oracle_probe_scenario_self_validation(ProbeResult& r) {
             continue; // template dir
         std::string err;
         auto s = load_scenario(e.path().string(), err);
-        if (!s) {
-            r.detail = e.path().filename().string() + ": " + err;
+        if (!s)
+            return fail(r, e.path().filename().string() + ": " + err);
+        if (!oracle_tools_registered(*s, reg, e.path().filename().string(), r.detail))
             return false;
-        }
-        for (const auto& step : s->oracle) {
-            if (!reg.find(step.tool)) {
-                r.detail = e.path().filename().string() + ": oracle tool '" + step.tool +
-                           "' not registered";
-                return false;
-            }
-        }
         ++checked;
     }
-    if (checked == 0) {
-        r.detail = "no scenarios loaded";
-        return false;
-    }
+    if (checked == 0)
+        return fail(r, "no scenarios loaded");
     r.detail = r.expected + " (" + std::to_string(checked) + " scenarios)";
     return true;
 }
