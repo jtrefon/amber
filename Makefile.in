@@ -450,6 +450,14 @@ check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 	sh $(SRC_DIR)/tests/build_hygiene.sh
 	@python3 "$(SRC_DIR)/tools/class_size_gate.py" --check
+	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
+
+# Obfuscated-payload guard. Every other gate reads a build or a metric; none of
+# them reads file contents, which is how an obfuscated dropper sat in website/
+# for months (commit f382c38) with a green build. Scans tracked files only, so
+# it needs no build and is cheap enough to run on every PR.
+obfuscation:
+	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
 
 # Class-size ratchet (AGENTS.md: a type should stay under 200 lines). Same
 # shape as the complexity and lint gates, so the rule is enforced rather than

@@ -194,6 +194,21 @@ jobs:
         run: python3 tools/duplicate_detector.py --min-lines=6 lib tools tui tests src
 
   # ---------------------------------------------------------------------------
+  # Obfuscated-payload guard. Deliberately has NO `if:` — it runs on every PR,
+  # including docs- and website-only ones. An obfuscated JavaScript dropper sat
+  # in website/ for months (commit f382c38) because every other gate reads a
+  # build or a metric and none of them reads file contents. Scans tracked files
+  # only, so it needs no toolchain and finishes in about a second.
+  # ---------------------------------------------------------------------------
+  obfuscation-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan tracked files for obfuscated payloads
+        run: python3 tools/obfuscation_guard.py
+
+  # ---------------------------------------------------------------------------
   # Complexity — the ratcheted gate (CCN>15 or NLOC>40 via lizard). Fails
   # closed on a regression, but is deliberately excluded from ci-gate, so it
   # reports red without blocking a merge (see ci-gate below). Runs on the slim
@@ -677,7 +692,7 @@ jobs:
   # website deploy are delivery jobs; website smoke checks are gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, dependency-review, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, tsan, coverage, website-build, website-smoke]
+    needs: [changes, dependency-review, obfuscation-guard, build-and-test, build-and-test-macos, lint, analyze, check, duplicates, format-check, sanitizers, tsan, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15

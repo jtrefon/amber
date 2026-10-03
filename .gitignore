@@ -48,6 +48,13 @@ logs/
 # Project-local runtime dir (sessions, settings, debug log)
 .amber/
 
+# Local agent/tool state: personal skills, taste/notes, machine-local config.
+# Per-developer, not project configuration -- and this repo is public, so a
+# stray commit here publishes someone's working notes. `.commandcode/` was
+# tracked for months before this; see the commit that added these lines.
+.commandcode/
+.config/
+
 .DS_Store
 include/agent/version.h
 website/node_modules/

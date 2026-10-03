@@ -1,5 +1,3 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 
@@ -8,4 +6,4 @@ export default defineConfig({
   base: '/amber/',
   output: 'static',
   integrations: [sitemap()],
-});                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ***REMOVED***
+});
