@@ -89,6 +89,28 @@ class DetectsOutputFormatDrift(unittest.TestCase):
         self.assertEqual(unparsed, 0)
 
 
+class Exclusions(unittest.TestCase):
+    """bench/scenarios/ is code the benchmark *agent* writes and an oracle scores.
+    Gating it held the agent's own output to our limits, and put two benchmark
+    fixtures in the CCN>=14 list."""
+
+    def test_scenarios_are_excluded(self):
+        command = cg.lizard_command()
+        self.assertIn("*/scenarios/*", command)
+
+    def test_exclude_uses_the_form_lizard_actually_matches(self):
+        """A bare "bench/scenarios" matches nothing -- measured, 41 scenario lines
+        still reported. Only the glob form excludes them."""
+        self.assertNotIn("bench/scenarios", command_without_glob())
+
+    def test_generated_results_are_excluded(self):
+        self.assertIn("bench/results", cg.lizard_command())
+
+
+def command_without_glob():
+    return [a for a in cg.lizard_command() if a != "*/scenarios/*"]
+
+
 class RunLizardFailsClosed(unittest.TestCase):
     def test_unknown_output_format_is_an_error(self):
         with mock.patch.object(cg, "lizard_command",
