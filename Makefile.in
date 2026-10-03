@@ -455,6 +455,11 @@ nesting-update:
 # is a reporting failure and exits 2.
 ARTIFACTS_DIR ?= artifacts
 GATES_RUN := complexity nesting class-size debt obfuscation duplicates
+# Writes the two report files and, when running under GitHub Actions, appends the
+# table to $GITHUB_STEP_SUMMARY so the verdicts render on the run page itself.
+# Artefacts alone were not enough: they sit in a panel at the very bottom of the
+# run page, below every job, and have to be downloaded -- so a reviewer looking at
+# the run saw nothing.
 gate-report:
 	@mkdir -p $(ARTIFACTS_DIR)
 	@python3 "$(SRC_DIR)/tools/gate_report.py" --out $(ARTIFACTS_DIR) --only $(GATES_RUN)

@@ -429,9 +429,32 @@ jobs:
             --exclude '.*bench/main\.cpp' --exclude '.*tui/tui_main\.cpp' \
             --xml-pretty -o coverage.xml
 
-          # coverage.xml above is Cobertura, which carries the per-line hit
-          # counts the patch gate needs. gcovr's --json-summary does NOT (its
-          # entries have no `lines` key), which is why the gate reads XML.
+          # Top-level percentages only, for the inline run summary. Its per-file
+          # entries have no `lines` key, which is why the patch gate reads the
+          # Cobertura XML above instead -- this file is for display, not gating.
+          gcovr --root . \
+            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
+            --filter 'lib/.*' --filter 'tools/.*' --filter 'plugins/.*' \
+            --exclude '.*tests/.*' --exclude '.*third_party/.*' \
+            --json-summary -o coverage-core.json
+
+      # Put the coverage numbers on the run page itself. An artefact alone was not
+      # enough: it sits in a panel at the bottom of the run, below every job, and
+      # has to be downloaded -- so the number nobody looks for is the number
+      # nobody sees.
+      - name: Coverage summary (inline on the run page)
+        run: |
+          python3 - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("coverage-core.json"))
+          line, fn = d["line_percent"], d["function_percent"]
+          print("## Coverage\n")
+          print("| scope | lines | functions |")
+          print("|---|---|---|")
+          print(f"| `lib/` `tools/` `plugins/` | **{line:.1f}%** ({d['line_covered']}/{d['line_total']}) "
+                f"| {fn:.1f}% ({d['function_covered']}/{d['function_total']}) |")
+          print(f"\nGated at 80% lines. Full report: the `coverage-report` artefact on this run.")
+          PYEOF
 
       # Patch coverage: the documented "new code paths must have >=80% line
       # coverage". This was never actually enforced -- `.codecov.yml` asks for it,
