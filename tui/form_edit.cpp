@@ -141,6 +141,37 @@ void destroy_form(FormParts& parts, std::vector<FIELD*>& fs) {
         delwin(parts.sub);
 }
 
+// The modal loop: draw the buttons and cursor, read a key, route it through
+// form_focus, and apply the verdict. Returns the form's result.
+bool run_form_loop(WINDOW* w, FORM* form, int aw, int btn_row, int n, std::vector<FIELD*>& fs) {
+    form_focus::Zone zone = form_focus::Zone::Fields;
+    curs_set(1);
+    set_current_field(form, fs[0]);
+    form_driver(form, REQ_END_LINE);
+
+    bool result = false;
+    bool done = false;
+    while (!done) {
+        const int focus =
+            (zone == form_focus::Zone::Fields) ? 0 : (zone == form_focus::Zone::Ok ? 1 : 2);
+        draw_form_buttons(w, aw, btn_row, focus);
+        draw_form_cursor(form, focus);
+        update_panels();
+        doupdate();
+
+        const int c = wgetch(w);
+        const bool at_last_field = (field_index(current_field(form)) == n - 1);
+        const form_focus::Decision d = form_focus::key(c, zone, at_last_field);
+        zone = d.zone;
+        apply_form_intent(form, d, fs, n);
+        if (d.done) {
+            result = d.result;
+            done = true;
+        }
+    }
+    return result;
+}
+
 bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     ModalScope scope;
     const int n = static_cast<int>(fields.size());
@@ -157,31 +188,7 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     draw_field_labels(w, fields, label_w);
     dlg.set_footer({{"Tab/Arrows", "move"}, {"Enter", "confirm"}, {"Esc", "cancel"}});
 
-    form_focus::Zone zone = form_focus::Zone::Fields;
-    curs_set(1);
-    set_current_field(form.form, fs[0]);
-    form_driver(form.form, REQ_END_LINE);
-
-    bool result = false;
-    bool done = false;
-    while (!done) {
-        const int focus =
-            (zone == form_focus::Zone::Fields) ? 0 : (zone == form_focus::Zone::Ok ? 1 : 2);
-        draw_form_buttons(w, aw, btn_row, focus);
-        draw_form_cursor(form.form, focus);
-        update_panels();
-        doupdate();
-
-        const int c = wgetch(w);
-        const bool at_last_field = (field_index(current_field(form.form)) == n - 1);
-        const form_focus::Decision d = form_focus::key(c, zone, at_last_field);
-        zone = d.zone;
-        apply_form_intent(form.form, d, fs, n);
-        if (d.done) {
-            result = d.result;
-            done = true;
-        }
-    }
+    const bool result = run_form_loop(w, form.form, aw, btn_row, n, fs);
 
     if (result)
         collect_field_values(form.form, fs, fields);

@@ -53,12 +53,6 @@
         "nloc": 42
       }
     },
-    "tui/form_edit.cpp": {
-      "tui::form_edit": {
-        "ccn": 6,
-        "nloc": 41
-      }
-    },
     "tui/render_engine.cpp": {
       "tui::RenderEngine::draw_input": {
         "ccn": 12,
@@ -69,20 +63,6 @@
       "tui::Tui::apply_key_action": {
         "ccn": 12,
         "nloc": 41
-      }
-    },
-    "tui/tui_input.cpp": {
-      "tui::SlashDispatcher::cmd_get_wallet": {
-        "ccn": 13,
-        "nloc": 41
-      },
-      "tui::SlashDispatcher::cmd_provider": {
-        "ccn": 15,
-        "nloc": 41
-      },
-      "tui::SlashDispatcher::cmd_skills_set": {
-        "ccn": 12,
-        "nloc": 44
       }
     }
   },

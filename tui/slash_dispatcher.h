@@ -158,6 +158,8 @@ private:
     void register_set_feature_actions();
     void register_get_config_actions();
     void register_get_plugin_policy_actions();
+    // Seed / key-prompt ladder for /provider <name>; false when the user backs out.
+    bool ensure_provider_ready(const std::string& a, agent::ProviderSelection& sel);
     // The four domains it covers, registered separately so each stays small.
     void register_plugin_actions();
     void register_provider_wallet_actions();
