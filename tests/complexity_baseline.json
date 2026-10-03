@@ -1,24 +1,5 @@
 {
   "ccn_max": 15,
-  "functions": {
-    "tools/plugins/cdp/main.cpp": {
-      "main": {
-        "ccn": 10,
-        "nloc": 42
-      }
-    },
-    "tools/plugins/cdp/ws_client.cpp": {
-      "cdp::WsClient::connect": {
-        "ccn": 7,
-        "nloc": 45
-      }
-    },
-    "tools/read_tool.cpp": {
-      "agent::ReadTool::execute": {
-        "ccn": 7,
-        "nloc": 42
-      }
-    }
-  },
+  "functions": {},
   "nloc_max": 40
 }

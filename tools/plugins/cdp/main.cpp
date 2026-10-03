@@ -268,6 +268,30 @@ json dispatch(const std::string& name, const json& args) {
 
 } // namespace
 
+namespace {
+
+// The initialize request: adopt the endpoint (ws:// prefixed when bare) and
+// the workspace.
+void handle_initialize(const json& params) {
+    endpoint = params.value("endpoint", endpoint);
+    if (!endpoint.empty() && endpoint[0] != 'w') {
+        std::string prefixed = "ws://";
+        prefixed += endpoint;
+        endpoint = prefixed;
+    }
+    workspace = params.value("workspace", std::string());
+}
+
+// Emit an error result for the message being processed.
+void emit_error(const std::string& detail) {
+    std::string err = "ERROR: ";
+    err += detail;
+    std::cout << json{{"id", json()}, {"result", result(false, err)}}.dump() << "\n";
+    std::cout.flush();
+}
+
+} // namespace
+
 int main() try {
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -279,13 +303,7 @@ int main() try {
             std::string method = msg.value("method", std::string());
             resp["id"] = msg.value("id", json());
             if (method == "initialize") {
-                endpoint = msg["params"].value("endpoint", endpoint);
-                if (!endpoint.empty() && endpoint[0] != 'w') {
-                    std::string prefixed = "ws://";
-                    prefixed += endpoint;
-                    endpoint = prefixed;
-                }
-                workspace = msg["params"].value("workspace", std::string());
+                handle_initialize(msg["params"]);
                 resp["result"] = {{"protocol_version", 1}, {"ok", true}};
             } else if (method == "tool.call") {
                 resp["result"] = dispatch(msg["params"].value("name", std::string()),
@@ -302,10 +320,7 @@ int main() try {
             std::cout << resp.dump() << "\n";
             std::cout.flush();
         } catch (const std::exception& e) {
-            std::string err = "ERROR: ";
-            err += e.what();
-            std::cout << json{{"id", json()}, {"result", result(false, err)}}.dump() << "\n";
-            std::cout.flush();
+            emit_error(e.what());
         }
     }
     return 0;
