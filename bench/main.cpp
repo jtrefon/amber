@@ -81,6 +81,30 @@ std::vector<bench::Scenario> discover_scenarios(const std::string& suite, const 
     return out;
 }
 
+// Optional typed reads from a JSON object: take the value only when the key is present
+// and holds the expected type. These three spell one rule that every profile field and
+// most settings fields repeat.
+bool take_string(const agent::json& obj, const char* key, std::string& out) {
+    if (!obj.contains(key) || !obj[key].is_string())
+        return false;
+    out = obj[key].get<std::string>();
+    return true;
+}
+
+template <typename T> bool take_number(const agent::json& obj, const char* key, T& out) {
+    if (!obj.contains(key) || !obj[key].is_number())
+        return false;
+    out = obj[key].get<T>();
+    return true;
+}
+
+bool take_int(const agent::json& obj, const char* key, int& out) {
+    if (!obj.contains(key) || !obj[key].is_number_integer())
+        return false;
+    out = obj[key].get<int>();
+    return true;
+}
+
 void apply_profile(bench::RunOptions& opts, const std::string& profile) {
     if (profile.empty())
         return;
@@ -101,14 +125,16 @@ void apply_profile(bench::RunOptions& opts, const std::string& profile) {
         return;
     }
     const agent::json& p = j[profile];
-    if (p.contains("model") && p["model"].is_string())
-        opts.model = p["model"].get<std::string>();
-    if (p.contains("temperature") && p["temperature"].is_number())
-        opts.temperature = p["temperature"].get<double>();
-    if (p.contains("thinking") && p["thinking"].is_string())
-        opts.thinking = p["thinking"].get<std::string>();
-    if (p.contains("thinking_budget") && p["thinking_budget"].is_number_integer())
-        opts.thinking_budget = p["thinking_budget"].get<int>();
+    // Every field here is "take it if the profile has it and it is the right type". Spelt
+    // out per field that is eight branches to say one thing, and the profile file is ours
+    // to control, so a wrong-typed field is ignored rather than rejected.
+    //
+    // thinking_budget keeps its own is_number_integer() check on purpose: sharing a
+    // general is_number() helper would start accepting 1.5 and truncating it.
+    take_string(p, "model", opts.model);
+    take_number(p, "temperature", opts.temperature);
+    take_string(p, "thinking", opts.thinking);
+    take_int(p, "thinking_budget", opts.thinking_budget);
 }
 
 std::string run_id() {

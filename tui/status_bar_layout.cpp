@@ -16,6 +16,37 @@ int zone_cols(const std::vector<Segment>& zone) {
 
 } // namespace
 
+// The right zone is reserved whatever it holds: with the clock switched off the space
+// goes back to the left zone instead of staying reserved.
+int budget_for(int width, int right_cols) {
+    const int reserved = right_cols > 0 ? right_cols + 1 + kActivityWidth : kActivityWidth;
+    const int b = width - reserved;
+    return b < 0 ? 0 : b;
+}
+
+// One drop rule for both zones: the highest drop priority goes first when the bar
+// cannot hold everything, wherever the segment attaches. Returns false when nothing
+// left may be dropped, which is what ends the loop -- a bar that is still too wide but
+// has no droppable segment is left as it is rather than looping forever.
+bool drop_worst(std::vector<Segment>& left, std::vector<Segment>& right) {
+    std::vector<Segment>* zone = nullptr;
+    size_t worst_i = 0;
+    int worst = -1;
+    for (std::vector<Segment>* z : {&left, &right}) {
+        for (size_t i = 0; i < z->size(); ++i) {
+            if ((*z)[i].drop > worst) {
+                worst = (*z)[i].drop;
+                worst_i = i;
+                zone = z;
+            }
+        }
+    }
+    if (!zone || worst <= 0)
+        return false;
+    zone->erase(zone->begin() + static_cast<int>(worst_i));
+    return true;
+}
+
 Plan plan(std::vector<Segment> segments, int width, bool have_ctx, long ctx_used) {
     Plan p;
     for (auto& s : segments)
@@ -27,33 +58,14 @@ Plan plan(std::vector<Segment> segments, int width, bool have_ctx, long ctx_used
     // is detected mid-session.
     const int gauge_min = (have_ctx || ctx_used > 0) ? 12 : 0;
 
-    // The right zone is reserved whatever it holds: with the clock switched off
-    // the space goes back to the left zone instead of staying reserved.
-    const auto budget_for = [width](int right_cols) {
-        const int reserved = right_cols > 0 ? right_cols + 1 + kActivityWidth : kActivityWidth;
-        const int b = width - reserved;
-        return b < 0 ? 0 : b;
-    };
     p.right_cols = zone_cols(p.right);
-    p.budget = budget_for(p.right_cols);
+    p.budget = budget_for(width, p.right_cols);
 
-    // One drop rule for both zones: the highest drop priority goes first when
-    // the bar cannot hold everything, wherever the segment attaches.
     while (zone_cols(p.left) + gauge_min > p.budget && (!p.left.empty() || !p.right.empty())) {
-        std::vector<Segment>* zone = &p.left;
-        int worst = -1, worst_i = -1;
-        for (std::vector<Segment>* z : {&p.left, &p.right})
-            for (size_t i = 0; i < z->size(); ++i)
-                if ((*z)[i].drop > worst) {
-                    worst = (*z)[i].drop;
-                    worst_i = static_cast<int>(i);
-                    zone = z;
-                }
-        if (worst <= 0)
+        if (!drop_worst(p.left, p.right))
             break;
-        zone->erase(zone->begin() + worst_i);
         p.right_cols = zone_cols(p.right);
-        p.budget = budget_for(p.right_cols);
+        p.budget = budget_for(width, p.right_cols);
     }
     return p;
 }

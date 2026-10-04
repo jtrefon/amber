@@ -31,6 +31,20 @@ static bool edit_provider_form(agent::Config& cfg, const std::string& title);
 
 namespace {
 
+// on|off|toggle is the shape every boolean setting takes. Written as an inline ternary
+// per setting, it cost two branches each and let the copies drift apart; there were
+// five. One definition, one behaviour: an unrecognised value means "off", which is
+// what the copies did, and callers that care reject it with valid_toggle() first.
+bool valid_toggle(const std::string& v) {
+    return v == "on" || v == "off" || v == "toggle";
+}
+
+bool parse_toggle(const std::string& v, bool current) {
+    if (v == "toggle")
+        return !current;
+    return v == "on";
+}
+
 std::string mode_name(agent::AgentMode m) {
     if (m == agent::AgentMode::Read)
         return "read";
@@ -61,31 +75,25 @@ void Tui::flush_stream(Window& w) {
 }
 
 void SlashDispatcher::cmd_set_detection_toggle(const std::string& key, const std::string& val) {
-    if (val != "off" && val != "on" && val != "toggle") {
+    if (!valid_toggle(val)) {
         tui_.append_line(P_STATUS,
                          "usage: /set detection " + key + " off|on|toggle (got: " + val + ")");
         return;
     }
-    bool* field = (key == "loop") ? &tui_.cfg_.detection_loop : &tui_.cfg_.detection_duplicate;
-    bool new_val;
-    if (val == "on")
-        new_val = true;
-    else if (val == "off")
-        new_val = false;
-    else
-        new_val = !*field;
+    // One predicate, four uses below; testing the key again at each one cost a branch
+    // and made it possible to read the hint for one setting over a value set on another.
+    const bool loop = key == "loop";
+    bool* field = loop ? &tui_.cfg_.detection_loop : &tui_.cfg_.detection_duplicate;
+    const bool new_val = parse_toggle(val, *field);
     *field = new_val;
-    if (tui_.win().agent) {
-        if (key == "loop")
-            tui_.win().agent->set_detection_loop(new_val);
+    if (auto& agent = tui_.win().agent) {
+        if (loop)
+            agent->set_detection_loop(new_val);
         else
-            tui_.win().agent->set_detection_duplicate(new_val);
+            agent->set_detection_duplicate(new_val);
     }
-    std::string hint;
-    if (key == "loop")
-        hint = new_val ? "breaks on repeat" : "runs until stop";
-    else
-        hint = new_val ? "rejects duplicates" : "may repeat calls";
+    const std::string hint = loop ? (new_val ? "breaks on repeat" : "runs until stop")
+                                  : (new_val ? "rejects duplicates" : "may repeat calls");
     tui_.append_line(P_STATUS,
                      "detection " + key + ": " + (new_val ? "on" : "off") + " \u2014 " + hint);
     if (!tui_.cfg_.save_settings(tui_.session_controller_->settings_path()))
@@ -95,7 +103,7 @@ void SlashDispatcher::cmd_set_detection_toggle(const std::string& key, const std
 }
 
 void SlashDispatcher::cmd_set_subagent_parallel(const std::string& val) {
-    if (val != "off" && val != "on" && val != "toggle") {
+    if (!valid_toggle(val)) {
         tui_.append_line(P_STATUS,
                          "usage: /set subagent parallel on|off|toggle (got: " + val + ")");
         return;
@@ -2829,10 +2837,7 @@ void SlashDispatcher::add_detection_settings() {
         "detection.loop", "Tool-loop detection", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.cfg_.detection_loop ? "on" : "off"; },
         [this](const std::string& v) {
-            if (v == "toggle")
-                tui_.cfg_.detection_loop = !tui_.cfg_.detection_loop;
-            else
-                tui_.cfg_.detection_loop = (v == "on");
+            tui_.cfg_.detection_loop = parse_toggle(v, tui_.cfg_.detection_loop);
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
             if (tui_.win().agent)
                 tui_.win().agent->set_detection_loop(tui_.cfg_.detection_loop);
@@ -2841,10 +2846,7 @@ void SlashDispatcher::add_detection_settings() {
         "detection.duplicate", "Duplicate call detection", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.cfg_.detection_duplicate ? "on" : "off"; },
         [this](const std::string& v) {
-            if (v == "toggle")
-                tui_.cfg_.detection_duplicate = !tui_.cfg_.detection_duplicate;
-            else
-                tui_.cfg_.detection_duplicate = (v == "on");
+            tui_.cfg_.detection_duplicate = parse_toggle(v, tui_.cfg_.detection_duplicate);
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
 }
@@ -2870,10 +2872,7 @@ void SlashDispatcher::add_subagent_settings() {
         "subagent.parallel", "Sub-agent parallelism", "<on|off|toggle>", Setting::Choice, 0, 0,
         [this]() { return tui_.subagents_.parallel() ? "on" : "off"; },
         [this](const std::string& v) {
-            if (v == "toggle")
-                tui_.subagents_.set_parallel(!tui_.subagents_.parallel());
-            else
-                tui_.subagents_.set_parallel(v == "on");
+            tui_.subagents_.set_parallel(parse_toggle(v, tui_.subagents_.parallel()));
             tui_.cfg_.subagent_parallel = tui_.subagents_.parallel();
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
@@ -2942,10 +2941,7 @@ void SlashDispatcher::add_policy_settings() {
         Setting::Choice, 0, 0,
         [this]() -> std::string { return tui_.cfg_.policy_approval ? "on" : "off"; },
         [this](const std::string& v) {
-            if (v == "toggle")
-                tui_.cfg_.policy_approval = !tui_.cfg_.policy_approval;
-            else
-                tui_.cfg_.policy_approval = (v == "on");
+            tui_.cfg_.policy_approval = parse_toggle(v, tui_.cfg_.policy_approval);
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
             tui_.append_line(P_STATUS, std::string("policy approval: ") +
                                            (tui_.cfg_.policy_approval ? "on" : "off"));
