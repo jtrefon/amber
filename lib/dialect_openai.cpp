@@ -86,6 +86,22 @@ void accumulate_string_arguments(json& fn, const std::string& piece) {
     fn["arguments"] = cur + piece;
 }
 
+// Copy a string field across when the source has one. The streaming merge did this
+// three times inline, which cost six branches to express one intent -- and the
+// contains()/is_string() pair is easy to get subtly wrong per field.
+void copy_string_field(json& dst, const json& src, const char* key) {
+    if (src.contains(key) && src[key].is_string())
+        dst[key] = src[key];
+}
+
+// Fetch (creating if absent) a nested object, so the caller can write into it.
+json& ensure_object(json& parent, const char* key) {
+    json& child = parent[key];
+    if (child.is_null())
+        child = json::object();
+    return child;
+}
+
 void accumulate_arguments(json& fn, const json& frag) {
     if (frag.is_string()) {
         accumulate_string_arguments(fn, frag.get<std::string>());
@@ -410,16 +426,11 @@ private:
             while (static_cast<int>(out_.tool_calls.size()) <= idx)
                 out_.tool_calls.push_back(json::object());
             json& slot = out_.tool_calls[idx];
-            if (frag.contains("id") && frag["id"].is_string())
-                slot["id"] = frag["id"];
-            if (frag.contains("type") && frag["type"].is_string())
-                slot["type"] = frag["type"];
-            json& fn = slot["function"];
-            if (fn.is_null())
-                fn = json::object();
+            copy_string_field(slot, frag, "id");
+            copy_string_field(slot, frag, "type");
+            json& fn = ensure_object(slot, "function");
             const json& ffn = frag.value("function", json::object());
-            if (ffn.contains("name") && ffn["name"].is_string())
-                fn["name"] = ffn["name"];
+            copy_string_field(fn, ffn, "name");
             if (ffn.contains("arguments"))
                 accumulate_arguments(fn, ffn["arguments"]);
         }
