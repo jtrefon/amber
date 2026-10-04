@@ -252,6 +252,51 @@ TEST(mcp_manager_http_connect) {
 }
 
 // [MS-08] Token-bearing configs are written 0600 and never surface in the
+// args are stored space-separated on one line and read back with `ss >> tok`, so a
+// list of plain tokens round-trips exactly.
+TEST(mcp_config_save_writes_space_joined_args) {
+    McpEnv env("args");
+    agent::McpServerConfig cfg;
+    cfg.name = "withargs";
+    cfg.type = "stdio";
+    cfg.command = "/bin/echo";
+    cfg.args = {"--port", "8081", "--tag=ab"};
+    ASSERT_TRUE(agent::save_mcp_server(cfg));
+
+    auto servers = agent::load_mcp_servers();
+    ASSERT_EQ(servers["withargs"].args.size(), (size_t)3);
+    ASSERT_EQ(servers["withargs"].args[0], std::string("--port"));
+    ASSERT_EQ(servers["withargs"].args[1], std::string("8081"));
+    ASSERT_EQ(servers["withargs"].args[2], std::string("--tag=ab"));
+
+    ASSERT_TRUE(agent::delete_mcp_server("withargs"));
+}
+
+// Pinned limitation, not desired behaviour: the config format is a single
+// whitespace-separated line, so an argument containing a space is split in two and an
+// empty argument disappears entirely. Saving then loading is lossy for both.
+//
+// This is a property of the file format, not of save_mcp_server: existing .conf files
+// are written the same way and would need migrating, which is a separate change.
+TEST(mcp_config_args_format_cannot_carry_spaces_or_empty_elements) {
+    McpEnv env("argshape");
+    agent::McpServerConfig cfg;
+    cfg.name = "argshape";
+    cfg.type = "stdio";
+    cfg.command = "/bin/echo";
+    cfg.args = {"--tag=a b"};
+    ASSERT_TRUE(agent::save_mcp_server(cfg));
+    ASSERT_EQ(agent::load_mcp_servers()["argshape"].args.size(), (size_t)2);
+
+    cfg.name = "emptyel";
+    cfg.args = {"a", "", "b"};
+    ASSERT_TRUE(agent::save_mcp_server(cfg));
+    ASSERT_EQ(agent::load_mcp_servers()["emptyel"].args.size(), (size_t)2);
+
+    ASSERT_TRUE(agent::delete_mcp_server("argshape"));
+    ASSERT_TRUE(agent::delete_mcp_server("emptyel"));
+}
+
 // manager snapshot.
 TEST(mcp_config_token_redaction) {
     McpEnv env("redact");

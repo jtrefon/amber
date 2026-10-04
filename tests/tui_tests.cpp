@@ -26,6 +26,7 @@
 #include "tui/keys.h"
 #include "tui/option_key_decode.h"
 #include "tui/status_bar_layout.h"
+#include "tui/toggle_value.h"
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
 #include "tui/event_router.h"
@@ -592,6 +593,31 @@ static std::vector<tui::palette::Command> palette_fixture() {
             "exit",
         },
     };
+}
+
+// The on|off|toggle shape every boolean setting takes. These were an inline ternary at
+// five call sites, so the semantics had no single place to be pinned.
+TEST(toggle_value_recognises_the_three_spellings) {
+    ASSERT(tui::valid_toggle("on"));
+    ASSERT(tui::valid_toggle("off"));
+    ASSERT(tui::valid_toggle("toggle"));
+    ASSERT_FALSE(tui::valid_toggle(""));
+    ASSERT_FALSE(tui::valid_toggle("ON"));
+    ASSERT_FALSE(tui::valid_toggle("yes"));
+    ASSERT_FALSE(tui::valid_toggle("onn"));
+}
+
+TEST(toggle_value_resolves_against_the_current_value) {
+    ASSERT(tui::parse_toggle("on", false));
+    ASSERT(tui::parse_toggle("on", true));
+    ASSERT_FALSE(tui::parse_toggle("off", true));
+    ASSERT_FALSE(tui::parse_toggle("off", false));
+    // toggle inverts either way
+    ASSERT(tui::parse_toggle("toggle", false));
+    ASSERT_FALSE(tui::parse_toggle("toggle", true));
+    // anything unrecognised reads as off, which is what every copy did
+    ASSERT_FALSE(tui::parse_toggle("", true));
+    ASSERT_FALSE(tui::parse_toggle("nonsense", true));
 }
 
 TEST(palette_token_and_arg_detection) {

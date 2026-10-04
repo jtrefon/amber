@@ -4,6 +4,7 @@
 #include "tui/list_panel.h"
 #include "tui/confirm_panel.h"
 #include "tui/path_confine.h"
+#include "tui/toggle_value.h"
 #include "tui/window_ops.h"
 #include "agent/model_probe.h"
 #include "agent/plugin_console.h"
@@ -30,20 +31,6 @@ namespace tui {
 static bool edit_provider_form(agent::Config& cfg, const std::string& title);
 
 namespace {
-
-// on|off|toggle is the shape every boolean setting takes. Written as an inline ternary
-// per setting, it cost two branches each and let the copies drift apart; there were
-// five. One definition, one behaviour: an unrecognised value means "off", which is
-// what the copies did, and callers that care reject it with valid_toggle() first.
-bool valid_toggle(const std::string& v) {
-    return v == "on" || v == "off" || v == "toggle";
-}
-
-bool parse_toggle(const std::string& v, bool current) {
-    if (v == "toggle")
-        return !current;
-    return v == "on";
-}
 
 std::string mode_name(agent::AgentMode m) {
     if (m == agent::AgentMode::Read)
