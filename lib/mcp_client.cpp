@@ -161,14 +161,21 @@ bool cancel_requested(const CancellationToken* token) {
 //
 // Cancellation is deliberately NOT handled here: call_tool checks it before this (it must
 // also notify the request id) and read_resource does not check it at all.
+std::string generic_failure(const char* op, const std::string& transport_reason) {
+    return transport_reason.empty() ? std::string("mcp ") + op + " failed" : transport_reason;
+}
+
 std::string failure_reason_for(const char* op, const McpTransportResult& r,
                                const std::string& transport_reason) {
     if (r.status == McpTransportStatus::Timeout)
         return std::string("mcp ") + op + " timed out";
     if (r.status == McpTransportStatus::TransportError || !r.message)
-        return transport_reason.empty() ? std::string("mcp ") + op + " failed" : transport_reason;
-    if (r.message->error)
-        return r.message->error->to_text();
+        return generic_failure(op, transport_reason);
+    // The presence check sits in the same condition as the access. It used to be proven
+    // by an early return two statements back, which reads fine and is exactly the kind of
+    // implicit precondition that rots when the branches are reordered.
+    if (const auto& msg = r.message; msg && msg->error)
+        return msg->error->to_text();
     return {};
 }
 
