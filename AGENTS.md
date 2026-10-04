@@ -145,14 +145,20 @@ each one and confirming it goes red. Everything in the table above is checked at
 
 - **A skip is not a pass.** `ci-gate` used to accept `skipped` for every gating job,
   so `if: false` on a gate — or a path filter that misclassified a directory — turned
-  the pipeline green with that gate never having run. It now accepts a skip only when
-  the `changes` job says the diff cannot affect C++.
+  the pipeline green with that gate never having run. A skip is now acceptable only for
+  the *dimension* `changes` says the diff cannot affect (`cpp` / `web` / `always`),
+  because the two are independent: a C++-only PR legitimately skips the website jobs,
+  and judging both with one flag blocked every non-website PR. The decision lives in
+  `tools/gate_needs_check.py` — 39 cases run as `build-hygiene` **P10** — because the
+  first two versions of it were written inline in YAML, where neither could be tested
+  locally and both were wrong. An unknown GitHub result counts as a failure.
 - **The path filter is an allowlist.** `tools/changed_paths.sh` answers "is this
   documentation?" and treats *any unrecognised path as code*, because the costs are
   asymmetric: a wrong "yes" costs CI minutes, a wrong "no" skips every C++ gate on a
   PR that changed C++. The old denylist (`lib/|src/|tui/|…`) answered "no" to anything
-  it did not recognise, including a new top-level directory. Its 20-odd cases run as
-  `build-hygiene` **P9**.
+  it did not recognise, including a new top-level directory. Its 22 cases run as
+  `build-hygiene` **P9** — which caught a bug in the allowlist itself on its first run,
+  a generic `*.md` rule shadowing `.github/ISSUE_TEMPLATE/`.
 - **`format-check-changed` measured committed work only.** `git diff BASE...HEAD` sees
   nothing uncommitted, so it printed `no C++ changes, skipping` and exited 0 on the
   files you were editing. It now unions the merge-base, staged and unstaged diffs. The

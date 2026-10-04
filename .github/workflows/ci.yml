@@ -834,29 +834,14 @@ jobs:
         env:
           NEEDS: ${{ toJson(needs) }}
           CPP_CHANGED: ${{ needs.changes.outputs.cpp }}
+          WEB_CHANGED: ${{ needs.changes.outputs.website }}
+        # The decision lives in tools/gate_needs_check.py rather than inline jq so it can
+        # be run and tested locally. It carries its own table of cases; the check gate
+        # runs them. A skip is legitimate only for the dimension `changes` says this diff
+        # cannot affect -- accepting every skip is a bypass, and judging cpp and website
+        # with one flag blocks every non-website PR.
         run: |
           echo "$NEEDS" | jq -r 'to_entries | map("\(.key): \(.value.result)") | join("\n")'
-          # A skipped gating job is only acceptable when `changes` says this diff cannot
-          # affect the C++ suite. Treating every skip as a pass is a bypass: `if: false`
-          # on a gate, or a path filter that misclassifies a directory, would turn the
-          # pipeline green with that gate never having run.
-          bad="$(echo "$NEEDS" | jq -r --argjson cpp "$CPP_CHANGED" '
-            to_entries
-            | map(select(
-                (.key == "changes" and .value.result != "success") or
-                (.key != "changes" and .value.result == "failure") or
-                (.key != "changes" and .value.result == "cancelled") or
-                (.key != "changes" and $cpp == true and .value.result == "skipped") or
-                (.key != "changes" and $cpp == false and .value.result != "success"
-                 and .value.result != "skipped")))
-            | map("\(.key): \(.value.result)") | join(", ")')"
-          if [ -n "$bad" ]; then
-            echo "::error::gating jobs did not pass: $bad"
-            exit 1
-          fi
-          if [ "$CPP_CHANGED" = "true" ]; then
-            echo "This diff affects C++, so every gating job ran."
-          else
-            echo "Documentation-only diff: the C++ suite was legitimately skipped."
-          fi
+          echo "cpp=$CPP_CHANGED web=$WEB_CHANGED"
+          echo "$NEEDS" | python3 tools/gate_needs_check.py
           echo "All gating jobs passed."

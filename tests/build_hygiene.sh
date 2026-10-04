@@ -241,6 +241,17 @@ else
     warn "P9: CI changed-paths classifier self-test FAILED (tools/changed_paths.sh)"
 fi
 
+# ci-gate decides whether a whole run may be called green. Its first version accepted a
+# skip for every gating job, which made `if: false` on a gate a way to go green; its
+# second judged the C++ and website dimensions with one flag and blocked every
+# non-website PR. Both failures were invisible from the workflow file, which is why the
+# table of cases lives next to the logic.
+if python3 tools/gate_needs_check.py --selftest >/dev/null 2>&1; then
+    ok "P10: ci-gate skip policy passes its self-test"
+else
+    warn "P10: ci-gate skip policy self-test FAILED (tools/gate_needs_check.py)"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
     exit 1
