@@ -37,6 +37,20 @@ A changed `.cpp` that is missing from the report *entirely* is a different matte
 it was compiled, so it must be there. That is a measurement gap, and it fails
 closed rather than counting as zero.
 
+**Carryover.** A line the diff *moved* rather than wrote is not new code, so it is
+not held against the patch. This matters more than it sounds: the gate's first live
+run failed a pure refactor -- 16 lines lifted out of an inline lambda into a named
+method -- and reported every one as uncovered. A diff-based gate that punishes code
+motion blocks exactly the refactoring this project is trying to encourage, and the
+incentive it creates is to leave code badly organised rather than move it.
+
+A moved line is identified by its text: if an added line's content already appeared
+somewhere in the base revision of that file, it was carried over. The rule is
+deliberately generous -- a genuinely new line that happens to be textually identical
+to an existing one is also skipped. The asymmetry is on purpose: a false positive
+blocks a merge over code that was never untested, which is the more expensive
+mistake.
+
 **Format.** Cobertura XML (`gcovr --xml-pretty`, which the coverage job already
 produces as `coverage.xml`), because it carries per-line hit counts. gcovr's
 `--json-summary` does **not**: its entries have no `lines` key at all, so a JSON
@@ -88,10 +102,13 @@ class PatchCoverage:
     """Coverage of the lines a diff adds. `total` is None when there is nothing
     to measure, which is a pass, not a division by zero."""
 
-    def __init__(self, total=None, covered=0, uncovered=None):
+    def __init__(self, total=None, covered=0, uncovered=None, carried=0):
         self.total = total
         self.covered = covered
         self.uncovered = uncovered if uncovered is not None else []
+        # Added lines whose text already existed in the base revision: moved, not
+        # written. Counted separately so the report can say so out loud.
+        self.carried = carried
         # Changed sources the report does not contain at all. See the module
         # docstring: absent per line means "not executable", absent per file means
         # "not measured", and those are opposite conclusions.
@@ -142,15 +159,20 @@ def read_report(path):
     return hits
 
 
-def patch_coverage(hits, changed):
-    """Coverage over the added lines. `changed` is {path: {lineno}}; None means
-    no diff was supplied, which is a measurement failure, not a clean patch."""
+def patch_coverage(hits, changed, carried_over=None):
+    """Coverage over the added lines.
+
+    `changed` is {path: {lineno: text}}; None means no diff was supplied, which is
+    a measurement failure, not a clean patch. `carried_over` is {path: set of
+    normalised texts already present at the base revision}.
+    """
     if hits is None or changed is None:
         return PatchCoverage()
+    carried_over = carried_over or {}
     if not any(hits.values()):
         # No file in the report carries line data: the report measured nothing.
         return PatchCoverage()
-    total, uncovered, unmeasured = 0, [], []
+    total, uncovered, unmeasured, carried = 0, [], [], 0
     for path, numbers in changed.items():
         if not is_instrumented(path):
             continue
@@ -161,13 +183,19 @@ def patch_coverage(hits, changed):
                 unmeasured.append(path)
             continue
         file_hits = hits[path]
+        known = carried_over.get(path, frozenset())
         for number in sorted(numbers):
             if number not in file_hits:
                 continue  # not executable: comment, blank, brace
             total += 1
             if file_hits[number] <= 0:
+                if normalise(numbers[number]) in known:
+                    carried += 1   # moved here from elsewhere in the file
+                    total -= 1
+                    continue
                 uncovered.append((path, number))
-    result = PatchCoverage(total=total, covered=total - len(uncovered), uncovered=uncovered)
+    result = PatchCoverage(total=total, covered=total - len(uncovered),
+                           uncovered=uncovered, carried=carried)
     result.unmeasured = sorted(set(unmeasured))
     return result
 
@@ -193,12 +221,20 @@ def check(result, changed=None):
             print(f"  {path}")
         return 2
     if result.total == 0:
+        # Say so when the reason was carryover rather than an empty diff: "nothing
+        # to gate" reads like the diff was empty when in fact lines moved.
+        if result.carried:
+            print(f"coverage: no new executable lines - {result.carried} added line(s) "
+                  f"already existed elsewhere in the file (moved code is not new code)")
+            return 0
         print("coverage: no changed executable lines in the diff; nothing to gate "
               f"(the {COVERAGE_MIN}% rule applies to code, not to docs)")
         return 0
     verdict = "ok" if result.passes else "BELOW the bar"
+    moved = f", {result.carried} carried over from elsewhere in the file" \
+        if result.carried else ""
     print(f"coverage: patch line coverage {result.percent:.1f}% "
-          f"({result.covered}/{result.total}) - {verdict} "
+          f"({result.covered}/{result.total}{moved}) - {verdict} "
           f"(bar: >= {COVERAGE_MIN}%)")
     if result.uncovered:
         shown = ", ".join(f"{p}:{n}" for p, n in result.uncovered[:15])
@@ -207,8 +243,18 @@ def check(result, changed=None):
     return 0 if result.passes else 1
 
 
+def normalise(line):
+    """Text for carryover comparison: whitespace collapsed, so a reindented move
+    still counts as a move."""
+    return " ".join(line.split())
+
+
 def changed_lines_from_diff(lines):
-    """{path: {added line numbers}} from a unified diff."""
+    """{path: {added line number: added line text}} from a unified diff.
+
+    The text is kept because carryover needs it: a line counts as moved if its
+    content already existed in the base revision.
+    """
     changed, path, number = {}, None, 0
     for raw in lines:
         line = raw.rstrip("\n")
@@ -228,7 +274,7 @@ def changed_lines_from_diff(lines):
         if path is None or not line:
             continue
         if line.startswith("+"):
-            changed.setdefault(path, set()).add(number)
+            changed.setdefault(path, {})[number] = line[1:]
             number += 1
         elif line.startswith("-"):
             continue
@@ -237,6 +283,24 @@ def changed_lines_from_diff(lines):
         else:
             number += 1
     return {p: v for p, v in changed.items() if v}
+
+
+def base_lines(base, paths):
+    """{path: set of normalised line texts} as they were at `base`.
+
+    Read from git rather than reconstructed from the diff, so a line that moved
+    from elsewhere in the file is recognised as well as one that moved up or down.
+    """
+    out = {}
+    for path in paths:
+        try:
+            proc = subprocess.run(["git", "-C", REPO_ROOT, "show", f"{base}:{path}"],
+                                  capture_output=True, text=True)
+        except OSError:
+            continue
+        if proc.returncode == 0:
+            out[path] = {normalise(l) for l in proc.stdout.split("\n")}
+    return out
 
 
 def diff_against(base, path="."):
@@ -281,7 +345,8 @@ def main():
     if err:
         print(f"coverage: FAILED CLOSED - {err}", file=sys.stderr)
         return 2
-    result = patch_coverage(read_report(args.report), changed)
+    carried_over = base_lines(args.diff_base, changed) if args.diff_base else {}
+    result = patch_coverage(read_report(args.report), changed, carried_over)
     rc = check(result, changed)
     if args.markdown and result.percent is not None:
         write_markdown(args.markdown, result)

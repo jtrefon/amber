@@ -41,6 +41,11 @@ public:
         nlohmann::json args;
     };
     void restore_message_lines(const agent::Message& m, std::vector<RestoredCall>& pending);
+    // Project a loaded session into a window: context, meta, per-turn UI stats,
+    // scrollback, spinner rows and the rebuilt call list. Tui::lazy_load_active
+    // used to inline all of this *and* duplicate restore_stats(), which is how the
+    // two paths could drift apart.
+    void restore_into(Window& w, const agent::Session& s);
 
 private:
     // Restore one saved message: user text, assistant text, or a tool result.

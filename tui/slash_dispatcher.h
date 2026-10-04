@@ -119,6 +119,7 @@ public:
     void cmd_plugin_state_usage(const std::string& verb);
     std::string usage(const palette::Command& c) const;
     void cmd_help(const std::string& arg);
+    void cmd_session_reset();
     void cmd_window(const std::string& arg);
     void cmd_job(const std::string& rest);
     void cmd_compress(const std::string& arg);

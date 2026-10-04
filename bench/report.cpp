@@ -796,9 +796,11 @@ void parse_failures_and_telemetry(const agent::json& e, ScenarioReport& rep) {
 }
 
 // One scenario's fields.
-void parse_scenario(const agent::json& e, ScenarioReport& rep) {
-    rep.name = e.value("name", "");
-    rep.suite = e.value("suite", "");
+// The kpi, score and agentic blocks are read by their own helpers: parse_scenario
+// was 40 lines of flat field assignment -- exactly at the NLOC cap -- and none of
+// it needed to be in one place. Naming the blocks is also what makes a missing
+// field obvious.
+void parse_scenario_kpi(const agent::json& e, ScenarioReport& rep) {
     rep.kpi.success = e.value("success", false);
     rep.kpi.bullseye = e.value("bullseye", 0.0);
     rep.kpi.steps = e.value("steps", 0);
@@ -820,12 +822,17 @@ void parse_scenario(const agent::json& e, ScenarioReport& rep) {
     rep.calls_per_step_mean = e.value("calls_per_step_mean", 0.0);
     rep.calls_per_step_p95 = e.value("calls_per_step_p95", 0.0);
     rep.difficulty = e.value("difficulty", 3);
+}
+
+void parse_scenario_score(const agent::json& e, ScenarioReport& rep) {
     rep.score.total = e.value("score", 0.0);
     rep.repeat_n = e.value("repeat_n", 1);
     rep.score_median = e.value("score_median", rep.score.total);
     rep.score_stddev = e.value("score_stddev", 0.0);
     parse_repeat_scores(e, rep);
-    rep.templated = e.value("templated", false);
+}
+
+void parse_scenario_agentic(const agent::json& e, ScenarioReport& rep) {
     rep.agentic.has_plan = e.value("agentic_has_plan", false);
     rep.agentic.plan_tools = e.value("agentic_plan_tools", 0);
     rep.agentic.plan_deviation = e.value("agentic_deviation", 0);
@@ -834,6 +841,15 @@ void parse_scenario(const agent::json& e, ScenarioReport& rep) {
     rep.agentic.score = e.value("agentic_score", 0.0);
     parse_tool_counts(e, "agentic_plan_by_tool", rep.agentic.plan_by_tool);
     parse_tool_counts(e, "agentic_actual_by_tool", rep.agentic.actual_by_tool);
+}
+
+void parse_scenario(const agent::json& e, ScenarioReport& rep) {
+    rep.name = e.value("name", "");
+    rep.suite = e.value("suite", "");
+    parse_scenario_kpi(e, rep);
+    parse_scenario_score(e, rep);
+    rep.templated = e.value("templated", false);
+    parse_scenario_agentic(e, rep);
     parse_failures_and_telemetry(e, rep);
 }
 

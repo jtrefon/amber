@@ -213,6 +213,22 @@ void SessionController::restore_stats(Window& w, const agent::Session& s) {
     }
 }
 
+void SessionController::restore_into(Window& w, const agent::Session& s) {
+    w.agent->set_context(s.messages);
+    if (!s.meta.empty())
+        w.agent->meta_ = s.meta;
+    restore_stats(w, s);
+    w.lines.clear();
+    // Spinner rows belong to the old scrollback - drop only this window's.
+    auto& pts = tui_.router_->pending_tools();
+    pts.erase(std::remove_if(pts.begin(), pts.end(),
+                             [&w](const PendingToolLine& pt) { return pt.window_id == w.id; }),
+              pts.end());
+    std::vector<RestoredCall> pending;
+    for (const auto& m : s.messages)
+        restore_message_lines(m, pending);
+}
+
 void SessionController::load_session(const std::string& id) {
     agent::Session s;
     if (!store_.load(id, s)) {
@@ -458,36 +474,7 @@ void Tui::lazy_load_active() {
         w.session_id.clear();
         return;
     }
-    w.agent->set_context(s.messages);
-    // Restore meta and UI state (same logic as load_session).
-    if (!s.meta.empty())
-        w.agent->meta_ = s.meta;
-    auto get_num = [&](const char* key, long def) -> long {
-        return (s.meta.contains(key) && s.meta[key].is_number()) ? s.meta[key].get<long>() : def;
-    };
-    w.ctx_used.store(get_num("ctx_used", -1));
-    w.ctx_estimate = 0; // refilled by the restore's context events
-    long restored_ctx = get_num("ctx_size", 0);
-    if (restored_ctx > 0)
-        cfg_.context_size = static_cast<int>(restored_ctx);
-    if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
-        w.stats.latency_ms = s.meta["latency_ms"].get<double>();
-        w.stats.tps = static_cast<double>(get_num("tps", -1));
-        w.stats.prompt_tokens = get_num("prompt_tokens", -1);
-        w.stats.completion_tokens = get_num("completion_tokens", -1);
-        w.stats.valid = true;
-    }
-    w.lines.clear();
-    // Spinner rows belong to the old scrollback — drop only this window's.
-    {
-        auto& pts = router_->pending_tools();
-        pts.erase(std::remove_if(pts.begin(), pts.end(),
-                                 [&w](const PendingToolLine& pt) { return pt.window_id == w.id; }),
-                  pts.end());
-    }
-    std::vector<SessionController::RestoredCall> pending;
-    for (const auto& m : s.messages)
-        session_controller_->restore_message_lines(m, pending);
+    session_controller_->restore_into(w, s);
     if (!s.messages.empty())
         win().scroll_top = render_engine_->max_scroll();
 }
