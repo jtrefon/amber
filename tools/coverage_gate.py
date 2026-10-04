@@ -63,6 +63,7 @@ Usage:
 """
 
 import argparse
+import re
 import json
 import os
 import re
@@ -96,6 +97,25 @@ TRANSLATION_UNITS = (".cpp", ".c", ".cc")
 NOT_MEASURED_PREFIXES = ("tests/",)
 
 
+def deliberately_not_measured(path, extra_patterns=()):
+    """Whether the coverage report intentionally omits this source.
+
+    tests/ is excluded because you do not measure coverage of the thing that measures
+    coverage. The `main()` entry points are excluded by the coverage job's gcovr
+    filters: they are process drivers with no surviving source of their own.
+
+    Both matter for the same reason, and confusing the second with the first is a
+    fail-open in the wrong direction: a changed .cpp that is absent from the report is
+    normally a measurement gap worth failing on, so an *excluded* .cpp has to be
+    recognised explicitly or every PR touching one is blocked for the wrong reason.
+    The patterns are passed in by the workflow rather than hardcoded here, so the
+    gcovr exclusion list stays the single source of truth.
+    """
+    if path.startswith(NOT_MEASURED_PREFIXES):
+        return True
+    return any(re.search(pat, path) for pat in extra_patterns)
+
+
 def is_instrumented(path):
     """Whether a path has coverage at all.
 
@@ -103,7 +123,7 @@ def is_instrumented(path):
     tests/ is skipped because the coverage report deliberately excludes it. Either
     way, a gate that fails on those gets switched off rather than fixed.
     """
-    if path.startswith(NOT_MEASURED_PREFIXES):
+    if deliberately_not_measured(path):
         return False
     return path.endswith(INSTRUMENTED)
 
@@ -173,7 +193,7 @@ def read_report(path):
     return hits
 
 
-def patch_coverage(hits, changed, carried_over=None):
+def patch_coverage(hits, changed, carried_over=None, absent_ok=()):
     """Coverage over the added lines.
 
     `changed` is {path: {lineno: text}}; None means no diff was supplied, which is
@@ -188,7 +208,7 @@ def patch_coverage(hits, changed, carried_over=None):
         return PatchCoverage()
     total, uncovered, unmeasured, carried = 0, [], [], 0
     for path, numbers in changed.items():
-        if not is_instrumented(path):
+        if not is_instrumented(path) or deliberately_not_measured(path, absent_ok):
             continue
         if path not in hits:
             if is_translation_unit(path):
@@ -353,6 +373,9 @@ def main():
     ap.add_argument("--diff-base", help="git ref to diff against, e.g. origin/main")
     ap.add_argument("--changed-lines", help="JSON {path: [lines]} instead of a diff")
     ap.add_argument("--markdown", help="write a one-line summary here (for the report)")
+    ap.add_argument("--absent-ok", action="append", default=[], metavar="REGEX",
+                    help="changed source matching this is excluded from the coverage "
+                         "report on purpose; not a measurement gap (repeatable)")
     args = ap.parse_args()
 
     changed, err = resolve_changed(args)
@@ -360,7 +383,8 @@ def main():
         print(f"coverage: FAILED CLOSED - {err}", file=sys.stderr)
         return 2
     carried_over = base_lines(args.diff_base, changed) if args.diff_base else {}
-    result = patch_coverage(read_report(args.report), changed, carried_over)
+    result = patch_coverage(read_report(args.report), changed, carried_over,
+                           tuple(args.absent_ok))
     rc = check(result, changed)
     if args.markdown and result.percent is not None:
         write_markdown(args.markdown, result)

@@ -199,7 +199,11 @@ McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
         return failure(why);
 
     McpResult out;
-    const json result = r.message->result.value_or(json::object());
+    // failure_reason_for() has already rejected an absent message, but that proof now
+    // lives in another function, so bind a value rather than trust a callee's guard.
+    // One small copy per response, on a path that has already paid for a round trip.
+    const McpMessage msg = r.message.value_or(McpMessage{});
+    const json result = msg.result.value_or(json::object());
     out.ok = !result.value("isError", false);
     out.text = mcp_flatten_content(result.value("content", json::array()), kToolCap);
     if (!out.ok)
@@ -224,7 +228,8 @@ McpResult MCPClient::read_resource(const std::string& uri) {
         out.error = why;
         return out;
     }
-    json result = r.message->result.value_or(json::object());
+    const McpMessage msg = r.message.value_or(McpMessage{});
+    json result = msg.result.value_or(json::object());
     out.text = mcp_flatten_content(result.value("contents", json::array()), kResourceCap);
     return out;
 }

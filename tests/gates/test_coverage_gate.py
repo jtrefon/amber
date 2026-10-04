@@ -127,6 +127,52 @@ class UnmeasuredFilesFailClosed(unittest.TestCase):
         self.assertEqual(run_check(result, chg(("include/agent/x.h", [5, 6])))[0], 0)
 
 
+class DeliberatelyNotMeasured(unittest.TestCase):
+    """The coverage report is built with gcovr --exclude, which omits the main()
+    entry points on purpose. That is the same category as tests/: a changed source
+    the report intends to omit is NOT a measurement gap.
+
+    The distinction is load-bearing, because the default for an absent .cpp is to
+    fail closed. Conflating "excluded on purpose" with "compiled but not measured"
+    blocked a PR that only refactored bench/main.cpp, for the wrong reason.
+    """
+
+    ENTRY_POINTS = (r".*src/main\.cpp", r".*bench/main\.cpp", r".*tui/tui_main\.cpp")
+
+    def test_a_gcovr_excluded_entry_point_is_not_unmeasured(self):
+        for path in ("src/main.cpp", "bench/main.cpp", "tui/tui_main.cpp"):
+            with self.subTest(path=path):
+                result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}),
+                                           chg((path, [1, 2])), {}, self.ENTRY_POINTS)
+                self.assertEqual(result.unmeasured, [])
+                self.assertEqual(run_check(result, chg((path, [1, 2])))[0], 0)
+
+    def test_an_excluded_entry_point_still_fails_without_the_pattern(self):
+        """The exemption is opt-in and passed by the workflow, so the fail-closed
+        default is unchanged for anything the patterns do not name."""
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), chg(("bench/main.cpp", [1, 2])))
+        self.assertEqual(result.unmeasured, ["bench/main.cpp"])
+        self.assertEqual(run_check(result, chg(("bench/main.cpp", [1, 2])))[0], 2)
+
+    def test_the_patterns_do_not_widen_to_other_bench_sources(self):
+        """bench/main.cpp is excluded; the rest of bench/ is measured. A pattern loose
+        enough to cover both would silently exempt measured code."""
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}),
+                                   chg(("bench/oracle.cpp", [1, 2])), {}, self.ENTRY_POINTS)
+        self.assertEqual(result.unmeasured, ["bench/oracle.cpp"])
+
+    def test_a_tests_path_is_still_excluded_without_any_pattern(self):
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), chg(("tests/run_tests.cpp", [1])))
+        self.assertEqual(result.unmeasured, [])
+        self.assertEqual(result.total, 0)
+
+    def test_deliberately_not_measured_predicate(self):
+        self.assertTrue(cg.deliberately_not_measured("tests/x.cpp"))
+        self.assertTrue(cg.deliberately_not_measured("bench/main.cpp", (r".*bench/main\.cpp",)))
+        self.assertFalse(cg.deliberately_not_measured("bench/oracle.cpp", (r".*bench/main\.cpp",)))
+        self.assertFalse(cg.deliberately_not_measured("lib/a.cpp"))
+
+
 class OnlyInstrumentedCodeCounts(unittest.TestCase):
     """A PR that edits ci.yml, a prompt or a Markdown file adds lines no test can
     execute. Counting them would fail the gate on documentation -- the fastest way
