@@ -231,6 +231,16 @@ else
     warn "P8: lint-changed TU selector self-test failed (tools/affected_tus.py)"
 fi
 
+# The CI path classifier decides whether every C++ gate runs at all. A classifier that
+# silently stops classifying looks exactly like one that claims every PR is
+# documentation, so it carries its own cases and they are checked here rather than
+# trusted because the script is short.
+if sh tools/changed_paths.sh --self-test >/dev/null 2>&1; then
+    ok "P9: CI changed-paths classifier passes its self-test"
+else
+    warn "P9: CI changed-paths classifier self-test FAILED (tools/changed_paths.sh)"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
     exit 1

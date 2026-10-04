@@ -6,7 +6,7 @@ Fingerprints brace-delimited blocks across all project source files and
 reports pairs with identical normalized content (after stripping comments,
 string literals, and numeric literals).
 
-Usage: python3 duplicate_detector.py [--min-lines 6] [dirs ...]
+Usage: python3 duplicate_detector.py [--min-lines N] [--exclude REGEX] [dirs ...]
 """
 
 import hashlib
@@ -42,6 +42,9 @@ def extract_blocks(text, min_lines):
 
 def main():
     min_lines = 6
+    # A repeated line that must read as a repeated line: an excluded path cannot pair
+    # with anything, including itself.
+    exclude = []
     src_dirs = ['lib', 'tools', 'tui', 'tests', 'src']
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     if args:
@@ -49,6 +52,12 @@ def main():
     for a in sys.argv[1:]:
         if a.startswith('--min-lines='):
             min_lines = int(a.split('=')[1])
+        elif a.startswith('--exclude='):
+            exclude.append(a.split('=', 1)[1])
+
+    def excluded(path):
+        norm = path.replace(os.sep, '/')
+        return any(re.search(pat, norm) for pat in exclude)
 
     seen = {}
     exit_code = 0
@@ -60,6 +69,8 @@ def main():
                 if not f.endswith(('.cpp', '.h')):
                     continue
                 path = os.path.join(root, f)
+                if excluded(path):
+                    continue
                 try:
                     with open(path) as fh:
                         text = fh.read()
