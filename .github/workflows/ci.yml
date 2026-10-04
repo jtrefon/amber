@@ -375,6 +375,40 @@ jobs:
   # on this public repo. The upload is best-effort (fail_ci_if_error: false)
   # so the job stays green.
   # ---------------------------------------------------------------------------
+  # Fuzzing — the only gate that reaches input nobody wrote. Everything else in
+  # this workflow runs a fixed corpus, including the sanitizers, so a defect
+  # that needs an input no test author imagined is unreachable without this.
+  # The three targets are the parsers fed by untrusted bytes: SSE framing off
+  # the model endpoint, MCP JSON-RPC off a server process, and Markdown off
+  # model output.
+  # ---------------------------------------------------------------------------
+  fuzz:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+
+      - name: Configure
+        run: ./configure
+
+      - name: Build and fuzz
+        run: make fuzz-run FUZZ_RUNS=100000 FUZZ_MAX_TIME=90
+        env:
+          FUZZ_CC: clang++
+
+      - name: Fuzz corpora (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus
+          path: .fuzz-build/corpus
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
   coverage:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -825,7 +859,7 @@ jobs:
   # website deploy are delivery jobs; website smoke checks are gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, dependency-review, obfuscation-guard, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, coverage, website-build, website-smoke]
+    needs: [changes, dependency-review, obfuscation-guard, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, fuzz, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15

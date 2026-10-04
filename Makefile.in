@@ -351,6 +351,132 @@ lint-changed:
 	 grep -v "^Suppressed\|^Use -header-filter\|warnings generated" | \
 	 python3 "$(SRC_DIR)/tools/lint_baseline.py" --check --expect-tu=$$expected
 
+# cpp# ---------------------------------------------------------------------------
+# Fuzzing: the only gate that reaches input nobody wrote.
+#
+# The unit suite, ASan/UBSan and TSan all run against a fixed corpus -- the tests that
+# exist. That is the right way to test known behaviour and the wrong way to find the
+# bug nobody thought of, and the surface that matters here is fed by a language model:
+# SSE framing, MCP JSON-RPC and Markdown all consume bytes we do not control. Sanitizers
+# only inspect the inputs they are handed, so without a fuzzer this whole class of defect
+# is unreachable by CI.
+#
+# Not part of `all`: these need a clang with libFuzzer, which the normal build does not.
+# Built with coverage instrumentation (fuzzer-no-link) so libFuzzer is guided, and under
+# ASan+UBSan so anything it reaches is checked.
+#
+#   make fuzz       build the three binaries
+#   make fuzz-run   run each for FUZZ_RUNS iterations
+# ---------------------------------------------------------------------------
+FUZZ_CC       ?= clang++
+FUZZ_RUNS     ?= 20000
+FUZZ_MAX_LEN  ?= 4096
+FUZZ_MAX_TIME  ?= 0        # 0 = bound by FUZZ_RUNS only; CI sets 90s per target
+FUZZ_BIN      = $(BUILD_DIR)/.fuzz-build
+FUZZ_SRC      = $(SRC_DIR)/fuzz
+
+FUZZ_SAN      = -fsanitize=fuzzer,address,undefined
+FUZZ_CXXFLAGS = -std=c++17 -g -O1 -MMD -MP -fno-omit-frame-pointer $(FUZZ_SAN) \
+                -I$(SRC_DIR)/include -I$(SRC_DIR)/src -I$(SRC_DIR)/tools -I$(SRC_DIR)
+FUZZ_NOLINK   = -fsanitize=fuzzer-no-link,address,undefined
+# md4c.h #defines its flag bits unconditionally and markdown_md4c.cpp ORs them in at
+# parse time, so passing -DMD_FLAG_* here would only redefine them.
+FUZZ_MD4C_DEFS = -DMD4C_USE_UTF8
+
+# The markdown path is instrumented end to end, not just at the entry function: a fuzzer
+# that cannot see inside rich/textutil is only fuzzing a third of the renderer.
+FUZZ_MD_OBJS  = $(FUZZ_BIN)/markdown_md4c.o $(FUZZ_BIN)/markdown.o \
+                $(FUZZ_BIN)/markdown_normalize.o $(FUZZ_BIN)/rich.o \
+                $(FUZZ_BIN)/textutil.o $(FUZZ_BIN)/ansi_sgr.o
+FUZZ_OBJS     = $(FUZZ_BIN)/md4c.o $(FUZZ_BIN)/mcp_jsonrpc.o $(FUZZ_BIN)/stream_decoder.o \
+                $(FUZZ_MD_OBJS)
+
+# Apple's clang ships no libFuzzer runtime, so this fails closed rather than looking like
+# a pass on a machine that cannot actually fuzz. A stamp rather than a phony target, so a
+# build with eight instrumented objects probes once instead of eight times.
+$(FUZZ_BIN)/.capability: | $(FUZZ_BIN)
+	@if ! printf 'extern "C" int LLVMFuzzerTestOneInput(const unsigned char*, unsigned long){return 0;}' \
+	     > $(BUILD_DIR)/.fuzz_probe.cpp 2>/dev/null || \
+	   ! $(FUZZ_CC) $(FUZZ_SAN) $(BUILD_DIR)/.fuzz_probe.cpp -o $(BUILD_DIR)/.fuzz_probe \
+	     >/dev/null 2>&1; then \
+	  echo "fuzz: $(FUZZ_CC) cannot link a libFuzzer binary."; \
+	  echo "fuzz: this compiler has no libFuzzer runtime. Apple's clang does not ship one;"; \
+	  echo "fuzz: use a real LLVM (brew install llvm, then FUZZ_CC=/opt/homebrew/opt/llvm/bin/clang++)"; \
+	  echo "fuzz: or let CI run it. A compiler that cannot fuzz must not report success."; \
+	  rm -f $(BUILD_DIR)/.fuzz_probe.cpp $(BUILD_DIR)/.fuzz_probe; \
+	  exit 2; \
+	fi; \
+	rm -f $(BUILD_DIR)/.fuzz_probe.cpp $(BUILD_DIR)/.fuzz_probe; \
+	touch $@
+
+FUZZ_CAPABILITY = $(FUZZ_BIN)/.capability
+
+$(FUZZ_BIN):
+	@mkdir -p $(FUZZ_BIN)
+
+$(FUZZ_BIN)/%.o: $(SRC_DIR)/lib/%.cpp $(FUZZ_CAPABILITY) | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+
+$(FUZZ_BIN)/md4c.o: $(SRC_DIR)/third_party/md4c/md4c.c | $(FUZZ_BIN)
+	$(FUZZ_CC) -x c -g -O1 -MMD -MP -fno-omit-frame-pointer $(FUZZ_NOLINK) \
+	  $(FUZZ_MD4C_DEFS) -c $< -o $@
+
+$(FUZZ_BIN)/markdown_md4c.o: $(SRC_DIR)/tui/markdown_md4c.cpp | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+$(FUZZ_BIN)/markdown.o: $(SRC_DIR)/tui/markdown.cpp | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+$(FUZZ_BIN)/markdown_normalize.o: $(SRC_DIR)/tui/markdown_normalize.cpp | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+$(FUZZ_BIN)/rich.o: $(SRC_DIR)/tui/rich.cpp | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+$(FUZZ_BIN)/textutil.o: $(SRC_DIR)/tui/textutil.cpp | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+$(FUZZ_BIN)/ansi_sgr.o: $(SRC_DIR)/tui/ansi_sgr.cpp | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+
+FUZZ_TARGETS = mcp_jsonrpc stream_decoder markdown
+
+$(FUZZ_BIN)/fuzz_mcp_jsonrpc: $(FUZZ_SRC)/mcp_jsonrpc.cpp $(FUZZ_BIN)/mcp_jsonrpc.o \
+                             $(FUZZ_CAPABILITY) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_SRC)/mcp_jsonrpc.cpp $(FUZZ_BIN)/mcp_jsonrpc.o \
+	  $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS) -o $@
+
+$(FUZZ_BIN)/fuzz_stream_decoder: $(FUZZ_SRC)/stream_decoder.cpp $(FUZZ_BIN)/stream_decoder.o \
+                               $(FUZZ_CAPABILITY) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_SRC)/stream_decoder.cpp $(FUZZ_BIN)/stream_decoder.o \
+	  $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS) -o $@
+
+$(FUZZ_BIN)/fuzz_markdown: $(FUZZ_SRC)/markdown.cpp $(FUZZ_MD_OBJS) $(FUZZ_BIN)/md4c.o \
+                           $(FUZZ_CAPABILITY) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_SRC)/markdown.cpp $(FUZZ_MD_OBJS) \
+	  $(FUZZ_BIN)/md4c.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS) -o $@
+
+.PHONY: fuzz
+fuzz: $(foreach t,$(FUZZ_TARGETS),$(FUZZ_BIN)/fuzz_$(t))
+	@echo "built: $(FUZZ_TARGETS)"
+
+.PHONY: fuzz-run
+fuzz-run: fuzz
+	@rc=0; for t in $(FUZZ_TARGETS); do \
+	  mkdir -p $(FUZZ_BIN)/corpus/$$t; \
+	  echo "fuzz: $$t ($(FUZZ_RUNS) runs, max_len $(FUZZ_MAX_LEN))"; \
+	  $(FUZZ_BIN)/fuzz_$$t $(FUZZ_BIN)/corpus/$$t $(FUZZ_SRC)/corpus/$$t \
+	    -runs=$(FUZZ_RUNS) -max_len=$(FUZZ_MAX_LEN) -max_total_time=$(FUZZ_MAX_TIME) \
+	    -print_final_stats=1 \
+	    -artifact_prefix=$(FUZZ_BIN)/crash- \
+	    || { echo "fuzz: $$t FAILED"; rc=1; }; \
+	done; \
+	if ls $(FUZZ_BIN)/crash-* >/dev/null 2>&1; then \
+	  echo "fuzz: crash inputs written to $(FUZZ_BIN)/crash-*"; rc=1; \
+	fi; \
+	exit $$rc
+
+.PHONY: fuzz-clean
+fuzz-clean:
+	rm -rf $(FUZZ_BIN)
+
+-include $(FUZZ_OBJS:.o=.d)
+
 # cppcheck: a second, independent static analyzer for defense-in-depth. Runs
 # in parallel and ignores the vendored nlohmann/json header (known-good, slow to
 # parse). Slower than lint; run explicitly rather than on every build.
@@ -828,6 +954,7 @@ clean:
 	rm -f $(BUILD_DIR)/tools/plugins/cdp/*.o $(BUILD_DIR)/tools/plugins/cdp/*.d
 	rm -f $(BUILD_DIR)/plugins/*/*.o $(BUILD_DIR)/plugins/*/*.d
 	rm -f $(BUILD_DIR)/ws_test.d
+	rm -rf $(FUZZ_BIN)
 	rm -f $(BUILD_DIR)/url_test $(BUILD_DIR)/url_test.d
 	rm -f $(CORE_LIB) $(TOOLS_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)
 	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/smoketest
