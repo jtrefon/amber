@@ -83,6 +83,15 @@ def lizard_command():
         sys.executable, "-m", "lizard", "-w", "-l", "cpp",
         "-C", "1", "-L", "1",
         "--exclude", "third_party", "--exclude", "bench/results",
+        # The glob form is what lizard honours: a bare "bench/scenarios" matches
+        # nothing (measured -- 41 scenario lines still reported).
+        #
+        # bench/scenarios/ is code the benchmark *agent* writes and an oracle
+        # scores -- skeletons, reference solutions and hidden tests. It is
+        # deliberately not project style, which is why the format gate and cppcheck
+        # already skip it. Gating it held the agent's own output to our complexity
+        # limits, and put two benchmark fixtures in the CCN>=14 list.
+        "--exclude", "*/scenarios/*",
         *ROOTS,
     ]
 

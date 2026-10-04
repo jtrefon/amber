@@ -87,8 +87,13 @@ def baseline_path():
 
 
 def lizard_command():
+    # Same exclusions as complexity_gate.py, and for the same reasons: vendored
+    # code is not ours, bench/results is generated, and bench/scenarios is fixture
+    # code the benchmark agent writes rather than project style. As there, the glob
+    # form is the one lizard actually matches.
     return [sys.executable, "-m", "lizard", "-w", "-l", "cpp", "-C", "1", "-L", "1",
-            "--exclude", "third_party", "--exclude", "bench/results", *ROOTS]
+            "--exclude", "third_party", "--exclude", "bench/results",
+            "--exclude", "*/scenarios/*", *ROOTS]
 
 
 def parse_lizard_output(lines):
