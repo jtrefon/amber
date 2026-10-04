@@ -89,8 +89,22 @@ INSTRUMENTED = (".cpp", ".c", ".cc", ".h", ".hpp", ".hxx")
 # routinely absent, so failing on that would block every header-touching PR.
 TRANSLATION_UNITS = (".cpp", ".c", ".cc")
 
+# Tests are excluded from the coverage report on purpose -- you do not measure
+# coverage of the thing that measures coverage -- so a PR that adds a test would
+# otherwise fail this gate with "absent from the report". Same exclusion the
+# coverage job's gcovr filters already apply.
+NOT_MEASURED_PREFIXES = ("tests/",)
+
 
 def is_instrumented(path):
+    """Whether a path has coverage at all.
+
+    Non-C++ (ci.yml, Markdown, prompts) is skipped because no test can execute it;
+    tests/ is skipped because the coverage report deliberately excludes it. Either
+    way, a gate that fails on those gets switched off rather than fixed.
+    """
+    if path.startswith(NOT_MEASURED_PREFIXES):
+        return False
     return path.endswith(INSTRUMENTED)
 
 

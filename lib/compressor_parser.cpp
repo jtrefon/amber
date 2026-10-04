@@ -18,26 +18,32 @@ Classification tag_from_string(const std::string& s) {
 
 // Strip markdown code fences and find the first JSON object from text.
 // LLMs commonly wrap JSON in ```json ... ``` or prefix conversational text.
-std::string extract_json_block(const std::string& raw) {
-    auto attempt = json::parse(raw, nullptr, false);
-    if (!attempt.is_discarded())
-        return raw;
+namespace {
 
+bool parses(const std::string& text) {
+    return !json::parse(text, nullptr, false).is_discarded();
+}
+
+void erase_all(std::string& t, const std::string& pat) {
+    for (auto p = t.find(pat); p != std::string::npos; p = t.find(pat))
+        t.erase(p, pat.size());
+}
+
+// The prose a model wraps JSON in: code fences and escaped newlines removed.
+std::string strip_fences(const std::string& raw) {
     std::string s = raw;
-    auto erase_all = [](std::string& t, const std::string& pat) {
-        for (auto p = t.find(pat); p != std::string::npos; p = t.find(pat))
-            t.erase(p, pat.size());
-    };
     erase_all(s, "```json");
     erase_all(s, "```");
     erase_all(s, "\\n");
-    attempt = json::parse(s, nullptr, false);
-    if (!attempt.is_discarded())
-        return s;
+    return s;
+}
 
-    // Try to find a JSON object or array
-    auto brace = s.find('{');
-    auto bracket = s.find('[');
+// Cut from the first '{' or '[' to the last matching close, so trailing prose
+// after the object does not defeat the parse. Returns {} when there is no
+// candidate, or no closing brace for the opener that was found.
+std::string slice_outermost(const std::string& s) {
+    const auto brace = s.find('{');
+    const auto bracket = s.find('[');
     size_t start = std::string::npos;
     char close_char = 0;
     if (brace != std::string::npos && (bracket == std::string::npos || brace < bracket)) {
@@ -49,15 +55,26 @@ std::string extract_json_block(const std::string& raw) {
     }
     if (start == std::string::npos)
         return {};
-    s = s.substr(start);
-    auto close = s.rfind(close_char);
+    std::string body = s.substr(start);
+    const auto close = body.rfind(close_char);
     if (close == std::string::npos)
         return {};
-    s.resize(close + 1);
-    attempt = json::parse(s, nullptr, false);
-    if (!attempt.is_discarded())
+    body.resize(close + 1);
+    return body;
+}
+
+} // namespace
+
+// Recover a JSON object from a model response, trying progressively looser
+// readings of the text. The stages are named; the sequence is the whole contract.
+std::string extract_json_block(const std::string& raw) {
+    if (parses(raw))
+        return raw;
+    std::string s = strip_fences(raw);
+    if (parses(s))
         return s;
-    return {};
+    s = slice_outermost(s);
+    return parses(s) ? s : std::string{};
 }
 
 } // namespace

@@ -145,6 +145,17 @@ class OnlyInstrumentedCodeCounts(unittest.TestCase):
         changed = chg(("lib/a.cpp", [10]), ("lib/b.c", [3]), ("include/x.h", [7]))
         self.assertEqual(cg.patch_coverage(report, changed).total, 3)
 
+    def test_test_files_are_ignored(self):
+        """The coverage report excludes tests/ on purpose -- you do not measure
+        coverage of the thing that measures coverage -- so a PR that only adds a
+        test would otherwise fail this gate with "absent from the report"."""
+        report = hits({"lib/a.cpp": {10: 0}})
+        changed = chg(("tests/run_tests.cpp", [1, 2, 3]), ("tests/gates/test_x.py", [1]))
+        result = cg.patch_coverage(report, changed)
+        self.assertEqual(result.total, 0)
+        self.assertTrue(result.passes)
+        self.assertEqual(run_check(result, changed)[0], 0)
+
     def test_python_and_shell_are_ignored(self):
         report = hits({"tools/x.py": {1: 0}, "tools/y.sh": {1: 0}})
         changed = chg(("tools/x.py", [1]), ("tools/y.sh", [1]))

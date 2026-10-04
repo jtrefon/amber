@@ -3,6 +3,7 @@
 #include "tui/form_focus.h"
 #include "widgets.h"
 
+#include <iterator>
 #include <form.h>
 #include <menu.h>
 
@@ -80,44 +81,60 @@ void draw_form_cursor(FORM* form, int focus) {
 }
 
 // Drive the form for whatever the key layer decided.
+namespace {
+
+// Each intent that maps to a plain driver request, as data. Intent is a contiguous
+// enum, so this is a table indexed by intent rather than a chain of eleven
+// near-identical branches. `trailing` is the second request a few intents need, or
+// 0. kElsewhere marks the intents this function does not serve: InsertChar's
+// request comes from the decision itself, and ToLastField also moves the field
+// cursor, so both are handled before the table.
+// ncurses form request codes are plain int macros (REQ_* in <form.h>), not a
+// named type, so the table is int.
+constexpr int kElsewhere = 0;
+
+struct Step {
+    int primary;
+    int trailing;
+};
+
+constexpr Step kSteps[] = {
+    {kElsewhere, 0},                // None
+    {REQ_NEXT_FIELD, REQ_END_LINE}, // NextField -- field moves, then end the line
+    {REQ_PREV_FIELD, REQ_END_LINE}, // PrevField
+    {REQ_PREV_CHAR, 0},             // PrevChar
+    {REQ_NEXT_CHAR, 0},             // NextChar
+    {REQ_BEG_LINE, 0},              // BegLine
+    {REQ_END_LINE, 0},              // EndLine
+    {REQ_DEL_CHAR, 0},              // DelChar
+    {REQ_DEL_PREV, 0},              // DelPrev
+    {kElsewhere, 0},                // InsertChar -- request comes from the decision
+    {kElsewhere, 0},                // ToButtons
+    {kElsewhere, 0},                // ToLastField -- also moves the field cursor
+    {kElsewhere, 0},                // Accept
+    {kElsewhere, 0},                // Cancel
+};
+static_assert(std::size(kSteps) == static_cast<size_t>(form_focus::Intent::Cancel) + 1,
+              "every form_focus::Intent needs a row, or the table is indexed wrong");
+
+} // namespace
+
 void apply_form_intent(FORM* form, const form_focus::Decision& d, std::vector<FIELD*>& fs, int n) {
-    switch (d.intent) {
-    case form_focus::Intent::NextField:
-        form_driver(form, REQ_NEXT_FIELD);
-        form_driver(form, REQ_END_LINE);
-        break;
-    case form_focus::Intent::PrevField:
-        form_driver(form, REQ_PREV_FIELD);
-        form_driver(form, REQ_END_LINE);
-        break;
-    case form_focus::Intent::PrevChar:
-        form_driver(form, REQ_PREV_CHAR);
-        break;
-    case form_focus::Intent::NextChar:
-        form_driver(form, REQ_NEXT_CHAR);
-        break;
-    case form_focus::Intent::BegLine:
-        form_driver(form, REQ_BEG_LINE);
-        break;
-    case form_focus::Intent::EndLine:
-        form_driver(form, REQ_END_LINE);
-        break;
-    case form_focus::Intent::DelChar:
-        form_driver(form, REQ_DEL_CHAR);
-        break;
-    case form_focus::Intent::DelPrev:
-        form_driver(form, REQ_DEL_PREV);
-        break;
-    case form_focus::Intent::InsertChar:
+    if (d.intent == form_focus::Intent::InsertChar) {
         form_driver(form, d.insert);
-        break;
-    case form_focus::Intent::ToLastField:
+        return;
+    }
+    if (d.intent == form_focus::Intent::ToLastField) {
         set_current_field(form, fs[n - 1]);
         form_driver(form, REQ_END_LINE);
-        break;
-    default:
-        break;
+        return;
     }
+    const auto index = static_cast<size_t>(d.intent);
+    if (index >= std::size(kSteps) || kSteps[index].primary == kElsewhere)
+        return;
+    form_driver(form, kSteps[index].primary);
+    if (kSteps[index].trailing != 0)
+        form_driver(form, kSteps[index].trailing);
 }
 
 // Copy the edited buffers back, trimmed of the field's trailing padding.

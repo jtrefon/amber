@@ -4022,6 +4022,47 @@ TEST(parse_compression_response_invalid_json) {
     ASSERT(cr.segments.empty());
 }
 
+// extract_json_block recovers JSON from a chatty model response. It had no test at
+// all until the patch-coverage gate flagged its branches during a refactor -- a
+// function nobody exercised is a function nobody changed safely.
+TEST(parse_compression_response_strips_code_fences) {
+    auto cr = agent::parse_compression_response(
+        "Here is the result:\n```json\n{\"classification\":[{\"turns\":\"0-0\","
+        "\"tag\":\"core\",\"summary\":\"x\"}]}\n```\nHope that helps.");
+    ASSERT(cr.segments.size() == 1);
+    ASSERT(cr.segments[0].tag == agent::Classification::core);
+}
+
+// The stage that slices from the first '{' to the last '}' -- the one that copes
+// with prose both before and after the JSON.
+TEST(parse_compression_response_slices_trailing_prose) {
+    auto cr = agent::parse_compression_response(
+        "Sure! {\"classification\":[{\"turns\":\"0-0\",\"tag\":\"prune\","
+        "\"summary\":\"y\"}]} -- let me know if you need more.");
+    ASSERT(cr.segments.size() == 1);
+    ASSERT(cr.segments[0].tag == agent::Classification::prune);
+}
+
+// A bare array is the classification-only shape.
+TEST(parse_compression_response_bare_array) {
+    auto cr = agent::parse_compression_response(
+        "[{\"turns\":\"0-0\",\"tag\":\"core\",\"summary\":\"z\"}]");
+    ASSERT(cr.segments.size() == 1);
+}
+
+// Nothing that looks like JSON at all: every stage declines.
+TEST(parse_compression_response_no_json_present) {
+    auto cr = agent::parse_compression_response("I cannot help with that request.");
+    ASSERT(cr.segments.empty());
+    ASSERT(cr.memory_ops.empty());
+}
+
+// Braces that open but never close: the slice stage finds no closing brace.
+TEST(parse_compression_response_unterminated_object) {
+    auto cr = agent::parse_compression_response("{\"classification\":[");
+    ASSERT(cr.segments.empty());
+}
+
 TEST(parse_compression_response_valid) {
     std::string payload = R"({
         "classification": [

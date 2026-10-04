@@ -5,6 +5,7 @@
 #include "widgets.h"
 #include "textutil.h"
 
+#include <iterator>
 #include <utility>
 
 namespace tui {
@@ -153,44 +154,36 @@ agent::AgentHooks EventRouter::make_hooks(size_t window_id, const std::atomic<bo
     return hooks;
 }
 
+// Event types handled inline on the UI thread, as a table rather than a chain of
+// twelve identical branches: AgentEvent::Type is a contiguous enum, so indexing by
+// it is safe, and the mapping from event to handler becomes data you can read in
+// one pass. Types the UI does not handle inline (Approval, ApiKey, Ask) are absent
+// and fall through to the deferred path.
 bool EventRouter::handle_window_event(Window* w, AgentEvent& ev) {
-    switch (ev.type) {
-    case AgentEvent::StateChange:
-        handle_state_change(w, ev);
-        return true;
-    case AgentEvent::Reasoning:
-        on_reasoning(w, ev);
-        return true;
-    case AgentEvent::Token:
-        on_token(w, ev);
-        return true;
-    case AgentEvent::Status:
-        handle_status(w, ev);
-        return true;
-    case AgentEvent::ToolCall:
-        on_tool_call(w, ev);
-        return true;
-    case AgentEvent::ToolResult:
-        on_tool_result(w, ev);
-        return true;
-    case AgentEvent::Assistant:
-        on_assistant(w, ev);
-        return true;
-    case AgentEvent::Stats:
-        handle_stats(w, ev);
-        return true;
-    case AgentEvent::Error:
-        on_error(w, ev);
-        return true;
-    case AgentEvent::Done:
-        on_done(w, ev);
-        return true;
-    case AgentEvent::CompressResult:
-        on_compress_result(w, ev);
-        return true;
-    default:
+    using Handler = void (EventRouter::*)(Window*, const AgentEvent&);
+    static constexpr Handler kInline[] = {
+        /* Token */ &EventRouter::on_token,
+        /* Reasoning */ &EventRouter::on_reasoning,
+        /* StateChange */ &EventRouter::handle_state_change,
+        /* ToolCall */ &EventRouter::on_tool_call,
+        /* ToolResult */ &EventRouter::on_tool_result,
+        /* Status */ &EventRouter::handle_status,
+        /* Stats */ &EventRouter::handle_stats,
+        /* Assistant */ &EventRouter::on_assistant,
+        /* Approval */ nullptr,
+        /* ApiKey */ nullptr,
+        /* Ask */ nullptr,
+        /* Error */ &EventRouter::on_error,
+        /* Done */ &EventRouter::on_done,
+        /* CompressResult */ &EventRouter::on_compress_result,
+    };
+    static_assert(std::size(kInline) == static_cast<size_t>(AgentEvent::CompressResult) + 1,
+                  "every AgentEvent::Type needs a row, or the table is indexed wrong");
+    const auto index = static_cast<size_t>(ev.type);
+    if (index >= std::size(kInline) || kInline[index] == nullptr)
         return false;
-    }
+    (this->*kInline[index])(w, ev);
+    return true;
 }
 
 bool EventRouter::defer_event(AgentEvent&& ev) {
