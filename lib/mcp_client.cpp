@@ -389,42 +389,81 @@ void MCPClient::handle_server_message(const McpMessage& msg) {
     }
 }
 
+namespace {
+
+// One function per MCP content kind. mcp_flatten_content was a 39-line if/else
+// chain at 14 CCN -- the worst cyclomatic complexity in the tree -- where each
+// branch appended a differently-shaped note. Naming the kinds is also what makes
+// it obvious which shapes exist.
+
+// "[image image/png, 1234 bytes]\n" - binary payloads are summarised, never inlined.
+std::string binary_note(const std::string& kind, const std::string& mime, size_t bytes) {
+    return "[" + kind + " " + mime + ", " + std::to_string(bytes) + " bytes]\n";
+}
+
+void flatten_text(const json& block, std::string& out, size_t cap) {
+    append_capped(out, block.value("text", ""), cap);
+}
+
+void flatten_resource(const json& block, std::string& out, size_t cap) {
+    const json res = block.value("resource", json::object());
+    const std::string text = res.value("text", "");
+    const std::string uri = res.value("uri", "");
+    append_capped(out, uri.empty() ? "[embedded resource]\n" : "[resource: " + uri + "]\n", cap);
+    if (!text.empty())
+        append_capped(out, text, cap);
+}
+
+void flatten_binary(const json& block, const std::string& type, std::string& out, size_t cap) {
+    const std::string mime = block.value("mimeType", type);
+    const std::string data = block.value("data", "");
+    append_capped(out, binary_note(type, mime, data.size()), cap);
+}
+
+void flatten_resource_link(const json& block, std::string& out, size_t cap) {
+    append_capped(out, "[resource link: " + block.value("uri", "") + "]\n", cap);
+}
+
+void flatten_blob(const json& block, std::string& out, size_t cap) {
+    const std::string data = block.value("blob", "");
+    append_capped(out, "[binary resource, " + std::to_string(data.size()) + " bytes]\n", cap);
+}
+
+} // namespace
+
+// Blocks that declare a type. Kept apart from the untyped fallback below so each
+// is a short chain: this function's complexity was the tree's worst, and it was the
+// interleaving of "no type at all" with "which type" that made it so.
+void flatten_typed(const json& block, const std::string& type, std::string& out, size_t cap) {
+    if (type == "text")
+        flatten_text(block, out, cap);
+    else if (type == "resource")
+        flatten_resource(block, out, cap);
+    else if (type == "image" || type == "audio")
+        flatten_binary(block, type, out, cap);
+    else if (type == "resource_link")
+        flatten_resource_link(block, out, cap);
+}
+
+// Some MCP servers omit "type" entirely, so the shape has to be inferred from
+// whichever field is present. A quirk of the wire format, not of the type list.
+void flatten_untyped(const json& block, std::string& out, size_t cap) {
+    if (block.contains("text"))
+        flatten_text(block, out, cap);
+    else if (block.contains("blob"))
+        flatten_blob(block, out, cap);
+}
+
 std::string mcp_flatten_content(const json& content, size_t cap_bytes) {
     std::string out;
     for (const auto& block : content) {
         if (!block.is_object())
             continue;
-        std::string type = block.value("type", "");
-        if (type == "text" || (type.empty() && block.contains("text"))) {
-            append_capped(out, block.value("text", ""), cap_bytes);
-        } else if (type == "resource") {
-            json res = block.value("resource", json::object());
-            std::string text = res.value("text", "");
-            std::string uri = res.value("uri", "");
-            std::string prefix =
-                uri.empty() ? "[embedded resource]\n" : "[resource: " + uri + "]\n";
-            append_capped(out, prefix, cap_bytes);
-            if (!text.empty())
-                append_capped(out, text, cap_bytes);
-        } else if (type == "image" || type == "audio") {
-            std::string mime = block.value("mimeType", type);
-            std::string data = block.value("data", "");
-            std::string note = "[";
-            note += type;
-            note += " ";
-            note += mime;
-            note += ", ";
-            note += std::to_string(data.size());
-            note += " bytes]\n";
-            append_capped(out, note, cap_bytes);
-        } else if (type == "resource_link") {
-            std::string uri = block.value("uri", "");
-            append_capped(out, "[resource link: " + uri + "]\n", cap_bytes);
-        } else if (type.empty() && block.contains("blob")) {
-            std::string data = block.value("blob", "");
-            append_capped(out, "[binary resource, " + std::to_string(data.size()) + " bytes]\n",
-                          cap_bytes);
-        }
+        const std::string type = block.value("type", "");
+        if (type.empty())
+            flatten_untyped(block, out, cap_bytes);
+        else
+            flatten_typed(block, type, out, cap_bytes);
     }
     return out;
 }
