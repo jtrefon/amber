@@ -113,7 +113,10 @@ driven by an OpenAI-compatible LLM API.
   ships none, and `make fuzz` **fails closed** there rather than reporting a pass it could
   not have performed. Not part of `all`; the `fuzz` CI job gates in the `cpp` dimension.
   Seeds live in `fuzz/corpus/`; libFuzzer accumulates into a gitignored `.fuzz-build/`
-  so a run does not dirty the tree with thousands of inputs.
+  so a run does not dirty the tree with thousands of inputs. One consequence worth
+  knowing: a seed *must* stay invalid UTF-8, and `git diff` then emits undecodable
+  bytes, which crashed `coverage_gate.py` with `UnicodeDecodeError`. Git output is
+  bytes, so both reads decode leniently now.
 - CI also runs an ASan+UBSan `make test` job, a **ThreadSanitizer** `make test`
   job (data races: the UI thread, per-window agent workers, the tool-dispatch
   hop and the detached catalog/plugin workers all share state, and ASan+UBSan
@@ -224,6 +227,9 @@ Known and deliberate, so nobody re-derives them:
     line coverage") is `tools/coverage_gate.py`, which reads the Cobertura report
     and the diff and fails below 80% of *added* lines. It fails closed: no
     report, no diff, or a report with no line data is an error, never a pass.
+
+  `fuzz/` is declared not-measured alongside `tests/`: the harnesses are test
+  drivers, built by a separate libFuzzer invocation under sanitizers.
 
   Two consequences worth knowing. Only instrumented extensions count, so editing
   `ci.yml`, a prompt or Markdown cannot fail the gate — a gate that fails on

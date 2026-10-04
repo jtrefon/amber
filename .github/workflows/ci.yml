@@ -467,6 +467,7 @@ jobs:
             --filter 'lib/.*' --filter 'tools/.*' --filter 'tui/.*' \
             --filter 'src/.*' --filter 'bench/.*' --filter 'plugins/.*' \
             --exclude '.*tests/.*' --exclude '.*third_party/.*' \
+            --exclude '.*fuzz/.*' \
             --exclude '.*src/main\.cpp' --exclude '.*src/smoketest\.cpp' \
             --exclude '.*bench/main\.cpp' --exclude '.*tui/tui_main\.cpp' \
             --xml-pretty -o coverage.xml
@@ -520,9 +521,13 @@ jobs:
           # coverage.xml above. A changed source the report deliberately omits is not a
           # measurement gap, and without this the gate blocks every PR that touches a
           # main() for the wrong reason. Keep the two lists in step.
+          # fuzz/ is here because the harnesses are test drivers, like tests/: they are
+          # built by a separate libFuzzer invocation with sanitizers, which is a stronger
+          # check of that code than a line-coverage percentage would be.
           python3 tools/coverage_gate.py --report coverage.xml --diff-base "$BASE" \
             --absent-ok '.*src/main\.cpp' --absent-ok '.*src/smoketest\.cpp' \
-            --absent-ok '.*bench/main\.cpp' --absent-ok '.*tui/tui_main\.cpp'
+            --absent-ok '.*bench/main\.cpp' --absent-ok '.*tui/tui_main\.cpp' \
+            --absent-ok '.*fuzz/.*'
           rc=$?
           set -e
           if [ "$PATCH_COVERAGE_ENFORCE" = "true" ] && [ "$rc" -ne 0 ]; then
