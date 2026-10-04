@@ -830,6 +830,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # The skip policy is a repo script, so this job needs the tree. It had no checkout
+      # until now, which is why the decision used to live inline in YAML: there was
+      # nothing here to read.
+      - uses: actions/checkout@v7
       - name: Verify gating jobs
         env:
           NEEDS: ${{ toJson(needs) }}

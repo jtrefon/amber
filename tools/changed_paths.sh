@@ -79,7 +79,7 @@ classify() {
     # to check.
     if [ "$seen" -eq 0 ]; then
         echo "cpp=true"
-        echo "web=true"
+        echo "website=true"
         return 0
     fi
 
@@ -90,7 +90,7 @@ classify() {
     else
         echo "cpp=true"
     fi
-    echo "web=$web"
+    echo "website=$web"
 }
 
 self_test() {
@@ -100,7 +100,7 @@ self_test() {
         shift 3
         got="$(printf '%s\n' "$@" | classify)"
         got_cpp="$(printf '%s' "$got" | sed -n 's/^cpp=//p')"
-        got_web="$(printf '%s' "$got" | sed -n 's/^web=//p')"
+        got_web="$(printf '%s' "$got" | sed -n 's/^website=//p')"
         if [ "$got_cpp" != "$want_cpp" ] || [ "$got_web" != "$want_web" ]; then
             echo "  FAIL $desc: want cpp=$want_cpp web=$want_web, got cpp=$got_cpp web=$got_web" >&2
             fails=$((fails + 1))

@@ -158,7 +158,11 @@ each one and confirming it goes red. Everything in the table above is checked at
   PR that changed C++. The old denylist (`lib/|src/|tui/|…`) answered "no" to anything
   it did not recognise, including a new top-level directory. Its 22 cases run as
   `build-hygiene` **P9** — which caught a bug in the allowlist itself on its first run,
-  a generic `*.md` rule shadowing `.github/ISSUE_TEMPLATE/`.
+  a generic `*.md` rule shadowing `.github/ISSUE_TEMPLATE/`. The script emits
+  `cpp=` and `website=`, which must match the `changes` job's declared outputs exactly:
+  they were `web=` and `website=`, so `changes.outputs.website` was **always empty**,
+  `website-build` and `website-smoke` had never once run, and nothing noticed because a
+  skip counted as a pass.
 - **`format-check-changed` measured committed work only.** `git diff BASE...HEAD` sees
   nothing uncommitted, so it printed `no C++ changes, skipping` and exited 0 on the
   files you were editing. It now unions the merge-base, staged and unstaged diffs. The
