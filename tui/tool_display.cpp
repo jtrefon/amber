@@ -37,6 +37,38 @@ std::string arg(const agent::json& args, const char* key) {
     return {};
 }
 
+// The four tools whose call reads better in our words than in the tool's own. They keep
+// bespoke rendering because it is terser than wording written for an approval prompt; a
+// tool we have never heard of still falls back to its own summarize(), which is the only
+// thing that can describe it.
+//
+// Returns empty when this is not one of the four, or when the argument the rendering
+// needs is absent — which is how the caller falls through.
+std::string render_known_tool(const std::string& name, const agent::json& args) {
+    if (name == "bash") {
+        // The command IS the story - no tool name, full params and paths.
+        const std::string cmd = arg(args, "command");
+        if (!cmd.empty())
+            return truncate(cmd, kCommandCap);
+        return {};
+    }
+    if (name == "read" || name == "write") {
+        const std::string path = arg(args, "path");
+        if (!path.empty())
+            return name + " " + display_path(path);
+        return {};
+    }
+    if (name == "search") {
+        const std::string pattern = arg(args, "pattern");
+        if (pattern.empty())
+            return {};
+        const std::string path = arg(args, "path");
+        return path.empty() ? "search " + pattern
+                            : "search " + pattern + " in " + display_path(path);
+    }
+    return {};
+}
+
 } // namespace
 
 std::string activity_verb(bool compressing, agent::RunState state, const std::string& running_tool,
@@ -69,23 +101,8 @@ std::string activity_verb(bool compressing, agent::RunState state, const std::st
 
 std::string describe_tool_call(const std::string& name, const agent::json& args,
                                const agent::ToolRegistry& registry) {
-    if (name == "bash") {
-        // The command IS the story — no tool name, full params and paths.
-        std::string cmd = arg(args, "command");
-        if (!cmd.empty())
-            return truncate(cmd, kCommandCap);
-    } else if (name == "read" || name == "write") {
-        std::string path = arg(args, "path");
-        if (!path.empty())
-            return name + " " + display_path(path);
-    } else if (name == "search") {
-        std::string pattern = arg(args, "pattern");
-        if (!pattern.empty()) {
-            std::string path = arg(args, "path");
-            return path.empty() ? "search " + pattern
-                                : "search " + pattern + " in " + display_path(path);
-        }
-    }
+    if (std::string bespoke = render_known_tool(name, args); !bespoke.empty())
+        return bespoke;
     // A tool that describes its own invocation does it better than we can —
     // and it is the only thing that CAN, for a tool we have never heard of.
     // The four shapes above keep their bespoke rendering: they are terser than

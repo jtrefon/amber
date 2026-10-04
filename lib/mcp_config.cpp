@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 
 namespace fs = std::filesystem;
 
@@ -46,18 +47,23 @@ std::vector<std::string> split_args(const std::string& line) {
 
 // Reject names that could traverse the filesystem when used in a path.
 // Allows kebab-case identifiers: [a-zA-Z0-9._-] but no leading dot or slash.
+// Characters an MCP server name may contain. Written as a set rather than a chain
+// of comparisons, which cost one branch each: 13 lines and 15 CCN to answer a
+// membership question.
+//
+// The original also rejected '/', '\\' and NUL explicitly. That was redundant --
+// none of the three is an identifier character, so excluding the set below already
+// excludes them -- which is why the denied list is gone rather than merged in.
+bool allowed_in_server_name(char c) {
+    static constexpr std::string_view kAllowed =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.";
+    return kAllowed.find(c) != std::string_view::npos;
+}
+
 bool valid_server_name(const std::string& name) {
-    if (name.empty() || name[0] == '.')
+    if (name.empty() || name[0] == '.' || name.find("..") != std::string::npos)
         return false;
-    if (name.find("..") != std::string::npos)
-        return false;
-    auto allowed = [](char c) {
-        if (c == '/' || c == '\\' || c == '\0')
-            return false;
-        bool is_alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
-        return is_alnum || c == '-' || c == '_' || c == '.';
-    };
-    return std::all_of(name.begin(), name.end(), allowed);
+    return std::all_of(name.begin(), name.end(), allowed_in_server_name);
 }
 
 // Apply one KEY=VALUE line to the config under construction.

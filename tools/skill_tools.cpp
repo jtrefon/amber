@@ -9,6 +9,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -25,8 +27,42 @@ std::string scope_dir(const std::string& scope, std::string& error) {
     return "";
 }
 
-} // namespace
+// A filter string names at most one origin, so resolve it to the enum once up front and
+// match with a single comparison instead of two branchy tests per entry. An unset filter
+// means "every origin".
+std::optional<SkillOrigin> named_origin(const std::string& raw) {
+    if (raw == "authored")
+        return SkillOrigin::Authored;
+    if (raw == "learned")
+        return SkillOrigin::Learned;
+    return std::nullopt;
+}
 
+bool include_entry(const SkillEntry& e, const std::string& name_filter,
+                   const std::optional<SkillOrigin>& want_origin) {
+    if (e.state != "enabled" && e.state != "force-enabled")
+        return false;
+    if (!name_filter.empty() && e.name.find(name_filter) == std::string::npos)
+        return false;
+    return !want_origin || e.origin == *want_origin;
+}
+
+// One line per matching skill, carrying the note the model needs when a skill ships
+// without a description.
+std::string render_entries(const std::vector<SkillEntry>& entries, const std::string& name_filter,
+                           const std::optional<SkillOrigin>& want_origin) {
+    std::string out;
+    for (const auto& e : entries) {
+        if (!include_entry(e, name_filter, want_origin))
+            continue;
+        const std::string desc =
+            e.meta.description.empty() ? "(no description)" : e.meta.description;
+        out += e.name + ": " + desc + "\n";
+    }
+    return out.empty() ? "(no skills match)\n" : out;
+}
+
+} // namespace
 // Author a SKILL.md into the given scope (project|global). Shared by
 // write_skill and /set skills create. Returns an empty string on success or a
 // human-readable error message.
@@ -156,31 +192,17 @@ public:
     }
 
     ToolResult execute(const json& a) const override {
-        std::string name_filter = a.value("name", "");
-        std::string origin_filter = a.value("origin", "");
-        if (!origin_filter.empty() && origin_filter != "authored" && origin_filter != "learned") {
+        const std::string name_filter = a.value("name", "");
+        const std::string origin_filter = a.value("origin", "");
+        if (!origin_filter.empty() && !named_origin(origin_filter)) {
             ToolResult r;
             r.ok = false;
             r.error = "invalid origin filter '" + origin_filter + "' (use 'authored' or 'learned')";
             return r;
         }
-        std::string out;
-        for (const auto& e : effective_catalog(catalog_).entries()) {
-            if (e.state != "enabled" && e.state != "force-enabled")
-                continue;
-            if (!name_filter.empty() && e.name.find(name_filter) == std::string::npos)
-                continue;
-            if (origin_filter == "authored" && e.origin != SkillOrigin::Authored)
-                continue;
-            if (origin_filter == "learned" && e.origin != SkillOrigin::Learned)
-                continue;
-            std::string desc = e.meta.description.empty() ? "(no description)" : e.meta.description;
-            out += e.name + ": " + desc + "\n";
-        }
-        if (out.empty())
-            out = "(no skills match)\n";
         ToolResult r;
-        r.output = out;
+        r.output = render_entries(effective_catalog(catalog_).entries(), name_filter,
+                                  named_origin(origin_filter));
         return r;
     }
 
