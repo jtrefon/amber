@@ -9,7 +9,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ostream>
 #include <sstream>
+#include <vector>
 #include <string_view>
 
 namespace fs = std::filesystem;
@@ -212,6 +214,32 @@ std::map<std::string, McpServerConfig> load_mcp_servers() {
     return out;
 }
 
+// Optional fields are all "write this key when it has a value". Spelling that out per
+// field cost a branch and three lines each, four times over. args is deliberately NOT
+// routed through write_optional: a one-element list holding "" is a present-but-empty
+// value, which write_optional would drop and the original wrote.
+void write_optional(std::ostream& f, const char* key, const std::string& value) {
+    if (!value.empty())
+        f << key << "=" << value << "\n";
+}
+
+// The config format stores args space-separated on one line, so an argument that is
+// itself empty shows up as a double space. Preserved rather than fixed: the reader
+// splits on spaces and a changed encoding would be a different format, not a refactor.
+std::string join_args(const std::vector<std::string>& args) {
+    std::string joined;
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i)
+            joined += " ";
+        joined += args[i];
+    }
+    return joined;
+}
+
+void write_flag(std::ostream& f, const char* key, bool on) {
+    f << key << "=" << (on ? 1 : 0) << "\n";
+}
+
 bool save_mcp_server(const McpServerConfig& cfg) {
     if (!valid_server_name(cfg.name))
         return false;
@@ -224,28 +252,17 @@ bool save_mcp_server(const McpServerConfig& cfg) {
     if (!f)
         return false;
     f << "type=" << cfg.type << "\n";
-    if (!cfg.command.empty())
-        f << "command=" << cfg.command << "\n";
-    if (!cfg.args.empty()) {
-        f << "args=";
-        for (size_t i = 0; i < cfg.args.size(); ++i) {
-            if (i)
-                f << " ";
-            f << cfg.args[i];
-        }
-        f << "\n";
-    }
+    write_optional(f, "command", cfg.command);
+    if (!cfg.args.empty())
+        f << "args=" << join_args(cfg.args) << "\n";
     fs::permissions(dir / (cfg.name + ".conf"), fs::perms::owner_read | fs::perms::owner_write,
                     fs::perm_options::replace, ec);
-    if (!cfg.cwd.empty())
-        f << "cwd=" << cfg.cwd << "\n";
-    if (!cfg.url.empty())
-        f << "url=" << cfg.url << "\n";
-    if (!cfg.auth_token.empty())
-        f << "auth_token=" << cfg.auth_token << "\n";
-    f << "enabled=" << (cfg.enabled ? 1 : 0) << "\n";
-    f << "auto_connect=" << (cfg.auto_connect ? 1 : 0) << "\n";
-    f << "trusted=" << (cfg.trusted ? 1 : 0) << "\n";
+    write_optional(f, "cwd", cfg.cwd);
+    write_optional(f, "url", cfg.url);
+    write_optional(f, "auth_token", cfg.auth_token);
+    write_flag(f, "enabled", cfg.enabled);
+    write_flag(f, "auto_connect", cfg.auto_connect);
+    write_flag(f, "trusted", cfg.trusted);
     f << "timeout_s=" << cfg.timeout_s << "\n";
     return static_cast<bool>(f);
 }

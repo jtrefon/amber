@@ -15,6 +15,23 @@
 
 namespace {
 using namespace mcp_test;
+
+// A connected client with the four negotiation responses scripted. Each scenario takes
+// its own: a timeout or transport error can end the session, so sharing one would make
+// the later assertions about a client that is already disconnected.
+struct ConnectedFixture {
+    std::unique_ptr<agent::MCPClient> client;
+    FakeTransport* raw = nullptr;
+};
+
+ConnectedFixture connect_fixture() {
+    auto ft = std::make_unique<FakeTransport>();
+    FakeTransport* raw = ft.get();
+    auto c = std::make_unique<agent::MCPClient>("fixture", std::move(ft));
+    script_connect(*raw);
+    c->connect();
+    return ConnectedFixture{std::move(c), raw};
+}
 } // namespace
 
 // [MP-01] Connect negotiates, discovers, and sends initialized.
@@ -86,6 +103,48 @@ TEST(mcp_client_call_tool_flattens_content) {
     auto r2 = client.call_tool("get_issue", json::object());
     ASSERT_FALSE(r2.ok);
     ASSERT_EQ(r2.error, "boom");
+}
+
+// Failure mapping: one function now decides what every MCP failure looks like, and
+// call_tool/read_resource used to spell the same five outcomes out separately. These
+// pin the wording per call site, because that is the thing the extraction had to keep.
+TEST(mcp_client_transport_failures_map_per_operation) {
+    // Timeout: there is no payload and no transport reason, so the operation name is
+    // all the message has to work with.
+    auto timed = connect_fixture();
+    timed.raw->script.push_back(timeout_result());
+    auto timed_out = timed.client->call_tool("get_issue", json::object());
+    ASSERT_FALSE(timed_out.ok);
+    ASSERT_EQ(timed_out.error, std::string("mcp call timed out"));
+
+    auto res_timed = connect_fixture();
+    res_timed.raw->script.push_back(timeout_result());
+    auto res_timed_out = res_timed.client->read_resource("doc://x");
+    ASSERT_FALSE(res_timed_out.ok);
+    ASSERT_EQ(res_timed_out.error, std::string("mcp resource read timed out"));
+
+    // Transport error: the transport's own reason beats our generic wording.
+    auto broke = connect_fixture();
+    broke.raw->fail_requests = true;
+    auto transport_error = broke.client->call_tool("get_issue", json::object());
+    ASSERT_FALSE(transport_error.ok);
+    ASSERT_EQ(transport_error.error, std::string("fake failure"));
+}
+
+// A JSON-RPC error from the server is reported verbatim rather than rewritten into our
+// wording -- it is the only thing that says what actually went wrong.
+TEST(mcp_client_server_error_is_passed_through) {
+    auto tool = connect_fixture();
+    tool.raw->script.push_back(err_result("unknown tool: get_issue"));
+    auto from_call = tool.client->call_tool("get_issue", json::object());
+    ASSERT_FALSE(from_call.ok);
+    ASSERT(from_call.error.find("unknown tool: get_issue") != std::string::npos);
+
+    auto res = connect_fixture();
+    res.raw->script.push_back(err_result("no such resource"));
+    auto from_read = res.client->read_resource("doc://missing");
+    ASSERT_FALSE(from_read.ok);
+    ASSERT(from_read.error.find("no such resource") != std::string::npos);
 }
 
 // [MP-03] read_resource returns contents; get_prompt flattens messages.

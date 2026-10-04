@@ -106,24 +106,18 @@ double match_step(const ScenarioStep& step, const ToolCallEvent& call) {
         return 1.0;
     if (!call.args.is_object())
         return -1.0;
-    if (!step.args_subset) {
-        const std::vector<std::string> actual = keys(call.args);
-        if (actual.size() != expected.size())
-            return -1.0;
-        for (const auto& k : expected)
-            if (!call.args.contains(k))
-                return -1.0;
-    }
+    if (!step.args_subset && keys(call.args).size() != expected.size())
+        return -1.0;
+    // One pass. The two modes differed only in whether the key SET had to match exactly,
+    // so both were checking every expected key for presence and then computing
+    // value_matches again to count -- twice per key, down two near-identical loops.
+    size_t matched = 0;
     for (const auto& k : expected) {
         if (!call.args.contains(k))
             return -1.0;
         if (!value_matches(step.args[k], call.args[k]))
             return -1.0;
-    }
-    size_t matched = 0;
-    for (const auto& k : expected) {
-        if (value_matches(step.args[k], call.args[k]))
-            ++matched;
+        ++matched;
     }
     return static_cast<double>(matched) / static_cast<double>(expected.size());
 }

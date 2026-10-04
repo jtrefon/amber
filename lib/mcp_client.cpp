@@ -154,6 +154,31 @@ bool cancel_requested(const CancellationToken* token) {
 
 } // namespace
 
+// Failure text for a transport outcome; empty when the response is usable. Every MCP
+// call funnels its timeout / transport-error / missing-payload / server-error cases
+// through here. Two sites spelled them out separately and the copies had already drifted,
+// so a change to one would not have reached the other. `op` keeps each site's own wording.
+//
+// Cancellation is deliberately NOT handled here: call_tool checks it before this (it must
+// also notify the request id) and read_resource does not check it at all.
+std::string generic_failure(const char* op, const std::string& transport_reason) {
+    return transport_reason.empty() ? std::string("mcp ") + op + " failed" : transport_reason;
+}
+
+std::string failure_reason_for(const char* op, const McpTransportResult& r,
+                               const std::string& transport_reason) {
+    if (r.status == McpTransportStatus::Timeout)
+        return std::string("mcp ") + op + " timed out";
+    if (r.status == McpTransportStatus::TransportError || !r.message)
+        return generic_failure(op, transport_reason);
+    // The presence check sits in the same condition as the access. It used to be proven
+    // by an early return two statements back, which reads fine and is exactly the kind of
+    // implicit precondition that rots when the branches are reordered.
+    if (const auto& msg = r.message; msg && msg->error)
+        return msg->error->to_text();
+    return {};
+}
+
 McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
     if (!connected_ || !transport_)
         return failure("mcp server '" + name_ + "' not connected");
@@ -169,16 +194,16 @@ McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
         notify_cancelled(req_id);
         return failure("cancelled by user");
     }
-    if (r.status == McpTransportStatus::Timeout)
-        return failure("mcp call timed out");
-    if (r.status == McpTransportStatus::TransportError || !r.message)
-        return failure(transport_->failure_reason().empty() ? "mcp call failed"
-                                                            : transport_->failure_reason());
-    if (r.message->error)
-        return failure(r.message->error->to_text());
+    if (const std::string why = failure_reason_for("call", r, transport_->failure_reason());
+        !why.empty())
+        return failure(why);
 
     McpResult out;
-    const json result = r.message->result.value_or(json::object());
+    // failure_reason_for() has already rejected an absent message, but that proof now
+    // lives in another function, so bind a value rather than trust a callee's guard.
+    // One small copy per response, on a path that has already paid for a round trip.
+    const McpMessage msg = r.message.value_or(McpMessage{});
+    const json result = msg.result.value_or(json::object());
     out.ok = !result.value("isError", false);
     out.text = mcp_flatten_content(result.value("content", json::array()), kToolCap);
     if (!out.ok)
@@ -196,23 +221,15 @@ McpResult MCPClient::read_resource(const std::string& uri) {
     if (list_changed_)
         refresh();
     auto r = request_with_retry(next_id(), "resources/read", {{"uri", uri}});
-    if (r.status == McpTransportStatus::Timeout) {
+    if (const std::string why =
+            failure_reason_for("resource read", r, transport_->failure_reason());
+        !why.empty()) {
         out.ok = false;
-        out.error = "mcp resource read timed out";
+        out.error = why;
         return out;
     }
-    if (r.status == McpTransportStatus::TransportError || !r.message) {
-        out.ok = false;
-        out.error = transport_->failure_reason().empty() ? "mcp resource read failed"
-                                                         : transport_->failure_reason();
-        return out;
-    }
-    if (r.message->error) {
-        out.ok = false;
-        out.error = r.message->error->to_text();
-        return out;
-    }
-    json result = r.message->result.value_or(json::object());
+    const McpMessage msg = r.message.value_or(McpMessage{});
+    json result = msg.result.value_or(json::object());
     out.text = mcp_flatten_content(result.value("contents", json::array()), kResourceCap);
     return out;
 }
