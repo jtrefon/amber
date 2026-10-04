@@ -909,7 +909,7 @@ bool budget_probe_max_steps_enforced(ProbeResult& r) {
 // minutes, so the wall clock has to cut it short. Building the scenario is
 // separated from the assertions because the two are unrelated concerns and the
 // combined function sat exactly at the 40-NLOC cap.
-static Scenario wall_clock_budget_scenario() {
+Scenario wall_clock_budget_scenario() {
     Scenario s;
     s.name = "probe-budget-wall";
     s.suite = "harness";
