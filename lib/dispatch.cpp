@@ -156,30 +156,17 @@ std::string find_duplicate_call(const std::string& fn, const json& args,
 // Prompt, consult the host hook and record the outcome against the scope.
 // Returns true when the call may run. With no host hook the call is denied
 // (fail-safe).
-bool approve_tool(const Tool& tool, const json& args, const Config& cfg, const AgentHooks& hooks,
-                  std::set<std::string>& session_approved, PolicyStore* policy) {
-    if (!hooks.on_approval)
-        return false; // fail-safe: no host, no approval
-    if (!policy) {
-        // No policy store: fall back to the legacy whole-tool dialog.
-        std::string summary = tool.summarize(args);
-        Approval d = hooks.on_approval(tool.name(), args, summary);
-        if (d == Approval::AllowSession)
-            session_approved.insert(tool.name());
-        return d == Approval::AllowOnce || d == Approval::AllowSession ||
-               d == Approval::AlwaysAllow;
-    }
-    Decision dec = decide_approval(cfg, tool, args, *policy);
-    if (dec.v != Verdict::Prompt)
-        return dec.v == Verdict::Allow;
+namespace {
 
-    const std::string& scope = dec.scope_id;
-    std::string summary = tool.summarize(args);
-    Approval d = hooks.on_approval(tool.name(), args, summary);
+bool is_grant(Approval d) {
+    return d == Approval::AllowOnce || d == Approval::AllowSession || d == Approval::AlwaysAllow;
+}
 
-    // Process the result and update policy state, keyed by the scope so an
-    // "always allow" for `rm` never silently approves `dd` (and never asks
-    // again for the same command kind).
+// Record the user's answer against the policy, keyed by the scope so an
+// "always allow" for `rm` never silently approves `dd` (and never asks again for
+// the same command kind). Returns whether the call may run.
+bool record_decision(Approval d, const std::string& scope, PolicyStore* policy,
+                     std::set<std::string>& session_approved) {
     if (d == Approval::AlwaysAllow) {
         policy->set_rule(scope, PolicyLevel::AlwaysAllow);
         return true;
@@ -199,6 +186,29 @@ bool approve_tool(const Tool& tool, const json& args, const Config& cfg, const A
         return true;
     }
     return false; // Deny
+}
+
+} // namespace
+
+bool approve_tool(const Tool& tool, const json& args, const Config& cfg, const AgentHooks& hooks,
+                  std::set<std::string>& session_approved, PolicyStore* policy) {
+    if (!hooks.on_approval)
+        return false; // fail-safe: no host, no approval
+    const std::string summary = tool.summarize(args);
+    // No policy store: fall back to the legacy whole-tool dialog, with no rule
+    // to remember the answer against.
+    if (!policy) {
+        Approval d = hooks.on_approval(tool.name(), args, summary);
+        if (d == Approval::AllowSession)
+            session_approved.insert(tool.name());
+        return is_grant(d);
+    }
+    Decision dec = decide_approval(cfg, tool, args, *policy);
+    if (dec.v != Verdict::Prompt)
+        return dec.v == Verdict::Allow;
+
+    return record_decision(hooks.on_approval(tool.name(), args, summary), dec.scope_id, policy,
+                           session_approved);
 }
 
 namespace {
