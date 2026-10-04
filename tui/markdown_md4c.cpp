@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "textutil.h"
@@ -162,12 +163,13 @@ std::vector<std::string> codepoints(const std::string& t) {
     return cps;
 }
 
+// The characters allowed in an ASCII rule (a thematic-break or setext underline
+// run). Written as a set rather than a chain of `||`: eleven comparisons cost
+// eleven branches to answer a membership question, and the list was impossible
+// to read as a glance.
 bool is_ascii_rule_char(const std::string& cp) {
-    if (cp.size() != 1)
-        return false;
-    const auto c = static_cast<unsigned char>(cp[0]);
-    return c == '-' || c == '=' || c == '_' || c == '*' || c == ':' || c == '|' || c == '.' ||
-           c == '#' || c == '+' || c == '~';
+    static constexpr std::string_view kRuleChars = "-=_*:|#+~.";
+    return cp.size() == 1 && kRuleChars.find(cp[0]) != std::string_view::npos;
 }
 
 bool all_ascii_rule(const std::vector<std::string>& cps) {
