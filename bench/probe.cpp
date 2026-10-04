@@ -905,16 +905,17 @@ bool budget_probe_max_steps_enforced(ProbeResult& r) {
 
 // P-budget-wall-clock: the wall-clock budget must be enforced — a run whose
 // scripted replies take longer than max_wall_ms must be cut off.
-bool budget_probe_wall_clock(ProbeResult& r) {
-    r.expected = "run stops when the wall-clock budget is exhausted";
+// Each reply simulates 1.5s of latency; with 100 steps the run would take
+// minutes, so the wall clock has to cut it short. Building the scenario is
+// separated from the assertions because the two are unrelated concerns and the
+// combined function sat exactly at the 40-NLOC cap.
+static Scenario wall_clock_budget_scenario() {
     Scenario s;
     s.name = "probe-budget-wall";
     s.suite = "harness";
     s.prompt = "Do this slowly forever.";
     s.max_steps = 100;
     s.max_wall_ms = 4000;
-    // Each reply simulates 1.5s of latency; with 100 steps the run would
-    // take minutes — the wall clock must cut it short.
     s.fake_replies = agent::json::array();
     for (int i = 0; i < 20; ++i) {
         agent::json tc;
@@ -924,6 +925,12 @@ bool budget_probe_wall_clock(ProbeResult& r) {
         s.fake_replies.push_back(
             agent::json::object({{"tool_calls", agent::json::array({tc})}, {"latency_ms", 1500}}));
     }
+    return s;
+}
+
+bool budget_probe_wall_clock(ProbeResult& r) {
+    r.expected = "run stops when the wall-clock budget is exhausted";
+    Scenario s = wall_clock_budget_scenario();
     RunOptions opts;
     RunMeta meta;
     meta.mode = "hermetic";

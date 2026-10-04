@@ -979,22 +979,7 @@ void SlashDispatcher::register_core_session_actions() {
         tui_.redraw_after_modal();
     });
     register_action("core.prompt", [this](const std::string& a) { cmd_prompt(a); });
-    register_action("core.session.reset", [this](const std::string&) {
-        if (tui_.win().agent) {
-            tui_.win().agent->set_context({});
-            tui_.win().agent->policy().clear_session();
-        }
-        tui_.win().stream_buf.clear();
-        tui_.win().stream_ts.clear();
-        tui_.win().reason.begin();
-        tui_.win().scroll_top = 0;
-        tui_.win().ctx_used.store(-1);
-        tui_.win().ctx_estimate = 0;
-        tui_.win().live_ctx_offset = 0;
-        tui_.append_line(P_STATUS, "conversation cleared \u2014 next message starts fresh");
-        tui_.render_engine_->set_drawer_open(false);
-        tui_.draw();
-    });
+    register_action("core.session.reset", [this](const std::string&) { cmd_session_reset(); });
     register_action("core.window.close", [this](const std::string&) { tui_.close_window(); });
     register_action("core.window.new", [this](const std::string&) { cmd_window_new(); });
     register_action("core.window.list", [this](const std::string&) { cmd_window_list(); });
@@ -2223,6 +2208,26 @@ void SlashDispatcher::cmd_window_new() {
 void SlashDispatcher::cmd_window_close() {
     tui_.close_window();
 }
+// /session reset: drop the conversation and every piece of per-turn state the
+// window cached about it. Extracted from register_core_session_actions, where the
+// inline lambda made the action list unreadable at 40 NLOC -- exactly at the cap.
+void SlashDispatcher::cmd_session_reset() {
+    if (tui_.win().agent) {
+        tui_.win().agent->set_context({});
+        tui_.win().agent->policy().clear_session();
+    }
+    tui_.win().stream_buf.clear();
+    tui_.win().stream_ts.clear();
+    tui_.win().reason.begin();
+    tui_.win().scroll_top = 0;
+    tui_.win().ctx_used.store(-1);
+    tui_.win().ctx_estimate = 0;
+    tui_.win().live_ctx_offset = 0;
+    tui_.append_line(P_STATUS, "conversation cleared \u2014 next message starts fresh");
+    tui_.render_engine_->set_drawer_open(false);
+    tui_.draw();
+}
+
 void SlashDispatcher::cmd_window_list() {
     std::string s = "windows:";
     for (size_t i = 0; i < tui_.window_manager_->all().size(); ++i)
