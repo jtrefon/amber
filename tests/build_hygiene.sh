@@ -231,6 +231,27 @@ else
     warn "P8: lint-changed TU selector self-test failed (tools/affected_tus.py)"
 fi
 
+# The CI path classifier decides whether every C++ gate runs at all. A classifier that
+# silently stops classifying looks exactly like one that claims every PR is
+# documentation, so it carries its own cases and they are checked here rather than
+# trusted because the script is short.
+if sh tools/changed_paths.sh --self-test >/dev/null 2>&1; then
+    ok "P9: CI changed-paths classifier passes its self-test"
+else
+    warn "P9: CI changed-paths classifier self-test FAILED (tools/changed_paths.sh)"
+fi
+
+# ci-gate decides whether a whole run may be called green. Its first version accepted a
+# skip for every gating job, which made `if: false` on a gate a way to go green; its
+# second judged the C++ and website dimensions with one flag and blocked every
+# non-website PR. Both failures were invisible from the workflow file, which is why the
+# table of cases lives next to the logic.
+if python3 tools/gate_needs_check.py --selftest >/dev/null 2>&1; then
+    ok "P10: ci-gate skip policy passes its self-test"
+else
+    warn "P10: ci-gate skip policy self-test FAILED (tools/gate_needs_check.py)"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
     exit 1
