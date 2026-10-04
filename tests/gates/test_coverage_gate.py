@@ -370,6 +370,35 @@ class ReadingTheReport(unittest.TestCase):
         self.assertFalse(result.passes)
 
 
+class GitOutputIsBytes(unittest.TestCase):
+    """A diff can legitimately contain invalid UTF-8, and decoding it strictly raises.
+
+    A fuzz corpus seed must stay invalid -- that is what it exists to test -- so adding
+    one crashed the patch coverage gate with UnicodeDecodeError. The gate failing closed
+    is better than a false pass, but a crash is not a measurement, and the real bug was
+    invisible until a PR happened to carry undecodable bytes.
+    """
+
+    def test_diff_output_is_decoded_leniently(self):
+        self.assertEqual(cg.GIT_DECODE, {"errors": "replace"})
+
+    def test_both_git_reads_use_it(self):
+        """diff_against (the changed lines) and base_lines (the carryover text) both
+        read git output. Fixing only the first would leave carryover crashing on the
+        same input."""
+        import inspect
+        for fn in (cg.diff_against, cg.base_lines):
+            self.assertIn("GIT_DECODE", inspect.getsource(fn), f"{fn.__name__} bypasses it")
+
+    def test_an_undecodable_line_still_parses(self):
+        """The replacement character must not change the line structure the parser
+        depends on: a diff that fails to parse would silently measure nothing."""
+        raw = b"+++ b/fuzz/corpus/x\n@@ -0,0 +1 @@\n+\udcff\udcfe bad utf8"
+        lines = raw.decode("utf-8", errors="replace").splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertIn("bad utf8", lines[2])
+
+
 class ChangedLines(unittest.TestCase):
     def test_carries_the_added_line_text(self):
         diff = ["+++ b/lib/a.cpp", "@@ -10,1 +10,2 @@", " ctx", "+    int x = 1;"]

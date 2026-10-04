@@ -375,6 +375,40 @@ jobs:
   # on this public repo. The upload is best-effort (fail_ci_if_error: false)
   # so the job stays green.
   # ---------------------------------------------------------------------------
+  # Fuzzing — the only gate that reaches input nobody wrote. Everything else in
+  # this workflow runs a fixed corpus, including the sanitizers, so a defect
+  # that needs an input no test author imagined is unreachable without this.
+  # The three targets are the parsers fed by untrusted bytes: SSE framing off
+  # the model endpoint, MCP JSON-RPC off a server process, and Markdown off
+  # model output.
+  # ---------------------------------------------------------------------------
+  fuzz:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+
+      - name: Configure
+        run: ./configure
+
+      - name: Build and fuzz
+        run: make fuzz-run FUZZ_RUNS=100000 FUZZ_MAX_TIME=90
+        env:
+          FUZZ_CC: clang++
+
+      - name: Fuzz corpora (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus
+          path: .fuzz-build/corpus
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
   coverage:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -433,6 +467,7 @@ jobs:
             --filter 'lib/.*' --filter 'tools/.*' --filter 'tui/.*' \
             --filter 'src/.*' --filter 'bench/.*' --filter 'plugins/.*' \
             --exclude '.*tests/.*' --exclude '.*third_party/.*' \
+            --exclude '.*fuzz/.*' \
             --exclude '.*src/main\.cpp' --exclude '.*src/smoketest\.cpp' \
             --exclude '.*bench/main\.cpp' --exclude '.*tui/tui_main\.cpp' \
             --xml-pretty -o coverage.xml
@@ -486,9 +521,13 @@ jobs:
           # coverage.xml above. A changed source the report deliberately omits is not a
           # measurement gap, and without this the gate blocks every PR that touches a
           # main() for the wrong reason. Keep the two lists in step.
+          # fuzz/ is here because the harnesses are test drivers, like tests/: they are
+          # built by a separate libFuzzer invocation with sanitizers, which is a stronger
+          # check of that code than a line-coverage percentage would be.
           python3 tools/coverage_gate.py --report coverage.xml --diff-base "$BASE" \
             --absent-ok '.*src/main\.cpp' --absent-ok '.*src/smoketest\.cpp' \
-            --absent-ok '.*bench/main\.cpp' --absent-ok '.*tui/tui_main\.cpp'
+            --absent-ok '.*bench/main\.cpp' --absent-ok '.*tui/tui_main\.cpp' \
+            --absent-ok '.*fuzz/.*'
           rc=$?
           set -e
           if [ "$PATCH_COVERAGE_ENFORCE" = "true" ] && [ "$rc" -ne 0 ]; then
@@ -825,7 +864,7 @@ jobs:
   # website deploy are delivery jobs; website smoke checks are gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, dependency-review, obfuscation-guard, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, coverage, website-build, website-smoke]
+    needs: [changes, dependency-review, obfuscation-guard, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, fuzz, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15

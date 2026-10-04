@@ -329,7 +329,7 @@ def base_lines(base, paths):
     for path in paths:
         try:
             proc = subprocess.run(["git", "-C", REPO_ROOT, "show", f"{base}:{path}"],
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, **GIT_DECODE)
         except OSError:
             continue
         if proc.returncode == 0:
@@ -337,11 +337,19 @@ def base_lines(base, paths):
     return out
 
 
+# git output is bytes, not text. A diff can legitimately contain invalid UTF-8 -- a fuzz
+# corpus seed has to stay invalid, because that is what it is testing -- and decoding
+# with the default codec raised UnicodeDecodeError on a PR that changed one. That is the
+# gate crashing rather than reporting, which is better than a false pass but is not a
+# measurement either. Decoding leniently keeps the line structure the parser needs.
+GIT_DECODE = {"errors": "replace"}
+
+
 def diff_against(base, path="."):
     """(diff lines, error). Empty output with an error means we must not gate."""
     try:
         proc = subprocess.run(["git", "-C", path, "diff", "--unified=0", base],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, **GIT_DECODE)
     except OSError as exc:
         return None, f"could not run git: {exc}"
     if proc.returncode != 0:

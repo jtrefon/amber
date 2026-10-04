@@ -41,6 +41,7 @@ DIMENSIONS = {
     "format-check": "cpp",
     "sanitizers": "cpp",
     "tsan": "cpp",
+    "fuzz": "cpp",
     "coverage": "cpp",
     "website-build": "web",
     "website-smoke": "web",
@@ -63,12 +64,14 @@ ALL_JOBS = (
     "format-check",
     "sanitizers",
     "tsan",
+    "fuzz",
     "coverage",
     "website-build",
     "website-smoke",
 )
 CPP_JOBS = ("build-and-test", "build-and-test-macos", "lint", "analyze", "check",
-            "complexity", "duplicates", "format-check", "sanitizers", "tsan", "coverage")
+            "complexity", "duplicates", "format-check", "sanitizers", "tsan", "fuzz",
+            "coverage")
 WEB_JOBS = ("website-build", "website-smoke")
 ALWAYS_JOBS = ("obfuscation-guard", "dependency-review")
 

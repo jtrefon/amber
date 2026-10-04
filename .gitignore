@@ -6,6 +6,9 @@
 *.la
 *.d
 *.dSYM/
+
+# libFuzzer binaries and instrumented objects (make fuzz)
+.fuzz-build/
 Makefile
 config.log
 config.status
