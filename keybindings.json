@@ -1,4 +1,5 @@
 {
+  "alt+0": {"action": "open_panels"},
   "alt+1": {"action": "switch_window", "arg": 0},
   "alt+2": {"action": "switch_window", "arg": 1},
   "alt+3": {"action": "switch_window", "arg": 2},

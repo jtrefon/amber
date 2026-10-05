@@ -1479,15 +1479,14 @@ TEST(keybinder_esc_digit_switches_while_busy) {
 // than merely that a name appears in a switch somewhere.
 TEST(keyaction_every_variant_is_reachable_from_a_key) {
     auto kb = tui::KeyBinder(load_test_keybindings());
-    tui::InputState idle;
 
     struct Case {
-        const char* name;
-        tui::KeyAction::Type expected;
-        int key;
+        const char* name = nullptr;
+        tui::KeyAction::Type expected = tui::KeyAction::None;
+        int key = 0;
         std::optional<int> followup;
-        bool drawer_open;
-        bool busy;
+        bool drawer_open = false;
+        bool busy = false;
     };
     const std::vector<Case> cases = {
         {"alt+1", tui::KeyAction::SwitchWindow, 0xB1, std::nullopt, false, false},
@@ -1495,21 +1494,25 @@ TEST(keyaction_every_variant_is_reachable_from_a_key) {
         {"ctrl+c", tui::KeyAction::CancelOrQuit, 3, std::nullopt, false, true},
         {"esc idle", tui::KeyAction::ToggleScrollMode, 27, std::nullopt, false, false},
         {"esc drawer", tui::KeyAction::CloseDrawer, 27, std::nullopt, true, false},
-        {"alt+b", tui::KeyAction::DeleteWord, 0xF2, std::nullopt, false, false},
+        {"alt+b", tui::KeyAction::DeleteWord, 27, static_cast<int>('b'), false, false},
         {"alt+0", tui::KeyAction::OpenPanels, 0xB0, std::nullopt, false, false},
     };
 
-    std::vector<std::string> unreachable;
+    std::string unreachable;
     for (const Case& c : cases) {
         tui::InputState state;
         state.drawer_open = c.drawer_open;
         state.busy = c.busy;
         state.window_count = 3;
-        const auto action = kb.dispatch({c.key, c.followup}, state);
+        const auto action = kb.dispatch({c.key,
+                                            c.followup ? std::optional<int>(c.followup)
+                                                       : std::nullopt},
+                                           state);
         if (action.type != c.expected)
-            unreachable.push_back(std::string(c.name) + " produced a different action");
+            unreachable += std::string(c.name) + " -> type " + std::to_string(action.type)
+                          + " (wanted " + std::to_string(c.expected) + "); ";
     }
-    ASSERT_EQ(unreachable.size(), (size_t)0);
+    ASSERT_EQ(unreachable, std::string());
 }
 
 // The completeness half: a variant added to the enum without a binding and without a

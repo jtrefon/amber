@@ -62,7 +62,17 @@ else
 fi
 echo "  using $CXX"
 
-CXXFLAGS=${CXXFLAGS:-"-O2 -Wall -Wextra -std=c++17"}
+# -Winfinite-recursion catches a bug the test suite structurally cannot: tui/ rendering
+# has no unit coverage (it needs a terminal, and is driven by the pty/e2e harness), so a
+# self-recursive private helper reaches main through 901 green tests. That is not
+# hypothetical -- it is how Tui::redraw was written during this change, and the suite
+# stayed green. clang-only, so it is added only when the compiler understands it rather
+# than leaving g++ with an option it cannot honour.
+amber_warn_extra=""
+if [ "${CXX:-c++}" = "${CXX:-c++}" ] && echo "${CXX:-c++}" | grep -qE 'clang'; then
+    amber_warn_extra="-Winfinite-recursion"
+fi
+CXXFLAGS=${CXXFLAGS:-"-O2 -Wall -Wextra $amber_warn_extra -std=c++17"}
 CPPFLAGS=${CPPFLAGS:-""}
 
 echo "checking for C compiler..."

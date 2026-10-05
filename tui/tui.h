@@ -191,6 +191,9 @@ private:
     // ---- rendering (owned by RenderEngine) -------------------------------
     void draw();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
+    // Repaint the chat log and the input line in one call: the most common render step
+    // in the input loop, previously written out at each site.
+    void redraw(const CommandLine& cl);
     std::unique_ptr<RenderEngine> render_engine_;
 
     // Commands started by the UI and not yet reported. Job handles are
@@ -281,12 +284,11 @@ private:
     void idle_tick(bool had_events, CommandLine& cl);
     bool handle_option_key(int& ch, CommandLine& cl);
     bool handle_key_binding(int ch, CommandLine& cl);
-    bool apply_key_action(const KeyAction& act, int ch, const KeyRead& kr, CommandLine& cl);
+    bool apply_key_action(const KeyAction& act, int ch, CommandLine& cl);
     bool cancel_active_run(int ch, CommandLine& cl);
     bool handle_ctrl_c(int ch, CommandLine& cl);
     bool handle_mouse_wheel(int ch, CommandLine& cl);
     bool scroll_mode_nav(int ch);
-    void open_panels_and_redraw(CommandLine& cl);
     detail::PromptOutcome route_to_command_line(int ch, CommandLine& cl,
                                                 CommandLine::Result& result);
     void run_prompt_action(const CommandLine::Result& result, CommandLine& cl);

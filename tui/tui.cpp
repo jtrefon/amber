@@ -463,12 +463,6 @@ void Tui::run() {
         if (handle_option_key(ch, cl))
             continue;
 
-        // Alt+0 opens the panel view; the panels own their content.
-        if (ch == 0xB0) {
-            open_panels_and_redraw(cl);
-            continue;
-        }
-
         if (handle_key_binding(ch, cl))
             continue;
         if (handle_ctrl_c(ch, cl))
@@ -634,9 +628,11 @@ bool Tui::handle_option_key(int& ch, CommandLine& cl) {
 // stateful). The KeyBinder is pure (no ncurses); the ESC followup read is
 // terminal I/O and stays here.
 bool Tui::handle_key_binding(int ch, CommandLine& cl) {
-    // The keys the binder owns: Alt+1..9, Ctrl+N, ESC, Ctrl+C, Ctrl+W.
+    // The keys the binder owns: Alt+0..9, Ctrl+N, ESC, Ctrl+C, Ctrl+W. Alt+0 used to
+    // be special-cased in run() and excluded here, which meant the panel view had two
+    // sources of truth -- a binding for some keys, a branch in the loop for others.
     const bool binder_owns =
-        (ch >= 0xB1 && ch <= 0xB9) || ch == 14 || ch == 27 || ch == 3 || ch == 23;
+        (ch >= 0xB0 && ch <= 0xB9) || ch == 14 || ch == 27 || ch == 3 || ch == 23;
     if (!binder_owns)
         return false;
 
@@ -658,11 +654,11 @@ bool Tui::handle_key_binding(int ch, CommandLine& cl) {
             kr.followup = n;
     }
 
-    return apply_key_action(key_binder_->dispatch(kr, state), ch, kr, cl);
+    return apply_key_action(key_binder_->dispatch(kr, state), ch, cl);
 }
 
 // Act on what the binder decided. Returns true when the key was consumed.
-bool Tui::apply_key_action(const KeyAction& act, int ch, const KeyRead& kr, CommandLine& cl) {
+bool Tui::apply_key_action(const KeyAction& act, int ch, CommandLine& cl) {
     switch (act.type) {
     case KeyAction::SwitchWindow:
         switch_to(static_cast<size_t>(act.arg));
@@ -685,16 +681,21 @@ bool Tui::apply_key_action(const KeyAction& act, int ch, const KeyRead& kr, Comm
             append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
         render_engine_->draw();
         break;
-    case KeyAction::None:
-        // ESC+0 opens panels (not a window switch); fall through to the
-        // CommandLine routing for other unhandled keys.
-        if (ch != 27 || !kr.followup || *kr.followup != '0')
-            return false;
+    case KeyAction::OpenPanels:
+        // The panel view (registry console, status). Panels own their content; the host
+        // only opens them. Alt+0 reaches here as an intent rather than as a branch in
+        // run(), so the next panel entry point is additive.
         open_panels("");
         render_engine_->draw();
         break;
+    case KeyAction::None:
     default:
-        return false; // not a key this layer acts on: fall through to the later ones
+        // No binding for this key: fall through to the later layers (ESC handling, then
+        // CommandLine routing). This used to special-case ESC+0 to open panels, but
+        // dispatch_esc never returns None for it -- it returns ToggleScrollMode -- so
+        // the branch was unreachable and the comment above it described a behaviour the
+        // code did not have.
+        return false;
     }
     // Every action this layer handles repaints the input line; it used to be
     // repeated in each case.
@@ -702,17 +703,19 @@ bool Tui::apply_key_action(const KeyAction& act, int ch, const KeyRead& kr, Comm
     return true;
 }
 
-// Alt+0 opens the panel view (the registry console first); the host owns the
-// key, the panels own their content.
-void Tui::open_panels_and_redraw(CommandLine& cl) {
-    open_panels("");
-    render_engine_->draw();
-    draw_input(cl.text(), cl.cursor(), cl.shadow());
-}
 
 // Ctrl+C cancels the active window's run; ESC only reaches this action when the
 // binder saw the ACTIVE window busy, so it always cancels. Returns false when
 // the key should fall through to the quit path instead.
+// Repaint the chat log and the input line together. The most common render step in
+// the input loop, and it was written out at five call sites with two different
+// spellings (Tui::draw_input vs render_engine_->draw_input), so a change to how the
+// input line is drawn had to be found rather than made.
+void Tui::redraw(const CommandLine& cl) {
+    render_engine_->draw();
+    draw_input(cl.text(), cl.cursor(), cl.shadow());
+}
+
 bool Tui::cancel_active_run(int ch, CommandLine& cl) {
     if (ch == 3 && !runs_.busy(win().id))
         return false; // idle Ctrl+C: the quit path handles it
@@ -723,8 +726,7 @@ bool Tui::cancel_active_run(int ch, CommandLine& cl) {
         win().agent->request_cancel();
     runs_.request_cancel(win().id);
     append_line(P_STATUS, "cancelling…");
-    render_engine_->draw();
-    draw_input(cl.text(), cl.cursor(), cl.shadow());
+    redraw(cl);
     return true;
 }
 
@@ -739,8 +741,7 @@ bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
             win().agent->request_cancel();
         runs_.request_cancel(win().id);
         append_line(P_STATUS, "cancelling…");
-        render_engine_->draw();
-        render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+        redraw(cl);
         return true;
     }
     if (runs_.any_busy()) {
@@ -748,8 +749,7 @@ bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
                                    " agent(s) still running — quit anyway?");
         if (!q.run()) {
             redraw_after_modal();
-            render_engine_->draw();
-            draw_input(cl.text(), cl.cursor(), cl.shadow());
+            redraw(cl);
             return true;
         }
     }
@@ -770,8 +770,7 @@ bool Tui::handle_mouse_wheel(int ch, CommandLine& cl) {
         if (delta != 0) {
             win().scroll_top = scroll_dispatch::clamped_scroll_top(
                 win().scroll_top, delta, render_engine_->max_scroll(win()));
-            render_engine_->draw();
-            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+            redraw(cl);
         }
     }
     return true;
@@ -954,20 +953,17 @@ void Tui::show_prompt_help(const CommandLine::Result& result, CommandLine& cl) {
     if (!page.empty()) {
         info_dialog(help_key, page);
         redraw_after_modal();
-        render_engine_->draw();
-        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        redraw(cl);
         return;
     }
     const std::string msg = help_page::fallback_line(settings_, help_key);
     if (!msg.empty()) {
         append_line(P_STATUS, msg);
-        render_engine_->draw();
-        draw_input(cl.text(), cl.cursor(), cl.shadow());
+        redraw(cl);
         return;
     }
     slash_dispatcher_->cmd_help(help_page::command_from_node(result.help_node));
-    render_engine_->draw();
-    draw_input(cl.text(), cl.cursor(), cl.shadow());
+    redraw(cl);
 }
 
 void Tui::flush_if_dirty() {

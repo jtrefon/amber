@@ -34,13 +34,19 @@ int macos_option_digit(uint32_t codepoint) {
 KeyBinder::KeyBinder(nlohmann::json bindings) : bindings_(std::move(bindings)) {}
 
 KeyAction KeyBinder::dispatch(const KeyRead& key, const InputState& state) const {
-    // Meta-encoded Alt+digit: 0xB1=Alt+1 through 0xB9=Alt+9. Window
-    // switching is never busy-gated — a running agent owns its window's
+    // Meta-encoded Alt+digit: 0xB0=Alt+0 through 0xB9=Alt+9. Alt+0 opens
+    // the panel view and is a binding like any other -- it used to be a
+    // special case in the input loop, which meant the loop grew a branch per
+    // feature and the protocol could not be reasoned about from the enum.
+    // Window switching is never busy-gated: a running agent owns its window's
     // slot, not the input path.
-    if (key.key >= 0xB1 && key.key <= 0xB9) {
+    if (key.key >= 0xB0 && key.key <= 0xB9) {
         auto name = meta_digit_name(key.key);
         auto act = lookup_simple(name);
-        if (act.type == KeyAction::SwitchWindow)
+        // Alt+digit is reserved for window switching: a stray binding in the JSON must
+        // not turn Alt+5 into something else. Alt+0 is the single exception -- it opens
+        // the panel view -- so the rule is stated rather than implied.
+        if (act.type == KeyAction::SwitchWindow || act.type == KeyAction::OpenPanels)
             return act;
         return {};
     }
@@ -60,17 +66,17 @@ KeyAction KeyBinder::dispatch(const KeyRead& key, const InputState& state) const
 
 KeyAction KeyBinder::dispatch_esc(const KeyRead& key, const InputState& state) const {
     if (state.drawer_open)
-        return {KeyAction::CloseDrawer, -1, ""};
+        return {KeyAction::CloseDrawer, -1};
     if (key.followup) {
         int f = *key.followup;
         if (f >= '1' && f <= '9')
-            return {KeyAction::SwitchWindow, f - '1', ""};
+            return {KeyAction::SwitchWindow, f - '1'};
         if (f == 'b' || f == 'B')
-            return {KeyAction::DeleteWord, -1, ""};
+            return {KeyAction::DeleteWord, -1};
     }
     if (state.busy)
-        return {KeyAction::CancelOrQuit, -1, ""};
-    return {KeyAction::ToggleScrollMode, -1, ""};
+        return {KeyAction::CancelOrQuit, -1};
+    return {KeyAction::ToggleScrollMode, -1};
 }
 
 KeyAction KeyBinder::lookup_simple(const std::string& key_name) const {
@@ -82,19 +88,21 @@ KeyAction KeyBinder::lookup_simple(const std::string& key_name) const {
     std::string action = entry["action"];
     int arg = entry.value("arg", -1);
     if (action == "switch_window")
-        return {KeyAction::SwitchWindow, arg, ""};
+        return {KeyAction::SwitchWindow, arg};
     if (action == "new_window")
-        return {KeyAction::NewWindow, -1, ""};
+        return {KeyAction::NewWindow, -1};
     if (action == "cancel_or_quit")
-        return {KeyAction::CancelOrQuit, -1, ""};
+        return {KeyAction::CancelOrQuit, -1};
     if (action == "delete_word")
-        return {KeyAction::DeleteWord, -1, ""};
+        return {KeyAction::DeleteWord, -1};
+    if (action == "open_panels")
+        return {KeyAction::OpenPanels, -1};
     return {};
 }
 
 std::string KeyBinder::meta_digit_name(int ch) {
-    if (ch >= 0xB1 && ch <= 0xB9)
-        return "alt+" + std::string(1, '1' + (ch - 0xB1));
+    if (ch >= 0xB0 && ch <= 0xB9)
+        return "alt+" + std::string(1, '0' + (ch - 0xB0));
     return {};
 }
 
