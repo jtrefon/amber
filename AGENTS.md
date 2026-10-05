@@ -625,6 +625,31 @@ known mess, even in adjacent code.
   message must follow the imperative, scoped convention
   (e.g. `fix: cancel token now lives in core, not bash_tool globals`).
 
+**Archived branches are prefixed `archive/`, never deleted.** 43 branches that
+predate the squash-merge rule were renamed in place on 2026-10-05 rather than
+deleted, and exported to
+`~/Projects/amber-archive/branches-2026-10-05.bundle` (kept outside the repo so
+7 MB of binary never enters git history; restore with
+`git clone <bundle> amber-archive`).
+
+The reason to keep rather than delete is a measurement, not sentiment:
+`git cherry` reports a branch's commits as unique whenever a **squash**-merge
+folded them into `main`, so "unique commit" does not mean "unmerged work".
+`tui/god-code-decomposition` reports 31 unique commits and its artefacts are
+all in `main`, because the work landed as #153. Measured across all 43, **72%
+of their substantive added lines are already in `main`** (top branches 95-100%),
+and the residual is doc text later rewritten — not code that never landed. 72%
+is not 100%, so the branches are history, not pending work, and deleting them
+on that measurement is the same mistake class the gate section above exists to
+catch.
+
+**A `git bundle` cannot capture uncommitted work.** Bundles record commits, so
+anything staged or dirty in a linked worktree is invisible to one. The
+`.commandcode/` files staged in `copilot-worktrees/amber/jtrefon-special-barnacle`
+were therefore *not* covered by the bundle; they survived because the same
+content already exists in the main worktree and `.commandcode/` is gitignored.
+Capture uncommitted work as a patch or a commit, not as a branch ref.
+
 ### Fix workflow, Red → Proposal → Sign-off → Green → PR
 
 Every bug fix and every feature MUST follow this strict sequence:
