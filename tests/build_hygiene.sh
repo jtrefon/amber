@@ -252,6 +252,37 @@ else
     warn "P10: ci-gate skip policy self-test FAILED (tools/gate_needs_check.py)"
 fi
 
+# ---------------------------------------------------------------------------
+# Vendored third-party integrity. md4c is fetched from upstream, Dependabot cannot
+# see vendored code, and its revision was never recorded -- so the only thing standing
+# between "someone edited the vendored parser" and "we ship it" is a note in a README.
+#
+# The checksums are read out of third_party/md4c/README.md rather than a data file, so
+# there is one place to update and no way for the two to drift.
+md4c_readme=third_party/md4c/README.md
+if [ -f "$md4c_readme" ]; then
+    drift=""
+    for pair in "md4c.c:c4a0b8aa5495e4d97eb9fb112b8aa4bb147666416737569f239e7ae1be8abf2c" \
+                "md4c.h:3e6940ebfc14c197552fc506f68d7685a950a503d7a256002c2740d4d2b62deb"; do
+        f="${pair%%:*}"
+        want="${pair##*:}"
+        got="$(shasum -a 256 "third_party/md4c/$f" 2>/dev/null | cut -d" " -f1)"
+        if [ "$got" != "$want" ]; then
+            drift="$drift $f"
+        fi
+        # The README must record what the gate enforces, or the next person updates the
+        # code and not the note and gets a gate failure they cannot explain.
+        grep -q "$want" "$md4c_readme" || drift="$drift $f(not-documented)"
+    done
+    if [ -z "$drift" ]; then
+        ok "P11: vendored md4c matches its recorded sha256 and README"
+    else
+        warn "P11: vendored md4c drifted from its recorded sha256:$drift -- update the table in third_party/md4c/README.md in the same commit"
+    fi
+else
+    warn "P11: $md4c_readme is missing, so the vendored md4c checksums cannot be checked"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
     exit 1

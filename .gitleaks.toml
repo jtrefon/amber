@@ -1,0 +1,50 @@
+# gitleaks configuration.
+#
+# Added because nothing scanned for committed credentials. The C++ tree is clean today
+# (verified: no private-key blocks, no provider token patterns, no high-entropy secrets),
+# so this gate exists to keep it that way rather than to fix something already broken.
+#
+# gitleaks is used rather than a hand-rolled regex scanner on purpose. A scanner written
+# here would be weaker than the maintained ruleset and would risk being a gate that looks
+# like a check and measures nothing -- the failure mode this repository keeps auditing
+# for. The version is pinned for the same reason cppcheck, lizard and clang-format are:
+# each analyzer is load-bearing, and an unpinned one changes underneath you.
+
+[extend]
+# useDefault enables the built-in ruleset (AWS, GitHub, Slack, Stripe, private keys,
+# generic high-entropy assignments, ...). Nothing here disables it.
+useDefault = true
+
+[allowlist]
+description = """
+Paths whose contents legitimately trip the ruleset. Each is here for a stated reason,
+because an allowlist without reasons is how allowlists grow until they hide real
+findings.
+
+tests/         fixtures use realistic-looking fake credentials on purpose: the
+               redaction tests assert a token is NOT written to disk and the MCP tests
+               round-trip an auth_token. Those strings must keep looking like
+               credentials or the tests stop testing anything.
+fuzz/corpus/   libFuzzer inputs are arbitrary bytes, including invalid UTF-8. Entropy
+               rules will fire on them by accident.
+website/package-*  npm records a sha512 integrity hash per dependency. They are
+               content hashes of public packages, not secrets, and there are thousands.
+third_party/   vendored upstream code, not ours to triage. md4c is pinned by sha256 in
+               third_party/md4c/README.md and checked by build-hygiene P11.
+build dirs     should never be tracked at all -- .gitignore already says so -- and
+               scanning them only produces noise if one leaks in.
+"""
+
+paths = [
+  '''^tests/''',
+  '''^fuzz/corpus/''',
+  '''^website/package-(lock|json)''',
+  '''^third_party/''',
+  '''(^|/)(\.fuzz-build|node_modules|dist|build|artifacts)/''',
+  '''\.o$''',
+  '''\.d$''',
+]
+
+# Line-based allowlists (regexes matched against the secret itself) are deliberately NOT
+# used. `paths` is enough, and a line allowlist shifts as the file changes -- an
+# allowlist that silently stops matching is worse than none, because it looks deliberate.

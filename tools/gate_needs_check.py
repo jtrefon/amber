@@ -31,6 +31,7 @@ DIMENSIONS = {
     "changes": ALWAYS,
     "obfuscation-guard": ALWAYS,
     "dependency-review": ALWAYS,
+    "secret-scan": ALWAYS,
     "build-and-test": "cpp",
     "build-and-test-macos": "cpp",
     "lint": "cpp",
@@ -54,6 +55,7 @@ DIMENSIONS = {
 ALL_JOBS = (
     "obfuscation-guard",
     "dependency-review",
+    "secret-scan",
     "build-and-test",
     "build-and-test-macos",
     "lint",
@@ -73,7 +75,7 @@ CPP_JOBS = ("build-and-test", "build-and-test-macos", "lint", "analyze", "check"
             "complexity", "duplicates", "format-check", "sanitizers", "tsan", "fuzz",
             "coverage")
 WEB_JOBS = ("website-build", "website-smoke")
-ALWAYS_JOBS = ("obfuscation-guard", "dependency-review")
+ALWAYS_JOBS = ("obfuscation-guard", "dependency-review", "secret-scan")
 
 NOT_APPLICABLE = {"skipped", "neutral"}
 
@@ -113,6 +115,22 @@ def check(needs, cpp_changed, web_changed):
         print("gating jobs did not pass:")
         for item in bad:
             print(f"  {item}")
+        return 1
+    return 0
+
+
+def _check_fixture_coverage():
+    """Every job the policy knows about must appear in the self-test fixture list.
+
+    A job missing from ALL_JOBS is silently untested: its skip cases cannot be generated,
+    so the policy stops covering it without any test failing. That is exactly what
+    happened when `secret-scan` was added to DIMENSIONS and not to the fixture list -- the
+    test failed, which is why this check exists to make the failure legible.
+    """
+    missing = sorted(set(DIMENSIONS) - set(ALL_JOBS) - {"changes"})
+    if missing:
+        print(f"gate_needs_check: jobs in DIMENSIONS but not in the self-test fixture: "
+              f"{missing}", file=sys.stderr)
         return 1
     return 0
 
@@ -165,7 +183,7 @@ def selftest():
         ("BYPASS: unlisted gating job skipped", _needs(ALL_RUNNING) | {"brand-new-gate": {"result": "skipped"}}, True, True, True),
         ("unlisted gating job that ran is fine", _needs(ALL_RUNNING) | {"brand-new-gate": {"result": "success"}}, True, True, False),
     ]
-    failures = 0
+    failures = _check_fixture_coverage()
     for desc, needs, cpp, web, want_fail in cases:
         bad = offenders(needs, cpp, web)
         got_fail = bool(bad)
