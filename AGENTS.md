@@ -128,6 +128,24 @@ driven by an OpenAI-compatible LLM API.
   aggregates the gating jobs and passes when they succeed or are legitimately
   skipped — a skipped job never reports a check run, so requiring the matrix
   jobs directly would leave meta-only PRs blocked on "Expected" forever.
+- **`main` is locked, and it is worth knowing what that means before you try.**
+  Branch protection on `main` requires a **pull request** (`required_approving_
+  review_count: 0` — a PR is required, no approval needed), the `ci-gate` check
+  with `strict` (so a green run on an older commit does not count), and it
+  **applies to admins** (`enforce_admins: true`). Force-pushes, deletions and
+  non-linear history are blocked, and PR conversations must be resolved.
+
+  `enforce_admins` is the part that bit: with it off, protection does not apply
+  to an admin, so a direct `git push origin main` sails past the required status
+  check — required checks only gate *pull request merges*. Three consecutive
+  red main commits got in that way before it was noticed. Verified by attempting
+  the push and watching it be declined.
+
+  So: **no direct pushes to `main`, including from an admin.** Feature branch,
+  PR, wait for `ci-gate`. The escape hatch, if a gate is broken and an emergency
+  push is genuinely needed, is
+  `gh api -X DELETE repos/jtrefon/amber/branches/main/protection` — re-apply it
+  afterwards, because a repo with protection removed will not notice.
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops
   the generated `Makefile`.
 

@@ -61,7 +61,11 @@ private:
     std::atomic<bool> parallel_{true};
     std::atomic<int> max_{4};
     std::atomic<int> max_iterations_{20};
-    std::atomic<int> slot_wait_ms_{120 * 1000}; // 2 min default; see set_slot_wait_ms
+    // How long a task waits for a slot, or for a serial-mode sibling, before giving up
+    // and reporting back. Generous enough for a real queue, bounded enough that a wedged
+    // sibling cannot hold the parent indefinitely. Moved here from a file-local constant
+    // that the configurable timeout left behind as a fossil.
+    std::atomic<int> slot_wait_ms_{120 * 1000}; // 2 min; see set_slot_wait_ms
     std::atomic<int> launched_{0};
     Config cfg_;
     AgentHooks hooks_;
