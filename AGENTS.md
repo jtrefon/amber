@@ -273,8 +273,27 @@ Known and deliberate, so nobody re-derives them:
   permanently green gate that measures nothing, which is the exact failure mode
   the section above exists to prevent. Cap 4, empty baseline (0 violations, 4
   functions *at* the cap, 39 at depth >= 3).
+- **`make lint` cannot be reproduced locally.** clang-tidy is not installed on a
+  default macOS toolchain, and the two reachable builds disagree: CI installs
+  `clang-tidy-18` (`1:18.1.3-1ubuntu1`) from apt, while the only pip wheel is
+  `18.1.8`, and they did not agree on `bugprone-unchecked-optional-access` -- CI
+  reported a finding the pip build did not. So "run the gates before pushing"
+  only covers half of them locally, and a clean local `lint-changed` is not
+  evidence about a finding. Matching the runner needs an LLVM 18 toolchain
+  (`brew install llvm@18` and `CLANG_TIDY=/opt/homebrew/opt/llvm@18/bin/clang-tidy`),
+  which is not present here.
 - **Branching needs no separate axis**: CCN is the standard measure of decision
   points, and a branch count would be the same number twice.
+- **`dependabot`: `http-cache-semantics` is open with no patched version.** The
+  advisory is *high* -- "max-stale handling can disclose cross-user cached
+  responses" -- and there is no fix to take, so it cannot be closed by an upgrade
+  or an `overrides` pin. Measured rather than waved through: it is a transitive
+  dependency of `astro` in `website/package-lock.json`, not dev-only, and the
+  disclosure requires a shared HTTP cache in front of the server. The website is a
+  static docs site built by Astro; the affected code path is the dev/preview
+  server, which is not exposed to multiple users in CI or in normal use. Recorded
+  here so the alert is not re-triaged from scratch each week, and revisited if the
+  website ever gains a served-with-cache path.
 - **No file-length cap.** Class size is gated (max type is 169/200), but total
   file length is not, so a file can grow by spreading across translation units.
 - **The CCN axis is finished; the NLOC axis is not worth finishing.** CCN
