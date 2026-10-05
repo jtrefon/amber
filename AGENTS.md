@@ -185,6 +185,23 @@ each one and confirming it goes red. Everything in the table above is checked at
   `./configure` and gitignored, so an edit made there is silently lost on the next
   configure. That happened once: the fix shipped in a PR description while never
   reaching the repository.
+- **Secret scanning** is the `gitleaks` action, a gating job in the `always`
+  dimension. Nothing else here looked for a committed credential:
+  `obfuscation-guard` reads tracked files for a payload signature, and CodeQL's
+  C++ queries do not look for secrets. gitleaks rather than a hand-rolled regex
+  scanner, because a scanner written here would be weaker than the maintained
+  ruleset and would risk being a gate that looks like a check and measures
+  nothing. `.gitleaks.toml` allowlists `tests/` (fixtures use realistic fake
+  credentials on purpose, and they must keep looking like credentials for the
+  redaction tests to test anything), `fuzz/corpus/` (arbitrary bytes), the npm
+  integrity hashes, and vendored code.
+- **Vendored third-party code is pinned by hash, and checked.** `md4c` was
+  fetched from upstream `master`, so no revision was ever recorded — a known gap,
+  not something to paper over with a plausible SHA. `build-hygiene` **P11**
+  compares the vendored files against the sha256 table in
+  `third_party/md4c/README.md` *and* requires the README to document it, so
+  neither a silent edit to the vendored parser nor an undocumented update passes.
+  Dependabot cannot see vendored code, which is the whole reason the table exists.
 - **`duplicates` covers `plugins/` and `bench/`** (`bench/scenarios/` excluded via
   `--exclude`, for the same reason complexity and nesting exclude it).
 
@@ -210,6 +227,7 @@ reasoning now applies to the rest:
 | lizard | `lizard==1.24.0`, `LIZARD_MIN_VERSION` floor | the gate parses lizard's `-w` output with a regex, and its NLOC/CCN arithmetic has moved between releases — an older lizard makes every recorded size a lie |
 | gcovr | `gcovr==8.6` | its report layout feeds `.codecov.yml` |
 | clang-format | runner-provided (18.1.3) | 18.1.8 and 23.x disagree on braced-init and line breaks |
+| gitleaks | `GITLEAKS_VERSION` pinned (8.30.1) | ships rules updates frequently, so the gate changes underneath you; the action also runs Node 20, which GitHub's runner stopped defaulting to in June 2026 |
 
 ## Gaps in the current gate set (measured, not assumed)
 

@@ -382,6 +382,38 @@ jobs:
   # the model endpoint, MCP JSON-RPC off a server process, and Markdown off
   # model output.
   # ---------------------------------------------------------------------------
+  # Secret scanning — nothing else in this workflow looks for a committed
+  # credential. `obfuscation-guard` reads tracked files for a payload signature,
+  # not for secrets; CodeQL's C++ queries do not look for credentials either.
+  #
+  # Dimension "always": it scans the whole tree regardless of what the diff
+  # touched, so it must never be skipped. Runs on every PR.
+  #
+  # Version pinned like the other analyzers. gitleaks' ruleset changes between
+  # releases, so an unpinned action is a gate that changes underneath you.
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan tracked files for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          # Pinned to a verified release (latest tagged is v8.30.1). gitleaks ships rules
+          # updates frequently, so an unpinned scanner changes underneath you -- the same
+          # reason cppcheck, lizard, gcovr and clang-format are pinned.
+          GITLEAKS_VERSION: v8.30.1
+          # gitleaks-action@v2 runs on Node 20, which GitHub's runner stopped defaulting
+          # to in June 2026. Without this the job fails on the runner, not on a finding --
+          # so it is set explicitly rather than discovered.
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+
+  # ---------------------------------------------------------------------------
   fuzz:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -864,7 +896,7 @@ jobs:
   # website deploy are delivery jobs; website smoke checks are gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, dependency-review, obfuscation-guard, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, fuzz, coverage, website-build, website-smoke]
+    needs: [changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, fuzz, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
