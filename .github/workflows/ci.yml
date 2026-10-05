@@ -407,7 +407,11 @@ jobs:
           # Pinned to a verified release (latest tagged is v8.30.1). gitleaks ships rules
           # updates frequently, so an unpinned scanner changes underneath you -- the same
           # reason cppcheck, lizard, gcovr and clang-format are pinned.
-          GITLEAKS_VERSION: v8.30.1
+          #
+          # WITHOUT the leading "v": the action prepends one itself, so "v8.30.1" builds
+          # the URL .../download/vv8.30.1/... and 404s. Found by the first CI run, which
+          # is why this comment exists.
+          GITLEAKS_VERSION: 8.30.1
           # gitleaks-action@v2 runs on Node 20, which GitHub's runner stopped defaulting
           # to in June 2026. Without this the job fails on the runner, not on a finding --
           # so it is set explicitly rather than discovered.
