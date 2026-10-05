@@ -366,7 +366,11 @@ def resolve_changed(args):
                 raw = json.load(handle)
         except (OSError, ValueError) as exc:
             return None, f"could not read {args.changed_lines}: {exc}"
-        return {p: set(v) for p, v in raw.items()}, None
+        # Same shape the diff path produces -- {path: {lineno: text}} -- because
+        # patch_coverage indexes it as a mapping. It used to build {path: set(lines)},
+        # so every use raised TypeError: a documented option that had never worked, and
+        # only reachable by running it.
+        return {p: {int(n): "" for n in v} for p, v in raw.items()}, None
     if args.diff_base:
         lines, err = diff_against(args.diff_base)
         if err:
@@ -379,7 +383,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--report", required=True, help="gcovr JSON summary")
     ap.add_argument("--diff-base", help="git ref to diff against, e.g. origin/main")
-    ap.add_argument("--changed-lines", help="JSON {path: [lines]} instead of a diff")
+    ap.add_argument("--changed-lines",
+                    help="JSON {path: [line numbers]} instead of a diff")
     ap.add_argument("--markdown", help="write a one-line summary here (for the report)")
     ap.add_argument("--absent-ok", action="append", default=[], metavar="REGEX",
                     help="changed source matching this is excluded from the coverage "

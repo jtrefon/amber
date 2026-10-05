@@ -370,6 +370,45 @@ class ReadingTheReport(unittest.TestCase):
         self.assertFalse(result.passes)
 
 
+class ChangedLinesOption(unittest.TestCase):
+    """--changed-lines is documented as JSON {path: [lines]}.
+
+    It built {path: set(lines)} while patch_coverage indexes the value as a mapping, so
+    every use raised TypeError. Nothing exercised it -- CI always uses --diff-base -- so
+    it had been broken for its whole life, and the fix is only observable by running it.
+    """
+
+    def _resolve(self, payload):
+        import json as _json
+        import tempfile as _tempfile
+        with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            _json.dump(payload, handle)
+            path = handle.name
+        try:
+            args = type("A", (), {"changed_lines": path, "diff_base": None})()
+            return cg.resolve_changed(args)
+        finally:
+            os.unlink(path)
+
+    def test_it_produces_the_shape_patch_coverage_indexes(self):
+        changed, err = self._resolve({"lib/a.cpp": [10, 11]})
+        self.assertIsNone(err)
+        self.assertEqual(changed, {"lib/a.cpp": {10: "", 11: ""}})
+
+    def test_it_is_usable_by_patch_coverage(self):
+        changed, err = self._resolve({"lib/a.cpp": [10, 11]})
+        self.assertIsNone(err)
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1, 11: 0}}), changed)
+        self.assertEqual(result.total, 2)
+        self.assertEqual(result.uncovered, [("lib/a.cpp", 11)])
+
+    def test_string_line_numbers_are_accepted(self):
+        """JSON object keys are strings; line numbers are not."""
+        changed, err = self._resolve({"lib/a.cpp": ["10", "11"]})
+        self.assertIsNone(err)
+        self.assertEqual(changed, {"lib/a.cpp": {10: "", 11: ""}})
+
+
 class GitOutputIsBytes(unittest.TestCase):
     """A diff can legitimately contain invalid UTF-8, and decoding it strictly raises.
 

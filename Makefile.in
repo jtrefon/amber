@@ -527,7 +527,7 @@ duplicates:
 	@echo "  clean"
 
 # Complexity gate: a method stays small (NLOC<=40), does not branch excessively
-# (CCN<=15) and does not take an unreadable number of parameters (PARAM<=6).
+# (CCN<=14) and does not take an unreadable number of parameters (PARAM<=6).
 # tests/complexity_baseline.json records the accepted over-limit functions, so
 # existing debt cannot grow and a new function must be clean.
 #

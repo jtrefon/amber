@@ -259,11 +259,20 @@ Known and deliberate, so nobody re-derives them:
   points, and a branch count would be the same number twice.
 - **No file-length cap.** Class size is gated (max type is 169/200), but total
   file length is not, so a file can grow by spreading across translation units.
-- **Margin on the size axes is thin.** NLOC and CCN are *at* their caps: 4
-  functions sit at exactly 40 NLOC and 4 at exactly CCN 15, with 42 functions
-  within 3 lines of the NLOC cap. The gates are green but have no slack, so
-  routine edits to those functions will trip them. Lowering the caps is the
-  only way to buy headroom, and that is a burn-down, not a one-off.
+- **The CCN axis is finished; the NLOC axis is not worth finishing.** CCN
+  `15 -> 14` was tightened once the four functions sitting at 15 were cleared,
+  and nothing is at or over 14 now, so it is a cliff on an empty baseline --
+  which is what a cap is supposed to be. It stops there: measured CCN has
+  median 3, p90 8, p99 12, max 13, so a cap anywhere near 13 says nothing true
+  about the code, and the remaining 16 functions at CCN >= 13 are ordinary.
+  The axis is exhausted; further burn-down there is theatre.
+
+  NLOC is different, and the distinction matters. `NLOC_MAX` is still 40 with
+  30 functions at >= 37 -- but **13 of those 30 have CCN <= 8**: flat, long,
+  linear code (`loop_probe_fail_streak` is 39 lines at CCN 5). Reaching
+  `NLOC_MAX = 36` means 41 refactors, most of them cosmetic, optimising a
+  measure of *length* that has stopped tracking difficulty. The NLOC burn-down
+  is deliberately stopped for that reason.
 
 ## Compilation gotchas
 
@@ -526,7 +535,7 @@ known mess, even in adjacent code.
     empty baseline, so it is a cliff).
   - A method/function should stay **under 10 lines** with **minimal branching**.
     Extract loops, parsing, and branching into named helpers. The **enforced**
-    cap is CCN 15 / 40 lines (`make complexity`); 10 lines is the aspiration,
+    cap is CCN 14 / 40 lines (`make complexity`); 10 lines is the aspiration,
     and `docs/complexity-burndown.md` records the gap.
 - **Layering / isolation**: this repo uses a **hexagonal (ports & adapters)**
   style, not strict N-layer:
@@ -733,7 +742,7 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 7478 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | 7493 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 324 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 123 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
 | `tui/tui_input.cpp` | 2987 | Method implementations (not a class); exempt from class-size rule. |
