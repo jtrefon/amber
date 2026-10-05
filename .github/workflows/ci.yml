@@ -395,6 +395,11 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # gitleaks-action reads the pull request through the API to scan the diff, so it needs
+    # to read refs and PR metadata. Read-only: nothing here needs write access.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -416,6 +421,9 @@ jobs:
           # to in June 2026. Without this the job fails on the runner, not on a finding --
           # so it is set explicitly rather than discovered.
           ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+          # v2 requires a token to read the pull request; without it the action exits
+          # before scanning anything. Found by the second CI run.
+          GITLEAKS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
   fuzz:
