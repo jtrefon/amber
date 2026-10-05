@@ -422,8 +422,13 @@ jobs:
           # so it is set explicitly rather than discovered.
           ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
           # v2 requires a token to read the pull request; without it the action exits
-          # before scanning anything. Found by the second CI run.
+          # BEFORE scanning anything, printing a message about GITHUB_TOKEN.
+          #
+          # Both names are set because the action's error names GITHUB_TOKEN while its
+          # documentation uses GITLEAKS_TOKEN. Guessing one cost a CI cycle; setting both
+          # costs nothing and cannot be wrong.
           GITLEAKS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
   fuzz:
