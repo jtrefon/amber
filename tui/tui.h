@@ -191,9 +191,6 @@ private:
     // ---- rendering (owned by RenderEngine) -------------------------------
     void draw();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
-    // Repaint the chat log and the input line in one call: the most common render step
-    // in the input loop, previously written out at each site.
-    void redraw(const CommandLine& cl);
     std::unique_ptr<RenderEngine> render_engine_;
 
     // Commands started by the UI and not yet reported. Job handles are

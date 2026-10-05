@@ -1491,6 +1491,7 @@ TEST(keyaction_every_variant_is_reachable_from_a_key) {
     const std::vector<Case> cases = {
         {"alt+1", tui::KeyAction::SwitchWindow, 0xB1, std::nullopt, false, false},
         {"ctrl+n", tui::KeyAction::NewWindow, 14, std::nullopt, false, false},
+        {"ctrl+w", tui::KeyAction::DeleteWord, 23, std::nullopt, false, false},
         {"ctrl+c", tui::KeyAction::CancelOrQuit, 3, std::nullopt, false, true},
         {"esc idle", tui::KeyAction::ToggleScrollMode, 27, std::nullopt, false, false},
         {"esc drawer", tui::KeyAction::CloseDrawer, 27, std::nullopt, true, false},
@@ -1504,13 +1505,11 @@ TEST(keyaction_every_variant_is_reachable_from_a_key) {
         state.drawer_open = c.drawer_open;
         state.busy = c.busy;
         state.window_count = 3;
-        const auto action = kb.dispatch({c.key,
-                                            c.followup ? std::optional<int>(c.followup)
-                                                       : std::nullopt},
-                                           state);
+        const auto action =
+            kb.dispatch({c.key, c.followup ? std::optional<int>(c.followup) : std::nullopt}, state);
         if (action.type != c.expected)
-            unreachable += std::string(c.name) + " -> type " + std::to_string(action.type)
-                          + " (wanted " + std::to_string(c.expected) + "); ";
+            unreachable += std::string(c.name) + " -> type " + std::to_string(action.type) +
+                           " (wanted " + std::to_string(c.expected) + "); ";
     }
     ASSERT_EQ(unreachable, std::string());
 }
@@ -1519,8 +1518,8 @@ TEST(keyaction_every_variant_is_reachable_from_a_key) {
 // test case must fail here. Without a sentinel there is no way to count the enum, so
 // KeyAction::Count exists solely to make the table above exhaustive-checkable.
 TEST(keyaction_no_variant_is_left_unaccounted_for) {
-    static_assert(static_cast<int>(tui::KeyAction::OpenPanels) + 1
-                      == static_cast<int>(tui::KeyAction::Count),
+    static_assert(static_cast<int>(tui::KeyAction::OpenPanels) + 1 ==
+                      static_cast<int>(tui::KeyAction::Count),
                   "a KeyAction variant was added; add a reachability case for it above, "
                   "and a binding, or it is dead code");
 }

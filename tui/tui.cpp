@@ -703,18 +703,9 @@ bool Tui::apply_key_action(const KeyAction& act, int ch, CommandLine& cl) {
     return true;
 }
 
-
 // Ctrl+C cancels the active window's run; ESC only reaches this action when the
 // binder saw the ACTIVE window busy, so it always cancels. Returns false when
 // the key should fall through to the quit path instead.
-// Repaint the chat log and the input line together. The most common render step in
-// the input loop, and it was written out at five call sites with two different
-// spellings (Tui::draw_input vs render_engine_->draw_input), so a change to how the
-// input line is drawn had to be found rather than made.
-void Tui::redraw(const CommandLine& cl) {
-    render_engine_->draw();
-    draw_input(cl.text(), cl.cursor(), cl.shadow());
-}
 
 bool Tui::cancel_active_run(int ch, CommandLine& cl) {
     if (ch == 3 && !runs_.busy(win().id))
@@ -726,7 +717,8 @@ bool Tui::cancel_active_run(int ch, CommandLine& cl) {
         win().agent->request_cancel();
     runs_.request_cancel(win().id);
     append_line(P_STATUS, "cancelling…");
-    redraw(cl);
+    render_engine_->draw();
+    draw_input(cl.text(), cl.cursor(), cl.shadow());
     return true;
 }
 
@@ -741,7 +733,8 @@ bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
             win().agent->request_cancel();
         runs_.request_cancel(win().id);
         append_line(P_STATUS, "cancelling…");
-        redraw(cl);
+        render_engine_->draw();
+        render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
         return true;
     }
     if (runs_.any_busy()) {
@@ -749,7 +742,8 @@ bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
                                    " agent(s) still running — quit anyway?");
         if (!q.run()) {
             redraw_after_modal();
-            redraw(cl);
+            render_engine_->draw();
+            draw_input(cl.text(), cl.cursor(), cl.shadow());
             return true;
         }
     }
@@ -770,7 +764,8 @@ bool Tui::handle_mouse_wheel(int ch, CommandLine& cl) {
         if (delta != 0) {
             win().scroll_top = scroll_dispatch::clamped_scroll_top(
                 win().scroll_top, delta, render_engine_->max_scroll(win()));
-            redraw(cl);
+            render_engine_->draw();
+            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
         }
     }
     return true;
@@ -953,17 +948,20 @@ void Tui::show_prompt_help(const CommandLine::Result& result, CommandLine& cl) {
     if (!page.empty()) {
         info_dialog(help_key, page);
         redraw_after_modal();
-        redraw(cl);
+        render_engine_->draw();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
         return;
     }
     const std::string msg = help_page::fallback_line(settings_, help_key);
     if (!msg.empty()) {
         append_line(P_STATUS, msg);
-        redraw(cl);
+        render_engine_->draw();
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
         return;
     }
     slash_dispatcher_->cmd_help(help_page::command_from_node(result.help_node));
-    redraw(cl);
+    render_engine_->draw();
+    draw_input(cl.text(), cl.cursor(), cl.shadow());
 }
 
 void Tui::flush_if_dirty() {

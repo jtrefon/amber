@@ -20,14 +20,14 @@ namespace tui {
 // a branch per feature and new entry points stay additive.
 struct KeyAction {
     enum Type {
-        None,               // no binding for this key/state
-        SwitchWindow,       // arg = zero-based window index
-        NewWindow,          // switch to a freshly created window
-        CancelOrQuit,       // Ctrl+C: cancel if busy, save+quit if idle
-        ToggleScrollMode,   // ESC in idle state
-        CloseDrawer,        // ESC when drawer is open
-        DeleteWord,         // Alt+B / Ctrl+W
-        OpenPanels,         // Alt+0 / ESC+0: the panel view (registry console, status)
+        None,             // no binding for this key/state
+        SwitchWindow,     // arg = zero-based window index
+        NewWindow,        // switch to a freshly created window
+        CancelOrQuit,     // Ctrl+C: cancel if busy, save+quit if idle
+        ToggleScrollMode, // ESC in idle state
+        CloseDrawer,      // ESC when drawer is open
+        DeleteWord,       // Alt+B / Ctrl+W
+        OpenPanels,       // Alt+0 / ESC+0: the panel view (registry console, status)
         // Sentinel, never produced and never acted on. Exists so a test can count the
         // variants above and fail when one is added without a binding and a case.
         Count,
