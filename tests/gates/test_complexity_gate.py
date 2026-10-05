@@ -179,8 +179,51 @@ class StillDetectsViolations(unittest.TestCase):
 
 class AxesAreDeclared(unittest.TestCase):
     def test_size_axes(self):
-        self.assertEqual(cg.CCN_MAX, 15)
+        # Pinned so a cap change has to be a deliberate edit rather than a side effect.
+        # CCN_MAX went 15 -> 14 once the four functions sitting at 15 were cleared, so the
+        # cap could tighten on an empty baseline.
+        self.assertEqual(cg.CCN_MAX, 14)
         self.assertEqual(cg.NLOC_MAX, 40)
+
+    def test_no_accepted_function_exceeds_the_ccn_cap(self):
+        """What makes the cap meaningful is that nothing is grandfathered under it.
+
+        The 18 recorded functions are all over PARAM, not over CCN or NLOC -- those two
+        axes have empty baselines, which is why they are cliffs rather than ratchets.
+        Asserting the axis directly (rather than checking a key that may not exist) is
+        what stops this passing vacuously if the baseline format changes.
+        """
+        import json as _json
+        with open(cg.BASELINE, encoding="utf-8") as handle:
+            baseline = _json.load(handle)
+        over = {
+            f"{path}::{name}": record.get("ccn")
+            for path, entries in baseline["functions"].items()
+            for name, record in entries.items()
+            if record.get("ccn", 0) > cg.CCN_MAX
+        }
+        self.assertEqual(over, {}, f"CCN baseline is not empty: {over}")
+
+    def test_no_accepted_function_exceeds_the_nloc_cap(self):
+        import json as _json
+        with open(cg.BASELINE, encoding="utf-8") as handle:
+            baseline = _json.load(handle)
+        over = {
+            f"{path}::{name}": record.get("nloc")
+            for path, entries in baseline["functions"].items()
+            for name, record in entries.items()
+            if record.get("nloc", 0) > cg.NLOC_MAX
+        }
+        self.assertEqual(over, {}, f"NLOC baseline is not empty: {over}")
+
+    def test_the_baseline_records_the_cap_it_was_written_for(self):
+        """A baseline regenerated under a different cap must not be silently reused: the
+        recorded cap is what the recorded measurements were judged against."""
+        import json as _json
+        with open(cg.BASELINE, encoding="utf-8") as handle:
+            baseline = _json.load(handle)
+        self.assertEqual(baseline["ccn_max"], cg.CCN_MAX)
+        self.assertEqual(baseline["nloc_max"], cg.NLOC_MAX)
 
     def test_parameter_cap_is_declared(self):
         self.assertGreater(cg.PARAM_MAX, 0,

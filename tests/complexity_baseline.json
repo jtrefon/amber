@@ -1,5 +1,5 @@
 {
-  "ccn_max": 15,
+  "ccn_max": 14,
   "functions": {
     "bench/kpi.cpp": {
       "bench::compute_kpi": {

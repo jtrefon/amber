@@ -7134,6 +7134,13 @@ struct ScopeObservation {
     // Never requested: isolates the scope chain from the fallback path, so a
     // true `cancelled` can only come from the scoped token surviving the hop.
     agent::CancellationToken inert;
+    // When set, execute() waits for the cancel before observing it. A test that
+    // spawns a worker and then requests the cancel has a race: whether the worker
+    // sees it depends on whether it was scheduled before or after the request, and
+    // under TSan the interleaving flips. Waiting makes the observation point
+    // deterministic while still failing if the cancel never propagates -- the spin
+    // is bounded, so a broken scope chain ends in the assertion, not a hang.
+    bool wait_for_cancel = false;
 };
 
 // Reports what the run scope resolved to for THIS worker thread.
@@ -7149,6 +7156,11 @@ public:
     }
 
     agent::ToolResult execute(const agent::json& args) const override {
+        if (obs_.wait_for_cancel) {
+            constexpr int kMaxSpins = 1000000;
+            for (int spins = 0; spins < kMaxSpins && !agent::run_cancelled(obs_.inert); ++spins)
+                std::this_thread::yield();
+        }
         obs_.saw_scope = agent::current_run_scope() != nullptr;
         obs_.cancelled = agent::run_cancelled(obs_.inert);
         obs_.resolved_catalog = &agent::effective_catalog(bound_);
@@ -7315,6 +7327,7 @@ TEST(dispatch_sibling_scopes_do_not_cross_cancel) {
     agent::SkillCatalog bound_a(cfg, {}, "/tmp/amber_fix033_sib_a");
     agent::SkillCatalog bound_b(cfg, {}, "/tmp/amber_fix033_sib_b");
     ScopeObservation obs_a, obs_b;
+    obs_a.wait_for_cancel = true; // A must see the cancel; B must not wait for one
     agent::ToolRegistry reg_a, reg_b;
     reg_a.register_tool(std::make_unique<ScopeProbeTool>(obs_a, bound_a));
     reg_b.register_tool(std::make_unique<ScopeProbeTool>(obs_b, bound_b));
@@ -7336,6 +7349,8 @@ TEST(dispatch_sibling_scopes_do_not_cross_cancel) {
     token_a.request(); // cancel A only
     ta.join();
     tb.join();
+    // A's probe waits for the cancel before observing it, so this no longer depends on
+    // which thread the scheduler runs first.
 
     ASSERT(obs_a.cancelled);       // A sees its own cancel
     ASSERT_FALSE(obs_b.cancelled); // B is untouched (its fallback is inert)

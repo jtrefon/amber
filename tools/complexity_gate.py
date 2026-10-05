@@ -41,7 +41,7 @@ import re
 import subprocess
 import sys
 
-CCN_MAX = 15
+CCN_MAX = 14
 NLOC_MAX = 40
 PARAM_MAX = 6
 
