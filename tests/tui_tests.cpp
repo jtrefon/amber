@@ -1470,6 +1470,58 @@ TEST(keybinder_esc_digit_switches_while_busy) {
     ASSERT_EQ(act.arg, 2);
 }
 
+// The key-binding protocol is a vocabulary: every variant must be reachable from a real
+// key, or it is dead weight that misleads the next reader. Four variants (CloseWindow,
+// Quit, Scroll, RouteToCommandLine) survived a refactor with no producer and no consumer,
+// which is exactly the state a compiler cannot report and only a test can.
+//
+// Each case is driven through the real KeyBinder, so this asserts reachability rather
+// than merely that a name appears in a switch somewhere.
+TEST(keyaction_every_variant_is_reachable_from_a_key) {
+    auto kb = tui::KeyBinder(load_test_keybindings());
+    tui::InputState idle;
+
+    struct Case {
+        const char* name;
+        tui::KeyAction::Type expected;
+        int key;
+        std::optional<int> followup;
+        bool drawer_open;
+        bool busy;
+    };
+    const std::vector<Case> cases = {
+        {"alt+1", tui::KeyAction::SwitchWindow, 0xB1, std::nullopt, false, false},
+        {"ctrl+n", tui::KeyAction::NewWindow, 14, std::nullopt, false, false},
+        {"ctrl+c", tui::KeyAction::CancelOrQuit, 3, std::nullopt, false, true},
+        {"esc idle", tui::KeyAction::ToggleScrollMode, 27, std::nullopt, false, false},
+        {"esc drawer", tui::KeyAction::CloseDrawer, 27, std::nullopt, true, false},
+        {"alt+b", tui::KeyAction::DeleteWord, 0xF2, std::nullopt, false, false},
+        {"alt+0", tui::KeyAction::OpenPanels, 0xB0, std::nullopt, false, false},
+    };
+
+    std::vector<std::string> unreachable;
+    for (const Case& c : cases) {
+        tui::InputState state;
+        state.drawer_open = c.drawer_open;
+        state.busy = c.busy;
+        state.window_count = 3;
+        const auto action = kb.dispatch({c.key, c.followup}, state);
+        if (action.type != c.expected)
+            unreachable.push_back(std::string(c.name) + " produced a different action");
+    }
+    ASSERT_EQ(unreachable.size(), (size_t)0);
+}
+
+// The completeness half: a variant added to the enum without a binding and without a
+// test case must fail here. Without a sentinel there is no way to count the enum, so
+// KeyAction::Count exists solely to make the table above exhaustive-checkable.
+TEST(keyaction_no_variant_is_left_unaccounted_for) {
+    static_assert(static_cast<int>(tui::KeyAction::OpenPanels) + 1
+                      == static_cast<int>(tui::KeyAction::Count),
+                  "a KeyAction variant was added; add a reachability case for it above, "
+                  "and a binding, or it is dead code");
+}
+
 TEST(keybinder_loads_bindings_from_json) {
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
