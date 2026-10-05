@@ -927,6 +927,10 @@ jobs:
           NEEDS: ${{ toJson(needs) }}
           CPP_CHANGED: ${{ needs.changes.outputs.cpp }}
           WEB_CHANGED: ${{ needs.changes.outputs.website }}
+          # lint and dependency-review are pull_request-only by design, so a push to main
+          # skips them legitimately. Without telling the gate which event is running, that
+          # skip looked identical to a bypass and every push to main went red.
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         # The decision lives in tools/gate_needs_check.py rather than inline jq so it can
         # be run and tested locally. It carries its own table of cases; the check gate
         # runs them. A skip is legitimate only for the dimension `changes` says this diff

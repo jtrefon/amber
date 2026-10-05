@@ -158,15 +158,21 @@ Two more found by **mutation testing the gates themselves** — deliberately bre
 each one and confirming it goes red. Everything in the table above is checked at
 `make check` or on CI, but a gate can be wired up correctly and still measure nothing:
 
-- **A skip is not a pass.** `ci-gate` used to accept `skipped` for every gating job,
-  so `if: false` on a gate — or a path filter that misclassified a directory — turned
-  the pipeline green with that gate never having run. A skip is now acceptable only for
-  the *dimension* `changes` says the diff cannot affect (`cpp` / `web` / `always`),
-  because the two are independent: a C++-only PR legitimately skips the website jobs,
-  and judging both with one flag blocked every non-website PR. The decision lives in
-  `tools/gate_needs_check.py` — 39 cases run as `build-hygiene` **P10** — because the
-  first two versions of it were written inline in YAML, where neither could be tested
-  locally and both were wrong. An unknown GitHub result counts as a failure.
+- **A skip is not a pass** — but a skip has *two* independent legitimate causes, and
+  conflating them is how this gate broke main. `ci-gate` used to accept `skipped` for
+  every gating job, so `if: false` on a gate — or a path filter that misclassifying a
+  directory — turned the pipeline green with that gate never having run. Closing that by
+  judging skips against the single `cpp` flag was wrong in the other direction: `lint`
+  and `dependency-review` are `pull_request`-only **by design**, so every push to `main`
+  skipped them legitimately and ci-gate failed. Three consecutive red main runs went
+  unnoticed because ci-gate is usually watched on pull requests.
+  A skip is therefore acceptable only when the diff cannot affect that job's
+  **dimension** (`cpp` / `web` / `always`) *or* the job does not apply to this
+  **event**. The decision lives in `tools/gate_needs_check.py` — 61 cases run as
+  `build-hygiene` **P10** — because the first three versions of it were written inline
+  in YAML, where none could be tested locally and every one of them was wrong. An
+  unknown GitHub result counts as a failure, and a job absent from its dimension table
+  defaults to `always`, so forgetting to list one cannot make its skip acceptable.
 - **The path filter is an allowlist.** `tools/changed_paths.sh` answers "is this
   documentation?" and treats *any unrecognised path as code*, because the costs are
   asymmetric: a wrong "yes" costs CI minutes, a wrong "no" skips every C++ gate on a

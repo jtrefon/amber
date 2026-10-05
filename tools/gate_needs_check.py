@@ -25,16 +25,18 @@ import os
 import sys
 
 ALWAYS = "always"
+PULL_REQUEST_ONLY = "pull_request"
+ALL_EVENTS = ("pull_request", "push")
 
 # jobs whose result "skipped" is acceptable when the matching output is false
 DIMENSIONS = {
     "changes": ALWAYS,
     "obfuscation-guard": ALWAYS,
-    "dependency-review": ALWAYS,
     "secret-scan": ALWAYS,
+    "dependency-review": ALWAYS,
+    "lint": "cpp",
     "build-and-test": "cpp",
     "build-and-test-macos": "cpp",
-    "lint": "cpp",
     "analyze": "cpp",
     "check": "cpp",
     "complexity": "cpp",
@@ -56,6 +58,7 @@ ALL_JOBS = (
     "obfuscation-guard",
     "dependency-review",
     "secret-scan",
+    "lint",
     "build-and-test",
     "build-and-test-macos",
     "lint",
@@ -71,24 +74,43 @@ ALL_JOBS = (
     "website-build",
     "website-smoke",
 )
-CPP_JOBS = ("build-and-test", "build-and-test-macos", "lint", "analyze", "check",
-            "complexity", "duplicates", "format-check", "sanitizers", "tsan", "fuzz",
-            "coverage")
+# Jobs the workflow itself scopes to pull_request events. On a push they are skipped by
+# design, and treating that as "the gate did not run" turned every push to main red --
+# for three consecutive runs before anyone noticed, because ci-gate is usually watched on
+# pull requests. The skip is legitimate; the event is the reason.
+EVENTS = {
+    "dependency-review": (PULL_REQUEST_ONLY,),
+    "lint": (PULL_REQUEST_ONLY,),
+}
+
+CPP_JOBS = ("build-and-test", "build-and-test-macos", "analyze", "check",
+               "complexity", "duplicates", "format-check", "sanitizers", "tsan", "fuzz",
+               "coverage")
 WEB_JOBS = ("website-build", "website-smoke")
-ALWAYS_JOBS = ("obfuscation-guard", "dependency-review", "secret-scan")
+ALWAYS_JOBS = ("obfuscation-guard", "secret-scan")
+PR_ONLY_JOBS = tuple(sorted(EVENTS))
 
 NOT_APPLICABLE = {"skipped", "neutral"}
 
 
-def offenders(needs, cpp_changed, web_changed):
+def offenders(needs, cpp_changed, web_changed, event="pull_request"):
     """Jobs whose result means this run may not be called green."""
     bad = []
     changes = needs.get("changes", {}).get("result")
     if changes != "success":
         bad.append(f"changes [{ALWAYS}]: {changes}")
 
-    def not_applicable(dimension):
-        """Whether this diff provably cannot affect the given dimension."""
+    def not_applicable(job, dimension):
+        """Whether this job was skipped for a reason that is legitimate here.
+
+        Two independent reasons, and conflating them is what made every push to main red:
+        the diff cannot affect the job's dimension, or the workflow scopes the job to a
+        different event than the one running. `lint` is pull_request-only because its
+        incremental selector is a diff selector; there is no push-shaped equivalent, and
+        `lint-full` is the safety net there.
+        """
+        if EVENTS.get(job, ALL_EVENTS) and event not in EVENTS.get(job, ALL_EVENTS):
+            return True
         return (dimension == "cpp" and not cpp_changed) or (dimension == "web" and not web_changed)
 
     for job, info in sorted(needs.items()):
@@ -99,7 +121,7 @@ def offenders(needs, cpp_changed, web_changed):
         if result == "success":
             continue
         if result in NOT_APPLICABLE:
-            if not not_applicable(dimension):
+            if not not_applicable(job, dimension):
                 bad.append(f"{job} [{dimension}]: {result} but this diff can affect it")
             continue
         # A failure, a cancellation, or a result this gate has never heard of. An unknown
@@ -109,8 +131,8 @@ def offenders(needs, cpp_changed, web_changed):
     return bad
 
 
-def check(needs, cpp_changed, web_changed):
-    bad = offenders(needs, cpp_changed, web_changed)
+def check(needs, cpp_changed, web_changed, event="pull_request"):
+    bad = offenders(needs, cpp_changed, web_changed, event)
     if bad:
         print("gating jobs did not pass:")
         for item in bad:
@@ -148,44 +170,50 @@ WITHOUT = {name: set(ALL_JOBS) - {name} for name in ALL_JOBS}
 
 
 def selftest():
+    PR, PUSH = "pull_request", "push"
     cases = [
-        # (description, needs, cpp, web, want_failure)
-        ("C++ PR: everything runs", _needs(ALL_RUNNING), True, True, False),
-        ("C++-only PR: web skipped", _needs(set(ALL_JOBS) - set(WEB_JOBS)), True, False, False),
-        ("web-only PR: cpp skipped", _needs(set(ALL_JOBS) - set(CPP_JOBS)), False, True, False),
+        # (description, needs, cpp, web, want_failure, event)
+        ("C++ PR: everything runs", _needs(ALL_RUNNING), True, True, False, PR),
+        ("C++-only PR: web skipped", _needs(set(ALL_JOBS) - set(WEB_JOBS)), True, False, False, PR),
+        ("web-only PR: cpp skipped", _needs(set(ALL_JOBS) - set(CPP_JOBS)), False, True, False, PR),
         ("docs-only PR: cpp and web skipped",
-         _needs(set(ALWAYS_JOBS)), False, False, False),
-        ("changes itself fails", _needs(ALL_RUNNING, changes="failure"), True, True, True),
+         _needs(set(ALWAYS_JOBS) | set(PR_ONLY_JOBS)), False, False, False, PR),
+        ("changes itself fails", _needs(ALL_RUNNING, changes="failure"), True, True, True, PR),
+        ("a gate is cancelled", _needs(ALL_RUNNING) | {"tsan": {"result": "cancelled"}}, True, True, True, PR),
+        ("a gate reports an unknown result", _needs(ALL_RUNNING) | {"lint": {"result": "weird"}}, True, True, True, PR),
+        ("BYPASS: unlisted gating job skipped",
+         _needs(ALL_RUNNING) | {"brand-new-gate": {"result": "skipped"}}, True, True, True, PR),
+        ("unlisted gating job that ran is fine",
+         _needs(ALL_RUNNING) | {"brand-new-gate": {"result": "success"}}, True, True, False, PR),
     ]
-    # One case per job: skipping a job that the diff CAN affect must block. This is the
-    # bypass test, and building it by name keeps it independent of the dimension table.
+    # The bypass test: skipping a job the diff CAN affect must block.
     for name in ALL_JOBS:
-        affects = True
-        cases.append((f"BYPASS: {name} skipped on a diff that affects it",
-                      _needs(set(ALL_JOBS) - {name}), affects, True, True))
-    # ...and skipping a job the diff cannot affect must not block.
+        cases.append((f"BYPASS: {name} skipped on a C++ PR",
+                      _needs(set(ALL_JOBS) - {name}), True, True, True, PR))
+    # Legitimate skips: the diff cannot affect the dimension, or the job is PR-only.
     for name in WEB_JOBS:
-        cases.append((f"{name} skipped on a non-website diff",
-                      _needs(set(ALL_JOBS) - {name}), True, False, False))
+        cases.append((f"{name} skipped on a non-website PR",
+                      _needs(set(ALL_JOBS) - {name}), True, False, False, PR))
     for name in CPP_JOBS:
-        cases.append((f"{name} skipped on a docs-only diff",
-                      _needs(set(ALL_JOBS) - {name}), False, False, False))
-    # An "always" job scans the whole tree, so no diff makes it skippable -- it must run
-    # even when the C++ suite is legitimately skipped.
+        cases.append((f"{name} skipped on a docs-only PR",
+                      _needs(set(ALL_JOBS) - {name}), False, False, False, PR))
+    # An "always" job scans the whole tree, so no diff makes it skippable.
     for name in ALWAYS_JOBS:
-        cases.append((f"{name} skipped even on a docs-only diff",
-                      _needs(set(ALL_JOBS) - {name}), False, False, True))
-    cases += [
-        ("a gate is cancelled", _needs(ALL_RUNNING) | {"tsan": {"result": "cancelled"}}, True, True, True),
-        ("a gate reports an unknown result", _needs(ALL_RUNNING) | {"lint": {"result": "weird"}}, True, True, True),
-        # A gating job added to `needs` but absent from DIMENSIONS defaults to "always",
-        # so forgetting to list it cannot quietly make its skip acceptable.
-        ("BYPASS: unlisted gating job skipped", _needs(ALL_RUNNING) | {"brand-new-gate": {"result": "skipped"}}, True, True, True),
-        ("unlisted gating job that ran is fine", _needs(ALL_RUNNING) | {"brand-new-gate": {"result": "success"}}, True, True, False),
-    ]
+        cases.append((f"{name} skipped even on a docs-only PR",
+                      _needs(set(ALL_JOBS) - {name}), False, False, True, PR))
+    # PR-only jobs skipped on a push: legitimate, and the reason main used to be red.
+    for name, events in sorted(EVENTS.items()):
+        cases.append((f"{name} skipped on a push (it is {events[0]}-only)",
+                      _needs(set(ALL_JOBS) - {name}), True, True, False, PUSH))
+        cases.append((f"BYPASS: {name} skipped on a pull request",
+                      _needs(set(ALL_JOBS) - {name}), True, True, True, PR))
+    # A push must still be held to every job that does apply to it.
+    for name in CPP_JOBS + ALWAYS_JOBS + WEB_JOBS:
+        cases.append((f"BYPASS: {name} skipped on a push",
+                      _needs(set(ALL_JOBS) - {name}), True, True, True, PUSH))
     failures = _check_fixture_coverage()
-    for desc, needs, cpp, web, want_fail in cases:
-        bad = offenders(needs, cpp, web)
+    for desc, needs, cpp, web, want_fail, event in cases:
+        bad = offenders(needs, cpp, web, event)
         got_fail = bool(bad)
         if got_fail != want_fail:
             failures += 1
@@ -204,6 +232,7 @@ def selftest():
 def main(argv):
     if "--selftest" in argv:
         return selftest()
+    event = os.environ.get("GITHUB_EVENT_NAME", "pull_request").strip() or "pull_request"
     cpp = os.environ.get("CPP_CHANGED", "").strip().lower() == "true"
     web = os.environ.get("WEB_CHANGED", "").strip().lower() == "true"
     try:
@@ -214,7 +243,7 @@ def main(argv):
     if not needs:
         print("gate_needs_check: FAILED CLOSED - empty needs", file=sys.stderr)
         return 2
-    return check(needs, cpp, web)
+    return check(needs, cpp, web, event)
 
 
 if __name__ == "__main__":
