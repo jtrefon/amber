@@ -13,15 +13,6 @@ namespace agent {
 
 namespace {
 
-// How long a task waits for a slot, or for a serial-mode sibling, before giving
-// up and reporting back. Generous enough for a real queue, bounded enough that
-// a wedged sibling cannot hold the parent indefinitely.
-constexpr int kSlotWaitSec = 120; // default slot/serial wait
-
-} // namespace
-
-namespace {
-
 thread_local bool t_in_subagent = false;
 thread_local bool t_subagent_inherited = false;
 
