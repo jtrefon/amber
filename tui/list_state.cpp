@@ -29,25 +29,65 @@ void ListState::reset_cursor() {
     scroll_offset_ = 0;
 }
 
-ListState::Action ListState::move_up() {
-    if (selection_ <= 0)
+ListState::Action ListState::move_by(int delta, int max_visible, int count) {
+    if (count <= 0)
         return Action::None;
-    --selection_;
-    if (selection_ < scroll_offset_)
-        scroll_offset_ = selection_;
+    int sel = selection_ + delta;
+    if (sel < 0)
+        sel = 0;
+    if (sel > count - 1)
+        sel = count - 1;
+    if (sel == selection_)
+        return Action::None;
+    selection_ = sel;
+    if (max_visible > 0) {
+        if (selection_ < scroll_offset_)
+            scroll_offset_ = selection_;
+        else if (selection_ >= scroll_offset_ + max_visible)
+            scroll_offset_ = selection_ - max_visible + 1;
+    }
     return Action::Redraw;
+}
+
+ListState::Action ListState::move_up(int max_visible) {
+    return move_by(-1, max_visible, static_cast<int>(filtered().size()));
 }
 
 ListState::Action ListState::move_down(int max_visible, int count) {
-    if (selection_ >= count - 1)
-        return Action::None;
-    ++selection_;
-    if (selection_ >= scroll_offset_ + max_visible)
-        scroll_offset_ = selection_ - max_visible + 1;
-    return Action::Redraw;
+    return move_by(1, max_visible, count);
 }
 
-ListState::Action ListState::key_filter_mode(int ch) {
+// Arrow/page/home/end handling, shared by filter and normal mode so the two
+// cannot drift. Typing "/" switches this widget straight into filter mode, and
+// without navigation keys here the selection froze for as long as the filter
+// stayed open -- KEY_UP/KEY_DOWN are 259/258, above the printable range, so
+// they used to fall through the printable branch to Action::None and the
+// arrows died the moment you typed to narrow a list.
+ListState::Action ListState::key_nav(int ch, int max_visible) {
+    const int count = static_cast<int>(filtered().size());
+    const int page = std::max(1, max_visible);
+    switch (ch) {
+    case keys::kUp:
+        return move_up(max_visible);
+    case keys::kDown:
+        return move_down(max_visible, count);
+    case keys::kPPage:
+        return move_by(-page, max_visible, count);
+    case keys::kNPage:
+        return move_by(page, max_visible, count);
+    case keys::kHome:
+        return move_by(-count, max_visible, count);
+    case keys::kEnd:
+        return move_by(count, max_visible, count);
+    default:
+        return Action::None;
+    }
+}
+
+ListState::Action ListState::key_filter_mode(int ch, int max_visible) {
+    const Action nav = key_nav(ch, max_visible);
+    if (nav != Action::None)
+        return nav;
     if (ch == 27) { // Esc cancels the filter
         filter_mode_ = false;
         filter_.clear();
@@ -73,12 +113,13 @@ ListState::Action ListState::key_filter_mode(int ch) {
 }
 
 ListState::Action ListState::key_normal_mode(int ch, int max_visible) {
+    const Action nav = key_nav(ch, max_visible);
+    if (nav != Action::None)
+        return nav;
     const int count = static_cast<int>(filtered().size());
     switch (ch) {
-    case keys::kUp:
     case 'k':
-        return move_up();
-    case keys::kDown:
+        return move_up(max_visible);
     case 'j':
         return move_down(max_visible, count);
     case '\n':
@@ -103,7 +144,7 @@ ListState::Action ListState::key(int ch, int max_visible) {
         return Action::Redraw;
     }
     if (filter_mode_)
-        return key_filter_mode(ch);
+        return key_filter_mode(ch, max_visible);
     return key_normal_mode(ch, max_visible);
 }
 

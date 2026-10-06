@@ -113,9 +113,6 @@ void Tui::trim_lines(Window& w) {
 std::string RenderEngine::drawer_token(const std::string& input) {
     return palette::token(input);
 }
-bool RenderEngine::drawer_has_arg(const std::string& input) {
-    return palette::has_arg(input);
-}
 std::vector<const palette::Command*> RenderEngine::filter_commands(const std::string& token) {
     return palette::filter(tui_.commands(), token);
 }

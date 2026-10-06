@@ -34,12 +34,21 @@ public:
     void remap_selection();
 
 private:
-    // A filter change always returns the cursor to the top of the list.
-    void reset_cursor();
-    Action key_filter_mode(int ch);
-    Action key_normal_mode(int ch, int max_visible);
-    Action move_up();
-    Action move_down(int max_visible, int count);
+      // A filter change always returns the cursor to the top of the list.
+      void reset_cursor();
+      Action key_filter_mode(int ch, int max_visible);
+      Action key_normal_mode(int ch, int max_visible);
+      // Arrow/page/home/end handling, shared by both modes so the two cannot
+      // drift. Action::None means "not a navigation key"; a navigation key at
+      // the end of the list also reports None, which is equally a no-op for
+      // both callers.
+      Action key_nav(int ch, int max_visible);
+      // Move the selection by delta (negative up), clamped to the list, and
+      // scroll the window to keep it visible. max_visible <= 0 means "window
+      // position is the caller's business".
+      Action move_by(int delta, int max_visible, int count);
+      Action move_up(int max_visible);
+      Action move_down(int max_visible, int count);
 
     std::vector<std::string> items_;
     std::string filter_;
