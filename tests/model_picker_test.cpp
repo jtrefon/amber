@@ -1,6 +1,12 @@
 #include "tui/model_picker.h"
 #include "tests/test_util.h"
 
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+
 namespace {
 
 tui::ProviderCatalog cat(const std::string& provider, bool configured,
@@ -215,4 +221,106 @@ TEST(model_picker_subtree_keeps_both_providers_of_a_shared_id) {
 TEST(model_picker_empty_rows_produce_an_empty_subtree) {
     auto sub = tui::model_subtree({}, "a.");
     ASSERT_EQ(sub["set"]["children"]["model"]["children"].size(), 0u);
+}
+
+// The cache read is exercised for real rather than mocked: the catalogue is
+// written under $XDG_CONFIG_HOME/amber/cache keyed by api_base+flavor, so
+// pointing XDG_CONFIG_HOME at a temporary directory and writing the file
+// proves the whole path -- including that the FLAVOUR reaches the key. A
+// provider that does not speak openai must not read openai's cache.
+namespace {
+
+struct ScopedConfigHome {
+    std::string saved;
+    ScopedConfigHome() {
+        const char* old = std::getenv("XDG_CONFIG_HOME");
+        saved = old ? old : "";
+        dir = std::filesystem::temp_directory_path() / "amber_picker_test_cfg";
+        std::filesystem::create_directories(dir / "amber" / "cache");
+        setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+    }
+    ~ScopedConfigHome() {
+        if (saved.empty())
+            unsetenv("XDG_CONFIG_HOME");
+        else
+            setenv("XDG_CONFIG_HOME", saved.c_str(), 1);
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+    std::filesystem::path dir;
+};
+
+long long now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+std::size_t fnv1a(const std::string& key) {
+    std::size_t h = 1469598103934665603ULL;
+    for (unsigned char c : key) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+void write_catalogue(const std::filesystem::path& cfg_root, const std::string& api_base,
+                     const std::string& flavor, const std::string& body) {
+    char name[64];
+    std::snprintf(name, sizeof(name), "models-%016zx.json", fnv1a(api_base + "\n" + flavor));
+    // The catalogue cache stores the response body as a JSON *string*, not as
+    // an embedded object -- the file on disk is {"body":"{\"data\":[...]}"} --
+    // so a test that writes an object here silently exercises nothing.
+    std::string quoted;
+    for (const char c : body) {
+        if (c == '"' || c == '\\')
+            quoted += '\\';
+        quoted += c;
+    }
+    std::ofstream f(cfg_root / "amber" / "cache" / name);
+    f << R"({"fetched_ms":)" << now_ms() << R"(,"body":")" << quoted << R"("})";
+}
+
+} // namespace
+
+TEST(model_picker_reads_a_providers_cached_catalogue) {
+    ScopedConfigHome home;
+    write_catalogue(home.dir, "https://api.kilo.ai/api/gateway", "openai",
+                    R"({"data":[{"id":"kilo-auto/free","context_length":256000},)"
+                    R"({"id":"kilo-auto/frontier"}]})");
+    tui::ProviderEndpoint e;
+    e.name = "kilocode";
+    e.api_base = "https://api.kilo.ai/api/gateway";
+    auto rows = tui::cached_models_for(e);
+    ASSERT_EQ(rows.size(), 2u);
+    ASSERT_EQ(rows[0].provider, std::string("kilocode"));
+    ASSERT_EQ(rows[0].id, std::string("kilo-auto/free"));
+    ASSERT(rows[0].context > 0);
+}
+
+// The cache key is api_base+flavor, so a provider speaking a different dialect
+// must not pick up another provider's listing.
+TEST(model_picker_cache_read_is_keyed_by_flavor_too) {
+    ScopedConfigHome home;
+    write_catalogue(home.dir, "https://api.anthropic.com/v1", "anthropic",
+                    R"({"data":[{"id":"claude-opus-4.8"}]})");
+    tui::ProviderEndpoint wrong;
+    wrong.name = "anthropic";
+    wrong.api_base = "https://api.anthropic.com/v1";
+    wrong.flavor = "openai"; // same endpoint, different dialect
+    ASSERT_EQ(tui::cached_models_for(wrong).size(), 0u);
+    tui::ProviderEndpoint right = wrong;
+    right.flavor = "anthropic";
+    ASSERT_EQ(tui::cached_models_for(right).size(), 1u);
+}
+
+// A cold or absent cache must yield nothing rather than throwing or inventing a
+// listing: the feed treats empty as "this provider has nothing yet".
+TEST(model_picker_missing_catalogue_yields_no_rows) {
+    ScopedConfigHome home;
+    tui::ProviderEndpoint e;
+    e.name = "openrouter";
+    e.api_base = "https://openrouter.ai/api/v1";
+    ASSERT_EQ(tui::cached_models_for(e).size(), 0u);
 }

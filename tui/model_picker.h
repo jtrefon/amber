@@ -78,6 +78,19 @@ using CatalogReader = std::vector<ProviderModel> (*)(const ProviderEndpoint&);
 std::vector<ProviderCatalog> catalogs_from(const std::vector<ProviderEndpoint>& endpoints,
                                            CatalogReader read);
 
+// Read one endpoint's models from the on-disk catalogue cache.
+//
+// Lives here rather than in the feed so it is testable: the cache is keyed by
+// api_base+flavor under $XDG_CONFIG_HOME/amber/cache, so a test can point
+// XDG_CONFIG_HOME at a temporary directory, write a catalogue, and exercise the
+// real read path -- including that the flavour reaches the key, since a provider
+// that does not speak openai must not be parsed, or cached, as though it does.
+//
+// Cache-only by contract: this runs while the UI thread composes a drawer, so it
+// must never fetch. A missing or unreadable cache yields nothing, which is the
+// same as an empty catalogue.
+std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& endpoint);
+
 // The command-tree subtree for a set of rows: one leaf per row, keyed by the
 // composite so two providers offering one id cannot collide, carrying its action
 // and (when known) its context window.

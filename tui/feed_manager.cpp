@@ -121,24 +121,6 @@ void FeedManager::refresh_policy_feed() {
 
 namespace {
 
-// One provider's cached catalogue. Cache-only: never a network call on the UI
-// thread. An empty result means that provider contributes nothing yet, which is
-// the same thing as an empty tab.
-std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
-    agent::Config cfg;
-    cfg.api_base = e.api_base;
-    cfg.flavor = e.flavor;
-    std::vector<ProviderModel> out;
-    for (const auto& m : agent::list_model_info_cached(cfg)) {
-        ProviderModel pm;
-        pm.provider = e.name;
-        pm.id = m.id;
-        pm.context = m.context ? m.context : m.context_train;
-        out.push_back(pm);
-    }
-    return out;
-}
-
 // The endpoints worth reading: every known provider, configured or not, so
 // catalogs_from() can apply the "has an endpoint" rule in one tested place.
 std::vector<ProviderEndpoint> endpoints_of(const agent::ProviderService& providers) {

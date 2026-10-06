@@ -1,5 +1,8 @@
 #include "tui/model_picker.h"
 
+#include <agent/config.h>
+#include <agent/model_probe.h>
+
 #include <algorithm>
 
 namespace tui {
@@ -70,6 +73,21 @@ nlohmann::json model_subtree(const std::vector<ProviderModel>& rows, const std::
             leaf["help"] = "ctx " + std::to_string(m.context);
     }
     return subtree;
+}
+
+std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
+    agent::Config cfg;
+    cfg.api_base = e.api_base;
+    cfg.flavor = e.flavor;
+    std::vector<ProviderModel> out;
+    for (const auto& m : agent::list_model_info_cached(cfg)) {
+        ProviderModel pm;
+        pm.provider = e.name;
+        pm.id = m.id;
+        pm.context = m.context ? m.context : m.context_train;
+        out.push_back(pm);
+    }
+    return out;
 }
 
 } // namespace tui
