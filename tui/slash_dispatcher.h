@@ -35,6 +35,11 @@ public:
     void refresh_job_feed();
     double compression_threshold_effective() const;
     void cmd_model_set(const std::string& arg);
+    // Set the model AND switch to the provider that serves it, in that order:
+    // select() loads the incoming provider's last-used model, which the chosen
+    // model then overrides. Order matters -- doing it the other way round would
+    // validate against the outgoing provider's catalogue and reject it.
+    void cmd_model_set_for(const std::string& provider, const std::string& id);
     void cmd_provider(const std::string& arg);
     void job_kill(const std::string& id);
     void job_read(const std::string& id);

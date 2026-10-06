@@ -132,6 +132,10 @@ struct StatusSnapshot {
     int window_index = 0; // 1-based, as displayed
     int window_count = 1;
     std::string model;
+    // The provider serving this model. Its own field because a vendor-prefixed
+    // model id ("kilo-auto/free") reads as if the vendor were the provider, and
+    // "kilo-auto" never was.
+    std::string provider;
     std::string reasoning_effort;
     AgentMode mode = AgentMode::Read;
     bool scroll_mode = false;

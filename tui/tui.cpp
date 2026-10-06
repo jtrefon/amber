@@ -1034,6 +1034,9 @@ void Tui::refresh_plugin_feed() {
 void Tui::cmd_model_set(const std::string& arg) {
     slash_dispatcher_->cmd_model_set(arg);
 }
+void Tui::cmd_model_set_for(const std::string& provider, const std::string& id) {
+    slash_dispatcher_->cmd_model_set_for(provider, id);
+}
 void Tui::cmd_provider(const std::string& arg) {
     slash_dispatcher_->cmd_provider(arg);
 }
