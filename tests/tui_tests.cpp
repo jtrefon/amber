@@ -2080,6 +2080,45 @@ TEST(list_state_enter_selects_and_esc_cancels) {
     ASSERT_EQ(b.selection(), -1);
 }
 
+// Pressing "/" switches ListState into filter mode, and filter mode handles
+// only Esc, backspace, printable keys and Enter. KEY_UP/KEY_DOWN are ncurses
+// codes above the printable range, so they fell through to Action::None and
+// the selection froze for as long as the filter stayed open -- the provider
+// picker's arrows die the moment you type to narrow the list.
+TEST(list_state_arrows_still_move_the_selection_in_filter_mode) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    ASSERT(s.filter_mode());
+    ASSERT(s.key(tui::keys::kDown, 10) == tui::ListState::Action::Redraw);
+    ASSERT_EQ(s.selection(), 1);
+    ASSERT(s.key(tui::keys::kDown, 10) == tui::ListState::Action::Redraw);
+    ASSERT_EQ(s.selection(), 2);
+    ASSERT(s.key(tui::keys::kUp, 10) == tui::ListState::Action::Redraw);
+    ASSERT_EQ(s.selection(), 1);
+    ASSERT_TRUE(s.filter_mode());
+    ASSERT_EQ(s.filter(), "");
+}
+
+// Typing must not be reset by navigating: the filter is the user's text, and
+// moving the cursor must not discard it.
+TEST(list_state_arrows_in_filter_mode_keep_the_filter_text) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    s.key('a', 10);
+    ASSERT_EQ(s.filter(), "a");
+    s.key(tui::keys::kDown, 10);
+    ASSERT_EQ(s.filter(), "a");
+    ASSERT_EQ(s.filtered().size(), 4u);
+}
+
+// Page keys are the same class of input as the arrows and belong here too.
+TEST(list_state_page_keys_work_in_filter_mode) {
+    tui::ListState s = make_list();
+    s.key('/', 10);
+    ASSERT(s.key(tui::keys::kNPage, 10) == tui::ListState::Action::Redraw);
+    ASSERT(s.key(tui::keys::kPPage, 10) == tui::ListState::Action::Redraw);
+}
+
 TEST(list_state_up_at_top_is_a_noop) {
     tui::ListState s = make_list();
     ASSERT(s.key(tui::keys::kUp, 10) == tui::ListState::Action::None);
