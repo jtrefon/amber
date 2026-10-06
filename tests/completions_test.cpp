@@ -641,8 +641,8 @@ TEST(test_drawer_filter_still_matches_vendor_prefix) {
 TEST(test_drawer_rows_and_entry_names_agree_under_filter) {
     tui::SettingRegistry reg;
     seed_model_feed(reg);
-    for (const char* q : {"/set model s", "/set model space", "/set model stealth",
-                          "/set model o", "/set model a"}) {
+    for (const char* q : {"/set model s", "/set model space", "/set model stealth", "/set model o",
+                          "/set model a"}) {
         auto names = tui::drawer_entry_names(q, reg);
         if (names.empty())
             continue;
@@ -688,7 +688,7 @@ TEST(test_drawer_window_never_scrolls_past_either_end) {
     ASSERT_EQ(w.first, 0);
     w = tui::drawer_window(5, 20, 4); // fewer rows than the window
     ASSERT_EQ(w.first, 0);
-    ASSERT_EQ(w.second, 5); // never claims rows that do not exist
+    ASSERT_EQ(w.second, 5);              // never claims rows that do not exist
     w = tui::drawer_window(100, 20, -1); // a stale selection cannot scroll back
     ASSERT_EQ(w.first, 0);
 }
@@ -1224,13 +1224,13 @@ int main() {
         test_merge_preserves_static_tree_children();
         test_feed_leaves_visible_after_merge();
         test_drawer_rows_children_and_help();
-          test_drawer_filter_matches_model_name_not_only_vendor();
-          test_drawer_rows_filter_matches_model_name_not_only_vendor();
-          test_drawer_filter_still_matches_vendor_prefix();
-          test_drawer_rows_and_entry_names_agree_under_filter();
-          test_drawer_window_follows_the_selection();
-          test_drawer_window_never_scrolls_past_either_end();
-          test_drawer_window_is_degenerate_safe();
+        test_drawer_filter_matches_model_name_not_only_vendor();
+        test_drawer_rows_filter_matches_model_name_not_only_vendor();
+        test_drawer_filter_still_matches_vendor_prefix();
+        test_drawer_rows_and_entry_names_agree_under_filter();
+        test_drawer_window_follows_the_selection();
+        test_drawer_window_never_scrolls_past_either_end();
+        test_drawer_window_is_degenerate_safe();
         test_complete_top_level_from_tree();
         test_bare_slash_children_of();
         test_bare_slash_drawer_rows();

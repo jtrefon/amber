@@ -649,9 +649,8 @@ void RenderEngine::draw_drawer_header(int top) {
     attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
 }
 
-void RenderEngine::draw_drawer_rows(int top, int header,
-                                    const std::vector<std::string>& rows, int first,
-                                    int shown) {
+void RenderEngine::draw_drawer_rows(int top, int header, const std::vector<std::string>& rows,
+                                    int first, int shown) {
     for (int i = 0; i < shown; ++i) {
         const int y = top + header + i;
         if (first + i == drawer_sel_) {
@@ -681,10 +680,9 @@ void RenderEngine::draw_drawer(const std::string& input) {
     const int max_rows = std::max(1, bar_row - chat_top());
     // Clamp into range first, then window, so the painted highlight and the
     // dispatched index are always derived from the same selection.
-    drawer_sel_ = std::min(std::max(0, drawer_sel_),
-                           std::max(0, static_cast<int>(rows.size()) - 1));
-    const auto win =
-        drawer_window(static_cast<int>(rows.size()), max_rows - header, drawer_sel_);
+    drawer_sel_ =
+        std::min(std::max(0, drawer_sel_), std::max(0, static_cast<int>(rows.size()) - 1));
+    const auto win = drawer_window(static_cast<int>(rows.size()), max_rows - header, drawer_sel_);
     const int top = bar_row - header - win.second;
 
     clear_rows(top, bar_row);
