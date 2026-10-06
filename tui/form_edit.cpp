@@ -1,4 +1,5 @@
 
+#include "tui/bracket_paste.h"
 #include "tui/dialog.h"
 #include "tui/form_focus.h"
 #include "widgets.h"
@@ -8,6 +9,7 @@
 #include <menu.h>
 
 #include <algorithm>
+#include <vector>
 
 namespace tui {
 
@@ -29,8 +31,11 @@ std::vector<FIELD*> create_fields(const std::vector<FieldSpec>& fields, int fiel
         field_opts_off(f, O_AUTOSKIP);
         field_opts_off(f, O_STATIC); // allow horizontal scrolling
         set_max_field(f, 1024);
-        if (fields[i].secret)
-            field_opts_off(f, O_PUBLIC);
+        // A secret field is DISPLAYED, not blanked. It used to clear O_PUBLIC,
+        // which is ncurses for "do not draw the contents" -- so the API-key box
+        // was an empty black rectangle and a pasted token could not be checked
+        // character by character before spending a request on it. The field is
+        // on the user's own terminal and the value is never echoed to a log.
         set_field_buffer(f, 0, fields[i].value.c_str());
         fs.push_back(f);
     }
@@ -54,6 +59,101 @@ FormParts build_form(std::vector<FIELD*>& fs, WINDOW* w) {
 void draw_field_labels(WINDOW* w, const std::vector<FieldSpec>& fields, int label_w) {
     for (size_t i = 0; i < fields.size(); ++i)
         mvwaddnstr(w, (static_cast<int>(i) * 2) + 4, 2, fields[i].label.c_str(), label_w);
+}
+
+// Read one key from the form window, resolving the Esc ambiguity, and insert
+// any pasted characters into the current field.
+//
+// ESC is a real key here (cancel) AND the first byte of every bracketed paste,
+// so the byte alone cannot tell them apart. What separates them is timing: a
+// paste arrives as one burst, so after ESC whatever is already readable without
+// blocking is the marker. Empty means the user pressed Esc and Esc still
+// cancels. A terminal that does not send bracketed paste delivers the bytes
+// with no leading ESC and they insert as ordinary keystrokes.
+// Decoder plus what the loop needs to know about the burst it is reading.
+struct BranchPasteState {
+    using PasteDecoder = BracketPasteDecoder;
+    PasteDecoder decoder;
+    bool started = false;
+    bool failed = false;
+};
+
+// Everything already readable on the window without blocking.
+std::vector<int> drain_ready(WINDOW* w) {
+    std::vector<int> out;
+    nodelay(w, TRUE);
+    for (int b = wgetch(w); b != ERR; b = wgetch(w))
+        out.push_back(b);
+    nodelay(w, FALSE);
+    return out;
+}
+
+// Feed one byte to the decoder, inserting pasted text into the field.
+void consume_paste_byte(BranchPasteState& st, FORM* form, int b) {
+    char text = 0;
+    switch (st.decoder.feed(b, text)) {
+    case BranchPasteState::PasteDecoder::Event::Begin:
+        st.started = true;
+        break;
+    case BranchPasteState::PasteDecoder::Event::Text:
+        form_driver(form, b);
+        break;
+    case BranchPasteState::PasteDecoder::Event::NotPaste:
+        st.failed = true;
+        break;
+    case BranchPasteState::PasteDecoder::Event::End:
+    case BranchPasteState::PasteDecoder::Event::None:
+        break;
+    }
+}
+
+// Finish a paste whose end marker has not arrived yet. A very large paste can
+// still be in flight when the initial burst is drained.
+void finish_paste(BranchPasteState& st, WINDOW* w, FORM* form) {
+    while (st.started && st.decoder.pasting()) {
+        const int b = wgetch(w);
+        if (b == ERR)
+            return;
+        consume_paste_byte(st, form, b);
+    }
+}
+
+// Put back every byte, last read first, so the original ESC reaches form_focus
+// and cancels exactly as it did before paste support existed.
+void push_back_reversed(const std::vector<int>& bytes) {
+    for (auto it = bytes.rbegin(); it != bytes.rend(); ++it)
+        ungetch(*it);
+}
+
+// Returns the key to route through form_focus, or -1 when a paste was consumed
+// and its characters already inserted.
+//
+// ESC is a real key here (cancel) AND the first byte of every bracketed paste,
+// so the byte alone cannot tell them apart. What separates them is timing: a
+// paste arrives as one burst, so after ESC whatever is already readable without
+// blocking is the marker. Empty means the user pressed Esc, and Esc still
+// cancels. A terminal that does not send bracketed paste delivers the bytes with
+// no leading ESC and they insert as ordinary keystrokes.
+int read_form_key(WINDOW* w, FORM* form) {
+    const int first = wgetch(w);
+    if (first != 27)
+        return first;
+
+    const std::vector<int> probe = drain_ready(w);
+    if (probe.empty())
+        return first; // a lone Esc
+
+    BranchPasteState st;
+    char ignored = 0;
+    st.decoder.feed(first, ignored);
+    for (const int b : probe)
+        consume_paste_byte(st, form, b);
+    if (!st.started) {
+        push_back_reversed(probe);
+        return first;
+    }
+    finish_paste(st, w, form);
+    return -1;
 }
 
 // focus: 0 = fields, 1 = OK, 2 = Cancel.
@@ -176,7 +276,9 @@ bool run_form_loop(WINDOW* w, FORM* form, int aw, int btn_row, int n, std::vecto
         update_panels();
         doupdate();
 
-        const int c = wgetch(w);
+        const int c = read_form_key(w, form);
+        if (c == -1)
+            continue; // a paste was inserted; nothing to route
         const bool at_last_field = (field_index(current_field(form)) == n - 1);
         const form_focus::Decision d = form_focus::key(c, zone, at_last_field);
         zone = d.zone;

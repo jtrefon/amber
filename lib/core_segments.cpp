@@ -15,7 +15,6 @@ namespace {
 // without renumbering them.
 enum Priority {
     kWindow = 100,
-    kProvider = 150,
     kModel = 200,
     kMode = 300,
     kScroll = 400,
@@ -35,11 +34,10 @@ enum Drop {
     kModeDrop = 2,
     kWindowDrop = 3,
     kTpsDrop = 4,
-    kProviderDrop = 5,
     kModelDrop = 6,
-    kLagDrop = 7,
-    kTokensDrop = 8,
-    kMcpDrop = 9,
+    kLagDrop = 6,
+    kTokensDrop = 7,
+    kMcpDrop = 8,
 };
 
 std::string dashed(const char* glyph) {
@@ -58,23 +56,24 @@ StatusText render_window(const StatusSnapshot& s) {
                       StatusTone::Banner};
 }
 
-StatusText render_model(const StatusSnapshot& s) {
-    return StatusText{" [" + s.model + bar::reasoning_badge(s.reasoning_effort) + "]",
-                      StatusTone::Good};
-}
-
-// Its own cell rather than a decoration glued onto the model string.
+// One cell: provider, model, reasoning badge. The provider sits INSIDE the model
+// cell, separated by "|", rather than in a cell of its own.
 //
-// "[kilo-auto/free(high)]" was the entire model cell: `kilo-auto` is the model
-// id's VENDOR segment, so the bar named no provider and a kilocode-hosted model
-// read as if kilo-auto were the provider. A separate segment gets the tone --
-// which is the visual separator -- for free, and a drop priority, so the bar
-// still degrades on a narrow terminal: the provider goes before the model it
-// qualifies, because a model without its provider is still the truth.
-StatusText render_provider(const StatusSnapshot& s) {
-    if (s.provider.empty())
-        return StatusText{};
-    return StatusText{"[" + s.provider + "]", StatusTone::Accent};
+// A separate cell was tried first and rejected: StatusTone::Accent maps to
+// P_BUTTON_ACT, which is white-on-YELLOW -- a filled button pair that rendered as
+// a yellow frame glued to the window indicator and away from the model. The bar
+// does not use backgrounds, so the provider takes StatusTone::Warn, which is
+// P_GAUGE_WARN: yellow foreground on the bar's own blue, no background.
+//
+// One segment rather than two abutting ones: a dropped segment would otherwise
+// leave an unbalanced bracket ("model(high)]" with no "[provider|"), and the bar
+// drops by width on a narrow terminal.
+StatusText render_model(const StatusSnapshot& s) {
+    std::string cell;
+    if (!s.provider.empty())
+        cell += s.provider + "|";
+    cell += s.model + bar::reasoning_badge(s.reasoning_effort);
+    return StatusText{" [" + cell + "]", StatusTone::Warn};
 }
 
 StatusText render_mode(const StatusSnapshot& s) {
@@ -156,7 +155,6 @@ StatusText render_mcp(const StatusSnapshot& s) {
 std::vector<std::unique_ptr<Capability>> core_status_capabilities() {
     std::vector<std::unique_ptr<Capability>> caps;
     caps.push_back(segment("window", kWindow, kWindowDrop, render_window));
-    caps.push_back(segment("provider", kProvider, kProviderDrop, render_provider));
     caps.push_back(segment("model", kModel, kModelDrop, render_model));
     caps.push_back(segment("mode", kMode, kModeDrop, render_mode));
     caps.push_back(segment("scroll", kScroll, kScrollDrop, render_scroll));

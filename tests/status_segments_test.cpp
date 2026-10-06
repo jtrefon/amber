@@ -139,12 +139,10 @@ TEST(core_segments_render_the_expected_bar) {
     auto out = registry.render(base_snapshot());
 
     ASSERT_EQ(text_of(out, "window"), std::string("[2/3]"));
-    ASSERT_EQ(text_of(out, "model"), std::string(" [qwen3(high)]"));
-    // The provider gets its own bracketed cell, not a decoration glued onto the
-    // model. "[kilo-auto/free(high)]" was the whole cell: `kilo-auto` is the
-    // model id's VENDOR segment, so the bar named no provider at all and a
-    // kilocode-hosted model read as if `kilo-auto` were the provider.
-    ASSERT_EQ(text_of(out, "provider"), std::string("[kilocode]"));
+    // One cell: the provider is INSIDE it, separated by "|". "kilo-auto" is the
+    // model id's VENDOR segment, so the bar naming no provider made it read as
+    // if the vendor were the provider.
+    ASSERT_EQ(text_of(out, "model"), std::string(" [kilocode|qwen3(high)]"));
     ASSERT_EQ(text_of(out, "mode"), std::string(" write "));
     ASSERT_EQ(text_of(out, "lag"), std::string("  lag 240ms"));
     ASSERT_EQ(text_of(out, "tps"), std::string("  47 t/s"));
@@ -154,58 +152,44 @@ TEST(core_segments_render_the_expected_bar) {
     ASSERT(tokens.find("340") != std::string::npos);
 }
 
-// The provider cell is what disambiguates a vendor-prefixed model id from the
-// provider hosting it, so it must render in its OWN tone rather than the
-// model's: two different colours is the visual separator, no glyph needed.
-TEST(core_segments_provider_has_its_own_tone_distinct_from_model) {
+// The bar uses no backgrounds: a cell that names the provider must be a plain
+// foreground colour on the bar's own background. Accent (P_BUTTON_ACT) is
+// white-on-YELLOW and rendered as a filled frame glued to the window indicator,
+// which is what this pins against.
+TEST(core_segments_model_cell_uses_a_foreground_colour_not_a_filled_pair) {
     auto registry = core_registry();
     auto out = registry.render(base_snapshot());
-    StatusTone model_tone = StatusTone::Dim;
-    StatusTone provider_tone = StatusTone::Dim;
-    bool have_model = false, have_provider = false;
-    for (const auto& s : out) {
+    bool have = false;
+    for (const auto& s : out)
         if (s.id == "model") {
-            model_tone = s.tone;
-            have_model = true;
+            have = true;
+            ASSERT_TRUE(s.tone == StatusTone::Warn);
+            ASSERT_FALSE(s.tone == StatusTone::Accent); // no button background
         }
-        if (s.id == "provider") {
-            provider_tone = s.tone;
-            have_provider = true;
-        }
-    }
-    ASSERT(have_model && have_provider);
-    ASSERT_FALSE(static_cast<int>(model_tone) == static_cast<int>(provider_tone));
+    ASSERT(have);
 }
 
-// An unset provider must not render a bare "[]" cell: provider_name defaults to
-// "custom" in config but a window with no agent snapshot has nothing to say.
-TEST(core_segments_omit_provider_when_unknown) {
+// With no provider there is no "|" and no stray separator: the cell is just the
+// model, so the bar never renders "[|model]".
+TEST(core_segments_model_cell_omits_an_unknown_provider) {
     auto registry = core_registry();
     StatusSnapshot s = base_snapshot();
     s.provider.clear();
     auto out = registry.render(s);
-    for (const auto& seg : out)
-        ASSERT_FALSE(seg.id == "provider");
+    ASSERT_EQ(text_of(out, "model"), std::string(" [qwen3(high)]"));
 }
 
-// Six providers is a realistic width, so the bar must still degrade: the
-// provider cell is droppable ahead of the model it qualifies. Higher
-// drop_priority drops first, so the provider's must be the LOWER number.
-TEST(core_segments_provider_drops_before_model_when_narrow) {
+// A provider name is never allowed to swallow the model: the separator is always
+// present between them exactly once.
+TEST(core_segments_model_cell_always_separates_provider_from_model) {
     auto registry = core_registry();
     StatusSnapshot s = base_snapshot();
     s.provider = "openrouter";
     s.model = "anthropic/claude-opus-4.8";
     auto out = registry.render(s);
-    int provider_drop = -1, model_drop = -1;
-    for (const auto& seg : out) {
-        if (seg.id == "provider")
-            provider_drop = seg.drop_priority;
-        if (seg.id == "model")
-            model_drop = seg.drop_priority;
-    }
-    ASSERT(provider_drop >= 0 && model_drop >= 0);
-    ASSERT(provider_drop < model_drop);
+    const std::string cell = text_of(out, "model");
+    ASSERT_EQ(cell, std::string(" [openrouter|anthropic/claude-opus-4.8(high)]"));
+    ASSERT_EQ(cell.find('|'), cell.rfind('|'));
 }
 
 TEST(core_segments_mode_words_and_tones) {
