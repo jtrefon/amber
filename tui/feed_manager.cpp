@@ -124,14 +124,14 @@ namespace {
 // One provider's cached catalogue. Cache-only: never a network call on the UI
 // thread. An empty result means that provider contributes nothing yet, which is
 // the same thing as an empty tab.
-std::vector<ProviderModel> cached_models_for(const agent::Provider& p) {
+std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
     agent::Config cfg;
-    cfg.api_base = p.api_base;
-    cfg.flavor = p.flavor;
+    cfg.api_base = e.api_base;
+    cfg.flavor = e.flavor;
     std::vector<ProviderModel> out;
     for (const auto& m : agent::list_model_info_cached(cfg)) {
         ProviderModel pm;
-        pm.provider = p.name;
+        pm.provider = e.name;
         pm.id = m.id;
         pm.context = m.context ? m.context : m.context_train;
         out.push_back(pm);
@@ -139,45 +139,37 @@ std::vector<ProviderModel> cached_models_for(const agent::Provider& p) {
     return out;
 }
 
-// The row a provider's models occupy. Grouping by provider is what makes
-// "jump to that provider" and "scroll to that block" the same operation.
-void add_provider_catalogs(std::vector<ProviderCatalog>& out,
-                           const agent::ProviderService& providers) {
+// The endpoints worth reading: every known provider, configured or not, so
+// catalogs_from() can apply the "has an endpoint" rule in one tested place.
+std::vector<ProviderEndpoint> endpoints_of(const agent::ProviderService& providers) {
+    std::vector<ProviderEndpoint> out;
     for (const auto& p : providers.available()) {
-        ProviderCatalog c;
-        c.provider = p.name;
-        // No endpoint means no /models, so there is nothing to list and no tab
-        // worth opening. `/get provider list` is where "enabled but
-        // unconfigured" is reported.
-        c.configured = !p.api_base.empty();
-        if (c.configured)
-            c.models = cached_models_for(p);
-        out.push_back(std::move(c));
+        ProviderEndpoint e;
+        e.name = p.name;
+        e.api_base = p.api_base;
+        e.flavor = p.flavor;
+        out.push_back(std::move(e));
     }
+    return out;
 }
 
 } // namespace
 
 void FeedManager::refresh_model_list() {
     tui_.slash_dispatcher_->set_model_info(agent::list_model_info_cached(tui_.cfg_));
-    std::vector<ProviderCatalog> catalogs;
-    if (tui_.providers_)
-        add_provider_catalogs(catalogs, *tui_.providers_);
-    const auto rows = aggregate_provider_models(catalogs, tui_.cfg_.provider_name);
-    nlohmann::json subtree = nlohmann::json::object();
+    const auto rows = tui_.providers_
+                          ? aggregate_provider_models(
+                                catalogs_from(endpoints_of(*tui_.providers_), &cached_models_for),
+                                tui_.cfg_.provider_name)
+                          : std::vector<ProviderModel>{};
+    const auto subtree = model_subtree(rows, "core.config.set.model.");
     for (const auto& m : rows) {
-        // Composite key: the tree is keyed by leaf name, so two providers
-        // offering one id would collide. It also stays typeable --
-        // "/set model kilocode::kilo-auto/free" works with no drawer at all.
         const std::string key = provider_key(m.provider, m.id);
-        nlohmann::json& leaf = subtree["set"]["children"]["model"]["children"][key];
-        leaf["action"] = "core.config.set.model." + key;
-        if (m.context > 0)
-            leaf["help"] = "ctx " + std::to_string(m.context);
-        tui_.register_action(leaf["action"].get<std::string>(),
-                             [this, provider = m.provider, id = m.id](const std::string&) {
-                                 tui_.cmd_model_set_for(provider, id);
-                             });
+        tui_.register_action(
+            subtree["set"]["children"]["model"]["children"][key]["action"].get<std::string>(),
+            [this, provider = m.provider, id = m.id](const std::string&) {
+                tui_.slash_dispatcher_->cmd_model_set_for(provider, id);
+            });
     }
     tui_.settings_.merge_completions_json(subtree);
 }

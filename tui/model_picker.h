@@ -1,5 +1,7 @@
 #pragma once
 
+#include <nlohmann/json.hpp>
+
 #include <string>
 #include <vector>
 
@@ -54,5 +56,35 @@ struct ProviderCatalog {
 // for them would always read zero.
 std::vector<ProviderModel> aggregate_provider_models(const std::vector<ProviderCatalog>& catalogs,
                                                      const std::string& active_provider);
+
+// One provider's endpoint, as the picker needs it. Decoupled from Provider so the
+// gathering below can be tested without a repository stack or a cache on disk.
+struct ProviderEndpoint {
+    std::string name;
+    std::string api_base;
+    std::string flavor = "openai";
+};
+
+// Reads one endpoint's already-cached models. Must not touch the network: this
+// runs while the UI thread is composing a drawer.
+using CatalogReader = std::vector<ProviderModel> (*)(const ProviderEndpoint&);
+
+// Per-provider catalogues, skipping endpoints with no /models to fetch.
+//
+// Split out from the feed so the "is it configured" rule is testable: a
+// provider with an empty api_base has no catalogue, and an empty catalogue
+// means there is nothing to list and no tab worth opening. Reading is injected
+// so the rule is exercised without a cache file.
+std::vector<ProviderCatalog> catalogs_from(const std::vector<ProviderEndpoint>& endpoints,
+                                           CatalogReader read);
+
+// The command-tree subtree for a set of rows: one leaf per row, keyed by the
+// composite so two providers offering one id cannot collide, carrying its action
+// and (when known) its context window.
+//
+// `action` is a parameter because the action prefix belongs to whoever owns the
+// feed; the leaf/collide/ctx rules are the same either way.
+nlohmann::json model_subtree(const std::vector<ProviderModel>& rows,
+                             const std::string& action_prefix);
 
 } // namespace tui

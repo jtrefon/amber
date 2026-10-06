@@ -145,3 +145,74 @@ TEST(model_picker_skips_unconfigured_and_empty_providers) {
 TEST(model_picker_empty_input_yields_no_rows) {
     ASSERT_EQ(tui::aggregate_provider_models({}, "kilocode").size(), 0u);
 }
+
+// The reader is injected so the "has an endpoint" rule is exercised without a
+// cache file: a provider with no api_base has no /models, and asking it for one
+// would be the bug.
+namespace {
+
+bool reader_was_called = false;
+std::vector<tui::ProviderModel> counting_reader(const tui::ProviderEndpoint& e) {
+    reader_was_called = true;
+    tui::ProviderModel m;
+    m.provider = e.name;
+    m.id = e.name + "/only";
+    return {m};
+}
+
+} // namespace
+
+TEST(model_picker_catalogs_skip_endpoints_with_no_api_base) {
+    std::vector<tui::ProviderEndpoint> endpoints{
+        {"kilocode", "https://api.kilo.ai/api/gateway", "openai"},
+        {"openrouter", "", "openai"},
+        {"anthropic", "https://api.anthropic.com/v1", "anthropic"},
+    };
+    auto catalogs = tui::catalogs_from(endpoints, &counting_reader);
+    ASSERT_EQ(catalogs.size(), 3u);
+    ASSERT_TRUE(catalogs[0].configured);
+    ASSERT_EQ(catalogs[0].models.size(), 1u);
+    ASSERT_FALSE(catalogs[1].configured);
+    ASSERT_EQ(catalogs[1].models.size(), 0u); // never read
+    ASSERT_TRUE(catalogs[2].configured);
+    // The flavour is carried through: a provider that does not speak openai
+    // must be parsed with its own dialect, so the cache key must match.
+    ASSERT_EQ(catalogs[2].provider, std::string("anthropic"));
+}
+
+TEST(model_picker_leaf_keys_are_composite_and_carry_action_and_ctx) {
+    std::vector<tui::ProviderModel> rows{
+        {"kilocode", "kilo-auto/free", 256000},
+        {"openrouter", "anthropic/claude-opus-4.8", 200000},
+        {"anthropic", "no-ctx-model", 0},
+    };
+    auto sub = tui::model_subtree(rows, "core.config.set.model.");
+    const auto& leaves = sub["set"]["children"]["model"]["children"];
+    ASSERT_EQ(leaves.size(), 3u);
+    ASSERT(leaves.contains("kilocode::kilo-auto/free"));
+    ASSERT(leaves.contains("openrouter::anthropic/claude-opus-4.8"));
+    ASSERT_EQ(leaves["kilocode::kilo-auto/free"]["action"].get<std::string>(),
+              std::string("core.config.set.model.kilocode::kilo-auto/free"));
+    ASSERT_EQ(leaves["kilocode::kilo-auto/free"]["help"].get<std::string>(),
+              std::string("ctx 256000"));
+    // Unknown context must not render a bogus "ctx 0".
+    ASSERT_FALSE(leaves["anthropic::no-ctx-model"].contains("help"));
+}
+
+// The whole reason keys are composite: two providers, one id, two leaves.
+TEST(model_picker_subtree_keeps_both_providers_of_a_shared_id) {
+    std::vector<tui::ProviderModel> rows{
+        {"kilocode", "anthropic/claude-opus-4.8", 200000},
+        {"openrouter", "anthropic/claude-opus-4.8", 200000},
+    };
+    auto sub = tui::model_subtree(rows, "a.");
+    const auto& leaves = sub["set"]["children"]["model"]["children"];
+    ASSERT_EQ(leaves.size(), 2u);
+    ASSERT(leaves.contains("kilocode::anthropic/claude-opus-4.8"));
+    ASSERT(leaves.contains("openrouter::anthropic/claude-opus-4.8"));
+}
+
+TEST(model_picker_empty_rows_produce_an_empty_subtree) {
+    auto sub = tui::model_subtree({}, "a.");
+    ASSERT_EQ(sub["set"]["children"]["model"]["children"].size(), 0u);
+}

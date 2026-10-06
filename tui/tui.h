@@ -227,7 +227,6 @@ private:
     void refresh_job_feed();
     void refresh_plugin_feed();
     void cmd_model_set(const std::string& arg);
-    void cmd_model_set_for(const std::string& provider, const std::string& id);
     void cmd_provider(const std::string& arg);
     void show_plugin(const std::string& id);
     void report_toolset_audit();

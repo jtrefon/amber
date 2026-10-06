@@ -45,4 +45,31 @@ std::vector<ProviderModel> aggregate_provider_models(const std::vector<ProviderC
     return out;
 }
 
+std::vector<ProviderCatalog> catalogs_from(const std::vector<ProviderEndpoint>& endpoints,
+                                           CatalogReader read) {
+    std::vector<ProviderCatalog> out;
+    out.reserve(endpoints.size());
+    for (const auto& e : endpoints) {
+        ProviderCatalog c;
+        c.provider = e.name;
+        c.configured = !e.api_base.empty();
+        if (c.configured)
+            c.models = read(e);
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+nlohmann::json model_subtree(const std::vector<ProviderModel>& rows, const std::string& prefix) {
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& m : rows) {
+        nlohmann::json& leaf =
+            subtree["set"]["children"]["model"]["children"][provider_key(m.provider, m.id)];
+        leaf["action"] = prefix + provider_key(m.provider, m.id);
+        if (m.context > 0)
+            leaf["help"] = "ctx " + std::to_string(m.context);
+    }
+    return subtree;
+}
+
 } // namespace tui
