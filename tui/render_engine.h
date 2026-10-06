@@ -67,11 +67,10 @@ public:
     void draw_drawer(const std::string& input);
     // The drawer's header strip and its visible rows.
     void draw_drawer_header(int top);
-    void draw_drawer_rows(int top, int header, int shown, const std::vector<std::string>& rows,
-                          bool arg_mode);
+    void draw_drawer_rows(int top, int header, const std::vector<std::string>& rows, int first,
+                          int shown);
 
     static std::string drawer_token(const std::string& input);
-    static bool drawer_has_arg(const std::string& input);
     std::vector<const palette::Command*> filter_commands(const std::string& token);
 
     // Git state for the prompt (project, branch, diff counts). Refresh runs on a

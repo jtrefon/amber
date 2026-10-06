@@ -7,6 +7,26 @@ namespace tui {
 
 namespace {
 
+// The one filter predicate both drawer_rows() and drawer_entry_names() apply.
+//
+// Keys are full ids of the form "vendor/name" for provider catalogues, so a
+// prefix test alone can only ever match the vendor half: typing "space" for
+// stealth/space-bunny-free is not a prefix of anything, and the row became
+// unreachable rather than merely awkward to find. Match the prefix (so
+// stepping through a list with single characters stays in order) or any
+// substring of the id, which is what ListState already does.
+//
+// Both view functions call this. They must agree: CommandLine dispatches
+// Enter on drawer_entry_names()[sel] while the renderer paints
+// drawer_rows(), so a divergence selects a row the user cannot see.
+bool entry_matches(const std::string& key, const std::string& partial) {
+    if (partial.empty())
+        return true;
+    if (key.rfind(partial, 0) == 0)
+        return true;
+    return key.find(partial) != std::string::npos;
+}
+
 // Append "[choice|choice]" or "[lo-hi]" to a row for leaf settings.
 void append_choices(std::string& line, const std::string& key, const SettingRegistry& settings) {
     const auto& ch = settings.choices_for(key);
@@ -139,7 +159,7 @@ std::vector<std::string> drawer_rows(const std::string& input, const SettingRegi
     }
 
     for (const auto& k : kids) {
-        if (!q.partial.empty() && k.rfind(q.partial, 0) != 0)
+        if (!entry_matches(k, q.partial))
             continue;
         std::string full_key = q.ns.empty() ? std::string() : q.ns + ".";
         full_key += k;
@@ -148,6 +168,19 @@ std::vector<std::string> drawer_rows(const std::string& input, const SettingRegi
     if (rows.empty())
         rows.emplace_back("  (no matching option  -  Esc to cancel)");
     return rows;
+}
+
+std::pair<int, int> drawer_window(int count, int max_visible, int sel) {
+    const int n = std::max(0, count);
+    const int vis = std::max(1, max_visible);
+    if (n == 0)
+        return {0, 0};
+    int s = std::min(std::max(0, sel), n - 1);
+    // Keep the selection inside the window, without scrolling past either end.
+    int first = 0;
+    if (s >= vis)
+        first = std::min(s - vis + 1, n - vis);
+    return {first, std::min(vis, n)};
 }
 
 std::vector<std::string> drawer_entry_names(const std::string& input,
@@ -164,7 +197,7 @@ std::vector<std::string> drawer_entry_names(const std::string& input,
     }
     std::vector<std::string> out;
     for (const auto& k : kids) {
-        if (!q.partial.empty() && k.rfind(q.partial, 0) != 0)
+        if (!entry_matches(k, q.partial))
             continue;
         out.push_back(k);
     }

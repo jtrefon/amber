@@ -94,6 +94,9 @@ jobs:
             --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
             --depends "libcurl4" \
             --depends "libncursesw6" \
+            --depends "libformw1" \
+            --depends "libmenuw1" \
+            --depends "libpanelw1" \
             --deb-no-default-config-files \
             -C stage \
             -p "dist/amber_${version}_amd64.deb" \
@@ -113,6 +116,9 @@ jobs:
             --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
             --depends "libcurl4" \
             --depends "libncursesw6" \
+            --depends "libformw1" \
+            --depends "libmenuw1" \
+            --depends "libpanelw1" \
             -C stage \
             -p "dist/amber_${version}.x86_64.rpm" \
             usr

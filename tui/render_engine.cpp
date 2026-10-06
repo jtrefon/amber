@@ -649,17 +649,17 @@ void RenderEngine::draw_drawer_header(int top) {
     attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
 }
 
-void RenderEngine::draw_drawer_rows(int top, int header, int shown,
-                                    const std::vector<std::string>& rows, bool arg_mode) {
+void RenderEngine::draw_drawer_rows(int top, int header, const std::vector<std::string>& rows,
+                                    int first, int shown) {
     for (int i = 0; i < shown; ++i) {
         const int y = top + header + i;
-        if (!arg_mode && i == drawer_sel_) {
+        if (first + i == drawer_sel_) {
             attron(A_REVERSE);
-            mvaddnstr(y, 0, rows[i].c_str(), width());
+            mvaddnstr(y, 0, rows[first + i].c_str(), width());
             attroff(A_REVERSE);
         } else {
             attron(COLOR_PAIR(P_ASSISTANT));
-            mvaddnstr(y, 0, rows[i].c_str(), width());
+            mvaddnstr(y, 0, rows[first + i].c_str(), width());
             attroff(COLOR_PAIR(P_ASSISTANT));
         }
     }
@@ -674,23 +674,20 @@ void RenderEngine::draw_drawer(const std::string& input) {
         return;
     }
 
-    const bool arg_mode = drawer_has_arg(input);
     const std::vector<std::string> rows = drawer_rows(input, tui_.settings_);
 
-    const int nsel = arg_mode ? 0 : static_cast<int>(rows.size());
-    if (drawer_sel_ >= nsel)
-        drawer_sel_ = std::max(0, nsel - 1);
-    if (drawer_sel_ < 0)
-        drawer_sel_ = 0;
-
-    const int max_rows = std::max(1, bar_row - chat_top());
     constexpr int header = 1;
-    const int shown = std::min<int>(rows.size(), max_rows - header);
-    const int top = bar_row - header - shown;
+    const int max_rows = std::max(1, bar_row - chat_top());
+    // Clamp into range first, then window, so the painted highlight and the
+    // dispatched index are always derived from the same selection.
+    drawer_sel_ =
+        std::min(std::max(0, drawer_sel_), std::max(0, static_cast<int>(rows.size()) - 1));
+    const auto win = drawer_window(static_cast<int>(rows.size()), max_rows - header, drawer_sel_);
+    const int top = bar_row - header - win.second;
 
     clear_rows(top, bar_row);
     draw_drawer_header(top);
-    draw_drawer_rows(top, header, shown, rows, arg_mode);
+    draw_drawer_rows(top, header, rows, win.first, win.second);
 }
 
 void RenderEngine::request_git_refresh() {

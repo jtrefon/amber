@@ -584,6 +584,123 @@ TEST(test_drawer_rows_children_and_help) {
     ASSERT(found);
 }
 
+// ── Test: the drawer filter matches anywhere in the id, not only its prefix ──
+//
+// Model ids are "vendor/name". Someone hunting for "space bunny" types
+// "space", which is the name half, so a prefix-only filter hides it entirely
+// and the row looks absent rather than unfindable. Both drawer_rows() and
+// drawer_entry_names() apply the filter, and they must agree: CommandLine
+// dispatches Enter on drawer_entry_names()[sel] while the renderer paints
+// drawer_rows(), so any divergence selects a different model than the one
+// highlighted.
+
+static void seed_model_feed(tui::SettingRegistry& reg) {
+    reg.load_completions_json("completions.json");
+    nlohmann::json sub = nlohmann::json::object();
+    for (const char* id : {"stealth/space-bunny-free", "sakana-ai/zeta", "sao10k/luna",
+                           "stepfun/orbit", "openai/gpt-4o"})
+        sub["set"]["children"]["model"]["children"][id]["action"] =
+            std::string("core.config.set.model.") + id;
+    reg.merge_completions_json(sub);
+}
+
+TEST(test_drawer_filter_matches_model_name_not_only_vendor) {
+    tui::SettingRegistry reg;
+    seed_model_feed(reg);
+    auto names = tui::drawer_entry_names("/set model space", reg);
+    bool found = false;
+    for (const auto& n : names)
+        if (n == "stealth/space-bunny-free")
+            found = true;
+    ASSERT(found);
+}
+
+TEST(test_drawer_rows_filter_matches_model_name_not_only_vendor) {
+    tui::SettingRegistry reg;
+    seed_model_feed(reg);
+    auto rows = tui::drawer_rows("/set model space", reg);
+    bool found = false;
+    for (const auto& r : rows)
+        if (r.find("space-bunny-free") != std::string::npos)
+            found = true;
+    ASSERT(found);
+}
+
+TEST(test_drawer_filter_still_matches_vendor_prefix) {
+    tui::SettingRegistry reg;
+    seed_model_feed(reg);
+    auto names = tui::drawer_entry_names("/set model step", reg);
+    ASSERT_EQ(names.size(), 1u);
+    ASSERT(names[0] == "stepfun/orbit");
+}
+
+// The rendered rows and the dispatched names are two views of one filtered
+// list. If they ever disagree, Enter runs a model the user cannot see.
+// Only compared when something matched: with no match drawer_rows paints a
+// single "(no matching option)" hint while drawer_entry_names is empty.
+TEST(test_drawer_rows_and_entry_names_agree_under_filter) {
+    tui::SettingRegistry reg;
+    seed_model_feed(reg);
+    for (const char* q : {"/set model s", "/set model space", "/set model stealth", "/set model o",
+                          "/set model a"}) {
+        auto names = tui::drawer_entry_names(q, reg);
+        if (names.empty())
+            continue;
+        auto rows = tui::drawer_rows(q, reg);
+        ASSERT_EQ(rows.size(), names.size());
+        for (const auto& n : names) {
+            bool in_rows = false;
+            for (const auto& r : rows)
+                if (r.find(n) != std::string::npos)
+                    in_rows = true;
+            ASSERT(in_rows);
+        }
+    }
+}
+
+// ── Test: the drawer window follows the selection ──
+//
+// A provider catalogue is routinely taller than the terminal. The window used
+// to be anchored at row 0 with draw_drawer_rows() indexing rows[i] for
+// i < shown, so every row past the fold was both invisible and unreachable --
+// with the selection highlight suppressed as well, a long list looked like a
+// short one. Geometry lives in drawer_window() so it is testable without a
+// terminal.
+
+TEST(test_drawer_window_follows_the_selection) {
+    // 100 rows, room for 20: moving down past the window scrolls it.
+    auto w = tui::drawer_window(100, 20, 0);
+    ASSERT_EQ(w.first, 0);
+    ASSERT_EQ(w.second, 20);
+    w = tui::drawer_window(100, 20, 5);
+    ASSERT_EQ(w.first, 0); // still inside the window, no scroll
+    ASSERT_EQ(w.second, 20);
+    w = tui::drawer_window(100, 20, 20);
+    ASSERT_EQ(w.first, 1); // selection at the last visible row scrolls by one
+    ASSERT_EQ(w.second, 20);
+    w = tui::drawer_window(100, 20, 99);
+    ASSERT_EQ(w.first, 80); // pinned to the end, window still full
+    ASSERT_EQ(w.second, 20);
+}
+
+TEST(test_drawer_window_never_scrolls_past_either_end) {
+    auto w = tui::drawer_window(100, 20, 0);
+    ASSERT_EQ(w.first, 0);
+    w = tui::drawer_window(5, 20, 4); // fewer rows than the window
+    ASSERT_EQ(w.first, 0);
+    ASSERT_EQ(w.second, 5);              // never claims rows that do not exist
+    w = tui::drawer_window(100, 20, -1); // a stale selection cannot scroll back
+    ASSERT_EQ(w.first, 0);
+}
+
+TEST(test_drawer_window_is_degenerate_safe) {
+    auto w = tui::drawer_window(0, 20, 0); // empty list
+    ASSERT_EQ(w.first, 0);
+    ASSERT_EQ(w.second, 0);
+    w = tui::drawer_window(10, 0, 3); // zero-height terminal
+    ASSERT(w.second >= 1);
+}
+
 // ── Test: no-space branch completes top-level names from the tree ──
 
 TEST(test_complete_top_level_from_tree) {
@@ -1107,6 +1224,13 @@ int main() {
         test_merge_preserves_static_tree_children();
         test_feed_leaves_visible_after_merge();
         test_drawer_rows_children_and_help();
+        test_drawer_filter_matches_model_name_not_only_vendor();
+        test_drawer_rows_filter_matches_model_name_not_only_vendor();
+        test_drawer_filter_still_matches_vendor_prefix();
+        test_drawer_rows_and_entry_names_agree_under_filter();
+        test_drawer_window_follows_the_selection();
+        test_drawer_window_never_scrolls_past_either_end();
+        test_drawer_window_is_degenerate_safe();
         test_complete_top_level_from_tree();
         test_bare_slash_children_of();
         test_bare_slash_drawer_rows();
