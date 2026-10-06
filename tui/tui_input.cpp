@@ -1472,6 +1472,27 @@ void SlashDispatcher::cmd_model_set(const std::string& arg) {
                      "model set to " + arg + " (remembered for " + tui_.cfg_.provider_name + ")");
 }
 
+void SlashDispatcher::cmd_model_set_for(const std::string& provider, const std::string& id) {
+    if (busy_reject("model"))
+        return;
+    if (provider == tui_.cfg_.provider_name) {
+        cmd_model_set(id);
+        return;
+    }
+    // Switch first: cmd_model_set() validates against the ACTIVE provider's
+    // cached catalogue, so validating before the switch would reject a model
+    // that is perfectly valid for the provider the user just picked.
+    auto sel = tui_.providers_->select(provider);
+    if (!sel.ok()) {
+        tui_.append_line(P_STATUS, "provider " + provider + ": " + sel.error);
+        return;
+    }
+    agent::apply_selection(tui_.cfg_, sel);
+    if (!sel.warning.empty())
+        tui_.append_line(P_STATUS, "provider " + provider + ": " + sel.warning);
+    cmd_model_set(id);
+}
+
 void SlashDispatcher::cmd_get_model() {
     tui_.append_line(P_STATUS,
                      "model: " + tui_.cfg_.model + " (provider: " + tui_.cfg_.provider_name + ")");
