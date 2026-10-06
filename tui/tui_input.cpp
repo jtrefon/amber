@@ -1565,6 +1565,10 @@ bool SlashDispatcher::seed_new_provider(const std::string& a) {
     tui_.providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
                                           prov_cfg.api_key, !prov_cfg.api_key.empty(),
                                           prov_cfg.model, prov_cfg.context_size, false});
+    // Newly configured: its catalogue has never been fetched, and without it
+    // the provider contributes no rows to /set model.
+    tui_.refresh_provider_catalogs_async();
+    refresh_model_list();
     return true;
 }
 
@@ -1640,6 +1644,11 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
         tui_.win().agent->set_connection(tui_.cfg_.api_base, tui_.cfg_.api_key, tui_.cfg_.model);
     tui_.cfg_.save_global(agent::global_config_path());
     refresh_provider_feed();
+    // The new endpoint has no catalogue yet, and /set model lists the union, so
+    // fetch it (and any other configured provider that is cold) and re-merge the
+    // feed when they land.
+    tui_.refresh_provider_catalogs_async();
+    refresh_model_list();
     tui_.append_line(P_STATUS, "provider switched to " + a + " (model: " + tui_.cfg_.model + ")");
 }
 
@@ -2430,6 +2439,33 @@ void Tui::detect_server(bool force) {
     }
     if (force || stale)
         refresh_models_async(force);
+    // Every other configured provider has its own cold catalogue; /set model
+    // lists the union of all of them.
+    refresh_provider_catalogs_async();
+}
+
+void Tui::refresh_provider_catalogs_async() {
+    if (!providers_)
+        return;
+    for (const auto& p : providers_->available()) {
+        if (p.api_base.empty())
+            continue; // nothing to fetch from
+        agent::Config cfg;
+        cfg.provider_name = p.name;
+        cfg.api_base = p.api_base;
+        cfg.api_key = p.api_key;
+        cfg.flavor = p.flavor;
+        auto entry = agent::model_catalog_read(cfg);
+        if (entry && agent::model_catalog_fresh(*entry))
+            continue; // already good
+        agent::model_catalog_refresh_async(cfg, ui_poster(), [this](bool) {
+            // Any catalogue landing changes the union, whichever provider it
+            // came from. cfg_ is untouched: this path exists to grow the list,
+            // not to switch or autodetect the connection.
+            slash_dispatcher_->refresh_model_list();
+            draw();
+        });
+    }
 }
 
 void Tui::refresh_models_async(bool announce) {

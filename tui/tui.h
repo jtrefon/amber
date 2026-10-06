@@ -215,6 +215,21 @@ private:
     // UI thread. The catalog revalidates on a detached worker (single-flight
     // in the core); the result lands here via the ui_posts_ queue.
     void refresh_models_async(bool announce);
+    // Fetch a catalogue for EVERY configured provider, not just the active one.
+    //
+    // /set model lists the union of the configured providers' catalogues, and a
+    // catalogue only exists on disk after a fetch. refresh_models_async() covers
+    // cfg_ alone, so a provider that had never been selected contributed nothing
+    // and looked absent -- which is exactly what configuring openrouter then
+    // opening /set model showed.
+    //
+    // Deliberately separate from refresh_models_async(): that one is single-flight
+    // for the ACTIVE endpoint and its result is applied to cfg_ (endpoint, model
+    // and context autodetect). This one only needs the union to grow, so its
+    // completion re-merges the feed and does not touch cfg_. model_catalog_
+    // refresh_async does its own single-flight per endpoint, so several providers
+    // fetch concurrently.
+    void refresh_provider_catalogs_async();
     void on_models_refreshed(bool fetched, bool announce, const std::string& api_base,
                              const std::string& flavor);
     void adopt_detected_model();
