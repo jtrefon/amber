@@ -615,6 +615,39 @@ known mess, even in adjacent code.
 ### Branching strategy
 
 - **`main`** is the stable, release-ready branch. Always green. No direct pushes.
+
+### `main` is never pushed to, force-pushed, or merged red
+
+Four rules. The first three are enforced by branch protection
+(`enforce_admins: true`, `strict` `ci-gate`, no force-push, no deletions); the fourth
+is a judgement the tooling cannot make, which is why it is written down.
+
+1. **No direct push to `main`. By anyone.** Not an admin, not a maintainer, not an
+   agent working in this repository. Every change lands through a pull request.
+2. **No force-push to `main`, and no history rewrite.** Not to tidy a commit, not to
+   unblock a gate, not to drop a file. The escape hatch for a genuine emergency is
+   `gh api -X DELETE repos/jtrefon/amber/branches/main/protection`, and **re-applying
+   that protection is part of the emergency, not a follow-up** — a repository with
+   protection removed will not notice that it is unprotected.
+3. **Squash-merge only**, so `main` stays linear and one revert undoes one change.
+4. **Never merge a pull request whose `ci-gate` is red — or whose gating jobs were
+   *skipped* in a way that leaves the change unmeasured.**
+
+   Rule 4 is the one that gets violated by accident, because every component of it
+   reports success. A docs-only diff correctly skips the C++ and website jobs; `ci-gate`
+   then reports SUCCESS, and a summary that reads `7 pass, 18 skipping` looks like
+   everything that mattered ran. **A skip is not a pass.** Read which jobs were skipped
+   and confirm each one cannot be affected by the diff, rather than counting passes.
+
+   This is not hypothetical: on 2026-10-06 PR #222 was merged with `website-build`
+   skipped, and a newly published advisory (`GHSA-68fv-2mgg-jv7q`, `source-map-js`)
+   failed the next push to `main`. The gate was right and the reading of it was wrong.
+   The specific failure — a gate that only runs on paths it recognises cannot protect
+   the mainline from an advisory published between runs — is why there is also a
+   scheduled audit job in the `always` dimension.
+
+   **Before merging, check the tip of `main`, not just the PR.** A green PR does not
+   mean `main` is green, and "all my local gates pass" is not evidence about `main`.
 - Every fix or feature lives on a **feature branch** named `<type>/<short-description>`:
   - `fix/detached-thread-use-after-free`
   - `refactor/cancel-token-to-core`
