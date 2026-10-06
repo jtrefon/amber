@@ -23,6 +23,7 @@ StatusSnapshot base_snapshot() {
     s.window_index = 2;
     s.window_count = 3;
     s.model = "qwen3";
+    s.provider = "kilocode";
     s.reasoning_effort = "high";
     s.mode = AgentMode::Write;
     s.latency_ms = 240;
@@ -139,6 +140,11 @@ TEST(core_segments_render_the_expected_bar) {
 
     ASSERT_EQ(text_of(out, "window"), std::string("[2/3]"));
     ASSERT_EQ(text_of(out, "model"), std::string(" [qwen3(high)]"));
+    // The provider gets its own bracketed cell, not a decoration glued onto the
+    // model. "[kilo-auto/free(high)]" was the whole cell: `kilo-auto` is the
+    // model id's VENDOR segment, so the bar named no provider at all and a
+    // kilocode-hosted model read as if `kilo-auto` were the provider.
+    ASSERT_EQ(text_of(out, "provider"), std::string("[kilocode]"));
     ASSERT_EQ(text_of(out, "mode"), std::string(" write "));
     ASSERT_EQ(text_of(out, "lag"), std::string("  lag 240ms"));
     ASSERT_EQ(text_of(out, "tps"), std::string("  47 t/s"));
@@ -146,6 +152,60 @@ TEST(core_segments_render_the_expected_bar) {
     const std::string tokens = text_of(out, "tokens");
     ASSERT(tokens.find("12k") != std::string::npos);
     ASSERT(tokens.find("340") != std::string::npos);
+}
+
+// The provider cell is what disambiguates a vendor-prefixed model id from the
+// provider hosting it, so it must render in its OWN tone rather than the
+// model's: two different colours is the visual separator, no glyph needed.
+TEST(core_segments_provider_has_its_own_tone_distinct_from_model) {
+    auto registry = core_registry();
+    auto out = registry.render(base_snapshot());
+    StatusTone model_tone = StatusTone::Dim;
+    StatusTone provider_tone = StatusTone::Dim;
+    bool have_model = false, have_provider = false;
+    for (const auto& s : out) {
+        if (s.id == "model") {
+            model_tone = s.tone;
+            have_model = true;
+        }
+        if (s.id == "provider") {
+            provider_tone = s.tone;
+            have_provider = true;
+        }
+    }
+    ASSERT(have_model && have_provider);
+    ASSERT_FALSE(static_cast<int>(model_tone) == static_cast<int>(provider_tone));
+}
+
+// An unset provider must not render a bare "[]" cell: provider_name defaults to
+// "custom" in config but a window with no agent snapshot has nothing to say.
+TEST(core_segments_omit_provider_when_unknown) {
+    auto registry = core_registry();
+    StatusSnapshot s = base_snapshot();
+    s.provider.clear();
+    auto out = registry.render(s);
+    for (const auto& seg : out)
+        ASSERT_FALSE(seg.id == "provider");
+}
+
+// Six providers is a realistic width, so the bar must still degrade: the
+// provider cell is droppable ahead of the model it qualifies. Higher
+// drop_priority drops first, so the provider's must be the LOWER number.
+TEST(core_segments_provider_drops_before_model_when_narrow) {
+    auto registry = core_registry();
+    StatusSnapshot s = base_snapshot();
+    s.provider = "openrouter";
+    s.model = "anthropic/claude-opus-4.8";
+    auto out = registry.render(s);
+    int provider_drop = -1, model_drop = -1;
+    for (const auto& seg : out) {
+        if (seg.id == "provider")
+            provider_drop = seg.drop_priority;
+        if (seg.id == "model")
+            model_drop = seg.drop_priority;
+    }
+    ASSERT(provider_drop >= 0 && model_drop >= 0);
+    ASSERT(provider_drop < model_drop);
 }
 
 TEST(core_segments_mode_words_and_tones) {

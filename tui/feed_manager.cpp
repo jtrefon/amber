@@ -6,7 +6,10 @@
 #include <agent/plugin_runtime.h>
 #include <agent/model_probe.h>
 #include <agent/policy.h>
+#include <agent/providers.h>
 #include <agent/shell_classify.h>
+
+#include "tui/model_picker.h"
 
 #include <algorithm>
 #include <map>
@@ -116,18 +119,39 @@ void FeedManager::refresh_policy_feed() {
     tui_.settings_.merge_completions_json(subtree);
 }
 
+namespace {
+
+// The endpoints worth reading: every known provider, configured or not, so
+// catalogs_from() can apply the "has an endpoint" rule in one tested place.
+std::vector<ProviderEndpoint> endpoints_of(const agent::ProviderService& providers) {
+    std::vector<ProviderEndpoint> out;
+    for (const auto& p : providers.available()) {
+        ProviderEndpoint e;
+        e.name = p.name;
+        e.api_base = p.api_base;
+        e.flavor = p.flavor;
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
+} // namespace
+
 void FeedManager::refresh_model_list() {
     tui_.slash_dispatcher_->set_model_info(agent::list_model_info_cached(tui_.cfg_));
-    nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& m : tui_.slash_dispatcher_->model_info()) {
-        std::string id = m.id;
-        nlohmann::json& leaf = subtree["set"]["children"]["model"]["children"][id];
-        leaf["action"] = "core.config.set.model." + id;
-        int ctx = m.context ? m.context : m.context_train;
-        if (ctx > 0)
-            leaf["help"] = "ctx " + std::to_string(ctx);
-        tui_.register_action(leaf["action"].get<std::string>(),
-                             [this, id](const std::string&) { tui_.cmd_model_set(id); });
+    const auto rows = tui_.providers_
+                          ? aggregate_provider_models(
+                                catalogs_from(endpoints_of(*tui_.providers_), &cached_models_for),
+                                tui_.cfg_.provider_name)
+                          : std::vector<ProviderModel>{};
+    const auto subtree = model_subtree(rows, "core.config.set.model.");
+    for (const auto& m : rows) {
+        const std::string key = provider_key(m.provider, m.id);
+        tui_.register_action(
+            subtree["set"]["children"]["model"]["children"][key]["action"].get<std::string>(),
+            [this, provider = m.provider, id = m.id](const std::string&) {
+                tui_.slash_dispatcher_->cmd_model_set_for(provider, id);
+            });
     }
     tui_.settings_.merge_completions_json(subtree);
 }

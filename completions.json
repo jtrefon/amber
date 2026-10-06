@@ -501,7 +501,7 @@
     "model": {
      "action": "core.config.set.model",
      "help": "Switch the active AI model.",
-     "man": "The set-model branch switches the active model. Type '/set model' followed by a model id from the provider's model list, or Tab/space to open the picker drawer \u2014 every model the server offers is listed with its context window size, selectable with Up/Down and Enter. Bare '/set model' reports the current model."
+     "man": "The set-model branch switches the active model. Type '/set model' followed by a model id from the provider's model list, or Tab/space to open the picker drawer \u2014 every CONFIGURED provider's catalogue is listed, each row labelled 'provider::model' with its context window, grouped by provider with the active provider first, selectable with Up/Down and Enter; selecting a row switches to that provider and sets the model, so a model only another provider carries is one keystroke away instead of invisible. A provider that is enabled but not configured has no catalogue and appears nowhere -- '/get provider list' reports it. Bare '/set model' reports the current model."
     },
     "subagent": {
      "action": "core.config.set.subagent",

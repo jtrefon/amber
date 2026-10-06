@@ -246,6 +246,9 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     // running, and cfg_ is its private working copy.
     const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
     snapshot.model = acfg ? acfg->model : tui_.cfg_.model;
+    // The provider qualifies the model, and a vendor-prefixed id is not the
+    // provider: "kilo-auto/free" is kilo's model, served by kilocode.
+    snapshot.provider = acfg ? acfg->provider_name : tui_.cfg_.provider_name;
     snapshot.reasoning_effort = acfg ? acfg->reasoning_effort : tui_.cfg_.reasoning_effort;
     snapshot.mode = acfg ? acfg->mode : tui_.cfg_.mode;
     snapshot.scroll_mode = scroll_mode_;
