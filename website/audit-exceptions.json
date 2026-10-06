@@ -7,6 +7,13 @@
       "severity": "high",
       "reason": "astro depends on http-cache-semantics directly (^4.2.0) and NO patched version exists: every release up to 4.2.0 is affected, 4.2.0 was published 2025-05-09 and the advisory is from 2026-09-18, with nothing published since. The flawed path is max-stale handling in an HTTP cache shared between users; this site is a static build with no remote fetches, so it is not reachable here. npm audit's only offered 'fix' is a semver-major DOWNGRADE of astro to 2.10.9, which is not a fix. Re-check when astro bumps or drops the dependency.",
       "expires": "2027-01-15"
+    },
+    {
+      "id": "GHSA-68fv-2mgg-jv7q",
+      "package": "source-map-js",
+      "severity": "high",
+      "reason": "TRANSITIVE build-time dependency of astro@7.2.8, reached four ways: magicast (rewrites astro.config.mjs), svgo -> css-tree and csso (SVG/CSS minification), and vite -> postcss (CSS pipeline). Nothing in website/ declares it directly. NO patched version exists for CVE-2026-93749: source-map-js 1.2.1 is the latest release. The flaw is an event-loop denial of service when PARSING AN INDEXED SOURCE MAP SUPPLIED BY AN ATTACKER. Measured unreachable here: 0 references to source-map in website/src, website/scripts or astro.config.mjs; the built dist/ contains 126 files, 0 sourcemaps, and 0 references to source-map-js -- so the library is not shipped to visitors either. It is present on the runner only because 'npm ci' installs it from the tracked package-lock.json, which is why an audit of the installed tree (not the tracked one) is what catches this. Re-check when astro drops the dependency.",
+      "expires": "2027-01-15"
     }
   ]
 }
