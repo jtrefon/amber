@@ -678,13 +678,28 @@ void RenderEngine::draw_drawer_tabs(int top) {
     move(top, 0);
     for (int i = 0; i < width(); ++i)
         addch(' ');
-    // The selected tab is reverse-video, so which tab is active is visible
-    // without having to count from the left.
-    if (drawer_tabs_.selected_mark_pos != std::string::npos)
-        attron(A_REVERSE);
-    mvaddnstr(top, x, drawer_tabs_.line.c_str(), w);
-    if (drawer_tabs_.selected_mark_pos != std::string::npos)
-        attroff(A_REVERSE);
+
+    // Only the SELECTED tab is reverse-video. The attribute used to be switched
+    // on around the whole line, which made every tab read as selected -- the
+    // opposite of telling the user where they are. Paint it in three spans:
+    // before, the tab (label and count), after.
+    const std::size_t mark = drawer_tabs_.selected_mark_pos;
+    const std::size_t end = static_cast<std::size_t>(w);
+    if (mark == std::string::npos || drawer_tabs_.selected_len == 0 || mark >= end) {
+        mvaddnstr(top, x, drawer_tabs_.line.c_str(), w);
+        return;
+    }
+    const std::size_t span_end = std::min(mark + drawer_tabs_.selected_len, end);
+    const std::string& line = drawer_tabs_.line;
+    if (mark > 0)
+        mvaddnstr(top, x, line.c_str(), static_cast<int>(mark));
+    attron(A_REVERSE);
+    mvaddnstr(top, x + static_cast<int>(mark), line.c_str() + mark,
+              static_cast<int>(span_end - mark));
+    attroff(A_REVERSE);
+    if (span_end < end)
+        mvaddnstr(top, x + static_cast<int>(span_end), line.c_str() + span_end,
+                  static_cast<int>(end - span_end));
 }
 
 void RenderEngine::draw_drawer(const std::string& input) {

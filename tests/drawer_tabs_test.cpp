@@ -34,6 +34,22 @@ TEST(tab_strip_marks_the_selected_tab) {
     // The marker belongs to the selected tab, so it must sit inside that label.
     ASSERT(s.selected_mark_pos >= s.line.find("beta"));
     ASSERT(s.selected_mark_pos < s.line.find("alpha"));
+    // ...and it covers exactly that tab, count included. Reverse-video switched
+    // on around the whole line made every tab read as selected.
+    ASSERT_EQ(s.line.substr(s.selected_mark_pos, s.selected_len), std::string("beta(7)"));
+}
+
+TEST(tab_strip_marker_at_ends_and_under_truncation) {
+    // Selecting the FIRST tab starts the highlight at column 0.
+    const auto first = tui::make_tab_strip({{"", "All", 3}, {"beta", "beta", 1}}, 0);
+    ASSERT_EQ(first.selected_mark_pos, static_cast<std::size_t>(0));
+    ASSERT_EQ(first.line.substr(0, first.selected_len), std::string("All(3)"));
+    // Truncation keeps the highlight inside what is drawn.
+    std::vector<tui::ProviderTab> wide{
+        {"", "All", 3}, {"a-very-long-provider-name", "a-very-long-provider-name", 1}};
+    const auto cut = tui::make_tab_strip(wide, 1, 20);
+    ASSERT(cut.selected_mark_pos != std::string::npos);
+    ASSERT(cut.selected_mark_pos + cut.selected_len <= cut.line.size());
 }
 
 TEST(tab_strip_shows_the_match_count_per_tab) {

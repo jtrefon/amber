@@ -41,17 +41,29 @@ DrawerTabStrip make_tab_strip(const std::vector<ProviderTab>& tabs, std::size_t 
         // mysterious, so it is part of the label, not decoration.
         strip.line += truncate(tabs[i].label, kMaxTabWidth);
         strip.line += "(" + std::to_string(tabs[i].count) + ")";
-        if (i == selected)
+        if (i == selected) {
             strip.selected_mark_pos = mark_at;
+            // The highlight covers the tab INCLUDING its count: it is the tab's
+            // own text, so a strip painted with it cannot light up a neighbour.
+            strip.selected_len = strip.line.size() - mark_at;
+        }
         if (strip.line.size() >= budget)
             break;
     }
     if (strip.line.size() > budget)
         strip.line.resize(budget);
-    // No check that the marker survived: it cannot fail. The loop breaks once the
-    // line reaches the budget, so a rendered tab's marker always sits before it,
-    // and the resize trims only the tail. The strip is therefore never blanked,
-    // and a selected tab always says which one it is.
+    // Truncation must not leave a highlight running past what is drawn.
+    if (strip.selected_mark_pos != std::string::npos) {
+        if (strip.selected_mark_pos >= strip.line.size())
+            strip.selected_len = 0;
+        else
+            strip.selected_len =
+                std::min(strip.selected_len, strip.line.size() - strip.selected_mark_pos);
+    }
+    // The strip is never blanked: the loop breaks once the line reaches the
+    // budget, so a rendered tab's marker always sits before it, and the resize
+    // trims only the tail. The highlight is still clamped above, because "the
+    // marker is inside the line" does not say the tab's TEXT is.
     return strip;
 }
 

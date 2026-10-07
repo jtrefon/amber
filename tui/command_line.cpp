@@ -484,18 +484,19 @@ CommandLine::Result CommandLine::on_down() {
 }
 
 // The provider tabs own Left/Right while the drawer is open. `direction` is -1
-// for Left, +1 for Right. Returns true when a tab moved, so the caller can skip
-// the caret movement that would otherwise happen.
+// for Left, +1 for Right. Returns true when the tabs handled the key, so the
+// caller skips the caret movement -- TRUE EVEN AT THE ENDS: a clamped press is
+// consumed and does nothing, because falling through at the first tab made Left
+// slide the caret in the prompt on the All tab, where every user starts.
 bool CommandLine::move_provider_tab(int direction) {
     if (provider_tabs_.size() < 2 || !drawer_open_)
         return false;
     const long long next = static_cast<long long>(provider_tab_) + direction;
-    // Clamp, do not wrap: a wrapped Left reads as an unresponsive drawer.
-    if (next < 0 || next >= static_cast<long long>(provider_tabs_.size()))
-        return false;
-    provider_tab_ = static_cast<std::size_t>(next);
-    drawer_sel_ = 0;
-    recompute();
+    if (next >= 0 && next < static_cast<long long>(provider_tabs_.size())) {
+        provider_tab_ = static_cast<std::size_t>(next);
+        drawer_sel_ = 0;
+        recompute();
+    }
     return true;
 }
 
