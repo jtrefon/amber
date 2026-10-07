@@ -7,26 +7,6 @@ namespace tui {
 
 namespace {
 
-// The one filter predicate both drawer_rows() and drawer_entry_names() apply.
-//
-// Keys are full ids of the form "vendor/name" for provider catalogues, so a
-// prefix test alone can only ever match the vendor half: typing "space" for
-// stealth/space-bunny-free is not a prefix of anything, and the row became
-// unreachable rather than merely awkward to find. Match the prefix (so
-// stepping through a list with single characters stays in order) or any
-// substring of the id, which is what ListState already does.
-//
-// Both view functions call this. They must agree: CommandLine dispatches
-// Enter on drawer_entry_names()[sel] while the renderer paints
-// drawer_rows(), so a divergence selects a row the user cannot see.
-bool entry_matches(const std::string& key, const std::string& partial) {
-    if (partial.empty())
-        return true;
-    if (key.rfind(partial, 0) == 0)
-        return true;
-    return key.find(partial) != std::string::npos;
-}
-
 // Append "[choice|choice]" or "[lo-hi]" to a row for leaf settings.
 void append_choices(std::string& line, const std::string& key, const SettingRegistry& settings) {
     const auto& ch = settings.choices_for(key);
@@ -126,7 +106,8 @@ DrawerQuery parse_drawer_input(const std::string& input, const SettingRegistry& 
     return q;
 }
 
-std::vector<std::string> drawer_rows(const std::string& input, const SettingRegistry& settings) {
+std::vector<std::string> drawer_rows(const std::string& input, const SettingRegistry& settings,
+                                     const std::string& provider) {
     const DrawerQuery q = parse_drawer_input(input, settings);
     std::vector<std::string> rows;
     const auto kids = settings.children_of(q.ns);
@@ -143,27 +124,29 @@ std::vector<std::string> drawer_rows(const std::string& input, const SettingRegi
     }
 
     // If the partial exactly matches a child that has its own children,
-    // descend into that child's namespace.
+    // descend into that child's namespace: the rows are that namespace's
+    // children, so the partial is consumed rather than applied. Either way the
+    // provider tab narrows the list to its own rows.
+    std::string full_prefix = q.ns.empty() ? std::string() : q.ns + ".";
+    std::vector<std::string> keys;
     if (!q.partial.empty()) {
         const std::string sub_key = q.ns.empty() ? q.partial : q.ns + "." + q.partial;
         auto sub = settings.children_of(sub_key);
         if (!sub.empty()) {
-            for (const auto& sk : sub) {
-                std::string full_key = sub_key;
-                full_key += ".";
-                full_key += sk;
-                rows.push_back(child_row(sk, full_key, settings));
-            }
-            return rows;
+            keys = std::move(sub);
+            full_prefix = sub_key + ".";
         }
     }
+    if (keys.empty()) {
+        for (const auto& k : kids)
+            if (drawer_row_matches(k, q.partial))
+                keys.push_back(k);
+    }
 
-    for (const auto& k : kids) {
-        if (!entry_matches(k, q.partial))
+    for (const auto& k : keys) {
+        if (!drawer_row_in_provider(k, provider))
             continue;
-        std::string full_key = q.ns.empty() ? std::string() : q.ns + ".";
-        full_key += k;
-        rows.push_back(child_row(k, full_key, settings));
+        rows.push_back(child_row(k, full_prefix + k, settings));
     }
     if (rows.empty())
         rows.emplace_back("  (no matching option  -  Esc to cancel)");
@@ -197,7 +180,7 @@ std::vector<std::string> drawer_entry_names(const std::string& input,
     }
     std::vector<std::string> out;
     for (const auto& k : kids) {
-        if (!entry_matches(k, q.partial))
+        if (!drawer_row_matches(k, q.partial))
             continue;
         out.push_back(k);
     }

@@ -104,21 +104,41 @@ public:
 
     // ── Provider tabs (the /set model drawer) ────────────────────────────
     //
-    // `providers` lists the tabs in display order, with the currently selected
-    // one at `selected`. Left/Right move between them INSTEAD of moving the text
-    // cursor, but only while the drawer is open: everywhere else those keys move
-    // the caret, and a drawer that kept claiming them after Esc would make the
-    // caret unreachable.
-    void set_provider_tabs(const std::vector<std::string>& providers, std::size_t selected) {
+    // `providers` lists the tabs in display order ("" = All first), one per
+    // provider. Left/Right move between them INSTEAD of moving the text cursor,
+    // but only while the drawer is open: everywhere else those keys move the
+    // caret, and a drawer that kept claiming them after Esc would make the caret
+    // unreachable.
+    //
+    // The selected tab SURVIVES a re-seed by NAME: the host re-seeds on every
+    // keystroke (the filter changes the counts, and a provider with no hits
+    // leaves the list), and re-seeding by index alone would throw away the tab
+    // the user chose, or worse, keep an index that now names a different
+    // provider. A selection that left the list falls back to All.
+    void set_provider_tabs(const std::vector<std::string>& providers) {
+        const std::string current = provider_tab_provider();
         provider_tabs_ = providers;
-        provider_tab_ = selected < providers.size() ? selected : 0;
+        provider_tab_ = 0;
+        for (std::size_t i = 0; i < providers.size(); ++i) {
+            if (!current.empty() && providers[i] == current) {
+                provider_tab_ = i;
+                break;
+            }
+        }
     }
 
     std::size_t provider_tab_index() const { return provider_tab_; }
-    bool has_provider_tabs() const { return !provider_tabs_.empty(); }
 
-    // The rows on the selected tab. Used by the drawer to render the visible
-    // subset; the tab is not a filter over completion, it is a view of them.
+    // The provider the selected tab shows; empty for the All tab (and for no
+    // tabs at all). This is what filters both the rows the drawer paints and the
+    // rows Enter dispatches.
+    std::string provider_tab_provider() const {
+        if (provider_tabs_.empty() || provider_tab_ >= provider_tabs_.size())
+            return {};
+        return provider_tabs_[provider_tab_];
+    }
+
+    // The rows on the selected tab: the completions narrowed to that provider.
     std::vector<std::string> tab_rows() const;
 
     // ── Direct state control (for test setup) ───────────────────────
@@ -171,8 +191,6 @@ private:
     // Internal helpers
     void recompute(); // update shadow, drawer after mutation
     void save_undo(); // save state for undo
-    std::vector<std::string>
-    drawer_items() const; // completions_ filtered by the trailing partial token
 
     void advance_cycle(int dir);
     void reset_cycle();

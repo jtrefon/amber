@@ -70,7 +70,7 @@ static tui::CommandLine with_model_tabs() {
     // set_completions does not set the input, and the drawer only opens for a
     // slash input, so type the command the way a user would.
     cl.set_text("/set model ");
-    cl.set_provider_tabs({"", "beta", "alpha"}, 0);
+    cl.set_provider_tabs({"", "beta", "alpha"});
     return cl;
 }
 
@@ -125,6 +125,37 @@ static int test_tab_rows_are_filtered_to_the_selected_provider() {
     const auto alpha_rows = cl.tab_rows();
     ASSERT_EQ(alpha_rows.size(), static_cast<std::size_t>(1));
     ASSERT_EQ(alpha_rows[0], std::string("alpha::shared"));
+    return 0;
+}
+
+// Enter runs a row from the SELECTED tab: the row the drawer paints is the row
+// that dispatches, so a tab switch changes what Enter sets. On All the first row
+// is beta's; on the alpha tab it is alpha's.
+static int test_enter_dispatches_from_the_selected_tab() {
+    auto cl = with_model_tabs();
+    cl.on_right(); // All -> beta
+    cl.on_right(); // beta -> alpha
+    const auto r = cl.on_enter();
+    ASSERT_EQ(r.dispatch_text, std::string("/set model alpha::shared"));
+    return 0;
+}
+
+// The host re-seeds the tabs on every keystroke (the counts follow the filter,
+// and a provider with no hits leaves the list). The user's chosen tab survives
+// by NAME, so neither the choice is lost nor the index silently re-points at
+// whichever provider now holds that slot.
+static int test_tab_selection_survives_reseeding_by_name() {
+    auto cl = with_model_tabs();
+    cl.on_right(); // All -> beta
+    ASSERT_EQ(cl.provider_tab_provider(), std::string("beta"));
+
+    cl.set_provider_tabs({"", "alpha", "beta"});                     // order changed under the user
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(2)); // still beta
+    ASSERT_EQ(cl.provider_tab_provider(), std::string("beta"));
+
+    cl.set_provider_tabs({"", "alpha"});                             // beta lost its last hit
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(0)); // back to All
+    ASSERT_EQ(cl.provider_tab_provider(), std::string(""));
     return 0;
 }
 
@@ -437,6 +468,10 @@ int main() {
     failed += run_test("right moves towards a provider", test_right_moves_towards_a_provider);
     failed += run_test("tab rows are filtered to the selected provider",
                        test_tab_rows_are_filtered_to_the_selected_provider);
+    failed += run_test("enter dispatches from the selected tab",
+                       test_enter_dispatches_from_the_selected_tab);
+    failed += run_test("tab selection survives reseeding by name",
+                       test_tab_selection_survives_reseeding_by_name);
     failed += run_test("arrows return to cursor movement when the drawer is closed",
                        test_arrows_return_to_cursor_movement_when_the_drawer_is_closed);
     failed += run_test("up down move the row within a tab", test_up_down_move_the_row_within_a_tab);

@@ -516,17 +516,15 @@ void Tui::refresh_completion_context(CommandLine& cl) {
 
     // Provider tabs for the model drawer. Derived from the rows rather than from
     // the command path, so a namespace whose rows are plain names gets none and
-    // keeps the arrow keys for the caret. Only re-seeded while the drawer's own
-    // selection is active: refresh_completion_context runs after every keystroke,
-    // and resetting the tab on each one would throw away the tab the user chose.
+    // keeps the arrow keys for the caret. Re-seeded on every keystroke: the
+    // counts must follow the filter, and a provider that lost its last hit
+    // leaves the list. CommandLine keeps the user's chosen tab by NAME across
+    // the re-seed, so the selection is neither reset nor re-pointed at whichever
+    // provider now happens to hold that index.
     const auto tabs = make_provider_tabs(ctx.rows, cfg_.provider_name, ctx.filter);
-    if (tabs.empty()) {
-        cl.set_provider_tabs({}, 0);
-    } else if (!cl.has_provider_tabs()) {
-        const auto labels = tab_names(tabs);
-        cl.set_provider_tabs(labels, 0);
-    }
+    cl.set_provider_tabs(tab_names(tabs));
     render_engine_->set_drawer_tabs(make_tab_strip(tabs, cl.provider_tab_index()));
+    render_engine_->set_drawer_provider(cl.provider_tab_provider());
 }
 
 // Graceful teardown after a signal, on the main thread. Never returns: the

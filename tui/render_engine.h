@@ -109,6 +109,11 @@ public:
     void set_drawer_sel(int v) noexcept { drawer_sel_ = v; }
     void set_drawer_tabs(DrawerTabStrip strip) noexcept { drawer_tabs_ = std::move(strip); }
     const DrawerTabStrip& drawer_tabs() const noexcept { return drawer_tabs_; }
+    // The provider the selected tab shows; empty = All. The rows painted are
+    // narrowed to it, so the list on screen is the list Enter dispatches from.
+    void set_drawer_provider(std::string provider) noexcept {
+        drawer_provider_ = std::move(provider);
+    }
     bool scroll_mode() const noexcept { return scroll_mode_; }
     void set_scroll_mode(bool v) noexcept { scroll_mode_ = v; }
     bool show_reasoning() const noexcept { return show_reasoning_; }
@@ -159,6 +164,8 @@ private:
     int drawer_sel_ = 0;
     // The model picker's tab strip, empty when the open drawer has no tabs.
     DrawerTabStrip drawer_tabs_;
+    // The provider the selected tab narrows the painted rows to ("" = All).
+    std::string drawer_provider_;
     bool scroll_mode_ = false;
     bool show_reasoning_ = true;
     int anim_phase_ = 0;
