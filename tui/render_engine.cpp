@@ -684,7 +684,7 @@ void RenderEngine::draw_drawer_tabs(int top) {
     // opposite of telling the user where they are. Paint it in three spans:
     // before, the tab (label and count), after.
     const std::size_t mark = drawer_tabs_.selected_mark_pos;
-    const std::size_t end = static_cast<std::size_t>(w);
+    const auto end = static_cast<std::size_t>(w);
     if (mark == std::string::npos || drawer_tabs_.selected_len == 0 || mark >= end) {
         mvaddnstr(top, x, drawer_tabs_.line.c_str(), w);
         return;
